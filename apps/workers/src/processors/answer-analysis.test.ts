@@ -67,7 +67,11 @@ vi.mock('@pathfinder/db', () => ({
   updateJobRecord: mocks.updateJobRecord,
 }))
 
-import { _setAnthropicClientForTesting, processAnswerAnalysisJob } from './answer-analysis'
+import {
+  _setAnthropicClientForTesting,
+  loadAnswerAnalysisSources,
+  processAnswerAnalysisJob,
+} from './answer-analysis'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -202,6 +206,61 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('loads both analysis sources only through exact public tenant and venue sessions', async () => {
+    await loadAnswerAnalysisSources(payload)
+
+    const sessionScope = {
+      is: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        experienceScope: 'PUBLIC',
+      },
+    }
+    expect(mocks.responseFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        answeredAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: sessionScope,
+      },
+      orderBy: { answeredAt: 'asc' },
+      select: { questionText: true, answerText: true, answerType: true, isAiInvented: true },
+    })
+    expect(mocks.messageFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        role: 'user',
+        createdAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: sessionScope,
+        answerEngagementResponses: { none: {} },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 300,
+      select: { content: true },
+    })
+  })
+
+  it('retains an ordinary opinion as aggregate prompt input without factual-candidate semantics', async () => {
+    mocks.messageFindMany.mockResolvedValue(
+      Array.from({ length: 4 }, () => ({ content: 'The display is ugly.' })),
+    )
+
+    await processAnswerAnalysisJob(payload)
+
+    const request = JSON.stringify(anthropicCreate.mock.calls[0]?.[0])
+    expect(request).toContain('The display is ugly.')
+    expect(request).toContain('ordinary guest chat messages')
+    expect(request).not.toContain('FACTUAL_ADDITION')
+    expect(request).not.toContain('UNVERIFIED')
   })
 
   it('uses configured fallback, output and timeout through the real gateway', async () => {

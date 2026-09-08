@@ -467,6 +467,45 @@ describe('processWeeklyReportJob', () => {
     expect(saved).toContain('Captured-answer evidence excerpts are bounded')
   })
 
+  it('partitions consumed captured answers from ordinary public-message evidence', async () => {
+    await processWeeklyReportJob(payload)
+
+    expect(mocks.messageFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          role: 'user',
+          createdAt: {
+            gte: new Date('2026-06-01T00:00:00.000Z'),
+            lte: new Date('2026-06-08T00:00:00.000Z'),
+          },
+          session: { venueId: 'venue_1', experienceScope: 'PUBLIC' },
+          answerEngagementResponses: {
+            none: {
+              tenantId: 'tenant_1',
+              venueId: 'venue_1',
+              isAiInvented: false,
+              answeredAt: {
+                gte: new Date('2026-06-01T00:00:00.000Z'),
+                lte: new Date('2026-06-08T00:00:00.000Z'),
+              },
+            },
+          },
+        }),
+      }),
+    )
+  })
+
+  it('does not exclude AI-invented answer messages from the ordinary source predicate', async () => {
+    await processWeeklyReportJob(payload)
+
+    const ordinaryWhere = mocks.messageFindMany.mock.calls.at(-1)?.[0]?.where
+    expect(ordinaryWhere.answerEngagementResponses).toEqual({
+      none: expect.objectContaining({ isAiInvented: false }),
+    })
+    expect(ordinaryWhere.answerEngagementResponses.none).not.toHaveProperty('isAiInvented', true)
+  })
+
   it('keeps a maximal Unicode evidence fixture below the provider byte boundary', async () => {
     const largeText = '🌳"\\'.repeat(500)
     mocks.responseCount.mockResolvedValueOnce(10_000)

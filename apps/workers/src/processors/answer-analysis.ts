@@ -184,7 +184,7 @@ async function markSnapshotStatus(
   }
 }
 
-async function loadAnswers(payload: AnswerAnalysisJobPayload) {
+export async function loadAnswerAnalysisSources(payload: AnswerAnalysisJobPayload) {
   return withTenantIsolationBypass(async () => {
     const rangeStart = new Date(payload.rangeStart)
     const rangeEnd = new Date(payload.rangeEnd)
@@ -199,6 +199,13 @@ async function loadAnswers(payload: AnswerAnalysisJobPayload) {
           tenantId: payload.tenantId,
           venueId: payload.venueId,
           answeredAt: { gte: rangeStart, lte: rangeEnd },
+          session: {
+            is: {
+              tenantId: payload.tenantId,
+              venueId: payload.venueId,
+              experienceScope: 'PUBLIC',
+            },
+          },
         },
         orderBy: { answeredAt: 'asc' },
         select: { questionText: true, answerText: true, answerType: true, isAiInvented: true },
@@ -209,9 +216,17 @@ async function loadAnswers(payload: AnswerAnalysisJobPayload) {
       db.message.findMany({
         where: {
           tenantId: payload.tenantId,
+          venueId: payload.venueId,
           role: 'user',
           createdAt: { gte: rangeStart, lte: rangeEnd },
-          session: { venueId: payload.venueId },
+          session: {
+            is: {
+              tenantId: payload.tenantId,
+              venueId: payload.venueId,
+              experienceScope: 'PUBLIC',
+            },
+          },
+          answerEngagementResponses: { none: {} },
         },
         orderBy: { createdAt: 'asc' },
         take: MAX_GENERAL_MESSAGES,
@@ -235,7 +250,7 @@ function buildPrompt(params: {
   venueName: string
   rangeStart: string
   rangeEnd: string
-  responses: Awaited<ReturnType<typeof loadAnswers>>['responses']
+  responses: Awaited<ReturnType<typeof loadAnswerAnalysisSources>>['responses']
   generalMessages: string[]
 }): string {
   return [
@@ -320,7 +335,7 @@ export async function processAnswerAnalysisJob(
     const ownedLeaseToken = acquisition.leaseToken
     leaseToken = ownedLeaseToken
 
-    const promptData = await loadAnswers(payload)
+    const promptData = await loadAnswerAnalysisSources(payload)
     const totalSignal = promptData.responses.length + promptData.generalMessages.length
 
     if (totalSignal < MINIMUM_SIGNAL_COUNT) {

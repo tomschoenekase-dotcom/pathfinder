@@ -284,7 +284,7 @@ async function markReportStatus(
   })
 }
 
-async function loadReportData(payload: WeeklyReportJobPayload) {
+export async function loadWeeklyReportSources(payload: WeeklyReportJobPayload) {
   const weekStart = new Date(payload.weekStart)
   const weekEnd = new Date(payload.weekEnd)
 
@@ -352,7 +352,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
         take: 100,
         select: { id: true, prompt: true, questionType: true },
       }),
-      // Ordinary guest chat, not tied to any configured/invented engagement question — this
+      // Public messages outside the non-AI captured-answer source for this range — this
       // is what makes "Visitor Questions & Interests" reflect real conversation content
       // instead of just session/message counts.
       db.message.findMany({
@@ -361,6 +361,14 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           role: 'user',
           createdAt: { gte: weekStart, lte: weekEnd },
           session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+          answerEngagementResponses: {
+            none: {
+              tenantId: payload.tenantId,
+              venueId: payload.venueId,
+              isAiInvented: false,
+              answeredAt: { gte: weekStart, lte: weekEnd },
+            },
+          },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: MAX_GENERAL_MESSAGES,
@@ -447,7 +455,7 @@ type ReportSource = {
   sourceType: 'captured-answer' | 'public-message'
 }
 
-function reportSources(data: Awaited<ReturnType<typeof loadReportData>>): ReportSource[] {
+function reportSources(data: Awaited<ReturnType<typeof loadWeeklyReportSources>>): ReportSource[] {
   return [
     ...data.responses.map((response) => ({
       sourceId: `captured-answer:${response.id}`,
@@ -487,9 +495,9 @@ function buildReportPrompt(params: {
   helpfulCount: number
   notHelpfulCount: number
   answerCount: number
-  responses: Awaited<ReturnType<typeof loadReportData>>['responses']
+  responses: Awaited<ReturnType<typeof loadWeeklyReportSources>>['responses']
   responseSampleCount: number
-  activeQuestions: Awaited<ReturnType<typeof loadReportData>>['activeQuestions']
+  activeQuestions: Awaited<ReturnType<typeof loadWeeklyReportSources>>['activeQuestions']
   generalMessages: Array<{ id: string; excerpt: string }>
 }): string {
   const sources: ReportSource[] = [
@@ -593,7 +601,7 @@ export async function processWeeklyReportJob(
     const acquiredLeaseToken = acquisition.leaseToken
     executionLeaseToken = acquiredLeaseToken
 
-    const data = await loadReportData(payload)
+    const data = await loadWeeklyReportSources(payload)
     let parsed: WeeklyReportResponse
     if (
       data.sessionCount === 0 &&
