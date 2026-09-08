@@ -288,6 +288,132 @@ describe('admin attention console', () => {
     expect(mocks.questions.mock.calls[1]![0].take).toBe(26)
   })
 
+  it.each([5, 50, 500])(
+    'keeps one old urgent event visible through the actual bounded attention read across %s synthetic venues',
+    async (size) => {
+      const routine = Array.from({ length: size }, (_, index) => ({
+        id: `routine-${size}-${index}`,
+        tenantId: `tenant-${index}`,
+        venueId: `venue-${index}`,
+        eventType: 'fixture.routine-review',
+        sourceSubsystem: 'synthetic-scale-fixture',
+        severity: 'INFO',
+        title: `Routine synthetic review ${index}`,
+        summary: 'Synthetic load evidence only.',
+        actionRequired: true,
+        linkedObjectType: null,
+        linkedObjectId: null,
+        recommendedAction: 'Review when capacity permits.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: new Date(Date.UTC(2026, 8, 7, 12, index % 60)),
+        createdAt: new Date(Date.UTC(2026, 8, 7, 12, index % 60)),
+      }))
+      const urgent = {
+        ...routine[0]!,
+        id: `urgent-${size}`,
+        tenantId: 'tenant-urgent',
+        venueId: 'venue-urgent',
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Synthetic urgent visitor availability failure',
+        recommendedAction: 'Inspect the synthetic failed visitor turns.',
+        lastOccurredAt: new Date('2025-01-01T00:00:00.000Z'),
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      }
+      const workload = [...routine, urgent]
+      mocks.events.mockImplementation(
+        async (query: { where: { severity?: string }; take: number }) => {
+          const rows = query.where.severity
+            ? workload.filter((event) => event.severity === query.where.severity)
+            : workload
+          return [...rows]
+            .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+            .slice(0, query.take)
+        },
+      )
+
+      const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+      expect(result.briefing.focus).toMatchObject({
+        kind: 'CUSTOMER_RISK',
+        urgency: 'CRITICAL',
+        source: { objectId: urgent.id, venueId: urgent.venueId },
+      })
+      expect(result.events.items[0]?.id).toBe(urgent.id)
+      expect(result.events.items.length).toBeLessThanOrEqual(11)
+      expect(result.events.nextCursor === null).toBe(size <= 10)
+      expect(mocks.events).toHaveBeenCalledTimes(3)
+      expect(mocks.events.mock.calls[1]![0].where).toEqual({
+        state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+        actionRequired: true,
+        severity: 'CRITICAL',
+      })
+      expect(mocks.events.mock.calls[2]![0].where).toEqual({
+        state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+        actionRequired: true,
+        severity: 'ERROR',
+      })
+      expect(mocks.updateEvent).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['tenant', 'platform'] as const)(
+    'keeps an old CRITICAL %s event ahead of more than one page of recent ERROR events',
+    async (scope) => {
+      const recentErrors = Array.from({ length: 15 }, (_, index) => ({
+        id: `${scope}-error-${index}`,
+        ...(scope === 'tenant' ? { tenantId: `tenant-${index}`, venueId: `venue-${index}` } : {}),
+        eventType: 'fixture.recent-error',
+        sourceSubsystem: 'synthetic-scale-fixture',
+        severity: 'ERROR',
+        title: `Recent synthetic error ${index}`,
+        summary: 'Synthetic load evidence only.',
+        actionRequired: true,
+        linkedObjectType: null,
+        linkedObjectId: null,
+        recommendedAction: 'Review the synthetic error.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: new Date(Date.UTC(2026, 8, 7, 12, index)),
+        createdAt: new Date(Date.UTC(2026, 8, 7, 12, index)),
+      }))
+      const critical = {
+        ...recentErrors[0]!,
+        id: `${scope}-old-critical`,
+        ...(scope === 'tenant' ? { tenantId: 'tenant-critical', venueId: 'venue-critical' } : {}),
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Old synthetic critical visitor outage',
+        lastOccurredAt: new Date('2025-01-01T00:00:00.000Z'),
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      }
+      const workload = [...recentErrors, critical]
+      const queryImplementation = async (query: { where: { severity?: string }; take: number }) => {
+        const rows = query.where.severity
+          ? workload.filter((event) => event.severity === query.where.severity)
+          : workload
+        return [...rows]
+          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+          .slice(0, query.take)
+      }
+      if (scope === 'tenant') mocks.events.mockImplementation(queryImplementation)
+      else mocks.platformEvents.mockImplementation(queryImplementation)
+
+      const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+      const events = scope === 'tenant' ? result.events : result.platformEvents
+
+      expect(result.briefing.focus).toMatchObject({
+        kind: scope === 'tenant' ? 'CUSTOMER_RISK' : 'PLATFORM_RISK',
+        source: { objectId: critical.id },
+      })
+      expect(events.items[0]?.id).toBe(critical.id)
+      expect(events.items.length).toBeLessThanOrEqual(20)
+      expect(events.nextCursor).not.toBeNull()
+      expect(scope === 'tenant' ? mocks.events : mocks.platformEvents).toHaveBeenCalledTimes(3)
+    },
+  )
+
   it('classifies expired leases and approvals and emits deterministic cursors', async () => {
     const old = new Date('2026-08-10T12:00:00.000Z')
     mocks.evaluations.mockResolvedValue([
