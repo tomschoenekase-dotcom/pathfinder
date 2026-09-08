@@ -1085,19 +1085,51 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       } finally {
         setOpenAiEmbeddingsClientForTesting(null)
       }
-      const request = {
-        operationId: randomUUID(),
-        venueId,
-        category: 'GENERAL' as const,
-        subject: 'Is the new handbook visible to visitors?',
-        body: 'Please confirm what is waiting for review and how I will print our QR.',
-        attachments: [],
-      }
+      const requestCount = () =>
+        withTenantIsolationBypass(() => db.supportRequest.count({ where: { tenantId, venueId } }))
+      expect(await requestCount()).toBe(0)
+      await page.goto(
+        `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}`,
+      )
+      await expect(page.getByRole('heading', { name: 'QR kit is not available yet' })).toBeVisible()
+      await expect(page.getByLabel('Subject', { exact: true })).not.toHaveValue('')
+      await expect(page.getByRole('button', { name: /download.*svg/i })).toHaveCount(0)
+      await page
+        .getByLabel('Message', { exact: true })
+        .fill('Please confirm what is waiting for review and how I will print our QR.')
+      // Querying, prefilling and editing the production form creates no durable request.
+      expect(await requestCount()).toBe(0)
+      await expectNoHorizontalOverflow(page)
+      await captureEvidence(page, testInfo, 'draft-qr-unsent-support-390')
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await expectNoHorizontalOverflow(page)
+      await captureEvidence(page, testInfo, 'draft-qr-unsent-support-1440')
+      await page.setViewportSize({ width: 390, height: 844 })
+      const supportWrite = page.waitForRequest(
+        (request) =>
+          request.method() === 'POST' && request.url().includes('/api/trpc/support.createRequest'),
+      )
+      await page.getByRole('button', { name: 'Send request', exact: true }).click()
+      const rawSupportInput = (await supportWrite).postDataJSON() as Record<string, unknown>
+      const serializedSupportInput = rawSupportInput['0'] ?? rawSupportInput
+      const request = (
+        serializedSupportInput &&
+        typeof serializedSupportInput === 'object' &&
+        'json' in serializedSupportInput
+          ? serializedSupportInput.json
+          : serializedSupportInput
+      ) as Parameters<typeof owner.support.createRequest>[0]
+      expect(request.venueId).toBe(venueId)
+      expect(request.operationId).toEqual(expect.any(String))
+      await expect(page.getByLabel('Reply', { exact: true })).toBeVisible()
+      expect(await requestCount()).toBe(1)
       const support = await owner.support.createRequest(request)
       expect((await owner.support.createRequest(request)).request.id).toBe(support.request.id)
+      expect(await requestCount()).toBe(1)
       expect(
         (await owner.support.getRequest({ venueId, requestId: support.request.id })).venueId,
       ).toBe(venueId)
+      await captureEvidence(page, testInfo, 'draft-support-saved-390')
       const lifecycle = (await owner.portal.getVenueLifecycles()).find(
         (item) => item.venueId === venueId,
       )
@@ -1108,7 +1140,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           db.venueKnowledgeEntry.count({ where: { tenantId, venueId } }),
         ),
       ).toBe(0)
-      await page.reload()
+      await page.goto('/dev-fixtures/remote-onboarding?state=share')
       await expect(page.getByText('Version 1 received', { exact: true })).toBeVisible()
       await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
       await expectNoHorizontalOverflow(page)

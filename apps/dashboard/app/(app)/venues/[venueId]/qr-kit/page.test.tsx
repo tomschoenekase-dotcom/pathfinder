@@ -20,6 +20,10 @@ vi.mock('../../../../../lib/server-caller', () => ({
   })),
 }))
 
+import {
+  isVenueQrKitAvailable,
+  VenueQrKitAvailability,
+} from '../../../../../components/VenueQrKitAvailability'
 import VenueQrKitPage from './page'
 
 const venue = { id: 'venue_1', name: 'Museum', slug: 'museum' }
@@ -60,10 +64,9 @@ describe('client QR kit route', () => {
     ])
 
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
-    const kit = result.props.children[1]
+    const kit = result
     expect(mocks.placeList).toHaveBeenCalledWith({ venueId: venue.id })
     expect(kit.props).toMatchObject({
-      audience: 'client',
       venueName: 'Museum',
       guestChatUrl: 'https://guide.example.com/museum/chat',
       guideItems: [{ id: 'public_1', name: 'Tide Clock', updatedAt: '2026-09-08T12:00:00.000Z' }],
@@ -74,7 +77,7 @@ describe('client QR kit route', () => {
   it.each(['READY', 'LIVE'])('allows only an existing %s venue lifecycle', async (state) => {
     mocks.lifecycleList.mockResolvedValue([{ venueId: venue.id, lifecycle: { state } }])
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
-    expect(result.props.children[1].props.guestChatUrl).toContain('/museum/chat')
+    expect(result.props.guestChatUrl).toContain('/museum/chat')
   })
 
   it.each(['SETUP_REQUESTED', 'COLLECTING', 'CLIENT_PREVIEW', 'PAUSED'])(
@@ -83,8 +86,7 @@ describe('client QR kit route', () => {
       mocks.lifecycleList.mockResolvedValue([{ venueId: venue.id, lifecycle: { state } }])
       const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
       expect(mocks.placeList).not.toHaveBeenCalled()
-      expect(result.type).toBe('section')
-      expect(result.props.children).toEqual(expect.any(Array))
+      expect(result.type).toBe(VenueQrKitAvailability)
     },
   )
 
@@ -113,16 +115,44 @@ describe('client QR kit route', () => {
       { venueId: venue.id, lifecycle: { state: 'LIVE' } },
     ])
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
-    expect(result.props.children[0].props.href).toBe('/?venue=venue_1')
-    expect(result.props.children[1].props.guestChatUrl).toBe(
-      'https://guide.example.com/museum/chat',
-    )
+    expect(result.props.venueId).toBe('venue_1')
+    expect(result.props.guestChatUrl).toBe('https://guide.example.com/museum/chat')
   })
 
   it('renders no code when the public origin is invalid', async () => {
     process.env.NEXT_PUBLIC_WEB_URL = 'http://public.example.com'
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(mocks.placeList).not.toHaveBeenCalled()
-    expect(result.type).toBe('section')
+    expect(result.type).toBe(VenueQrKitAvailability)
+  })
+})
+
+describe('VenueQrKitAvailability', () => {
+  it('fails closed unless the lifecycle and validated URL are both available', () => {
+    expect(isVenueQrKitAvailable('READY', 'https://guide.example.com/museum/chat')).toBe(true)
+    expect(isVenueQrKitAvailable('LIVE', 'https://guide.example.com/museum/chat')).toBe(true)
+    expect(isVenueQrKitAvailable('PAUSED', 'https://guide.example.com/museum/chat')).toBe(false)
+    expect(isVenueQrKitAvailable('READY', null)).toBe(false)
+
+    const unavailable = VenueQrKitAvailability({
+      venueId: 'venue_1',
+      venueName: 'Museum',
+      lifecycleState: 'PAUSED',
+      guestChatUrl: 'https://guide.example.com/museum/chat',
+      generatedAt: '2026-09-08T00:00:00.000Z',
+      guideItems: [
+        { id: 'private-input', name: 'Must not render', updatedAt: '2026-09-08T00:00:00.000Z' },
+      ],
+    })
+    expect(unavailable.type).toBe('section')
+    const childText = (node: React.ReactNode): string => {
+      if (typeof node === 'string') return node
+      if (Array.isArray(node)) return node.map(childText).join(' ')
+      if (React.isValidElement<{ children?: React.ReactNode }>(node))
+        return childText(node.props.children)
+      return ''
+    }
+    expect(childText(unavailable)).toContain('QR kit is not available yet')
+    expect(childText(unavailable)).not.toContain('Must not render')
   })
 })
