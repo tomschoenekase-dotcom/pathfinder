@@ -1,6 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
-import { registerHooks } from 'node:module'
+import { createRequire, registerHooks } from 'node:module'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -31,9 +31,13 @@ const enabled =
   process.env.RUN_ONBOARDING_CONNECTED_DB_INTEGRATION === '1' &&
   /\/pathfinder_disposable_onboarding_[a-f0-9]{12}$/u.test(process.env.DATABASE_URL ?? '')
 const redisTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_REDIS_INTEGRATION === '1'
+const freshExtractionEnabled = process.env.RUN_ONBOARDING_CONNECTED_FRESH_EXTRACTION === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
 
 function assertDisposableRedisTransportBoundary(): void {
+  if (freshExtractionEnabled && !redisTransportEnabled) {
+    throw new Error('Fresh connected extraction requires the guarded Redis transport.')
+  }
   if (!redisTransportEnabled) return
   if (
     process.env.PATHFINDER_DISPOSABLE_ONBOARDING_REDIS_CONFIRMATION !==
@@ -113,6 +117,43 @@ const staleDraft = 'Stale second-device wording must remain visible but unsaved.
 const secondDeviceDraft = 'The east entrance is step-free and the call button is beside the door.'
 const beyondPreviewFact = 'FACT BEYOND 4000: loan wheelchairs are stored at the east welcome desk.'
 const extractedText = `${'A'.repeat(3_999)}\u{1F600}${beyondPreviewFact}${'B'.repeat(1_000)}`
+const freshExtractedText =
+  'Fresh fixture source: the accessible entrance is beside the visitor desk.'
+
+type FreshStorageObject = { versionId: string; bytes: Buffer; reads: number }
+const freshStorageObjects = new Map<string, FreshStorageObject>()
+let restoreFreshStorageTransport: (() => void) | null = null
+
+function installFreshStorageTransport() {
+  if (!freshExtractionEnabled) return
+  // Patch only the SDK transport used by the actual extraction service in this test process.
+  // The registry, processor, exact-version reader, extraction and canonical receipt stay real.
+  const sdk = createRequire(resolve(__dirname, '../../../../packages/api/package.json'))(
+    '@aws-sdk/client-s3',
+  ) as {
+    S3Client: { prototype: { send(command: unknown): Promise<unknown> } }
+    GetObjectCommand: new (input: Record<string, unknown>) => {
+      input: { Key?: string; VersionId?: string }
+    }
+  }
+  const originalSend = sdk.S3Client.prototype.send
+  sdk.S3Client.prototype.send = async (command: unknown) => {
+    if (!(command instanceof sdk.GetObjectCommand))
+      throw new Error('Unexpected fresh fixture storage command')
+    const object = freshStorageObjects.get(command.input.Key ?? '')
+    if (!object || command.input.VersionId !== object.versionId)
+      throw new Error('Exact fresh fixture object version unavailable')
+    object.reads += 1
+    return {
+      Body: (async function* () {
+        yield object.bytes
+      })(),
+    }
+  }
+  restoreFreshStorageTransport = () => {
+    sdk.S3Client.prototype.send = originalSend
+  }
+}
 
 type FixtureSession = {
   userId: string
@@ -134,6 +175,16 @@ type FixtureState = {
   storageVersionId: string
   sourceRequests: Array<Record<string, unknown>>
   sourceResponseCursors: Array<string | null>
+  freshExtraction: null | {
+    uploadId: string
+    runId: string
+    displayName: string
+    extractedTextHash: string
+    sourceSha256: string
+    objectGeneration: string
+    storageVersionId: string
+    objectKey: string
+  }
 }
 
 let fixture: FixtureState | null = null
@@ -193,6 +244,7 @@ function installSyntheticAuthModule() {
 
 async function startFixtureServer(): Promise<FixtureState> {
   installSyntheticAuthModule()
+  installFreshStorageTransport()
   const { appRouter } = await import('@pathfinder/api')
   const tokens = {
     owner: randomUUID(),
@@ -356,6 +408,106 @@ async function startFixtureServer(): Promise<FixtureState> {
       extractedLineCount: extractedText.split('\n').length,
       createdBy: adminUserId,
     })
+    let freshExtraction: FixtureState['freshExtraction'] = null
+    if (freshExtractionEnabled) {
+      const freshBytes = Buffer.from(freshExtractedText, 'utf8')
+      const freshSourceSha256 = createHash('sha256').update(freshBytes).digest('hex')
+      const freshObjectGeneration = randomUUID()
+      const freshStorageVersionId = 'connected-fresh-source-version-1'
+      const freshObjectKey = `intake-quarantine/${randomUUID()}`
+      const freshReserved = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'Connected fresh extraction handbook',
+          fileName: 'connected-fresh-extraction.txt',
+          mimeType: 'text/plain',
+          category: 'DOCUMENT',
+          byteSize: freshBytes.byteLength,
+          sha256: freshSourceSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: freshObjectKey,
+          objectGeneration: freshObjectGeneration,
+        },
+      })
+      const freshPrecheckClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: freshReserved.upload.id,
+        actor,
+        claimId: freshPrecheckClaim,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: freshReserved.upload.id,
+        actor,
+        claimId: freshPrecheckClaim,
+        verified: {
+          objectGeneration: freshObjectGeneration,
+          storageVersionId: freshStorageVersionId,
+          mimeType: 'text/plain',
+          byteSize: freshBytes.byteLength,
+          sha256: freshSourceSha256,
+        },
+        evidence: {
+          engine: 'connected-fresh-fixture-magic-bytes',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update('connected-fresh-precheck-passed').digest('hex'),
+          computedByteSize: freshBytes.byteLength,
+          computedSha256: freshSourceSha256,
+        },
+      })
+      const freshAuthoritativeClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: freshReserved.upload.id,
+        actor,
+        claimId: freshAuthoritativeClaim,
+      })
+      await settleIntakeUploadAuthoritativeVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: freshReserved.upload.id,
+        actor,
+        claimId: freshAuthoritativeClaim,
+        malware: {
+          verdict: 'CLEAN',
+          engine: 'connected-fresh-fixture-malware',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update('connected-fresh-malware-clean').digest('hex'),
+          computedByteSize: freshBytes.byteLength,
+          computedSha256: freshSourceSha256,
+        },
+      })
+      const freshUpload = await db.intakeUpload.findUniqueOrThrow({
+        where: { id: freshReserved.upload.id },
+        select: { intakeRunId: true },
+      })
+      if (!freshUpload.intakeRunId) {
+        throw new Error('Fresh connected upload did not create an intake run')
+      }
+      freshStorageObjects.set(freshObjectKey, {
+        versionId: freshStorageVersionId,
+        bytes: freshBytes,
+        reads: 0,
+      })
+      freshExtraction = {
+        uploadId: freshReserved.upload.id,
+        runId: freshUpload.intakeRunId,
+        displayName: 'Connected fresh extraction handbook',
+        extractedTextHash: createHash('sha256').update(freshExtractedText).digest('hex'),
+        sourceSha256: freshSourceSha256,
+        objectGeneration: freshObjectGeneration,
+        storageVersionId: freshStorageVersionId,
+        objectKey: freshObjectKey,
+      }
+    }
     return {
       runId: upload.intakeRunId,
       uploadId: reserved.upload.id,
@@ -364,6 +516,7 @@ async function startFixtureServer(): Promise<FixtureState> {
       sourceSha256,
       objectGeneration,
       storageVersionId,
+      freshExtraction,
     }
   })
 
@@ -536,6 +689,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
   })
 
   test.afterAll(async () => {
+    restoreFreshStorageTransport?.()
+    restoreFreshStorageTransport = null
     if (fixture) await closeServer(fixture.server)
     await db.$disconnect()
   })
@@ -680,7 +835,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       }
       expect(
         await withTenantIsolationBypass(() => db.intakeRun.count({ where: { tenantId, venueId } })),
-      ).toBe(1)
+      ).toBe(state.freshExtraction ? 2 : 1)
       expect(
         await withTenantIsolationBypass(() =>
           db.intakeRun.count({
@@ -833,6 +988,17 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
     browser,
   }, testInfo) => {
     const state = fixture!
+    const submittedSource = state.freshExtraction ?? {
+      uploadId: state.uploadId,
+      runId: state.runId,
+      displayName: 'Connected visitor services handbook',
+      extractedTextHash: state.extractedTextHash,
+      sourceSha256: state.sourceSha256,
+      objectGeneration: state.objectGeneration,
+      storageVersionId: state.storageVersionId,
+      objectKey: null,
+    }
+    let submittedReceiptId: string | null = state.freshExtraction ? null : state.receiptId
     state.sessions.set(state.tokens.owner, {
       userId: ownerUserId,
       activeTenantId: tenantId,
@@ -845,8 +1011,15 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await page.goto('/dev-fixtures/remote-onboarding?state=share')
       await expect(page.getByText('Loading saved work…')).toBeHidden()
       await page.getByRole('button', { name: 'Review my materials', exact: true }).click()
-      const file = page.getByRole('checkbox', { name: /Connected visitor services handbook/ })
-      await expect(file).toBeChecked()
+      const historicalFile = page.getByRole('checkbox', {
+        name: /Connected visitor services handbook/,
+      })
+      await expect(historicalFile).toBeChecked()
+      if (state.freshExtraction) {
+        const freshFile = page.getByRole('checkbox', { name: state.freshExtraction.displayName })
+        await historicalFile.uncheck()
+        await freshFile.check()
+      }
       const notes = page.getByRole('checkbox', { name: /Shared notes draft/ })
       if (await notes.count()) await notes.uncheck()
       const submitted = page.waitForResponse((response) =>
@@ -877,7 +1050,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         expect(revision.members).toHaveLength(1)
         expect(revision.members[0]).toMatchObject({
           kind: 'INTAKE_UPLOAD',
-          intakeUploadId: state.uploadId,
+          intakeUploadId: submittedSource.uploadId,
         })
         const dispatches = await db.intakeV1ProcessingDispatch.findMany({
           where: { tenantId, venueId, revisionId: revision.id },
@@ -906,6 +1079,16 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
           INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB,
         } = await import('@pathfinder/jobs')
+        if (state.freshExtraction) {
+          expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(0)
+          expect(
+            await withTenantIsolationBypass(() =>
+              db.intakeFileExtractionReceipt.count({
+                where: { tenantId, venueId, uploadId: submittedSource.uploadId },
+              }),
+            ),
+          ).toBe(0)
+        }
         const resources = await createIntakeV1FileExtractionResources()
         try {
           const first = await waitForWorkerResult(
@@ -915,21 +1098,51 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
               job.data?.dispatchId === saved.dispatchId,
             () => resources.queue.add(INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB, {}),
           )
-          // This fixture deliberately retains an existing extraction receipt. The actual
-          // claim transaction inherits it without leasing new extraction work, and the
-          // production queue removes the completed transport job.
-          expect(first).toMatchObject({ result: 'not-claimed', state: 'unknown' })
-          await expect(
-            withTenantIsolationBypass(() =>
+          if (state.freshExtraction) {
+            expect(first).toMatchObject({ result: 'completed', state: 'unknown' })
+            const completed = await withTenantIsolationBypass(() =>
               db.intakeV1ProcessingDispatch.findFirstOrThrow({
                 where: { id: saved.dispatchId, tenantId, venueId },
+                select: { status: true, fileExtractionReceiptId: true, attempts: true },
               }),
-            ),
-          ).resolves.toMatchObject({
-            status: 'COMPLETED',
-            fileExtractionReceiptId: state.receiptId,
-            attempts: 0,
-          })
+            )
+            expect(completed).toMatchObject({ status: 'COMPLETED', attempts: 1 })
+            expect(completed.fileExtractionReceiptId).toEqual(expect.any(String))
+            submittedReceiptId = completed.fileExtractionReceiptId
+            await expect(
+              withTenantIsolationBypass(() =>
+                db.intakeFileExtractionReceipt.findFirstOrThrow({
+                  where: {
+                    id: submittedReceiptId!,
+                    tenantId,
+                    venueId,
+                    runId: submittedSource.runId,
+                    uploadId: submittedSource.uploadId,
+                  },
+                  select: { extractedTextHash: true, sourceSha256: true },
+                }),
+              ),
+            ).resolves.toEqual({
+              extractedTextHash: submittedSource.extractedTextHash,
+              sourceSha256: submittedSource.sourceSha256,
+            })
+            expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(1)
+          } else {
+            // Historical connected mode retains its pre-existing receipt. The claim transaction
+            // inherits it without leasing new extraction work, and the queue removes its job.
+            expect(first).toMatchObject({ result: 'not-claimed', state: 'unknown' })
+            await expect(
+              withTenantIsolationBypass(() =>
+                db.intakeV1ProcessingDispatch.findFirstOrThrow({
+                  where: { id: saved.dispatchId, tenantId, venueId },
+                }),
+              ),
+            ).resolves.toMatchObject({
+              status: 'COMPLETED',
+              fileExtractionReceiptId: state.receiptId,
+              attempts: 0,
+            })
+          }
 
           const replay = await waitForWorkerResult(
             resources.worker,
@@ -945,6 +1158,16 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
               ),
           )
           expect(replay).toMatchObject({ result: 'not-claimed', state: 'completed' })
+          if (state.freshExtraction) {
+            expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(1)
+            expect(
+              await withTenantIsolationBypass(() =>
+                db.intakeFileExtractionReceipt.count({
+                  where: { tenantId, venueId, uploadId: submittedSource.uploadId },
+                }),
+              ),
+            ).toBe(1)
+          }
           redisDeliveryEvidence = {
             queueName: resources.worker.name,
             dispatchId: saved.dispatchId,
@@ -952,7 +1175,17 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             deliveredResult: first.result,
             deliveredEvent: 'completed',
             deliveredJobStateAfterRemoval: first.state,
-            extractionMode: 'inherited-existing-receipt',
+            extractionMode: state.freshExtraction
+              ? 'fresh-exact-storage-read'
+              : 'inherited-existing-receipt',
+            ...(state.freshExtraction
+              ? {
+                  storageReadCount: freshStorageObjects.get(submittedSource.objectKey!)?.reads,
+                  attempts: 1,
+                  receiptId: submittedReceiptId,
+                  sourceSha256: submittedSource.sourceSha256,
+                }
+              : {}),
             replayJobId: replay.id,
             replayResult: replay.result,
           }
@@ -991,7 +1224,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             where: { id: saved.dispatchId, tenantId, venueId },
           }),
         ),
-      ).resolves.toMatchObject({ status: 'COMPLETED', fileExtractionReceiptId: state.receiptId })
+      ).resolves.toMatchObject({ status: 'COMPLETED', fileExtractionReceiptId: submittedReceiptId })
+      if (!submittedReceiptId) throw new Error('Connected extraction did not retain a receipt ID')
       const { appRouter } = await import('@pathfinder/api')
       const caller = (token: string) =>
         appRouter.createCaller({ db, headers: new Headers(), session: state.sessions.get(token)! })
@@ -1013,14 +1247,16 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await admin.admin.reviewIntakeFileExtraction({
         tenantId,
         venueId,
-        sourceRunId: state.runId,
-        receiptId: state.receiptId,
+        sourceRunId: submittedSource.runId,
+        receiptId: submittedReceiptId,
         operationId: randomUUID(),
-        expectedExtractedTextHash: state.extractedTextHash,
+        expectedExtractedTextHash: submittedSource.extractedTextHash,
         decision: 'ACCEPTED_FOR_PROPOSAL',
         proposalTitle: 'Visitor services handbook',
-        proposalNotes: beyondPreviewFact,
-        rationale: 'Reviewed the exact retained source beyond its first page.',
+        proposalNotes: state.freshExtraction ? freshExtractedText : beyondPreviewFact,
+        rationale: state.freshExtraction
+          ? 'Reviewed the exact freshly extracted source.'
+          : 'Reviewed the exact retained source beyond its first page.',
       })
       const ready = await admin.admin.previewIntakeV1Package(selection)
       expect(ready).toMatchObject({ ready: true, published: false })
