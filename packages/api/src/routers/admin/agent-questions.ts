@@ -139,6 +139,8 @@ const adminAgentQuestionCoreRouter = router({
             urgency: true,
             choices: true,
             dueAt: true,
+            expiresAt: true,
+            expiredAt: true,
             evidence: true,
             proposedAnswer: true,
             callbackMetadata: true,
@@ -214,7 +216,12 @@ const adminAgentQuestionCoreRouter = router({
         } catch (error) {
           if (error instanceof AgentQuestionActionError) {
             throw new TRPCError({
-              code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+              code:
+                error.code === 'EXPIRED'
+                  ? 'PRECONDITION_FAILED'
+                  : error.code === 'INVALID_INPUT'
+                    ? 'BAD_REQUEST'
+                    : error.code,
               message: error.message,
             })
           }

@@ -123,11 +123,11 @@ function DiscussionThread({ tenantId, venueId, questionId }: Props) {
       {open ? (
         <div className="mt-3 min-w-0 space-y-3 text-sm">
           <p className="text-slate-600">
-            Operator notes stay with this question. Use the answer controls to resolve it; notes do
-            not resume work or approve actions.
+            Operator notes stay with this question. Notes do not answer it, resume work, or approve
+            actions.
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-500">Newest notes first</span>
+            <span className="text-xs text-slate-600">Newest notes first</span>
             <button
               type="button"
               disabled={loading || pending}
@@ -142,12 +142,12 @@ function DiscussionThread({ tenantId, venueId, questionId }: Props) {
             <p role="alert">Notes could not be loaded. Use Refresh notes to try again.</p>
           ) : null}
           {loaded && notes.length === 0 && !loadError ? (
-            <p className="text-slate-500">No discussion notes yet.</p>
+            <p className="text-slate-600">No discussion notes yet.</p>
           ) : null}
           <ol className="divide-y divide-slate-200">
             {notes.map((note) => (
               <li key={note.id} className="min-w-0 py-3">
-                <p className="break-words text-xs text-slate-500">
+                <p className="break-words text-xs text-slate-600">
                   Operator {note.authorId} ·{' '}
                   <time dateTime={new Date(note.createdAt).toISOString()}>
                     {new Date(note.createdAt).toLocaleString()}

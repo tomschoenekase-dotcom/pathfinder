@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { expireAgentQuestionIfDue } from './agent-question-expiration-actions'
 
 export type AgentQuestionClient = Pick<typeof db, '$transaction'>
 
@@ -110,6 +111,7 @@ const questionFields = z
     urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
     choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
     dueAt: z.date().optional(),
+    expiresAt: z.date().optional(),
     evidence: z.array(evidenceItem).max(20).default([]),
     proposedAnswer: proposedAnswer.optional(),
     callbackMetadata: z.record(z.string().max(100), metadataValue).optional(),
@@ -152,7 +154,7 @@ export type AnswerAgentQuestionInput = z.input<typeof answerFields>
 
 export class AgentQuestionActionError extends Error {
   constructor(
-    readonly code: 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN' | 'INVALID_INPUT',
+    readonly code: 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN' | 'INVALID_INPUT' | 'EXPIRED',
     message: string,
   ) {
     super(message)
@@ -197,6 +199,7 @@ function sameQuestion(
     questionType: string
     category: string
     urgency: string
+    expiresAt?: Date | null
     dueAt: Date | null
     evidence: unknown
     proposedAnswer: unknown
@@ -215,6 +218,7 @@ function sameQuestion(
     existing.category === input.category &&
     existing.urgency === input.urgency &&
     existing.dueAt?.toISOString() === input.dueAt?.toISOString() &&
+    existing.expiresAt?.toISOString() === input.expiresAt?.toISOString() &&
     sameStoredJson(existing.evidence, input.evidence) &&
     sameStoredJson(existing.proposedAnswer, input.proposedAnswer ?? null) &&
     sameStoredJson(existing.callbackMetadata, input.callbackMetadata ?? null) &&
@@ -278,6 +282,7 @@ export async function askAgentQuestionAction(
         category: true,
         urgency: true,
         dueAt: true,
+        expiresAt: true,
         evidence: true,
         proposedAnswer: true,
         callbackMetadata: true,
@@ -342,6 +347,7 @@ export async function askAgentQuestionAction(
         category: input.category,
         urgency: input.urgency,
         dueAt: input.dueAt ?? null,
+        expiresAt: input.expiresAt ?? null,
         evidence: input.evidence,
         ...(input.proposedAnswer ? { proposedAnswer: input.proposedAnswer } : {}),
         ...(input.callbackMetadata ? { callbackMetadata: input.callbackMetadata } : {}),
@@ -360,6 +366,7 @@ export async function askAgentQuestionAction(
         category: true,
         urgency: true,
         dueAt: true,
+        expiresAt: true,
         evidence: true,
         proposedAnswer: true,
         callbackMetadata: true,
@@ -435,7 +442,7 @@ export async function answerAgentQuestionAction(
   client: AgentQuestionClient = db,
 ) {
   const input = answerFields.parse(rawInput)
-  return client.$transaction(async (transaction) => {
+  const transactionResult = client.$transaction(async (transaction) => {
     async function resumeEligibility(agentRunId: string | null, blocking: boolean) {
       if (!agentRunId || !blocking) return false
       const remainingBlockingQuestions = () =>
@@ -445,7 +452,7 @@ export async function answerAgentQuestionAction(
             venueId: input.venueId,
             agentRunId,
             blocking: true,
-            status: 'PENDING',
+            status: { in: ['PENDING', 'EXPIRED'] },
           },
         })
       const remaining = await remainingBlockingQuestions()
@@ -500,6 +507,7 @@ export async function answerAgentQuestionAction(
         agentIdentityId: true,
         blocking: true,
         status: true,
+        expiresAt: true,
         answer: true,
         answeredById: true,
         updatedAt: true,
@@ -526,6 +534,14 @@ export async function answerAgentQuestionAction(
         runEligibleToResume,
         replayed: true as const,
       }
+    }
+    if (existing.status === 'EXPIRED' || existing.expiresAt) {
+      const expiry = await expireAgentQuestionIfDue(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: existing.id,
+      })
+      if (expiry === 'EXPIRED') return { expired: true as const }
     }
     if (
       existing.status !== 'PENDING' ||
@@ -631,4 +647,28 @@ export async function answerAgentQuestionAction(
       replayed: false as const,
     }
   })
+  const result = await transactionResult.catch(async (error: unknown) => {
+    // The cutoff can pass between the locked check and SQL answer write. That failed
+    // transaction rolled back; commit expiration separately before reporting expiry.
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes('agent question answer deadline has expired')
+    )
+      throw error
+    const expiry = await client.$transaction((tx) =>
+      expireAgentQuestionIfDue(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: input.questionId,
+      }),
+    )
+    if (expiry !== 'EXPIRED') throw error
+    return { expired: true as const }
+  })
+  if ('expired' in result)
+    throw new AgentQuestionActionError(
+      'EXPIRED',
+      'This question has expired. Review the blocked run before starting replacement work.',
+    )
+  return result
 }

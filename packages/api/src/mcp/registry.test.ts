@@ -1011,11 +1011,15 @@ describe('PathFinder MCP server-side adapter registry', () => {
         agentIdentityId: 'agent-1',
         question: 'Which source should I treat as authoritative?',
         choices: ['Venue website', 'Operator note'],
+        expiresAt: '2030-01-01T18:00:00.000Z',
         blocking: true,
       },
       { credential },
     )
-    expect(domain.askOperator).toHaveBeenCalledOnce()
+    expect(domain.askOperator).toHaveBeenCalledWith(
+      expect.objectContaining({ expiresAt: '2030-01-01T18:00:00.000Z' }),
+      expect.anything(),
+    )
     expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
   })
 

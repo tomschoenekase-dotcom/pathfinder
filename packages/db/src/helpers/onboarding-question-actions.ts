@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { expireAgentQuestionIfDue } from './agent-question-expiration-actions'
 import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 
 type Client = Pick<typeof db, '$transaction'>
@@ -58,7 +59,7 @@ export type ResumeOnboardingQuestionInput = z.input<typeof resumeInput>
 
 export class OnboardingQuestionActionError extends Error {
   constructor(
-    readonly code: 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN' | 'INVALID_INPUT',
+    readonly code: 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN' | 'INVALID_INPUT' | 'EXPIRED',
     message: string,
   ) {
     super(message)
@@ -116,7 +117,7 @@ export async function createClientOnboardingQuestionAction(
     actorId: input.actor.actorId,
   })
 
-  return client.$transaction(async (tx) => {
+  const transactionResult = client.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`torchiko:onboarding-question:${input.tenantId}:${input.operationId}`}, 0))`
     const replay = await tx.onboardingQuestionLink.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
@@ -153,6 +154,7 @@ export async function createClientOnboardingQuestionAction(
           question: true,
           blocking: true,
           status: true,
+          expiresAt: true,
           updatedAt: true,
           agentRun: { select: { status: true } },
         },
@@ -168,6 +170,14 @@ export async function createClientOnboardingQuestionAction(
     ])
     if (!question || !membership)
       throw new OnboardingQuestionActionError('NOT_FOUND', 'Question recipient is not available')
+    if (question.status === 'EXPIRED' || question.expiresAt) {
+      const expiry = await expireAgentQuestionIfDue(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: question.id,
+      })
+      if (expiry === 'EXPIRED') return { expired: true as const }
+    }
     if (
       question.status !== 'PENDING' ||
       question.updatedAt.getTime() !== input.expectedQuestionUpdatedAt.getTime()
@@ -346,6 +356,28 @@ export async function createClientOnboardingQuestionAction(
     )
     return { link, replayed: false as const, approvalGranted: false as const }
   })
+  const result = await transactionResult.catch(async (error: unknown) => {
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes('agent question answer deadline has expired')
+    )
+      throw error
+    const expiry = await client.$transaction((tx) =>
+      expireAgentQuestionIfDue(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: input.agentQuestionId,
+      }),
+    )
+    if (expiry !== 'EXPIRED') throw error
+    return { expired: true as const }
+  })
+  if ('expired' in result)
+    throw new OnboardingQuestionActionError(
+      'EXPIRED',
+      'This question has expired and cannot be newly routed to a client.',
+    )
+  return result
 }
 
 /**
@@ -358,7 +390,7 @@ export async function resumeOnboardingQuestionFromSupportAction(
   client: Client = db,
 ) {
   const input = resumeInput.parse(rawInput)
-  return client.$transaction(async (tx) => {
+  const transactionResult = client.$transaction(async (tx) => {
     async function replayResumeEligibility(agentRunId: string | null) {
       if (!agentRunId) return false
       const lockedRuns = await tx.$queryRaw<
@@ -379,7 +411,7 @@ export async function resumeOnboardingQuestionFromSupportAction(
           venueId: input.venueId,
           agentRunId,
           blocking: true,
-          status: 'PENDING',
+          status: { in: ['PENDING', 'EXPIRED'] },
         },
       })
       return (
@@ -481,12 +513,29 @@ export async function resumeOnboardingQuestionFromSupportAction(
           agentRunId: true,
           blocking: true,
           status: true,
+          expiresAt: true,
           updatedAt: true,
         },
       }),
     ])
     if (!message || !question)
       throw new OnboardingQuestionActionError('NOT_FOUND', 'Linked onboarding answer not found')
+    if (question.status === 'EXPIRED' || question.expiresAt) {
+      const expiry = await expireAgentQuestionIfDue(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: question.id,
+      })
+      if (expiry === 'EXPIRED')
+        return {
+          linked: true as const,
+          replayed: false as const,
+          questionExpired: true as const,
+          runEligibleToResume: false as const,
+          agentRunId: question.agentRunId,
+          questionId: question.id,
+        }
+    }
     if (
       question.status !== 'PENDING' ||
       question.updatedAt.getTime() !== link.expectedQuestionUpdatedAt.getTime()
@@ -533,7 +582,7 @@ export async function resumeOnboardingQuestionFromSupportAction(
         venueId: input.venueId,
         agentRunId: question.agentRunId,
         blocking: true,
-        status: 'PENDING',
+        status: { in: ['PENDING', 'EXPIRED'] },
       },
     })
     let runEligibleToResume =
@@ -650,5 +699,51 @@ export async function resumeOnboardingQuestionFromSupportAction(
       agentRunId: question.agentRunId,
       questionId: question.id,
     }
+  })
+  return transactionResult.catch(async (error: unknown) => {
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes('agent question answer deadline has expired')
+    )
+      throw error
+    // The support response committed before this action. Keep it durable even if the
+    // cutoff raced its attempted question answer, without claiming that answer/resumption.
+    return client.$transaction(async (tx) => {
+      const link = await tx.onboardingQuestionLink.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          supportRequestId: input.supportRequestId,
+        },
+        select: { agentQuestionId: true, agentQuestion: { select: { agentRunId: true } } },
+      })
+      const message = await tx.supportMessage.findFirst({
+        where: {
+          id: input.supportMessageId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          supportRequestId: input.supportRequestId,
+          authorKind: 'CLIENT',
+          authorId: input.actor.actorId,
+          visibility: 'CLIENT_VISIBLE',
+        },
+        select: { id: true },
+      })
+      if (!link || !message) throw error
+      const expiry = await expireAgentQuestionIfDue(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        questionId: link.agentQuestionId,
+      })
+      if (expiry !== 'EXPIRED') throw error
+      return {
+        linked: true as const,
+        replayed: false as const,
+        questionExpired: true as const,
+        runEligibleToResume: false as const,
+        agentRunId: link.agentQuestion.agentRunId,
+        questionId: link.agentQuestionId,
+      }
+    })
   })
 }

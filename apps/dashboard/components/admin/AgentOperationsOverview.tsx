@@ -11,6 +11,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
 import { AgentQuestionDiscussion } from './AgentQuestionDiscussion'
 import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
@@ -402,10 +403,19 @@ export function AgentOperationsOverview({
                     venueId={venueId}
                     questionId={question.id}
                     expectedUpdatedAt={question.updatedAt}
+                    expiresAt={question.expiresAt}
+                    agentRunId={question.agentRunId}
                     questionType={question.questionType}
                     choices={question.choices}
                     recipients={questionRecipients}
                     canRouteToClient={question.blocking && Boolean(question.agentRunId)}
+                  />
+                ) : null}
+                {question.status === 'EXPIRED' ? (
+                  <AgentQuestionExpiryNotice
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    agentRunId={question.agentRunId}
                   />
                 ) : null}
                 <AgentQuestionDiscussion

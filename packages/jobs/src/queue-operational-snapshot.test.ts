@@ -11,6 +11,7 @@ vi.mock('./connection', () => ({ getBullMQConnection: vi.fn(() => ({})) }))
 import { inspectQueueOperationalSnapshot } from './enqueue'
 import {
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
+  AGENT_QUESTION_MAINTENANCE_QUEUE,
   BILLING_RECONCILIATION_QUEUE,
   OPERATIONAL_QUEUE_NAMES,
   PROSPECT_IMPORT_QUEUE,
@@ -31,6 +32,7 @@ describe('live queue operational snapshot', () => {
         PROSPECT_IMPORT_QUEUE,
         BILLING_RECONCILIATION_QUEUE,
         ACCOUNT_SUMMARY_REFRESH_QUEUE,
+        AGENT_QUESTION_MAINTENANCE_QUEUE,
       ]),
     )
   })

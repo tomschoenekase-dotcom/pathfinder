@@ -1,0 +1,170 @@
+{
+  "recordedAt": "2026-09-08T09:46:33.199521+00:00",
+  "scope": "Optional explicit question expiry with database cutoff, durable late client replies, bounded maintenance processor and existing recovery UI.",
+  "baseCommit": "0fd8f45a05f2d3138567ee4bf263d435866ef94b",
+  "native": {
+    "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-question_expiry-e0a57ebf82a6",
+    "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-question-expiry-proof.mjs",
+    "runnerSha256": "e0defc6bf9deaf666f8bd6c714742d3709046db7b7105bcbd776833830ee7c81",
+    "tests": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "postgres": "16.15",
+    "pgvector": "0.8.6",
+    "timezone": "UTC",
+    "migrations": 233,
+    "tables": 255,
+    "stopped": true,
+    "assertions": [
+      "Canonical ask preserves explicit expiry and exact replay; changed expiry conflicts.",
+      "Database-time expiry commits before typed founder/routing rejection, retains null answer and one audit/timeline.",
+      "Client reply persists after cutoff without question-answer/link-resume claims or worker eligibility.",
+      "Expired blocking question prevents another answer from resuming the run; committed pre-cutoff answer remains replayable.",
+      "Raw SQL rejects late answers, caller-assigned expiry timestamp and immutable deadline changes.",
+      "Held run lock is skipped without deadlock; bounded batch expires other due work.",
+      "Actual exported production processor invokes canonical maintenance against PostgreSQL and expires remaining scoped/runless records without action/approval effects."
+    ],
+    "limitations": [
+      "Synthetic seed and local disposable database; no real authentication, provider, Redis schedule delivery or live worker inference.",
+      "Production processor is dynamically imported directly; worker registration and scheduler gate are source assertions plus focused unit checks.",
+      "Prior native helper-only proof fed01c376b34 passed; processor attempt32d0c3932480 failed missing inert config and stopped; explicit synthetic config repaired runner."
+    ]
+  },
+  "focusedChecks": {
+    "db": {
+      "passed": 35,
+      "suites": [
+        "agent-question-actions",
+        "onboarding-question-actions",
+        "agent-question-expiration-actions",
+        "agent-question-expiry-ingress"
+      ]
+    },
+    "api": {
+      "passed": 75,
+      "suites": [
+        "mcp/agent-actions",
+        "mcp/registry",
+        "prospect-agent/registry",
+        "admin/agent-question-dispatch",
+        "support-onboarding-resume",
+        "admin/agent-questions-onboarding",
+        "admin/attention-briefing"
+      ]
+    },
+    "dashboard": {
+      "form": 18,
+      "discussion": 7,
+      "support": 32,
+      "overviewAndTriage": 9
+    },
+    "jobs": 2,
+    "workers": 4,
+    "migrationAdmission": 11,
+    "typechecks": ["DB", "API", "contracts", "dashboard", "workers", "jobs"],
+    "lint": "Owned source/test ESLint passed.",
+    "boundaries": {
+      "rawSqlOperations": 201,
+      "tenantBypassCalls": 428,
+      "approvedBypassFiles": 144,
+      "prismaModels": 254
+    }
+  },
+  "browser": {
+    "outputDirectory": "artifacts/agent-question-expiry-20260908/browser-results-final4",
+    "passed": 2,
+    "projects": ["desktop-chromium", "mobile-chromium"],
+    "widths": [320, 820, 1024, 1440],
+    "rootInspectedWidths": [320, 820, 1024, 1440],
+    "assertions": [
+      "Expanded retained discussion, exact existing linked-run/new-task hrefs, keyboard opening, reduced-motion render, no horizontal overflow.",
+      "Scoped #inbox Axe has zero violations with color contrast enabled; zero page errors.",
+      "Fake-clock cutoff removes pending answer controls."
+    ],
+    "limitations": [
+      "Synthetic guarded fixture and mocked discussion transport; not connected browser/database/authentication proof.",
+      "No claim of full-page accessibility or real mobile device proof."
+    ],
+    "visualCritique": "Existing admin question cards retained; compact left-rule recovery text adds no new decorative container, branding, metrics or animation. Readable hierarchy and phone wrapping inspected. Earlier contrast defect fixed; misleading answer-controls instruction removed."
+  },
+  "migrationAdmission": {
+    "normalizedManifest": "6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa",
+    "predecessor": "232 migrations/255 tables exact reviewed lineage",
+    "candidate": "233 migrations/255 tables",
+    "authorization": "Local contract only; no deployment."
+  },
+  "normalizedSourceSha256": {
+    "Dockerfile.web.staging": "8c167e2b1200a5772f739102db9fb25eeeee38b90ef8cea47afc5b7bfc6c2c48",
+    "apps/dashboard/app/dev-fixtures/agent-question-history/page.tsx": "cf335120220bc761552d2dce6ec144087f05d7c0bfb7d7bdf9e42873ad69ef5c",
+    "apps/dashboard/components/SupportWorkspace.test.tsx": "586ab45113f1456f782175ef1f352a5b2fcd7c966ec91665156343099492eb3a",
+    "apps/dashboard/components/SupportWorkspace.tsx": "1e67c4b54297618d215f4e71d0db953db18888cd35f57f17ce1081ea27f33d6d",
+    "apps/dashboard/components/admin/AgentOperationsOverview.tsx": "da7c0b1e40a1de30db068e3c484f2db52522c249065203228bac6c897115b282",
+    "apps/dashboard/components/admin/AgentOperationsViews.test.tsx": "85c3610e1c3187c3eb20b89ed43d783ca2bb82d125ba85a8c4267b3bfa4f8eea",
+    "apps/dashboard/components/admin/AgentQuestionAnswerForm.test.tsx": "a32ab808a3865cbf37b512ae89107f1558bd300b4e48ec61cfbc094abf37e75e",
+    "apps/dashboard/components/admin/AgentQuestionAnswerForm.tsx": "161faa9a727b8584e4146a5e80accbdf44db06bd4873b0180e705504767901f2",
+    "apps/dashboard/components/admin/AgentQuestionDiscussion.tsx": "b21a65073d38ec4f8182404d9a9bc2d8e74ed1f038735d2fdb4ff9fea391730a",
+    "apps/dashboard/components/admin/AgentQuestionExpiryNotice.tsx": "bd6521c33b75d993ece5eca6fe22af2b556d214f835ef0d2338eefaf881378e8",
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx": "c3f9bf5528f7c844d9d813fc141bebc55d042aa267b92acb169702a6497eaeaf",
+    "apps/dashboard/components/admin/OperationsAttentionConsole.test.tsx": "7d70880e38241c9fa83f423d88364d403768428f6106fd280335e1558dbd5cf1",
+    "apps/dashboard/tests/browser/agent-question-expiry.spec.ts": "fa10767cc6a68e82a0299b242befa158279c4064e052e59a4fb9b0a2ec7ae66d",
+    "apps/workers/src/agent-question-expiration-registration.test.ts": "8ca0fb0e1d95c090865869ec4ff84c5d3e293eb7dc5743075b9ea197eb82c237",
+    "apps/workers/src/index.ts": "2d421d52f864606ffcaafcd7b8b92f4aaf82bb6bf4f598b8452ffe6aa907463c",
+    "apps/workers/src/processors/agent-question-expiration.test.ts": "17c62636703dcf888edc7497747a1d896619eab7882b8ccbc8731a473a8ced8e",
+    "apps/workers/src/processors/agent-question-expiration.ts": "9964347e1b4e337a23157a53d2a3b6b104f601769ca97f701a368ff7b993ad76",
+    "docs/railway-staging.md": "58fbe58a4aa4fbba1285f4f0761dad405e9464166b7115fbe25893f815b95eca",
+    "packages/api/src/mcp/agent-actions.test.ts": "5174cd382792bcca9ad5aa79eb8318bf111a58f9b3a854e44ff08fef640d71b8",
+    "packages/api/src/mcp/agent-actions.ts": "0d7b7de99070bd1ca0a5353f385d99f363ac6c409d1dd82f0cab3aa0dcb7e876",
+    "packages/api/src/mcp/registry.test.ts": "cfb6486a20c37fe9475f22ed722510a7628779db5188705008d1e1de4fc8887e",
+    "packages/api/src/prospect-agent/registry.test.ts": "4f39e878ef237d134e267ff513d44b80ad7261c4ffade185cb69f1db2bd72824",
+    "packages/api/src/prospect-agent/registry.ts": "949eafdaa334406b30825c675b3cca87fae52831f9dcfb0c06e97c5ac3a49831",
+    "packages/api/src/routers/admin/agent-question-client-routing.ts": "41101681358f2c8ff4741ad22ee9c7a94d06cefa79f86696ebc9856c054595da",
+    "packages/api/src/routers/admin/agent-question-dispatch.test.ts": "0afe1357327ea979d917f07d5be70cccd13994fa4ca87791b542eec15ee47847",
+    "packages/api/src/routers/admin/agent-questions.ts": "b95609e87436f6b14d07f5745d1b26a523de2f6c5e04fec801b233c8950d2317",
+    "packages/api/src/routers/admin/attention-founder-decision-context.ts": "ed907dd3f174c8cae8d22cfe55b8433844f748d2b9ee9ae4d439d7ba57bd950b",
+    "packages/api/src/routers/admin/attention-priority-questions.ts": "0f4cc66b860d10c6e31cd69b1ec66855ed4118cdf6e1d66fc40bd6da8762c86a",
+    "packages/api/src/routers/admin/knowledge-proposal-conflicts.ts": "90887d047397f26972092c4a4803ccb75be3d3737312ef8a082f6a4805c52633",
+    "packages/api/src/routers/support-onboarding-resume.test.ts": "e28f9a56a0f1e51009c503cba930798f41ee82ec675590a02ae80dc8628c1be6",
+    "packages/api/src/routers/support.ts": "87a08b1eeda074b5c7fdaf54e11903c43b3fcec41bfbe44fc4d36f46a8f4a4a4",
+    "packages/contracts/src/mcp-v0.ts": "3592644e21d22a09f3bb16e8a55357706d093dcaeb2eee7a0c16d2b3f133b5c9",
+    "packages/db/prisma/migrations/20260908130000_add_agent_question_expiry/migration.sql": "315966be77133b4566f79a03fd6482b77d04b8666d0f5fbaceeddfb06ecae8b7",
+    "packages/db/prisma/schema.prisma": "7334f4b155cad1a80d0100e0a491eba002116eef984ca8bd088e28958b57ec0e",
+    "packages/db/src/client.ts": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869",
+    "packages/db/src/helpers/agent-question-actions.ts": "432107e8fadcac36e098d2536fbb93f1b2289fafb6e318f23c629821be9983c2",
+    "packages/db/src/helpers/agent-question-expiration-actions.test.ts": "c07a216a675cf4a1299db7af5113a1ae03791306e701f15195514d5be0da8399",
+    "packages/db/src/helpers/agent-question-expiration-actions.ts": "dced50d2840de7089a7a4e69161311f816baf934691704215f24766cc325e9d0",
+    "packages/db/src/helpers/agent-question-expiry-ingress.test.ts": "37be35184e25f1b15a282ea06f57e423a9187b57f4ac0bd6cce4da71ffa80963",
+    "packages/db/src/helpers/agent-question-expiry.disposable.integration.test.ts": "4efd3f66360a1f3e613d7f1d0396c1b2b478d61ec5b0a940bbf8e506c51aa306",
+    "packages/db/src/helpers/agent-run-execution-actions.ts": "fc483600a97c352fa3571708a041626ac6e05c092ed4a55b1f205b945566f8ac",
+    "packages/db/src/helpers/agent-run-execution-context.ts": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea",
+    "packages/db/src/helpers/audit.ts": "218dd5809e6e7c9c8becdfd2b666c6cc912988a0c76011cd03417d59502d44f9",
+    "packages/db/src/helpers/onboarding-milestone-events.ts": "1b7ecb8f65145ce0632d07ed1b5ffe61ba5d4b886693da418fe4c3db6d1f8fde",
+    "packages/db/src/helpers/onboarding-question-actions.ts": "4515aae889d3ac7fe050d2df0727e95ee857873381234e3598cdb7eb7cf2cd9c",
+    "packages/db/src/helpers/support-actions.ts": "179b66ba599586548c11017f7e27d83eea555255e0e7476c676514e1c2353b4d",
+    "packages/db/src/helpers/support-participant-actions.ts": "6b90bf30a6ba5755f75437bec358ea1cc797641f3ba0208dfc790b5050924bf1",
+    "packages/db/src/index.ts": "8139858eeece2338b60ba2bdb7f08326b8f2338ca824bd93fc55c0f10c368464",
+    "packages/db/src/middleware/tenant-isolation.ts": "0b0ddb4a6261b82169ba5d6c0167f6bd931e8d4e6bff253675fc6d4d2f122a3a",
+    "packages/db/src/tenanted-tables.ts": "a035a22ab313a1e2f80777efc546e9ac51be29fb193ba2854ac4bdf98894a2be",
+    "packages/jobs/src/index.ts": "2fcfea36719133ef0194b7b53a6a14bf69e3c89428aa15c1307f5c8b8deef3e1",
+    "packages/jobs/src/queue-operational-snapshot.test.ts": "5b5d77a856491bf97b176503f07314f2f1cdb9b040a3507e3e59463d4193f86a",
+    "packages/jobs/src/queues.ts": "49bb1541970f531c14a594aba8165bb9f86b33a09358b24eba9012207c13235d",
+    "scripts/lib/disposable-prisma-migration.mjs": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7",
+    "scripts/lib/staging-migration-admission.mjs": "3c57498faccf46b31cb7930bdc2eed463b56c846a21bdfb19b5efaff003903fb",
+    "scripts/run-staging-migration-predeploy.mjs": "9a95eb19883890d9d111c186a41ff7bdf8b3a966fc56daca3bf6b858ae82761a",
+    "scripts/staging-migration-predeploy.test.mjs": "1402e93f5e74e73fc01c2b78e9659e058a60336b655a403a4ea89e7196e30cae",
+    "scripts/verify-raw-sql-boundary.mjs": "17958069d89cf3abefe71b768d4b147fd0f5e09bd4c523f78e4ef7033f59af07",
+    "scripts/verify-tenant-bypass-boundary.mjs": "6ff177b53fa0929b455585e87923eab66aa045e8ca220e62676e4c50d8207cd7"
+  },
+  "screenshotSha256": {
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-desktop-chromium/agent-question-expiry-desktop-1440.png": "dd574c6a1f341dd419270745e6aeedba6c475311b255bfb8b0387bae7f6b0bf0",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-desktop-chromium/agent-question-expiry-laptop-1024.png": "42d3737f249a3880c7fac114e0e988890277cf96f19f21fe5db78b50a230c5a7",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-desktop-chromium/agent-question-expiry-phone-320.png": "b27df7c85b982190c3097298fbf8fefc8e4d9771ad58574919696aa68f54b2a9",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-desktop-chromium/agent-question-expiry-tablet-820.png": "cd2a4f076b7265cf0457e96579d50fb436aab1d91424e3570670b3c1f9737d01",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-desktop-1440.png": "93891b50cd0b786221da2d58dd398b400452c43f13f81de3605c6bd02b1c753c",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-laptop-1024.png": "0ab6f7dd7b7fe8a37091e433868f955c0f355a8bd5206475cf5957979b3c1bab",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-phone-320.png": "c1673a30bd7b74a9712275ced02446cb803f2cf21daf2116fecd27e2bfeb768c",
+    "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-tablet-820.png": "fae7cbbc3b91f38ac427fb0e669ce797d5cf5ba0b7506693b928ed7ad3ad5ae2"
+  },
+  "remaining": "Full128-task campaign remains active. Related-item bundling, representative founder workload and other packet acceptance remain incomplete; provider/production/final-brand gates remain separate."
+}

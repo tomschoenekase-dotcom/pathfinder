@@ -497,6 +497,7 @@ describe('operations attention console', () => {
                 urgency: 'HIGH',
                 choices: ['Current list price', 'Last signed agreement'],
                 dueAt: null,
+                expiresAt: null,
                 evidence: [
                   {
                     label: 'Reviewed agreement',
@@ -569,6 +570,7 @@ describe('operations attention console', () => {
                 urgency: 'NORMAL',
                 choices: ['Yes', 'No'],
                 dueAt: null,
+                expiresAt: null,
                 evidence: [],
                 proposedAnswer: null,
                 blocking: true,

@@ -5810,6 +5810,7 @@ model AgentQuestion {
   urgency                          AgentQuestionUrgency                    @default(NORMAL)
   choices                          String[]                                @default([])
   dueAt                            DateTime?                               @map("due_at")
+  expiresAt                        DateTime?                               @map("expires_at")
   evidence                         Json                                    @default("[]")
   proposedAnswer                   Json?                                   @map("proposed_answer")
   callbackMetadata                 Json?                                   @map("callback_metadata")
@@ -5818,6 +5819,7 @@ model AgentQuestion {
   answer                           String?                                 @db.VarChar(5000)
   answeredById                     String?                                 @map("answered_by_id") @db.VarChar(191)
   answeredAt                       DateTime?                               @map("answered_at")
+  expiredAt                        DateTime?                               @map("expired_at")
   createdAt                        DateTime                                @default(now()) @map("created_at")
   updatedAt                        DateTime                                @updatedAt @map("updated_at")
   tenant                           Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -5837,6 +5839,7 @@ model AgentQuestion {
   @@index([tenantId, agentIdentityId, createdAt], map: "agent_questions_identity_created_idx")
   @@index([tenantId, agentRunId, createdAt], map: "agent_questions_run_created_idx")
   @@index([tenantId, venueId, urgency, dueAt], map: "agent_questions_tenant_id_venue_id_urgency_due_at_idx")
+  @@index([status, expiresAt, id], map: "agent_questions_status_expires_at_idx")
   @@index([status, createdAt], map: "agent_questions_status_created_idx")
   @@map("agent_questions")
 }

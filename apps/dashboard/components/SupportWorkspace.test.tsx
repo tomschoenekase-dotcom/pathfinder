@@ -254,6 +254,34 @@ describe('SupportWorkspace', () => {
       expect.objectContaining({ requestId: request.id, expectedClientVersion: 4 }),
     )
   })
+  it('retains the saved late reply and explains that the original response window closed', async () => {
+    const waiting = {
+      ...detail,
+      status: 'WAITING_FOR_CLIENT',
+      missingInformation: ['Which entrance?'],
+    }
+    mocks.respondToInformation.mockResolvedValueOnce({
+      message: { ...clientMessage, id: 'late-answer', body: 'Use the east entrance.' },
+      clientVersion: 5,
+      status: 'IN_REVIEW',
+      missingInformation: [],
+      onboardingResume: { questionExpired: true },
+    })
+    renderWorkspace({ initialRequests: [waiting], initialDetail: waiting })
+    fireEvent.change(screen.getByLabelText('Reply'), {
+      target: { value: 'Use the east entrance.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Your reply was saved. The original response window has closed, so the team will review it before work continues.',
+        ),
+      ).toBeTruthy(),
+    )
+    expect(screen.getByText('Use the east entrance.')).toBeTruthy()
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
+  })
 
   it('loads paginated requests with the exact active venue scope', async () => {
     const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }

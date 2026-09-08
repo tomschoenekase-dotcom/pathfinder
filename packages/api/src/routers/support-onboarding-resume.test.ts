@@ -226,6 +226,24 @@ describe('support onboarding question resumption', () => {
     expect(mocks.enqueue).not.toHaveBeenCalled()
     expect(mocks.warn).not.toHaveBeenCalled()
   })
+  it('keeps a late client reply successful while reporting the expired response window', async () => {
+    mocks.resume.mockResolvedValue({
+      ...linkedResume(),
+      runEligibleToResume: false,
+      questionExpired: true,
+    })
+    const result = await app.createCaller(context).support.respondToInformation(input)
+    expect(result).toMatchObject({
+      message: { id: 'message_1', body: input.body },
+      onboardingResume: {
+        linked: true,
+        questionExpired: true,
+        executionTriggered: false,
+        dispatchStatus: 'NOT_NEEDED',
+      },
+    })
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
 
   it.each([false, true])(
     'returns a saved linked response without dispatch when ineligible (replay=%s)',

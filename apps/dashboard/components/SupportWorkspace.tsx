@@ -686,6 +686,7 @@ export function SupportWorkspace({
         clientVersion: number
         status?: string
         missingInformation?: string[]
+        onboardingResume?: { questionExpired?: boolean }
       } = await (respondingToInformation
         ? client.support.respondToInformation.mutate({
             operationId: replyOperationId.current,
@@ -734,7 +735,11 @@ export function SupportWorkspace({
       setReplyBody('')
       setReplyAttachments([])
       replyOperationId.current = browserUuid()
-      setNotice('Your message and selected files were submitted for review. Nothing was published.')
+      setNotice(
+        result.onboardingResume?.questionExpired
+          ? 'Your reply was saved. The original response window has closed, so the team will review it before work continues.'
+          : 'Your message and selected files were submitted for review. Nothing was published.',
+      )
     } catch (replyError) {
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       if (isNotFound(replyError)) {

@@ -120,9 +120,15 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/support-package-reversion-approval.ts', 1],
   ['packages/api/src/routers/admin/support-package-handoff-supersession-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
-  // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
+  // Platform-admin operator inbox reads/appends exact tenant+venue+question discussion,
+  // lists a bounded exact-tenant inbox (with an optional exact venue), and routes answers
+  // or promotions only through canonical actions that revalidate the exact question scope.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
-  ['packages/api/src/routers/admin/agent-questions.ts', 4],
+  ['packages/api/src/routers/admin/agent-questions.ts', 6],
+  // Platform-admin-only evidence first validates one bounded hazard event and its exact linked
+  // tenant+venue feedback record. It returns current mutable feedback as an audited read-only
+  // projection; it cannot publish venue data or mutate operational state.
+  ['packages/api/src/routers/admin/visitor-feedback-hazard-evidence.ts', 2],
   // The reviewed improvement loop appends exact-scope outcome and validation evidence;
   // neither route can promote behavior or change worker authority.
   ['packages/api/src/routers/admin/agent-outcomes.ts', 5],

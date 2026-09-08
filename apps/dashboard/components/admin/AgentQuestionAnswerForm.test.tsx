@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mutate = vi.fn()
@@ -45,7 +45,46 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof AgentQuestion
 describe('AgentQuestionAnswerForm', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.clearAllMocks()
+  })
+  it('closes an open response form at its cutoff and retains the exact run recovery link', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-08T12:00:00Z'))
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="question-a"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="SHORT_TEXT"
+        choices={[]}
+        recipients={[]}
+        canRouteToClient={false}
+        agentRunId="run-a"
+        expiresAt={new Date('2026-09-08T12:00:01Z')}
+      />,
+    )
+    expect(screen.getByLabelText('Your answer')).toBeTruthy()
+    await act(async () => {
+      vi.advanceTimersByTime(1001)
+    })
+    expect(screen.queryByLabelText('Your answer')).toBeNull()
+    expect(screen.getByText('Response window closed')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open linked run' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant-a/venues/venue-a/agents/runs/run-a',
+    )
+    expect(mutate).not.toHaveBeenCalled()
+  })
+  it('turns a server-confirmed expiry into recovery guidance rather than an ambiguous retry', async () => {
+    mutate.mockRejectedValue({ data: { code: 'PRECONDITION_FAILED' } })
+    renderForm()
+    await waitFor(() => expect(screen.getByText('Response window closed')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Answer agent' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Start a new task' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant-a/venues/venue-a/agents#new-task',
+    )
+    expect(refresh).toHaveBeenCalledOnce()
   })
 
   it('confirms an answered question whose eligible run was queued without claiming approval', async () => {
@@ -143,6 +182,36 @@ describe('AgentQuestionAnswerForm', () => {
     expect((await screen.findByRole('status')).textContent).toContain(
       'The run was queued for its worker to resume.',
     )
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a saved response retry reachable after its response cutoff', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-08T12:00:00Z'))
+    mutate
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: false,
+        dispatchStatus: 'UNCONFIRMED',
+      })
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: true,
+        dispatchStatus: 'ENQUEUED',
+      })
+    renderForm({ expiresAt: new Date('2026-09-08T12:00:01Z') })
+    await act(async () => Promise.resolve())
+    const frozenPayload = mutate.mock.calls[0]?.[0]
+    expect(screen.getByRole('button', { name: 'Retry worker wake-up' })).toBeTruthy()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1001)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry worker wake-up' }))
+    await act(async () => Promise.resolve())
+
+    expect(mutate).toHaveBeenCalledTimes(2)
+    expect(mutate.mock.calls[1]?.[0]).toEqual(frozenPayload)
     expect(refresh).toHaveBeenCalledOnce()
   })
 

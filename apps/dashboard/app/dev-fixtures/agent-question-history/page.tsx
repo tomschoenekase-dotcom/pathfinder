@@ -41,8 +41,113 @@ const questions = {
   nextCursor: { createdAt: '2026-09-08T15:00:00.000Z', id: 'fixture-history-older-question' },
 }
 
-export default function AgentQuestionHistoryFixture() {
+const expiryCutoff = new Date('2026-09-08T16:02:00.000Z')
+
+const expiryQuestions = {
+  items: [
+    {
+      id: 'fixture-expired-linked-question',
+      tenantId: 'fixture-history-tenant',
+      venueId: 'fixture-history-venue',
+      agentIdentityId: 'fixture-history-agent',
+      agentRunId: 'fixture-expired-run',
+      question: 'Confirm the reviewed arrival route before the response window closes.',
+      context:
+        'This synthetic expired record retains its question and operator discussion for review. It does not prove a run state.',
+      questionType: 'SHORT_TEXT',
+      category: 'visitor-access',
+      urgency: 'HIGH',
+      choices: [],
+      dueAt: null,
+      expiresAt: expiryCutoff,
+      expiredAt: expiryCutoff,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      blocking: true,
+      status: 'EXPIRED',
+      answer: null,
+      answeredAt: null,
+      createdAt: new Date('2026-09-08T15:00:00.000Z'),
+      updatedAt: expiryCutoff,
+      agentIdentity: { id: 'fixture-history-agent', name: 'Visitor guide' },
+    },
+    {
+      id: 'fixture-expired-runless-question',
+      tenantId: 'fixture-history-tenant',
+      venueId: 'fixture-history-venue',
+      agentIdentityId: 'fixture-history-agent',
+      agentRunId: null,
+      question: 'Record a replacement task if the unresolved visitor detail still needs work.',
+      context:
+        'This synthetic expired record has no linked run. Its recovery link starts a new task only.',
+      questionType: 'SHORT_TEXT',
+      category: 'visitor-access',
+      urgency: 'NORMAL',
+      choices: [],
+      dueAt: null,
+      expiresAt: expiryCutoff,
+      expiredAt: expiryCutoff,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      blocking: false,
+      status: 'EXPIRED',
+      answer: null,
+      answeredAt: null,
+      createdAt: new Date('2026-09-08T14:00:00.000Z'),
+      updatedAt: expiryCutoff,
+      agentIdentity: { id: 'fixture-history-agent', name: 'Visitor guide' },
+    },
+  ],
+  nextCursor: null,
+}
+
+const pendingCutoffQuestions = {
+  items: [
+    {
+      id: 'fixture-pending-cutoff-question',
+      tenantId: 'fixture-history-tenant',
+      venueId: 'fixture-history-venue',
+      agentIdentityId: 'fixture-history-agent',
+      agentRunId: 'fixture-pending-run',
+      question: 'Confirm whether the north entrance remains available for the morning arrival.',
+      context:
+        'This synthetic pending question uses a fixed response cutoff so the browser can verify local control removal.',
+      questionType: 'SHORT_TEXT',
+      category: 'visitor-access',
+      urgency: 'HIGH',
+      choices: [],
+      dueAt: null,
+      expiresAt: expiryCutoff,
+      expiredAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      answeredAt: null,
+      createdAt: new Date('2026-09-08T15:30:00.000Z'),
+      updatedAt: new Date('2026-09-08T15:30:00.000Z'),
+      agentIdentity: { id: 'fixture-history-agent', name: 'Visitor guide' },
+    },
+  ],
+  nextCursor: null,
+}
+
+type Props = { searchParams: Promise<{ surface?: string | string[] }> }
+
+export default async function AgentQuestionHistoryFixture({ searchParams }: Props) {
   if (!fixtureEnabled) notFound()
+  const surface = (await searchParams).surface
+  const expirySurface = surface === 'expiry'
+  const timerSurface = surface === 'timer'
+  const questionPage = expirySurface
+    ? expiryQuestions
+    : timerSurface
+      ? pendingCutoffQuestions
+      : questions
   return (
     <TRPCProvider scopeKey="agent-question-history-fixture">
       <main
@@ -54,9 +159,9 @@ export default function AgentQuestionHistoryFixture() {
             Agent workspace · deterministic fixture
           </p>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            This browser fixture renders a synthetic saved question through the real workspace
-            component. It demonstrates history layout only; it does not prove authentication,
-            database persistence, answer approval, or worker execution.
+            This browser fixture renders synthetic questions through the real workspace component.
+            It demonstrates layout and local browser behavior only; it does not prove
+            authentication, database persistence, answer approval, or worker execution.
           </p>
           <div className="mt-6">
             <AgentOperationsOverview
@@ -65,8 +170,8 @@ export default function AgentQuestionHistoryFixture() {
               identities={{ items: [], nextCursor: null }}
               runs={{ items: [], nextCursor: null }}
               approvals={{ items: [], nextCursor: null }}
-              questions={questions as never}
-              questionStatus="ANSWERED"
+              questions={questionPage as never}
+              questionStatus={expirySurface ? 'EXPIRED' : timerSurface ? 'PENDING' : 'ANSWERED'}
             />
           </div>
         </section>

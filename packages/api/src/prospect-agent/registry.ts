@@ -138,6 +138,7 @@ const questionInput = z
     question: z.string().trim().min(1).max(2_000),
     context: z.string().trim().min(1).max(2_000).optional(),
     urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
     blocking: z.boolean().default(true),
     evidence: z.array(evidenceReference).max(20).default([]),
   })
@@ -676,6 +677,7 @@ export function createProspectAgentRegistry(
               ...(input.context ? { context: input.context } : {}),
               category: 'prospect-crm',
               urgency: input.urgency,
+              ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
               blocking: input.blocking,
               evidence: input.evidence.map((item) => ({
                 label: item.kind,

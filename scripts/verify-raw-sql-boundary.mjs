@@ -51,6 +51,7 @@ const approvedPolicies = new Set([
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
   'platform-expired-voice-session-recovery',
+  'platform-due-agent-question-discovery',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -395,6 +396,39 @@ const approvedOperations = [
     policy: 'tenant-workflow-authority-share-lock',
   },
 
+  // Expiry reads and locks use exact question/run + tenant + venue scope. The
+  // maintenance-only global discovery returns at most 400 due IDs; each candidate
+  // is rechecked under run-before-question locks before any canonical mutation.
+  ...[
+    '89c052291c34fdf450c70ddf9768a7257df2032e1415ab94b99078571e5cbf50',
+    'b19b9a954e9640377e6703143db1763e3aae6676e218d564f345460134eb5155',
+    'd0899a9a28fbf80bd8e8f0a3269480c95c3d57ba32c8c9e73cc962be7e65afa6',
+    '5c1cf2f7068b6c5fbbbfeb1de7953950036972077dc12e082cd59d1dfcd5aa39',
+    '304879535e5a827827ae47f48da3fe6c97dba2125ad97cae34eedb840ba82234',
+    'f238aa770dd1e06b16b78a88bc3de7a67389bff06731e5414b64be944364ece8',
+  ].map((hash) => ({
+    file: 'packages/db/src/helpers/agent-question-expiration-actions.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-and-venue',
+  })),
+  {
+    file: 'packages/db/src/helpers/agent-question-expiration-actions.ts',
+    method: '$queryRaw',
+    hash: '661cfc305660418646f172fb820658fc5fa03eba5005d8fb3b86eb8bf2650760',
+    policy: 'platform-due-agent-question-discovery',
+  },
+  // Initial client resumption and exact replay serialize the scoped run and read
+  // cancellation intent before determining whether remaining blockers permit work.
+  ...[
+    '6e9121087729ce13c540262ef95dbe26a73d4acf7513509304fd23f3b0f7e1ab',
+    '2f8d286d17e0e4c25ccee1dd5040d6ee13a39e04022171900bc970aea0692768',
+  ].map((hash) => ({
+    file: 'packages/db/src/helpers/onboarding-question-actions.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-and-venue',
+  })),
   // Serialize question creation/resolution on the exact tenant+venue run so
   // simultaneous final answers cannot strand an otherwise resumable run.
   {

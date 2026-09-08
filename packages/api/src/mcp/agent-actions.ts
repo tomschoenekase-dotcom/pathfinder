@@ -106,6 +106,7 @@ export function createPathfinderMcpAgentActions(
           question: input.question,
           ...(input.context ? { context: input.context } : {}),
           choices: input.choices,
+          ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
           blocking: input.blocking,
         },
         db,
@@ -124,6 +125,7 @@ export function createPathfinderMcpAgentActions(
           blocking: result.question.blocking,
           replayed: result.replayed,
           updatedAt: result.question.updatedAt.toISOString(),
+          expiresAt: result.question.expiresAt?.toISOString() ?? null,
         },
       }
     },

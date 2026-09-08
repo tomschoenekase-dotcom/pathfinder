@@ -597,6 +597,9 @@ export const supportRouter = router({
           onboardingResume: {
             linked: resume.linked,
             replayed: resume.replayed,
+            ...('questionExpired' in resume && resume.questionExpired
+              ? { questionExpired: true as const }
+              : {}),
             executionTriggered: dispatchStatus === 'ENQUEUED',
             dispatchStatus,
           },
@@ -604,7 +607,12 @@ export const supportRouter = router({
       } catch (error) {
         if (error instanceof OnboardingQuestionActionError)
           throw new TRPCError({
-            code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+            code:
+              error.code === 'EXPIRED'
+                ? 'PRECONDITION_FAILED'
+                : error.code === 'INVALID_INPUT'
+                  ? 'BAD_REQUEST'
+                  : error.code,
             message: error.message,
           })
         return supportActionError(error)

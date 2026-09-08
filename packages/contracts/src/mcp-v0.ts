@@ -1359,6 +1359,7 @@ export const McpAskOperatorInput = McpRequestedScope.extend({
   question: z.string().trim().min(1).max(2_000),
   context: z.string().trim().min(1).max(2_000).optional(),
   choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+  expiresAt: z.string().datetime({ offset: true }).optional(),
   blocking: z.boolean().default(true),
 }).strict()
 export type McpAskOperatorInput = z.infer<typeof McpAskOperatorInput>
@@ -3419,6 +3420,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         question: { type: 'string', minLength: 1, maxLength: 2000 },
         context: { type: 'string', minLength: 1, maxLength: 2000 },
+        expiresAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'Optional explicit response cutoff. Omit to keep the question open without automatic expiry.',
+        },
         choices: {
           type: 'array',
           maxItems: 8,

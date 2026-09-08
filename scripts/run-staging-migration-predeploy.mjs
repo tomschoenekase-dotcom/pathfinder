@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-232-20260908',
+  approval: 'torchiko-staging-lineage-to-233-20260908',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 232,
+  migrationCount: 233,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -123,9 +123,12 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260908120000_add_agent_question_discussion',
-  manifestHash: '6efdf9554ce6b21ccff2aacecaea07581b80dfb312ca262a3a7ea92a86f5c27e',
-  // Exact 232 candidate boundary; retained relational proof is recorded separately.
+  discussionPredecessorCount: 232,
+  discussionPredecessorPublicTableCount: 255,
+  discussionPredecessorFinalMigration: '20260908120000_add_agent_question_discussion',
+  finalMigration: '20260908130000_add_agent_question_expiry',
+  manifestHash: '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
+  // Exact 233 candidate boundary; retained relational proof is recorded separately.
   finalPublicTableCount: 255,
 })
 
@@ -422,6 +425,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.workerLifecyclePredecessorCount &&
     rows.length !== EXPECTED.websiteDiscoveryPredecessorCount &&
     rows.length !== EXPECTED.questionProvenancePredecessorCount &&
+    rows.length !== EXPECTED.discussionPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -497,6 +501,7 @@ function ledgerState(rows, manifest) {
     return 'website-discovery-predecessor'
   if (rows.length === EXPECTED.questionProvenancePredecessorCount)
     return 'question-provenance-predecessor'
+  if (rows.length === EXPECTED.discussionPredecessorCount) return 'discussion-predecessor'
   return 'complete'
 }
 
@@ -691,6 +696,7 @@ export function expectedPublicTableCount(state) {
     'worker-lifecycle-predecessor': EXPECTED.workerLifecyclePredecessorPublicTableCount,
     'website-discovery-predecessor': EXPECTED.websiteDiscoveryPredecessorPublicTableCount,
     'question-provenance-predecessor': EXPECTED.questionProvenancePredecessorPublicTableCount,
+    'discussion-predecessor': EXPECTED.discussionPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

@@ -224,6 +224,11 @@ export function FounderQuestionTriageBoard({
                           {dueLabel(question.dueAt, generatedAt)}
                         </span>
                       ) : null}
+                      {question.expiresAt ? (
+                        <span className="text-xs font-semibold text-amber-950">
+                          Response closes {createdTime(question.expiresAt)}
+                        </span>
+                      ) : null}
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
                         {label(question.category)}
                       </span>
@@ -279,6 +284,8 @@ export function FounderQuestionTriageBoard({
                   venueId={question.venueId}
                   questionId={question.id}
                   expectedUpdatedAt={question.updatedAt}
+                  expiresAt={question.expiresAt}
+                  agentRunId={question.agentRunId}
                   questionType={question.questionType}
                   choices={question.choices}
                   recipients={[]}

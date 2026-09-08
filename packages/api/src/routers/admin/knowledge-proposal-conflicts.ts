@@ -146,7 +146,7 @@ export const adminKnowledgeProposalConflictRouter = router({
             code:
               error.code === 'INVALID_INPUT'
                 ? 'BAD_REQUEST'
-                : error.code === 'FORBIDDEN'
+                : error.code === 'FORBIDDEN' || error.code === 'EXPIRED'
                   ? 'PRECONDITION_FAILED'
                   : error.code,
             message: error.message,

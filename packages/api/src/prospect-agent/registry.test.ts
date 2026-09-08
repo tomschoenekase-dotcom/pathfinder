@@ -369,6 +369,7 @@ describe('prospect agent registry', () => {
       {
         operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         question: 'Which contact should I draft for?',
+        expiresAt: '2030-01-01T18:00:00.000Z',
         evidence: [{ kind: 'CRM_FIELD', reference: 'contact:ambiguous' }],
       },
       invocation,
@@ -380,8 +381,25 @@ describe('prospect agent registry', () => {
         agentIdentityId: 'agent-1',
         agentRunId: 'run-1',
         category: 'prospect-crm',
+        expiresAt: new Date('2030-01-01T18:00:00.000Z'),
       }),
     )
+  })
+
+  it('keeps legacy operator questions without an expiry compatible', async () => {
+    mocks.askQuestion.mockResolvedValue({ question: { id: 'question-1' } })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context({ capabilities: ['prospects.question'] })),
+    })
+    await registry.callTool(
+      'torchiko.prospects.ask_operator',
+      {
+        operationId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        question: 'Which contact should I draft for?',
+      },
+      invocation,
+    )
+    expect(mocks.askQuestion.mock.calls[0]?.[0]).not.toHaveProperty('expiresAt')
   })
 
   it('rejects unknown and forbidden high-risk tool names before resolving authority', async () => {

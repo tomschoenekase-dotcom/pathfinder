@@ -843,6 +843,15 @@ export type {
   AskAgentQuestionInput,
 } from './helpers/agent-question-actions'
 export {
+  expireAgentQuestionIfDue,
+  expireAgentQuestionsAction,
+} from './helpers/agent-question-expiration-actions'
+export type {
+  AgentQuestionExpirationClient,
+  AgentQuestionExpirationResult,
+  AgentQuestionExpirationTransaction,
+} from './helpers/agent-question-expiration-actions'
+export {
   AgentQuestionDiscussionActionError,
   appendAgentQuestionDiscussionAction,
 } from './helpers/agent-question-discussion-actions'

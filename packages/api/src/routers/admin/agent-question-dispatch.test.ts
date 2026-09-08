@@ -153,4 +153,13 @@ describe('durable founder answer and worker wake-up', () => {
     expect(mocks.answer).not.toHaveBeenCalled()
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
+  it('reports the committed expiry as a failed precondition and never dispatches', async () => {
+    mocks.answer.mockRejectedValue(
+      new AgentQuestionActionError('EXPIRED', 'The response window closed'),
+    )
+    await expect(app.createCaller(context).admin.answerAgentQuestion(input)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    })
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
 })

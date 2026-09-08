@@ -80,6 +80,9 @@ export const AGENT_RUN_QUEUE = queueName('agent-run')
 export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
 export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
 
+export const AGENT_QUESTION_MAINTENANCE_QUEUE = queueName('agent-question-maintenance')
+export const AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB = 'agent-question-expiration-scheduler'
+
 export const PROSPECT_IMPORT_QUEUE = queueName('prospect-import')
 export const PROSPECT_IMPORT_COMMIT_JOB = 'prospect-import-commit'
 export const PROSPECT_IMPORT_INSPECT_JOB = 'prospect-import-inspect'
@@ -139,6 +142,7 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   EVALUATION_RUN_QUEUE,
   GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
   AGENT_RUN_QUEUE,
+  AGENT_QUESTION_MAINTENANCE_QUEUE,
   PROSPECT_IMPORT_QUEUE,
   GMAIL_SYNC_QUEUE,
   BILLING_RECONCILIATION_QUEUE,

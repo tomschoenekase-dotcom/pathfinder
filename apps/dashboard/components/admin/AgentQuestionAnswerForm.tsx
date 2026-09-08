@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
 
 type Props = {
   tenantId: string
@@ -26,6 +27,8 @@ type Props = {
     user: { fullName: string | null; email: string }
   }>
   canRouteToClient: boolean
+  expiresAt?: Date | null
+  agentRunId?: string | null
 }
 
 type AnswerPayload = {
@@ -37,6 +40,18 @@ type AnswerPayload = {
   answer: string
 }
 
+function isExpiredResponse(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'data' in error &&
+    typeof error.data === 'object' &&
+    error.data !== null &&
+    'code' in error.data &&
+    error.data.code === 'PRECONDITION_FAILED'
+  )
+}
+
 export function AgentQuestionAnswerForm({
   tenantId,
   venueId,
@@ -46,6 +61,8 @@ export function AgentQuestionAnswerForm({
   choices,
   recipients,
   canRouteToClient,
+  expiresAt,
+  agentRunId,
 }: Props) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -54,6 +71,7 @@ export function AgentQuestionAnswerForm({
   const [selectedChoices, setSelectedChoices] = useState<string[]>([])
   const [multiSelectContext, setMultiSelectContext] = useState('')
   const [pending, setPending] = useState(false)
+  const [expired, setExpired] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [unconfirmedWakeup, setUnconfirmedWakeup] = useState<{
     scope: string
@@ -97,9 +115,21 @@ export function AgentQuestionAnswerForm({
     active.current = false
   }, [scope])
 
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const update = () => {
+      const remaining = expiresAt ? new Date(expiresAt).getTime() - Date.now() : Infinity
+      setExpired(remaining <= 0)
+      if (Number.isFinite(remaining) && remaining > 0)
+        timer = setTimeout(update, Math.min(remaining, 2_147_483_647))
+    }
+    update()
+    return () => clearTimeout(timer)
+  }, [scope, expiresAt])
+
   async function submit(outcome: 'ANSWERED' | 'DISMISSED') {
     const value = retryWakeup?.payload.answer ?? currentAnswer
-    if (!value || value.length > 5_000 || active.current) return
+    if (!value || value.length > 5_000 || active.current || (expired && !retryWakeup)) return
     const payload: AnswerPayload = retryWakeup?.payload ?? {
       tenantId,
       venueId,
@@ -133,8 +163,13 @@ export function AgentQuestionAnswerForm({
             : 'Response recorded. No run resumed and no action was approved.',
       )
       router.refresh()
-    } catch {
+    } catch (error) {
       if (generation.current !== requestGeneration) return
+      if (isExpiredResponse(error) && !retryWakeup) {
+        setExpired(true)
+        router.refresh()
+        return
+      }
       setFeedback(
         retryWakeup
           ? 'The answer is already recorded, but worker wake-up is still unconfirmed. Retry the same wake-up.'
@@ -149,7 +184,15 @@ export function AgentQuestionAnswerForm({
   }
 
   async function routeToClient() {
-    if (!recipientUserId || !why.trim() || !effect.trim() || active.current || retryWakeup) return
+    if (
+      !recipientUserId ||
+      !why.trim() ||
+      !effect.trim() ||
+      active.current ||
+      retryWakeup ||
+      expired
+    )
+      return
     const requestGeneration = generation.current
     active.current = true
     setPending(true)
@@ -171,8 +214,13 @@ export function AgentQuestionAnswerForm({
       if (result.approvalGranted !== false) throw new Error('Unexpected approval state')
       setFeedback('Question sent to the selected venue contact. No approval was granted.')
       router.refresh()
-    } catch {
+    } catch (error) {
       if (generation.current !== requestGeneration) return
+      if (isExpiredResponse(error)) {
+        setExpired(true)
+        router.refresh()
+        return
+      }
       setFeedback('The question could not be routed. Refresh before retrying.')
     } finally {
       if (generation.current === requestGeneration) {
@@ -182,8 +230,18 @@ export function AgentQuestionAnswerForm({
     }
   }
 
+  if (expired && !retryWakeup)
+    return (
+      <AgentQuestionExpiryNotice tenantId={tenantId} venueId={venueId} agentRunId={agentRunId} />
+    )
+
   return (
     <form className="mt-4" aria-busy={pending}>
+      {expiresAt ? (
+        <p className="mb-3 text-xs text-slate-700">
+          Response window closes {new Date(expiresAt).toLocaleString()}.
+        </p>
+      ) : null}
       {effectiveChoices.length ? (
         <div
           className="mb-3 flex flex-wrap gap-2"

@@ -14,6 +14,7 @@ export const attentionQuestionSelect = {
   urgency: true,
   choices: true,
   dueAt: true,
+  expiresAt: true,
   evidence: true,
   proposedAnswer: true,
   blocking: true,
