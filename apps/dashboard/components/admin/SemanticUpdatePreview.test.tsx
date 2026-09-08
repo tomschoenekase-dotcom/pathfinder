@@ -7,6 +7,7 @@ const query = vi.fn()
 const mutate = vi.fn()
 const mutateOperational = vi.fn()
 const mutateQuestion = vi.fn()
+const listTemporalEvidence = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
@@ -14,6 +15,7 @@ vi.mock('../../lib/trpc', () => ({
       createSemanticVenueUpdatePackageDraft: { mutate },
       createSemanticOperationalUpdateDraft: { mutate: mutateOperational },
       createSemanticConflictQuestion: { mutate: mutateQuestion },
+      listKnowledgeProposalTemporalEvidence: { query: listTemporalEvidence },
     },
   }),
 }))
@@ -26,6 +28,55 @@ describe('SemanticUpdatePreview', () => {
     cleanup()
     vi.useRealTimers()
     vi.clearAllMocks()
+  })
+
+  function temporalEvidence(key = 'review:closure') {
+    return {
+      key,
+      reference: {
+        reviewReceiptId: '11111111-1111-4111-8111-111111111112',
+        expectedSnapshotHash: 'e'.repeat(64),
+        claimId: 'east-gallery-closure',
+      },
+      desired: {
+        title: 'East gallery closure',
+        category: 'access',
+        content: 'The east gallery is temporarily closed.',
+        isEnabled: true,
+      },
+      validFrom: '2030-01-01T08:00:00.123Z',
+      validUntil: '2030-01-01T12:00:00.456Z',
+      reviewedAt: '2029-12-31T16:00:00.000Z',
+      sourceNames: ['closure-notice.png', 'second-notice.png'],
+    }
+  }
+
+  it('drops reviewed source selection when the review form is closed', async () => {
+    listTemporalEvidence.mockResolvedValue({
+      items: [temporalEvidence()],
+      nextCursor: null,
+      requiresTemporalEvidence: true,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use reviewed source' }))
+    expect(screen.getByRole('button', { name: 'Reviewed source selected' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    expect(await screen.findByRole('button', { name: 'Use reviewed source' })).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
   })
 
   it('computes and renders one correction without publication controls', async () => {
@@ -125,6 +176,11 @@ describe('SemanticUpdatePreview', () => {
   })
 
   it('creates a separate inactive operational DRAFT for a temporal preview', async () => {
+    listTemporalEvidence.mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      requiresTemporalEvidence: false,
+    })
     query.mockResolvedValue({
       classification: 'TEMPORAL',
       operationCount: 1,
@@ -171,6 +227,9 @@ describe('SemanticUpdatePreview', () => {
     fireEvent.change(screen.getByLabelText('Operational update type'), {
       target: { value: 'TEMPORARY_CLOSURE' },
     })
+    await screen.findByText(
+      'No current dated sources appear on this review page. Check an earlier reviewed page if one is available.',
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
 
     expect(await screen.findByText('TEMPORAL')).toBeTruthy()
@@ -285,9 +344,7 @@ describe('SemanticUpdatePreview', () => {
     await act(async () => vi.advanceTimersByTimeAsync(15_000))
 
     expect(signal.aborted).toBe(true)
-    expect(screen.getByRole('alert').textContent).toContain(
-      'Semantic preview could not be loaded in time',
-    )
+    expect(screen.getByRole('alert').textContent).toContain('Semantic preview could not be loaded')
     expect(
       (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
         .disabled,
@@ -324,5 +381,317 @@ describe('SemanticUpdatePreview', () => {
     })
     expect(signal?.aborted).toBe(true)
     expect(screen.queryByText(/Semantic preview could not/)).toBeNull()
+  })
+
+  it('forwards an exact selected reviewed source, including millisecond dates, to preview and DRAFT', async () => {
+    const evidence = temporalEvidence()
+    listTemporalEvidence.mockResolvedValue({
+      items: [evidence],
+      nextCursor: null,
+      requiresTemporalEvidence: true,
+    })
+    query.mockResolvedValue({
+      classification: 'TEMPORAL',
+      operationCount: 1,
+      authority: 'PUBLIC_SECONDARY',
+      confidence: 0.8,
+      blockers: [],
+      questions: [],
+      proposalStatus: 'APPROVED',
+      previewHash: 'b'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: { status: 'DRAFT' },
+    })
+    mutateOperational.mockResolvedValue({
+      operationalUpdateId: 'update-a',
+      operationalUpdateStatus: 'DRAFT',
+      replayed: false,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    expect(await screen.findByText('East gallery closure')).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Use reviewed source' }))
+    expect((screen.getByLabelText('Visitor-facing title') as HTMLInputElement).value).toBe(
+      evidence.desired.title,
+    )
+    expect((screen.getByLabelText('Visitor-facing content') as HTMLTextAreaElement).value).toBe(
+      evidence.desired.content,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    await screen.findByText('TEMPORAL')
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        temporalEvidence: evidence.reference,
+        validFrom: evidence.validFrom,
+        validUntil: evidence.validUntil,
+        desired: evidence.desired,
+      }),
+      { signal: expect.any(AbortSignal) },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create operational update DRAFT' }))
+    await screen.findByText(/Created DRAFT/)
+    expect(mutateOperational).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temporalEvidence: evidence.reference,
+        validFrom: evidence.validFrom,
+        validUntil: evidence.validUntil,
+      }),
+    )
+  })
+
+  it('clears a selected reviewed source when bound text is edited', async () => {
+    listTemporalEvidence.mockResolvedValue({
+      items: [temporalEvidence()],
+      nextCursor: null,
+      requiresTemporalEvidence: true,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    await screen.findByText('East gallery closure')
+    fireEvent.click(screen.getByRole('button', { name: 'Use reviewed source' }))
+    expect(screen.getByRole('button', { name: 'Reviewed source selected' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Edited closure.' },
+    })
+    expect(screen.getByRole('button', { name: 'Use reviewed source' })).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('shows a bounded next page without retaining earlier choices', async () => {
+    const first = temporalEvidence('first')
+    const second = temporalEvidence('second')
+    listTemporalEvidence
+      .mockResolvedValueOnce({
+        items: [first],
+        nextCursor: {
+          receiptId: first.reference.reviewReceiptId,
+          createdAt: '2030-01-01T00:00:00.000Z',
+          claimOffset: 1,
+        },
+        requiresTemporalEvidence: false,
+      })
+      .mockResolvedValueOnce({ items: [second], nextCursor: null, requiresTemporalEvidence: false })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    await screen.findByText('East gallery closure')
+    fireEvent.click(screen.getByRole('button', { name: 'Load next sources' }))
+    await waitFor(() => expect(listTemporalEvidence).toHaveBeenCalledTimes(2))
+    expect(listTemporalEvidence).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cursor: {
+          receiptId: first.reference.reviewReceiptId,
+          createdAt: '2030-01-01T00:00:00.000Z',
+          claimOffset: 1,
+        },
+      }),
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(screen.getAllByText('East gallery closure')).toHaveLength(1)
+  })
+
+  it('keeps temporal discovery errors and empty results explicit', async () => {
+    listTemporalEvidence.mockRejectedValueOnce(new Error('Current review changed.'))
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    expect((await screen.findByRole('alert')).textContent).toContain('Current review changed.')
+    listTemporalEvidence.mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      requiresTemporalEvidence: false,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh sources' }))
+    expect(
+      await screen.findByText(
+        'No current dated sources appear on this review page. Check an earlier reviewed page if one is available.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('clears an invisible selection when refresh returns an empty current page', async () => {
+    listTemporalEvidence
+      .mockResolvedValueOnce({
+        items: [temporalEvidence()],
+        nextCursor: null,
+        requiresTemporalEvidence: true,
+      })
+      .mockResolvedValueOnce({ items: [], nextCursor: null, requiresTemporalEvidence: true })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    await screen.findByText('East gallery closure')
+    fireEvent.click(screen.getByRole('button', { name: 'Use reviewed source' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh sources' }))
+    await screen.findByText(
+      'No current dated sources appear on this review page. Check an earlier reviewed page if one is available.',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('does not attach a late operational DRAFT result to a replacement scope', async () => {
+    let resolveDraft: ((value: unknown) => void) | undefined
+    listTemporalEvidence.mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      requiresTemporalEvidence: false,
+    })
+    query.mockResolvedValue({
+      classification: 'TEMPORAL',
+      operationCount: 1,
+      authority: 'PUBLIC_SECONDARY',
+      confidence: 0.8,
+      blockers: [],
+      questions: [],
+      proposalStatus: 'APPROVED',
+      previewHash: 'b'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: { status: 'DRAFT' },
+    })
+    mutateOperational.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDraft = resolve
+        }),
+    )
+    const view = render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'access' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Closure' },
+    })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Closed.' },
+    })
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    fireEvent.change(screen.getByLabelText('Starts at'), { target: { value: '2030-01-01T08:00' } })
+    fireEvent.change(screen.getByLabelText('Expires at'), { target: { value: '2030-01-01T12:00' } })
+    await screen.findByText(
+      'No current dated sources appear on this review page. Check an earlier reviewed page if one is available.',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    await screen.findByText('TEMPORAL')
+    fireEvent.click(screen.getByRole('button', { name: 'Create operational update DRAFT' }))
+    view.rerender(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-b"
+        proposalId="22222222-2222-4222-8222-222222222222"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    resolveDraft?.({
+      operationalUpdateId: 'old',
+      operationalUpdateStatus: 'DRAFT',
+      replayed: false,
+    })
+    await act(async () => {})
+    expect(screen.queryByText(/Created DRAFT/)).toBeNull()
+    expect(screen.queryByText(/could not be created/)).toBeNull()
+  })
+
+  it('does not render a late temporal listing after the proposal scope changes', async () => {
+    let resolveOld: ((value: unknown) => void) | undefined
+    const old = temporalEvidence('old')
+    const fresh = {
+      ...temporalEvidence('fresh'),
+      desired: { ...temporalEvidence().desired, title: 'Current review closure' },
+    }
+    listTemporalEvidence
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve
+          }),
+      )
+      .mockResolvedValueOnce({ items: [fresh], nextCursor: null, requiresTemporalEvidence: false })
+    const view = render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByLabelText('Time-bounded operational fact'))
+    expect(screen.getByText('Reading sources…')).toBeTruthy()
+    await waitFor(() => expect(listTemporalEvidence).toHaveBeenCalledTimes(1))
+    view.rerender(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-b"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget={false}
+      />,
+    )
+    await waitFor(() => expect(listTemporalEvidence).toHaveBeenCalledTimes(2))
+    resolveOld?.({ items: [old], nextCursor: null, requiresTemporalEvidence: true })
+    await act(async () => {})
+    expect(screen.queryByText(old.desired.title)).toBeNull()
+    expect(await screen.findByText('Current review closure')).toBeTruthy()
   })
 })

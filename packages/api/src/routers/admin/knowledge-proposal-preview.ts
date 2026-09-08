@@ -1,6 +1,11 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
+import {
+  KnowledgeProposalTemporalEvidenceOptionsError,
+  ListKnowledgeProposalTemporalEvidenceInput,
+  listKnowledgeProposalTemporalEvidenceOptions,
+} from '../../lib/knowledge-proposal-temporal-evidence-options'
 
 import { router } from '../../core'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
@@ -14,6 +19,21 @@ import { adminProcedure } from '../../trpc'
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
 export const adminKnowledgeProposalPreviewRouter = router({
+  listKnowledgeProposalTemporalEvidence: adminProcedure
+    .input(ListKnowledgeProposalTemporalEvidenceInput)
+    .query(async ({ ctx, input }) => {
+      try {
+        return await listKnowledgeProposalTemporalEvidenceOptions({ db: ctx.db, input })
+      } catch (error) {
+        if (error instanceof KnowledgeProposalTemporalEvidenceOptionsError) {
+          throw new TRPCError({
+            code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
   previewSemanticVenueUpdate: adminProcedure
     .input(
       z

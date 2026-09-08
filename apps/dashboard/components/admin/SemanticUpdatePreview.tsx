@@ -1,13 +1,18 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+import {
+  TemporalEvidenceSelector,
+  type TemporalEvidenceItem,
+  type TemporalEvidenceReference,
+} from './TemporalEvidenceSelector'
 
 const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
 
@@ -60,6 +65,15 @@ export function SemanticUpdatePreview({
   const [temporal, setTemporal] = useState(false)
   const [validFrom, setValidFrom] = useState('')
   const [validUntil, setValidUntil] = useState('')
+  const [validFromExact, setValidFromExact] = useState<string | null>(null)
+  const [validUntilExact, setValidUntilExact] = useState<string | null>(null)
+  const [temporalEvidence, setTemporalEvidence] = useState<TemporalEvidenceReference | null>(null)
+  const [temporalEvidenceKey, setTemporalEvidenceKey] = useState<string | null>(null)
+  const [temporalEvidenceScope, setTemporalEvidenceScope] = useState<string | null>(null)
+  const [requiresTemporalEvidence, setRequiresTemporalEvidence] = useState<boolean | null>(false)
+  const [temporalEvidenceRequirementScope, setTemporalEvidenceRequirementScope] = useState<
+    string | null
+  >(null)
   const [operationalUpdateType, setOperationalUpdateType] = useState<
     | 'GENERAL_NOTICE'
     | 'TEMPORARY_CLOSURE'
@@ -84,6 +98,17 @@ export function SemanticUpdatePreview({
   const scope = `${tenantId}:${venueId}:${proposalId}:${new Date(proposalUpdatedAt).toISOString()}`
   const currentScope = useRef(scope)
   currentScope.current = scope
+  const selectedTemporalEvidence = temporalEvidenceScope === scope ? temporalEvidence : null
+  const selectedTemporalEvidenceKey = temporalEvidenceScope === scope ? temporalEvidenceKey : null
+  const scopedTemporalEvidenceRequirement =
+    temporalEvidenceRequirementScope === scope ? requiresTemporalEvidence : null
+  const handleTemporalEvidenceRequirement = useCallback(
+    (required: boolean | null) => {
+      setRequiresTemporalEvidence(required)
+      setTemporalEvidenceRequirementScope(scope)
+    },
+    [scope],
+  )
 
   useEffect(() => {
     requestSequence.current += 1
@@ -96,6 +121,14 @@ export function SemanticUpdatePreview({
     setOperationalDraft(null)
     setConflictQuestion(null)
     setQuestionAgentIdentityId('')
+    setCreating(false)
+    setTemporalEvidence(null)
+    setTemporalEvidenceKey(null)
+    setTemporalEvidenceScope(null)
+    setValidFromExact(null)
+    setValidUntilExact(null)
+    setRequiresTemporalEvidence(null)
+    setTemporalEvidenceRequirementScope(null)
     setError(null)
   }, [scope])
 
@@ -108,7 +141,7 @@ export function SemanticUpdatePreview({
     [],
   )
 
-  function invalidatePreview() {
+  function invalidatePreview(clearTemporalEvidence = false) {
     requestSequence.current += 1
     activeRequest.current?.abort()
     activeRequest.current = null
@@ -119,7 +152,43 @@ export function SemanticUpdatePreview({
     setOperationalDraft(null)
     setConflictQuestion(null)
     setQuestionAgentIdentityId('')
+    if (clearTemporalEvidence) {
+      setTemporalEvidence(null)
+      setTemporalEvidenceKey(null)
+      setTemporalEvidenceScope(null)
+      setValidFromExact(null)
+      setValidUntilExact(null)
+    }
     setError(null)
+  }
+
+  function inputDateTime(value: string) {
+    const date = new Date(value)
+    const offset = date.getTimezoneOffset()
+    return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, -1)
+  }
+
+  function exactOrEnteredDate(exact: string | null, entered: string) {
+    return exact ?? new Date(entered).toISOString()
+  }
+
+  function selectTemporalEvidence(item: TemporalEvidenceItem) {
+    invalidatePreview()
+    setTemporalEvidence(item.reference)
+    setTemporalEvidenceKey(item.key)
+    setTemporalEvidenceScope(scope)
+    setTitle(item.desired.title)
+    setCategory(item.desired.category)
+    setContent(item.desired.content)
+    setIsEnabled(item.desired.isEnabled)
+    setValidFrom(inputDateTime(item.validFrom))
+    setValidUntil(inputDateTime(item.validUntil))
+    setValidFromExact(item.validFrom)
+    setValidUntilExact(item.validUntil)
+  }
+
+  function clearBoundTemporalEvidence() {
+    invalidatePreview(true)
   }
 
   async function inspect() {
@@ -152,9 +221,12 @@ export function SemanticUpdatePreview({
               },
               ...(temporal
                 ? {
-                    validFrom: new Date(validFrom).toISOString(),
-                    validUntil: new Date(validUntil).toISOString(),
+                    validFrom: exactOrEnteredDate(validFromExact, validFrom),
+                    validUntil: exactOrEnteredDate(validUntilExact, validUntil),
                     operationalUpdateType,
+                    ...(selectedTemporalEvidence
+                      ? { temporalEvidence: selectedTemporalEvidence }
+                      : {}),
                   }
                 : {}),
             },
@@ -170,10 +242,16 @@ export function SemanticUpdatePreview({
           next.conflictQuestion?.agentIdentityId ?? next.questionAgentIdentities?.[0]?.id ?? '',
         )
       }
-    } catch {
+    } catch (cause) {
       if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
         setPreview(null)
-        setError('Semantic preview could not be loaded in time. Retry the unchanged proposal.')
+        setError(
+          cause instanceof Error && cause.message
+            ? cause.message === 'DEADLINE_EXCEEDED'
+              ? 'Semantic preview could not be loaded. Retry the unchanged proposal.'
+              : cause.message
+            : 'Semantic preview could not be loaded. Retry the unchanged proposal.',
+        )
       }
     } finally {
       if (activeRequest.current === controller) activeRequest.current = null
@@ -210,8 +288,8 @@ export function SemanticUpdatePreview({
         },
         ...(temporal
           ? {
-              validFrom: new Date(validFrom).toISOString(),
-              validUntil: new Date(validUntil).toISOString(),
+              validFrom: exactOrEnteredDate(validFromExact, validFrom),
+              validUntil: exactOrEnteredDate(validUntilExact, validUntil),
               operationalUpdateType,
             }
           : {}),
@@ -227,6 +305,8 @@ export function SemanticUpdatePreview({
 
   async function createOperationalDraft() {
     if (!preview?.operationalUpdateDraft || preview.proposalStatus !== 'APPROVED') return
+    const startedScope = scope
+    const startedSequence = requestSequence.current
     setCreating(true)
     setError(null)
     try {
@@ -243,17 +323,24 @@ export function SemanticUpdatePreview({
           content: content.trim(),
           isEnabled,
         },
-        validFrom: new Date(validFrom).toISOString(),
-        validUntil: new Date(validUntil).toISOString(),
+        validFrom: exactOrEnteredDate(validFromExact, validFrom),
+        validUntil: exactOrEnteredDate(validUntilExact, validUntil),
         operationalUpdateType,
+        ...(selectedTemporalEvidence ? { temporalEvidence: selectedTemporalEvidence } : {}),
       })
-      setOperationalDraft(created)
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setOperationalDraft(created)
+      }
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : 'Operational update DRAFT could not be created.',
-      )
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setError(
+          cause instanceof Error ? cause.message : 'Operational update DRAFT could not be created.',
+        )
+      }
     } finally {
-      setCreating(false)
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setCreating(false)
+      }
     }
   }
 
@@ -306,12 +393,12 @@ export function SemanticUpdatePreview({
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
             Venue Updater
           </p>
-          <h2 className="mt-1 font-semibold text-slate-950">Smallest coherent patch</h2>
+          <h2 className="mt-1 font-semibold text-slate-950">Review proposed update</h2>
         </div>
         <button
           type="button"
           onClick={() => {
-            invalidatePreview()
+            invalidatePreview(true)
             setOpen(false)
           }}
           className="min-h-11 rounded-lg px-3 text-sm font-medium text-slate-600"
@@ -320,8 +407,7 @@ export function SemanticUpdatePreview({
         </button>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate-600">
-        Normalize the intended visitor-facing fact. This only computes a review preview; it cannot
-        approve, apply, or publish anything.
+        Review the wording and dates before creating a draft. Previewing does not publish an update.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-medium text-slate-800">
@@ -330,7 +416,7 @@ export function SemanticUpdatePreview({
             value={relation}
             onChange={(event) => {
               setRelation(event.target.value as typeof relation)
-              invalidatePreview()
+              clearBoundTemporalEvidence()
             }}
             className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
           >
@@ -347,7 +433,7 @@ export function SemanticUpdatePreview({
             value={category}
             onChange={(event) => {
               setCategory(event.target.value)
-              invalidatePreview()
+              clearBoundTemporalEvidence()
             }}
             className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
           />
@@ -361,7 +447,7 @@ export function SemanticUpdatePreview({
           value={title}
           onChange={(event) => {
             setTitle(event.target.value)
-            invalidatePreview()
+            clearBoundTemporalEvidence()
           }}
           className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
         />
@@ -375,29 +461,33 @@ export function SemanticUpdatePreview({
           value={content}
           onChange={(event) => {
             setContent(event.target.value)
-            invalidatePreview()
+            clearBoundTemporalEvidence()
           }}
           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
         />
       </label>
-      <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-        <input
-          type="checkbox"
-          checked={isEnabled}
-          onChange={(event) => {
-            setIsEnabled(event.target.checked)
-            invalidatePreview()
-          }}
-        />
-        Enabled in canonical knowledge
-      </label>
+      {!temporal ? (
+        <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={isEnabled}
+            onChange={(event) => {
+              setIsEnabled(event.target.checked)
+              clearBoundTemporalEvidence()
+            }}
+          />
+          Enabled in canonical knowledge
+        </label>
+      ) : null}
       <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
         <input
           type="checkbox"
           checked={temporal}
           onChange={(event) => {
             setTemporal(event.target.checked)
-            invalidatePreview()
+            setRequiresTemporalEvidence(event.target.checked ? null : false)
+            setTemporalEvidenceRequirementScope(event.target.checked ? null : scope)
+            clearBoundTemporalEvidence()
           }}
         />
         Time-bounded operational fact
@@ -408,10 +498,11 @@ export function SemanticUpdatePreview({
             Starts at
             <input
               type="datetime-local"
+              step="any"
               value={validFrom}
               onChange={(event) => {
                 setValidFrom(event.target.value)
-                invalidatePreview()
+                clearBoundTemporalEvidence()
               }}
               className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
             />
@@ -420,10 +511,11 @@ export function SemanticUpdatePreview({
             Expires at
             <input
               type="datetime-local"
+              step="any"
               value={validUntil}
               onChange={(event) => {
                 setValidUntil(event.target.value)
-                invalidatePreview()
+                clearBoundTemporalEvidence()
               }}
               className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
             />
@@ -450,6 +542,19 @@ export function SemanticUpdatePreview({
           </label>
         </div>
       ) : null}
+      {temporal ? (
+        <TemporalEvidenceSelector
+          key={scope}
+          tenantId={tenantId}
+          venueId={venueId}
+          proposalId={proposalId}
+          proposalUpdatedAt={proposalUpdatedAt}
+          selectedKey={selectedTemporalEvidenceKey}
+          onSelect={selectTemporalEvidence}
+          onClearSelection={clearBoundTemporalEvidence}
+          onRequirementChange={handleTemporalEvidenceRequirement}
+        />
+      ) : null}
       <button
         type="button"
         disabled={
@@ -457,7 +562,11 @@ export function SemanticUpdatePreview({
           !title.trim() ||
           !category.trim() ||
           !content.trim() ||
-          (temporal && (!validFrom || !validUntil))
+          (temporal &&
+            (!validFrom ||
+              !validUntil ||
+              scopedTemporalEvidenceRequirement === null ||
+              (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
         }
         onClick={() => void inspect()}
         className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"

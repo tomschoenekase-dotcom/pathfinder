@@ -205,6 +205,7 @@ const expectedAdminProcedures = [
   'listGuestBrandingAssets',
   'listIntakeProposals',
   'listIntakeUploads',
+  'listKnowledgeProposalTemporalEvidence',
   'listKnowledgeProposals',
   'listLegacyContent',
   'listNativeContentShadowRuns',

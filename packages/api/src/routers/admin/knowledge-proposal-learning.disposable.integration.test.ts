@@ -274,6 +274,19 @@ describe.skipIf(!enabled)('knowledge proposal learning durable native fixture', 
       }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
 
+    const evidenceLookup = {
+      tenantId,
+      venueId,
+      proposalId: temporalProposal.id,
+      expectedUpdatedAt: proposal.updatedAt,
+    }
+    await expect(
+      caller.listKnowledgeProposalTemporalEvidence(evidenceLookup),
+    ).resolves.toMatchObject({
+      items: [],
+      nextCursor: null,
+      requiresTemporalEvidence: true,
+    })
     const projectId = `temporal-proposal-project-${suffix}`
     const sourceGeneration = randomUUID()
     const uploadAttemptId = randomUUID()
@@ -440,6 +453,33 @@ describe.skipIf(!enabled)('knowledge proposal learning durable native fixture', 
       expectedSnapshotHash: receipt.snapshotHash,
       claimId: 'closure-0',
     }
+    const options = await caller.listKnowledgeProposalTemporalEvidence(evidenceLookup)
+    expect(options.requiresTemporalEvidence).toBe(true)
+    expect(options.items).toHaveLength(1)
+    expect(options.items[0]).toMatchObject({
+      reference: temporalEvidence,
+      desired,
+      validFrom,
+      validUntil,
+      sourceNames: ['source-a.pdf', 'source-b.pdf'],
+    })
+    if (options.nextCursor) {
+      await expect(
+        caller.listKnowledgeProposalTemporalEvidence({
+          ...evidenceLookup,
+          cursor: options.nextCursor,
+        }),
+      ).resolves.toMatchObject({ items: [], nextCursor: null })
+    }
+    await expect(
+      caller.listKnowledgeProposalTemporalEvidence({
+        ...evidenceLookup,
+        expectedUpdatedAt: new Date('2020-01-01T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow()
+    await expect(
+      caller.listKnowledgeProposalTemporalEvidence({ ...evidenceLookup, venueId: wrongVenueId }),
+    ).rejects.toThrow()
     for (const invalid of [
       {
         ...draftInput,
