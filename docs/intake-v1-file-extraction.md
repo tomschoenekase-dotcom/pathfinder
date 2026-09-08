@@ -28,4 +28,4 @@ An exact retained source receipt can be reused across V1 revisions without fetch
 
 ## Retained local proof
 
-See `docs/evidence/intake-v1-file-extraction-local-2026-09-08.json` for the measured migration, database journey, focused tests and rendered owner status evidence. The connected database test uses an injected local byte transport. It does not prove hosted storage, live Redis delivery, production enablement or publication.
+See `docs/evidence/intake-v1-file-extraction-local-2026-09-08.json` for the measured migration, database journey, focused tests and rendered owner status evidence. The connected database test uses an injected local byte transport. A separate registered-runtime proof is retained in `docs/evidence/intake-v1-file-runtime-local-2026-09-08.json`: actual disposable Redis/BullMQ recovery, worker, database lifecycle and extractor, with only exact file bytes substituted. These proofs do not establish hosted storage, production enablement or publication.
