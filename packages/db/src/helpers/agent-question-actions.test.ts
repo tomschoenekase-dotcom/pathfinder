@@ -180,6 +180,103 @@ describe('agent question actions', () => {
       ),
     ).resolves.toMatchObject({ replayed: true })
   })
+
+  it('releases the interrupted execution owner when the final blocker queues the run', async () => {
+    const pending = {
+      id: 'question-final-blocker',
+      agentRunId: 'run-1',
+      agentIdentityId: 'agent-1',
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      answeredById: null,
+      updatedAt: new Date('2026-09-07T12:00:00.000Z'),
+    }
+    const updateRun = vi.fn().mockResolvedValue({ count: 1 })
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue(pending),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      agentRun: { updateMany: updateRun, findFirst: vi.fn() },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+
+    await expect(
+      answerAgentQuestionAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          questionId: pending.id,
+          expectedUpdatedAt: pending.updatedAt,
+          outcome: 'ANSWERED',
+          answer: 'Capacity is 137.',
+          actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ runEligibleToResume: true })
+    expect(updateRun).toHaveBeenCalledWith({
+      where: {
+        id: 'run-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        status: 'AWAITING_INPUT',
+      },
+      data: {
+        status: 'QUEUED',
+        executionBridgeSessionId: null,
+        executionWorkerId: null,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+        lastHeartbeatAt: null,
+      },
+    })
+  })
+
+  it('retains the execution owner while another blocking question remains', async () => {
+    const pending = {
+      id: 'question-one-of-two',
+      agentRunId: 'run-1',
+      agentIdentityId: 'agent-1',
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      answeredById: null,
+      updatedAt: new Date('2026-09-07T12:00:00.000Z'),
+    }
+    const updateRun = vi.fn()
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue(pending),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        count: vi.fn().mockResolvedValue(1),
+      },
+      agentRun: { updateMany: updateRun },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+
+    await expect(
+      answerAgentQuestionAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          questionId: pending.id,
+          expectedUpdatedAt: pending.updatedAt,
+          outcome: 'ANSWERED',
+          answer: 'Capacity is 137.',
+          actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ runEligibleToResume: false })
+    expect(updateRun).not.toHaveBeenCalled()
+  })
   it('creates an idempotent blocking question and pauses the exact active run', async () => {
     const created = {
       id: 'question-1',

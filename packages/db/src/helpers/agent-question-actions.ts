@@ -457,7 +457,14 @@ export async function answerAgentQuestionAction(
           venueId: input.venueId,
           status: 'AWAITING_INPUT',
         },
-        data: { status: 'QUEUED' },
+        data: {
+          status: 'QUEUED',
+          executionBridgeSessionId: null,
+          executionWorkerId: null,
+          executionLeaseToken: null,
+          executionLeaseExpiresAt: null,
+          lastHeartbeatAt: null,
+        },
       })
       if (transitioned.count === 1) {
         if ((await remainingBlockingQuestions()) === 0) return true

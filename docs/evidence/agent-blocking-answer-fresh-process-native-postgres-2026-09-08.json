@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:14:53.132714+00:00",
+  "baseProductRevision": "0f8467744954a57566810c534123a82d69b17f3e",
+  "result": {
+    "database": "pathfinder_disposable_agent_bridge_a85f9fe8512a",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "migrationCount": 229,
+  "publicTableCount": 254,
+  "timezone": "UTC",
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "migrationSnapshotNote": "Measured against the working tree containing both additive location mapping and answered-owner migrations; integration commits are recorded in the campaign checkpoint.",
+  "measuredSources": [
+    {
+      "path": "packages/db/prisma/migrations/20260908031000_release_answered_agent_execution_owner/migration.sql",
+      "sha256": "57cfa7e0404088c7e5978f954e98a3705a557ba2a20fa4aa22b42341e101b4ca",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-bridge-fresh-process.disposable.integration.test.ts",
+      "sha256": "38a06734f631cc0250e6fe0866ddfab8f8a9f8ec0200d9bb41090755ccae4a50",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-bridge-fresh-process.fixture.ts",
+      "sha256": "a7c13b3bc68010808620dfedb64ea082f4dd912f428d0b0ac5ad6d91a2a41851",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/agent-bridge/http-core.ts",
+      "sha256": "ff4b65d8a95e3d8abc51d68a6c2c76d1b37a140c621313d9b76da57d0cb16835",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+      "sha256": "5b611e7858b3a11c92d7df878be644365a1c22e060396dfb12a9580c2faa596d",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-question-actions.ts",
+      "sha256": "d76a4bd8e0af4f8aaefa6ef76fe22e2e3624189833e628235fac9b67383ff428",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "limitsAndInterpretation": [
+    "Two actual OS subprocesses communicate through a real loopback HTTP bridge and canonical database actions.",
+    "Blocking question persisted after first process exit; final human fixture answer releases old owner and lease; replacement discovers answer from protocol and completes attempt two.",
+    "Live owner clear/replacement and stale completion are denied. No accelerated lease expiry.",
+    "Deterministic adapter derives capacity from persisted answer; this is not live model reasoning, external provider execution, OS reboot or gateway restart proof.",
+    "Prior failed native run 948907f4766d is retained and demonstrated the blocked-answer ownership defect before the fix."
+  ],
+  "proofLog": "{\"timestamp\":\"2026-09-08T03:13:54.573Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\n{\"agentBridgeFreshProcessProof\":{\"executionSurface\":\"actual OS process replacement with deterministic protocol adapter\",\"runId\":\"cmts3i41i00058tj8h1x3cgwe\",\"questionId\":\"cmts3i4gn00098tj80ur6kahq\",\"firstProcessId\":41968,\"replacementProcessId\":41564,\"processRestartObserved\":true,\"leaseExpiryAcceleratedByFixture\":false,\"providerInferenceCalled\":false,\"artifactState\":\"COMPLETED\",\"blockedStatusObserved\":\"AWAITING_INPUT\",\"answeredStatusObserved\":\"ANSWERED\",\"derivedCapacity\":\"137\"}}\nJSON report written to C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-agent-bridge-fresh-process-a85f9fe8512a/vitest.json\n",
+  "retainedFiles": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a\\result.json",
+      "sha256": "40dec3621b0fe4e5ecb8ac18978aa2cce7daf1a943c44a3122f29a0d47358ec8"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a\\vitest.json",
+      "sha256": "3b39c69aeac26a8a7538a7d1ac6d2394591068bed11fb388a1b22da89e58eaad"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a\\vitest.log",
+      "sha256": "1c5ab32edd8741866c098efa3a7f75e22d66c5a6a7adc1af9867f750fc2c18f0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a\\database-readback.log",
+      "sha256": "69c45df7f1fa2dee4879d1a01157a28625f35fb011d56d0cfd9cab7a7215778a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-a85f9fe8512a\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ]
+}
