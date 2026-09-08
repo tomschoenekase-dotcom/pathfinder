@@ -19,6 +19,7 @@ import {
   createOperationalUpdateAction,
   createProspectAction,
   db,
+  delegateAgentTaskAction,
   failAgentBridgeTask,
   heartbeatAgentBridgeSession,
   heartbeatAgentBridgeTask,
@@ -30,6 +31,7 @@ import {
   recordProspectInboundReplyAction,
   registerAgentBridgeSession,
   registerAgentWorkerAction,
+  requestAgentRunCancellationAction,
   releaseUndispatchedAiCostAttempt,
   reserveAiCostAttempt,
   updateProspectPipelineAction,
@@ -550,6 +552,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             accessScope: 'VENUE',
             accessCapabilities: ['knowledge.propose'],
             autonomyLevel: 'DRAFT',
+            defaultProvider: 'codex-bridge',
+            defaultModel: 'subscription-default',
             enabled: true,
             createdBy: operator.id,
           },
@@ -563,6 +567,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             accessScope: 'VENUE',
             accessCapabilities: ['locations:propose'],
             autonomyLevel: 'DRAFT',
+            defaultProvider: 'codex-bridge',
+            defaultModel: 'subscription-default',
             enabled: true,
             createdBy: operator.id,
           },
@@ -576,6 +582,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             accessScope: 'VENUE',
             accessCapabilities: ['updates:draft'],
             autonomyLevel: 'DRAFT',
+            defaultProvider: 'codex-bridge',
+            defaultModel: 'subscription-default',
             enabled: true,
             createdBy: operator.id,
           },
@@ -602,6 +610,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             accessScope: 'VENUE',
             accessCapabilities: ['agent-improvements:propose'],
             autonomyLevel: 'DRAFT',
+            defaultProvider: 'codex-bridge',
+            defaultModel: 'subscription-default',
             enabled: true,
             createdBy: operator.id,
           },
@@ -1647,6 +1657,455 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           (event) => event.eventType === 'EXECUTION_COMPLETED',
         ),
       ).toHaveLength(1)
+
+      const analystWorker = workers.find((worker) => worker.role === 'analyst')!
+      const researcherWorkers = workers.filter((worker) => worker.role === 'researcher')
+      const firstResearcherWorker = researcherWorkers[0]!
+      const takeoverResearcherWorker = researcherWorkers[1]!
+      const builderWorker = workers.find((worker) => worker.role === 'venue-builder')!
+      const updaterWorker = workers.find((worker) => worker.role === 'venue-updater')!
+      const orchestratorRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identities.analyst,
+          runType: 'ANALYTICS',
+          requestedOperation: 'coordinate_research_builder_notification_draft',
+          requestPrompt:
+            'Coordinate retained research into a reviewed location proposal and visitor-notification draft.',
+          scopeSnapshot: {
+            requiredWorkerRoles: ['analyst'],
+            requiredWorkerCapabilities: ['agent-improvements:propose'],
+            destructiveActionsAllowed: false,
+            customerContactAllowed: false,
+            publicationAllowed: false,
+          },
+          status: 'QUEUED',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'HUMAN',
+          initiatedById: operator.id,
+          maxAttempts: 2,
+        },
+      })
+      const orchestratorClaim = await claimAgentBridgeTask({
+        sessionId: analystWorker.sessionId,
+        venueId,
+        workerKey: analystWorker.workerKey,
+        credential,
+      })
+      expect(orchestratorClaim.task?.id).toBe(orchestratorRun.id)
+
+      const researchOperationId = randomUUID()
+      const researchDelegationInput = {
+        operationId: researchOperationId,
+        tenantId,
+        venueId,
+        parentAgentRunId: orchestratorRun.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.researcher,
+        instructions: 'Research first-party evidence for the accessible east entrance.',
+        reason: 'The builder requires one retained source-grounded research result.',
+      }
+      const [researchDelegation, researchReplay] = await Promise.all([
+        delegateAgentTaskAction(researchDelegationInput),
+        delegateAgentTaskAction(researchDelegationInput),
+      ])
+      expect([researchDelegation.replayed, researchReplay.replayed].sort()).toEqual([false, true])
+      expect(researchReplay.run.id).toBe(researchDelegation.run.id)
+      const researchClaim = await claimAgentBridgeTask({
+        sessionId: firstResearcherWorker.sessionId,
+        venueId,
+        workerKey: firstResearcherWorker.workerKey,
+        credential,
+      })
+      expect(researchClaim.task?.id).toBe(researchDelegation.run.id)
+      await db.agentRun.update({
+        where: { id: researchDelegation.run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      const researchTakeoverClaim = await claimAgentBridgeTask({
+        sessionId: takeoverResearcherWorker.sessionId,
+        venueId,
+        workerKey: takeoverResearcherWorker.workerKey,
+        credential,
+      })
+      expect(researchTakeoverClaim.task).toMatchObject({
+        id: researchDelegation.run.id,
+        attemptNumber: 2,
+      })
+      await expect(
+        completeAgentBridgeTask({
+          sessionId: firstResearcherWorker.sessionId,
+          venueId,
+          runId: researchDelegation.run.id,
+          leaseToken: researchClaim.task!.leaseToken,
+          summary: 'Stale researcher completion must be rejected.',
+          artifacts: [],
+          modelName: 'subscription-default',
+          costE8Usd: 0n,
+          costStatus: 'UNREPORTED',
+          credential,
+        }),
+      ).rejects.toThrow()
+      await completeAgentBridgeTask({
+        sessionId: takeoverResearcherWorker.sessionId,
+        venueId,
+        runId: researchDelegation.run.id,
+        leaseToken: researchTakeoverClaim.task!.leaseToken,
+        summary: 'First-party onboarding notes support a proposed step-free east entrance.',
+        artifacts: [
+          {
+            type: 'research-result',
+            sourceRef: `SyntheticFixtureInput:accessible-east-${suffix}`,
+            finding: 'step-free east entrance',
+          },
+        ],
+        modelName: 'subscription-default',
+        costE8Usd: 0n,
+        costStatus: 'UNREPORTED',
+        credential,
+      })
+      const retainedResearch = await db.agentRun.findUniqueOrThrow({
+        where: { id: researchDelegation.run.id },
+        select: { id: true, parentAgentRunId: true, status: true, artifacts: true },
+      })
+      expect(retainedResearch).toMatchObject({
+        parentAgentRunId: orchestratorRun.id,
+        status: 'COMPLETED',
+        artifacts: [{ type: 'research-result', finding: 'step-free east entrance' }],
+      })
+
+      const builderOperationId = randomUUID()
+      const builderDelegation = await delegateAgentTaskAction({
+        operationId: builderOperationId,
+        tenantId,
+        venueId,
+        parentAgentRunId: orchestratorRun.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.builder,
+        instructions: `Create a review-only location proposal from retained AgentRun:${retainedResearch.id}.`,
+        reason: 'Convert the retained research result into a bounded builder proposal.',
+      })
+      const builderChainClaim = await claimAgentBridgeTask({
+        sessionId: builderWorker.sessionId,
+        venueId,
+        workerKey: builderWorker.workerKey,
+        credential,
+      })
+      expect(builderChainClaim.task?.id).toBe(builderDelegation.run.id)
+      const chainedLocationProposal = await prepareLocationDraftProposalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        reason: 'Retained specialist research supports an accessible entrance proposal.',
+        evidence: [{ type: 'AgentRun', id: retainedResearch.id }],
+        draft: {
+          stableKey: `chain-east-entrance-${suffix}`,
+          kind: 'ENTRANCE',
+          displayName: 'Accessible east entrance',
+          description: 'Proposed step-free entrance pending human review.',
+          visibility: 'PUBLIC',
+          floorId: null,
+          parentLocationId: null,
+          coordinates: null,
+          mapAnchor: { x: 12, y: 24 },
+          externalMapReference: null,
+          accessibilityMetadata: { stepFree: true },
+        },
+        actor: {
+          type: 'AGENT',
+          role: 'AGENT',
+          actorId: identities.builder,
+          agentIdentityId: identities.builder,
+          agentRunId: builderDelegation.run.id,
+          workerId: builderWorker.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'locations:propose',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: builderOperationId,
+        },
+      })
+      const retainedBuilder = await db.agentRun.findUniqueOrThrow({
+        where: { id: builderDelegation.run.id },
+        select: { id: true, parentAgentRunId: true, status: true },
+      })
+      expect(retainedBuilder).toMatchObject({
+        parentAgentRunId: orchestratorRun.id,
+        status: 'AWAITING_APPROVAL',
+      })
+      const retainedBuilderApproval = await db.approvalRequest.findUniqueOrThrow({
+        where: { id: chainedLocationProposal.approvalRequest.id },
+        select: {
+          id: true,
+          agentRunId: true,
+          proposedAction: true,
+          scopeSnapshot: true,
+          decision: { select: { decision: true } },
+        },
+      })
+      expect(retainedBuilderApproval).toMatchObject({
+        agentRunId: retainedBuilder.id,
+        proposedAction: 'torchiko.locations.create_draft',
+        decision: null,
+      })
+      const retainedBuilderAction = await db.agentAction.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          agentRunId: retainedBuilder.id,
+          actionName: 'torchiko.locations.propose_draft',
+        },
+        select: { id: true, status: true, output: true, afterVersionRef: true },
+      })
+      expect(retainedBuilderAction).toMatchObject({
+        status: 'SUCCEEDED',
+      })
+
+      const notificationOperationId = randomUUID()
+      const notificationDelegation = await delegateAgentTaskAction({
+        operationId: notificationOperationId,
+        tenantId,
+        venueId,
+        parentAgentRunId: orchestratorRun.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.updater,
+        instructions: `Prepare a visitor-notification draft from retained ApprovalRequest:${retainedBuilderApproval.id} and AgentAction:${retainedBuilderAction.id}.`,
+        reason: 'Keep visitors informed only after review; do not publish.',
+      })
+      const notificationClaim = await claimAgentBridgeTask({
+        sessionId: updaterWorker.sessionId,
+        venueId,
+        workerKey: updaterWorker.workerKey,
+        credential,
+      })
+      expect(notificationClaim.task?.id).toBe(notificationDelegation.run.id)
+      const notificationDraft = await createOperationalUpdateAction({
+        tenantId,
+        schedule: false,
+        actor: {
+          type: 'AGENT',
+          role: 'AGENT',
+          actorId: identities.updater,
+          agentIdentityId: identities.updater,
+          agentRunId: notificationDelegation.run.id,
+          workerId: updaterWorker.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'updates:draft',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: notificationOperationId,
+        },
+        fields: {
+          venueId,
+          updateType: 'GENERAL_NOTICE',
+          severity: 'INFO',
+          priority: 'NORMAL',
+          title: 'Accessible entrance information under review',
+          body: 'Updated accessible entrance details are being reviewed before visitor publication.',
+          startsAt: new Date(Date.now() + 60_000),
+          expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      })
+      expect(notificationDraft).toMatchObject({
+        update: { status: 'DRAFT', isActive: false, publishedAt: null },
+        preview: { guestVisibleNow: false },
+      })
+      await completeAgentBridgeTask({
+        sessionId: updaterWorker.sessionId,
+        venueId,
+        runId: notificationDelegation.run.id,
+        leaseToken: notificationClaim.task!.leaseToken,
+        summary: 'Prepared one visitor-notification draft without publication.',
+        artifacts: [
+          { type: 'visitor-notification-draft', operationalUpdateId: notificationDraft.update.id },
+        ],
+        modelName: 'subscription-default',
+        costE8Usd: 0n,
+        costStatus: 'UNREPORTED',
+        credential,
+      })
+      const retainedNotification = await db.agentRun.findUniqueOrThrow({
+        where: { id: notificationDelegation.run.id },
+        select: { id: true, parentAgentRunId: true, status: true, artifacts: true },
+      })
+      expect(retainedNotification).toMatchObject({
+        parentAgentRunId: orchestratorRun.id,
+        status: 'COMPLETED',
+        artifacts: [
+          {
+            type: 'visitor-notification-draft',
+            operationalUpdateId: notificationDraft.update.id,
+          },
+        ],
+      })
+      await expect(
+        db.operationalUpdate.findUniqueOrThrow({
+          where: { id: notificationDraft.update.id },
+          select: { status: true, isActive: true, publishedAt: true },
+        }),
+      ).resolves.toEqual({ status: 'DRAFT', isActive: false, publishedAt: null })
+      await completeAgentBridgeTask({
+        sessionId: analystWorker.sessionId,
+        venueId,
+        runId: orchestratorRun.id,
+        leaseToken: orchestratorClaim.task!.leaseToken,
+        summary:
+          'Coordinated the retained research, builder proposal, and visitor-notification draft.',
+        artifacts: [
+          {
+            type: 'specialist-chain-result',
+            researchAgentRunId: retainedResearch.id,
+            builderAgentRunId: retainedBuilder.id,
+            builderApprovalRequestId: retainedBuilderApproval.id,
+            builderAgentActionId: retainedBuilderAction.id,
+            notificationAgentRunId: retainedNotification.id,
+            operationalUpdateId: notificationDraft.update.id,
+          },
+        ],
+        modelName: 'subscription-default',
+        costE8Usd: 0n,
+        costStatus: 'UNREPORTED',
+        credential,
+      })
+      const retainedOrchestrator = await db.agentRun.findUniqueOrThrow({
+        where: { id: orchestratorRun.id },
+        select: { id: true, status: true, artifacts: true },
+      })
+      expect(retainedOrchestrator).toMatchObject({
+        status: 'COMPLETED',
+        artifacts: [{ type: 'specialist-chain-result' }],
+      })
+
+      const cancelledParent = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identities.analyst,
+          runType: 'ANALYTICS',
+          requestedOperation: 'cancelled_chain_control',
+          scopeSnapshot: {},
+          status: 'QUEUED',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'HUMAN',
+          initiatedById: operator.id,
+        },
+      })
+      const cancellationControlClaim = await claimAgentBridgeTask({
+        sessionId: analystWorker.sessionId,
+        venueId,
+        workerKey: analystWorker.workerKey,
+        credential,
+      })
+      expect(cancellationControlClaim.task?.id).toBe(cancelledParent.id)
+      const ancestryChild = await delegateAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        parentAgentRunId: cancelledParent.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.researcher,
+        instructions: 'Run the ancestry cancellation control.',
+        reason: 'Create one canonical active child before cancelling the root.',
+      })
+      const ancestryChildClaim = await claimAgentBridgeTask({
+        sessionId: firstResearcherWorker.sessionId,
+        venueId,
+        workerKey: firstResearcherWorker.workerKey,
+        credential,
+      })
+      expect(ancestryChildClaim.task?.id).toBe(ancestryChild.run.id)
+      const descendantsBeforeCycleAttempt = await db.agentRun.count({
+        where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
+      })
+      await expect(
+        delegateAgentTaskAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          parentAgentRunId: ancestryChild.run.id,
+          requestingAgentIdentityId: identities.researcher,
+          specialistAgentIdentityId: identities.analyst,
+          instructions: 'This delegation would recreate an ancestor identity cycle.',
+          reason: 'Ancestor identity cycle control.',
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(
+        await db.agentRun.count({
+          where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
+        }),
+      ).toBe(descendantsBeforeCycleAttempt)
+      await requestAgentRunCancellationAction({
+        tenantId,
+        venueId,
+        agentRunId: cancelledParent.id,
+        reason: 'Exercise canonical downstream cancellation fence.',
+        actor: operator,
+      })
+      const cancelledDescendantsBefore = await db.agentRun.count({
+        where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
+      })
+      await expect(
+        delegateAgentTaskAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          parentAgentRunId: ancestryChild.run.id,
+          requestingAgentIdentityId: identities.researcher,
+          specialistAgentIdentityId: identities.builder,
+          instructions: 'This child must not be created below a cancelled ancestor.',
+          reason: 'Cancelled ancestor control.',
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      await expect(
+        delegateAgentTaskAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          parentAgentRunId: cancelledParent.id,
+          requestingAgentIdentityId: identities.analyst,
+          specialistAgentIdentityId: identities.researcher,
+          instructions: 'This child must not be created.',
+          reason: 'Cancellation control.',
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(
+        await db.agentRun.count({
+          where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
+        }),
+      ).toBe(cancelledDescendantsBefore)
+      process.stdout.write(
+        `${JSON.stringify({
+          proof: 'provider-dark-active-orchestrator-specialist-chain-v1',
+          executionSurface: 'in-process canonical actions and bridge protocol simulation',
+          processRestartObserved: false,
+          takeover: {
+            firstAdapter: 'CODEX',
+            replacementAdapter: 'OPENAI_COMPATIBLE',
+            attemptNumber: 2,
+          },
+          lineage: {
+            orchestratorAgentRunId: retainedOrchestrator.id,
+            researchAgentRunId: retainedResearch.id,
+            builderAgentRunId: retainedBuilder.id,
+            notificationAgentRunId: retainedNotification.id,
+            operationalUpdateId: notificationDraft.update.id,
+          },
+          visitorNotificationDraft: { status: 'DRAFT', published: false, sent: false },
+          builderResult: {
+            status: 'AWAITING_APPROVAL',
+            bridgeCompletionAttempted: false,
+            approvalDecision: null,
+          },
+          providerCalled: false,
+          liveEffect: false,
+          inputLimit: 'Research source is explicitly labeled synthetic fixture input.',
+        })}\n`,
+      )
     })
   }, 45_000)
 })

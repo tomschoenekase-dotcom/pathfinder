@@ -8,6 +8,8 @@ import {
 } from './agent-workflow-run-binding'
 import { assertEligibleWorkflowRunLease } from './agent-workflow-run-lease'
 
+const MAX_DELEGATION_ANCESTRY = 8
+
 export type AgentDelegationClient = Pick<typeof db, '$transaction'>
 
 export class AgentDelegationError extends Error {
@@ -119,6 +121,17 @@ export async function delegateAgentTaskAction(
         actionClass: 'AGENT_DELEGATION',
       })
     }
+    // Serialize cancellation admission with the parent row. A concurrent
+    // cancellation update either commits before this lock and is observed
+    // below, or waits until this delegation transaction has committed.
+    await transaction.$queryRaw`
+      SELECT id
+      FROM agent_runs
+      WHERE id = ${input.parentAgentRunId}
+        AND tenant_id = ${input.tenantId}
+        AND venue_id = ${input.venueId}
+      FOR UPDATE
+    `
     const parent = await transaction.agentRun.findFirst({
       where: {
         id: input.parentAgentRunId,
@@ -126,8 +139,14 @@ export async function delegateAgentTaskAction(
         venueId: input.venueId,
         agentIdentityId: input.requestingAgentIdentityId,
         status: { in: ['RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] },
+        cancelRequestedAt: null,
       },
-      select: { id: true, agentIdentityId: true },
+      select: {
+        id: true,
+        parentAgentRunId: true,
+        agentIdentityId: true,
+        cancelRequestedAt: true,
+      },
     })
     if (!parent) {
       throw new AgentDelegationError(
@@ -137,6 +156,54 @@ export async function delegateAgentTaskAction(
     }
     if (parent.agentIdentityId === input.specialistAgentIdentityId) {
       throw new AgentDelegationError('FORBIDDEN', 'A run cannot delegate to its own identity')
+    }
+    const seenRunIds = new Set([parent.id])
+    let ancestorId = parent.parentAgentRunId
+    let ancestryDepth = 1
+    while (ancestorId) {
+      if (ancestryDepth >= MAX_DELEGATION_ANCESTRY) {
+        throw new AgentDelegationError('FORBIDDEN', 'Delegation ancestry limit exceeded')
+      }
+      if (seenRunIds.has(ancestorId)) {
+        throw new AgentDelegationError('FORBIDDEN', 'Delegation ancestry contains a cycle')
+      }
+      await transaction.$queryRaw`
+        SELECT id
+        FROM agent_runs
+        WHERE id = ${ancestorId}
+          AND tenant_id = ${input.tenantId}
+          AND venue_id = ${input.venueId}
+        FOR UPDATE
+      `
+      const ancestor = await transaction.agentRun.findFirst({
+        where: {
+          id: ancestorId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+        },
+        select: {
+          id: true,
+          parentAgentRunId: true,
+          agentIdentityId: true,
+          status: true,
+          cancelRequestedAt: true,
+        },
+      })
+      if (!ancestor) {
+        throw new AgentDelegationError(
+          'FORBIDDEN',
+          'Delegation ancestor is not in the requested scope',
+        )
+      }
+      if (ancestor.cancelRequestedAt || ancestor.status === 'CANCELLED') {
+        throw new AgentDelegationError('FORBIDDEN', 'Delegation ancestor has been cancelled')
+      }
+      if (ancestor.agentIdentityId === input.specialistAgentIdentityId) {
+        throw new AgentDelegationError('FORBIDDEN', 'Delegation cannot repeat an ancestor identity')
+      }
+      seenRunIds.add(ancestor.id)
+      ancestorId = ancestor.parentAgentRunId
+      ancestryDepth += 1
     }
     const specialist = await transaction.agentIdentity.findFirst({
       where: {

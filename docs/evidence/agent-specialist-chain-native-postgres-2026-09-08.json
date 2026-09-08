@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "kind": "durable-specialist-chain-native-postgresql",
+  "measuredAt": "2026-09-08T02:28:07.733579+00:00",
+  "baseProductRevision": "413d2d919dfae2e9be74eede748980cb2e81d37f",
+  "result": {
+    "database": "pathfinder_disposable_agent_bridge_b65f8d0b8069",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "focusedBoundaryTests": {
+    "passed": 31,
+    "failed": 0
+  },
+  "testCounts": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "measurement": {
+    "proof": "provider-dark-active-orchestrator-specialist-chain-v1",
+    "executionSurface": "in-process canonical actions and bridge protocol simulation",
+    "processRestartObserved": false,
+    "takeover": {
+      "firstAdapter": "CODEX",
+      "replacementAdapter": "OPENAI_COMPATIBLE",
+      "attemptNumber": 2
+    },
+    "lineage": {
+      "orchestratorAgentRunId": "cmts1sk5900688tnszbgtc5qe",
+      "researchAgentRunId": "cmts1sk5n006c8tns1i9shjt3",
+      "builderAgentRunId": "cmts1sk6o006q8tnska44k3yn",
+      "notificationAgentRunId": "cmts1sk7g00738tnsn6g3m8md",
+      "operationalUpdateId": "cmts1sk7u007b8tnsms10zaub"
+    },
+    "visitorNotificationDraft": {
+      "status": "DRAFT",
+      "published": false,
+      "sent": false
+    },
+    "builderResult": {
+      "status": "AWAITING_APPROVAL",
+      "bridgeCompletionAttempted": false,
+      "approvalDecision": null
+    },
+    "providerCalled": false,
+    "liveEffect": false,
+    "inputLimit": "Research source is explicitly labeled synthetic fixture input."
+  },
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+      "sha256": "4217cad317a99bc6212f650301f334a9372074bd2c7122b3a6905e4f72e21523",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.ts",
+      "sha256": "2143b71279b5349475f566bda4f1d9428916ec49221973c34c14f768faa5f555",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-delegation-actions.ts",
+      "sha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+      "sha256": "ff4bb71db3183c4d14bdddc8dc4b79bfdbb1e6f19c432fab739bc92bb110ef1b",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-update-actions.ts",
+      "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\measured-agent-bridge-runner.disposable.integration.test.ts",
+      "sha256": "4217cad317a99bc6212f650301f334a9372074bd2c7122b3a6905e4f72e21523"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\measured-agent-bridge-runner.ts",
+      "sha256": "2143b71279b5349475f566bda4f1d9428916ec49221973c34c14f768faa5f555"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\measured-agent-delegation-actions.ts",
+      "sha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\measured-agent-run-cancellation-actions.ts",
+      "sha256": "ff4bb71db3183c4d14bdddc8dc4b79bfdbb1e6f19c432fab739bc92bb110ef1b"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\measured-operational-update-actions.ts",
+      "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\result.json",
+      "sha256": "e498c94bdad9fdba37f4cf2b02e16ed596716c402db350b6755a59e30a7f092a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\vitest.json",
+      "sha256": "095d1eea407d67bb50cd3e7d21b621911299b3ac1f4a5497bfb59a5a292e0300"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-b65f8d0b8069\\vitest.log",
+      "sha256": "99d532bb1cd9cee5f1ce81128fdfa1aa2dc59005512bbcc1685817c38a738596"
+    }
+  ],
+  "retainedFailures": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-d9196dcb68bf",
+      "reason": "Fixture omitted specialist bridge provider/model defaults."
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-4a8267f07d77",
+      "reason": "Builder canonical proposal transitioned to AWAITING_APPROVAL; invalid fixture completion denied."
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-chain-e9bfe8276624",
+      "reason": "Direct RUNNING control seed lacked lifecycle fields; replaced with QUEUED seed and canonical claim."
+    }
+  ],
+  "limits": [
+    "Disposable PostgreSQL and in-process bridge protocol simulation; no real process restart, live provider, or external messages.",
+    "Builder remains AWAITING_APPROVAL with retained ApprovalRequest and AgentAction receipts; orchestrator consumes those without approving publication.",
+    "Notification means an inactive OperationalUpdate visitor notice, not email or push delivery.",
+    "Immediate parent plus at most7 ancestors checked; exact existing operation replay remains readable after cancellation. Ancestor cancellation blocks new delegation, not retroactive cancellation of existing children.",
+    "Already-corrupt cyclic lineage can cause PostgreSQL deadlock abort under concurrent traversal; failure is closed and no child is committed."
+  ]
+}

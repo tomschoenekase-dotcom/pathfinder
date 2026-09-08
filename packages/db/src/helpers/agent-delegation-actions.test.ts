@@ -39,11 +39,24 @@ describe('agent delegation action', () => {
     workflowMocks.resolve.mockResolvedValue(['alpha', 'zeta'])
     const transaction = {
       $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'parent-1' }]),
       agentRun: {
         findFirst: vi
           .fn()
           .mockResolvedValueOnce(null)
-          .mockResolvedValueOnce({ id: 'parent-1', agentIdentityId: 'primary-1' }),
+          .mockResolvedValueOnce({
+            id: 'parent-1',
+            parentAgentRunId: 'root-1',
+            agentIdentityId: 'primary-1',
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({
+            id: 'root-1',
+            parentAgentRunId: null,
+            agentIdentityId: 'operator-1',
+            status: 'COMPLETED',
+            cancelRequestedAt: null,
+          }),
         create: vi.fn().mockResolvedValue({
           id: 'child-1',
           parentAgentRunId: 'parent-1',
@@ -125,6 +138,7 @@ describe('agent delegation action', () => {
     workflowMocks.resolve.mockResolvedValue(['child-key'])
     const transaction = {
       $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'parent-1' }]),
       agentRun: {
         findFirst: vi
           .fn()
@@ -219,6 +233,188 @@ describe('agent delegation action', () => {
       expect(transaction.agentMessage.create).not.toHaveBeenCalled()
     },
   )
+
+  it('rejects a cancelled active parent before creating child work', async () => {
+    const transaction = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'parent-1' }]),
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null),
+        create: vi.fn(),
+      },
+      agentWorkflowRunBinding: { findMany: vi.fn().mockResolvedValue([]) },
+      agentIdentity: { findFirst: vi.fn() },
+      agentTimelineEvent: { createMany: vi.fn() },
+      agentMessage: { create: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+
+    await expect(delegateAgentTaskAction(input, client as never)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Active parent agent run is not in the requested scope',
+    })
+    expect(transaction.$queryRaw).toHaveBeenCalledOnce()
+    expect(transaction.agentRun.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'parent-1',
+          status: { in: ['RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] },
+          cancelRequestedAt: null,
+        }),
+      }),
+    )
+    expect(transaction.agentRun.create).not.toHaveBeenCalled()
+    expect(transaction.agentIdentity.findFirst).not.toHaveBeenCalled()
+    expect(workflowMocks.bind).not.toHaveBeenCalled()
+  })
+
+  it('rejects delegation back to an ancestor identity', async () => {
+    const transaction = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'parent-1',
+            parentAgentRunId: 'root-1',
+            agentIdentityId: 'primary-1',
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({
+            id: 'root-1',
+            parentAgentRunId: null,
+            agentIdentityId: 'specialist-1',
+            status: 'COMPLETED',
+            cancelRequestedAt: null,
+          }),
+        create: vi.fn(),
+      },
+      agentWorkflowRunBinding: { findMany: vi.fn().mockResolvedValue([]) },
+      agentIdentity: { findFirst: vi.fn() },
+      agentTimelineEvent: { createMany: vi.fn() },
+      agentMessage: { create: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+
+    await expect(delegateAgentTaskAction(input, client as never)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Delegation cannot repeat an ancestor identity',
+    })
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(2)
+    expect(transaction.agentRun.create).not.toHaveBeenCalled()
+    expect(transaction.agentIdentity.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('rejects delegation from a lineage with a cancelled ancestor', async () => {
+    const transaction = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'parent-1',
+            parentAgentRunId: 'root-1',
+            agentIdentityId: 'primary-1',
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({
+            id: 'root-1',
+            parentAgentRunId: null,
+            agentIdentityId: 'operator-1',
+            status: 'CANCELLED',
+            cancelRequestedAt: null,
+          }),
+        create: vi.fn(),
+      },
+      agentWorkflowRunBinding: { findMany: vi.fn().mockResolvedValue([]) },
+      agentIdentity: { findFirst: vi.fn() },
+      agentTimelineEvent: { createMany: vi.fn() },
+      agentMessage: { create: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+
+    await expect(delegateAgentTaskAction(input, client as never)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Delegation ancestor has been cancelled',
+    })
+    expect(transaction.agentRun.create).not.toHaveBeenCalled()
+    expect(transaction.agentIdentity.findFirst).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      label: 'a stored cycle',
+      ancestors: [
+        {
+          id: 'root-1',
+          parentAgentRunId: 'parent-1',
+          agentIdentityId: 'operator-1',
+          status: 'COMPLETED',
+          cancelRequestedAt: null,
+        },
+      ],
+      message: 'Delegation ancestry contains a cycle',
+    },
+    {
+      label: 'a missing or cross-scope ancestor',
+      ancestors: [null],
+      message: 'Delegation ancestor is not in the requested scope',
+    },
+    {
+      label: 'ancestry beyond the bound',
+      ancestors: Array.from({ length: 7 }, (_, index) => ({
+        id: `ancestor-${index + 1}`,
+        parentAgentRunId: `ancestor-${index + 2}`,
+        agentIdentityId: `operator-${index + 1}`,
+        status: 'COMPLETED',
+        cancelRequestedAt: null,
+      })),
+      message: 'Delegation ancestry limit exceeded',
+    },
+  ])('rejects $label', async ({ ancestors, message }) => {
+    const transaction = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'parent-1',
+            parentAgentRunId:
+              ancestors.length > 0 && ancestors[0] ? ancestors[0].id : 'missing-ancestor',
+            agentIdentityId: 'primary-1',
+            cancelRequestedAt: null,
+          })
+          .mockImplementation(async () => ancestors.shift() ?? null),
+        create: vi.fn(),
+      },
+      agentWorkflowRunBinding: { findMany: vi.fn().mockResolvedValue([]) },
+      agentIdentity: { findFirst: vi.fn() },
+      agentTimelineEvent: { createMany: vi.fn() },
+      agentMessage: { create: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+
+    await expect(delegateAgentTaskAction(input, client as never)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message,
+    })
+    expect(transaction.agentRun.create).not.toHaveBeenCalled()
+    expect(transaction.agentIdentity.findFirst).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['a different venue', { venueId: 'venue-2' }],
