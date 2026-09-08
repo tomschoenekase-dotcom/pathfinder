@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-v1-machine-active-workflow-approved-draft",
+  "measuredAt": "2026-09-08T00:40:14.6030000+00:00",
+  "sourceIdentity": "Retained measured source files and SHA-256 hashes below identify the executed fixture; no unmeasured final commit is claimed.",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_package_79b9b19f8c8a",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "assertions": [
+    "Canonical workflow registration retains both agent-runs:execute and packages:draft as required capabilities.",
+    "Canonical task creation selects exactly one immutable SELECTED binding to the active workflow version and activation event; both required capabilities are asserted.",
+    "Canonical execution claim assigns the registered worker with both capabilities to the selected run.",
+    "The real PostgreSQL workflow lease guard rejects an explicitly truncated packages:draft-only capability inventory with UNSUPPORTED_ACTION and the exact current-inventory error.",
+    "Canonical credential, two registered workers and a run establish actual machine authority.",
+    "Proposal from a registered worker that is not assigned to the run is rejected.",
+    "Assigned worker proposes an exact V1 candidate; human decision and one-shot grant are recorded atomically.",
+    "Machine execution consumes the exact grant and creates the canonical DRAFT and immutable handoff in one real transaction.",
+    "Exact execution replay returns the same package and handoff without another grant consumption.",
+    "Injected handoff failure rolls back package creation and grant consumption.",
+    "Canonical credential revocation rejects a stale previously verified invocation context.",
+    "Original human partial-selection, concurrent retry, scope and immutable handoff assertions remain."
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-approval-decisions.ts",
+      "sha256": "3204661b6b166a36fac576ad071c91bfc4adeb43b8d0be3816a7b5ecf6a2fbf2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-approval-grants.ts",
+      "sha256": "8b0a382ba59b41209c9c7090510d9cc5f1e2d9609254dfcc14c35d531e694651"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-composition.ts",
+      "sha256": "689844cb2da367037cd3e8d9bd34797a465bbca3ab77f161696ea2c2f8c54960"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-candidate.ts",
+      "sha256": "148d6f7824da99b176686eac434439b7e2b9963298cf0df6b9b83e305e3d1529"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-disposable.integration.test.ts",
+      "sha256": "b408f42db1b6baca8b6cfa63a2b85c71fee1c2f2af329eca9265e48ce5b90ddb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-draft-approval.ts",
+      "sha256": "0efb19e0e2e5f4a1e92a09e83362294fb94130d8b31cdd703c867f52c10c7d9d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-draft-proposal-actions.ts",
+      "sha256": "e8a74fb7c18f3118aeefe3da49201048e1dc3dd9be4e1d173241722a7838d8fa"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-draft.ts",
+      "sha256": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-handoff.ts",
+      "sha256": "5ff7245019501c43ffac39bd0dd13298838bb8e7c80c9a4bb247cbd1a691540c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-intake-v1-package-machine-authority.ts",
+      "sha256": "da31f683df3c4011df5129906622cb7ee080782a0fca09434301ae425d300a11"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-migration.sql",
+      "sha256": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-registry.ts",
+      "sha256": "135949246c95cbda18bf2d6c589ee20e190852845798f175e0790c7cfc42acda"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\measured-workflow-boundary.ts",
+      "sha256": "68632fe9dae449b640f725dc01bf2c1f76294d8469bd7d17e61e59b6a140697d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\vitest.json",
+      "sha256": "625c25a5e53d9d03fd01593bdf6e513c514756e1188030e558181466ef7ea84d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\vitest.log",
+      "sha256": "1e9d7e3e35a8fff1e23ef9308b302d31f6db4661ab8e7fa91c7d69b3c480515c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\migrations.log",
+      "sha256": "8be3fd02238a5f62a50ea01ec11e9eed330b1d8242b13b4f7aae5bac573abd2d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\result.json",
+      "sha256": "e6caae752a547c8246e9d9169b228558683fb7471843dfb568c6a569b9e11c21"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\ownership.json",
+      "sha256": "c82573dc5d37d5404fcc7342b4ee0fe7141fefc1b0d1f5efffb32866f5de6b82"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\start.log",
+      "sha256": "46038efb813fbca18a92272496901190638dea3f97b51f7af0daa1ca2eb13818"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-machine-79b9b19f8c8a\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "priorEvidence": "intake-v1-machine-native-postgres-2026-09-07.json",
+  "limitations": [
+    "The initial reviewed ROLLBACK activation event/head and approval request are explicitly synthetic fixture lineage, using the existing workflow activation fixture pattern and canonical event hash. This does not prove the improvement proposal, evaluation, promotion assessment, or activation approval workflow.",
+    "Workflow registration, human approval decision, task selection/binding and execution claim use canonical helpers against real PostgreSQL; an active SELECTED binding is asserted, not a NO_ACTIVE_WORKFLOW skip.",
+    "Local disposable proof with deterministic embeddings and synthetic authenticated invocation contexts; no hosted HTTP transport or external provider is exercised.",
+    "This writes a DRAFT only; package approval/application/publication, billing, customer delivery, device proof and final character artwork are outside this proof."
+  ]
+}

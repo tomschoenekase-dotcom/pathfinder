@@ -41,6 +41,10 @@ vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn().mockResolvedValue(u
 vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
 
 import {
+  agentWorkflowActivationEventHash,
+  assertEligibleWorkflowRunLease,
+  claimAgentRunExecution,
+  createAgentTaskAction,
   createIntakeProposal,
   db,
   submitOnboardingBootstrapAction,
@@ -50,6 +54,8 @@ import {
   activateAgentBridgeCredentialAction,
   verifyAgentBridgeCredential,
   registerAgentWorkerAction,
+  registerAgentWorkflowVersion,
+  recordApprovalDecisionAction,
   revokeExternalCredentialAction,
 } from '@pathfinder/db'
 
@@ -346,7 +352,7 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
           name: 'V1 package reviewer',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['packages:draft'],
+          accessCapabilities: ['packages:draft', 'agent-runs:execute'],
           autonomyLevel: 'DRAFT',
           enabled: true,
           createdBy: ownerUserId,
@@ -384,7 +390,7 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
           label: 'V1 package worker',
           protocolVersion: 'mcp-2026-07-28',
           softwareVersion: 'fixture/1',
-          capabilities: ['packages:draft'],
+          capabilities: ['packages:draft', 'agent-runs:execute'],
           agentRoles: ['client-operations'],
           safeHealth: {},
         },
@@ -398,33 +404,154 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
           label: 'Other V1 worker',
           protocolVersion: 'mcp-2026-07-28',
           softwareVersion: 'fixture/1',
-          capabilities: ['packages:draft'],
+          capabilities: ['packages:draft', 'agent-runs:execute'],
           agentRoles: ['client-operations'],
           safeHealth: {},
         },
         credential,
         { leaseSeconds: 300 },
       )
-      const leaseToken = randomUUID()
-      const run = await db.agentRun.create({
-        data: {
+      // Synthetic reviewed activation lineage follows the workflow activation PG fixture.
+      // This test proves immutable binding admission, not promotion/evaluation approval.
+      // Registration, human decision, task selection and execution claim use real helpers.
+      const requiredCapabilities = ['agent-runs:execute', 'packages:draft']
+      const registryKey = `v1-multicap-workflow-${suffix}`
+      const registeredWorkflow = await registerAgentWorkflowVersion(
+        {
           operationId: randomUUID(),
           tenantId,
           venueId,
-          agentIdentityId: identityId,
-          runType: 'ONBOARDING',
-          requestedOperation: 'operator_task',
-          requestPrompt: 'Prepare exact V1 package draft.',
-          scopeSnapshot: {},
-          status: 'RUNNING',
-          initiatedByType: 'HUMAN',
-          initiatedById: ownerUserId,
-          executionWorkerId: worker.id,
-          executionLeaseToken: leaseToken,
-          executionLeaseExpiresAt: new Date(Date.now() + 5 * 60_000),
-          attemptNumber: 1,
-          startedAt: new Date(),
+          manifest: {
+            schemaVersion: 1,
+            registryKey,
+            version: 1,
+            kind: 'WORKFLOW',
+            description: 'Prepare one exact review-only V1 package draft.',
+            examples: ['Draft the reviewed V1 intake selection.'],
+            requiredTools: requiredCapabilities.map((capability) => ({
+              capability,
+              reason: 'Required by the assigned V1 package drafting workflow.',
+            })),
+            testedCases: ['Assigned worker retains both capabilities at proposal and apply.'],
+            rollback: null,
+            license: null,
+          },
+          portableText: 'Use the assigned execution lease to propose and apply one reviewed draft.',
+          provenance: {
+            sourceType: 'HUMAN_AUTHORED',
+            sourceReferences: [`fixture:v1-multicap:${suffix}`],
+            capturedAt: new Date().toISOString(),
+          },
+          actor: { type: 'HUMAN', id: ownerUserId, role: 'PLATFORM_ADMIN' },
         },
+        new Set(requiredCapabilities),
+      )
+      const activationRequest = await db.approvalRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          requestedByType: 'HUMAN',
+          requestedById: ownerUserId,
+          proposedAction: 'agent-workflow.rollback',
+          scopeSnapshot: { fixture: true, registryKey, purpose: 'V1 multi-capability admission' },
+          reason: 'Synthetic fixture-only activation lineage; no promotion claim.',
+          riskCategory: 'HIGH',
+        },
+      })
+      const activationDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: activationRequest.id,
+        decision: 'APPROVED',
+        reason: 'Approve this synthetic fixture activation lineage.',
+        actor: { actorType: 'HUMAN', actorId: ownerUserId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const canaryPolicy = {
+        numerator: 1,
+        denominator: 1,
+        salt: `v1-multicap-${suffix}`,
+        startsAt: new Date(Date.now() - 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 3_600_000).toISOString(),
+        maxSelectedRuns: 1,
+        eligibleRunTypes: ['OPERATIONS'],
+        eligibleOperations: ['operator_task'],
+        skippedBaseline: { kind: 'NO_WORKFLOW' as const },
+        supportedActionClasses: ['APPROVAL_BACKED_DOMAIN_EFFECT' as const],
+      }
+      const activationIdentity = {
+        tenantId,
+        venueId,
+        registryKey,
+        kind: 'ROLLBACK' as const,
+        priorVersionId: null,
+        resultingVersionId: registeredWorkflow.version.id,
+        promotionAssessmentId: null,
+        approvalDecisionId: activationDecision.id,
+        priorRevision: 0,
+        resultingRevision: 1,
+        evidenceDigest: 'd'.repeat(64),
+        canaryPolicy,
+        requiredCapabilities,
+        reason: 'Synthetic fixture activation for the V1 multi-capability regression.',
+        createdBy: ownerUserId,
+      }
+      const activationEvent = await db.agentWorkflowActivationEvent.create({
+        data: {
+          operationId: randomUUID(),
+          ...activationIdentity,
+          eventHash: agentWorkflowActivationEventHash(activationIdentity),
+        },
+      })
+      await db.agentWorkflowActivationHead.create({
+        data: {
+          tenantId,
+          venueId,
+          registryKey,
+          activeVersionId: registeredWorkflow.version.id,
+          activationEventId: activationEvent.id,
+          revision: 1,
+        },
+      })
+      const queued = await createAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        prompt: 'Prepare exact V1 package draft.',
+        actor: { actorType: 'HUMAN', actorId: ownerUserId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const run = await claimAgentRunExecution({
+        tenantId,
+        runId: queued.run.id,
+        executionWorkerId: worker.id,
+        leaseDurationMs: 5 * 60_000,
+      })
+      const leaseToken = run.leaseToken
+      expect(
+        await db.agentWorkflowRunBinding.findMany({ where: { tenantId, agentRunId: run.id } }),
+      ).toEqual([
+        expect.objectContaining({
+          outcome: 'SELECTED',
+          workflowVersionId: registeredWorkflow.version.id,
+          activationEventId: activationEvent.id,
+          requiredCapabilities,
+        }),
+      ])
+      // The historical single-capability argument must really fail for this active binding.
+      await expect(
+        db.$transaction((transaction) =>
+          assertEligibleWorkflowRunLease(transaction, {
+            tenantId,
+            venueId,
+            agentRunId: run.id,
+            executionLeaseToken: leaseToken,
+            availableCapabilities: ['packages:draft'],
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: 'UNSUPPORTED_ACTION',
+        message: 'Current run capability inventory cannot execute the selected workflow',
       })
       const registry = createSafeOperationalMcpRegistry(db)
       const proposalOperationId = randomUUID()
