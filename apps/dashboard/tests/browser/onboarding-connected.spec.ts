@@ -48,8 +48,29 @@ if (themeRequestEnabled && !scannerReleaseEnabled) {
   throw new Error('Theme request proof requires the guarded scanner release mode.')
 }
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
-const scannerCleanText =
-  'Visitor-provided notes require review before they become venue knowledge.\n'
+const scannerCapacityFact =
+  'The fictional North Gallery auditorium capacity is 137 guests for the current handbook.\n'
+const scannerRejectedUploadSentinel = 'TORCHIKO_FIXTURE_TEXT_MARKER_20260908_8C1F4E2A\n'
+const scannerCleanText = [
+  'Fictional current North Gallery visitor handbook. This fixture is not venue guidance.\n',
+  'This fictional handbook repeats ordinary placeholder orientation copy so the current capacity fact is outside the bounded review preview.\n'.repeat(
+    34,
+  ),
+  scannerCapacityFact,
+  'This fictional handbook ends after the reviewed auditorium capacity statement.\n',
+].join('')
+const scannerCapacityFactIndex = scannerCleanText.indexOf(scannerCapacityFact)
+const scannerCapacityFactOffset =
+  scannerCapacityFactIndex < 0
+    ? -1
+    : Array.from(scannerCleanText.slice(0, scannerCapacityFactIndex)).length
+if (
+  scannerCapacityFactIndex < 0 ||
+  scannerCapacityFactOffset <= 4_000 ||
+  Array.from(scannerCleanText).length <= 4_000
+) {
+  throw new Error('Scanner handbook capacity fact must remain beyond the 4,000-character preview.')
+}
 
 async function decodeQrSvg(svgBytes: Buffer): Promise<string | undefined> {
   const { data, info } = await sharp(svgBytes)
@@ -1159,7 +1180,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
     }, testInfo) => {
       const state = fixture!
       const cleanBytes = Buffer.from(scannerCleanText, 'utf8')
-      const markerBytes = Buffer.from('TORCHIKO_FIXTURE_TEXT_MARKER_20260908_8C1F4E2A\n', 'utf8')
+      const markerBytes = Buffer.from(scannerRejectedUploadSentinel, 'utf8')
       expect(createHash('sha256').update(markerBytes).digest('hex')).toBe(
         '9b20982a05f466a4ec3482fa7edc1a4dd01f9653bfeb97aff58f2efb7c809410',
       )
@@ -1473,6 +1494,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           manifestHash: revision.manifestHash,
           dispatchId: dispatches[0]!.id,
           memberId: revision.members[0]!.id,
+          memberImmutableHash: revision.members[0]!.immutableHash,
+          dispatchSourceHash: dispatches[0]!.sourceHash,
         }
       })
       let redisDeliveryEvidence: Record<string, unknown> | null = null
@@ -1646,6 +1669,61 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         ),
       ).resolves.toMatchObject({ status: 'COMPLETED', fileExtractionReceiptId: submittedReceiptId })
       if (!submittedReceiptId) throw new Error('Connected extraction did not retain a receipt ID')
+      const exactReceiptId = submittedReceiptId
+      expect(saved.dispatchSourceHash).toBe(saved.memberImmutableHash)
+      if (state.scannerExtraction) {
+        const scannerReaderStart = state.sourceRequests.length
+        const scannerCursorStart = state.sourceResponseCursors.length
+        const readerContext = await connectedContext(browser, state.tokens.admin, {
+          width: 820,
+          height: 1180,
+        })
+        try {
+          const readerPage = await readerContext.newPage()
+          await readerPage.goto(
+            `/dev-fixtures/connected-intake-reader?tenantId=${tenantId}&venueId=${venueId}&runId=${submittedSource.runId}`,
+          )
+          await readerPage.getByRole('button', { name: /Builder status/iu }).click()
+          await expect(readerPage.getByText('Bounded preview', { exact: true })).toBeVisible()
+          await expect(
+            readerPage.getByText('Bounded preview', { exact: true }).locator('..').locator('pre'),
+          ).toHaveText(Array.from(scannerCleanText).slice(0, 4_000).join(''))
+          await readerPage.getByRole('button', { name: 'Read full extracted source' }).click()
+          await expect(readerPage.getByText(/Characters 0–4,000 of/iu)).toBeVisible()
+          await readerPage.getByRole('button', { name: 'Next page' }).click()
+          await expect(readerPage.getByText(/Characters 4,000–/iu)).toBeVisible()
+          await expect(
+            readerPage.getByRole('region', { name: 'Retained source reader' }).locator('pre'),
+          ).toContainText(scannerCapacityFact.trim())
+          await expectNoHorizontalOverflow(readerPage)
+          await captureEvidence(readerPage, testInfo, 'scanner-source-page-two-820')
+        } finally {
+          await readerContext.close()
+        }
+        const scannerReaderRequests = state.sourceRequests.slice(scannerReaderStart)
+        const scannerReaderCursors = state.sourceResponseCursors.slice(scannerCursorStart)
+        expect(scannerReaderRequests).toHaveLength(2)
+        expect(scannerReaderCursors).toHaveLength(2)
+        expect(scannerReaderRequests[0]).toMatchObject({
+          tenantId,
+          venueId,
+          runId: submittedSource.runId,
+          receiptId: exactReceiptId,
+          expectedExtractedTextHash: submittedSource.extractedTextHash,
+          pageSize: 4_000,
+        })
+        expect(scannerReaderRequests[0]).not.toHaveProperty('cursor')
+        expect(scannerReaderCursors[0]).toEqual(expect.any(String))
+        expect(scannerReaderRequests[1]).toMatchObject({
+          tenantId,
+          venueId,
+          runId: submittedSource.runId,
+          receiptId: exactReceiptId,
+          expectedExtractedTextHash: submittedSource.extractedTextHash,
+          pageSize: 4_000,
+          cursor: scannerReaderCursors[0],
+        })
+      }
       const { appRouter } = await import('@pathfinder/api')
       const caller = (token: string) =>
         appRouter.createCaller({ db, headers: new Headers(), session: state.sessions.get(token)! })
@@ -1668,7 +1746,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         tenantId,
         venueId,
         sourceRunId: submittedSource.runId,
-        receiptId: submittedReceiptId,
+        receiptId: exactReceiptId,
         operationId: randomUUID(),
         expectedExtractedTextHash: submittedSource.extractedTextHash,
         decision: 'ACCEPTED_FOR_PROPOSAL',
@@ -1684,6 +1762,51 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             ? 'Reviewed the exact freshly extracted source.'
             : 'Reviewed the exact retained source beyond its first page.',
       })
+      if (state.scannerExtraction) {
+        const acceptedScannerLineage = await withTenantIsolationBypass(() =>
+          db.intakeFileExtractionReceipt.findFirstOrThrow({
+            where: {
+              id: exactReceiptId,
+              tenantId,
+              venueId,
+              runId: submittedSource.runId,
+              uploadId: submittedSource.uploadId,
+            },
+            select: {
+              sourceSha256: true,
+              sourceObjectGeneration: true,
+              sourceStorageVersionId: true,
+              extractedText: true,
+              extractedTextHash: true,
+              review: {
+                select: {
+                  sourceRunId: true,
+                  receiptId: true,
+                  decision: true,
+                  expectedExtractedTextHash: true,
+                  proposalNotes: true,
+                  proposalNotesHash: true,
+                },
+              },
+            },
+          }),
+        )
+        expect(acceptedScannerLineage).toMatchObject({
+          sourceSha256: submittedSource.sourceSha256,
+          sourceObjectGeneration: submittedSource.objectGeneration,
+          sourceStorageVersionId: submittedSource.storageVersionId,
+          extractedTextHash: submittedSource.extractedTextHash,
+          extractedText: scannerCleanText,
+          review: {
+            sourceRunId: submittedSource.runId,
+            receiptId: exactReceiptId,
+            decision: 'ACCEPTED_FOR_PROPOSAL',
+            expectedExtractedTextHash: submittedSource.extractedTextHash,
+            proposalNotes: scannerCleanText.trim(),
+            proposalNotesHash: createHash('sha256').update(scannerCleanText.trim()).digest('hex'),
+          },
+        })
+      }
       const ready = await admin.admin.previewIntakeV1Package(selection)
       expect(ready).toMatchObject({ ready: true, published: false })
       const command = {
@@ -1913,17 +2036,34 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         expect(publicScope).toMatchObject({ tenantId, venueId, experienceScope: 'PUBLIC' })
         const publicKnowledge = await retrieveGuestKnowledge({
           reader: db,
-          query: 'visitor provided notes review venue knowledge',
+          query: 'What is the North Gallery auditorium capacity?',
           tenantId: publicScope!.tenantId,
           venueId: publicScope!.venueId,
           includeSecondLayer: false,
           queryEmbedding: null,
         })
         expect(publicKnowledge.entries.length).toBeGreaterThan(0)
-        expect(
-          publicKnowledge.entries.some((entry) => entry.content.includes(scannerCleanText.trim())),
-        ).toBe(true)
+        const capacityEntry = publicKnowledge.entries.find((entry) =>
+          entry.content.includes(scannerCapacityFact.trim()),
+        )
+        expect(capacityEntry).toBeDefined()
+        expect(capacityEntry?.content).toContain('137')
+        const persistedCapacityEntry = await withTenantIsolationBypass(() =>
+          db.venueKnowledgeEntry.findFirstOrThrow({
+            where: { id: capacityEntry!.id, tenantId, venueId },
+            select: { id: true, updatedAt: true },
+          }),
+        )
+        expect(contentVersions).toContainEqual(
+          expect.objectContaining({ entityType: 'KNOWLEDGE_ENTRY', entityId: capacityEntry!.id }),
+        )
+        expect(publicKnowledge.trace.retrievedSourceIds).toContain(capacityEntry!.id)
+        expect(publicKnowledge.trace.retrievedSources).toContainEqual({
+          id: capacityEntry!.id,
+          version: persistedCapacityEntry.updatedAt.toISOString(),
+        })
         for (const entry of publicKnowledge.entries) {
+          expect(entry.content).not.toContain(scannerRejectedUploadSentinel.trim())
           expect(contentVersions).toContainEqual(
             expect.objectContaining({ entityType: 'KNOWLEDGE_ENTRY', entityId: entry.id }),
           )
@@ -1970,7 +2110,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             venueId,
             selectedUploadId: submittedSource.uploadId,
             selectedRunId: submittedSource.runId,
-            extractionReceiptId: submittedReceiptId,
+            extractionReceiptId: exactReceiptId,
             submissionId: saved.submissionId,
             manifestHash: saved.manifestHash,
             candidateHash: ready.candidateHash,
@@ -1986,6 +2126,14 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             released: releasedLifecycle?.release.released,
             publicScopeResolved: publicScope !== null,
             qrDecodedUrl,
+            capacity137SourceProof: {
+              sourceCharacterCount: Array.from(scannerCleanText).length,
+              factOffset: scannerCapacityFactOffset,
+              extractionReceiptId: exactReceiptId,
+              extractedTextHash: submittedSource.extractedTextHash,
+              knowledgeEntryId: capacityEntry!.id,
+              capacity: 137,
+            },
             providerProof: false,
           }),
           contentType: 'application/json',
