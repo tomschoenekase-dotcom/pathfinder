@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import type {
   CharacterState,
@@ -34,7 +34,14 @@ export type VenueCharacterStageProps = {
   motion?: 'system' | 'reduced' | 'full'
 }
 
-export function VenueCharacterStage({
+export function VenueCharacterStage(props: VenueCharacterStageProps) {
+  const { characterId, assetPackId, assetPackVersion } = props.projection
+  const identity = JSON.stringify([characterId, assetPackId, assetPackVersion])
+  // Reset in the render that changes the projection, not in a later effect.
+  return <VenueCharacterStageScope key={identity} {...props} />
+}
+
+function VenueCharacterStageScope({
   projection,
   state,
   displayName,
@@ -43,14 +50,21 @@ export function VenueCharacterStage({
   motion = 'system',
 }: VenueCharacterStageProps) {
   const [assetFailed, setAssetFailed] = useState(false)
+  const active = useRef(false)
+  useLayoutEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
+  // Stable for the scope, including unsupported-context effects in the presence.
+  const reportAssetError = useCallback(() => {
+    if (active.current) setAssetFailed(true)
+  }, [])
   const name = displayName ?? projection.displayName
   const stateLabel = assetFailed
     ? 'Character display unavailable; text chat is ready'
     : STATE_LABELS[state]
-
-  useEffect(() => {
-    setAssetFailed(false)
-  }, [projection.assetPackId, projection.assetPackVersion])
 
   return (
     <section
@@ -72,7 +86,7 @@ export function VenueCharacterStage({
           context="venue-text-chat"
           motion={motion}
           size={expanded ? 'stage' : 'compact'}
-          onAssetError={() => setAssetFailed(true)}
+          onAssetError={reportAssetError}
         />
       </div>
       <div className="min-w-0">

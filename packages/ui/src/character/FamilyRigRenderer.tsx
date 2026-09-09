@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type CSSProperties } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 
@@ -40,13 +40,39 @@ export function resolveFamilyRigMotion(
   return failed || motion === 'reduced' ? 'reduced' : motion
 }
 
+export function familyRigAssetIdentity({
+  source,
+  fallbackSource,
+  layers,
+}: Pick<FamilyRigRendererProps, 'source' | 'fallbackSource' | 'layers'>): string {
+  return JSON.stringify([
+    source,
+    fallbackSource,
+    layers?.map((layer) => [layer.role, layer.source]) ?? null,
+  ])
+}
+
+export function familyRigLayerIdentity(
+  layer: { role: FamilyRigLayerRole; source: string },
+  index: number,
+): string {
+  // Include position so even repeated identical layers have distinct React keys.
+  return JSON.stringify([index, layer.role, layer.source])
+}
+
 /**
  * Architecture-proof renderer for normalized whole-image skins.
  *
  * It intentionally declares `rigid-source` capability. Family choreography is meaningful motion
  * organization, but does not claim that an unsegmented source has articulated wings, arms, or face.
  */
-export function FamilyRigRenderer({
+export function FamilyRigRenderer(props: FamilyRigRendererProps) {
+  // Only the current configuration owns state. A revisit gets a fresh scope;
+  // cleanup also fences callbacks from an earlier visit to the same identity.
+  return <FamilyRigScope key={familyRigAssetIdentity(props)} {...props} />
+}
+
+function FamilyRigScope({
   name,
   source,
   fallbackSource,
@@ -59,14 +85,33 @@ export function FamilyRigRenderer({
   className,
   onAssetError,
 }: FamilyRigRendererProps) {
-  const layerKey = layers?.map((layer) => `${layer.role}:${layer.source}`).join('|')
-  const assetIdentity = `${source}|${fallbackSource}|${layerKey ?? ''}`
-  const [assetStates, setAssetStates] = useState<
-    Record<string, { failed: boolean; fallbackFailed: boolean }>
-  >({})
-  const assetState = assetStates[assetIdentity]
-  const failed = assetState?.failed ?? false
-  const fallbackFailed = assetState?.fallbackFailed ?? false
+  const [failureStage, setFailureStage] = useState<0 | 1 | 2>(0)
+  const lifecycle = useRef({ active: false, stage: 0, onAssetError })
+
+  useLayoutEffect(() => {
+    const current = lifecycle.current
+    current.active = true
+    return () => {
+      current.active = false
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    lifecycle.current.onAssetError = onAssetError
+  }, [onAssetError])
+
+  function fail(nextStage: 1 | 2) {
+    const current = lifecycle.current
+    if (!current.active || nextStage <= current.stage) return
+    // Advance synchronously before notifying the parent: duplicate/batched or
+    // reentrant errors cannot downgrade fallback failure or notify twice.
+    current.stage = nextStage
+    setFailureStage(nextStage)
+    current.onAssetError?.()
+  }
+
+  const failed = failureStage > 0
+  const fallbackFailed = failureStage === 2
   const resolvedMotion = resolveFamilyRigMotion(motion, failed)
   const style = { '--family-rig-intensity': String(clamp(intensity)) } as CSSProperties
   const isCustom = family.startsWith('custom:')
@@ -103,13 +148,7 @@ export function FamilyRigRenderer({
             alt=""
             draggable={false}
             decoding="async"
-            onError={() => {
-              setAssetStates((current) => ({
-                ...current,
-                [assetIdentity]: { failed: true, fallbackFailed: true },
-              }))
-              onAssetError?.()
-            }}
+            onError={() => fail(2)}
           />
         ) : !layers?.length ? (
           <img
@@ -118,19 +157,13 @@ export function FamilyRigRenderer({
             alt=""
             draggable={false}
             decoding="async"
-            onError={() => {
-              setAssetStates((current) => ({
-                ...current,
-                [assetIdentity]: { failed: true, fallbackFailed: false },
-              }))
-              onAssetError?.()
-            }}
+            onError={() => fail(1)}
           />
         ) : (
           <span className={styles.layerStack}>
-            {layers.map((layer) => (
+            {layers.map((layer, index) => (
               <img
-                key={`${layer.role}:${layer.source}`}
+                key={familyRigLayerIdentity(layer, index)}
                 className={[
                   styles.layer,
                   styles[`layer_${layer.role}`] ?? styles.layer_custom,
@@ -140,13 +173,7 @@ export function FamilyRigRenderer({
                 alt=""
                 draggable={false}
                 decoding="async"
-                onError={() => {
-                  setAssetStates((current) => ({
-                    ...current,
-                    [assetIdentity]: { failed: true, fallbackFailed: false },
-                  }))
-                  onAssetError?.()
-                }}
+                onError={() => fail(1)}
               />
             ))}
           </span>

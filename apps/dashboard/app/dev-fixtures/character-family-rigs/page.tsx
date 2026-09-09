@@ -81,16 +81,17 @@ export default async function CharacterFamilyRigsFixture({
     state?: string | string[]
     motion?: string | string[]
     failure?: string | string[]
+    proof?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
   const query = await searchParams
   const state = stateFrom(query.state)
+  const requestedMotion = Array.isArray(query.motion) ? query.motion[0] : query.motion
   const motion =
-    (Array.isArray(query.motion) ? query.motion[0] : query.motion) === 'reduced'
-      ? 'reduced'
-      : 'full'
+    requestedMotion === 'reduced' || requestedMotion === 'system' ? requestedMotion : 'full'
   const failure = Array.isArray(query.failure) ? query.failure[0] : query.failure
+  const proof = Array.isArray(query.proof) ? query.proof[0] : query.proof
 
   return (
     <main className="min-h-screen bg-[#f4f0e6] px-4 py-10 text-[#17241f] sm:px-8 lg:py-16">
@@ -116,6 +117,7 @@ export default async function CharacterFamilyRigsFixture({
           state={state}
           motion={motion}
           failure={failure}
+          isolation={proof === 'isolation'}
         />
         <p className="mt-7 max-w-3xl text-sm leading-6 text-[#46544e]">
           These are attributed OpenMoji-derived architecture fixtures. The actual React component
