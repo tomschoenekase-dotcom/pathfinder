@@ -1,4 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { createRequire, registerHooks } from 'node:module'
 import { resolve } from 'node:path'
@@ -14,7 +15,11 @@ import {
   type TestInfo,
 } from '@playwright/test'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
+import jsQR from 'jsqr'
+import sharp from 'sharp'
 import { setOpenAiEmbeddingsClientForTesting } from '../../../../packages/ai/src/openai-embeddings'
+import { retrieveGuestKnowledge } from '../../../../packages/api/src/lib/guest-knowledge-retrieval'
+import { loadPublicLocationScope } from '../../../../packages/api/src/routers/location-public-scope'
 
 import {
   claimIntakeUploadVerificationAction,
@@ -37,13 +42,41 @@ const storageTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE ===
 const scannerTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER === '1'
 const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
 const qrReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_QR_RELEASE === '1'
+const scannerReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER_RELEASE === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
 const scannerCleanText =
   'Visitor-provided notes require review before they become venue knowledge.\n'
 
+async function decodeQrSvg(svgBytes: Buffer): Promise<string | undefined> {
+  const { data, info } = await sharp(svgBytes)
+    .resize(832, 832, { kernel: sharp.kernel.nearest })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  return jsQR(
+    new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength),
+    info.width,
+    info.height,
+    { inversionAttempts: 'attemptBoth' },
+  )?.data
+}
+
 if (qrReleaseEnabled && (!enabled || storageTransportEnabled || freshExtractionEnabled)) {
   throw new Error(
     'Connected QR release proof requires the base disposable database mode without storage or fresh extraction.',
+  )
+}
+if (
+  scannerReleaseEnabled &&
+  (!enabled ||
+    !scannerTransportEnabled ||
+    !storageTransportEnabled ||
+    !redisTransportEnabled ||
+    freshExtractionEnabled ||
+    qrReleaseEnabled)
+) {
+  throw new Error(
+    'Connected scanner release proof requires real scanner extraction with guarded storage and Redis, without the mocked fresh extraction or separate QR release modes.',
   )
 }
 
@@ -221,7 +254,8 @@ async function waitForWorkerResult(
 }
 
 const tenantId = 'fixture-remote-onboarding-tenant'
-const venueId = 'fixture-great-lakes-museum'
+const venueId = scannerReleaseEnabled ? 'c000000000000000000000001' : 'fixture-great-lakes-museum'
+const remoteOnboardingFixtureUrl = `/dev-fixtures/remote-onboarding?state=share${scannerReleaseEnabled ? `&venueId=${venueId}` : ''}`
 const ownerUserId = 'fixture-onboarding-owner'
 const otherUserId = 'fixture-onboarding-other'
 const staffUserId = 'fixture-onboarding-staff'
@@ -781,7 +815,7 @@ async function connectedContext(
 
 async function selectNotes(context: BrowserContext) {
   const page = await context.newPage()
-  await page.goto('/dev-fixtures/remote-onboarding?state=share')
+  await page.goto(remoteOnboardingFixtureUrl)
   await expect(page.getByText('Loading saved work…')).toBeHidden()
   await page.getByRole('radio', { name: 'Optional notes' }).check()
   return { page, notes: page.getByRole('textbox', { name: 'Notes', exact: true }) }
@@ -1167,7 +1201,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             }),
           )
           const page = await context.newPage()
-          await page.goto('/dev-fixtures/remote-onboarding?state=share')
+          await page.goto(remoteOnboardingFixtureUrl)
           await expect(page.getByText('Loading saved work…')).toBeHidden()
           await page.getByLabel('Choose files').setInputFiles([
             { name: 'scanner-clean.txt', mimeType: 'text/plain', buffer: cleanBytes },
@@ -1322,6 +1356,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           }
           await testInfo.attach('browser-upload-scanner-identity', {
             body: JSON.stringify({
+              tenantId,
+              venueId,
               putCount,
               markerSha256: createHash('sha256').update(markerBytes).digest('hex'),
               uploads: persisted,
@@ -1374,7 +1410,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
     const context = await connectedContext(browser, state.tokens.owner, { width: 390, height: 844 })
     try {
       const page = await context.newPage()
-      await page.goto('/dev-fixtures/remote-onboarding?state=share')
+      await page.goto(remoteOnboardingFixtureUrl)
       await expect(page.getByText('Loading saved work…')).toBeHidden()
       await page.getByRole('button', { name: 'Review my materials', exact: true }).click()
       const historicalFile = page.getByRole('checkbox', {
@@ -1671,6 +1707,9 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       // Reuse the retained onboarding fixture's provider-only seam. Admission,
       // budget accounting, duplicate analysis, persistence and replay stay real.
       let syntheticEmbeddingCalls = 0
+      let scannerPackageDraft:
+        | Awaited<ReturnType<typeof admin.admin.createIntakeV1PackageDraft>>['value']
+        | null = null
       setOpenAiEmbeddingsClientForTesting({
         embeddings: {
           create: async ({ input: texts, dimensions }) => {
@@ -1690,6 +1729,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       try {
         const syntheticCommand = { ...command, operationId: randomUUID() }
         const draft = await admin.admin.createIntakeV1PackageDraft(syntheticCommand)
+        scannerPackageDraft = draft.value
         expect(draft.value).toMatchObject({ status: 'DRAFT', replayed: false })
         const callsAfterDraft = syntheticEmbeddingCalls
         expect(callsAfterDraft).toBeGreaterThan(0)
@@ -1762,7 +1802,129 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           db.venueKnowledgeEntry.count({ where: { tenantId, venueId } }),
         ),
       ).toBe(0)
-      await page.goto('/dev-fixtures/remote-onboarding?state=share')
+      if (scannerReleaseEnabled) {
+        expect(scannerPackageDraft).not.toBeNull()
+        const reviewed = await owner.venuePackage.getById({ id: scannerPackageDraft!.id })
+        expect(reviewed).toMatchObject({
+          id: scannerPackageDraft!.id,
+          status: 'DRAFT',
+          payloadHash: scannerPackageDraft!.payloadHash,
+        })
+        const approved = await owner.venuePackage.approve({
+          id: reviewed.id,
+          expectedUpdatedAt: reviewed.updatedAt,
+          commandKey: randomUUID(),
+          acknowledgedWarningDigest: reviewed.previewPlan.warningDigest,
+          acknowledgedPayloadHash: reviewed.payloadHash,
+        })
+        expect(approved.status).toBe('APPROVED')
+        const applied = await owner.venuePackage.applyPackage({
+          id: approved.id,
+          expectedUpdatedAt: approved.updatedAt,
+          commandKey: randomUUID(),
+        })
+        expect(applied.status).toBe('APPLIED')
+
+        const contentVersions = await withTenantIsolationBypass(() =>
+          db.contentVersion.findMany({
+            where: { tenantId, venueId, venuePackageId: applied.id, venuePackageAction: 'APPLY' },
+            select: { id: true, entityType: true, entityId: true },
+            orderBy: { sequence: 'asc' },
+          }),
+        )
+        expect(contentVersions.length).toBeGreaterThan(0)
+
+        const anonymousToken = randomUUID()
+        const publicCaller = appRouter.createCaller({
+          db,
+          headers: new Headers(),
+          session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+        })
+        const guestSession = await publicCaller.chat.session({ venueId, anonymousToken })
+        const publicScope = await loadPublicLocationScope(db, { anonymousToken, venueId })
+        expect(publicScope).toMatchObject({ tenantId, venueId, experienceScope: 'PUBLIC' })
+        const publicKnowledge = await retrieveGuestKnowledge({
+          reader: db,
+          query: 'visitor provided notes review venue knowledge',
+          tenantId: publicScope!.tenantId,
+          venueId: publicScope!.venueId,
+          includeSecondLayer: false,
+          queryEmbedding: null,
+        })
+        expect(publicKnowledge.entries.length).toBeGreaterThan(0)
+        expect(
+          publicKnowledge.entries.some((entry) => entry.content.includes(scannerCleanText.trim())),
+        ).toBe(true)
+        for (const entry of publicKnowledge.entries) {
+          expect(contentVersions).toContainEqual(
+            expect.objectContaining({ entityType: 'KNOWLEDGE_ENTRY', entityId: entry.id }),
+          )
+        }
+
+        const releasedLifecycle = (await owner.portal.getVenueLifecycles()).find(
+          (item) => item.venueId === venueId,
+        )
+        expect(releasedLifecycle?.release.released).toBe(true)
+        expect(['READY', 'LIVE', 'REVISIONS']).toContain(releasedLifecycle?.lifecycle.state)
+        let qrDecodedUrl: string | undefined
+        for (const viewport of [
+          { name: '390', width: 390, height: 844 },
+          { name: '1440', width: 1440, height: 900 },
+        ] as const) {
+          await page.setViewportSize(viewport)
+          await page.goto(
+            `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}`,
+          )
+          await expect(page.getByRole('heading', { name: /QR kit$/u })).toBeVisible()
+          const downloadButton = page.getByRole('button', { name: /Download SVG/i }).first()
+          await expect(downloadButton).toBeVisible()
+          const qrUrl = page.locator('article').first().locator('p.font-mono')
+          const expectedVenueQrUrl = new URL(
+            `/${encodeURIComponent(publicScope!.venueSlug)}/chat?source=qr`,
+            process.env.NEXT_PUBLIC_WEB_URL!,
+          ).toString()
+          await expect(qrUrl).toHaveText(expectedVenueQrUrl)
+          const download = page.waitForEvent('download')
+          await downloadButton.click()
+          const downloaded = await download
+          expect(downloaded.suggestedFilename()).toMatch(/\.svg$/u)
+          const svgPath = testInfo.outputPath(`scanner-release-${viewport.name}.svg`)
+          await downloaded.saveAs(svgPath)
+          const expectedUrl = (await qrUrl.textContent())?.trim()
+          qrDecodedUrl = await decodeQrSvg(await readFile(svgPath))
+          expect(qrDecodedUrl).toBe(expectedUrl)
+          await expectNoHorizontalOverflow(page)
+          await captureEvidence(page, testInfo, `scanner-release-qr-${viewport.name}`)
+        }
+        await testInfo.attach('browser-scanner-release-identity', {
+          body: JSON.stringify({
+            tenantId,
+            venueId,
+            selectedUploadId: submittedSource.uploadId,
+            selectedRunId: submittedSource.runId,
+            extractionReceiptId: submittedReceiptId,
+            submissionId: saved.submissionId,
+            manifestHash: saved.manifestHash,
+            candidateHash: ready.candidateHash,
+            payloadHash: ready.payloadHash,
+            packageId: applied.id,
+            appliedStatus: applied.status,
+            contentVersionIds: contentVersions.map((version) => version.id),
+            contentVersions,
+            publicKnowledgeIds: publicKnowledge.entries.map((entry) => entry.id),
+            guestSessionId: guestSession.sessionId,
+            venueSlug: publicScope!.venueSlug,
+            lifecycleState: releasedLifecycle?.lifecycle.state,
+            released: releasedLifecycle?.release.released,
+            publicScopeResolved: publicScope !== null,
+            qrDecodedUrl,
+            providerProof: false,
+          }),
+          contentType: 'application/json',
+        })
+      }
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(remoteOnboardingFixtureUrl)
       await expect(page.getByText('Version 1 received', { exact: true })).toBeVisible()
       await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
       await expectNoHorizontalOverflow(page)
@@ -1788,6 +1950,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         ).toBe(0)
         await testInfo.attach('browser-scanner-v1-extraction-identity', {
           body: JSON.stringify({
+            tenantId,
+            venueId,
             submissionId: saved.submissionId,
             manifestHash: saved.manifestHash,
             memberId: saved.memberId,
@@ -2075,7 +2239,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         closeJobQueues = jobs.closeJobQueues
         closeBullMQConnection = jobs.closeBullMQConnection
         const page = await context.newPage()
-        await page.goto('/dev-fixtures/remote-onboarding?state=share')
+        await page.goto(remoteOnboardingFixtureUrl)
         await expect(page.getByText('Loading saved work…')).toBeHidden()
         const storageOrigin = new URL(process.env.STORAGE_ENDPOINT!).origin
         let actualPutCount = 0
@@ -2301,7 +2465,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         closeJobQueues = jobs.closeJobQueues
         closeBullMQConnection = jobs.closeBullMQConnection
         const page = await context.newPage()
-        await page.goto('/dev-fixtures/remote-onboarding?state=share')
+        await page.goto(remoteOnboardingFixtureUrl)
         await expect(page.getByText('Loading saved work…')).toBeHidden()
         let successfulPutCount = 0
         page.on('response', (response) => {

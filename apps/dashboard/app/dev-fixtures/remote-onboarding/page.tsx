@@ -345,20 +345,30 @@ function scenario(state: FixtureState): {
 export default async function RemoteOnboardingVisualFixture({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string | string[]; v1?: string }>
+  searchParams: Promise<{ state?: string | string[]; v1?: string; venueId?: string | string[] }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
   const query = await searchParams
   const state = fixtureState(query.state)
   const fixture = scenario(state)
+  const venueOverride = query.venueId
+  if (
+    venueOverride !== undefined &&
+    (typeof venueOverride !== 'string' || !/^c[a-z0-9]{24}$/.test(venueOverride))
+  )
+    notFound()
+  const data =
+    venueOverride === undefined
+      ? fixture.data
+      : { ...fixture.data, venue: { ...fixture.data.venue, id: venueOverride } }
 
   return (
     <div data-fixture="remote-onboarding" data-fixture-state={state}>
-      <TRPCProvider scopeKey={`fixture:onboarding:${state}`}>
+      <TRPCProvider scopeKey={`fixture:onboarding:${state}:${data.venue.id}`}>
         <RemoteOnboardingJourney
           ownerId="fixture-remote-onboarding-owner"
-          data={fixture.data}
+          data={data}
           uploads={fixture.uploads}
           proposals={
             query.v1 === '1'
