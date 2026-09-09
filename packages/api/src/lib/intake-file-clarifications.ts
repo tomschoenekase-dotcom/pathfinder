@@ -46,6 +46,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   question: string
   evidenceExcerpt: string
   agentIdentityId: string
+  agentRunId?: string
 }) {
   const receipt = await input.db.intakeFileExtractionReceipt.findFirst({
     where: {
@@ -96,8 +97,23 @@ export async function createFileExtractionClarificationQuestion(input: {
     )
   }
   const excerptHash = sha256(input.evidenceExcerpt)
+  const runlessOperationIdentity = `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`
   const operationId = deterministicUuid(
-    `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`,
+    input.agentRunId
+      ? `pathfinder:file-extraction-clarification:v4:${JSON.stringify([
+          input.tenantId,
+          input.venueId,
+          input.runId,
+          input.receiptId,
+          receipt.extractedTextHash,
+          input.fieldPath,
+          input.reason,
+          input.blockerScope,
+          sha256(input.question),
+          excerptHash,
+          input.agentRunId,
+        ])}`
+      : runlessOperationIdentity,
   )
 
   try {
@@ -107,6 +123,7 @@ export async function createFileExtractionClarificationQuestion(input: {
         tenantId: input.tenantId,
         venueId: input.venueId,
         agentIdentityId: identity.id,
+        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
         question: input.question,
         context:
           input.blockerScope === 'FOUNDATIONAL'
@@ -133,6 +150,7 @@ export async function createFileExtractionClarificationQuestion(input: {
           blockerScope: input.blockerScope,
           excerptHash,
           sourceAmendmentRequired: true,
+          ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
         },
         blocking: input.blockerScope === 'FOUNDATIONAL',
       },

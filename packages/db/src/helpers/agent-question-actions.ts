@@ -293,6 +293,7 @@ export async function askAgentQuestionAction(
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:agent-question-operation:${input.tenantId}:${input.operationId}`}, 0))`
     const operation = await transaction.agentQuestionOperation.findUnique({
       where: {
+        tenantId: input.tenantId,
         tenantId_operationId: { tenantId: input.tenantId, operationId: input.operationId },
       },
       select: { question: { select: returnedQuestionSelect } },
