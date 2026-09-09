@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   transcript: vi.fn(),
   usage: vi.fn(),
   groundingContext: vi.fn(),
+  locationCatalog: vi.fn(),
+  locationRoute: vi.fn(),
   end: vi.fn(),
   getUserMedia: vi.fn(),
 }))
@@ -24,6 +26,10 @@ vi.mock('../lib/trpc', () => {
       usage: { mutate: mocks.usage },
       groundingContext: { mutate: mocks.groundingContext },
       end: { mutate: mocks.end },
+    },
+    location: {
+      catalog: { query: mocks.locationCatalog },
+      route: { query: mocks.locationRoute },
     },
   }
   return { useTRPCClient: () => client }
@@ -56,6 +62,7 @@ describe('VoiceControl', () => {
       context: '[Bathrooms]\nBeside the east lift.',
       sourceIds: ['bathroom'],
     })
+    mocks.locationCatalog.mockResolvedValue({ locations: [] })
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
   })
   afterEach(() => {
@@ -709,6 +716,371 @@ describe('VoiceControl', () => {
       expect(onTranscriptLine).toHaveBeenCalledOnce()
     },
   )
+
+  it('registers bounded route tools and dispatches exact canonical location inputs', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    mocks.locationCatalog.mockResolvedValue({
+      locations: Array.from({ length: 25 }, (_, index) => ({
+        id: `location-${index}`,
+        stableKey: `place-${index}`,
+        displayName: `Place ${index}`,
+        kind: 'EXHIBIT',
+        floor: {
+          stableKey: `level-${index % 2}`,
+          name: `Level ${index % 2}`,
+          level: index % 2,
+        },
+        coordinates: { latitude: 1, longitude: 2 },
+      })),
+    })
+    const route = {
+      from: { id: 'location-4' },
+      to: { id: 'location-9' },
+      accessibleOnly: true,
+      segmentCount: 2,
+      describedSegmentCount: 1,
+      guidanceConfidence: 'LIMITED',
+      hasEquivalentRoute: true,
+      review: { status: 'VENUE_REVIEWED', reviewedAt: new Date('2026-09-08T12:00:00Z') },
+      segments: [{ connectionId: 'edge-1', directions: null }],
+    }
+    mocks.locationRoute.mockResolvedValue(route)
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    const channel = {
+      readyState: 'open',
+      send,
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+
+    render(
+      <VoiceControl {...props} visitContext={{ visitedPlaceIds: ['location-4'], interests: [] }} />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    act(() => listeners.get('open')?.({} as MessageEvent<string>))
+
+    const sessionUpdate = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.type === 'session.update')
+    const tools = sessionUpdate.session.tools as Array<{
+      name?: unknown
+      parameters?: unknown
+      description?: unknown
+    }>
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'lookup_venue_knowledge',
+      'list_reviewed_route_locations',
+      'lookup_reviewed_route',
+    ])
+    expect(tools[1]?.parameters).toMatchObject({
+      additionalProperties: false,
+      required: ['offset'],
+    })
+    expect(tools[2]?.parameters).toMatchObject({
+      additionalProperties: false,
+      required: ['fromLocationId', 'toLocationId', 'accessibleOnly'],
+    })
+    expect(String(tools[2]?.description)).toContain('never infer')
+    expect(String(tools[2]?.description)).toContain('LIMITED')
+
+    const providerEvent = (event: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'catalog',
+              arguments: JSON.stringify({ offset: 4 }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'route',
+              arguments: JSON.stringify({
+                fromLocationId: ' location-4 ',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+              }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'mixed-knowledge',
+              arguments: JSON.stringify({ query: 'What is here?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'mixed-overflow',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-1',
+                toLocationId: 'location-2',
+                accessibleOnly: false,
+              }),
+            },
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'catalog',
+              arguments: JSON.stringify({ offset: 4 }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() => expect(mocks.locationRoute).toHaveBeenCalledOnce())
+    expect(mocks.locationCatalog).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+    })
+    expect(mocks.locationRoute).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+      fromLocationId: 'location-4',
+      toLocationId: 'location-9',
+      accessibleOnly: true,
+    })
+    expect(mocks.locationRoute.mock.calls[0]?.[0]).not.toHaveProperty('visitContext')
+    expect(mocks.locationCatalog).toHaveBeenCalledOnce()
+    expect(mocks.groundingContext).toHaveBeenCalledOnce()
+    const outputs = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .filter((event) => event.type === 'conversation.item.create')
+    const catalogOutput = JSON.parse(
+      outputs.find((event) => event.item.call_id === 'catalog').item.output,
+    )
+    expect(catalogOutput.locations).toHaveLength(20)
+    expect(catalogOutput).toMatchObject({ truncated: true, nextOffset: 24 })
+    expect(catalogOutput.locations[0]).toEqual({
+      id: 'location-4',
+      stableKey: 'place-4',
+      displayName: 'Place 4',
+      kind: 'EXHIBIT',
+      floor: { stableKey: 'level-0', name: 'Level 0', level: 0 },
+    })
+    expect(JSON.parse(outputs.find((event) => event.item.call_id === 'route').item.output)).toEqual(
+      {
+        grounded: true,
+        route: {
+          ...route,
+          review: { ...route.review, reviewedAt: '2026-09-08T12:00:00.000Z' },
+        },
+      },
+    )
+    expect(
+      JSON.parse(outputs.find((event) => event.item.call_id === 'mixed-overflow').item.output),
+    ).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_CALL_LIMIT_EXCEEDED',
+    })
+
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'invalid-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'invalid-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+                latitude: 1,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('invalid-route'))).toBe(true),
+    )
+    expect(mocks.locationRoute).toHaveBeenCalledOnce()
+    const invalidOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'invalid-route')
+    expect(JSON.parse(invalidOutput.item.output)).toEqual({
+      grounded: false,
+      context: '',
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationRoute.mockRejectedValueOnce(new Error('denied'))
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'denied-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'denied-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: false,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('denied-route'))).toBe(true),
+    )
+    const deniedOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'denied-route')
+    expect(JSON.parse(deniedOutput.item.output)).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationRoute.mockResolvedValueOnce({
+      ...route,
+      segments: [{ directions: 'x'.repeat(13_000) }],
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'oversize-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'oversize-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('oversize-route'))).toBe(
+        true,
+      ),
+    )
+    const oversizeOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'oversize-route')
+    expect(JSON.parse(oversizeOutput.item.output)).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationCatalog.mockResolvedValueOnce({
+      locations: Array.from({ length: 500 }, (_, index) => ({
+        id: `last-page-${index}`,
+        stableKey: `last-page-${index}`,
+        displayName: `Last page ${index}`,
+        kind: 'EXHIBIT',
+        floor: null,
+      })),
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'last-page-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'last-page',
+              arguments: JSON.stringify({ offset: 499 }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('last-page'))).toBe(true),
+    )
+    const lastPageOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'last-page')
+    expect(JSON.parse(lastPageOutput.item.output)).toMatchObject({
+      grounded: true,
+      truncated: false,
+      nextOffset: null,
+      locations: [{ id: 'last-page-499' }],
+    })
+
+    mocks.groundingContext.mockResolvedValueOnce({
+      context: 'k'.repeat(12_000),
+      sourceIds: ['large'],
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'large-knowledge-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'large-knowledge',
+              arguments: JSON.stringify({ query: 'Give the reviewed details.' }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('large-knowledge'))).toBe(
+        true,
+      ),
+    )
+    const largeKnowledgeOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'large-knowledge')
+    expect(JSON.parse(largeKnowledgeOutput.item.output).context).toHaveLength(12_000)
+  })
 
   it('cancels the active response on barge-in, marks unplayed speech interrupted, and tears down media', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })

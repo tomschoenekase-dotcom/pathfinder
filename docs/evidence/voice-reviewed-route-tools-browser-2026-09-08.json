@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseHead": "2047dcf639ab7586f94b9d6ffa3a5848e7afdc96",
+  "slice": "W04 voice reuses canonical reviewed location catalog and route service",
+  "status": "passed-local-boundaries",
+  "requirements": ["V2-P02-07", "V2-P02-08"],
+  "implementation": [
+    "Two realtime tools reuse location.catalog and location.route; no duplicate solver, schema or entitlement changes.",
+    "Catalog pages contain at most20 canonical public projections, retain floor stableKey/name/level, allow offsets0..499 and advertise nextOffset. Empty pages are ungrounded.",
+    "Strict route args accept only explicit from/to IDs and accessibleOnly; dispatcher never forwards visitContext or device coordinates.",
+    "New catalog/route serialized outputs over12000 characters return unavailable whole; existing knowledge output behavior preserved.",
+    "Shared call cap, deduplication and lifecycle/session/channel interruption fences apply to all tools; callback dependencies include both location procedures.",
+    "Trusted descriptions require visitor origin clarification and preserve LIMITED/missing directions/equivalent-route/accessibility limits."
+  ],
+  "browser": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-route-tools-browser-32ff4cdd31a0",
+    "port": 3003,
+    "distDir": ".next-voice-route-tools-32ff4cdd31a0",
+    "runnerSha256": "7a983a9d1a49cb5ce22fedbd676ac5d32559a73bac32021b05800ce3289deb8d",
+    "sourceHead": "2047dcf639ab7586f94b9d6ffa3a5848e7afdc96",
+    "clerkBoundary": "Installed Clerk 6.39.3 development middleware returns signed-out for empty-key empty-cookie unauthenticated requests; root layout does not mount ClerkProvider. No keyless provider/account creation path is invoked.",
+    "executionBoundary": "synthetic browser transport only; no real authentication, route database, audio device, or provider call",
+    "environmentPolicy": "allowlisted OS variables plus explicit synthetic test values; provider, database, cache, and storage credentials are blank",
+    "ready": true,
+    "browserPassed": true,
+    "stopped": true,
+    "portReleased": true,
+    "sources": [
+      {
+        "source": "apps/web/components/VoiceControl.tsx",
+        "retained": "measured-apps__web__components__VoiceControl.tsx",
+        "sha256": "327a3900218c45cffbd85082c723672e94c1c2eb12ad0ae3ab022c709387f2e9",
+        "bytes": 51062
+      },
+      {
+        "source": "apps/web/components/VoiceControl.test.tsx",
+        "retained": "measured-apps__web__components__VoiceControl.test.tsx",
+        "sha256": "30d0a8204420cdd870c766eb6fc558a8c01631ceb7ce3dee6fee29e596fd0f9f",
+        "bytes": 59677
+      },
+      {
+        "source": "apps/web/components/VoiceRouteToolsFixture.tsx",
+        "retained": "measured-apps__web__components__VoiceRouteToolsFixture.tsx",
+        "sha256": "c140d0372afaac7cc076beafc39ec2284b1b42ea8865f8363ffd901f9ef26381",
+        "bytes": 2285
+      },
+      {
+        "source": "apps/web/app/dev-fixtures/voice-route-tools/page.tsx",
+        "retained": "measured-apps__web__app__dev-fixtures__voice-route-tools__page.tsx",
+        "sha256": "4575aee640d949354fd60528e4ef2cef26a3998c9964525ff1b762e63bc4b949",
+        "bytes": 347
+      },
+      {
+        "source": "apps/dashboard/tests/visitor-launch/visitor-voice-route-tools.spec.ts",
+        "retained": "measured-apps__dashboard__tests__visitor-launch__visitor-voice-route-tools.spec.ts",
+        "sha256": "d3bbab5cf57a5525ffd2591cffb6465a74b012f020bb71f153a0a18aad183bac",
+        "bytes": 12465
+      },
+      {
+        "source": "apps/dashboard/playwright.visitor-launch.config.ts",
+        "retained": "measured-apps__dashboard__playwright.visitor-launch.config.ts",
+        "sha256": "38ff3f413e41e2f9c9020b854b0c505923479e40179ef378e956bb02435c542f",
+        "bytes": 2159
+      },
+      {
+        "source": "apps/web/next.config.ts",
+        "retained": "measured-apps__web__next.config.ts",
+        "sha256": "5694104418d52532878a7660427d2b9f8829351d90beeca3567e516d96ebcd4d",
+        "bytes": 2984
+      },
+      {
+        "source": "apps/web/lib/trpc.tsx",
+        "retained": "measured-apps__web__lib__trpc.tsx",
+        "sha256": "23201c07fe315cfe5f76b5a71ffff5366f84c5179856a2d1355ea464bae61028",
+        "bytes": 6080
+      },
+      {
+        "source": "apps/web/lib/bounded-client-request.ts",
+        "retained": "measured-apps__web__lib__bounded-client-request.ts",
+        "sha256": "79e50df90620c6a1f7927ade70533bb57f510a2970e793bef3994654692256cd",
+        "bytes": 1707
+      },
+      {
+        "source": "apps/web/components/LanguagePicker.tsx",
+        "retained": "measured-apps__web__components__LanguagePicker.tsx",
+        "sha256": "f4af3e8761f1e02c0829561f6bd914ab80240773252852fbc14f96fab402e216",
+        "bytes": 6659
+      },
+      {
+        "source": "apps/web/app/layout.tsx",
+        "retained": "measured-apps__web__app__layout.tsx",
+        "sha256": "31b8c0236fc05357781eef077349f489af5496b76df6b35e4671b978f3d7ee30",
+        "bytes": 3144
+      },
+      {
+        "source": "apps/web/middleware.ts",
+        "retained": "measured-apps__web__middleware.ts",
+        "sha256": "d42d2f847e65187665637c5040d3b22f7bea636eba3bfd243da71a529a806176",
+        "bytes": 3453
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-packages__api__src__routers__location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4",
+        "bytes": 15529
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-packages__api__src__routers__location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f",
+        "bytes": 6382
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-packages__api__src__routers__location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c",
+        "bytes": 2804
+      },
+      {
+        "source": "packages/api/src/routers/location-public-scope.ts",
+        "retained": "measured-packages__api__src__routers__location-public-scope.ts",
+        "sha256": "b3fcbdc244cae36fc87f9abf64856d74dd38467e98d68c559c39ac049c1c5eb7",
+        "bytes": 1065
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-packages__api__src__routers__voice.ts",
+        "sha256": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756",
+        "bytes": 25485
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-packages__api__src__lib__voice-grounding-context.ts",
+        "sha256": "d0177ce12736d401c16cb83d3fb84342383b073c558ea92e881e754401eb3a30",
+        "bytes": 8994
+      },
+      {
+        "source": "packages/api/src/schemas/voice.ts",
+        "retained": "measured-packages__api__src__schemas__voice.ts",
+        "sha256": "781d332a8839496ac7bcf225f0bacf93941a33a6f341ce7167b6e9425127e8ab",
+        "bytes": 2641
+      },
+      {
+        "source": "packages/contracts/src/guest-visit-context.ts",
+        "retained": "measured-packages__contracts__src__guest-visit-context.ts",
+        "sha256": "5bbf65a1ab38455e30639f81d70c395dedaf948b9cf404cf4ef70b9b0b037573",
+        "bytes": 1319
+      }
+    ],
+    "nextPid": 4916,
+    "counts": {
+      "startTime": "2026-09-09T03:40:47.988Z",
+      "duration": 5866.466,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "expectedBrowserCases": 3,
+    "sourceHashStable": true,
+    "stopState": "TASKKILL_SUCCEEDED",
+    "portReleaseAttempts": [
+      {
+        "attempt": 0,
+        "available": true
+      }
+    ]
+  },
+  "proofResultSha256": "32ef311d6a38df4fa9ccf7850e6bc4096846600b012a1df27d61776677073c8c",
+  "checks": [
+    {
+      "artifact": "artifacts/voice-route-tools-unit-final-20260908.json",
+      "passed": 22,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "artifact": "artifacts/voice-route-canonical-boundaries-20260908.json",
+      "passed": 29,
+      "failed": 0,
+      "pending": 0
+    }
+  ],
+  "staticChecks": {
+    "webFreshTypecheck": "artifacts/voice-route-tools-web-types-verified-20260908.log; exit0",
+    "dashboardFreshTypecheck": "artifacts/voice-route-tools-dashboard-types-final-20260908.log; exit0",
+    "configuredLint": "artifacts/voice-route-tools-lint-verified-20260908.log; exit0"
+  },
+  "renderedReview": {
+    "viewports": [390, 768, 1440],
+    "states": ["active/thinking", "ended/idle"],
+    "observed": "Existing compact voice panel remains legible; no clipping or horizontal overflow; no new decorative product UI. Root inspected phone/tablet active and desktop idle screenshots.",
+    "limits": "No new full accessibility audit, physical audio/device or visitor-chat-wide browser acceptance."
+  },
+  "historicalNativeReuse": {
+    "artifact": "docs/evidence/visitor-closure-route-native-postgres-2026-09-08.json",
+    "sourceCommit": "e9fdb332",
+    "proof": "ff089efea8d1",
+    "passed": 3,
+    "migrations": 237,
+    "tables": 256,
+    "exactCurrentHashMatches": [
+      "packages/api/src/routers/location.ts",
+      "packages/api/src/routers/location-route.ts",
+      "packages/api/src/routers/location-reachable.ts"
+    ],
+    "limit": "Historical scoped route fixture only; current native test file has changed. No new database run or middleware enforcement claim."
+  },
+  "retainedPreliminaryProof": [
+    {
+      "proof": "6e9e9472df6f",
+      "outcome": "readiness timeout before browser; synthetic Clerk setup corrected to inspected local signed-out branch; owned server stopped, portfree, sourcehashstable"
+    },
+    {
+      "proof": "dcfcf92eb2e9",
+      "outcome": "3browserfailures in end-session assertion due missing mock datachannel.close; mock repaired, finalrunpasses; owned server stopped, portfree, sourcehashstable"
+    }
+  ],
+  "limits": [
+    "Browser transport, microphone and TRPC responses are simulated. This proves real component dispatch/rendering, not real auth, database, WebRTC/audio or provider synthesis.",
+    "Model interpretation of visitor origin, spoken route quality and compliance with tool descriptions remain provider/device gates. Explicit dispatcher args are not proof of semantic origin confirmation.",
+    "Current Mini Museum deployed model/package/full September8 logs remain unavailable; no new current-field reproduction claimed.",
+    "All32QA and A/B/C remain required at their proper proof layers; no whole campaign/release/customer acceptance.",
+    "No deployment, spend, provider call or customer communication."
+  ]
+}
