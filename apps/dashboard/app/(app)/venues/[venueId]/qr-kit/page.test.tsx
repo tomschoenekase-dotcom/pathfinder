@@ -33,7 +33,9 @@ describe('client QR kit route', () => {
     vi.clearAllMocks()
     process.env.NEXT_PUBLIC_WEB_URL = 'https://guide.example.com'
     mocks.venueList.mockResolvedValue([venue])
-    mocks.lifecycleList.mockResolvedValue([{ venueId: venue.id, lifecycle: { state: 'LIVE' } }])
+    mocks.lifecycleList.mockResolvedValue([
+      { venueId: venue.id, lifecycle: { state: 'LIVE' }, release: { released: true } },
+    ])
     mocks.placeList.mockResolvedValue([])
   })
 
@@ -75,15 +77,19 @@ describe('client QR kit route', () => {
   })
 
   it.each(['READY', 'LIVE'])('allows only an existing %s venue lifecycle', async (state) => {
-    mocks.lifecycleList.mockResolvedValue([{ venueId: venue.id, lifecycle: { state } }])
+    mocks.lifecycleList.mockResolvedValue([
+      { venueId: venue.id, lifecycle: { state }, release: { released: true } },
+    ])
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(result.props.guestChatUrl).toContain('/museum/chat')
   })
 
-  it.each(['SETUP_REQUESTED', 'COLLECTING', 'CLIENT_PREVIEW', 'PAUSED'])(
+  it.each(['SETUP_REQUESTED', 'COLLECTING', 'CLIENT_PREVIEW', 'PAUSED', 'OFFBOARDING'])(
     'does not read places or generate QR content in %s state',
     async (state) => {
-      mocks.lifecycleList.mockResolvedValue([{ venueId: venue.id, lifecycle: { state } }])
+      mocks.lifecycleList.mockResolvedValue([
+        { venueId: venue.id, lifecycle: { state }, release: { released: false } },
+      ])
       const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
       expect(mocks.placeList).not.toHaveBeenCalled()
       expect(result.type).toBe(VenueQrKitAvailability)
@@ -111,8 +117,8 @@ describe('client QR kit route', () => {
       venue,
     ])
     mocks.lifecycleList.mockResolvedValue([
-      { venueId: 'venue_other', lifecycle: { state: 'PAUSED' } },
-      { venueId: venue.id, lifecycle: { state: 'LIVE' } },
+      { venueId: 'venue_other', lifecycle: { state: 'PAUSED' }, release: { released: false } },
+      { venueId: venue.id, lifecycle: { state: 'LIVE' }, release: { released: true } },
     ])
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(result.props.venueId).toBe('venue_1')
@@ -125,19 +131,55 @@ describe('client QR kit route', () => {
     expect(mocks.placeList).not.toHaveBeenCalled()
     expect(result.type).toBe(VenueQrKitAvailability)
   })
+
+  it('keeps the current released guide available while a newer draft is in revisions', async () => {
+    mocks.lifecycleList.mockResolvedValue([
+      { venueId: venue.id, lifecycle: { state: 'REVISIONS' }, release: { released: true } },
+    ])
+    const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
+    expect(result.props.guestChatUrl).toBe('https://guide.example.com/museum/chat')
+    expect(mocks.placeList).toHaveBeenCalledWith({ venueId: venue.id })
+  })
+
+  it('fails closed for revisions without a current release', async () => {
+    mocks.lifecycleList.mockResolvedValue([
+      { venueId: venue.id, lifecycle: { state: 'REVISIONS' }, release: { released: false } },
+    ])
+    const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
+    expect(result.props.guestChatUrl).toBeNull()
+    expect(mocks.placeList).not.toHaveBeenCalled()
+  })
 })
 
 describe('VenueQrKitAvailability', () => {
   it('fails closed unless the lifecycle and validated URL are both available', () => {
-    expect(isVenueQrKitAvailable('READY', 'https://guide.example.com/museum/chat')).toBe(true)
-    expect(isVenueQrKitAvailable('LIVE', 'https://guide.example.com/museum/chat')).toBe(true)
-    expect(isVenueQrKitAvailable('PAUSED', 'https://guide.example.com/museum/chat')).toBe(false)
-    expect(isVenueQrKitAvailable('READY', null)).toBe(false)
+    expect(isVenueQrKitAvailable('READY', 'https://guide.example.com/museum/chat', true)).toBe(true)
+    expect(isVenueQrKitAvailable('LIVE', 'https://guide.example.com/museum/chat', true)).toBe(true)
+    expect(isVenueQrKitAvailable('REVISIONS', 'https://guide.example.com/museum/chat', true)).toBe(
+      true,
+    )
+    expect(isVenueQrKitAvailable('REVISIONS', 'https://guide.example.com/museum/chat', false)).toBe(
+      false,
+    )
+    expect(isVenueQrKitAvailable('READY', 'https://guide.example.com/museum/chat', false)).toBe(
+      false,
+    )
+    expect(isVenueQrKitAvailable('PAUSED', 'https://guide.example.com/museum/chat', true)).toBe(
+      false,
+    )
+    expect(
+      isVenueQrKitAvailable('OFFBOARDING', 'https://guide.example.com/museum/chat', true),
+    ).toBe(false)
+    expect(isVenueQrKitAvailable('UNKNOWN', 'https://guide.example.com/museum/chat', true)).toBe(
+      false,
+    )
+    expect(isVenueQrKitAvailable('READY', null, true)).toBe(false)
 
     const unavailable = VenueQrKitAvailability({
       venueId: 'venue_1',
       venueName: 'Museum',
       lifecycleState: 'PAUSED',
+      hasCurrentRelease: true,
       guestChatUrl: 'https://guide.example.com/museum/chat',
       generatedAt: '2026-09-08T00:00:00.000Z',
       guideItems: [

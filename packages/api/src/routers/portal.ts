@@ -335,8 +335,8 @@ export const portalRouter = router({
               isActive: true,
               _count: {
                 select: {
-                  places: { where: { isActive: true } },
-                  knowledgeEntries: { where: { isEnabled: true } },
+                  places: { where: { isActive: true, visibility: 'PUBLIC' } },
+                  knowledgeEntries: { where: { isEnabled: true, visibility: 'PUBLIC' } },
                 },
               },
             },
@@ -655,8 +655,8 @@ export const portalRouter = router({
             isActive: true,
             _count: {
               select: {
-                places: { where: { isActive: true } },
-                knowledgeEntries: { where: { isEnabled: true } },
+                places: { where: { isActive: true, visibility: 'PUBLIC' } },
+                knowledgeEntries: { where: { isEnabled: true, visibility: 'PUBLIC' } },
               },
             },
           },
@@ -791,6 +791,9 @@ export const portalRouter = router({
             venueId: venue.id,
             venueName: venue.name,
             lifecycle,
+            release: {
+              released: venue.isActive && (packageCounts.applied > 0 || publicContentCount > 0),
+            },
             clientPreview:
               lifecycle.state === 'CLIENT_PREVIEW'
                 ? (previewAvailability.get(venue.id) ?? { state: 'UNAVAILABLE', id: null })

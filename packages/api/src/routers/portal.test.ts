@@ -251,6 +251,20 @@ describe('client portal lifecycle read model', () => {
       ['venue-1', 'LIVE'],
       ['venue-2', 'PROCESSING'],
     ])
+    expect(result.map(({ venueId, release }) => [venueId, release.released])).toEqual([
+      ['venue-1', true],
+      ['venue-2', false],
+    ])
+    expect(venueFindMany.mock.calls[0]?.[0]).toMatchObject({
+      select: {
+        _count: {
+          select: {
+            places: { where: { isActive: true, visibility: 'PUBLIC' } },
+            knowledgeEntries: { where: { isEnabled: true, visibility: 'PUBLIC' } },
+          },
+        },
+      },
+    })
     expect(JSON.stringify(result)).not.toMatch(/ANALYZING|packageCounts|worker|analytics/iu)
     for (const call of [
       venueFindMany,
@@ -276,7 +290,29 @@ describe('client portal lifecycle read model', () => {
     offboardingFindMany.mockResolvedValue([{ venueId: 'venue-1' }])
 
     await expect(app.createCaller(ctx).portal.getVenueLifecycles()).resolves.toMatchObject([
-      { lifecycle: { state: 'OFFBOARDING', clientActionRequired: false } },
+      {
+        lifecycle: { state: 'OFFBOARDING', clientActionRequired: false },
+        release: { released: true },
+      },
+    ])
+  })
+
+  it('keeps current release evidence when a newer package is in revisions', async () => {
+    venueFindMany.mockResolvedValue([
+      { id: 'venue-1', name: 'Museum', isActive: true, _count: { places: 0, knowledgeEntries: 0 } },
+    ])
+    intakeGroupBy.mockResolvedValue([])
+    mediaGroupBy.mockResolvedValue([])
+    packageGroupBy.mockResolvedValue([
+      { venueId: 'venue-1', status: 'DRAFT', _count: { _all: 1 } },
+      { venueId: 'venue-1', status: 'APPLIED', _count: { _all: 1 } },
+    ])
+    packageFindMany.mockResolvedValue([])
+    historyFindMany.mockResolvedValue([])
+    offboardingFindMany.mockResolvedValue([])
+
+    await expect(app.createCaller(ctx).portal.getVenueLifecycles()).resolves.toMatchObject([
+      { lifecycle: { state: 'REVISIONS' }, release: { released: true } },
     ])
   })
 })

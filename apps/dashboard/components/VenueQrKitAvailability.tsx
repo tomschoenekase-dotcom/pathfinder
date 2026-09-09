@@ -12,6 +12,7 @@ export type VenueQrKitAvailabilityProps = {
   venueId: string
   venueName: string
   lifecycleState: string
+  hasCurrentRelease: boolean
   guestChatUrl: string | null
   generatedAt: string
   guideItems: VenueQrKitGuideItem[]
@@ -20,19 +21,25 @@ export type VenueQrKitAvailabilityProps = {
 export function isVenueQrKitAvailable(
   lifecycleState: string,
   guestChatUrl: string | null,
+  hasCurrentRelease = false,
 ): boolean {
-  return (lifecycleState === 'READY' || lifecycleState === 'LIVE') && guestChatUrl !== null
+  return (
+    hasCurrentRelease &&
+    guestChatUrl !== null &&
+    (lifecycleState === 'READY' || lifecycleState === 'LIVE' || lifecycleState === 'REVISIONS')
+  )
 }
 
 export function VenueQrKitAvailability({
   venueId,
   venueName,
   lifecycleState,
+  hasCurrentRelease,
   guestChatUrl,
   generatedAt,
   guideItems,
 }: VenueQrKitAvailabilityProps) {
-  const available = isVenueQrKitAvailable(lifecycleState, guestChatUrl)
+  const available = isVenueQrKitAvailable(lifecycleState, guestChatUrl, hasCurrentRelease)
   if (!available || guestChatUrl === null) {
     return (
       <section className="mx-auto max-w-4xl px-4 py-8 sm:px-7 sm:py-12" role="alert">

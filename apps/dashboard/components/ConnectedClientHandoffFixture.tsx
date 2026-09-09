@@ -11,6 +11,7 @@ type LoadedState = {
   venue: { id: string; name: string; slug: string }
   venues: Array<{ id: string; name: string }>
   lifecycleState: string
+  hasCurrentRelease: boolean
   guestChatUrl: string | null
   guideItems: Array<{ id: string; name: string; updatedAt: string }>
   requests: Awaited<
@@ -42,7 +43,11 @@ export function ConnectedClientHandoffFixture({ venueId }: { venueId: string }) 
         const guestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
           allowLoopbackHttp: process.env.NODE_ENV === 'development',
         })
-        const available = isVenueQrKitAvailable(lifecycle.lifecycle.state, guestChatUrl)
+        const available = isVenueQrKitAvailable(
+          lifecycle.lifecycle.state,
+          guestChatUrl,
+          lifecycle.release.released,
+        )
         const [requests, attachments, places] = await Promise.all([
           client.support.listRequests.query({ venueId }, { signal: controller.signal }),
           client.support.listEligibleAttachments.query(
@@ -58,6 +63,7 @@ export function ConnectedClientHandoffFixture({ venueId }: { venueId: string }) 
           venue,
           venues: venueRows.map(({ id, name }) => ({ id, name })),
           lifecycleState: lifecycle.lifecycle.state,
+          hasCurrentRelease: lifecycle.release.released,
           guestChatUrl,
           guideItems: places
             .filter((place) => place.isActive && place.visibility === 'PUBLIC')
@@ -118,6 +124,7 @@ export function ConnectedClientHandoffFixture({ venueId }: { venueId: string }) 
           venueId={loaded.venue.id}
           venueName={loaded.venue.name}
           lifecycleState={loaded.lifecycleState}
+          hasCurrentRelease={loaded.hasCurrentRelease}
           guestChatUrl={loaded.guestChatUrl}
           generatedAt={new Date().toISOString()}
           guideItems={loaded.guideItems}

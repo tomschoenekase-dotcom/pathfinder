@@ -73,6 +73,18 @@ describe('remote onboarding journey read model', () => {
     expect(ctx.db.$transaction).toHaveBeenLastCalledWith(expect.any(Function), {
       isolationLevel: 'RepeatableRead',
     })
+    expect(venueFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          _count: {
+            select: {
+              places: { where: { isActive: true, visibility: 'PUBLIC' } },
+              knowledgeEntries: { where: { isEnabled: true, visibility: 'PUBLIC' } },
+            },
+          },
+        }),
+      }),
+    )
     expect(uploadGroupBy).toHaveBeenCalledWith({
       by: ['status', 'category', 'rejectionCode'],
       where: { tenantId: 'tenant-1', venueId: 'venue-1' },

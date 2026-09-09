@@ -35,7 +35,14 @@ const redisTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_REDIS_INTEGRA
 const freshExtractionEnabled = process.env.RUN_ONBOARDING_CONNECTED_FRESH_EXTRACTION === '1'
 const storageTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE === '1'
 const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
+const qrReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_QR_RELEASE === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
+
+if (qrReleaseEnabled && (!enabled || storageTransportEnabled || freshExtractionEnabled)) {
+  throw new Error(
+    'Connected QR release proof requires the base disposable database mode without storage or fresh extraction.',
+  )
+}
 
 function assertDisposableRedisTransportBoundary(): void {
   if (freshExtractionEnabled && !redisTransportEnabled) {
@@ -793,6 +800,10 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
     await db.$disconnect()
   })
 
+  test.afterEach(() => {
+    setOpenAiEmbeddingsClientForTesting(null)
+  })
+
   test('retains drafts across reload and browser contexts without hiding CAS or permission loss', async ({
     browser,
   }, testInfo) => {
@@ -1488,6 +1499,210 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
     }
   })
 
+  if (qrReleaseEnabled) {
+    test('keeps the current QR release available while a newer package remains a draft', async ({
+      browser,
+    }, testInfo) => {
+      const state = fixture!
+      const qrVenue = await withTenantIsolationBypass(() =>
+        db.venue.create({
+          data: {
+            tenantId,
+            name: 'Connected released QR venue',
+            slug: 'fixture-connected-released-qr-venue',
+          },
+        }),
+      )
+      const qrVenueId = qrVenue.id
+      const { appRouter } = await import('@pathfinder/api')
+      const admin = appRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: state.sessions.get(state.tokens.admin)!,
+      })
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: {
+          create: async ({ input: texts, dimensions }) => ({
+            data: texts.map((_text, index) => ({
+              index,
+              embedding: Array.from({ length: dimensions }, (_, position) =>
+                position === index % Math.min(dimensions, 4) ? 1 : 0,
+              ),
+            })),
+            usage: { prompt_tokens: texts.length, total_tokens: texts.length },
+          }),
+        },
+      })
+      const appliedPayload = {
+        schemaVersion: 1 as const,
+        places: [
+          {
+            name: 'Connected release gallery',
+            type: 'exhibit',
+            lat: 41.88,
+            lng: -87.63,
+            tags: ['connected-qr-release'],
+            importanceScore: 60,
+          },
+        ],
+        knowledgeEntries: [],
+      }
+      const appliedDraft = await admin.venuePackage.createDraft({
+        venueId: qrVenueId,
+        payload: appliedPayload,
+        draftKey: randomUUID(),
+      })
+      expect(appliedDraft.preview.report.errors).toEqual([])
+      expect(appliedDraft.preview.report.semanticDuplicateScan.status).toBe('COMPLETE')
+      const approved = await admin.venuePackage.approve({
+        id: appliedDraft.id,
+        expectedUpdatedAt: appliedDraft.updatedAt,
+        commandKey: randomUUID(),
+        acknowledgedWarningDigest: appliedDraft.preview.warningDigest,
+        acknowledgedPayloadHash: appliedDraft.payloadHash,
+      })
+      const applied = await admin.venuePackage.applyPackage({
+        id: appliedDraft.id,
+        expectedUpdatedAt: approved.updatedAt,
+        commandKey: randomUUID(),
+      })
+      expect(applied.status).toBe('APPLIED')
+
+      const unreleasedPayload = {
+        schemaVersion: 1 as const,
+        places: [
+          {
+            name: 'Connected unreleased gallery',
+            type: 'exhibit',
+            lat: 41.88,
+            lng: -87.63,
+            tags: ['connected-qr-draft'],
+            importanceScore: 40,
+          },
+        ],
+        knowledgeEntries: [],
+      }
+      const newerDraft = await admin.venuePackage.createDraft({
+        venueId: qrVenueId,
+        payload: unreleasedPayload,
+        draftKey: randomUUID(),
+      })
+      expect(newerDraft.status).toBe('DRAFT')
+
+      const lifecycle = (await admin.portal.getVenueLifecycles()).find(
+        (candidate) => candidate.venueId === qrVenueId,
+      )
+      expect(lifecycle).toMatchObject({
+        venueId: qrVenueId,
+        lifecycle: { state: 'REVISIONS' },
+        release: { released: true },
+      })
+      const places = await admin.place.list({ venueId: qrVenueId })
+      expect(places.length).toBeGreaterThan(0)
+      expect(places.every((place) => place.isActive && place.visibility === 'PUBLIC')).toBe(true)
+      expect(places.map((place) => place.name)).toContain('Connected release gallery')
+      expect(places.map((place) => place.name)).not.toContain('Connected unreleased gallery')
+      await testInfo.attach('qr-current-release-identity', {
+        body: JSON.stringify({
+          tenantId,
+          venueId: qrVenueId,
+          appliedPackageId: applied.id,
+          appliedStatus: applied.status,
+          draftPackageId: newerDraft.id,
+          lifecycleState: lifecycle?.lifecycle.state,
+          released: lifecycle?.release.released,
+          providerProof: false,
+          publicActivePlaceIds: places.map((place) => place.id),
+        }),
+        contentType: 'application/json',
+      })
+
+      for (const viewport of [
+        { name: '390', width: 390, height: 844 },
+        { name: '1440', width: 1440, height: 900 },
+      ] as const) {
+        const context = await connectedContext(browser, state.tokens.admin, viewport)
+        try {
+          const page = await context.newPage()
+          await page.goto(
+            `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(qrVenueId)}`,
+          )
+          await expect(
+            page.getByRole('heading', { name: 'Connected released QR venue QR kit' }),
+          ).toBeVisible()
+          await expect(page.getByRole('button', { name: /Download SVG/i })).toHaveCount(2)
+          await expect(page.getByText('Connected release gallery', { exact: true })).toBeVisible()
+          await expect(page.getByText('Connected unreleased gallery', { exact: true })).toHaveCount(
+            0,
+          )
+          await expectNoHorizontalOverflow(page)
+          await captureEvidence(page, testInfo, `qr-current-release-${viewport.name}`)
+        } finally {
+          await context.close()
+        }
+      }
+
+      const unreleasedVenue = await withTenantIsolationBypass(() =>
+        db.venue.create({
+          data: {
+            tenantId,
+            name: 'Connected unreleased QR sibling',
+            slug: 'fixture-connected-unreleased-qr-sibling',
+          },
+        }),
+      )
+      const siblingDraft = await admin.venuePackage.createDraft({
+        venueId: unreleasedVenue.id,
+        payload: unreleasedPayload,
+        draftKey: randomUUID(),
+      })
+      expect(siblingDraft.status).toBe('DRAFT')
+      await withTenantIsolationBypass(() =>
+        db.place.create({
+          data: {
+            tenantId,
+            venueId: unreleasedVenue.id,
+            name: 'Employee-only sibling place',
+            type: 'exhibit',
+            tags: ['connected-qr-private-only'],
+            visibility: 'SECOND_LAYER',
+            isActive: true,
+          },
+        }),
+      )
+      const siblingLifecycle = (await admin.portal.getVenueLifecycles()).find(
+        (candidate) => candidate.venueId === unreleasedVenue.id,
+      )
+      expect(siblingLifecycle).toMatchObject({
+        venueId: unreleasedVenue.id,
+        lifecycle: { state: 'INTERNAL_REVIEW' },
+        release: { released: false },
+      })
+      await expect(
+        admin.portal.getOnboardingJourney({ venueId: unreleasedVenue.id }),
+      ).resolves.toMatchObject({
+        venue: { id: unreleasedVenue.id },
+        release: { released: false },
+      })
+      const siblingContext = await connectedContext(browser, state.tokens.admin, {
+        width: 390,
+        height: 844,
+      })
+      try {
+        const siblingPage = await siblingContext.newPage()
+        await siblingPage.goto(
+          `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(unreleasedVenue.id)}`,
+        )
+        await expect(
+          siblingPage.getByRole('heading', { name: 'QR kit is not available yet' }),
+        ).toBeVisible()
+        await expect(siblingPage.getByRole('button', { name: /Download SVG/i })).toHaveCount(0)
+      } finally {
+        await siblingContext.close()
+      }
+      setOpenAiEmbeddingsClientForTesting(null)
+    })
+  }
   if (storageTransportEnabled) {
     test('uploads one browser file to disposable storage and leaves it pending without a scanner', async ({
       browser,

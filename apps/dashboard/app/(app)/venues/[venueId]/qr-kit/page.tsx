@@ -18,13 +18,15 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
   const lifecycle = lifecycles.find((candidate) => candidate.venueId === venueId)
   if (!venue || !lifecycle) notFound()
 
-  const launchReady = lifecycle.lifecycle.state === 'READY' || lifecycle.lifecycle.state === 'LIVE'
-  const guestChatUrl = launchReady
-    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
-        allowLoopbackHttp: process.env.NODE_ENV === 'development',
-      })
-    : null
-  const available = isVenueQrKitAvailable(lifecycle.lifecycle.state, guestChatUrl)
+  const candidateGuestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
+    allowLoopbackHttp: process.env.NODE_ENV === 'development',
+  })
+  const available = isVenueQrKitAvailable(
+    lifecycle.lifecycle.state,
+    candidateGuestChatUrl,
+    lifecycle.release.released,
+  )
+  const guestChatUrl = available ? candidateGuestChatUrl : null
   const guideItems = available
     ? (await caller.place.list({ venueId }))
         .filter((place) => place.isActive && place.visibility === 'PUBLIC')
@@ -40,6 +42,7 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
       venueId={venue.id}
       venueName={venue.name}
       lifecycleState={lifecycle.lifecycle.state}
+      hasCurrentRelease={lifecycle.release.released}
       guestChatUrl={guestChatUrl}
       generatedAt={new Date().toISOString()}
       guideItems={guideItems}
