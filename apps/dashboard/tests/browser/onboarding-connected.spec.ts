@@ -38,6 +38,8 @@ const scannerTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER ===
 const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
 const qrReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_QR_RELEASE === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
+const scannerCleanText =
+  'Visitor-provided notes require review before they become venue knowledge.\n'
 
 if (qrReleaseEnabled && (!enabled || storageTransportEnabled || freshExtractionEnabled)) {
   throw new Error(
@@ -290,6 +292,16 @@ type FixtureState = {
   sourceRequests: Array<Record<string, unknown>>
   sourceResponseCursors: Array<string | null>
   freshExtraction: null | {
+    uploadId: string
+    runId: string
+    displayName: string
+    extractedTextHash: string
+    sourceSha256: string
+    objectGeneration: string
+    storageVersionId: string
+    objectKey: string
+  }
+  scannerExtraction: null | {
     uploadId: string
     runId: string
     displayName: string
@@ -631,6 +643,7 @@ async function startFixtureServer(): Promise<FixtureState> {
       objectGeneration,
       storageVersionId,
       freshExtraction,
+      scannerExtraction: null,
     }
   })
 
@@ -1102,21 +1115,256 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await admin.close()
     }
   })
+  if (scannerTransportEnabled) {
+    test('routes exact browser uploads through the registered disposable scanner', async ({
+      browser,
+    }, testInfo) => {
+      const state = fixture!
+      const cleanBytes = Buffer.from(scannerCleanText, 'utf8')
+      const markerBytes = Buffer.from('TORCHIKO_FIXTURE_TEXT_MARKER_20260908_8C1F4E2A\n', 'utf8')
+      expect(createHash('sha256').update(markerBytes).digest('hex')).toBe(
+        '9b20982a05f466a4ec3482fa7edc1a4dd01f9653bfeb97aff58f2efb7c809410',
+      )
+      state.sessions.set(state.tokens.owner, {
+        userId: ownerUserId,
+        activeTenantId: tenantId,
+        role: 'OWNER',
+        isPlatformAdmin: false,
+      })
+      const context = await connectedContext(browser, state.tokens.owner, {
+        width: 390,
+        height: 844,
+      })
+      let resources: { worker: unknown; close(): Promise<void> } | null = null
+      let closeJobQueues: (() => Promise<void>) | null = null
+      let closeBullMQConnection: (() => Promise<void>) | null = null
+      try {
+        const sdk = createRequire(resolve(__dirname, '../../../../packages/api/package.json'))(
+          '@aws-sdk/client-s3',
+        ) as {
+          S3Client: new (input: Record<string, unknown>) => {
+            send(command: unknown): Promise<unknown>
+            destroy(): void
+          }
+          CreateBucketCommand: new (input: Record<string, unknown>) => unknown
+          PutBucketVersioningCommand: new (input: Record<string, unknown>) => unknown
+        }
+        const storage = new sdk.S3Client({
+          endpoint: process.env.STORAGE_ENDPOINT!,
+          region: process.env.STORAGE_REGION!,
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: process.env.STORAGE_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY!,
+          },
+        })
+        try {
+          await storage.send(new sdk.CreateBucketCommand({ Bucket: process.env.STORAGE_BUCKET! }))
+          await storage.send(
+            new sdk.PutBucketVersioningCommand({
+              Bucket: process.env.STORAGE_BUCKET!,
+              VersioningConfiguration: { Status: 'Enabled' },
+            }),
+          )
+          const page = await context.newPage()
+          await page.goto('/dev-fixtures/remote-onboarding?state=share')
+          await expect(page.getByText('Loading saved work…')).toBeHidden()
+          await page.getByLabel('Choose files').setInputFiles([
+            { name: 'scanner-clean.txt', mimeType: 'text/plain', buffer: cleanBytes },
+            {
+              name: 'harmless-marker.txt',
+              mimeType: 'text/plain',
+              buffer: markerBytes,
+            },
+          ])
+          const storageOrigin = new URL(process.env.STORAGE_ENDPOINT!).origin
+          let putCount = 0
+          page.on('response', (response) => {
+            if (
+              response.request().method() === 'PUT' &&
+              new URL(response.url()).origin === storageOrigin &&
+              response.status() === 200
+            )
+              putCount += 1
+          })
+          await page.getByRole('button', { name: 'Upload', exact: true }).first().click()
+          await expect(page.getByText('Security check pending', { exact: true })).toHaveCount(1)
+          await page.getByRole('button', { name: 'Upload', exact: true }).click()
+          await expect(page.getByText('Security check pending', { exact: true })).toHaveCount(2)
+          expect(putCount).toBe(2)
+
+          await expect
+            .poll(
+              () =>
+                withTenantIsolationBypass(() =>
+                  db.intakeUpload.findMany({
+                    where: {
+                      tenantId,
+                      venueId,
+                      fileName: { in: ['scanner-clean.txt', 'harmless-marker.txt'] },
+                    },
+                    orderBy: { fileName: 'asc' },
+                    select: { id: true, fileName: true, status: true, storageVersionId: true },
+                  }),
+                ),
+              { timeout: 30_000 },
+            )
+            .toMatchObject([
+              { fileName: 'harmless-marker.txt', status: 'PRECHECK_PASSED' },
+              { fileName: 'scanner-clean.txt', status: 'PRECHECK_PASSED' },
+            ])
+          const persisted = await withTenantIsolationBypass(() =>
+            db.intakeUpload.findMany({
+              where: {
+                tenantId,
+                venueId,
+                fileName: { in: ['scanner-clean.txt', 'harmless-marker.txt'] },
+              },
+              orderBy: { fileName: 'asc' },
+              select: { id: true, fileName: true, storageVersionId: true },
+            }),
+          )
+          const { createIntakeUploadVerificationResources } =
+            await import('../../../workers/src/intake-upload-verification-runtime')
+          const jobs = await import('@pathfinder/jobs')
+          closeJobQueues = jobs.closeJobQueues
+          closeBullMQConnection = jobs.closeBullMQConnection
+          resources = await createIntakeUploadVerificationResources()
+          expect(resources.worker).toBeTruthy()
+
+          await expect
+            .poll(
+              () =>
+                withTenantIsolationBypass(() =>
+                  db.intakeUpload.findMany({
+                    where: { id: { in: persisted.map(({ id }) => id) }, tenantId, venueId },
+                    orderBy: { fileName: 'asc' },
+                    select: { fileName: true, status: true, intakeRunId: true },
+                  }),
+                ),
+              { timeout: 30_000 },
+            )
+            .toEqual([
+              { fileName: 'harmless-marker.txt', status: 'REJECTED', intakeRunId: null },
+              {
+                fileName: 'scanner-clean.txt',
+                status: 'AWAITING_REVIEW',
+                intakeRunId: expect.any(String),
+              },
+            ])
+          const receipts = await withTenantIsolationBypass(() =>
+            db.intakeUploadVerificationReceipt.findMany({
+              where: { tenantId, venueId, uploadId: { in: persisted.map(({ id }) => id) } },
+              orderBy: [{ uploadId: 'asc' }, { kind: 'asc' }],
+              select: {
+                uploadId: true,
+                kind: true,
+                verdict: true,
+                engine: true,
+                engineVersion: true,
+                claimId: true,
+                computedSha256: true,
+                storageVersionId: true,
+              },
+            }),
+          )
+          for (const upload of persisted) {
+            const exact = receipts.filter(({ uploadId }) => uploadId === upload.id)
+            expect(upload.storageVersionId).toEqual(expect.any(String))
+            expect(upload.storageVersionId).not.toBe('')
+            expect(exact).toHaveLength(3)
+            const authoritative = exact.filter(({ kind }) => kind !== 'PRECHECK')
+            expect(authoritative).toHaveLength(2)
+            expect(new Set(authoritative.map(({ claimId }) => claimId)).size).toBe(1)
+            expect(authoritative[0]?.claimId).toEqual(expect.any(String))
+            expect(exact).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ kind: 'PRECHECK', verdict: 'PASSED' }),
+                expect.objectContaining({ kind: 'RESOURCE_SAFETY', verdict: 'PASSED' }),
+                expect.objectContaining({
+                  kind: 'MALWARE',
+                  verdict: upload.fileName === 'scanner-clean.txt' ? 'CLEAN' : 'REJECTED',
+                  engine: 'clamav-clamd',
+                  engineVersion: 'daemon',
+                  computedSha256:
+                    upload.fileName === 'scanner-clean.txt'
+                      ? createHash('sha256').update(cleanBytes).digest('hex')
+                      : createHash('sha256').update(markerBytes).digest('hex'),
+                  storageVersionId: upload.storageVersionId,
+                }),
+              ]),
+            )
+          }
+          const cleanUpload = await withTenantIsolationBypass(() =>
+            db.intakeUpload.findFirstOrThrow({
+              where: { tenantId, venueId, fileName: 'scanner-clean.txt' },
+              select: {
+                id: true,
+                intakeRunId: true,
+                sha256: true,
+                objectGeneration: true,
+                storageVersionId: true,
+                objectKey: true,
+              },
+            }),
+          )
+          if (!cleanUpload.intakeRunId || !cleanUpload.storageVersionId)
+            throw new Error('Clean scanner upload did not produce exact extraction identity')
+          state.scannerExtraction = {
+            uploadId: cleanUpload.id,
+            runId: cleanUpload.intakeRunId,
+            displayName: 'scanner-clean.txt',
+            extractedTextHash: createHash('sha256').update(cleanBytes).digest('hex'),
+            sourceSha256: cleanUpload.sha256,
+            objectGeneration: cleanUpload.objectGeneration,
+            storageVersionId: cleanUpload.storageVersionId,
+            objectKey: cleanUpload.objectKey,
+          }
+          await testInfo.attach('browser-upload-scanner-identity', {
+            body: JSON.stringify({
+              putCount,
+              markerSha256: createHash('sha256').update(markerBytes).digest('hex'),
+              uploads: persisted,
+              receipts,
+              scanner: `${process.env.INTAKE_CLAMAV_HOST}:${process.env.INTAKE_CLAMAV_PORT}`,
+            }),
+            contentType: 'application/json',
+          })
+        } finally {
+          storage.destroy()
+        }
+      } finally {
+        try {
+          await resources?.close()
+        } finally {
+          try {
+            await closeJobQueues?.()
+          } finally {
+            await closeBullMQConnection?.()
+            await context.close()
+          }
+        }
+      }
+    })
+  }
+
   test('submits the verified owner file once through the real router and retains processing identity', async ({
     browser,
   }, testInfo) => {
     const state = fixture!
-    const submittedSource = state.freshExtraction ?? {
-      uploadId: state.uploadId,
-      runId: state.runId,
-      displayName: 'Connected visitor services handbook',
-      extractedTextHash: state.extractedTextHash,
-      sourceSha256: state.sourceSha256,
-      objectGeneration: state.objectGeneration,
-      storageVersionId: state.storageVersionId,
-      objectKey: null,
-    }
-    let submittedReceiptId: string | null = state.freshExtraction ? null : state.receiptId
+    const submittedSource = state.scannerExtraction ??
+      state.freshExtraction ?? {
+        uploadId: state.uploadId,
+        runId: state.runId,
+        displayName: 'Connected visitor services handbook',
+        extractedTextHash: state.extractedTextHash,
+        sourceSha256: state.sourceSha256,
+        objectGeneration: state.objectGeneration,
+        storageVersionId: state.storageVersionId,
+        objectKey: null,
+      }
+    let submittedReceiptId: string | null =
+      state.scannerExtraction || state.freshExtraction ? null : state.receiptId
     state.sessions.set(state.tokens.owner, {
       userId: ownerUserId,
       activeTenantId: tenantId,
@@ -1133,8 +1381,8 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         name: /Connected visitor services handbook/,
       })
       await expect(historicalFile).toBeChecked()
-      if (state.freshExtraction) {
-        const freshFile = page.getByRole('checkbox', { name: state.freshExtraction.displayName })
+      if (state.scannerExtraction || state.freshExtraction) {
+        const freshFile = page.getByRole('checkbox', { name: submittedSource.displayName })
         await historicalFile.uncheck()
         await freshFile.check()
       }
@@ -1188,6 +1436,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         }
       })
       let redisDeliveryEvidence: Record<string, unknown> | null = null
+      let extractionAttempts: number | null = null
       if (redisTransportEnabled) {
         const { createIntakeV1FileExtractionResources } =
           await import('../../../workers/src/intake-v1-file-extraction-runtime')
@@ -1197,8 +1446,9 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
           INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB,
         } = await import('@pathfinder/jobs')
-        if (state.freshExtraction) {
-          expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(0)
+        if (submittedSource.objectKey) {
+          if (state.freshExtraction)
+            expect(freshStorageObjects.get(submittedSource.objectKey)?.reads).toBe(0)
           expect(
             await withTenantIsolationBypass(() =>
               db.intakeFileExtractionReceipt.count({
@@ -1216,7 +1466,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
               job.data?.dispatchId === saved.dispatchId,
             () => resources.queue.add(INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB, {}),
           )
-          if (state.freshExtraction) {
+          if (submittedSource.objectKey) {
             expect(first).toMatchObject({ result: 'completed', state: 'unknown' })
             const completed = await withTenantIsolationBypass(() =>
               db.intakeV1ProcessingDispatch.findFirstOrThrow({
@@ -1225,6 +1475,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
               }),
             )
             expect(completed).toMatchObject({ status: 'COMPLETED', attempts: 1 })
+            extractionAttempts = completed.attempts
             expect(completed.fileExtractionReceiptId).toEqual(expect.any(String))
             submittedReceiptId = completed.fileExtractionReceiptId
             await expect(
@@ -1237,14 +1488,22 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
                     runId: submittedSource.runId,
                     uploadId: submittedSource.uploadId,
                   },
-                  select: { extractedTextHash: true, sourceSha256: true },
+                  select: {
+                    extractedTextHash: true,
+                    sourceSha256: true,
+                    sourceObjectGeneration: true,
+                    sourceStorageVersionId: true,
+                  },
                 }),
               ),
             ).resolves.toEqual({
               extractedTextHash: submittedSource.extractedTextHash,
               sourceSha256: submittedSource.sourceSha256,
+              sourceObjectGeneration: submittedSource.objectGeneration,
+              sourceStorageVersionId: submittedSource.storageVersionId,
             })
-            expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(1)
+            if (state.freshExtraction)
+              expect(freshStorageObjects.get(submittedSource.objectKey)?.reads).toBe(1)
           } else {
             // Historical connected mode retains its pre-existing receipt. The claim transaction
             // inherits it without leasing new extraction work, and the queue removes its job.
@@ -1276,8 +1535,9 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
               ),
           )
           expect(replay).toMatchObject({ result: 'not-claimed', state: 'completed' })
-          if (state.freshExtraction) {
-            expect(freshStorageObjects.get(submittedSource.objectKey!)?.reads).toBe(1)
+          if (submittedSource.objectKey) {
+            if (state.freshExtraction)
+              expect(freshStorageObjects.get(submittedSource.objectKey)?.reads).toBe(1)
             expect(
               await withTenantIsolationBypass(() =>
                 db.intakeFileExtractionReceipt.count({
@@ -1293,9 +1553,11 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             deliveredResult: first.result,
             deliveredEvent: 'completed',
             deliveredJobStateAfterRemoval: first.state,
-            extractionMode: state.freshExtraction
-              ? 'fresh-exact-storage-read'
-              : 'inherited-existing-receipt',
+            extractionMode: state.scannerExtraction
+              ? 'scanner-clean-exact-minio-read'
+              : state.freshExtraction
+                ? 'fresh-exact-storage-read'
+                : 'inherited-existing-receipt',
             ...(state.freshExtraction
               ? {
                   storageReadCount: freshStorageObjects.get(submittedSource.objectKey!)?.reads,
@@ -1371,10 +1633,16 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         expectedExtractedTextHash: submittedSource.extractedTextHash,
         decision: 'ACCEPTED_FOR_PROPOSAL',
         proposalTitle: 'Visitor services handbook',
-        proposalNotes: state.freshExtraction ? freshExtractedText : beyondPreviewFact,
-        rationale: state.freshExtraction
-          ? 'Reviewed the exact freshly extracted source.'
-          : 'Reviewed the exact retained source beyond its first page.',
+        proposalNotes: state.scannerExtraction
+          ? scannerCleanText
+          : state.freshExtraction
+            ? freshExtractedText
+            : beyondPreviewFact,
+        rationale: state.scannerExtraction
+          ? 'Reviewed the exact clean scanner source extracted from disposable storage.'
+          : state.freshExtraction
+            ? 'Reviewed the exact freshly extracted source.'
+            : 'Reviewed the exact retained source beyond its first page.',
       })
       const ready = await admin.admin.previewIntakeV1Package(selection)
       expect(ready).toMatchObject({ ready: true, published: false })
@@ -1503,6 +1771,43 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         body: JSON.stringify({ ...saved, redisDeliveryEvidence }),
         contentType: 'application/json',
       })
+      if (state.scannerExtraction) {
+        const markerUpload = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findFirstOrThrow({
+            where: { tenantId, venueId, fileName: 'harmless-marker.txt' },
+            select: { id: true, intakeRunId: true, status: true },
+          }),
+        )
+        expect(markerUpload).toMatchObject({ status: 'REJECTED', intakeRunId: null })
+        expect(
+          await withTenantIsolationBypass(() =>
+            db.intakeFileExtractionReceipt.count({
+              where: { tenantId, venueId, uploadId: markerUpload.id },
+            }),
+          ),
+        ).toBe(0)
+        await testInfo.attach('browser-scanner-v1-extraction-identity', {
+          body: JSON.stringify({
+            submissionId: saved.submissionId,
+            manifestHash: saved.manifestHash,
+            memberId: saved.memberId,
+            dispatchId: saved.dispatchId,
+            selectedUploadId: submittedSource.uploadId,
+            selectedRunId: submittedSource.runId,
+            sourceSha256: submittedSource.sourceSha256,
+            objectGeneration: submittedSource.objectGeneration,
+            storageVersionId: submittedSource.storageVersionId,
+            extractionReceiptId: submittedReceiptId,
+            extractedTextHash: submittedSource.extractedTextHash,
+            extractionAttempts,
+            replayResult: redisDeliveryEvidence?.replayResult,
+            markerUploadId: markerUpload.id,
+            markerStatus: markerUpload.status,
+            markerIntakeRunId: markerUpload.intakeRunId,
+          }),
+          contentType: 'application/json',
+        })
+      }
     } finally {
       await context.close()
     }
@@ -1959,217 +2264,6 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           } finally {
             await closeBullMQConnection?.()
             storage.destroy()
-            await context.close()
-          }
-        }
-      }
-    })
-  }
-
-  if (scannerTransportEnabled) {
-    test('routes exact browser uploads through the registered disposable scanner', async ({
-      browser,
-    }, testInfo) => {
-      const state = fixture!
-      const cleanBytes = Buffer.from(
-        'Visitor-provided notes require review before they become venue knowledge.\n',
-        'utf8',
-      )
-      const markerBytes = Buffer.from('TORCHIKO_FIXTURE_TEXT_MARKER_20260908_8C1F4E2A\n', 'utf8')
-      expect(createHash('sha256').update(markerBytes).digest('hex')).toBe(
-        '9b20982a05f466a4ec3482fa7edc1a4dd01f9653bfeb97aff58f2efb7c809410',
-      )
-      state.sessions.set(state.tokens.owner, {
-        userId: ownerUserId,
-        activeTenantId: tenantId,
-        role: 'OWNER',
-        isPlatformAdmin: false,
-      })
-      const context = await connectedContext(browser, state.tokens.owner, {
-        width: 390,
-        height: 844,
-      })
-      let resources: { worker: unknown; close(): Promise<void> } | null = null
-      let closeJobQueues: (() => Promise<void>) | null = null
-      let closeBullMQConnection: (() => Promise<void>) | null = null
-      try {
-        const sdk = createRequire(resolve(__dirname, '../../../../packages/api/package.json'))(
-          '@aws-sdk/client-s3',
-        ) as {
-          S3Client: new (input: Record<string, unknown>) => {
-            send(command: unknown): Promise<unknown>
-            destroy(): void
-          }
-          CreateBucketCommand: new (input: Record<string, unknown>) => unknown
-          PutBucketVersioningCommand: new (input: Record<string, unknown>) => unknown
-        }
-        const storage = new sdk.S3Client({
-          endpoint: process.env.STORAGE_ENDPOINT!,
-          region: process.env.STORAGE_REGION!,
-          forcePathStyle: true,
-          credentials: {
-            accessKeyId: process.env.STORAGE_ACCESS_KEY_ID!,
-            secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY!,
-          },
-        })
-        try {
-          await storage.send(new sdk.CreateBucketCommand({ Bucket: process.env.STORAGE_BUCKET! }))
-          await storage.send(
-            new sdk.PutBucketVersioningCommand({
-              Bucket: process.env.STORAGE_BUCKET!,
-              VersioningConfiguration: { Status: 'Enabled' },
-            }),
-          )
-          const page = await context.newPage()
-          await page.goto('/dev-fixtures/remote-onboarding?state=share')
-          await expect(page.getByText('Loading saved work…')).toBeHidden()
-          await page.getByLabel('Choose files').setInputFiles([
-            { name: 'scanner-clean.txt', mimeType: 'text/plain', buffer: cleanBytes },
-            {
-              name: 'harmless-marker.txt',
-              mimeType: 'text/plain',
-              buffer: markerBytes,
-            },
-          ])
-          const storageOrigin = new URL(process.env.STORAGE_ENDPOINT!).origin
-          let putCount = 0
-          page.on('response', (response) => {
-            if (
-              response.request().method() === 'PUT' &&
-              new URL(response.url()).origin === storageOrigin &&
-              response.status() === 200
-            )
-              putCount += 1
-          })
-          await page.getByRole('button', { name: 'Upload', exact: true }).first().click()
-          await expect(page.getByText('Security check pending', { exact: true })).toHaveCount(1)
-          await page.getByRole('button', { name: 'Upload', exact: true }).click()
-          await expect(page.getByText('Security check pending', { exact: true })).toHaveCount(2)
-          expect(putCount).toBe(2)
-
-          await expect
-            .poll(
-              () =>
-                withTenantIsolationBypass(() =>
-                  db.intakeUpload.findMany({
-                    where: {
-                      tenantId,
-                      venueId,
-                      fileName: { in: ['scanner-clean.txt', 'harmless-marker.txt'] },
-                    },
-                    orderBy: { fileName: 'asc' },
-                    select: { id: true, fileName: true, status: true, storageVersionId: true },
-                  }),
-                ),
-              { timeout: 30_000 },
-            )
-            .toMatchObject([
-              { fileName: 'harmless-marker.txt', status: 'PRECHECK_PASSED' },
-              { fileName: 'scanner-clean.txt', status: 'PRECHECK_PASSED' },
-            ])
-          const persisted = await withTenantIsolationBypass(() =>
-            db.intakeUpload.findMany({
-              where: {
-                tenantId,
-                venueId,
-                fileName: { in: ['scanner-clean.txt', 'harmless-marker.txt'] },
-              },
-              orderBy: { fileName: 'asc' },
-              select: { id: true, fileName: true, storageVersionId: true },
-            }),
-          )
-          const { createIntakeUploadVerificationResources } =
-            await import('../../../workers/src/intake-upload-verification-runtime')
-          const jobs = await import('@pathfinder/jobs')
-          closeJobQueues = jobs.closeJobQueues
-          closeBullMQConnection = jobs.closeBullMQConnection
-          resources = await createIntakeUploadVerificationResources()
-          expect(resources.worker).toBeTruthy()
-
-          await expect
-            .poll(
-              () =>
-                withTenantIsolationBypass(() =>
-                  db.intakeUpload.findMany({
-                    where: { id: { in: persisted.map(({ id }) => id) }, tenantId, venueId },
-                    orderBy: { fileName: 'asc' },
-                    select: { fileName: true, status: true, intakeRunId: true },
-                  }),
-                ),
-              { timeout: 30_000 },
-            )
-            .toEqual([
-              { fileName: 'harmless-marker.txt', status: 'REJECTED', intakeRunId: null },
-              {
-                fileName: 'scanner-clean.txt',
-                status: 'AWAITING_REVIEW',
-                intakeRunId: expect.any(String),
-              },
-            ])
-          const receipts = await withTenantIsolationBypass(() =>
-            db.intakeUploadVerificationReceipt.findMany({
-              where: { tenantId, venueId, uploadId: { in: persisted.map(({ id }) => id) } },
-              orderBy: [{ uploadId: 'asc' }, { kind: 'asc' }],
-              select: {
-                uploadId: true,
-                kind: true,
-                verdict: true,
-                engine: true,
-                engineVersion: true,
-                claimId: true,
-                computedSha256: true,
-                storageVersionId: true,
-              },
-            }),
-          )
-          for (const upload of persisted) {
-            const exact = receipts.filter(({ uploadId }) => uploadId === upload.id)
-            expect(upload.storageVersionId).toEqual(expect.any(String))
-            expect(upload.storageVersionId).not.toBe('')
-            expect(exact).toHaveLength(3)
-            const authoritative = exact.filter(({ kind }) => kind !== 'PRECHECK')
-            expect(authoritative).toHaveLength(2)
-            expect(new Set(authoritative.map(({ claimId }) => claimId)).size).toBe(1)
-            expect(authoritative[0]?.claimId).toEqual(expect.any(String))
-            expect(exact).toEqual(
-              expect.arrayContaining([
-                expect.objectContaining({ kind: 'PRECHECK', verdict: 'PASSED' }),
-                expect.objectContaining({ kind: 'RESOURCE_SAFETY', verdict: 'PASSED' }),
-                expect.objectContaining({
-                  kind: 'MALWARE',
-                  verdict: upload.fileName === 'scanner-clean.txt' ? 'CLEAN' : 'REJECTED',
-                  engine: 'clamav-clamd',
-                  engineVersion: 'daemon',
-                  computedSha256:
-                    upload.fileName === 'scanner-clean.txt'
-                      ? createHash('sha256').update(cleanBytes).digest('hex')
-                      : createHash('sha256').update(markerBytes).digest('hex'),
-                  storageVersionId: upload.storageVersionId,
-                }),
-              ]),
-            )
-          }
-          await testInfo.attach('browser-upload-scanner-identity', {
-            body: JSON.stringify({
-              putCount,
-              markerSha256: createHash('sha256').update(markerBytes).digest('hex'),
-              uploads: persisted,
-              receipts,
-              scanner: `${process.env.INTAKE_CLAMAV_HOST}:${process.env.INTAKE_CLAMAV_PORT}`,
-            }),
-            contentType: 'application/json',
-          })
-        } finally {
-          storage.destroy()
-        }
-      } finally {
-        try {
-          await resources?.close()
-        } finally {
-          try {
-            await closeJobQueues?.()
-          } finally {
-            await closeBullMQConnection?.()
             await context.close()
           }
         }
