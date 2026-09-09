@@ -172,10 +172,48 @@ describe('RemoteOnboardingJourney', () => {
     expect(html).toContain('Where this came from')
     expect(html).toContain('Review cited staff answers')
     expect(html).toContain('Suggest a correction to Front desk interview')
+    expect(html).toContain('Request guide appearance')
     expect(html).toContain('Source confidence')
     expect(html).toContain('View full journey status')
     expect(html).toContain(
       'Nothing goes live from this page. The Torchiko team handles release separately.',
+    )
+  })
+
+  it('links an optional appearance request to the exact venue and review return point', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          ownerId="test-owner"
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'REVIEW_SOURCES' as const,
+                stage: 'REVIEW' as const,
+                label: 'Review organized information',
+                reason: 'Your saved information is ready for review.',
+                required: false,
+              },
+            },
+            review: { proposedSources: 1, draftPackages: 0 },
+          }}
+        />,
+      ),
+    )
+    const link = Array.from(root.querySelectorAll<HTMLAnchorElement>('a')).find((item) =>
+      item.textContent?.includes('Request guide appearance'),
+    )
+    const href = new URL(link?.getAttribute('href') ?? '', 'https://portal.invalid')
+
+    expect(href.pathname).toBe('/support')
+    expect(href.searchParams.get('venue')).toBe('venue-1')
+    expect(href.searchParams.get('new')).toBe('theme-preference')
+    expect(href.searchParams.get('returnTo')).toBe('/venues/venue-1/onboarding#review')
+    expect(root.querySelector('#review')?.textContent).toContain('share it for review')
+    expect(root.querySelector('#review')?.textContent).toContain(
+      'requesting a preference does not change the guide',
     )
   })
 

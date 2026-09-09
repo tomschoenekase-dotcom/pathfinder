@@ -10,7 +10,7 @@ function one(value: string | string[] | undefined) {
 export default async function ConnectedClientHandoffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ venueId?: string | string[] }>
+  searchParams: Promise<{ venueId?: string | string[]; new?: string | string[] }>
 }) {
   if (
     process.env.NODE_ENV !== 'development' ||
@@ -18,12 +18,16 @@ export default async function ConnectedClientHandoffPage({
   )
     notFound()
 
-  const venueId = one((await searchParams).venueId)
+  const query = await searchParams
+  const venueId = one(query.venueId)
   if (!venueId || venueId.length > 191) notFound()
 
   return (
     <TRPCProvider scopeKey={`connected-client-handoff:${venueId}`}>
-      <ConnectedClientHandoffFixture venueId={venueId} />
+      <ConnectedClientHandoffFixture
+        venueId={venueId}
+        {...(query.new !== undefined ? { newIntent: query.new } : {})}
+      />
     </TRPCProvider>
   )
 }

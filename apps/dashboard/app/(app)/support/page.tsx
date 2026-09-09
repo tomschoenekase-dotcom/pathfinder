@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { SupportWorkspace } from '../../../components/SupportWorkspace'
 import { createDashboardCaller } from '../../../lib/server-caller'
 import { resolveOnboardingReturn } from '../../../lib/onboarding-return'
+import { supportCreateDraft } from '../../../lib/support-create-intent'
 
 type SupportPageProps = {
   searchParams: Promise<{
@@ -34,9 +35,13 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
   const requestedRequest = Array.isArray(query.request) ? query.request[0] : query.request
   const requestedRequestId =
     requestedRequest && requestedRequest.length <= 191 ? requestedRequest : undefined
-  const requestedNew = Array.isArray(query.new) ? query.new[0] : query.new
-  const visitorInsightDraft = requestedNew === 'visitor-insight' && !requestedRequestId
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0]!
+  const createDraft = supportCreateDraft({
+    intent: query.new,
+    hasRequestedRequest: requestedRequestId !== undefined,
+    requestedVenueId,
+    selectedVenueId: selectedVenue.id,
+  })
   const returnHref = query.returnTo
     ? resolveOnboardingReturn(query.returnTo, selectedVenue.id, 'QUESTIONS')
     : undefined
@@ -50,7 +55,7 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
     initialDetail = await caller.support
       .getRequest({ venueId: selectedVenue.id, requestId: requestedRequestId })
       .catch(() => null)
-  } else if (firstRequest && !visitorInsightDraft) {
+  } else if (firstRequest && !createDraft) {
     initialDetail = await caller.support.getRequest({
       venueId: selectedVenue.id,
       requestId: firstRequest.id,
@@ -73,14 +78,7 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
           : undefined
       }
       returnHref={returnHref}
-      {...(visitorInsightDraft
-        ? {
-            initialCreateDraft: {
-              category: 'CONTENT_CORRECTION' as const,
-              subject: 'Visitor experience review',
-            },
-          }
-        : {})}
+      {...(createDraft ? { initialCreateDraft: createDraft } : {})}
     />
   )
 }

@@ -43,6 +43,10 @@ const scannerTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER ===
 const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
 const qrReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_QR_RELEASE === '1'
 const scannerReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER_RELEASE === '1'
+const themeRequestEnabled = process.env.RUN_ONBOARDING_CONNECTED_THEME_REQUEST === '1'
+if (themeRequestEnabled && !scannerReleaseEnabled) {
+  throw new Error('Theme request proof requires the guarded scanner release mode.')
+}
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
 const scannerCleanText =
   'Visitor-provided notes require review before they become venue knowledge.\n'
@@ -1750,15 +1754,49 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       const requestCount = () =>
         withTenantIsolationBypass(() => db.supportRequest.count({ where: { tenantId, venueId } }))
       expect(await requestCount()).toBe(0)
+      if (themeRequestEnabled) {
+        await page.goto(`${remoteOnboardingFixtureUrl}&v1=1`)
+        const entry = page.getByRole('link', { name: 'Request guide appearance', exact: true })
+        await expect(entry).toBeVisible()
+        const href = new URL((await entry.getAttribute('href'))!, dashboardBaseURL)
+        expect(href.pathname).toBe('/support')
+        expect(href.searchParams.get('venue')).toBe(venueId)
+        expect(href.searchParams.get('new')).toBe('theme-preference')
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+          await expectNoHorizontalOverflow(page)
+          await testInfo.attach(`appearance-entry-${width}`, {
+            body: await page.locator('#review').screenshot(),
+            contentType: 'image/png',
+          })
+        }
+        await page.setViewportSize({ width: 390, height: 844 })
+        expect(await requestCount()).toBe(0)
+      }
+      const themeBeforeRequest = themeRequestEnabled
+        ? await withTenantIsolationBypass(() =>
+            db.venue.findFirstOrThrow({
+              where: { id: venueId, tenantId },
+              select: { chatTheme: true },
+            }),
+          )
+        : null
       await page.goto(
-        `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}`,
+        `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}${themeRequestEnabled ? '&new=theme-preference' : ''}`,
       )
       await expect(page.getByRole('heading', { name: 'QR kit is not available yet' })).toBeVisible()
       await expect(page.getByLabel('Subject', { exact: true })).not.toHaveValue('')
       await expect(page.getByRole('button', { name: /download.*svg/i })).toHaveCount(0)
-      await page
-        .getByLabel('Message', { exact: true })
-        .fill('Please confirm what is waiting for review and how I will print our QR.')
+      const supportBody = themeRequestEnabled
+        ? 'Please review a calm navy guide appearance with readable labels. Keep the current guide unchanged until this request is reviewed.'
+        : 'Please confirm what is waiting for review and how I will print our QR.'
+      if (themeRequestEnabled) {
+        await expect(page.getByRole('combobox', { name: /What is this about/ })).toHaveValue(
+          'BRANDING',
+        )
+        await expect(page.getByLabel('Message', { exact: true })).toHaveValue('')
+      }
+      await page.getByLabel('Message', { exact: true }).fill(supportBody)
       // Querying, prefilling and editing the production form creates no durable request.
       expect(await requestCount()).toBe(0)
       await expectNoHorizontalOverflow(page)
@@ -1791,6 +1829,36 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       expect(
         (await owner.support.getRequest({ venueId, requestId: support.request.id })).venueId,
       ).toBe(venueId)
+      if (themeRequestEnabled) {
+        const readback = await owner.support.getRequest({ venueId, requestId: support.request.id })
+        expect(readback).toMatchObject({ venueId, category: 'BRANDING', status: 'OPEN' })
+        expect(readback.messages.some((message) => message.body === supportBody)).toBe(true)
+        const stored = await withTenantIsolationBypass(() =>
+          db.supportRequest.findFirstOrThrow({
+            where: { id: support.request.id, tenantId, venueId },
+            select: { id: true, tenantId: true, venueId: true, category: true, status: true },
+          }),
+        )
+        expect(stored).toMatchObject({ tenantId, venueId, category: 'BRANDING', status: 'OPEN' })
+        const themeAfterRequest = await withTenantIsolationBypass(() =>
+          db.venue.findFirstOrThrow({
+            where: { id: venueId, tenantId },
+            select: { chatTheme: true },
+          }),
+        )
+        expect(themeAfterRequest).toEqual(themeBeforeRequest)
+        await testInfo.attach('browser-theme-request-identity', {
+          body: JSON.stringify({
+            ...stored,
+            noRequestBeforeSend: true,
+            replayCount: await requestCount(),
+            bodyReadbackMatched: true,
+            themeUnchanged: true,
+            providerProof: false,
+          }),
+          contentType: 'application/json',
+        })
+      }
       await captureEvidence(page, testInfo, 'draft-support-saved-390')
       const lifecycle = (await owner.portal.getVenueLifecycles()).find(
         (item) => item.venueId === venueId,

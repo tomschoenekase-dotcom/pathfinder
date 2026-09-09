@@ -198,6 +198,11 @@ export function RemoteOnboardingJourney({
     venue: data.venue.id,
     returnTo: onboardingHref,
   })}`
+  const themePreferenceHref = `/support?${new URLSearchParams({
+    venue: data.venue.id,
+    new: 'theme-preference',
+    returnTo: `${onboardingHref}#review`,
+  })}`
   const previewHref =
     data.preview.state === 'AVAILABLE' && data.preview.packageId
       ? `/venues/${data.venue.id}/preview/${data.preview.packageId}?returnTo=${encodeURIComponent(`${onboardingHref}#preview`)}`
@@ -460,6 +465,13 @@ export function RemoteOnboardingJourney({
                 you to review yet; you can leave this page and return later.
               </p>
             )}
+            <p className={styles.reviewIntro}>
+              Have a color or style preference for the visitor guide? You can share it for review;
+              requesting a preference does not change the guide.
+            </p>
+            <Link href={themePreferenceHref} className={styles.supportLink}>
+              <MessageCircle aria-hidden="true" /> Request guide appearance
+            </Link>
           </section>
         ) : null}
 

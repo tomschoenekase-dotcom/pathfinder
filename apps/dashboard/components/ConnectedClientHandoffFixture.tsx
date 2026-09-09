@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { supportCreateDraft } from '../lib/support-create-intent'
 import { buildGuestChatUrl } from '../lib/guest-chat-url'
 import { useTRPCClient } from '../lib/trpc'
 import { SupportWorkspace } from './SupportWorkspace'
@@ -22,7 +23,13 @@ type LoadedState = {
   >
 }
 
-export function ConnectedClientHandoffFixture({ venueId }: { venueId: string }) {
+export function ConnectedClientHandoffFixture({
+  venueId,
+  newIntent,
+}: {
+  venueId: string
+  newIntent?: string | string[]
+}) {
   const client = useTRPCClient()
   const [loaded, setLoaded] = useState<LoadedState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -148,10 +155,17 @@ export function ConnectedClientHandoffFixture({ venueId }: { venueId: string }) 
             initialDetail={null}
             initialEligibleAttachments={loaded.attachments.items}
             initialEligibleAttachmentsNextCursor={loaded.attachments.nextCursor}
-            initialCreateDraft={{
-              category: 'GENERAL',
-              subject: 'Draft visibility and QR readiness',
-            }}
+            initialCreateDraft={
+              supportCreateDraft({
+                intent: newIntent,
+                hasRequestedRequest: false,
+                requestedVenueId: venueId,
+                selectedVenueId: loaded.venue.id,
+              }) ?? {
+                category: 'GENERAL',
+                subject: 'Draft visibility and QR readiness',
+              }
+            }
           />
         </section>
       </div>

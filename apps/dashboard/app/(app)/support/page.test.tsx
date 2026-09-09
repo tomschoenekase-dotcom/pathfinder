@@ -129,4 +129,61 @@ describe('SupportPage', () => {
       subject: 'Visitor experience review',
     })
   })
+
+  it('opens a guide appearance request only for the exact accessible venue', async () => {
+    const element = await SupportPage({
+      searchParams: Promise.resolve({ venue: 'venue_beta', new: 'theme-preference' }),
+    })
+
+    expect(mocks.getRequest).not.toHaveBeenCalled()
+    expect(element.props.activeVenue).toEqual({ id: 'venue_beta', name: 'History Center' })
+    expect(element.props.initialCreateDraft).toEqual({
+      category: 'BRANDING',
+      subject: 'Guide appearance preference',
+    })
+  })
+
+  it('does not move a guide appearance intent to a fallback venue', async () => {
+    const element = await SupportPage({
+      searchParams: Promise.resolve({ venue: 'venue_missing', new: 'theme-preference' }),
+    })
+
+    expect(element.props.activeVenue).toEqual({ id: 'venue_alpha', name: 'Science Museum' })
+    expect(element.props.initialCreateDraft).toBeUndefined()
+    expect(mocks.getRequest).toHaveBeenCalledWith({
+      venueId: 'venue_alpha',
+      requestId: 'request_beta',
+    })
+  })
+
+  it('gives a requested discussion precedence over a create intent', async () => {
+    const element = await SupportPage({
+      searchParams: Promise.resolve({
+        venue: 'venue_beta',
+        request: 'request_beta',
+        new: 'theme-preference',
+      }),
+    })
+
+    expect(mocks.getRequest).toHaveBeenCalledWith({
+      venueId: 'venue_beta',
+      requestId: 'request_beta',
+    })
+    expect(element.props.initialCreateDraft).toBeUndefined()
+  })
+
+  it.each([['unknown'], [['theme-preference']]])(
+    'ignores an unsupported or repeated create intent',
+    async (intent) => {
+      const element = await SupportPage({
+        searchParams: Promise.resolve({ venue: 'venue_beta', new: intent }),
+      })
+
+      expect(element.props.initialCreateDraft).toBeUndefined()
+      expect(mocks.getRequest).toHaveBeenCalledWith({
+        venueId: 'venue_beta',
+        requestId: 'request_beta',
+      })
+    },
+  )
 })
