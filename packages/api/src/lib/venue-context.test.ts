@@ -67,7 +67,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v19')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v20')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -277,6 +277,20 @@ describe('guest chat prompt provenance', () => {
                 floor: 'Second floor',
               },
             ],
+          },
+        }),
+      },
+      {
+        id: 'conflicting-place-identity-clues',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          userLat: null,
+          userLng: null,
+          placeIdentityAmbiguity: {
+            requestedName: 'Case 12',
+            candidates: [],
+            conflictingClues: true,
           },
         }),
       },
@@ -560,6 +574,35 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('Discovery of the named exhibit reached its bounded limit')
     expect(prompt).toContain('Ask exactly one short discriminating question')
     expect(prompt).toContain('Do not choose or combine their facts')
+  })
+
+  it('keeps contradictory location clues unresolved instead of calling them matching candidates', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      placeIdentityAmbiguity: { requestedName: 'Case 12', candidates: [], conflictingClues: true },
+    })
+    expect(prompt).toContain('floor and location clues do not identify a compatible exhibit')
+    expect(prompt).toContain('Resolving an exhibit does not validate every clue')
+    expect(prompt).toContain('say when a supplied detail is unverified')
+    expect(prompt).toContain('Ask exactly one short discriminating question')
+    expect(prompt).not.toContain('candidate set contains more than one matching place')
+  })
+
+  it('renders blank identity labels as unknown rather than an empty discriminator', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      placeIdentityAmbiguity: {
+        requestedName: 'Case 12',
+        candidates: [{ name: 'Case 12', areaName: null, location: '   ', floor: null }],
+      },
+    })
+    expect(prompt).toContain('Case 12 — location not specified')
   })
 
   it('includes engagement question context when provided', () => {

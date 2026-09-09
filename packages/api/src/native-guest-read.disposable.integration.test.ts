@@ -1003,6 +1003,28 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           },
         ],
       })
+      const useSameFloorCaseAnchors = () =>
+        Promise.all([
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+            data: { floorId: firstFloorId, displayName: 'East gallery' },
+          }),
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: secondCaseId },
+            data: { floorId: firstFloorId, displayName: 'West gallery' },
+          }),
+        ])
+      const restoreCaseAnchors = () =>
+        Promise.all([
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+            data: { floorId: firstFloorId, displayName: 'First floor east gallery' },
+          }),
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: secondCaseId },
+            data: { floorId: secondFloorId, displayName: 'Second floor west gallery' },
+          }),
+        ])
       const duplicateCaseIdentity = await projectGuestPlaceIdentity({
         reader: db,
         query: 'Tell me about Case 12',
@@ -1074,6 +1096,17 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(firstFloorCaseVoice.identityClarificationRequired).toBe(false)
       expect(firstFloorCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
       expect(firstFloorCaseVoice.context).toContain('First floor')
+      await useSameFloorCaseAnchors()
+      const eastGalleryCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 in East gallery',
+      })
+      expect(eastGalleryCaseVoice.identityClarificationRequired).toBe(false)
+      expect(eastGalleryCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(eastGalleryCaseVoice.context).toContain('East gallery')
+      await restoreCaseAnchors()
       await db.venueKnowledgeEntry.createMany({
         data: [
           {
@@ -1837,6 +1870,13 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(latestPrompt()).toContain('Case 12 — Second floor')
       expect(latestPrompt()).not.toContain('PRIVATE_CASE_12_SENTINEL')
       expect(latestPrompt()).not.toContain('CONTROL_CASE_12_SENTINEL')
+
+      await useSameFloorCaseAnchors()
+      await send({ message: 'Tell me about Case 12 in East gallery' })
+      expect(latestPrompt()).not.toContain('IDENTITY RULE:')
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('East gallery')
+      await restoreCaseAnchors()
 
       await send({ employee: true, secondLayer: true })
       expect(latestPrompt()).toContain('Native Public Gallery')

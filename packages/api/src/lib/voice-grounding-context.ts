@@ -18,6 +18,7 @@ import { projectGuestPlaceIdentity } from './guest-place-identity'
 import {
   expandExplicitGuestPlaceIdentityCandidates,
   hasIncompleteGuestPlaceIdentityDiscovery,
+  selectGuestPlaceIdentityContext,
 } from './guest-place-identity-discovery'
 
 const MAX_VOICE_CONTEXT_CHARS = 12_000
@@ -186,16 +187,24 @@ export async function buildVoiceGroundingContext(input: {
     places: authorizedPlaces,
     saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
   })
-  const detailedIdentityClarification = placeIdentity.ambiguity
-    ? `IDENTITY CLARIFICATION DATA: Multiple authorized places match ${placeIdentity.ambiguity.requestedName}. Candidates: ${placeIdentity.ambiguity.candidates
-        .map((candidate) => {
-          const labels = [...new Set([candidate.floor, candidate.location].filter(Boolean))]
-          return `${candidate.name} — ${labels.join(' · ') || 'location not specified'}`
-        })
-        .join('; ')}`
-    : identityDiscoveryIncomplete
-      ? 'IDENTITY CLARIFICATION DATA: Candidate discovery for the requested exhibit reached its bounded limit; multiple exhibit identities may remain.'
-      : ''
+  const prioritizedAuthorizedPlaces = selectGuestPlaceIdentityContext({
+    query: input.query,
+    places: authorizedPlaces,
+    identity: placeIdentity,
+    limit: authorizedPlaces.length,
+  })
+  const detailedIdentityClarification = placeIdentity.ambiguity?.conflictingClues
+    ? 'IDENTITY CLARIFICATION DATA: The supplied floor and location clues do not identify a compatible exhibit. Identity remains unresolved.'
+    : placeIdentity.ambiguity
+      ? `IDENTITY CLARIFICATION DATA: Multiple authorized places match ${placeIdentity.ambiguity.requestedName}. Candidates: ${placeIdentity.ambiguity.candidates
+          .map((candidate) => {
+            const labels = [...new Set([candidate.floor, candidate.location].filter(Boolean))]
+            return `${candidate.name} — ${labels.join(' · ') || 'location not specified'}`
+          })
+          .join('; ')}`
+      : identityDiscoveryIncomplete
+        ? 'IDENTITY CLARIFICATION DATA: Candidate discovery for the requested exhibit reached its bounded limit; multiple exhibit identities may remain.'
+        : ''
   const identityClarificationHeader =
     detailedIdentityClarification.length <= MAX_IDENTITY_CLARIFICATION_CHARS
       ? detailedIdentityClarification
@@ -209,7 +218,7 @@ export async function buildVoiceGroundingContext(input: {
       id: entry.id,
       text: `[KNOWLEDGE: ${entry.title}]\n${entry.content}`,
     })),
-    ...authorizedPlaces.map((place) => ({
+    ...prioritizedAuthorizedPlaces.map((place) => ({
       id: `place:${String(place.id)}`,
       text: `[PLACE: ${String(place.name)}]\n${[place.type, place.areaName, place.shortDescription, place.longDescription, place.hours].filter(Boolean).join(' · ')}`,
     })),

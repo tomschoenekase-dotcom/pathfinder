@@ -120,7 +120,7 @@ describe('guest place identity discovery', () => {
     expect(findMany).not.toHaveBeenCalled()
   })
 
-  it('promotes a floor-compatible identity candidate from deep in the expanded set', () => {
+  it('promotes a location-compatible identity candidate from deep in the expanded set', () => {
     const candidates = Array.from({ length: 65 }, (_, index) => ({
       ...place(`case-${index}`),
       distance: index === 0 ? 0.01 : index,
@@ -130,20 +130,20 @@ describe('guest place identity discovery', () => {
         id: candidate.id,
         name: candidate.name,
         areaName: null,
-        location: `Gallery ${index}`,
-        floor: index === 63 ? 'Second floor' : 'First floor',
+        location: index === 63 ? 'East gallery' : `Gallery ${index}`,
+        floor: 'First floor',
       })),
       ambiguity: null,
     }
     const selected = selectGuestPlaceIdentityContext({
-      query: 'Tell me about Case 12 on the second floor',
+      query: 'Tell me about Case 12 in East gallery',
       places: candidates,
       identity,
       limit: 8,
     })
     expect(selected[0]?.id).toBe('case-63')
-    expect(selected).toHaveLength(8)
-    expect(selected.find(({ id }) => id === 'case-0')).toMatchObject({ distance: 0.01 })
+    expect(selected).toHaveLength(1)
+    expect(selected.find(({ id }) => id === 'case-0')).toBeUndefined()
   })
 
   it('preserves original order for non-identity comparisons', () => {
@@ -158,5 +158,48 @@ describe('guest place identity discovery', () => {
         },
       }),
     ).toEqual(places)
+  })
+
+  it('can preserve the complete bounded identity expansion while prioritizing a match', () => {
+    const places = Array.from({ length: 528 }, (_, index) =>
+      place(`place-${index}`, index === 527 ? 'Case 12' : `Other ${index}`),
+    )
+    const selected = selectGuestPlaceIdentityContext({
+      query: 'Tell me about Case 12 in East gallery',
+      places,
+      identity: {
+        places: places.map((candidate, index) => ({
+          ...candidate,
+          location: index === 527 ? 'East gallery' : null,
+          floor: null,
+        })),
+        ambiguity: null,
+      },
+      limit: places.length,
+    })
+    expect(selected).toHaveLength(528)
+    expect(selected[0]?.id).toBe('place-527')
+  })
+
+  it('keeps unrelated facts while dropping all named facts for conflicting clues', () => {
+    const named = [place('east'), place('west')]
+    const unrelated = place('cafe', 'Cafe')
+    const selected = selectGuestPlaceIdentityContext({
+      query: 'Tell me about Case 12 on the first floor in West gallery',
+      places: [...named, unrelated],
+      identity: {
+        places: named.map((candidate, index) => ({
+          ...candidate,
+          floor: index === 0 ? 'First floor' : 'Second floor',
+          location: index === 0 ? 'East gallery' : 'West gallery',
+        })),
+        ambiguity: {
+          requestedName: 'Case 12',
+          candidates: [],
+          conflictingClues: true,
+        },
+      },
+    })
+    expect(selected).toEqual([unrelated])
   })
 })

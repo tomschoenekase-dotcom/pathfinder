@@ -233,6 +233,7 @@ describe('voice router', () => {
     expect(instructions).toContain('identityClarificationRequired=true')
     expect(instructions).toContain('Do not choose an exhibit or combine their facts')
     expect(instructions).toContain('Never infer the current floor')
+    expect(instructions).toContain('Resolving an exhibit does not validate every clue')
     expect(instructions.length).toBeLessThan(17_000)
   })
 

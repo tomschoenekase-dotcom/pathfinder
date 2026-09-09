@@ -2,6 +2,7 @@ import type { SemanticPlace } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 
 import {
+  compatibleGuestPlaceIdentityCandidates,
   explicitlyNamedGuestPlaceLabels,
   guestPlaceIdentityKey,
   isExplicitGuestPlaceNonIdentityRequest,
@@ -10,6 +11,8 @@ import {
 
 const MAX_IDENTITY_SEED_LABELS = 8
 const MAX_EXACT_LABEL_CANDIDATES = 65
+const MAX_IDENTITY_CONTEXT_CANDIDATES =
+  MAX_IDENTITY_SEED_LABELS * MAX_EXACT_LABEL_CANDIDATES + MAX_IDENTITY_SEED_LABELS
 
 export type GuestPlaceIdentityDiscoveryReader = {
   place: { findMany(args: Prisma.PlaceFindManyArgs): Promise<SemanticPlace[]> }
@@ -86,17 +89,13 @@ export function hasIncompleteGuestPlaceIdentityDiscovery(input: {
   )
 }
 
-function includesNormalizedPhrase(query: string, phrase: string): boolean {
-  return phrase.length >= 3 && ` ${query} `.includes(` ${phrase} `)
-}
-
 export function selectGuestPlaceIdentityContext(input: {
   query: string
   places: SemanticPlace[]
   identity: GuestPlaceIdentityProjection
   limit?: number
 }): SemanticPlace[] {
-  const limit = Math.max(1, Math.min(50, Math.floor(input.limit ?? 8)))
+  const limit = Math.max(1, Math.min(MAX_IDENTITY_CONTEXT_CANDIDATES, Math.floor(input.limit ?? 8)))
   if (isExplicitGuestPlaceNonIdentityRequest(input.query)) return input.places.slice(0, limit)
 
   const namedLabelKeys = new Set(
@@ -104,24 +103,21 @@ export function selectGuestPlaceIdentityContext(input: {
   )
   if (!namedLabelKeys.size) return input.places.slice(0, limit)
 
-  const queryKey = guestPlaceIdentityKey(input.query)
   const namedCandidates = input.identity.places.filter((candidate) =>
     namedLabelKeys.has(guestPlaceIdentityKey(candidate.name)),
   )
-  const floorMatches = namedCandidates.filter(
-    (candidate) =>
-      candidate.floor && includesNormalizedPhrase(queryKey, guestPlaceIdentityKey(candidate.floor)),
-  )
-  const compatible = floorMatches.length
-    ? namedCandidates.filter(
-        (candidate) => candidate.floor === null || floorMatches.includes(candidate),
-      )
-    : namedCandidates
+  const compatible = compatibleGuestPlaceIdentityCandidates({
+    query: input.query,
+    candidates: namedCandidates,
+  })
   const placeById = new Map(input.places.map((place) => [place.id, place]))
+  const compatibleIds = new Set(compatible.map((candidate) => candidate.id))
   const prioritized = [
     ...compatible.map((candidate) => placeById.get(candidate.id)).filter(Boolean),
-    ...namedCandidates.map((candidate) => placeById.get(candidate.id)).filter(Boolean),
-    ...input.places,
+    ...input.places.filter(
+      (place) =>
+        compatibleIds.has(place.id) || !namedLabelKeys.has(guestPlaceIdentityKey(place.name)),
+    ),
   ] as SemanticPlace[]
   return [...new Map(prioritized.map((place) => [place.id, place])).values()].slice(0, limit)
 }

@@ -121,6 +121,110 @@ describe('voice grounding production retrieval parity', () => {
     expect(unknown.context).toContain('Case 12 — West gallery')
   })
 
+  it('keeps contradictory floor and gallery clues unresolved in voice data', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: identityReader() as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 on the first floor in West gallery',
+    })
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.context).toContain(
+      'floor and location clues do not identify a compatible exhibit',
+    )
+    expect(result.context).not.toContain('Multiple authorized places match')
+  })
+
+  it('renders blank reviewed identity labels as unknown', async () => {
+    const blankAreaCases = duplicateCases.map((candidate) => ({
+      ...candidate,
+      areaName: '   ',
+    }))
+    const result = await buildVoiceGroundingContext({
+      reader: identityReader(
+        [{ primaryPlaceId: 'case-first', displayName: '   ', floor: { name: '   ' } }],
+        blankAreaCases,
+      ) as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result.context).toContain('Case 12 — location not specified')
+    expect(result.context).not.toContain('Case 12 —    ')
+  })
+
+  it('prioritizes a deep unique gallery match before the complete-item voice budget', async () => {
+    const candidates = Array.from({ length: 64 }, (_, index) =>
+      place({
+        id: `case-${index}`,
+        name: 'Case 12',
+        areaName: index === 63 ? 'East gallery' : `West gallery ${index}`,
+        shortDescription: index === 63 ? 'EAST TARGET FACT' : 'WRONG WEST FACT',
+        longDescription: index === 63 ? 'x'.repeat(11_850) : null,
+      }),
+    )
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async (args: Prisma.PlaceFindManyArgs) =>
+            args.where && 'name' in args.where ? candidates : [candidates[0]!],
+        },
+        venueLocation: {
+          findMany: async () =>
+            candidates.map((candidate, index) => ({
+              primaryPlaceId: candidate.id,
+              displayName: index === 63 ? 'East gallery' : `West gallery ${index}`,
+              floor: { name: 'First floor' },
+            })),
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 in East gallery',
+    })
+    expect(result.identityClarificationRequired).toBe(false)
+    expect(result.context).toContain('EAST TARGET FACT')
+    expect(result.context).not.toContain('WRONG WEST FACT')
+    expect(result.sourceIds).toContain('place:case-63')
+  })
+
+  it('does not replace an oversized resolved gallery with incompatible duplicate facts', async () => {
+    const candidates = [
+      place({
+        id: 'case-west',
+        name: 'Case 12',
+        areaName: 'West gallery',
+        shortDescription: 'WRONG WEST FACT',
+      }),
+      place({
+        id: 'case-east',
+        name: 'Case 12',
+        areaName: 'East gallery',
+        longDescription: `EAST TARGET FACT ${'x'.repeat(12_000)}`,
+      }),
+    ]
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany: async () => candidates },
+        venueLocation: {
+          findMany: async () => [
+            { primaryPlaceId: 'case-west', displayName: 'West gallery', floor: null },
+            { primaryPlaceId: 'case-east', displayName: 'East gallery', floor: null },
+          ],
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 in East gallery',
+    })
+    expect(result.identityClarificationRequired).toBe(false)
+    expect(result.context).not.toContain('WRONG WEST FACT')
+    expect(result.sourceIds).not.toContain('place:case-east')
+    expect(result.omittedSourceIds).toContain('place:case-east')
+  })
+
   it('expands an explicitly named label beyond the initial ranking before resolving its floor', async () => {
     const third = place({ id: 'case-third', name: 'Case 12', areaName: 'Annex' })
     const result = await buildVoiceGroundingContext({

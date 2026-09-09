@@ -7,14 +7,18 @@ export type GuestPlaceIdentityLocationRow = {
   floor: { name: string; stableKey: string; tenantId: string; venueId: string } | null
 }
 export type GuestPlaceIdentityReader = Pick<typeof db, 'venueLocation'>
-type GuestPlaceIdentityCandidate = RetrievedPlace & {
+export type GuestPlaceIdentityCandidate = RetrievedPlace & {
   location: string | null
   floor: string | null
 }
 
 export type GuestPlaceIdentityProjection = {
   places: GuestPlaceIdentityCandidate[]
-  ambiguity: { requestedName: string; candidates: GuestPlaceIdentityCandidate[] } | null
+  ambiguity: {
+    requestedName: string
+    candidates: GuestPlaceIdentityCandidate[]
+    conflictingClues?: true
+  } | null
 }
 
 export function guestPlaceIdentityKey(value: string): string {
@@ -28,6 +32,11 @@ export function guestPlaceIdentityKey(value: string): string {
 
 function includesPhrase(query: string, phrase: string): boolean {
   return phrase.length >= 3 && ` ${query} `.includes(` ${phrase} `)
+}
+
+function trimmedIdentityLabel(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 export function isExplicitGuestPlaceNonIdentityRequest(query: string): boolean {
@@ -48,6 +57,28 @@ export function explicitlyNamedGuestPlaceLabels(
     if (key && includesPhrase(normalizedQuery, key) && !labels.has(key)) labels.set(key, place.name)
   }
   return [...labels.values()]
+}
+
+export function compatibleGuestPlaceIdentityCandidates(input: {
+  query: string
+  candidates: GuestPlaceIdentityCandidate[]
+}): GuestPlaceIdentityCandidate[] {
+  const query = guestPlaceIdentityKey(input.query)
+  const floorConstraint = input.candidates.some((candidate) =>
+    includesPhrase(query, guestPlaceIdentityKey(candidate.floor ?? '')),
+  )
+  const locationConstraint = input.candidates.some((candidate) =>
+    includesPhrase(query, guestPlaceIdentityKey(candidate.location ?? '')),
+  )
+  const compatible = (value: string | null, constraint: boolean) => {
+    const key = guestPlaceIdentityKey(value ?? '')
+    return !constraint || !key || includesPhrase(query, key)
+  }
+  return input.candidates.filter(
+    (candidate) =>
+      compatible(candidate.floor, floorConstraint) &&
+      compatible(candidate.location, locationConstraint),
+  )
 }
 
 /** Enriches only already-authorized candidates; it never discovers venue-wide labels. */
@@ -113,28 +144,19 @@ export async function projectGuestPlaceIdentity(params: {
     const location = matches.length === 1 ? matches[0] : null
     return {
       ...place,
-      location: location?.displayName ?? place.areaName,
-      floor: location?.floor?.name ?? null,
+      location: trimmedIdentityLabel(location?.displayName) ?? trimmedIdentityLabel(place.areaName),
+      floor: trimmedIdentityLabel(location?.floor?.name),
     }
   })
-  const floorMatched = candidates.filter((candidate) =>
-    candidate.floor ? includesPhrase(query, guestPlaceIdentityKey(candidate.floor)) : false,
-  )
-  // Missing location data cannot rule out another exhibit on the requested
-  // floor. Narrow only candidates with a known, contradictory floor.
-  const compatibleCandidates =
-    floorMatched.length > 0
-      ? candidates.filter(
-          (candidate) => candidate.floor === null || floorMatched.includes(candidate),
-        )
-      : candidates
-  const isAmbiguous =
-    !isExplicitGuestPlaceNonIdentityRequest(query) && compatibleCandidates.length > 1
-  const ambiguity = isAmbiguous
-    ? {
-        requestedName: duplicate[1][0]!.name,
-        candidates: compatibleCandidates,
-      }
-    : null
+  const compatibleCandidates = compatibleGuestPlaceIdentityCandidates({ query, candidates })
+  const identityRequest = !isExplicitGuestPlaceNonIdentityRequest(query)
+  const ambiguity =
+    identityRequest && compatibleCandidates.length !== 1
+      ? {
+          requestedName: duplicate[1][0]!.name,
+          candidates: compatibleCandidates,
+          ...(compatibleCandidates.length === 0 ? { conflictingClues: true as const } : {}),
+        }
+      : null
   return { places: candidates, ambiguity }
 }
