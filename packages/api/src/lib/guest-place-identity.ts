@@ -39,6 +39,20 @@ function trimmedIdentityLabel(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null
 }
 
+function guestPlaceIdentityLocationLabels(location: string | null, floor: string | null): string[] {
+  const locationKey = guestPlaceIdentityKey(location ?? '')
+  if (!locationKey) return []
+
+  const labels = [locationKey]
+  const floorKey = guestPlaceIdentityKey(floor ?? '')
+  const floorPrefix = floorKey ? `${floorKey} ` : ''
+  if (floorPrefix && locationKey.startsWith(floorPrefix)) {
+    const remainder = locationKey.slice(floorPrefix.length).trim()
+    if (remainder) labels.push(remainder)
+  }
+  return labels
+}
+
 export function isExplicitGuestPlaceNonIdentityRequest(query: string): boolean {
   query = guestPlaceIdentityKey(query)
   return ['compare', 'recommend', 'should i see', 'see next', 'what else', 'list'].some((phrase) =>
@@ -68,16 +82,22 @@ export function compatibleGuestPlaceIdentityCandidates(input: {
     includesPhrase(query, guestPlaceIdentityKey(candidate.floor ?? '')),
   )
   const locationConstraint = input.candidates.some((candidate) =>
-    includesPhrase(query, guestPlaceIdentityKey(candidate.location ?? '')),
+    guestPlaceIdentityLocationLabels(candidate.location, candidate.floor).some((label) =>
+      includesPhrase(query, label),
+    ),
   )
+  const compatibleLocation = (candidate: GuestPlaceIdentityCandidate) => {
+    const labels = guestPlaceIdentityLocationLabels(candidate.location, candidate.floor)
+    return (
+      !locationConstraint || !labels.length || labels.some((label) => includesPhrase(query, label))
+    )
+  }
   const compatible = (value: string | null, constraint: boolean) => {
     const key = guestPlaceIdentityKey(value ?? '')
     return !constraint || !key || includesPhrase(query, key)
   }
   return input.candidates.filter(
-    (candidate) =>
-      compatible(candidate.floor, floorConstraint) &&
-      compatible(candidate.location, locationConstraint),
+    (candidate) => compatible(candidate.floor, floorConstraint) && compatibleLocation(candidate),
   )
 }
 

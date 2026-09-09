@@ -124,6 +124,57 @@ describe('projectGuestPlaceIdentity', () => {
     expect(result.ambiguity).toBeNull()
   })
 
+  it('resolves a full stored floor-prefixed location from its remaining location label', async () => {
+    const rows = duplicateLocationRows.map((row) => ({
+      ...row,
+      displayName:
+        row.primaryPlaceId === 'first-case-12' ? 'First floor East gallery' : 'South gallery',
+    }))
+    const result = await projectGuestPlaceIdentity({
+      reader: { venueLocation: { findMany: vi.fn().mockResolvedValue(rows) } } as never,
+      query: 'Tell me about Case 12 in East gallery',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      places,
+    })
+    expect(result.ambiguity).toBeNull()
+  })
+
+  it('keeps a wrong floor and remaining location clue as a conflict', async () => {
+    const rows = duplicateLocationRows.map((row) => ({
+      ...row,
+      displayName:
+        row.primaryPlaceId === 'first-case-12' ? 'First floor East gallery' : 'South gallery',
+    }))
+    const result = await projectGuestPlaceIdentity({
+      reader: { venueLocation: { findMany: vi.fn().mockResolvedValue(rows) } } as never,
+      query: 'Tell me about Case 12 on the second floor in East gallery',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      places,
+    })
+    expect(result.ambiguity).toEqual({
+      requestedName: 'Case 12',
+      candidates: [],
+      conflictingClues: true,
+    })
+  })
+
+  it('does not strip unknown or non-prefix floor labels from a location', () => {
+    const candidates = [
+      { ...places[0]!, floor: 'First floor', location: 'East gallery' },
+      { ...places[1]!, floor: null, location: 'First floor East gallery' },
+    ]
+    expect(
+      compatibleGuestPlaceIdentityCandidates({
+        query: 'Case 12 in East gallery',
+        candidates,
+      }).map(({ id }) => id),
+    ).toEqual(['first-case-12'])
+  })
+
   it('retains an unknown-location duplicate while excluding a known contradictory location', async () => {
     const unknownPlace = { id: 'unknown-case-12', name: 'Case 12', areaName: null }
     const rows = duplicateLocationRows.map((row) => ({

@@ -1096,6 +1096,15 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(firstFloorCaseVoice.identityClarificationRequired).toBe(false)
       expect(firstFloorCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
       expect(firstFloorCaseVoice.context).toContain('First floor')
+      const prefixedGalleryCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 in East gallery',
+      })
+      expect(prefixedGalleryCaseVoice.identityClarificationRequired).toBe(false)
+      expect(prefixedGalleryCaseVoice.sourceIds).toContain(`place:${firstCaseId}`)
+      expect(prefixedGalleryCaseVoice.sourceIds).not.toContain(`place:${secondCaseId}`)
       await useSameFloorCaseAnchors()
       const eastGalleryCaseVoice = await buildVoiceGroundingContext({
         reader: db as never,
@@ -1870,6 +1879,11 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(latestPrompt()).toContain('Case 12 — Second floor')
       expect(latestPrompt()).not.toContain('PRIVATE_CASE_12_SENTINEL')
       expect(latestPrompt()).not.toContain('CONTROL_CASE_12_SENTINEL')
+
+      await send({ message: 'Tell me about Case 12 in East gallery' })
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).not.toContain('Second floor west gallery')
 
       await useSameFloorCaseAnchors()
       await send({ message: 'Tell me about Case 12 in East gallery' })
