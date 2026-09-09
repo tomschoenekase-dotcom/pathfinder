@@ -41,6 +41,7 @@ import {
   applyNativeVenueDeploymentAction,
   acquireEmbeddingWork,
   approveNativeVenueDeploymentAction,
+  claimGuestChatTurnAction,
   claimEvaluationRunAttempt,
   createUniversalContentAction,
   createOrReplayEvaluationRun,
@@ -61,10 +62,12 @@ import {
   withdrawUniversalContentAction,
   claimIntakeUploadVerificationAction,
   recordIntakeUploadPrecheckAction,
+  readAdjacentGuestPlaceIdentityPendingAction,
   registerVenueMediaAssetAction,
   requestVenueMediaDerivativesAction,
   reviewVenueMediaAssetAction,
   reserveIntakeUploadAction,
+  reserveGuestChatTurnAction,
   settleIntakeUploadAuthoritativeVerificationAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -1716,11 +1719,13 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         employee?: boolean
         secondLayer?: boolean
         message?: string
+        anonymousToken?: string
+        operationId?: string
       }) =>
         testRouter.createCaller(context(input.employee)).chat.send({
           venueId: input.venueId ?? venueId,
-          anonymousToken: randomUUID(),
-          operationId: randomUUID(),
+          anonymousToken: input.anonymousToken ?? randomUUID(),
+          operationId: input.operationId ?? randomUUID(),
           message: input.message ?? 'What should I know?',
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
@@ -1873,17 +1878,242 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         }),
       )
 
-      await send({ message: 'Tell me about Case 12' })
+      const adjacentToken = randomUUID()
+      const adjacentFirstOperationId = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: adjacentToken,
+        operationId: adjacentFirstOperationId,
+      })
       expect(latestPrompt()).toContain('IDENTITY CLARIFICATION DATA')
       expect(latestPrompt()).toContain('Case 12 — First floor')
       expect(latestPrompt()).toContain('Case 12 — Second floor')
       expect(latestPrompt()).not.toContain('PRIVATE_CASE_12_SENTINEL')
       expect(latestPrompt()).not.toContain('CONTROL_CASE_12_SENTINEL')
 
-      await send({ message: 'Tell me about Case 12 in East gallery' })
+      const adjacentFirstTurn = await db.guestChatTurn.findFirstOrThrow({
+        where: { tenantId, venueId, requestId: adjacentFirstOperationId },
+        select: { status: true, replayMetadata: true },
+      })
+      expect(adjacentFirstTurn).toMatchObject({
+        status: 'COMPLETE',
+        replayMetadata: {
+          pendingPlaceIdentity: {
+            version: 'guest-place-identity-pending-v1',
+            requestedName: 'Case 12',
+            candidates: expect.arrayContaining([
+              expect.objectContaining({
+                id: firstCaseId,
+                name: 'Case 12',
+                floor: 'First floor',
+                location: 'First floor east gallery',
+              }),
+              expect.objectContaining({
+                id: secondCaseId,
+                name: 'Case 12',
+                floor: 'Second floor',
+                location: 'Second floor west gallery',
+              }),
+            ]),
+          },
+        },
+      })
+
+      const adjacentSecondOperationId = randomUUID()
+      const adjacentSecond = await send({
+        message: 'East gallery',
+        anonymousToken: adjacentToken,
+        operationId: adjacentSecondOperationId,
+      })
+      expect(latestPrompt()).toContain('ADJACENT PLACE IDENTITY CONTEXT')
       expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
       expect(latestPrompt()).toContain('First floor east gallery')
       expect(latestPrompt()).not.toContain('Second floor west gallery')
+      const adjacentSecondTurn = await db.guestChatTurn.findFirstOrThrow({
+        where: { tenantId, venueId, requestId: adjacentSecondOperationId },
+        select: { userMessageId: true },
+      })
+      expect(adjacentSecondTurn.userMessageId).not.toBeNull()
+      await expect(
+        db.message.findUniqueOrThrow({
+          where: { id: adjacentSecondTurn.userMessageId! },
+          select: { content: true },
+        }),
+      ).resolves.toEqual({ content: 'East gallery' })
+      const providerCallsAfterAdjacentSecond = anthropicCreate.mock.calls.length
+      const adjacentReplay = await send({
+        message: 'East gallery',
+        anonymousToken: adjacentToken,
+        operationId: adjacentSecondOperationId,
+      })
+      expect(adjacentReplay).toMatchObject({
+        response: adjacentSecond.response,
+        assistantMessageId: adjacentSecond.assistantMessageId,
+        sessionId: adjacentSecond.sessionId,
+        places: adjacentSecond.places,
+        citations: adjacentSecond.citations,
+        replayed: true,
+      })
+      expect(anthropicCreate).toHaveBeenCalledTimes(providerCallsAfterAdjacentSecond)
+
+      // Exercise the SQL-side predecessor and claim fences without dispatching a second provider call.
+      const pendingFenceToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: pendingFenceToken,
+        operationId: randomUUID(),
+      })
+      const pendingFenceRequestId = randomUUID()
+      const pendingFenceReservation = await reserveGuestChatTurnAction({
+        client: db,
+        request: {
+          tenantId,
+          venueId,
+          anonymousToken: pendingFenceToken,
+          requestId: pendingFenceRequestId,
+          visitorId: null,
+          message: 'East gallery',
+          language: null,
+          lat: null,
+          lng: null,
+          retainLocation: true,
+          experienceScope: 'PUBLIC',
+        },
+      })
+      if (pendingFenceReservation.state !== 'RESERVED')
+        throw new Error(`Pending fence turn was not reserved: ${pendingFenceReservation.state}`)
+      const pendingFenceClaim = {
+        tenantId,
+        venueId,
+        anonymousToken: pendingFenceToken,
+        requestId: pendingFenceRequestId,
+        turnId: pendingFenceReservation.turnId,
+        claimId: randomUUID(),
+      }
+      await expect(
+        claimGuestChatTurnAction({ client: db, claim: pendingFenceClaim }),
+      ).resolves.toMatchObject({ state: 'GENERATING' })
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'PUBLIC',
+        }),
+      ).resolves.toMatchObject({
+        version: 'guest-place-identity-pending-v1',
+        requestedName: 'Case 12',
+      })
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: { ...pendingFenceClaim, claimId: randomUUID() },
+          experienceScope: 'PUBLIC',
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'SECOND_LAYER',
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'PUBLIC',
+          now: new Date(Date.now() + 3 * 60 * 1_000),
+        }),
+      ).resolves.toBeNull()
+
+      const noInheritedIdentity = async (anonymousToken: string, operationId: string) => {
+        await send({ message: 'East gallery', anonymousToken, operationId })
+        expect(latestPrompt()).not.toContain('ADJACENT PLACE IDENTITY CONTEXT')
+        const turn = await db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: operationId },
+          select: { userMessageId: true, replayMetadata: true },
+        })
+        expect(turn.replayMetadata).not.toMatchObject({
+          pendingPlaceIdentity: expect.anything(),
+        })
+        expect(turn.userMessageId).not.toBeNull()
+        await expect(
+          db.message.findUniqueOrThrow({
+            where: { id: turn.userMessageId! },
+            select: { content: true },
+          }),
+        ).resolves.toEqual({ content: 'East gallery' })
+      }
+      // A fresh/reset browser token has no predecessor in the earlier conversation.
+      await noInheritedIdentity(randomUUID(), randomUUID())
+
+      const removedAnchorToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: removedAnchorToken,
+        operationId: randomUUID(),
+      })
+      await db.place.update({ where: { id: firstCaseId }, data: { isActive: false } })
+      await noInheritedIdentity(removedAnchorToken, randomUUID())
+      await db.place.update({ where: { id: firstCaseId }, data: { isActive: true } })
+
+      const relabelledAnchorToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: relabelledAnchorToken,
+        operationId: randomUUID(),
+      })
+      await db.venueLocation.updateMany({
+        where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+        data: { displayName: 'Renamed east gallery' },
+      })
+      await noInheritedIdentity(relabelledAnchorToken, randomUUID())
+      await db.venueLocation.updateMany({
+        where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+        data: { displayName: 'First floor east gallery' },
+      })
+
+      const duplicateBetweenTurnsToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: duplicateBetweenTurnsToken,
+        operationId: randomUUID(),
+      })
+      const insertedCaseId = `case-12-inserted-${suffix}`
+      await db.place.create({
+        data: {
+          id: insertedCaseId,
+          tenantId,
+          venueId,
+          name: 'Case 12',
+          type: 'EXHIBIT',
+          visibility: 'PUBLIC',
+          isActive: true,
+          importanceScore: 80,
+        },
+      })
+      await db.venueLocation.create({
+        data: {
+          tenantId,
+          venueId,
+          floorId: firstFloorId,
+          primaryPlaceId: insertedCaseId,
+          stableKey: `case-12-inserted-${suffix}`,
+          kind: 'EXHIBIT',
+          displayName: 'First floor north gallery',
+          verifiedAt: new Date(),
+          verifiedBy: 'disposable-guest-read',
+        },
+      })
+      await send({
+        message: 'First floor',
+        anonymousToken: duplicateBetweenTurnsToken,
+        operationId: randomUUID(),
+      })
+      expect(latestPrompt()).toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).toContain('First floor north gallery')
+      await db.place.update({ where: { id: insertedCaseId }, data: { isActive: false } })
 
       await useSameFloorCaseAnchors()
       await send({ message: 'Tell me about Case 12 in East gallery' })

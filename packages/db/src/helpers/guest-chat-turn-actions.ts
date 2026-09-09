@@ -244,6 +244,31 @@ export function guestChatRequestHash(input: unknown): string {
   return hashParsedGuestChatRequest(parse(requestSchema, input))
 }
 
+function guestChatResponseHash(
+  response: string,
+  rawMetadata: unknown,
+  metadata: z.infer<typeof GuestChatReplayMetadata>,
+): string {
+  const hasMetadataField = (field: keyof z.infer<typeof GuestChatReplayMetadata>) =>
+    typeof rawMetadata === 'object' &&
+    rawMetadata !== null &&
+    Object.prototype.hasOwnProperty.call(rawMetadata, field)
+
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        response,
+        places: metadata.places,
+        ...(hasMetadataField('citations') ? { citations: metadata.citations } : {}),
+        ...(hasMetadataField('answerEvidence') ? { answerEvidence: metadata.answerEvidence } : {}),
+        ...(hasMetadataField('pendingPlaceIdentity')
+          ? { pendingPlaceIdentity: metadata.pendingPlaceIdentity }
+          : {}),
+      }),
+    )
+    .digest('hex')
+}
+
 const turnSelect = {
   id: true,
   tenantId: true,
@@ -343,29 +368,11 @@ async function projectExistingTurn(
     if (!assistant || !metadata.success) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
-    const responseHash = createHash('sha256')
-      .update(
-        JSON.stringify({
-          response: assistant.content,
-          places: metadata.data.places,
-          ...(typeof turn.replayMetadata === 'object' &&
-          turn.replayMetadata !== null &&
-          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'citations')
-            ? { citations: metadata.data.citations }
-            : {}),
-          ...(typeof turn.replayMetadata === 'object' &&
-          turn.replayMetadata !== null &&
-          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'answerEvidence')
-            ? { answerEvidence: metadata.data.answerEvidence }
-            : {}),
-          ...(typeof turn.replayMetadata === 'object' &&
-          turn.replayMetadata !== null &&
-          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'pendingPlaceIdentity')
-            ? { pendingPlaceIdentity: metadata.data.pendingPlaceIdentity }
-            : {}),
-        }),
-      )
-      .digest('hex')
+    const responseHash = guestChatResponseHash(
+      assistant.content,
+      turn.replayMetadata,
+      metadata.data,
+    )
     if (responseHash !== turn.responseHash) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
@@ -930,11 +937,26 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
           completedAt: { not: null },
           session: { experienceScope: input.experienceScope },
         },
-        select: { replayMetadata: true },
+        select: {
+          replayMetadata: true,
+          responseHash: true,
+          assistantMessage: { select: { content: true } },
+        },
       })
       if (!previous) return null
       const metadata = GuestChatReplayMetadata.safeParse(previous.replayMetadata)
-      return metadata.success ? (metadata.data.pendingPlaceIdentity ?? null) : null
+      if (
+        !metadata.success ||
+        !previous.assistantMessage ||
+        guestChatResponseHash(
+          previous.assistantMessage.content,
+          previous.replayMetadata,
+          metadata.data,
+        ) !== previous.responseHash
+      ) {
+        return null
+      }
+      return metadata.data.pendingPlaceIdentity ?? null
     },
     { isolationLevel: 'Serializable' },
   )
@@ -1194,19 +1216,11 @@ export async function finalizeGuestChatTurnAction(args: {
   const replayMetadata = JSON.parse(JSON.stringify(input.replayMetadata)) as z.infer<
     typeof GuestChatReplayMetadata
   >
-  const responseHash = createHash('sha256')
-    .update(
-      JSON.stringify({
-        response: input.assistantResponse,
-        places: replayMetadata.places,
-        citations: replayMetadata.citations,
-        ...(replayMetadata.answerEvidence ? { answerEvidence: replayMetadata.answerEvidence } : {}),
-        ...(replayMetadata.pendingPlaceIdentity
-          ? { pendingPlaceIdentity: replayMetadata.pendingPlaceIdentity }
-          : {}),
-      }),
-    )
-    .digest('hex')
+  const responseHash = guestChatResponseHash(
+    input.assistantResponse,
+    replayMetadata,
+    replayMetadata,
+  )
 
   const run = () =>
     client.$transaction(

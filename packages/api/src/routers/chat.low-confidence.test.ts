@@ -24,6 +24,7 @@ const guestTurnActions = vi.hoisted(() => ({
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
+  readAdjacentIdentity: vi.fn(),
 }))
 vi.mock('@pathfinder/db', () => ({
   GuestChatTurnActionError: class GuestChatTurnActionError extends Error {},
@@ -72,6 +73,7 @@ vi.mock('@pathfinder/db', () => ({
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
+  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
   publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   readActiveUnhealthyAiProviders: vi.fn().mockResolvedValue([]),
 }))
@@ -187,6 +189,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
   guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
   guestTurnActions.skip.mockResolvedValue({ skipped: true })
   guestTurnActions.observe.mockResolvedValue({ observed: true })
+  guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
   guestTurnActions.finalize.mockImplementation(async ({ input }) => ({
     state: 'COMPLETE',
     turnId: input.turnId,

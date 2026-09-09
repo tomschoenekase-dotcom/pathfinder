@@ -50,6 +50,7 @@ const guestTurnActions = vi.hoisted(() => ({
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
+  readAdjacentIdentity: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
 const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
@@ -67,6 +68,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
+  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
   readActiveUnhealthyAiProviders,
   recordConversationLearningCandidate,
@@ -266,6 +268,7 @@ describe('chat router', () => {
     guestTurnActions.skip.mockResolvedValue({ skipped: true })
     guestTurnActions.observe.mockResolvedValue({ observed: true })
     guestTurnActions.fail.mockResolvedValue({ failed: true })
+    guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
     guestTurnActions.finalize.mockImplementation(async ({ input }) => {
       await messageCreate({ data: { role: 'user', content: input.message } })
       await messageCreate({ data: { role: 'assistant', content: input.assistantResponse } })
@@ -1033,6 +1036,136 @@ describe('chat router', () => {
         }),
       )
       expectCaseTwelveClarificationPrompt()
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({
+              pendingPlaceIdentity: {
+                version: 'guest-place-identity-pending-v1',
+                requestedName: 'Case 12',
+                candidates: expect.arrayContaining([
+                  expect.objectContaining({ id: 'case-12-first', floor: 'First floor' }),
+                  expect.objectContaining({ id: 'case-12-second', floor: 'Second floor' }),
+                ]),
+              },
+            }),
+          }),
+        }),
+      )
+    })
+
+    it('uses an adjacent bare location for effective retrieval while persisting the raw reply', async () => {
+      setupHappyPath('The west-gallery Case 12 is on the second floor.')
+      const fixture = caseTwelveRankingFixture()
+      const unrelated = fixture.initial.slice(0, 7)
+      semanticSearch.places.mockResolvedValueOnce(unrelated)
+      placeFindMany
+        .mockReset()
+        .mockImplementation(async (args) =>
+          (args as { where?: { name?: unknown } }).where?.name
+            ? [fixture.first, fixture.second]
+            : [],
+        )
+      venueLocationFindMany.mockResolvedValue(fixture.floorRows)
+      guestTurnActions.readAdjacentIdentity.mockResolvedValueOnce({
+        version: 'guest-place-identity-pending-v1',
+        requestedName: 'Case 12',
+        candidates: [
+          {
+            id: fixture.first.id,
+            name: fixture.first.name,
+            floor: 'First floor',
+            location: 'First floor east gallery',
+          },
+          {
+            id: fixture.second.id,
+            name: fixture.second.name,
+            floor: 'Second floor',
+            location: 'Second floor west gallery',
+          },
+        ],
+      })
+
+      await caller.chat.send({ ...sendInput, message: 'West gallery' })
+
+      expect(embeddingCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ input: ['Case 12 West gallery'] }),
+        expect.anything(),
+      )
+      expect(getConcatenatedSystemPrompt()).toContain('ADJACENT PLACE IDENTITY CONTEXT')
+      expect(getConcatenatedSystemPrompt()).toContain('Second-floor case.')
+      expect(getConcatenatedSystemPrompt()).not.toContain('First-floor case.')
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.objectContaining({ message: 'West gallery' }) }),
+      )
+      expect(messageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ content: 'West gallery' }) }),
+      )
+      expect(guestTurnActions.readAdjacentIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ experienceScope: 'PUBLIC' }),
+      )
+    })
+
+    it('keeps a newly added same-name duplicate in adjacent clarification ambiguity', async () => {
+      setupHappyPath('Which west-gallery case do you mean?')
+      const fixture = caseTwelveRankingFixture()
+      const added = {
+        ...fixture.second,
+        id: 'case-12-new-west',
+        shortDescription: 'New west case.',
+      }
+      semanticSearch.places.mockResolvedValueOnce([])
+      placeFindMany
+        .mockReset()
+        .mockImplementation(async (args) =>
+          (args as { where?: { name?: unknown } }).where?.name
+            ? [fixture.first, fixture.second, added]
+            : [],
+        )
+      venueLocationFindMany.mockResolvedValue([
+        ...fixture.floorRows,
+        { ...fixture.floorRows[1], primaryPlaceId: added.id },
+      ])
+      guestTurnActions.readAdjacentIdentity.mockResolvedValueOnce({
+        version: 'guest-place-identity-pending-v1',
+        requestedName: 'Case 12',
+        candidates: [
+          {
+            id: fixture.first.id,
+            name: fixture.first.name,
+            floor: 'First floor',
+            location: 'First floor east gallery',
+          },
+          {
+            id: fixture.second.id,
+            name: fixture.second.name,
+            floor: 'Second floor',
+            location: 'Second floor west gallery',
+          },
+        ],
+      })
+
+      await caller.chat.send({ ...sendInput, message: 'West gallery' })
+
+      expect(getConcatenatedSystemPrompt()).toContain('IDENTITY CLARIFICATION DATA')
+      expect(getConcatenatedSystemPrompt()).toContain(
+        'Case 12 — Second floor - Second floor west gallery',
+      )
+      expect(getConcatenatedSystemPrompt()).toContain('New west case.')
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({
+              pendingPlaceIdentity: expect.objectContaining({
+                candidates: expect.arrayContaining([
+                  expect.objectContaining({ id: 'case-12-second' }),
+                  expect.objectContaining({ id: 'case-12-new-west' }),
+                ]),
+              }),
+            }),
+          }),
+        }),
+      )
     })
 
     it('expands a semantic initial eight-place result to clarify duplicate Case 12 floors', async () => {

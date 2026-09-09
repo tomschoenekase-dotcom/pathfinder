@@ -64,11 +64,20 @@ describe('guest chat turn actions', () => {
       requestedName: 'Gallery',
       candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
     }
+    const response = 'Which gallery did you mean?'
+    const replayMetadata = { places: [], citations: [], pendingPlaceIdentity: pending }
+    const responseHash = await import('node:crypto').then(({ createHash }) =>
+      createHash('sha256')
+        .update(JSON.stringify({ response, ...replayMetadata }))
+        .digest('hex'),
+    )
     const findFirst = vi
       .fn()
       .mockResolvedValueOnce({ sessionId: 'session-1', turnSequence: 9 })
       .mockResolvedValueOnce({
-        replayMetadata: { places: [], citations: [], pendingPlaceIdentity: pending },
+        replayMetadata,
+        responseHash,
+        assistantMessage: { content: response },
       })
     const tx = { $executeRaw: vi.fn(), guestChatTurn: { findFirst } }
     const result = await readAdjacentGuestPlaceIdentityPendingAction({
@@ -100,6 +109,51 @@ describe('guest chat turn actions', () => {
       completedAt: { not: null },
       session: { experienceScope: 'SECOND_LAYER' },
     })
+  })
+
+  it('does not use schema-valid pending identity when predecessor integrity fails', async () => {
+    const pending = {
+      version: 'guest-place-identity-pending-v1' as const,
+      requestedName: 'Gallery',
+      candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
+    }
+    const claim = {
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      anonymousToken: request.anonymousToken,
+      requestId: request.requestId,
+      turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    for (const predecessor of [
+      {
+        replayMetadata: { places: [], citations: [], pendingPlaceIdentity: pending },
+        responseHash: '0'.repeat(64),
+        assistantMessage: { content: 'Which gallery did you mean?' },
+      },
+      {
+        replayMetadata: { places: [], citations: [], pendingPlaceIdentity: pending },
+        responseHash: '0'.repeat(64),
+        assistantMessage: null,
+      },
+    ]) {
+      const tx = {
+        $executeRaw: vi.fn(),
+        guestChatTurn: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce({ sessionId: 'session-1', turnSequence: 2 })
+            .mockResolvedValueOnce(predecessor),
+        },
+      }
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: transactionClient(tx),
+          claim,
+          experienceScope: 'PUBLIC',
+        }),
+      ).resolves.toBeNull()
+    }
   })
 
   it('returns null for wrong current authority and malformed predecessor metadata', async () => {

@@ -25,11 +25,19 @@ export async function expandExplicitGuestPlaceIdentityCandidates(input: {
   venueId: string
   includeSecondLayer: boolean
   places: SemanticPlace[]
+  explicitLabels?: ReadonlyArray<string>
 }): Promise<{ places: SemanticPlace[]; saturatedLabelKeys: Set<string> }> {
-  const labels = explicitlyNamedGuestPlaceLabels(input.query, input.places).slice(
-    0,
-    MAX_IDENTITY_SEED_LABELS,
-  )
+  const labels = [
+    ...new Map(
+      [
+        ...(input.explicitLabels ?? []),
+        ...explicitlyNamedGuestPlaceLabels(input.query, input.places),
+      ]
+        .map((label) => label.trim())
+        .filter(Boolean)
+        .map((label) => [guestPlaceIdentityKey(label), label]),
+    ).values(),
+  ].slice(0, MAX_IDENTITY_SEED_LABELS)
   const rowsByLabel = await Promise.all(
     labels.map((name) =>
       input.reader.place.findMany({

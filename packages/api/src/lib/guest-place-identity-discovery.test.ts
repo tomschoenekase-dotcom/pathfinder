@@ -26,6 +26,22 @@ const place = (id: string, name = 'Case 12'): SemanticPlace => ({
 })
 
 describe('guest place identity discovery', () => {
+  it('freshly expands an explicit adjacent label even when retrieval has no matching seed', async () => {
+    const current = [place('case-first'), place('case-second')]
+    const findMany = vi.fn().mockResolvedValue(current)
+    const result = await expandExplicitGuestPlaceIdentityCandidates({
+      reader: { place: { findMany } } as never,
+      query: 'Case 12 West gallery',
+      tenantId: 'tenant',
+      venueId: 'venue',
+      includeSecondLayer: false,
+      places: [place('unrelated', 'Cafe')],
+      explicitLabels: ['Case 12'],
+    })
+    expect(findMany).toHaveBeenCalledOnce()
+    expect(result.places.map(({ id }) => id)).toEqual(['case-first', 'case-second', 'unrelated'])
+  })
+
   it('expands exact labels with scoped visibility and preserves seed ranking metadata', async () => {
     const seed = {
       ...place('case-first'),

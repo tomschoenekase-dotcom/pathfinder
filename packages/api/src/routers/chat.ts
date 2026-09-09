@@ -34,6 +34,7 @@ import {
   reserveGuestChatTurnAction,
   recordConversationInsightSignals,
   publishOperationalEvent,
+  readAdjacentGuestPlaceIdentityPendingAction,
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
   resolveNativeGuestReadSnapshotAction,
@@ -68,6 +69,7 @@ import {
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { projectGuestPlaceIdentity } from '../lib/guest-place-identity'
+import { resolveGuestPlaceIdentityFollowup } from '../lib/guest-place-identity-followup'
 import {
   expandExplicitGuestPlaceIdentityCandidates,
   hasIncompleteGuestPlaceIdentityDiscovery,
@@ -574,7 +576,6 @@ const chatReadRouter = router({
     let modelMs = 0
     let persistenceMs = 0
     const trimmedInput = input.message
-    const retrievalQuery = guestVisitRetrievalQuery(trimmedInput, input.visitContext)
     const venue = ctx.chatVenue
     const includeSecondLayer = ctx.experienceScope === 'SECOND_LAYER'
 
@@ -693,6 +694,77 @@ const chatReadRouter = router({
       turnId: reservation.turnId,
       claimId,
     }
+    const adjacentPending = await readAdjacentGuestPlaceIdentityPendingAction({
+      client: ctx.db,
+      claim: turnOperationBase,
+      experienceScope: ctx.experienceScope,
+    })
+    let acceptedAdjacentIdentityName: string | null = null
+    let effectiveIdentityQuery = trimmedInput
+    if (adjacentPending) {
+      const [exactCandidates, identitySnapshot] = await Promise.all([
+        ctx.db.place.findMany({
+          where: {
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            isActive: true,
+            visibility: includeSecondLayer ? { in: ['PUBLIC', 'SECOND_LAYER'] } : 'PUBLIC',
+            name: { equals: adjacentPending.requestedName, mode: 'insensitive' },
+          },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+          take: 65,
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            itemType: true,
+            shortDescription: true,
+            longDescription: true,
+            lat: true,
+            lng: true,
+            tags: true,
+            areaName: true,
+            hours: true,
+            photoUrl: true,
+            sourceType: true,
+            sourceName: true,
+            sourceUrl: true,
+          },
+        }),
+        resolveNativeGuestReadSnapshotAction({
+          client: ctx.db,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+        }),
+      ])
+      // Exactly 65 rows means the bounded same-name universe may be truncated.
+      // Do not turn that incomplete set into identity certainty.
+      if (exactCandidates.length < 65) {
+        const authorizedCandidates = applyNativeGuestContentRead({
+          snapshot: identitySnapshot,
+          legacyPlaces: exactCandidates,
+          legacyKnowledgeEntries: [],
+        }).places
+        const currentIdentity = await projectGuestPlaceIdentity({
+          reader: ctx.db,
+          query: adjacentPending.requestedName,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          includeSecondLayer,
+          places: authorizedCandidates.map(({ id, name, areaName }) => ({ id, name, areaName })),
+        })
+        const effectiveFollowup = resolveGuestPlaceIdentityFollowup({
+          rawReply: trimmedInput,
+          pending: adjacentPending,
+          currentCandidates: currentIdentity.places,
+        })
+        if (effectiveFollowup) {
+          effectiveIdentityQuery = effectiveFollowup
+          acceptedAdjacentIdentityName = adjacentPending.requestedName
+        }
+      }
+    }
+    const retrievalQuery = guestVisitRetrievalQuery(effectiveIdentityQuery, input.visitContext)
     const recordGuestAiFailure = async (
       category:
         | 'provider-unavailable'
@@ -1069,11 +1141,12 @@ const chatReadRouter = router({
     }
     const identityDiscovery = await expandExplicitGuestPlaceIdentityCandidates({
       reader: ctx.db,
-      query: trimmedInput,
+      query: effectiveIdentityQuery,
       tenantId: venue.tenantId,
       venueId: input.venueId,
       includeSecondLayer,
       places: relevantPlaces,
+      ...(acceptedAdjacentIdentityName ? { explicitLabels: [acceptedAdjacentIdentityName] } : {}),
     })
     const nativeReadSnapshot = await nativeReadSnapshotPromise
     const nativeRead = applyNativeGuestContentRead({
@@ -1085,20 +1158,20 @@ const chatReadRouter = router({
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
     const placeIdentity = await projectGuestPlaceIdentity({
       reader: ctx.db,
-      query: trimmedInput,
+      query: effectiveIdentityQuery,
       tenantId: venue.tenantId,
       venueId: input.venueId,
       includeSecondLayer,
       places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
     })
     const placeIdentityDiscoveryIncomplete = hasIncompleteGuestPlaceIdentityDiscovery({
-      query: trimmedInput,
+      query: effectiveIdentityQuery,
       places: relevantPlaces,
       saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
     })
     // Resolve over every authorized candidate before preserving the existing fact budget.
     relevantPlaces = selectGuestPlaceIdentityContext({
-      query: trimmedInput,
+      query: effectiveIdentityQuery,
       places: relevantPlaces,
       identity: placeIdentity,
       limit: NEAREST_PLACES_LIMIT,
@@ -1203,6 +1276,7 @@ const chatReadRouter = router({
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         placeIdentityDiscoveryIncomplete,
+        adjacentPlaceIdentityRequestedName: acceptedAdjacentIdentityName,
         knowledgeEntries: relevantKnowledgeEntries,
         activeUpdates,
         publishedUniversalContent,
@@ -1633,7 +1707,25 @@ const chatReadRouter = router({
           turnId: reservation.turnId,
           claimId,
           assistantResponse,
-          replayMetadata: { places: mentionedPlaces, citations, answerEvidence },
+          replayMetadata: {
+            places: mentionedPlaces,
+            citations,
+            answerEvidence,
+            ...(!fallbackFailureCode &&
+            !placeIdentityDiscoveryIncomplete &&
+            placeIdentity.ambiguity &&
+            placeIdentity.ambiguity.candidates.length > 0
+              ? {
+                  pendingPlaceIdentity: {
+                    version: 'guest-place-identity-pending-v1' as const,
+                    requestedName: placeIdentity.ambiguity.requestedName,
+                    candidates: placeIdentity.ambiguity.candidates.map(
+                      ({ id, name, floor, location }) => ({ id, name, floor, location }),
+                    ),
+                  },
+                }
+              : {}),
+          },
           fallbackCode: fallbackFailureCode,
           nextPending: engagementAskedThisTurn
             ? selectedEngagementQuestion
