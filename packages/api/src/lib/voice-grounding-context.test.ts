@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeCoreVisibleState } from '@pathfinder/contracts'
 import type { SemanticPlace } from '@pathfinder/db'
+import type { Prisma } from '@prisma/client'
 import type { GuestKnowledgeRow } from './guest-knowledge-retrieval'
 import { buildVoiceGroundingContext } from './voice-grounding-context'
 
@@ -71,6 +72,186 @@ function matches(item: Row, where: Record<string, unknown>) {
 }
 
 describe('voice grounding production retrieval parity', () => {
+  const duplicateCases = [
+    place({ id: 'case-first', name: 'Case 12', areaName: 'East gallery' }),
+    place({ id: 'case-second', name: 'Case 12', areaName: 'West gallery' }),
+  ]
+  const floorRows = [
+    { primaryPlaceId: 'case-first', displayName: 'East gallery', floor: { name: 'First floor' } },
+    { primaryPlaceId: 'case-second', displayName: 'West gallery', floor: { name: 'Second floor' } },
+  ]
+  const identityReader = (locations = floorRows, places = duplicateCases) => ({
+    venueKnowledgeEntry: { findMany: async () => [] },
+    place: { findMany: async () => places },
+    venueLocation: { findMany: async () => locations },
+  })
+
+  it('requires clarification for duplicate exhibit labels and includes reviewed floor labels', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: identityReader() as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.context).toContain('IDENTITY CLARIFICATION DATA')
+    expect(result.context).toContain('Case 12 — First floor')
+    expect(result.context).toContain('Case 12 — Second floor')
+  })
+
+  it('uses only the current query to resolve a named floor and retains unknown-floor ambiguity', async () => {
+    const resolved = await buildVoiceGroundingContext({
+      reader: identityReader() as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 on the first floor',
+      visitContext: { visitedPlaceIds: ['case-second'], interests: ['second floor'] },
+    })
+    expect(resolved.identityClarificationRequired).toBe(false)
+    expect(resolved.context).not.toContain('IDENTITY CLARIFICATION DATA')
+    expect(resolved.context).toContain('First floor')
+
+    const unknown = await buildVoiceGroundingContext({
+      reader: identityReader([floorRows[0]!]) as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 on the first floor',
+    })
+    expect(unknown.identityClarificationRequired).toBe(true)
+    expect(unknown.context).toContain('Case 12 — West gallery')
+  })
+
+  it('expands an explicitly named label beyond the initial ranking before resolving its floor', async () => {
+    const third = place({ id: 'case-third', name: 'Case 12', areaName: 'Annex' })
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async (args: Prisma.PlaceFindManyArgs) =>
+            args.where && 'name' in args.where ? [...duplicateCases, third] : duplicateCases,
+        },
+        venueLocation: {
+          findMany: async () => [
+            ...floorRows,
+            {
+              primaryPlaceId: 'case-third',
+              displayName: 'Annex',
+              floor: { name: 'First floor' },
+            },
+          ],
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 on the first floor',
+    })
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.context).toContain(
+      'Case 12 — First floor · East gallery; Case 12 — First floor · Annex',
+    )
+  })
+
+  it('keeps clarification required when exact-label discovery reaches its cap', async () => {
+    const candidates = Array.from({ length: 65 }, (_, index) =>
+      place({ id: `case-${index}`, name: 'Case 12', areaName: `Gallery ${index}` }),
+    )
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async (args: Prisma.PlaceFindManyArgs) =>
+            args.where && 'name' in args.where ? candidates : [candidates[0]!, candidates[1]!],
+        },
+        venueLocation: {
+          findMany: async () =>
+            candidates.map((candidate, index) => ({
+              primaryPlaceId: candidate.id,
+              displayName: candidate.areaName!,
+              floor: { name: index === 0 ? 'First floor' : 'Second floor' },
+            })),
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 on the first floor',
+    })
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.context).toContain('Candidate discovery')
+    expect(result.context).toContain('bounded limit')
+  })
+
+  it('does not force identity clarification for comparison requests', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: identityReader() as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Compare Case 12 on both floors',
+    })
+    expect(result.identityClarificationRequired).toBe(false)
+  })
+
+  it('never lets a filtered private duplicate create or satisfy identity ambiguity', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async (args: Prisma.PlaceFindManyArgs) => {
+            expect(args.where).toMatchObject({ visibility: 'PUBLIC', isActive: true })
+            return [duplicateCases[0]]
+          },
+        },
+        venueLocation: { findMany: vi.fn() },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result.identityClarificationRequired).toBe(false)
+    expect(result.context).not.toContain('Second floor')
+    expect(result.sourceIds).not.toContain('place:case-second')
+  })
+
+  it('retains the identity flag and header when ordinary grounding fills the budget', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        ...identityReader(),
+        venueKnowledgeEntry: {
+          findMany: async () => [row('large', 'Large source', 'x'.repeat(11_900))],
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 large source',
+    })
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.context.startsWith('IDENTITY CLARIFICATION DATA')).toBe(true)
+    expect(result.context.length).toBeLessThanOrEqual(12_000)
+  })
+
+  it('accounts for the header separator at the exact context boundary', async () => {
+    const header =
+      'IDENTITY CLARIFICATION DATA: Multiple authorized places match Case 12. Candidates: Case 12 — First floor · East gallery; Case 12 — Second floor · West gallery'
+    const prefix = '[PLACE: Case 12]\nPLACE · First floor · East gallery · '
+    const edgeCases = [
+      place({
+        ...duplicateCases[0]!,
+        longDescription: 'x'.repeat(12_000 - header.length - 2 - prefix.length),
+      }),
+      duplicateCases[1]!,
+    ]
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        ...identityReader(floorRows, edgeCases),
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12 edge source',
+    })
+    expect(result.context.length).toBe(12_000)
+    expect(result.sourceIds).toContain('place:case-first')
+    expect(result.sourceIds).not.toContain('place:case-second')
+  })
+
   it('finds bounded public facts for voice while excluding private and wrong-scope distractors', async () => {
     const corpus = [
       row('bathroom', 'Accessible bathrooms', 'Accessible bathrooms are beside the east lift.'),

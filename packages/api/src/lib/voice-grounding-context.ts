@@ -14,11 +14,20 @@ import {
 } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
+import {
+  explicitlyNamedGuestPlaceLabels,
+  guestPlaceIdentityKey,
+  isExplicitGuestPlaceNonIdentityRequest,
+  projectGuestPlaceIdentity,
+} from './guest-place-identity'
 
 const MAX_VOICE_CONTEXT_CHARS = 12_000
+const MAX_IDENTITY_CLARIFICATION_CHARS = 1_500
+const MAX_EXACT_LABEL_CANDIDATES = 65
 
 export type VoiceGroundingReader = GuestKnowledgeReader & {
   place?: { findMany(args: Prisma.PlaceFindManyArgs): Promise<SemanticPlace[]> }
+  venueLocation?: Pick<typeof import('@pathfinder/db').db, 'venueLocation'>['venueLocation']
   operationalUpdate?: {
     findMany(args: Prisma.OperationalUpdateFindManyArgs): Promise<VoiceOperationalUpdate[]>
   }
@@ -127,13 +136,105 @@ export async function buildVoiceGroundingContext(input: {
       distance: index,
     }),
   )
+  const explicitlyNamedLabels = explicitlyNamedGuestPlaceLabels(input.query, places)
+  const exactLabelRows = input.reader.place
+    ? await Promise.all(
+        explicitlyNamedLabels.map((name) =>
+          input.reader.place!.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              visibility: 'PUBLIC',
+              isActive: true,
+              name: { equals: name, mode: 'insensitive' },
+            },
+            orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+            take: MAX_EXACT_LABEL_CANDIDATES,
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              itemType: true,
+              shortDescription: true,
+              longDescription: true,
+              lat: true,
+              lng: true,
+              tags: true,
+              areaName: true,
+              hours: true,
+              photoUrl: true,
+              sourceType: true,
+              sourceName: true,
+              sourceUrl: true,
+              importanceScore: true,
+            },
+          }),
+        ),
+      )
+    : []
+  const saturatedLabelKeys = new Set(
+    exactLabelRows.flatMap((rows, index) =>
+      rows.length === MAX_EXACT_LABEL_CANDIDATES
+        ? [guestPlaceIdentityKey(explicitlyNamedLabels[index]!)]
+        : [],
+    ),
+  )
+  const legacyPlaces = [
+    ...new Map([...places, ...exactLabelRows.flat()].map((place) => [place.id, place])).values(),
+  ]
   const authorized = input.nativeSnapshot
     ? applyNativeGuestContentRead({
         snapshot: input.nativeSnapshot,
-        legacyPlaces: places,
+        legacyPlaces,
         legacyKnowledgeEntries: compatibilityKnowledge,
       })
-    : { path: 'NOT_REQUESTED' as const, places, knowledgeEntries: compatibilityKnowledge }
+    : {
+        path: 'NOT_REQUESTED' as const,
+        places: legacyPlaces,
+        knowledgeEntries: compatibilityKnowledge,
+      }
+
+  const placeIdentity = await projectGuestPlaceIdentity({
+    ...(input.reader.venueLocation
+      ? { reader: { venueLocation: input.reader.venueLocation } }
+      : {}),
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    query: input.query,
+    includeSecondLayer: false,
+    places: authorized.places.map(({ id, name, areaName }) => ({ id, name, areaName })),
+  })
+  const identityByPlaceId = new Map(
+    placeIdentity.places.map((candidate) => [candidate.id, candidate]),
+  )
+  const authorizedPlaces = authorized.places.map((place) => {
+    const identity = identityByPlaceId.get(place.id)
+    const knownLocation = identity
+      ? [
+          ...new Set(
+            [identity.floor, identity.location].filter((value): value is string => Boolean(value)),
+          ),
+        ].join(' · ')
+      : ''
+    return knownLocation ? { ...place, areaName: knownLocation } : place
+  })
+  const identityDiscoveryIncomplete =
+    !isExplicitGuestPlaceNonIdentityRequest(input.query) &&
+    authorizedPlaces.some((place) => saturatedLabelKeys.has(guestPlaceIdentityKey(place.name)))
+  const detailedIdentityClarification = placeIdentity.ambiguity
+    ? `IDENTITY CLARIFICATION DATA: Multiple authorized places match ${placeIdentity.ambiguity.requestedName}. Candidates: ${placeIdentity.ambiguity.candidates
+        .map((candidate) => {
+          const labels = [...new Set([candidate.floor, candidate.location].filter(Boolean))]
+          return `${candidate.name} — ${labels.join(' · ') || 'location not specified'}`
+        })
+        .join('; ')}`
+    : identityDiscoveryIncomplete
+      ? 'IDENTITY CLARIFICATION DATA: Candidate discovery for the requested exhibit reached its bounded limit; multiple exhibit identities may remain.'
+      : ''
+  const identityClarificationHeader =
+    detailedIdentityClarification.length <= MAX_IDENTITY_CLARIFICATION_CHARS
+      ? detailedIdentityClarification
+      : 'IDENTITY CLARIFICATION DATA: Multiple authorized places match the requested exhibit; location details are unavailable in this bounded context.'
   const coreCandidates = [
     ...updates.map((update) => ({
       id: `update:${String(update.id)}`,
@@ -143,21 +244,21 @@ export async function buildVoiceGroundingContext(input: {
       id: entry.id,
       text: `[KNOWLEDGE: ${entry.title}]\n${entry.content}`,
     })),
-    ...authorized.places.map((place) => ({
+    ...authorizedPlaces.map((place) => ({
       id: `place:${String(place.id)}`,
       text: `[PLACE: ${String(place.name)}]\n${[place.type, place.areaName, place.shortDescription, place.longDescription, place.hours].filter(Boolean).join(' · ')}`,
     })),
   ]
   const included: typeof coreCandidates = []
-  let used = 0
+  let used = identityClarificationHeader.length
   for (const candidate of coreCandidates) {
-    const separator = included.length ? 2 : 0
+    const separator = used > 0 ? 2 : 0
     if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
     included.push(candidate)
     used += separator + candidate.text.length
   }
 
-  const includedPlaces = authorized.places.filter((place) =>
+  const includedPlaces = authorizedPlaces.filter((place) =>
     included.some((entry) => entry.id === `place:${place.id}`),
   )
   const mediaCandidates: typeof coreCandidates = []
@@ -194,15 +295,17 @@ export async function buildVoiceGroundingContext(input: {
     }
   }
   for (const candidate of mediaCandidates) {
-    const separator = included.length ? 2 : 0
+    const separator = used > 0 ? 2 : 0
     if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
     included.push(candidate)
     used += separator + candidate.text.length
   }
   const candidates = [...coreCandidates, ...mediaCandidates]
-  const context = included.map((candidate) => candidate.text).join('\n\n')
+  const groundedContext = included.map((candidate) => candidate.text).join('\n\n')
+  const context = [identityClarificationHeader, groundedContext].filter(Boolean).join('\n\n')
   return {
     context,
+    identityClarificationRequired: placeIdentity.ambiguity !== null || identityDiscoveryIncomplete,
     visitContext: projectGuestVisitContext(input.visitContext, includedPlaces),
     sourceIds: included.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),

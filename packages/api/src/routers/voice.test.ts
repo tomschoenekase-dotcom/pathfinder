@@ -230,6 +230,9 @@ describe('voice router', () => {
     })
     expect(instructions).toContain('VOICE INTERFACE (MANDATORY)')
     expect(instructions).toContain('lookup_venue_knowledge')
+    expect(instructions).toContain('identityClarificationRequired=true')
+    expect(instructions).toContain('Do not choose an exhibit or combine their facts')
+    expect(instructions).toContain('Never infer the current floor')
     expect(instructions.length).toBeLessThan(17_000)
   })
 

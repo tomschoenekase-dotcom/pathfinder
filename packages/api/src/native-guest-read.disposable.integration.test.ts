@@ -916,8 +916,21 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       const secondFloorId = randomUUID()
       const firstCaseId = `case-12-first-${suffix}`
       const secondCaseId = `case-12-second-${suffix}`
+      const privateCaseId = `case-12-private-${suffix}`
+      const controlCaseId = `case-12-control-${suffix}`
       await db.place.createMany({
         data: [
+          ...Array.from({ length: 7 }, (_, index) => ({
+            id: `case-pressure-${index}-${suffix}`,
+            tenantId,
+            venueId,
+            name: `Unrelated Exhibit ${index + 1}`,
+            shortDescription: 'Tell me about Case 12 display details.',
+            type: 'EXHIBIT' as const,
+            visibility: 'PUBLIC' as const,
+            isActive: true,
+            importanceScore: 90 - index,
+          })),
           {
             id: firstCaseId,
             tenantId,
@@ -925,12 +938,34 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             name: 'Case 12',
             type: 'EXHIBIT',
             visibility: 'PUBLIC',
+            isActive: true,
+            importanceScore: 100,
           },
           {
             id: secondCaseId,
             tenantId,
             venueId,
             name: 'Case 12',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            isActive: true,
+            importanceScore: 1,
+          },
+          {
+            id: privateCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            shortDescription: 'PRIVATE_CASE_12_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'SECOND_LAYER',
+          },
+          {
+            id: controlCaseId,
+            tenantId: controlTenantId,
+            venueId: controlVenueId,
+            name: 'Case 12',
+            shortDescription: 'CONTROL_CASE_12_SENTINEL',
             type: 'EXHIBIT',
             visibility: 'PUBLIC',
           },
@@ -1010,6 +1045,35 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           { location: 'Second floor west gallery', floor: 'Second floor' },
         ],
       })
+      const duplicateCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12',
+      })
+      expect(duplicateCaseVoice.identityClarificationRequired).toBe(true)
+      expect(duplicateCaseVoice.context).toContain('Case 12 — First floor')
+      expect(duplicateCaseVoice.context).toContain('Case 12 — Second floor')
+      expect(duplicateCaseVoice.sourceIds).toEqual(
+        expect.arrayContaining([`place:${firstCaseId}`, `place:${secondCaseId}`]),
+      )
+      // Seven higher-ranked lexical distractors exhaust the initial eight-place page;
+      // the duplicate expansion must still surface the low-ranked second Case 12.
+      expect(duplicateCaseVoice.sourceIds).toContain(`place:${secondCaseId}`)
+      expect(duplicateCaseVoice.sourceIds).not.toContain(`place:${privateCaseId}`)
+      expect(duplicateCaseVoice.sourceIds).not.toContain(`place:${controlCaseId}`)
+      expect(duplicateCaseVoice.context).not.toContain('PRIVATE_CASE_12_SENTINEL')
+      expect(duplicateCaseVoice.context).not.toContain('CONTROL_CASE_12_SENTINEL')
+
+      const firstFloorCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 on the first floor',
+      })
+      expect(firstFloorCaseVoice.identityClarificationRequired).toBe(false)
+      expect(firstFloorCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(firstFloorCaseVoice.context).toContain('First floor')
       await db.venueKnowledgeEntry.createMany({
         data: [
           {

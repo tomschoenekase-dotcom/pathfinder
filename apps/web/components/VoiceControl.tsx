@@ -757,6 +757,8 @@ export function VoiceControl({
                         grounded: result.context.length > 0,
                         context: result.context,
                         sourceIds: result.sourceIds,
+                        identityClarificationRequired:
+                          result.identityClarificationRequired === true,
                         visitContext: result.visitContext,
                       },
                     }
