@@ -270,6 +270,115 @@ describe('voice router', () => {
     )
   })
 
+  it.each([
+    {
+      name: 'a missing owned voice session',
+      voiceSessionId: VOICE_ID,
+      arrange: () => dbMocks.voiceFindFirst.mockResolvedValue(null),
+      code: 'NOT_FOUND',
+      mayExpire: false,
+    },
+    {
+      name: 'a voice session ID outside the owned scope',
+      voiceSessionId: '22222222-2222-4222-8222-222222222222',
+      arrange: () => dbMocks.voiceFindFirst.mockResolvedValue(null),
+      code: 'NOT_FOUND',
+      mayExpire: false,
+    },
+    {
+      name: 'a non-public visitor scope',
+      voiceSessionId: VOICE_ID,
+      arrange: () =>
+        dbMocks.queryRaw.mockResolvedValue([{ ...scope, experienceScope: 'SECOND_LAYER' }]),
+      code: 'NOT_FOUND',
+      mayExpire: false,
+    },
+    {
+      name: 'an expired READY authorization',
+      voiceSessionId: VOICE_ID,
+      arrange: () =>
+        dbMocks.voiceFindFirst.mockResolvedValue({
+          id: VOICE_ID,
+          status: 'READY',
+          connectedAt: null,
+          clientSecretExpiresAt: new Date(Date.now() - 1_000),
+          maxDurationSeconds: 600,
+        }),
+      code: 'CONFLICT',
+      mayExpire: true,
+    },
+    {
+      name: 'an ACTIVE session beyond its maximum duration',
+      voiceSessionId: VOICE_ID,
+      arrange: () =>
+        dbMocks.voiceFindFirst.mockResolvedValue({
+          id: VOICE_ID,
+          status: 'ACTIVE',
+          connectedAt: new Date(Date.now() - 601_000),
+          clientSecretExpiresAt: null,
+          maxDurationSeconds: 600,
+        }),
+      code: 'CONFLICT',
+      mayExpire: true,
+    },
+    {
+      name: 'a revoked voice entitlement',
+      voiceSessionId: VOICE_ID,
+      arrange: () => {
+        dbMocks.voiceFindFirst.mockResolvedValue({
+          id: VOICE_ID,
+          status: 'ACTIVE',
+          connectedAt: new Date(),
+          clientSecretExpiresAt: null,
+          maxDurationSeconds: 600,
+        })
+        mocks.entitlement.mockResolvedValue({
+          capability: 'voice',
+          enabled: false,
+          source: 'VENUE_OVERRIDE',
+          sourceId: 'grant-1',
+          planTier: 'launch',
+          settings: {},
+          validUntil: null,
+        })
+      },
+      code: 'FORBIDDEN',
+      mayExpire: false,
+    },
+  ])('denies grounding for $name before any grounding source is read', async (testCase) => {
+    testCase.arrange()
+
+    await expect(
+      caller.voice.groundingContext({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: testCase.voiceSessionId,
+        toolCallId: 'denied-call',
+        query: 'Where is the gallery?',
+      }),
+    ).rejects.toMatchObject({ code: testCase.code })
+
+    if (testCase.name === 'a non-public visitor scope') {
+      expect(dbMocks.voiceFindFirst).not.toHaveBeenCalled()
+    } else {
+      expect(dbMocks.voiceFindFirst).toHaveBeenCalledWith({
+        where: {
+          id: testCase.voiceSessionId,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          visitorSessionId: scope.sessionId,
+        },
+      })
+    }
+    expect(mocks.nativeSnapshot).not.toHaveBeenCalled()
+    expect(dbMocks.places).not.toHaveBeenCalled()
+    expect(dbMocks.knowledge).not.toHaveBeenCalled()
+    expect(dbMocks.updates).not.toHaveBeenCalled()
+    expect(dbMocks.media).not.toHaveBeenCalled()
+    expect(dbMocks.bot).not.toHaveBeenCalled()
+    expect(dbMocks.voiceUpdateMany).toHaveBeenCalledTimes(testCase.mayExpire ? 1 : 0)
+  })
+
   it('uses server display policy for reviewed voice captions without exposing media links', async () => {
     dbMocks.voiceFindFirst.mockResolvedValue({
       id: VOICE_ID,

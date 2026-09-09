@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseHead": "f562b2eca61dd959f35f22db6089c2bdb265485d",
+  "slice": "W09 reviewed public inventory and voice grounding authority regressions",
+  "status": "passed-local-boundaries",
+  "changes": [
+    {
+      "surface": "location.reachableDestination",
+      "introduced": "3afa056f",
+      "classification": "bounded-sensitive-read",
+      "evidence": "packages/api/src/routers/location.test.ts"
+    },
+    {
+      "surface": "voice.groundingContext",
+      "introduced": "7eba0376",
+      "classification": "bounded-session-write",
+      "reason": "Existing public mutation owns and bounds voice session and can expire its lifecycle; no provider invocation by this procedure.",
+      "evidence": "packages/api/src/routers/voice.test.ts"
+    },
+    {
+      "surface": "GET apps/dashboard/app/api/admin/character-candidate-preview/route.ts",
+      "introduced": "43fdfa20",
+      "classification": "handler-platform-admin",
+      "evidence": [
+        "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts",
+        "packages/api/src/routers/admin/character-candidate-reviews.test.ts"
+      ]
+    }
+  ],
+  "authorityTests": "Six negative executions cover missing/wrong owned session, actual SECOND_LAYER scope, expiredREADY/maxdurationACTIVE and revokedvoice entitlement. Exacttenant/venue/visitorSession predicate asserted; no native/knowledge/place/update/media/bot source read.",
+  "results": {
+    "publicInventory": {
+      "trpc": 21,
+      "httpModules": 22,
+      "dashboardPublicApiPaths": 10,
+      "exitCode": 0
+    },
+    "inventoryNegativeControls": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "voiceRouter": {
+      "passed": 23,
+      "failed": 0
+    },
+    "adminPreviewRouter": {
+      "passed": 8,
+      "failed": 0
+    },
+    "previewHttp": {
+      "passed": 6,
+      "failed": 0
+    },
+    "apiFreshTypecheck": {
+      "exitCode": 0,
+      "log": "artifacts/w09-api-types-20260908.log"
+    },
+    "scopedLint": {
+      "exitCode": 0,
+      "log": "artifacts/w09-voice-authority-lint-20260908.log"
+    }
+  },
+  "priorCandidateStaticGates": {
+    "candidate": "f562b2eca61dd959f35f22db6089c2bdb265485d",
+    "allExitCode": 0,
+    "aiProvider": {
+      "sourceFiles": 6551,
+      "temporaryExceptions": 0
+    },
+    "aiBudget": {
+      "gatewayCallSites": 10
+    },
+    "rawSql": {
+      "operations": 210,
+      "reads": 125,
+      "writes": 85
+    },
+    "tenantBypass": {
+      "calls": 436,
+      "productionFiles": 147
+    },
+    "tenantProcedureCoverage": 114,
+    "tenantRegistry": {
+      "models": 257,
+      "tenanted": 177,
+      "platform": 61,
+      "shared": 19
+    },
+    "aiBudgetNegativeControls": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "goldenVenueValidator": "Synthetic fixture contract only:14phases,8failureinjections,12disposablephase declarations; not an executed journey."
+  },
+  "logs": [
+    "artifacts/w09-f562b2ec-public-surfaces.log",
+    "artifacts/w09-public-surfaces-corrected-20260908.log",
+    "artifacts/w09-public-surface-negative-controls-20260908.log",
+    "artifacts/w09-voice-grounding-authority-final-20260908.json",
+    "artifacts/w09-preview-authority-20260908.json",
+    "artifacts/w09-preview-http-20260908.json"
+  ],
+  "sourceSha256": {
+    "packages/api/src/testing/public-surface-manifest.json": "6e862911f74abf50062d9943f6bd9fa49b2b05cdd0315f8dcdf28a4039b8a1a1",
+    "packages/api/src/routers/voice.test.ts": "74da953d454b09d134140bf6073b0013d55ea5a377e13faae73e379e989555a8",
+    "scripts/verify-public-surface-boundary.mjs": "7ce55fdee738a920a659104140d556570b39d453a70f3418a227c12334bf8c21",
+    "scripts/lib/public-surface-inventory.mjs": "20728cf56a4f7e0b04ffbaec532daca8c3b534f7a614a374869e83f10348f741",
+    "scripts/public-surface-boundary.test.mjs": "3ea5770fd06543d05adc25c7e077a95832f3db07f2efccfc3d7981c0d8c4edc4",
+    "apps/dashboard/app/api/admin/character-candidate-preview/route.ts": "c29ee5135fcbf2aeaf9ec6a08671e90cf5baa71c96748a20d95453459d003f33",
+    "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts": "9dbb2f040efdace45a79ccc6c65faec6cc0cd1c6b57b8be0ba42f63215e3a3c4",
+    "packages/api/src/routers/admin/character-candidate-reviews.ts": "44ad4b7b48aaa74047e3331b505d9830b18478160157b1d31ede72f815a3d9cb",
+    "packages/api/src/routers/admin/character-candidate-reviews.test.ts": "46fe677c4d3b3f38a83732112d2dff3384651e4178db9cd1868f0f36bb727942",
+    "packages/api/src/routers/location.ts": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4",
+    "packages/api/src/routers/voice.ts": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756"
+  },
+  "limits": [
+    "Only three reviewed additive entries; no removals, detector exception, new permission or production route change.",
+    "Static inventory and mocked authority tests are not real authentication/tenant middleware/database/provider/deployment proof.",
+    "Prior candidate six static gates remain revision-labeled. This does not run the full release candidate profile or assert a clean retained-artifact worktree.",
+    "All128requirements32QA and A/B/C remain, with original E0-E7 distinctions."
+  ]
+}
