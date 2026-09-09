@@ -4,12 +4,14 @@ import { GUEST_ANSWER_EVIDENCE_VERSION } from '@pathfinder/contracts'
 import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract'
 
 import {
+  GuestPlaceIdentityPending,
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
   finalizeGuestChatTurnAction,
   guestChatRequestHash,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
+  readAdjacentGuestPlaceIdentityPendingAction,
   reserveGuestChatTurnAction,
   skipGuestChatProviderOperationAction,
 } from './guest-chat-turn-actions'
@@ -36,6 +38,149 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  it('bounds strict pending place identity metadata', () => {
+    const valid = {
+      version: 'guest-place-identity-pending-v1',
+      requestedName: 'Gallery',
+      candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
+    }
+    expect(GuestPlaceIdentityPending.parse(valid)).toEqual(valid)
+    for (const invalid of [
+      { ...valid, version: 'guest-place-identity-pending-v2' },
+      { ...valid, requestedName: 'x'.repeat(301) },
+      { ...valid, candidates: [] },
+      { ...valid, candidates: Array.from({ length: 66 }, () => valid.candidates[0]) },
+      { ...valid, candidates: [{ ...valid.candidates[0], id: 'x'.repeat(192) }] },
+      { ...valid, candidates: [{ ...valid.candidates[0], location: 'x'.repeat(301) }] },
+      { ...valid, extra: true },
+    ]) {
+      expect(GuestPlaceIdentityPending.safeParse(invalid).success).toBe(false)
+    }
+  })
+
+  it('reads pending identity only from the immediate committed same-scope predecessor', async () => {
+    const pending = {
+      version: 'guest-place-identity-pending-v1' as const,
+      requestedName: 'Gallery',
+      candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
+    }
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ sessionId: 'session-1', turnSequence: 9 })
+      .mockResolvedValueOnce({
+        replayMetadata: { places: [], citations: [], pendingPlaceIdentity: pending },
+      })
+    const tx = { $executeRaw: vi.fn(), guestChatTurn: { findFirst } }
+    const result = await readAdjacentGuestPlaceIdentityPendingAction({
+      client: transactionClient(tx),
+      claim: {
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        anonymousToken: request.anonymousToken,
+        requestId: request.requestId,
+        turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      experienceScope: 'SECOND_LAYER',
+      now: new Date('2026-01-01T00:01:00Z'),
+    })
+    expect(result).toEqual(pending)
+    expect(findFirst.mock.calls[0]![0].where).toMatchObject({
+      status: 'GENERATING',
+      leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      leaseExpiresAt: { gt: new Date('2026-01-01T00:01:00Z') },
+      session: { anonymousToken: request.anonymousToken, experienceScope: 'SECOND_LAYER' },
+    })
+    expect(findFirst.mock.calls[1]![0].where).toMatchObject({
+      sessionId: 'session-1',
+      turnSequence: 8,
+      status: 'COMPLETE',
+      userMessageId: { not: null },
+      assistantMessageId: { not: null },
+      completedAt: { not: null },
+      session: { experienceScope: 'SECOND_LAYER' },
+    })
+  })
+
+  it('returns null for wrong current authority and malformed predecessor metadata', async () => {
+    const missingTx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: { findFirst: vi.fn().mockResolvedValue(null) },
+    }
+    const claim = {
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      anonymousToken: request.anonymousToken,
+      requestId: request.requestId,
+      turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    await expect(
+      readAdjacentGuestPlaceIdentityPendingAction({
+        client: transactionClient(missingTx),
+        claim,
+        experienceScope: 'PUBLIC',
+      }),
+    ).resolves.toBeNull()
+    expect(missingTx.guestChatTurn.findFirst).toHaveBeenCalledTimes(1)
+
+    const malformedTx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({ sessionId: 'session-1', turnSequence: 2 })
+          .mockResolvedValueOnce({
+            replayMetadata: {
+              places: [],
+              pendingPlaceIdentity: { version: 'wrong', requestedName: 'Gallery', candidates: [] },
+            },
+          }),
+      },
+    }
+    await expect(
+      readAdjacentGuestPlaceIdentityPendingAction({
+        client: transactionClient(malformedTx),
+        claim,
+        experienceScope: 'PUBLIC',
+      }),
+    ).resolves.toBeNull()
+  })
+
+  it('evaluates the production lease clock after acquiring the turn lock', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:01:00Z'))
+    let releaseLock!: () => void
+    const lock = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    const findFirst = vi.fn().mockResolvedValue(null)
+    const tx = {
+      $executeRaw: vi.fn().mockReturnValue(lock),
+      guestChatTurn: { findFirst },
+    }
+    const pendingRead = readAdjacentGuestPlaceIdentityPendingAction({
+      client: transactionClient(tx),
+      claim: {
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        anonymousToken: request.anonymousToken,
+        requestId: request.requestId,
+        turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      experienceScope: 'PUBLIC',
+    })
+    await Promise.resolve()
+    expect(tx.$executeRaw).toHaveBeenCalledOnce()
+    vi.setSystemTime(new Date('2026-01-01T00:02:00Z'))
+    releaseLock()
+    await expect(pendingRead).resolves.toBeNull()
+    expect(findFirst.mock.calls[0]![0].where.leaseExpiresAt).toEqual({
+      gt: new Date('2026-01-01T00:02:00Z'),
+    })
+    vi.useRealTimers()
+  })
   it('canonicalizes trimmed input and binds every public request field', () => {
     expect(guestChatRequestHash({ ...request, message: '  Where is the cafe?  ' })).toBe(
       guestChatRequestHash(request),
@@ -305,6 +450,11 @@ describe('guest chat turn actions', () => {
         },
       ],
     }
+    const pendingPlaceIdentity = {
+      version: 'guest-place-identity-pending-v1' as const,
+      requestedName: 'Gallery',
+      candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
+    }
     const createMany = vi.fn().mockResolvedValue({ count: 2 })
     const tx = {
       $executeRaw: vi.fn(),
@@ -345,15 +495,20 @@ describe('guest chat turn actions', () => {
           turnId,
           claimId,
           assistantResponse: 'The cafe is downstairs.',
-          replayMetadata: { places: [], citations, answerEvidence },
+          replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
           fallbackCode: null,
           nextPending: { kind: 'NONE' },
         },
         now: new Date('2026-08-22T12:00:00.000Z'),
       }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       state: 'COMPLETE',
+      turnId,
       sessionId: 'session-1',
+      userMessageId: expect.any(String),
+      assistantMessageId: expect.any(String),
+      response: 'The cafe is downstairs.',
+      places: [],
       citations,
       replayed: false,
     })
@@ -382,8 +537,20 @@ describe('guest chat turn actions', () => {
     expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          replayMetadata: { places: [], citations, answerEvidence },
-          responseHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+          replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+          responseHash: await import('node:crypto').then(({ createHash }) =>
+            createHash('sha256')
+              .update(
+                JSON.stringify({
+                  response: 'The cafe is downstairs.',
+                  places: [],
+                  citations,
+                  answerEvidence,
+                  pendingPlaceIdentity,
+                }),
+              )
+              .digest('hex'),
+          ),
         }),
       }),
     )

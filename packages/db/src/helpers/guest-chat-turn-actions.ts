@@ -107,6 +107,27 @@ const citationSchema = z
   })
   .strict()
 
+export const GuestPlaceIdentityPending = z
+  .object({
+    version: z.literal('guest-place-identity-pending-v1'),
+    requestedName: z.string().trim().min(1).max(300),
+    candidates: z
+      .array(
+        z
+          .object({
+            id: z.string().trim().min(1).max(191),
+            name: z.string().trim().min(1).max(300),
+            floor: z.string().trim().max(300).nullable(),
+            location: z.string().trim().max(300).nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(65),
+  })
+  .strict()
+export type GuestPlaceIdentityPending = z.infer<typeof GuestPlaceIdentityPending>
+
 export const GuestChatReplayMetadata = z
   .object({
     places: z.array(placeCardSchema).max(20),
@@ -114,6 +135,7 @@ export const GuestChatReplayMetadata = z
     // Internal-only, content-addressed evidence for later bounded answer evaluation. Public replay
     // projections deliberately return only places and citations.
     answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
+    pendingPlaceIdentity: GuestPlaceIdentityPending.optional(),
   })
   .strict()
 
@@ -146,6 +168,10 @@ export type GuestChatRequest = z.input<typeof requestSchema>
 export type GuestChatClaim = z.infer<typeof claimSchema>
 export type GuestChatProviderOperationClaim = z.infer<typeof providerOperationSchema>
 export type GuestChatFinalize = z.input<typeof finalizeSchema>
+
+const adjacentPendingReadSchema = claimSchema
+  .extend({ experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']) })
+  .strict()
 
 export type GuestChatTurnActionErrorCode =
   | 'INVALID_INPUT'
@@ -331,6 +357,11 @@ async function projectExistingTurn(
           turn.replayMetadata !== null &&
           Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'answerEvidence')
             ? { answerEvidence: metadata.data.answerEvidence }
+            : {}),
+          ...(typeof turn.replayMetadata === 'object' &&
+          turn.replayMetadata !== null &&
+          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'pendingPlaceIdentity')
+            ? { pendingPlaceIdentity: metadata.data.pendingPlaceIdentity }
             : {}),
         }),
       )
@@ -853,6 +884,62 @@ export async function claimGuestChatTurnAction(args: {
   })
 }
 
+export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
+  client?: GuestChatTurnActionClient
+  claim: GuestChatClaim
+  experienceScope: 'PUBLIC' | 'SECOND_LAYER'
+  now?: Date
+}): Promise<GuestPlaceIdentityPending | null> {
+  const input = parse(adjacentPendingReadSchema, {
+    ...args?.claim,
+    experienceScope: args?.experienceScope,
+  })
+  const client = args.client ?? db
+
+  return client.$transaction(
+    async (tx) => {
+      await lockGuestChatTurnMutation(tx, { tenantId: input.tenantId, lockId: input.turnId })
+      const now = args.now ?? new Date()
+      const current = await tx.guestChatTurn.findFirst({
+        where: {
+          id: input.turnId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          requestId: input.requestId,
+          status: 'GENERATING',
+          leaseToken: input.claimId,
+          leaseExpiresAt: { gt: now },
+          session: {
+            anonymousToken: input.anonymousToken,
+            experienceScope: input.experienceScope,
+          },
+        },
+        select: { sessionId: true, turnSequence: true },
+      })
+      if (!current || current.turnSequence <= 1) return null
+
+      const previous = await tx.guestChatTurn.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          sessionId: current.sessionId,
+          turnSequence: current.turnSequence - 1,
+          status: 'COMPLETE',
+          userMessageId: { not: null },
+          assistantMessageId: { not: null },
+          completedAt: { not: null },
+          session: { experienceScope: input.experienceScope },
+        },
+        select: { replayMetadata: true },
+      })
+      if (!previous) return null
+      const metadata = GuestChatReplayMetadata.safeParse(previous.replayMetadata)
+      return metadata.success ? (metadata.data.pendingPlaceIdentity ?? null) : null
+    },
+    { isolationLevel: 'Serializable' },
+  )
+}
+
 export async function markGuestChatProviderDispatchedAction(args: {
   client?: GuestChatTurnActionClient
   operation: GuestChatProviderOperationClaim
@@ -1114,6 +1201,9 @@ export async function finalizeGuestChatTurnAction(args: {
         places: replayMetadata.places,
         citations: replayMetadata.citations,
         ...(replayMetadata.answerEvidence ? { answerEvidence: replayMetadata.answerEvidence } : {}),
+        ...(replayMetadata.pendingPlaceIdentity
+          ? { pendingPlaceIdentity: replayMetadata.pendingPlaceIdentity }
+          : {}),
       }),
     )
     .digest('hex')
