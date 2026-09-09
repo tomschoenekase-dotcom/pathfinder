@@ -10,6 +10,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Route,
   type TestInfo,
 } from '@playwright/test'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
@@ -33,6 +34,7 @@ const enabled =
 const redisTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_REDIS_INTEGRATION === '1'
 const freshExtractionEnabled = process.env.RUN_ONBOARDING_CONNECTED_FRESH_EXTRACTION === '1'
 const storageTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE === '1'
+const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
 
 function assertDisposableRedisTransportBoundary(): void {
@@ -62,6 +64,8 @@ function assertDisposableRedisTransportBoundary(): void {
 }
 
 function assertDisposableStorageTransportBoundary(): void {
+  if (storageRecoveryEnabled && !storageTransportEnabled)
+    throw new Error('Connected browser storage recovery requires the guarded storage mode.')
   if (!storageTransportEnabled) return
   if (!redisTransportEnabled)
     throw new Error('Connected browser storage proof requires the guarded Redis transport.')
@@ -1731,6 +1735,317 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           } finally {
             await closeBullMQConnection?.()
             storage.destroy()
+            await context.close()
+          }
+        }
+      }
+    })
+  }
+
+  if (storageRecoveryEnabled) {
+    test('keeps a valid browser batch pending while a failed storage PUT retries without duplicates', async ({
+      browser,
+    }, testInfo) => {
+      const state = fixture!
+      const firstBytes = Buffer.from('Browser batch first valid source.\n', 'utf8')
+      const retryBytes = Buffer.from('Browser batch retry source.\n', 'utf8')
+      const firstHash = createHash('sha256').update(firstBytes).digest('hex')
+      const retryHash = createHash('sha256').update(retryBytes).digest('hex')
+      const context = await connectedContext(browser, state.tokens.owner, {
+        width: 390,
+        height: 844,
+      })
+      const storageOrigin = new URL(process.env.STORAGE_ENDPOINT!).origin
+      let resources: { worker: unknown; close(): Promise<void> } | null = null
+      let closeJobQueues: (() => Promise<void>) | null = null
+      let closeBullMQConnection: (() => Promise<void>) | null = null
+      try {
+        state.sessions.set(state.tokens.owner, {
+          userId: ownerUserId,
+          activeTenantId: tenantId,
+          role: 'OWNER',
+          isPlatformAdmin: false,
+        })
+        const { createIntakeUploadVerificationResources } =
+          await import('../../../workers/src/intake-upload-verification-runtime')
+        const jobs = await import('@pathfinder/jobs')
+        closeJobQueues = jobs.closeJobQueues
+        closeBullMQConnection = jobs.closeBullMQConnection
+        const page = await context.newPage()
+        await page.goto('/dev-fixtures/remote-onboarding?state=share')
+        await expect(page.getByText('Loading saved work…')).toBeHidden()
+        let successfulPutCount = 0
+        page.on('response', (response) => {
+          const url = new URL(response.url())
+          if (response.request().method() === 'PUT' && url.origin === storageOrigin)
+            successfulPutCount += 1
+        })
+        await page.getByLabel('Choose files').setInputFiles([
+          {
+            name: 'browser-batch-first.txt',
+            mimeType: 'text/plain',
+            buffer: firstBytes,
+          },
+          {
+            name: 'browser-batch-invalid.exe',
+            mimeType: 'application/x-msdownload',
+            buffer: Buffer.from('not an executable', 'utf8'),
+          },
+          {
+            name: 'browser-batch-retry.txt',
+            mimeType: 'text/plain',
+            buffer: retryBytes,
+          },
+        ])
+        await expect(
+          page.getByText('Choose a supported document, image, video, or audio file.', {
+            exact: true,
+          }),
+        ).toBeVisible()
+        expect(
+          await withTenantIsolationBypass(() =>
+            db.intakeUpload.count({
+              where: { tenantId, venueId, fileName: 'browser-batch-invalid.exe' },
+            }),
+          ),
+        ).toBe(0)
+        const firstPut = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return response.request().method() === 'PUT' && url.origin === storageOrigin
+        })
+        await page.getByRole('button', { name: 'Upload', exact: true }).first().click()
+        expect((await firstPut).status()).toBe(200)
+        await expect(page.getByText('Security check pending', { exact: true })).toBeVisible()
+        const abortFirstRetryPut = async (route: Route) => {
+          if (route.request().method() !== 'PUT') return route.continue()
+          abortedPutCount += 1
+          await route.abort('failed')
+        }
+        let abortedPutCount = 0
+        await page.route(`${storageOrigin}/**`, abortFirstRetryPut)
+        await page.getByRole('button', { name: 'Upload', exact: true }).click()
+        await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+        await page.unroute(`${storageOrigin}/**`, abortFirstRetryPut)
+        expect(abortedPutCount).toBe(1)
+        expect(successfulPutCount).toBe(1)
+        const whileRetryPending = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findMany({
+            where: {
+              tenantId,
+              venueId,
+              fileName: { in: ['browser-batch-first.txt', 'browser-batch-retry.txt'] },
+            },
+            select: {
+              id: true,
+              fileName: true,
+              requestId: true,
+              requestHash: true,
+              status: true,
+              storageVersionId: true,
+              objectGeneration: true,
+              intakeRunId: true,
+            },
+            orderBy: { fileName: 'asc' },
+          }),
+        )
+        expect(whileRetryPending).toEqual([
+          expect.objectContaining({
+            fileName: 'browser-batch-first.txt',
+            status: 'PRECHECK_PASSED',
+            storageVersionId: expect.any(String),
+            intakeRunId: null,
+          }),
+          expect.objectContaining({
+            fileName: 'browser-batch-retry.txt',
+            status: 'RESERVED',
+            storageVersionId: null,
+            intakeRunId: null,
+          }),
+        ])
+        await expectNoHorizontalOverflow(page)
+        await captureEvidence(page, testInfo, 'browser-upload-batch-partial-390')
+        const retryIdentity = whileRetryPending[1]!
+        const retryPut = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return response.request().method() === 'PUT' && url.origin === storageOrigin
+        })
+        await page.getByRole('button', { name: 'Retry', exact: true }).click()
+        expect((await retryPut).status()).toBe(200)
+        await expect(page.getByText('Security check pending', { exact: true })).toHaveCount(2)
+        expect(successfulPutCount).toBe(2)
+        await expectNoHorizontalOverflow(page)
+        await captureEvidence(page, testInfo, 'browser-upload-batch-recovered-390')
+        await expect
+          .poll(async () =>
+            withTenantIsolationBypass(() =>
+              db.intakeUpload.findMany({
+                where: {
+                  tenantId,
+                  venueId,
+                  fileName: { in: ['browser-batch-first.txt', 'browser-batch-retry.txt'] },
+                },
+                select: {
+                  id: true,
+                  fileName: true,
+                  requestId: true,
+                  requestHash: true,
+                  status: true,
+                  sha256: true,
+                  storageVersionId: true,
+                  intakeRunId: true,
+                  objectGeneration: true,
+                },
+                orderBy: { fileName: 'asc' },
+              }),
+            ),
+          )
+          .toEqual([
+            expect.objectContaining({
+              fileName: 'browser-batch-first.txt',
+              status: 'PRECHECK_PASSED',
+              sha256: firstHash,
+              storageVersionId: expect.any(String),
+              intakeRunId: null,
+            }),
+            expect.objectContaining({
+              id: retryIdentity.id,
+              requestId: retryIdentity.requestId,
+              requestHash: retryIdentity.requestHash,
+              objectGeneration: retryIdentity.objectGeneration,
+              fileName: 'browser-batch-retry.txt',
+              status: 'PRECHECK_PASSED',
+              sha256: retryHash,
+              storageVersionId: expect.any(String),
+              intakeRunId: null,
+            }),
+          ])
+        const persistedUploads = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findMany({
+            where: {
+              tenantId,
+              venueId,
+              fileName: { in: ['browser-batch-first.txt', 'browser-batch-retry.txt'] },
+            },
+            select: {
+              id: true,
+              fileName: true,
+              requestId: true,
+              requestHash: true,
+              status: true,
+              storageVersionId: true,
+              objectGeneration: true,
+              intakeRunId: true,
+            },
+            orderBy: { fileName: 'asc' },
+          }),
+        )
+        const retryIdentityAfter = persistedUploads.find(
+          (upload) => upload.fileName === 'browser-batch-retry.txt',
+        )!
+        expect(retryIdentityAfter).toMatchObject({
+          id: retryIdentity.id,
+          requestId: retryIdentity.requestId,
+          requestHash: retryIdentity.requestHash,
+          objectGeneration: retryIdentity.objectGeneration,
+        })
+        expect(new Set(persistedUploads.map((upload) => upload.storageVersionId)).size).toBe(2)
+        resources = await createIntakeUploadVerificationResources()
+        const workerFailures = await Promise.all(
+          persistedUploads.map((upload) =>
+            waitForVerificationFailure(resources!.worker as FailedVerificationWorker, upload.id),
+          ),
+        )
+        expect(workerFailures).toHaveLength(2)
+        expect(workerFailures).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              attemptsMade: 1,
+              name: 'Error',
+              message: 'WORKER_JOB_FAILED',
+            }),
+          ]),
+        )
+        const finalRows = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findMany({
+            where: { id: { in: persistedUploads.map((upload) => upload.id) }, tenantId, venueId },
+            select: { status: true, intakeRunId: true },
+            orderBy: { id: 'asc' },
+          }),
+        )
+        expect(finalRows).toEqual([
+          { status: 'PRECHECK_PASSED', intakeRunId: null },
+          { status: 'PRECHECK_PASSED', intakeRunId: null },
+        ])
+        const receipts = await withTenantIsolationBypass(() =>
+          db.intakeUploadVerificationReceipt.findMany({
+            where: {
+              uploadId: { in: persistedUploads.map((upload) => upload.id) },
+              tenantId,
+              venueId,
+            },
+            select: { uploadId: true, kind: true, verdict: true, computedSha256: true },
+          }),
+        )
+        expect(receipts).toHaveLength(2)
+        expect(receipts).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'PRECHECK',
+              verdict: 'PASSED',
+              computedSha256: firstHash,
+            }),
+            expect.objectContaining({
+              kind: 'PRECHECK',
+              verdict: 'PASSED',
+              computedSha256: retryHash,
+            }),
+          ]),
+        )
+        const invalidReservationCount = await withTenantIsolationBypass(() =>
+          db.intakeUpload.count({
+            where: { tenantId, venueId, fileName: 'browser-batch-invalid.exe' },
+          }),
+        )
+        expect(invalidReservationCount).toBe(0)
+        await testInfo.attach('browser-upload-storage-recovery-identity', {
+          body: JSON.stringify({
+            validUploads: persistedUploads.map((upload) => ({
+              uploadId: upload.id,
+              storageVersionId: upload.storageVersionId,
+              status: upload.status,
+            })),
+            hashes: { firstHash, retryHash },
+            invalidReservationCount,
+            retryIdentityBefore: {
+              id: retryIdentity.id,
+              requestId: retryIdentity.requestId,
+              requestHash: retryIdentity.requestHash,
+              objectGeneration: retryIdentity.objectGeneration,
+            },
+            retryIdentityAfter: {
+              id: retryIdentityAfter.id,
+              requestId: retryIdentityAfter.requestId,
+              requestHash: retryIdentityAfter.requestHash,
+              objectGeneration: retryIdentityAfter.objectGeneration,
+            },
+            abortedPutCount,
+            successfulPutCount,
+            workerFailures: workerFailures.map(({ name, message, attemptsMade }) => ({
+              name,
+              message,
+              attemptsMade,
+            })),
+          }),
+          contentType: 'application/json',
+        })
+      } finally {
+        try {
+          await resources?.close()
+        } finally {
+          try {
+            await closeJobQueues?.()
+          } finally {
+            await closeBullMQConnection?.()
             await context.close()
           }
         }
