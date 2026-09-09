@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseCommit": "453afe6040f75ef732c34239293d620d0dacc801",
+  "requirements": ["V2-P06-02", "V2-P06-03"],
+  "scope": "Canonical current candidate copy references in review-only prospect drafts",
+  "change": "One bounded CompanyKnowledge lookup preserves promoted/current platform-policy eligibility and accepts CANDIDATE DURABLE_CONTEXT/INFERENCE at exact revision. Status is server-derived; OUTREACH required. No promotion or delivery changes.",
+  "nativeProof": {
+    "database": "pathfinder_disposable_prospect_copy_32c4f7485f66",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-copy-registry-32c4f7485f66",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "sourceHashes": {
+      "packages/api/src/prospect-agent/registry.ts": "3e2f8cb93585313e39d719ba0dbadfbbeb6652ff94699eb6b5cdab14c74c3ca9",
+      "packages/api/src/prospect-agent/copy-assistant.ts": "9dd1e971b1237380dc33d1b1846f3ea86bba39aa8cae451335cf5ed15c501971",
+      "packages/api/src/prospect-agent/registry-copy-disposable.integration.test.ts": "044b7b085f7538fc3f57cd1af98b067bc882fb67ab5aba16e316db596f1b5e77",
+      "packages/db/src/helpers/agent-bridge-actions.ts": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "packages/db/src/helpers/company-knowledge-actions.ts": "402f9bc3aaa9e1b3c116d5c0dc89738296aaa3dc8d28b496e38f583f7d7bf634",
+      "packages/db/src/helpers/prospect-outreach-actions.ts": "3da9194818230871bb12c348ca293a30889747ab7b852fad62ff7aac64bf5e3f",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "retainedSourceHashes": {
+      "packages/api/src/prospect-agent/registry.ts": "3e2f8cb93585313e39d719ba0dbadfbbeb6652ff94699eb6b5cdab14c74c3ca9",
+      "packages/api/src/prospect-agent/copy-assistant.ts": "9dd1e971b1237380dc33d1b1846f3ea86bba39aa8cae451335cf5ed15c501971",
+      "packages/api/src/prospect-agent/registry-copy-disposable.integration.test.ts": "044b7b085f7538fc3f57cd1af98b067bc882fb67ab5aba16e316db596f1b5e77",
+      "packages/db/src/helpers/agent-bridge-actions.ts": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "packages/db/src/helpers/company-knowledge-actions.ts": "402f9bc3aaa9e1b3c116d5c0dc89738296aaa3dc8d28b496e38f583f7d7bf634",
+      "packages/db/src/helpers/prospect-outreach-actions.ts": "3da9194818230871bb12c348ca293a30889747ab7b852fad62ff7aac64bf5e3f",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "finalSourceHashes": {
+      "packages/api/src/prospect-agent/registry.ts": "3e2f8cb93585313e39d719ba0dbadfbbeb6652ff94699eb6b5cdab14c74c3ca9",
+      "packages/api/src/prospect-agent/copy-assistant.ts": "9dd1e971b1237380dc33d1b1846f3ea86bba39aa8cae451335cf5ed15c501971",
+      "packages/api/src/prospect-agent/registry-copy-disposable.integration.test.ts": "044b7b085f7538fc3f57cd1af98b067bc882fb67ab5aba16e316db596f1b5e77",
+      "packages/db/src/helpers/agent-bridge-actions.ts": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "packages/db/src/helpers/company-knowledge-actions.ts": "402f9bc3aaa9e1b3c116d5c0dc89738296aaa3dc8d28b496e38f583f7d7bf634",
+      "packages/db/src/helpers/prospect-outreach-actions.ts": "3da9194818230871bb12c348ca293a30889747ab7b852fad62ff7aac64bf5e3f",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "sourceHashStable": true,
+    "checkLogPaths": {
+      "ownership": "ownership.json",
+      "initialization": "initdb.log",
+      "postgres": "postgres.log",
+      "startup": "start.log",
+      "migrations": "migrations.log",
+      "databaseReadback": "database-readback.log",
+      "vitestOutput": "vitest.log",
+      "vitestReport": "vitest.json",
+      "shutdown": "stop.log",
+      "finalResult": "result.json"
+    },
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeResultSha256": "bed3ac5136929d8fe85ed3408c112b3066c575761438352ff23a09b2ae151a64",
+  "runner": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-prospect-copy-registry-proof.mjs",
+    "sha256": "9180d5b1fde9417a72c61097aee58059da6a0adc4b4249e85b6f42885daad1f4"
+  },
+  "ownedSources": {
+    "packages/api/src/prospect-agent/registry.ts": "3e2f8cb93585313e39d719ba0dbadfbbeb6652ff94699eb6b5cdab14c74c3ca9",
+    "packages/api/src/prospect-agent/registry.test.ts": "fbe12d68edc652d271f91aeed6b3957513c020eef6487887741a901f9fbfde6e",
+    "packages/api/src/prospect-agent/registry-copy-disposable.integration.test.ts": "044b7b085f7538fc3f57cd1af98b067bc882fb67ab5aba16e316db596f1b5e77"
+  },
+  "validation": {
+    "focusedTests": 25,
+    "nativeTests": 1,
+    "nativePending": 0,
+    "migrations": 238,
+    "broaderUnitTests": 278,
+    "typecheck": {
+      "successfulTasks": 27,
+      "cachedTasks": 16
+    },
+    "goldenVenue": "Static validator: 14 phase definitions, 8 failure injections, 12 disposable phase definitions; not execution of all scenarios",
+    "logs": {
+      "w09-contracts-20260908.log": "6f74746c4fe1706870f6c7a68b722d17ee86546fff6f098fd36db695fa3637f7",
+      "w09-web-20260908.log": "7e71181f40e3ee0f7c458d7f34ec1b162faf06bfdeaa99733397d67d0f87acdb",
+      "w09-api-20260908.log": "5f2b9a99f72436caa2f7f11dae520fc10add54cd40972438a8d54cc5f6720d3c",
+      "w09-db-20260908.log": "a2453a97c8e64c3a18b7a0893f5151d67acf01a009a4184be2a8f276f306db83",
+      "w09-golden-venue-validate-20260908.log": "fba9f30e3ade74b482d99dd9ea0e9c31dbd9d2612cd1bac416bdacd520e9f4a8",
+      "w09-dashboard-boundaries-20260908.log": "3c1aed3fd327a6d65b7e41b0adcf09a817e356ef8789dfb728d3e65690747f32",
+      "w09-candidate-typecheck-20260908.log": "199fbd8896d49b00d47196ee91c8b6c0ba721a9003ac381782e1ac37b6cdb926"
+    },
+    "dashboardWrapperLimit": "Vitest exited 0 (35 tests); Python console tail rendering then raised cp1252 UnicodeEncodeError. Retained UTF-8 test log read back separately."
+  },
+  "negativeControls": [
+    "Requested revision 2 against current revision 1 rejects without another draft",
+    "Candidate lacking OUTREACH rejects without another draft",
+    "Zero ProspectSendBatch and ProspectSendOutbox rows before and after negative checks"
+  ],
+  "limits": [
+    "Fictional disposable seed with synthetic human actor; actual fixture credential issued/verified, worker/session/task lease resolved through default registry",
+    "Version mismatch is not an actual historical revision invalidation test",
+    "Eligibility is checked at read time; no concurrent invalidation or send-time validity claim",
+    "No founder approval, real corpus import, automated model generation, recipient sending, customer/provider/browser acceptance",
+    "Promoted APPROVED status retains existing generic promotion semantics; it does not establish individual founder approval",
+    "Original128 requirements,32 QA and A/B/C remain open at their required proof layers"
+  ],
+  "preliminaryFailure": {
+    "proof": "proof-prospect-copy-registry-dac2fd880109",
+    "reason": "Fixture used legacy id instead of strict actorId for CompanyKnowledge candidate action",
+    "postgresStopped": true
+  }
+}

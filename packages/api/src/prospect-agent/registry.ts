@@ -581,8 +581,13 @@ export function createProspectAgentRegistry(
                     id: requested.id,
                     accessScope: 'PLATFORM',
                     type: 'POLICY_CONTEXT',
-                    promotionStatus: 'PROMOTED',
-                    authority: 'AUTHORITATIVE_CURRENT',
+                    OR: [
+                      { promotionStatus: 'PROMOTED', authority: 'AUTHORITATIVE_CURRENT' },
+                      {
+                        promotionStatus: 'CANDIDATE',
+                        authority: { in: ['DURABLE_CONTEXT', 'INFERENCE'] },
+                      },
+                    ],
                     currentRevision: version,
                     archivedAt: null,
                     supersededAt: null,
@@ -590,6 +595,7 @@ export function createProspectAgentRegistry(
                   select: {
                     id: true,
                     currentRevision: true,
+                    promotionStatus: true,
                     revisions: {
                       where: { revision: version },
                       take: 1,
@@ -608,12 +614,15 @@ export function createProspectAgentRegistry(
                 if (!item || !revision || !allowedUses.includes('OUTREACH'))
                   throw new ProspectAgentRegistryError(
                     'OUT_OF_SCOPE',
-                    'Copy source is stale, unapproved, or unavailable for outreach',
+                    'Copy source is stale, ineligible, or unavailable for outreach',
                   )
                 return {
                   id: item.id,
                   version: String(item.currentRevision),
-                  status: 'APPROVED' as const,
+                  status:
+                    item.promotionStatus === 'PROMOTED'
+                      ? ('APPROVED' as const)
+                      : ('PROPOSED' as const),
                   allowedUses,
                   provenance: revision.sourceDigest,
                 }

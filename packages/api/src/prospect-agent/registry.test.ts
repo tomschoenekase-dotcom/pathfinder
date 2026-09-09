@@ -248,6 +248,7 @@ describe('prospect agent registry', () => {
     mocks.knowledgeFindFirst.mockResolvedValue({
       id: 'copy-1',
       currentRevision: 3,
+      promotionStatus: 'PROMOTED',
       revisions: [{ sourceDigest: 'a'.repeat(64), structuredData: { allowedUses: ['OUTREACH'] } }],
     })
     mocks.saveDraft.mockResolvedValue({ id: 'draft-1' })
@@ -274,8 +275,13 @@ describe('prospect agent registry', () => {
         where: expect.objectContaining({
           id: 'copy-1',
           currentRevision: 3,
-          promotionStatus: 'PROMOTED',
-          authority: 'AUTHORITATIVE_CURRENT',
+          OR: [
+            { promotionStatus: 'PROMOTED', authority: 'AUTHORITATIVE_CURRENT' },
+            {
+              promotionStatus: 'CANDIDATE',
+              authority: { in: ['DURABLE_CONTEXT', 'INFERENCE'] },
+            },
+          ],
         }),
       }),
     )
@@ -283,14 +289,121 @@ describe('prospect agent registry', () => {
       expect.objectContaining({
         groundingSnapshot: expect.objectContaining({
           copyHandoff: expect.objectContaining({
-            copySources: [expect.objectContaining({ provenance: 'a'.repeat(64) })],
+            copySources: [
+              expect.objectContaining({
+                provenance: 'a'.repeat(64),
+                status: 'APPROVED',
+              }),
+            ],
+            warnings: [],
+            reviewRequired: true,
+            sendAuthorized: false,
           }),
         }),
       }),
     )
   })
 
-  it('rejects a stale or unpromoted copy-bank reference before saving a draft', async () => {
+  it('resolves an exact current canonical candidate as proposed review-only copy', async () => {
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1' })
+    mocks.knowledgeFindFirst.mockResolvedValue({
+      id: 'copy-proposed',
+      currentRevision: 1,
+      promotionStatus: 'CANDIDATE',
+      revisions: [{ sourceDigest: 'b'.repeat(64), structuredData: { allowedUses: ['OUTREACH'] } }],
+    })
+    mocks.saveDraft.mockResolvedValue({ id: 'draft-1' })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+
+    await registry.callTool(
+      'torchiko.prospects.save_outreach_draft',
+      {
+        memberId: 'member-1',
+        subject: 'Hello',
+        textBody: 'A proposed introduction.',
+        evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+        template: { id: 'intro', version: '1' },
+        prompt: { id: 'draft', version: '1' },
+        copySources: [{ id: 'copy-proposed', version: '1' }],
+      },
+      invocation,
+    )
+
+    expect(mocks.knowledgeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'copy-proposed',
+          accessScope: 'PLATFORM',
+          type: 'POLICY_CONTEXT',
+          OR: [
+            { promotionStatus: 'PROMOTED', authority: 'AUTHORITATIVE_CURRENT' },
+            {
+              promotionStatus: 'CANDIDATE',
+              authority: { in: ['DURABLE_CONTEXT', 'INFERENCE'] },
+            },
+          ],
+          currentRevision: 1,
+          archivedAt: null,
+          supersededAt: null,
+        }),
+      }),
+    )
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groundingSnapshot: expect.objectContaining({
+          copyHandoff: expect.objectContaining({
+            copySources: [
+              expect.objectContaining({
+                id: 'copy-proposed',
+                version: '1',
+                status: 'PROPOSED',
+                provenance: 'b'.repeat(64),
+              }),
+            ],
+            warnings: ['Draft uses proposed copy that still needs founder approval.'],
+            reviewRequired: true,
+            sendAuthorized: false,
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('rejects a canonical candidate without outreach use before saving', async () => {
+    mocks.knowledgeFindFirst.mockResolvedValue({
+      id: 'copy-proposed',
+      currentRevision: 2,
+      promotionStatus: 'CANDIDATE',
+      revisions: [{ sourceDigest: 'c'.repeat(64), structuredData: { allowedUses: ['PROPOSAL'] } }],
+    })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.save_outreach_draft',
+        {
+          memberId: 'member-1',
+          subject: 'Hello',
+          textBody: 'A grounded introduction.',
+          evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+          template: { id: 'intro', version: '1' },
+          prompt: { id: 'draft', version: '1' },
+          copySources: [{ id: 'copy-1', version: '2' }],
+        },
+        invocation,
+      ),
+    ).rejects.toMatchObject({ code: 'OUT_OF_SCOPE' })
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale or ineligible copy-bank reference before saving a draft', async () => {
     mocks.knowledgeFindFirst.mockResolvedValue(null)
     const registry = createProspectAgentRegistry({
       resolveContext: vi
