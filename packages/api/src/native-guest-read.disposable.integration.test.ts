@@ -1669,12 +1669,17 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         (anthropicCreate.mock.calls.at(-1)![0].system as Array<{ text: string }>)
           .map((block) => block.text)
           .join('')
-      const send = async (input: { venueId?: string; employee?: boolean; secondLayer?: boolean }) =>
+      const send = async (input: {
+        venueId?: string
+        employee?: boolean
+        secondLayer?: boolean
+        message?: string
+      }) =>
         testRouter.createCaller(context(input.employee)).chat.send({
           venueId: input.venueId ?? venueId,
           anonymousToken: randomUUID(),
           operationId: randomUUID(),
-          message: 'What should I know?',
+          message: input.message ?? 'What should I know?',
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
 
@@ -1825,6 +1830,13 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           gateReason: 'NATIVE_READY',
         }),
       )
+
+      await send({ message: 'Tell me about Case 12' })
+      expect(latestPrompt()).toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('Case 12 — First floor')
+      expect(latestPrompt()).toContain('Case 12 — Second floor')
+      expect(latestPrompt()).not.toContain('PRIVATE_CASE_12_SENTINEL')
+      expect(latestPrompt()).not.toContain('CONTROL_CASE_12_SENTINEL')
 
       await send({ employee: true, secondLayer: true })
       expect(latestPrompt()).toContain('Native Public Gallery')

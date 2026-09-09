@@ -67,7 +67,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v18')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v19')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -278,6 +278,16 @@ describe('guest chat prompt provenance', () => {
               },
             ],
           },
+        }),
+      },
+      {
+        id: 'incomplete-place-identity-discovery',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces: relevantPlaces.slice(0, 1),
+          userLat: null,
+          userLng: null,
+          placeIdentityDiscoveryIncomplete: true,
         }),
       },
     ]
@@ -536,6 +546,20 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('First floor')
     expect(prompt).toContain('Second floor')
     expect(prompt).toContain('Do not choose or combine their facts until the guest clarifies')
+  })
+
+  it('requires clarification when bounded discovery is incomplete despite one supplied place', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces: relevantPlaces.slice(0, 1),
+      userLat: null,
+      userLng: null,
+      placeIdentityAmbiguity: null,
+      placeIdentityDiscoveryIncomplete: true,
+    })
+    expect(prompt).toContain('Discovery of the named exhibit reached its bounded limit')
+    expect(prompt).toContain('Ask exactly one short discriminating question')
+    expect(prompt).toContain('Do not choose or combine their facts')
   })
 
   it('includes engagement question context when provided', () => {

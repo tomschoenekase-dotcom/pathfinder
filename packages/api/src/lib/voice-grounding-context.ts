@@ -14,16 +14,14 @@ import {
 } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
+import { projectGuestPlaceIdentity } from './guest-place-identity'
 import {
-  explicitlyNamedGuestPlaceLabels,
-  guestPlaceIdentityKey,
-  isExplicitGuestPlaceNonIdentityRequest,
-  projectGuestPlaceIdentity,
-} from './guest-place-identity'
+  expandExplicitGuestPlaceIdentityCandidates,
+  hasIncompleteGuestPlaceIdentityDiscovery,
+} from './guest-place-identity-discovery'
 
 const MAX_VOICE_CONTEXT_CHARS = 12_000
 const MAX_IDENTITY_CLARIFICATION_CHARS = 1_500
-const MAX_EXACT_LABEL_CANDIDATES = 65
 
 export type VoiceGroundingReader = GuestKnowledgeReader & {
   place?: { findMany(args: Prisma.PlaceFindManyArgs): Promise<SemanticPlace[]> }
@@ -136,52 +134,17 @@ export async function buildVoiceGroundingContext(input: {
       distance: index,
     }),
   )
-  const explicitlyNamedLabels = explicitlyNamedGuestPlaceLabels(input.query, places)
-  const exactLabelRows = input.reader.place
-    ? await Promise.all(
-        explicitlyNamedLabels.map((name) =>
-          input.reader.place!.findMany({
-            where: {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              visibility: 'PUBLIC',
-              isActive: true,
-              name: { equals: name, mode: 'insensitive' },
-            },
-            orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
-            take: MAX_EXACT_LABEL_CANDIDATES,
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              itemType: true,
-              shortDescription: true,
-              longDescription: true,
-              lat: true,
-              lng: true,
-              tags: true,
-              areaName: true,
-              hours: true,
-              photoUrl: true,
-              sourceType: true,
-              sourceName: true,
-              sourceUrl: true,
-              importanceScore: true,
-            },
-          }),
-        ),
-      )
-    : []
-  const saturatedLabelKeys = new Set(
-    exactLabelRows.flatMap((rows, index) =>
-      rows.length === MAX_EXACT_LABEL_CANDIDATES
-        ? [guestPlaceIdentityKey(explicitlyNamedLabels[index]!)]
-        : [],
-    ),
-  )
-  const legacyPlaces = [
-    ...new Map([...places, ...exactLabelRows.flat()].map((place) => [place.id, place])).values(),
-  ]
+  const identityDiscovery = input.reader.place
+    ? await expandExplicitGuestPlaceIdentityCandidates({
+        reader: { place: input.reader.place },
+        query: input.query,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        includeSecondLayer: false,
+        places,
+      })
+    : { places, saturatedLabelKeys: new Set<string>() }
+  const legacyPlaces = identityDiscovery.places
   const authorized = input.nativeSnapshot
     ? applyNativeGuestContentRead({
         snapshot: input.nativeSnapshot,
@@ -218,9 +181,11 @@ export async function buildVoiceGroundingContext(input: {
       : ''
     return knownLocation ? { ...place, areaName: knownLocation } : place
   })
-  const identityDiscoveryIncomplete =
-    !isExplicitGuestPlaceNonIdentityRequest(input.query) &&
-    authorizedPlaces.some((place) => saturatedLabelKeys.has(guestPlaceIdentityKey(place.name)))
+  const identityDiscoveryIncomplete = hasIncompleteGuestPlaceIdentityDiscovery({
+    query: input.query,
+    places: authorizedPlaces,
+    saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
+  })
   const detailedIdentityClarification = placeIdentity.ambiguity
     ? `IDENTITY CLARIFICATION DATA: Multiple authorized places match ${placeIdentity.ambiguity.requestedName}. Candidates: ${placeIdentity.ambiguity.candidates
         .map((candidate) => {

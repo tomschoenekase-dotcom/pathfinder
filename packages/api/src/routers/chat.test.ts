@@ -86,6 +86,7 @@ const sessionUpsert = vi.fn()
 const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
 const placeFindMany = vi.fn()
 const placeFindFirst = vi.fn()
+const venueLocationFindMany = vi.fn()
 const messageFindMany = vi.fn()
 const voiceTranscriptSegmentFindMany = vi.fn()
 const messageCreate = vi.fn()
@@ -132,6 +133,7 @@ const mockDb = {
   aiCostReservation: {},
   operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
+  venueLocation: { findMany: venueLocationFindMany },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
   guestChatTurn: { findFirst: guestChatTurnFindFirst },
@@ -214,6 +216,7 @@ describe('chat router', () => {
     semanticSearch.knowledge.mockResolvedValue([])
     venueKnowledgeEntryFindMany.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
+    venueLocationFindMany.mockResolvedValue([])
     resolvePublishedUniversalContent.mockResolvedValue([])
     readActiveUnhealthyAiProviders.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
@@ -914,7 +917,7 @@ describe('chat router', () => {
     ) {
       dbQueryRaw.mockResolvedValueOnce([venue])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID, experienceScope })
-      placeFindMany.mockResolvedValueOnce(placeRows)
+      placeFindMany.mockResolvedValueOnce(placeRows).mockResolvedValue([])
       messageFindMany.mockResolvedValueOnce([])
       tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'STOIC' })
       engagementQuestionFindMany.mockResolvedValueOnce([
@@ -944,6 +947,109 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    function caseTwelveRankingFixture() {
+      const first = {
+        ...placeRows[0],
+        id: 'case-12-first',
+        name: 'Case 12',
+        shortDescription: 'First-floor case.',
+        importanceScore: 100,
+      }
+      const second = {
+        ...placeRows[0],
+        id: 'case-12-second',
+        name: 'Case 12',
+        shortDescription: 'Second-floor case.',
+        importanceScore: 1,
+      }
+      const initial = [
+        ...Array.from({ length: 7 }, (_, index) => ({
+          ...placeRows[0],
+          id: `case-pressure-${index}`,
+          name: `Unrelated Exhibit ${index + 1}`,
+          shortDescription: 'Tell me about Case 12 display details.',
+          importanceScore: 90 - index,
+        })),
+        first,
+      ]
+      const floorRows = [
+        {
+          primaryPlaceId: first.id,
+          displayName: 'First floor east gallery',
+          floor: {
+            name: 'First floor',
+            stableKey: 'first-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
+        },
+        {
+          primaryPlaceId: second.id,
+          displayName: 'Second floor west gallery',
+          floor: {
+            name: 'Second floor',
+            stableKey: 'second-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
+        },
+      ]
+      return { first, second, initial, floorRows }
+    }
+
+    function expectCaseTwelveClarificationPrompt() {
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).toContain('IDENTITY CLARIFICATION DATA')
+      expect(prompt).toContain('Case 12 — First floor')
+      expect(prompt).toContain('Case 12 — Second floor')
+    }
+
+    it('expands a no-embedding initial eight-place result to clarify duplicate Case 12 floors', async () => {
+      setupHappyPath('Please clarify the floor.')
+      embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
+      const fixture = caseTwelveRankingFixture()
+      placeFindMany.mockReset()
+      placeFindMany.mockImplementation(async (args) =>
+        (args as { where?: { name?: unknown } }).where?.name
+          ? [fixture.first, fixture.second]
+          : fixture.initial,
+      )
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({ ...sendInput, message: 'Tell me about Case 12' })
+
+      expect(placeFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            isActive: true,
+            name: { equals: 'Case 12', mode: 'insensitive' },
+            visibility: 'PUBLIC',
+          },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+          take: 65,
+        }),
+      )
+      expectCaseTwelveClarificationPrompt()
+    })
+
+    it('expands a semantic initial eight-place result to clarify duplicate Case 12 floors', async () => {
+      setupHappyPath('Please clarify the floor.')
+      const fixture = caseTwelveRankingFixture()
+      semanticSearch.places.mockResolvedValueOnce(fixture.initial)
+      placeFindMany.mockReset()
+      placeFindMany.mockImplementation(async (args) =>
+        (args as { where?: { name?: unknown } }).where?.name ? [fixture.first, fixture.second] : [],
+      )
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({ ...sendInput, message: 'Tell me about Case 12' })
+
+      expect(embeddingCreate).toHaveBeenCalledOnce()
+      expectCaseTwelveClarificationPrompt()
+    })
 
     const generalWebVenue = { ...venueRow, chatShowLinks: true }
     const generalWebResult = {
@@ -1623,6 +1729,16 @@ describe('chat router', () => {
         },
       ])
 
+      // Exact-label discovery refreshes canonical content after semantic ranking.
+      placeFindMany.mockReset().mockResolvedValueOnce([
+        {
+          ...placeRows[0],
+          shortDescription: 'Meet the herd.',
+          areaName: 'Safari Zone',
+          hours: '9 AM-4 PM',
+          photoUrl: 'https://images.example.com/elephants.jpg',
+        },
+      ])
       const result = await caller.chat.send({
         venueId: VENUE_ID,
         anonymousToken: TOKEN,
@@ -1721,7 +1837,9 @@ describe('chat router', () => {
       })
       embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
       placeFindMany.mockReset()
-      placeFindMany.mockResolvedValueOnce([{ ...placeRows[0], importanceScore: 90 }])
+      placeFindMany
+        .mockResolvedValueOnce([{ ...placeRows[0], importanceScore: 90 }])
+        .mockResolvedValue([])
 
       const result = await caller.chat.send({
         venueId: VENUE_ID,

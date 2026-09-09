@@ -68,6 +68,11 @@ import {
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { projectGuestPlaceIdentity } from '../lib/guest-place-identity'
+import {
+  expandExplicitGuestPlaceIdentityCandidates,
+  hasIncompleteGuestPlaceIdentityDiscovery,
+  selectGuestPlaceIdentityContext,
+} from '../lib/guest-place-identity-discovery'
 import { captureConversationLearning } from '../lib/capture-conversation-learning'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
@@ -1062,10 +1067,18 @@ const chatReadRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
+    const identityDiscovery = await expandExplicitGuestPlaceIdentityCandidates({
+      reader: ctx.db,
+      query: trimmedInput,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      places: relevantPlaces,
+    })
     const nativeReadSnapshot = await nativeReadSnapshotPromise
     const nativeRead = applyNativeGuestContentRead({
       snapshot: nativeReadSnapshot,
-      legacyPlaces: relevantPlaces,
+      legacyPlaces: identityDiscovery.places,
       legacyKnowledgeEntries: relevantKnowledgeEntries,
     })
     relevantPlaces = nativeRead.places
@@ -1078,9 +1091,22 @@ const chatReadRouter = router({
       includeSecondLayer,
       places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
     })
-    relevantPlaces = relevantPlaces.map((place) => {
+    const placeIdentityDiscoveryIncomplete = hasIncompleteGuestPlaceIdentityDiscovery({
+      query: trimmedInput,
+      places: relevantPlaces,
+      saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
+    })
+    // Resolve over every authorized candidate before preserving the existing fact budget.
+    relevantPlaces = selectGuestPlaceIdentityContext({
+      query: trimmedInput,
+      places: relevantPlaces,
+      identity: placeIdentity,
+      limit: NEAREST_PLACES_LIMIT,
+    }).map((place) => {
       const identity = placeIdentity.places.find((candidate) => candidate.id === place.id)
-      const knownLocation = identity?.floor ?? identity?.location
+      const knownLocation = [
+        ...new Set([identity?.floor, identity?.location].filter(Boolean)),
+      ].join(' - ')
       return knownLocation ? { ...place, areaName: knownLocation } : place
     })
     if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
@@ -1176,6 +1202,7 @@ const chatReadRouter = router({
         relevantPlaces,
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         placeIdentityAmbiguity: placeIdentity.ambiguity,
+        placeIdentityDiscoveryIncomplete,
         knowledgeEntries: relevantKnowledgeEntries,
         activeUpdates,
         publishedUniversalContent,
