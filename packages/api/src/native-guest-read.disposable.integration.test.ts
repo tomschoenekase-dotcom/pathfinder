@@ -754,6 +754,49 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           media: { photoUrl: `/api/venue-media/${derivativeId}?venue=${venueSlug}` },
         },
       })
+      const voiceMediaInput = {
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about the Reviewed Garden.',
+        mediaPolicy: { venueSlug, showPhotos: true, showLinks: true },
+      }
+      const approvedVoiceMedia = await buildVoiceGroundingContext(voiceMediaInput)
+      const mediaSourceId = `media:${derivativeId}:review:${approval.sequence}`
+      expect(approvedVoiceMedia.context).toContain('Reviewed garden entrance')
+      expect(approvedVoiceMedia.context).toContain('SOURCE CREDIT: Combined fixture')
+      expect(approvedVoiceMedia.sourceIds).toContain(mediaSourceId)
+      expect(approvedVoiceMedia.context).not.toContain('/api/venue-media/')
+      expect(approvedVoiceMedia.provider.called).toBe(false)
+      const disabledVoiceMedia = await buildVoiceGroundingContext({
+        ...voiceMediaInput,
+        mediaPolicy: { ...voiceMediaInput.mediaPolicy, showPhotos: false },
+      })
+      expect(disabledVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      // Mutate visibility after the public place read but before the media read.
+      // The actual derivative relation predicate must exclude the now-private link.
+      let visibilityChangedBeforeMediaRead = false
+      const privateRaceVoiceMedia = await buildVoiceGroundingContext({
+        ...voiceMediaInput,
+        reader: {
+          venueKnowledgeEntry: db.venueKnowledgeEntry,
+          place: db.place,
+          operationalUpdate: db.operationalUpdate,
+          venueMediaDerivative: {
+            findMany: async (args: Parameters<typeof db.venueMediaDerivative.findMany>[0]) => {
+              visibilityChangedBeforeMediaRead = true
+              await db.place.update({
+                where: { id: placeId },
+                data: { visibility: 'SECOND_LAYER' },
+              })
+              return db.venueMediaDerivative.findMany(args)
+            },
+          },
+        } as never,
+      })
+      expect(visibilityChangedBeforeMediaRead).toBe(true)
+      expect(privateRaceVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      expect(privateRaceVoiceMedia.context).not.toContain('Reviewed garden entrance')
       await db.place.update({ where: { id: placeId }, data: { visibility: 'SECOND_LAYER' } })
       const privateBoundMedia = await visitor.reachableDestination(routeInput)
       expect(privateBoundMedia.destination).toMatchObject({ id: reachableId })
@@ -775,6 +818,9 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       const afterWithdrawal = await visitor.reachableDestination(routeInput)
       expect(afterWithdrawal.destination).toMatchObject({ id: reachableId })
       expect(afterWithdrawal.destination).not.toHaveProperty('media')
+      const withdrawnVoiceMedia = await buildVoiceGroundingContext(voiceMediaInput)
+      expect(withdrawnVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      expect(withdrawnVoiceMedia.context).not.toContain('Reviewed garden entrance')
       process.stdout.write(
         `${JSON.stringify({ proof: 'combined-guest-read-service-boundary-v1', tenantId, venueId, controls: ['public-correction-current-next-read', 'same-venue-approved-and-withdrawn-media', 'reachable-reviewed-route', 'disconnected-route-not-fabricated', 'private-and-sibling-content-excluded', 'private-place-media-withheld', 'sibling-place-route-anchor-rejected'], limitations: ['tenant-scoped read-service and public-router boundary; fixture seeding uses an explicit isolation bypass, not a tenant-middleware proof', 'not browser or provider E2E', 'synthetic metadata only; no media bytes'] })}\n`,
       )

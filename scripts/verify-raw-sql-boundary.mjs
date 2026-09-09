@@ -1298,7 +1298,8 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/voice.ts',
     method: '$queryRaw',
-    hash: '1d4774bf0591eae85be4d3405f95da8fc6f21a6cd51df44276160ca6eb2e97cf',
+    // Same public session-token/venue join; includes current server photo/link policy.
+    hash: '8db9374c8142930b79f5f20fd00d554105c96ebc45c546b7e0f450c95b30def6',
     policy: 'public-venue-session-token',
   },
   {

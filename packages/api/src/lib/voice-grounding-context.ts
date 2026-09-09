@@ -1,3 +1,7 @@
+import {
+  readApprovedGuestPlaceMediaEvidence,
+  type GuestPlaceMediaReader,
+} from './guest-place-media'
 import { guestVisitRetrievalQuery } from './guest-visit-retrieval-query'
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { projectGuestVisitContext } from './guest-visit-context'
@@ -18,7 +22,15 @@ export type VoiceGroundingReader = GuestKnowledgeReader & {
   operationalUpdate?: {
     findMany(args: Prisma.OperationalUpdateFindManyArgs): Promise<VoiceOperationalUpdate[]>
   }
+  venueMediaDerivative?: GuestPlaceMediaReader['venueMediaDerivative']
 }
+
+export type VoiceMediaPolicy = {
+  venueSlug: string
+  showPhotos: boolean
+  showLinks: boolean
+}
+
 type VoiceOperationalUpdate = {
   id: string
   title: string
@@ -34,6 +46,8 @@ export async function buildVoiceGroundingContext(input: {
   venueId: string
   query: string
   visitContext?: GuestVisitContextInput
+  /** Server-resolved venue policy; never supplied by the voice client. */
+  mediaPolicy?: VoiceMediaPolicy
   asOf?: Date
   nativeSnapshot?: Parameters<typeof applyNativeGuestContentRead>[0]['snapshot']
 }) {
@@ -120,7 +134,7 @@ export async function buildVoiceGroundingContext(input: {
         legacyKnowledgeEntries: compatibilityKnowledge,
       })
     : { path: 'NOT_REQUESTED' as const, places, knowledgeEntries: compatibilityKnowledge }
-  const candidates = [
+  const coreCandidates = [
     ...updates.map((update) => ({
       id: `update:${String(update.id)}`,
       text: `[CURRENT UPDATE: ${String(update.title)}]\n${[update.body, update.redirectTo].filter(Boolean).join(' · ')}`,
@@ -134,23 +148,62 @@ export async function buildVoiceGroundingContext(input: {
       text: `[PLACE: ${String(place.name)}]\n${[place.type, place.areaName, place.shortDescription, place.longDescription, place.hours].filter(Boolean).join(' · ')}`,
     })),
   ]
-  const included: typeof candidates = []
+  const included: typeof coreCandidates = []
   let used = 0
-  for (const candidate of candidates) {
+  for (const candidate of coreCandidates) {
     const separator = included.length ? 2 : 0
     if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
     included.push(candidate)
     used += separator + candidate.text.length
   }
+
+  const includedPlaces = authorized.places.filter((place) =>
+    included.some((entry) => entry.id === `place:${place.id}`),
+  )
+  const mediaCandidates: typeof coreCandidates = []
+  if (input.mediaPolicy && input.reader.venueMediaDerivative && includedPlaces.length) {
+    try {
+      const selected = await readApprovedGuestPlaceMediaEvidence({
+        reader: { venueMediaDerivative: input.reader.venueMediaDerivative },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        venueSlug: input.mediaPolicy.venueSlug,
+        placeIds: includedPlaces.map((place) => place.id),
+        showPhotos: input.mediaPolicy.showPhotos,
+        showLinks: input.mediaPolicy.showLinks,
+      })
+      const selectedMediaSourceIds = new Set<string>()
+      for (const place of includedPlaces) {
+        if (mediaCandidates.length >= 3) break
+        const evidence = selected.get(place.id)
+        if (!evidence) continue
+        const sourceId = `media:${evidence.derivativeId}:review:${evidence.approvedReviewSequence}`
+        if (selectedMediaSourceIds.has(sourceId)) continue
+        const editorialText = [evidence.editorial.altText, evidence.editorial.caption]
+          .filter((value): value is string => Boolean(value))
+          .join(' · ')
+        if (!editorialText) continue
+        selectedMediaSourceIds.add(sourceId)
+        mediaCandidates.push({
+          id: sourceId,
+          text: `[APPROVED MEDIA DESCRIPTION · EDITORIAL CAPTION FOR ${String(place.name)}]\n${editorialText}\nSOURCE CREDIT: ${evidence.media.photoAttribution.sourceName}`,
+        })
+      }
+    } catch {
+      // Optional media grounding cannot suppress the independently authorized core context.
+    }
+  }
+  for (const candidate of mediaCandidates) {
+    const separator = included.length ? 2 : 0
+    if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
+    included.push(candidate)
+    used += separator + candidate.text.length
+  }
+  const candidates = [...coreCandidates, ...mediaCandidates]
   const context = included.map((candidate) => candidate.text).join('\n\n')
   return {
     context,
-    visitContext: projectGuestVisitContext(
-      input.visitContext,
-      authorized.places.filter((place) =>
-        included.some((entry) => entry.id === `place:${place.id}`),
-      ),
-    ),
+    visitContext: projectGuestVisitContext(input.visitContext, includedPlaces),
     sourceIds: included.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),
     omittedSourceIds: candidates

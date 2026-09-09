@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { GuestResponsePlace } from '@pathfinder/contracts'
-import { readApprovedGuestPlaceMedia } from './guest-place-media'
+import {
+  readApprovedGuestPlaceMedia,
+  readApprovedGuestPlaceMediaEvidence,
+} from './guest-place-media'
 import type { GuestPlaceMediaReader } from './guest-place-media'
 
 const readerWith = (findMany: ReturnType<typeof vi.fn>) =>
@@ -57,17 +60,26 @@ describe('readApprovedGuestPlaceMedia', () => {
         sourceUrl: null,
       },
     })
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          tenantId: 't',
-          venueId: 'v',
-          variant: 'CARD',
-          status: 'READY',
-        }),
-        take: 100,
-      }),
-    )
+    const query = findMany.mock.calls[0]![0]
+    expect(query.where).toMatchObject({
+      tenantId: 't',
+      venueId: 'v',
+      variant: 'CARD',
+      status: 'READY',
+      asset: {
+        kind: 'IMAGE',
+        placeLinks: {
+          some: {
+            placeId: { in: ['place-1'] },
+            place: { tenantId: 't', venueId: 'v', visibility: 'PUBLIC', isActive: true },
+          },
+        },
+      },
+    })
+    expect(query.select.asset.select.placeLinks.where).toEqual({
+      placeId: { in: ['place-1'] },
+      place: { tenantId: 't', venueId: 'v', visibility: 'PUBLIC', isActive: true },
+    })
   })
   it('fails closed after a later revocation and strips unsafe attribution links', async () => {
     const revoked = approved({
@@ -150,5 +162,39 @@ describe('readApprovedGuestPlaceMedia', () => {
       sourceName: 'Museum archive',
       sourceUrl: null,
     })
+  })
+
+  it('keeps exact review provenance in the server-only evidence selector', async () => {
+    const result = await readApprovedGuestPlaceMediaEvidence({
+      reader: readerWith(vi.fn().mockResolvedValue([approved()])),
+      tenantId: 't',
+      venueId: 'v',
+      venueSlug: 'museum',
+      placeIds: ['place-1'],
+      showPhotos: true,
+      showLinks: false,
+    })
+    expect(result.get('place-1')).toMatchObject({
+      derivativeId: '11111111-1111-4111-8111-111111111111',
+      approvedReviewSequence: 2,
+      editorial: { altText: 'East gallery', caption: 'Gallery entrance' },
+      media: { photoAttribution: { sourceUrl: null } },
+    })
+  })
+
+  it('does not project a returned derivative when its scoped selected links are empty', async () => {
+    const outOfPolicySelectedLink = approved({
+      asset: { ...approved().asset, placeLinks: [] },
+    })
+    const result = await readApprovedGuestPlaceMediaEvidence({
+      reader: readerWith(vi.fn().mockResolvedValue([outOfPolicySelectedLink])),
+      tenantId: 't',
+      venueId: 'v',
+      venueSlug: 'museum',
+      placeIds: ['place-1'],
+      showPhotos: true,
+      showLinks: false,
+    })
+    expect(result).toEqual(new Map())
   })
 })

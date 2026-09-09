@@ -40,6 +40,9 @@ const scope = {
   venueId: VENUE_ID,
   experienceScope: 'PUBLIC',
   venueActive: true,
+  venueSlug: 'museum',
+  showPhotos: true,
+  showLinks: true,
   name: 'Museum',
   description: 'A city museum.',
   category: 'museum',
@@ -66,6 +69,7 @@ const dbMocks = {
   places: vi.fn(),
   knowledge: vi.fn(),
   updates: vi.fn(),
+  media: vi.fn(),
   bot: vi.fn(),
 }
 
@@ -87,6 +91,7 @@ const db = {
   place: { findMany: dbMocks.places },
   venueKnowledgeEntry: { findMany: dbMocks.knowledge },
   operationalUpdate: { findMany: dbMocks.updates },
+  venueMediaDerivative: { findMany: dbMocks.media },
   venueBotConfiguration: { findUnique: dbMocks.bot },
 } as unknown as TRPCContext['db']
 ;(
@@ -126,6 +131,7 @@ describe('voice router', () => {
     dbMocks.places.mockResolvedValue([])
     dbMocks.knowledge.mockResolvedValue([])
     dbMocks.updates.mockResolvedValue([])
+    dbMocks.media.mockResolvedValue([])
     dbMocks.bot.mockResolvedValue(null)
     dbMocks.voiceCreate.mockResolvedValue({ id: VOICE_ID })
     dbMocks.voiceUpdateMany.mockResolvedValue({ count: 1 })
@@ -262,6 +268,52 @@ describe('voice router', () => {
         where: expect.objectContaining({ tenantId: 'tenant-1', venueId: VENUE_ID }),
       }),
     )
+  })
+
+  it('uses server display policy for reviewed voice captions without exposing media links', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    dbMocks.places.mockResolvedValue([{ id: 'garden', name: 'Garden', type: 'PLACE' }])
+    dbMocks.media.mockResolvedValue([
+      {
+        id: 'approved-image',
+        approvedReviewSequence: 2,
+        createdAt: new Date(),
+        asset: {
+          altText: 'Reviewed garden entrance',
+          caption: 'A stone arch beside the gate.',
+          sourceName: 'Venue staff',
+          sourceUrl: 'https://example.com/source',
+          placeLinks: [{ placeId: 'garden' }],
+          reviews: [{ sequence: 2, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+        },
+      },
+    ])
+    const input = {
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'call-image',
+      query: 'Tell me about the garden.',
+    }
+    const result = await caller.voice.groundingContext(input)
+    expect(result.context).toContain('Reviewed garden entrance')
+    expect(result.context).not.toContain('/api/venue-media/')
+    expect(result.context).not.toContain('https://example.com/source')
+    expect(result.sourceIds).toContain('media:approved-image:review:2')
+    const sql = dbMocks.queryRaw.mock.calls[0]![0].join(' ')
+    expect(sql).toContain('v.chat_show_photos')
+    expect(sql).toContain('v.chat_show_links')
+    expect(sql).toContain('v.slug')
+    dbMocks.queryRaw.mockResolvedValue([{ ...scope, showPhotos: false }])
+    dbMocks.media.mockClear()
+    const disabled = await caller.voice.groundingContext(input)
+    expect(disabled.context).not.toContain('Reviewed garden entrance')
+    expect(dbMocks.media).not.toHaveBeenCalled()
   })
 
   it('returns visitor preferences separately from grounded voice sources', async () => {

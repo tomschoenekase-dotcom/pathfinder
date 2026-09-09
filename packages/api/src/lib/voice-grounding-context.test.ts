@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { NativeCoreVisibleState } from '@pathfinder/contracts'
 import type { SemanticPlace } from '@pathfinder/db'
 import type { GuestKnowledgeRow } from './guest-knowledge-retrieval'
@@ -367,5 +367,207 @@ describe('voice grounding production retrieval parity', () => {
     })
     expect(result.context).toContain('Legacy capacity is 120.')
     expect(result.context).not.toContain('Native capacity is 137.')
+  })
+
+  it('adds reviewed editorial media only for an included public place with exact review provenance', async () => {
+    const mediaFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'derivative-1',
+        approvedReviewSequence: 7,
+        createdAt: new Date('2026-09-08T00:00:00Z'),
+        asset: {
+          altText: 'A painted tide map above the entry',
+          caption: 'Editorial caption retained after review.',
+          sourceName: 'Museum archive',
+          sourceUrl: 'https://untrusted.example/raw-asset',
+          placeLinks: [{ placeId: 'tide-hall' }],
+          reviews: [{ sequence: 7, action: 'APPROVE_CONTENT_USE', rightsBasis: 'LICENSED' }],
+        },
+      },
+    ])
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany: async () => [place({ id: 'tide-hall', name: 'Tide Hall' })] },
+        venueMediaDerivative: { findMany: mediaFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where is the tide hall?',
+      mediaPolicy: { venueSlug: 'tide-venue', showPhotos: true, showLinks: false },
+    })
+    expect(result.context).toContain(
+      '[APPROVED MEDIA DESCRIPTION · EDITORIAL CAPTION FOR Tide Hall]',
+    )
+    expect(result.context).toContain('A painted tide map above the entry')
+    expect(result.context).toContain('Editorial caption retained after review.')
+    expect(result.context).toContain('SOURCE CREDIT: Museum archive')
+    expect(result.context).not.toContain('https://untrusted.example')
+    expect(result.sourceIds).toContain('media:derivative-1:review:7')
+    expect(mediaFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant',
+          venueId: 'venue',
+          asset: expect.objectContaining({
+            placeLinks: expect.objectContaining({
+              some: expect.objectContaining({
+                place: {
+                  tenantId: 'tenant',
+                  venueId: 'venue',
+                  visibility: 'PUBLIC',
+                  isActive: true,
+                },
+              }),
+            }),
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('does not read optional media when photo policy is disabled or no public place was included', async () => {
+    const disabledFindMany = vi.fn()
+    await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany: async () => [place({ id: 'lift', name: 'East lift' })] },
+        venueMediaDerivative: { findMany: disabledFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where is the lift?',
+      mediaPolicy: { venueSlug: 'venue', showPhotos: false, showLinks: false },
+    })
+    expect(disabledFindMany).not.toHaveBeenCalled()
+
+    const noPlaceFindMany = vi.fn()
+    const noPlace = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany: async () => [] },
+        venueMediaDerivative: { findMany: noPlaceFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where is the lift?',
+      mediaPolicy: { venueSlug: 'venue', showPhotos: true, showLinks: false },
+    })
+    expect(noPlace.sourceIds).not.toContain(expect.stringMatching(/^media:/u))
+    expect(noPlaceFindMany).not.toHaveBeenCalled()
+  })
+
+  it('omits an over-budget editorial description without truncating it or removing core grounding', async () => {
+    const editorialCaption = 'reviewed-caption '.repeat(80)
+    const mediaFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'derivative-budget',
+        approvedReviewSequence: 3,
+        createdAt: new Date(),
+        asset: {
+          altText: 'Reviewed tide map',
+          caption: editorialCaption,
+          sourceName: 'Archive',
+          sourceUrl: null,
+          placeLinks: [{ placeId: 'tide-hall' }],
+          reviews: [{ sequence: 3, action: 'APPROVE_CONTENT_USE', rightsBasis: 'OWNED' }],
+        },
+      },
+    ])
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async () => [
+            place({ id: 'tide-hall', name: 'Tide Hall', longDescription: 'x'.repeat(10_950) }),
+          ],
+        },
+        venueMediaDerivative: { findMany: mediaFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about the tide hall context reserve',
+      mediaPolicy: { venueSlug: 'venue', showPhotos: true, showLinks: false },
+    })
+    expect(result.context).toContain('[PLACE: Tide Hall]')
+    expect(result.context).not.toContain(editorialCaption)
+    expect(result.sourceIds).not.toContain('media:derivative-budget:review:3')
+    expect(result.omittedSourceIds).toContain('media:derivative-budget:review:3')
+    expect(result.context.length).toBeLessThanOrEqual(12_000)
+  })
+
+  it('keeps core grounding when the optional approved-media read fails', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany: async () => [place({ id: 'lift', name: 'East lift' })] },
+        venueMediaDerivative: {
+          findMany: async () => {
+            throw new Error('optional read unavailable')
+          },
+        } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where is the lift?',
+      mediaPolicy: { venueSlug: 'venue', showPhotos: true, showLinks: false },
+    })
+    expect(result.context).toContain('[PLACE: East lift]')
+    expect(result.sourceIds).toEqual(['place:lift'])
+  })
+
+  it('skips unillustrated early places and deduplicates a shared approved derivative before applying the media cap', async () => {
+    const mediaFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'shared-derivative',
+        approvedReviewSequence: 4,
+        createdAt: new Date(),
+        asset: {
+          altText: 'Shared approved caption',
+          caption: null,
+          sourceName: 'Archive',
+          sourceUrl: null,
+          placeLinks: [{ placeId: 'place-2' }, { placeId: 'place-3' }],
+          reviews: [{ sequence: 4, action: 'APPROVE_CONTENT_USE', rightsBasis: 'OWNED' }],
+        },
+      },
+      {
+        id: 'fourth-derivative',
+        approvedReviewSequence: 5,
+        createdAt: new Date(),
+        asset: {
+          altText: 'Fourth place reviewed caption',
+          caption: null,
+          sourceName: 'Archive',
+          sourceUrl: null,
+          placeLinks: [{ placeId: 'place-4' }],
+          reviews: [{ sequence: 5, action: 'APPROVE_CONTENT_USE', rightsBasis: 'OWNED' }],
+        },
+      },
+    ])
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async () => [
+            place({ id: 'place-1', name: 'First place' }),
+            place({ id: 'place-2', name: 'Second place' }),
+            place({ id: 'place-3', name: 'Third place' }),
+            place({ id: 'place-4', name: 'Fourth place' }),
+          ],
+        },
+        venueMediaDerivative: { findMany: mediaFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where are the places?',
+      mediaPolicy: { venueSlug: 'venue', showPhotos: true, showLinks: false },
+    })
+    expect(result.sourceIds.filter((id) => id.startsWith('media:'))).toEqual([
+      'media:shared-derivative:review:4',
+      'media:fourth-derivative:review:5',
+    ])
+    expect(result.context).toContain('EDITORIAL CAPTION FOR Fourth place')
+    expect(result.context.match(/Shared approved caption/gu)).toHaveLength(1)
   })
 })

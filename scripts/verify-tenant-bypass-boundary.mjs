@@ -185,7 +185,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/evaluation-onboarding-actions.ts', 1],
   // Platform-admin-only source reads and preparation revalidate one exact public insight,
   // tenant, venue, and turn before persisting sanitized immutable evaluation evidence.
-  ['packages/api/src/routers/admin/evaluation-conversation-cases.ts', 2],
+  // Includes the bounded rejected-candidate metadata read: exact tenant+venue,
+  // public session, terminal rejection and reviewer feedback; no transcript body.
+  ['packages/api/src/routers/admin/evaluation-conversation-cases.ts', 3],
   // Evaluation comparison uses one additional exact tenant-scoped read.
   ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
   // Platform-admin source-coverage preflight freezes exact scoped public venue content

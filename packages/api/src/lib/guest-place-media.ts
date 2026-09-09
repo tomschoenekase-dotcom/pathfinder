@@ -31,6 +31,14 @@ export type ApprovedGuestPlaceMedia = {
   }
 }
 
+/** Internal provenance-bearing selection for server-side grounding only. */
+export type ApprovedGuestPlaceMediaEvidence = {
+  derivativeId: string
+  approvedReviewSequence: number
+  media: ApprovedGuestPlaceMedia
+  editorial: { altText: string | null; caption: string | null }
+}
+
 function safeSourceUrl(value: string | null): string | null {
   if (!value || value.length > 2_000) return null
   try {
@@ -56,7 +64,7 @@ function boundedCredit(value: string, limit: number): string {
   return /[\uD800-\uDBFF]$/u.test(clipped) ? clipped.slice(0, -1) : clipped
 }
 
-export async function readApprovedGuestPlaceMedia(params: {
+export async function readApprovedGuestPlaceMediaEvidence(params: {
   reader: GuestPlaceMediaReader
   tenantId: string
   venueId: string
@@ -64,9 +72,15 @@ export async function readApprovedGuestPlaceMedia(params: {
   placeIds: string[]
   showPhotos: boolean
   showLinks: boolean
-}): Promise<Map<string, ApprovedGuestPlaceMedia>> {
+}): Promise<Map<string, ApprovedGuestPlaceMediaEvidence>> {
   const placeIds = [...new Set(params.placeIds)].slice(0, MAX_PLACES)
   if (!params.showPhotos || placeIds.length === 0) return new Map()
+  const currentPublicPlace = {
+    tenantId: params.tenantId,
+    venueId: params.venueId,
+    visibility: 'PUBLIC' as const,
+    isActive: true,
+  }
   const rows = (await params.reader.venueMediaDerivative.findMany({
     where: {
       tenantId: params.tenantId,
@@ -75,7 +89,15 @@ export async function readApprovedGuestPlaceMedia(params: {
       status: 'READY',
       mimeType: 'image/webp',
       sha256: { not: null },
-      asset: { kind: 'IMAGE', placeLinks: { some: { placeId: { in: placeIds } } } },
+      asset: {
+        kind: 'IMAGE',
+        placeLinks: {
+          some: {
+            placeId: { in: placeIds },
+            place: currentPublicPlace,
+          },
+        },
+      },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: MAX_ROWS,
@@ -89,7 +111,10 @@ export async function readApprovedGuestPlaceMedia(params: {
           caption: true,
           sourceName: true,
           sourceUrl: true,
-          placeLinks: { where: { placeId: { in: placeIds } }, select: { placeId: true } },
+          placeLinks: {
+            where: { placeId: { in: placeIds }, place: currentPublicPlace },
+            select: { placeId: true },
+          },
           reviews: {
             orderBy: { sequence: 'desc' },
             take: 1,
@@ -99,7 +124,7 @@ export async function readApprovedGuestPlaceMedia(params: {
       },
     },
   })) as MediaRow[]
-  const result = new Map<string, ApprovedGuestPlaceMedia>()
+  const result = new Map<string, ApprovedGuestPlaceMediaEvidence>()
   for (const row of rows) {
     const latest = row.asset.reviews[0]
     if (
@@ -109,18 +134,40 @@ export async function readApprovedGuestPlaceMedia(params: {
       latest.rightsBasis === null
     )
       continue
+    const editorial = {
+      altText: boundedCredit(row.asset.altText, 500) || null,
+      caption: row.asset.caption ? boundedCredit(row.asset.caption, 1_000) || null : null,
+    }
     for (const { placeId } of row.asset.placeLinks) {
       if (result.has(placeId)) continue
       result.set(placeId, {
-        photoUrl: `/api/venue-media/${row.id}?venue=${encodeURIComponent(params.venueSlug)}`,
-        photoAttribution: {
-          altText: boundedCredit(row.asset.altText, 500) || 'Place photo',
-          caption: row.asset.caption ? boundedCredit(row.asset.caption, 1_000) || null : null,
-          sourceName: boundedCredit(row.asset.sourceName, 500) || 'Venue source',
-          sourceUrl: params.showLinks ? safeSourceUrl(row.asset.sourceUrl) : null,
+        derivativeId: row.id,
+        approvedReviewSequence: row.approvedReviewSequence,
+        editorial,
+        media: {
+          photoUrl: `/api/venue-media/${row.id}?venue=${encodeURIComponent(params.venueSlug)}`,
+          photoAttribution: {
+            altText: editorial.altText ?? 'Place photo',
+            caption: editorial.caption,
+            sourceName: boundedCredit(row.asset.sourceName, 500) || 'Venue source',
+            sourceUrl: params.showLinks ? safeSourceUrl(row.asset.sourceUrl) : null,
+          },
         },
       })
     }
   }
   return result
+}
+
+export async function readApprovedGuestPlaceMedia(params: {
+  reader: GuestPlaceMediaReader
+  tenantId: string
+  venueId: string
+  venueSlug: string
+  placeIds: string[]
+  showPhotos: boolean
+  showLinks: boolean
+}): Promise<Map<string, ApprovedGuestPlaceMedia>> {
+  const evidence = await readApprovedGuestPlaceMediaEvidence(params)
+  return new Map([...evidence].map(([placeId, selected]) => [placeId, selected.media]))
 }
