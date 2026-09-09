@@ -1913,6 +1913,35 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
 
       // 18. Reviewed route/media references correctly retain their applied source. A separate,
       // unreferenced canonical package proves exact rollback without deleting durable evidence.
+      const retainedDeletePreview = await caller.venuePackage.preview({
+        venueId,
+        payload: {
+          schemaVersion: 3,
+          places: {
+            create: [],
+            update: [],
+            delete: [
+              {
+                itemKey: randomUUID(),
+                id: riverGallery.id,
+                provenance: {
+                  sourceType: 'SYNTHETIC_DISPOSABLE_PROOF',
+                  sourceName: 'Retained route and media dependency control',
+                  contentOrigin: 'AI_GENERATED',
+                },
+              },
+            ],
+          },
+          knowledgeEntries: { create: [], update: [], delete: [] },
+        },
+      })
+      expect(retainedDeletePreview.report.errors).toContainEqual(
+        expect.objectContaining({
+          code: 'DELETE_BLOCKED',
+          path: 'places.delete.0',
+          message: expect.stringContaining('location-anchors (1), media-place-links (1)'),
+        }),
+      )
       const originalKnowledge = await db.venueKnowledgeEntry.findMany({
         where: { tenantId, venueId },
         orderBy: { id: 'asc' },
@@ -1929,7 +1958,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }),
       ).rejects.toMatchObject({
         code: 'CONFLICT',
-        message: 'Package rollback acquired a retained dependency; refresh and review it again',
+        message:
+          'Created package place has retained dependencies: location-anchors (1), media-place-links (1)',
       })
       await expect(
         db.venuePackage.findFirstOrThrow({
@@ -2079,6 +2109,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           rollbackControlPlaceId: rollbackControlPlace.id,
           rollbackControlContentVersionId: rollbackControlVersion.id,
           outcomes: {
+            retainedDependenciesReportedInPreview: true,
             retainedDependencyDeniedOriginalRollback: true,
             originalPackageRemainedApplied: true,
             originalPlaceRetained: true,

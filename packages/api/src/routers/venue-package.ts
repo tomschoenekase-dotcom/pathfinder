@@ -552,10 +552,20 @@ async function placeDeleteDependencies(
   const result = new Map<string, Array<{ type: string; count: number }>>()
   if (ids.length === 0) return result
   const scope = { tenantId, venueId, placeId: { in: ids } }
-  const [updates, events, rollups] = await Promise.all([
+  const [updates, events, rollups, locationAnchors, mediaPlaceLinks] = await Promise.all([
     db.operationalUpdate.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
     db.analyticsEvent.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
     db.dailyRollup.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
+    db.venueLocation.groupBy({
+      by: ['primaryPlaceId'],
+      where: { tenantId, venueId, primaryPlaceId: { in: ids } },
+      _count: { _all: true },
+    }),
+    db.venueMediaPlaceLink.groupBy({
+      by: ['placeId'],
+      where: scope,
+      _count: { _all: true },
+    }),
   ])
   const add = (id: string | null, type: string, count: number) => {
     if (!id || count === 0) return
@@ -564,6 +574,8 @@ async function placeDeleteDependencies(
   updates.forEach((row) => add(row.placeId, 'operational-updates', row._count._all))
   events.forEach((row) => add(row.placeId, 'analytics-events', row._count._all))
   rollups.forEach((row) => add(row.placeId, 'daily-rollups', row._count._all))
+  locationAnchors.forEach((row) => add(row.primaryPlaceId, 'location-anchors', row._count._all))
+  mediaPlaceLinks.forEach((row) => add(row.placeId, 'media-place-links', row._count._all))
   if (featuredPlaceId && ids.includes(featuredPlaceId)) add(featuredPlaceId, 'featured-place', 1)
   return result
 }
