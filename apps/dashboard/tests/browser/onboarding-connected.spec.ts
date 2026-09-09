@@ -32,6 +32,7 @@ const enabled =
   /\/pathfinder_disposable_onboarding_[a-f0-9]{12}$/u.test(process.env.DATABASE_URL ?? '')
 const redisTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_REDIS_INTEGRATION === '1'
 const freshExtractionEnabled = process.env.RUN_ONBOARDING_CONNECTED_FRESH_EXTRACTION === '1'
+const storageTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
 
 function assertDisposableRedisTransportBoundary(): void {
@@ -60,7 +61,44 @@ function assertDisposableRedisTransportBoundary(): void {
   }
 }
 
+function assertDisposableStorageTransportBoundary(): void {
+  if (!storageTransportEnabled) return
+  if (!redisTransportEnabled)
+    throw new Error('Connected browser storage proof requires the guarded Redis transport.')
+  if (freshExtractionEnabled)
+    throw new Error(
+      'Connected browser storage proof and fresh extraction mode are mutually exclusive.',
+    )
+  const endpoint = new URL(process.env.STORAGE_ENDPOINT ?? '')
+  if (
+    endpoint.protocol !== 'http:' ||
+    endpoint.hostname !== '127.0.0.1' ||
+    endpoint.port !== '19393' ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash ||
+    (endpoint.pathname !== '' && endpoint.pathname !== '/')
+  ) {
+    throw new Error(
+      'Connected browser storage proof requires the disposable loopback MinIO endpoint.',
+    )
+  }
+  if (!/^pathfinder-disposable-intake-[a-f0-9]{12}$/u.test(process.env.STORAGE_BUCKET ?? ''))
+    throw new Error('Connected browser storage proof requires its exact disposable bucket.')
+  if (
+    !process.env.STORAGE_REGION ||
+    !process.env.STORAGE_ACCESS_KEY_ID ||
+    !process.env.STORAGE_SECRET_ACCESS_KEY
+  ) {
+    throw new Error('Connected browser storage proof requires fixture storage configuration.')
+  }
+  if (process.env.INTAKE_CLAMAV_HOST || process.env.INTAKE_CLAMAV_PORT)
+    throw new Error('Connected browser storage proof must not configure an authoritative scanner.')
+}
+
 assertDisposableRedisTransportBoundary()
+assertDisposableStorageTransportBoundary()
 
 type ConnectedQueueJob = {
   id?: string | number
@@ -72,6 +110,62 @@ type ConnectedQueueJob = {
 type ConnectedWorker = {
   on(event: 'completed', listener: (job: ConnectedQueueJob, result: unknown) => void): unknown
   off(event: 'completed', listener: (job: ConnectedQueueJob, result: unknown) => void): unknown
+}
+
+type FailedVerificationJob = {
+  id?: string | number
+  name: string
+  data?: { uploadId?: string }
+  attemptsMade?: number
+  failedReason?: string
+  getState(): Promise<string>
+}
+
+type FailedVerificationWorker = {
+  on(
+    event: 'failed',
+    listener: (job: FailedVerificationJob | undefined, error: Error) => void,
+  ): unknown
+  off(
+    event: 'failed',
+    listener: (job: FailedVerificationJob | undefined, error: Error) => void,
+  ): unknown
+}
+
+async function waitForVerificationFailure(
+  worker: FailedVerificationWorker,
+  uploadId: string,
+): Promise<{ jobId: string; attemptsMade: number; state: string; name: string; message: string }> {
+  return new Promise((resolveFailure, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      worker.off('failed', onFailed)
+    }
+    const timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error('Timed out waiting for the registered intake upload verification worker'))
+    }, 45_000)
+    const onFailed = (job: FailedVerificationJob | undefined, error: Error) => {
+      if (!job || job.data?.uploadId !== uploadId) return
+      void job.getState().then(
+        (state) => {
+          cleanup()
+          resolveFailure({
+            jobId: String(job.id),
+            attemptsMade: job.attemptsMade ?? 0,
+            state,
+            name: error.name,
+            message: error.message,
+          })
+        },
+        (readError: unknown) => {
+          cleanup()
+          reject(readError)
+        },
+      )
+    }
+    worker.on('failed', onFailed)
+  })
 }
 
 async function waitForWorkerResult(
@@ -1389,4 +1483,258 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await context.close()
     }
   })
+
+  if (storageTransportEnabled) {
+    test('uploads one browser file to disposable storage and leaves it pending without a scanner', async ({
+      browser,
+    }, testInfo) => {
+      const state = fixture!
+      const fixtureBytes = Buffer.from(
+        'Browser storage fixture: this is a harmless text upload for precheck only.\n',
+        'utf8',
+      )
+      const sourceSha256 = createHash('sha256').update(fixtureBytes).digest('hex')
+      const sdk = createRequire(resolve(__dirname, '../../../../packages/api/package.json'))(
+        '@aws-sdk/client-s3',
+      ) as {
+        S3Client: new (input: Record<string, unknown>) => {
+          send(command: unknown): Promise<unknown>
+          destroy(): void
+        }
+        CreateBucketCommand: new (input: Record<string, unknown>) => unknown
+        PutBucketVersioningCommand: new (input: Record<string, unknown>) => unknown
+        HeadObjectCommand: new (input: Record<string, unknown>) => unknown
+      }
+      const storage = new sdk.S3Client({
+        endpoint: process.env.STORAGE_ENDPOINT!,
+        region: process.env.STORAGE_REGION!,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: process.env.STORAGE_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY!,
+        },
+      })
+      const bucket = process.env.STORAGE_BUCKET!
+      state.sessions.set(state.tokens.owner, {
+        userId: ownerUserId,
+        activeTenantId: tenantId,
+        role: 'OWNER',
+        isPlatformAdmin: false,
+      })
+      const context = await connectedContext(browser, state.tokens.owner, {
+        width: 390,
+        height: 844,
+      })
+      let resources: { worker: unknown; close(): Promise<void> } | null = null
+      let closeJobQueues: (() => Promise<void>) | null = null
+      let closeBullMQConnection: (() => Promise<void>) | null = null
+      try {
+        await storage.send(new sdk.CreateBucketCommand({ Bucket: bucket }))
+        await storage.send(
+          new sdk.PutBucketVersioningCommand({
+            Bucket: bucket,
+            VersioningConfiguration: { Status: 'Enabled' },
+          }),
+        )
+        const { createIntakeUploadVerificationResources } =
+          await import('../../../workers/src/intake-upload-verification-runtime')
+        const jobs = await import('@pathfinder/jobs')
+        closeJobQueues = jobs.closeJobQueues
+        closeBullMQConnection = jobs.closeBullMQConnection
+        const page = await context.newPage()
+        await page.goto('/dev-fixtures/remote-onboarding?state=share')
+        await expect(page.getByText('Loading saved work…')).toBeHidden()
+        const storageOrigin = new URL(process.env.STORAGE_ENDPOINT!).origin
+        let actualPutCount = 0
+        page.on('response', (response) => {
+          const url = new URL(response.url())
+          if (response.request().method() === 'PUT' && url.origin === storageOrigin)
+            actualPutCount += 1
+        })
+        const actualPut = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return response.request().method() === 'PUT' && url.origin === storageOrigin
+        })
+        await page.getByLabel('Choose files').setInputFiles({
+          name: 'browser-storage-precheck.txt',
+          mimeType: 'text/plain',
+          buffer: fixtureBytes,
+        })
+        await page.getByRole('button', { name: 'Upload', exact: true }).click()
+        expect((await actualPut).status()).toBe(200)
+        expect(actualPutCount).toBe(1)
+        await expect(page.getByText('Security check pending', { exact: true })).toBeVisible()
+        await expect
+          .poll(async () =>
+            withTenantIsolationBypass(() =>
+              db.intakeUpload.findFirst({
+                where: { tenantId, venueId, fileName: 'browser-storage-precheck.txt' },
+                select: {
+                  id: true,
+                  status: true,
+                  sha256: true,
+                  byteSize: true,
+                  objectKey: true,
+                  objectGeneration: true,
+                  storageVersionId: true,
+                  intakeRunId: true,
+                },
+              }),
+            ),
+          )
+          .toMatchObject({
+            status: 'PRECHECK_PASSED',
+            sha256: sourceSha256,
+            byteSize: fixtureBytes.byteLength,
+            objectGeneration: expect.any(String),
+            storageVersionId: expect.any(String),
+            intakeRunId: null,
+          })
+        // Read only after the precheck state is proven; the registered worker has not started yet.
+        const persistedUpload = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findFirstOrThrow({
+            where: { tenantId, venueId, fileName: 'browser-storage-precheck.txt' },
+            select: {
+              id: true,
+              status: true,
+              sha256: true,
+              byteSize: true,
+              objectKey: true,
+              objectGeneration: true,
+              storageVersionId: true,
+              intakeRunId: true,
+              updatedAt: true,
+            },
+          }),
+        )
+        const head = (await storage.send(
+          new sdk.HeadObjectCommand({
+            Bucket: bucket,
+            Key: persistedUpload.objectKey,
+            VersionId: persistedUpload.storageVersionId!,
+            ChecksumMode: 'ENABLED',
+          }),
+        )) as {
+          VersionId?: string
+          ContentLength?: number
+          ChecksumSHA256?: string
+          Metadata?: Record<string, string>
+        }
+        expect(head).toMatchObject({
+          VersionId: persistedUpload.storageVersionId,
+          ContentLength: fixtureBytes.byteLength,
+          ChecksumSHA256: Buffer.from(sourceSha256, 'hex').toString('base64'),
+          Metadata: { 'pf-intake-upload-generation': persistedUpload.objectGeneration },
+        })
+        await expectNoHorizontalOverflow(page)
+        await captureEvidence(page, testInfo, 'browser-upload-security-pending-390')
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await expect(page.getByText('Security check pending', { exact: true })).toBeVisible()
+        await expectNoHorizontalOverflow(page)
+        await captureEvidence(page, testInfo, 'browser-upload-security-pending-1440')
+        resources = await createIntakeUploadVerificationResources()
+        const workerFailure = await waitForVerificationFailure(
+          resources.worker as unknown as FailedVerificationWorker,
+          persistedUpload.id,
+        )
+        expect(workerFailure).toMatchObject({
+          attemptsMade: 1,
+          name: 'Error',
+          message: 'WORKER_JOB_FAILED',
+        })
+        const { intakeUploadScannerAvailable } =
+          await import('@pathfinder/api/intake-upload-verification')
+        const { processIntakeUploadVerificationJob } =
+          await import('../../../workers/src/processors/intake-upload-verification')
+        const scannerConfigured = intakeUploadScannerAvailable()
+        expect(scannerConfigured).toBe(false)
+        // The registered queue intentionally sanitizes errors. Prove the unavailable scanner
+        // independently through the same real processor without bypassing that queue boundary.
+        await expect(
+          processIntakeUploadVerificationJob(
+            {
+              tenantId,
+              venueId,
+              uploadId: persistedUpload.id,
+              observedUpdatedAt: persistedUpload.updatedAt.toISOString(),
+            },
+            workerFailure.jobId,
+          ),
+        ).rejects.toMatchObject({
+          name: 'IntakeUploadScannerUnavailableError',
+          message: 'Authoritative intake upload scanner is not configured',
+        })
+        expect(workerFailure.state).toMatch(/^(active|delayed|waiting)$/u)
+        const postWorkerUpload = await withTenantIsolationBypass(() =>
+          db.intakeUpload.findFirstOrThrow({
+            where: { id: persistedUpload.id, tenantId, venueId },
+            select: { status: true, intakeRunId: true, storageVersionId: true },
+          }),
+        )
+        expect(postWorkerUpload).toEqual({
+          status: 'PRECHECK_PASSED',
+          intakeRunId: null,
+          storageVersionId: persistedUpload.storageVersionId,
+        })
+        const receipts = await withTenantIsolationBypass(() =>
+          db.intakeUploadVerificationReceipt.findMany({
+            where: { tenantId, venueId, uploadId: persistedUpload.id },
+            select: {
+              kind: true,
+              verdict: true,
+              computedByteSize: true,
+              computedSha256: true,
+              storageVersionId: true,
+            },
+          }),
+        )
+        expect(receipts).toEqual([
+          expect.objectContaining({
+            kind: 'PRECHECK',
+            verdict: 'PASSED',
+            computedByteSize: fixtureBytes.byteLength,
+            computedSha256: sourceSha256,
+            storageVersionId: persistedUpload.storageVersionId,
+          }),
+        ])
+        const authoritativeReceiptCount = receipts.filter(
+          (receipt) => receipt.kind === 'MALWARE',
+        ).length
+        expect(authoritativeReceiptCount).toBe(0)
+        expect(
+          await withTenantIsolationBypass(() =>
+            db.venueKnowledgeEntry.count({ where: { tenantId, venueId } }),
+          ),
+        ).toBe(0)
+        await testInfo.attach('browser-upload-storage-identity', {
+          body: JSON.stringify({
+            uploadId: persistedUpload.id,
+            sourceSha256,
+            storageVersionId: persistedUpload.storageVersionId,
+            uploadStatus: postWorkerUpload.status,
+            precheckPassed: postWorkerUpload.status === 'PRECHECK_PASSED',
+            authoritativeReceiptCount,
+            scannerConfigured,
+            directProcessorScannerUnavailable: true,
+            workerError: { name: workerFailure.name, message: workerFailure.message },
+            workerAttemptsMade: workerFailure.attemptsMade,
+            actualPutCount,
+          }),
+          contentType: 'application/json',
+        })
+      } finally {
+        try {
+          await resources?.close()
+        } finally {
+          try {
+            await closeJobQueues?.()
+          } finally {
+            await closeBullMQConnection?.()
+            storage.destroy()
+            await context.close()
+          }
+        }
+      }
+    })
+  }
 })
