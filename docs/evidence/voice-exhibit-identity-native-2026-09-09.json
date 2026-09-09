@@ -28,9 +28,9 @@
     "rawSqlWrites": 85
   },
   "nativeProof": {
-    "database": "pathfinder_disposable_native_guest_read_identity_c892c807d063",
+    "database": "pathfinder_disposable_native_guest_read_identity_f72a32670715",
     "port": "55491",
-    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-exhibit-identity-c892c807d063",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-exhibit-identity-f72a32670715",
     "backend": "native-windows-postgresql16.15-pgvector0.8.6",
     "targetCase": "rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior",
     "expectedTests": 1,
@@ -42,7 +42,7 @@
       {
         "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
         "retained": "measured-native-guest-read.disposable.integration.test.ts",
-        "sha256": "494871875388afb170743e55965c439f213b2f4d37a47b918b9ea3293242128e"
+        "sha256": "b119f96460e8e57f48143643a4fd67f74693b3855e34095db6e223cc89374091"
       },
       {
         "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
@@ -62,12 +62,12 @@
       {
         "source": "packages/api/src/lib/voice-grounding-context.ts",
         "retained": "measured-voice-grounding-context.ts",
-        "sha256": "f2c0c2793a14b1b0a54342ae189da1678cc328abca739fa2954725e3a2c4eb75"
+        "sha256": "e317ee296fe6edf5275154eab562c85bc7f5a0ff8f94916a8f35de8f0568964a"
       },
       {
         "source": "packages/api/src/lib/guest-place-identity.ts",
         "retained": "measured-guest-place-identity.ts",
-        "sha256": "1a4231678c695c6592203bccab5ece25d76c45e399d5c60c8c4898124593ae92"
+        "sha256": "91047aeb11a8390987a740256e8ed71106e796d5e1719e0c3b91503696207a68"
       },
       {
         "source": "packages/api/src/lib/guest-place-identity.test.ts",
@@ -162,5 +162,13 @@
     "Current museum package/model and full September8 logs unavailable",
     "Casual clues, aliases, multimodal identity and complete32QA/A/B/C remain separately gated"
   ],
-  "review": "Root architecture/integration review and Luna read-only review caught ranking-cap false uniqueness; bounded expansion corrected it. Knowledge context cap12000 intentionally excludes bounded wrapper; complete route/catalog JSON uses separate existing12000 cap. No visual layout changed."
+  "review": "Root architecture/integration review and Luna read-only review caught ranking-cap false uniqueness; bounded expansion corrected it. Knowledge context cap12000 intentionally excludes bounded wrapper; complete route/catalog JSON uses separate existing12000 cap. No visual layout changed.",
+  "implementationCommit": "2d832c32dc52c2770b301cc48d7f5211f9d74656",
+  "preFormatterPassingProof": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-exhibit-identity-c892c807d063",
+    "testPassed": true,
+    "sourceHashesStable": true,
+    "stopped": true,
+    "limit": "Pre-commit formatting source; superseded by exact-candidate proof below"
+  }
 }
