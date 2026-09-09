@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseCommit": "586e3cb4e26e3627505b3070cde5e15f74052f6b",
+  "requirements": ["V2-P08-05", "V2-P08-06", "V2-P08-08"],
+  "scope": "Rejected public learning candidate to manually sanitized immutable evaluation case",
+  "behavior": [
+    "Bounded exact-tenant/venue public rejected candidate list returns only review metadata and requires linked messages, without loading their contents",
+    "Preparation requires exact candidate revision and actionable persisted reviewer feedback, preserves DISMISSED and canonical knowledge, and binds sourceRef to candidate revision",
+    "Existing admin evaluation page and panel consume separate rejected-candidate props; no synthesized empty transcript fields or automatic expected answers",
+    "Pending mutation guard persists until settle; generation fences suppress stale status and refresh after scope/source change or unmount",
+    "Improved helper-text contrast and label spacing in existing panel"
+  ],
+  "nativeProof": {
+    "database": "pathfinder_disposable_rejected_learning_62f661ff03d2",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-rejected-learning-evaluation-62f661ff03d2",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "sourceHashes": {
+      "packages/api/src/routers/admin/conversation-learning.ts": "bb85fa6d0c7e1c6b7b1f6de0226ab7ebd150979e490c59fe54510488dd0c1b63",
+      "packages/api/src/routers/admin/evaluation-conversation-cases.ts": "9053ba017dbb445fd11cd6e4be90c159dbb41c607cb64e58ffe658620dfb6369",
+      "packages/api/src/routers/admin/evaluation-rejected-learning.disposable.integration.test.ts": "fe8389657eb7ff5c663833a50947198f3b476bdcb1df172ade3a4adeaa114acd",
+      "packages/db/src/helpers/conversation-learning-actions.ts": "d46cdfbc66df405b636549e09f2ea1beee5743d2689ba8ee459a4ed4bad6c4a4",
+      "packages/db/src/helpers/evaluation-cases.ts": "c86c3abb0cccdeb044146fed734403ee7ad1aec550354ba000c8d67181393a6f",
+      "packages/db/src/helpers/evaluation-hash.ts": "a4982a9e6802c30c282548e6b86c332fbeb7b7ac488b7f9e737c8ace8c33fa51",
+      "packages/contracts/src/evaluation.ts": "d966025431650b4d47413990bab8edb044f97b568ed02540a1f69280f4f79fa4",
+      "packages/db/src/helpers/guest-chat-turn-actions.ts": "3457aa9a1fe9c2d38428034791dd75ecc4853d7024c6bacd4f6fee5fedbfb944",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "retainedSourceHashes": {
+      "packages/api/src/routers/admin/conversation-learning.ts": "bb85fa6d0c7e1c6b7b1f6de0226ab7ebd150979e490c59fe54510488dd0c1b63",
+      "packages/api/src/routers/admin/evaluation-conversation-cases.ts": "9053ba017dbb445fd11cd6e4be90c159dbb41c607cb64e58ffe658620dfb6369",
+      "packages/api/src/routers/admin/evaluation-rejected-learning.disposable.integration.test.ts": "fe8389657eb7ff5c663833a50947198f3b476bdcb1df172ade3a4adeaa114acd",
+      "packages/db/src/helpers/conversation-learning-actions.ts": "d46cdfbc66df405b636549e09f2ea1beee5743d2689ba8ee459a4ed4bad6c4a4",
+      "packages/db/src/helpers/evaluation-cases.ts": "c86c3abb0cccdeb044146fed734403ee7ad1aec550354ba000c8d67181393a6f",
+      "packages/db/src/helpers/evaluation-hash.ts": "a4982a9e6802c30c282548e6b86c332fbeb7b7ac488b7f9e737c8ace8c33fa51",
+      "packages/contracts/src/evaluation.ts": "d966025431650b4d47413990bab8edb044f97b568ed02540a1f69280f4f79fa4",
+      "packages/db/src/helpers/guest-chat-turn-actions.ts": "3457aa9a1fe9c2d38428034791dd75ecc4853d7024c6bacd4f6fee5fedbfb944",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "finalSourceHashes": {
+      "packages/api/src/routers/admin/conversation-learning.ts": "bb85fa6d0c7e1c6b7b1f6de0226ab7ebd150979e490c59fe54510488dd0c1b63",
+      "packages/api/src/routers/admin/evaluation-conversation-cases.ts": "9053ba017dbb445fd11cd6e4be90c159dbb41c607cb64e58ffe658620dfb6369",
+      "packages/api/src/routers/admin/evaluation-rejected-learning.disposable.integration.test.ts": "fe8389657eb7ff5c663833a50947198f3b476bdcb1df172ade3a4adeaa114acd",
+      "packages/db/src/helpers/conversation-learning-actions.ts": "d46cdfbc66df405b636549e09f2ea1beee5743d2689ba8ee459a4ed4bad6c4a4",
+      "packages/db/src/helpers/evaluation-cases.ts": "c86c3abb0cccdeb044146fed734403ee7ad1aec550354ba000c8d67181393a6f",
+      "packages/db/src/helpers/evaluation-hash.ts": "a4982a9e6802c30c282548e6b86c332fbeb7b7ac488b7f9e737c8ace8c33fa51",
+      "packages/contracts/src/evaluation.ts": "d966025431650b4d47413990bab8edb044f97b568ed02540a1f69280f4f79fa4",
+      "packages/db/src/helpers/guest-chat-turn-actions.ts": "3457aa9a1fe9c2d38428034791dd75ecc4853d7024c6bacd4f6fee5fedbfb944",
+      "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    "sourceHashStable": true,
+    "checkLogPaths": {
+      "ownership": "ownership.json",
+      "initialization": "initdb.log",
+      "postgres": "postgres.log",
+      "startup": "start.log",
+      "migrations": "migrations.log",
+      "databaseReadback": "database-readback.log",
+      "vitestOutput": "vitest.log",
+      "vitestReport": "vitest.json",
+      "shutdown": "stop.log",
+      "finalResult": "result.json"
+    },
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "browserProof": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-rejected-learning-evaluation-browser-f9d20ef25421",
+    "port": 3002,
+    "ready": true,
+    "browserPassed": true,
+    "stopped": true,
+    "portReleased": true,
+    "pid": 63676,
+    "sources": [
+      {
+        "source": "apps/dashboard/components/admin/ConversationEvaluationCasePanel.tsx",
+        "retained": "measured-apps__dashboard__components__admin__ConversationEvaluationCasePanel.tsx",
+        "sha256": "3f8a4cf9f640814cee95e45960ac285ce60b54d516ec15e1db497970ba6fc674"
+      },
+      {
+        "source": "apps/dashboard/components/admin/EvaluationOperationsView.tsx",
+        "retained": "measured-apps__dashboard__components__admin__EvaluationOperationsView.tsx",
+        "sha256": "3f299d258b2399bf97d85872106216442a6362891afbaaf39e5dff0ed523830a"
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/rejected-learning-evaluation/page.tsx",
+        "retained": "measured-apps__dashboard__app__dev-fixtures__rejected-learning-evaluation__page.tsx",
+        "sha256": "e68aa6cdbb3781d48164314d3dbfa4419ddc03f2e8b4b232eede4d9669fcd635"
+      },
+      {
+        "source": "apps/dashboard/tests/browser/rejected-learning-evaluation.spec.ts",
+        "retained": "measured-apps__dashboard__tests__browser__rejected-learning-evaluation.spec.ts",
+        "sha256": "72d376225da3fe45abae58be427058a09066ff6ad93e78757db3559e8e0f28da"
+      },
+      {
+        "source": "apps/dashboard/lib/trpc.tsx",
+        "retained": "measured-apps__dashboard__lib__trpc.tsx",
+        "sha256": "2835af903f2a1045cef112cdde82acf27d0d0fc2bc1ea0297480b700f8fa73fe"
+      },
+      {
+        "source": "apps/dashboard/lib/bounded-client-request.ts",
+        "retained": "measured-apps__dashboard__lib__bounded-client-request.ts",
+        "sha256": "484db7ac9e0f45f34f19b7e3d2fe15fdbb427d7ef14ffcbad4dda82c274b1f77"
+      }
+    ],
+    "runnerSha256": "7d209f6f9ef7f75b38102b4ca7684515f51f890b96082b0b69a47bbb866f226a",
+    "counts": {
+      "startTime": "2026-09-09T01:41:23.819Z",
+      "duration": 10349.897,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "sourceHashStable": true
+  },
+  "runners": {
+    "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-rejected-learning-evaluation-proof.mjs": "2077feaab2a26d8facd6ec4509e7420f8318548996f2d0e101c6325ceb3a4488",
+    "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-rejected-learning-evaluation-browser-proof.mjs": "7d209f6f9ef7f75b38102b4ca7684515f51f890b96082b0b69a47bbb866f226a"
+  },
+  "ownedSources": {
+    "packages/api/src/routers/admin/evaluation-conversation-cases.ts": "9053ba017dbb445fd11cd6e4be90c159dbb41c607cb64e58ffe658620dfb6369",
+    "packages/api/src/routers/admin/evaluation-conversation-cases.test.ts": "f909c4ea9bfce7c53c6b256dbe3d9e4f7623a2ff393cc706ac84091de89b15f3",
+    "packages/api/src/routers/admin/evaluation-rejected-learning.disposable.integration.test.ts": "fe8389657eb7ff5c663833a50947198f3b476bdcb1df172ade3a4adeaa114acd",
+    "apps/dashboard/components/admin/ConversationEvaluationCasePanel.tsx": "3f8a4cf9f640814cee95e45960ac285ce60b54d516ec15e1db497970ba6fc674",
+    "apps/dashboard/components/admin/ConversationEvaluationCasePanel.test.tsx": "f577921706e18a6d4effa2169098f3122f1ca0be1b14c4a0bb14f20648babbb7",
+    "apps/dashboard/components/admin/EvaluationOperationsView.tsx": "3f299d258b2399bf97d85872106216442a6362891afbaaf39e5dff0ed523830a",
+    "apps/dashboard/app/(admin)/admin/clients/[tenantId]/venues/[venueId]/evaluations/page.tsx": "d78430c93fb3c9398a418ccfc036dba29735aeaf9b978174a0cc48f968690e7e",
+    "apps/dashboard/app/dev-fixtures/rejected-learning-evaluation/page.tsx": "e68aa6cdbb3781d48164314d3dbfa4419ddc03f2e8b4b232eede4d9669fcd635",
+    "apps/dashboard/tests/browser/rejected-learning-evaluation.spec.ts": "72d376225da3fe45abae58be427058a09066ff6ad93e78757db3559e8e0f28da"
+  },
+  "checks": {
+    "apiTests": 9,
+    "dashboardTests": 11,
+    "nativeTests": 1,
+    "browserCases": 3,
+    "apiFreshTypecheckExit": 0,
+    "dashboardFreshTypecheckExit": 0,
+    "configuredLintExit": 0,
+    "logs": {
+      "rejected-learning-final-api-20260908.log": "1b736150ae1b44de94ef1278173cd44054921b9cab652106bff35540b2593f65",
+      "rejected-learning-final-ui-20260908.log": "04da4d18d620a542ac4c312ce012b7609559b9c8803c181c1bc9b0f6240f6c2f",
+      "rejected-learning-final-api-typecheck-20260908.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rejected-learning-final-dashboard-typecheck-20260908.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rejected-learning-owned-ui-lint-20260908.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "typecheckCompletionEvidence": "Agent-reported completed sessions67732 and67231 exit0; empty logs alone not treated as proof"
+  },
+  "visualReview": {
+    "widths": [390, 820, 1440],
+    "inspectedBy": "root",
+    "screenshots": {
+      "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-rejected-learning-evaluation-browser-f9d20ef25421\\test-results\\rejected-learning-evaluati-1b1c5-ares-a-manual-case-at-390px-desktop-chromium\\rejected-learning-review-390.png": "284a5f44321f5fd27714ca6fd3106f57863b46e5d49b4b1e73f061f192d9b537",
+      "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-rejected-learning-evaluation-browser-f9d20ef25421\\test-results\\rejected-learning-evaluati-4899f-res-a-manual-case-at-1440px-desktop-chromium\\rejected-learning-review-1440.png": "693d1070405ff6acda6a15d45f6466e6a9bff06cd0bcdb82021f21ced90fdcd9",
+      "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-rejected-learning-evaluation-browser-f9d20ef25421\\test-results\\rejected-learning-evaluati-d14c5-ares-a-manual-case-at-820px-desktop-chromium\\rejected-learning-review-820.png": "69cae6232da9860878393aed1e5871639850b660fbc5c0c525a1a98d34c91817"
+    },
+    "observations": "Readable review feedback and rejection state; no horizontal overflow; keyboard redaction checkbox, empty state, manual fields, error/retry and exact payload passed. Axe serious/critical violations zero in checked main surface with reduced motion. Existing admin form language retained, no decorative redesign; Next development badge visible.",
+    "proofLimit": "Real rendered component in development fixture with intercepted RPC; native actual-router/DB proof separate. Production page wiring verified by source/typecheck, not real hosted admin authentication."
+  },
+  "negativeControls": [
+    "Unreviewed candidate excluded; this is not a malformed DISMISSED-without-feedback test",
+    "Sibling venue list/read excluded",
+    "Stale expected revision rejects without another case",
+    "Exact replay creates no second case",
+    "Snapshot excludes raw visitor text and reviewer feedback",
+    "Candidate status/revision unchanged and scoped canonical knowledge count unchanged"
+  ],
+  "preliminaryBrowserProofs": [
+    {
+      "id": "615f93117e76",
+      "result": "3 failures after successful interactions: actual Axe text contrast failure; Next stopped/port released"
+    },
+    {
+      "id": "07d8546bdff2",
+      "result": "3 passed before final expected-behavior label spacing change; Next stopped/port released"
+    }
+  ],
+  "limits": [
+    "Synthetic guest provider operations and synthetic platform-admin context; no live inference or authenticated customer acceptance",
+    "No candidate approval, canonical publication, automatic worker prompt reuse, delivery or release permission",
+    "No actual model evaluation run or claim that the rejected source is true",
+    "Original128 requirements,32QA andA/B/C remain required at appropriate layers"
+  ]
+}

@@ -25,6 +25,7 @@ export default async function EvaluationOperationsPage({
       reviewablePackages,
       onboardingMetrics,
       sourceInsights,
+      rejectedCandidates,
       attributionAgreement,
       answerEvaluations,
     ] = await Promise.all([
@@ -44,6 +45,7 @@ export default async function EvaluationOperationsPage({
         to: metricsTo.toISOString(),
       }),
       caller.admin.listEvaluationSourceInsights({ tenantId, venueId, limit: 10 }),
+      caller.admin.listRejectedConversationCandidates({ tenantId, venueId, limit: 10 }),
       caller.admin
         .previewGuestAnswerAttributionAgreement({ tenantId, venueId, limit: 100 })
         .catch(() => null),
@@ -73,6 +75,10 @@ export default async function EvaluationOperationsPage({
         reviewablePackages={reviewablePackages}
         onboardingMetrics={onboardingMetrics}
         sourceInsights={sourceInsights}
+        rejectedCandidates={rejectedCandidates.map((candidate) => ({
+          ...candidate,
+          category: 'CONTENT_UPDATE_CANDIDATE' as const,
+        }))}
         attributionAgreement={attributionAgreement}
         answerEvaluationRequests={answerEvaluations.items}
         answerEvaluationReadiness={answerEvaluations.readiness}

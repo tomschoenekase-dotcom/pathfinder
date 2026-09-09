@@ -7,6 +7,7 @@ import { OnboardingEvaluationSuitePanel } from './OnboardingEvaluationSuitePanel
 import { OnboardingMilestoneMetricsPanel } from './OnboardingMilestoneMetricsPanel'
 import {
   ConversationEvaluationCasePanel,
+  type RejectedConversationCandidate,
   type EvaluationSourceInsight,
 } from './ConversationEvaluationCasePanel'
 import type { OnboardingMilestoneRollup } from '@pathfinder/contracts'
@@ -120,6 +121,7 @@ type EvaluationOperationsViewProps = {
   failedCases?: FailedCase[]
   onboardingMetrics?: OnboardingMilestoneRollup
   sourceInsights?: EvaluationSourceInsight[]
+  rejectedCandidates?: RejectedConversationCandidate[]
   attributionAgreement?: AnswerAttributionAgreementData | null
   answerEvaluationRequests?: GuestAnswerEvaluationRequest[]
   answerEvaluationReadiness?: {
@@ -216,6 +218,7 @@ export function EvaluationOperationsView({
   failedCases = [],
   onboardingMetrics,
   sourceInsights = [],
+  rejectedCandidates = [],
   attributionAgreement,
   answerEvaluationRequests,
   answerEvaluationReadiness,
@@ -275,6 +278,7 @@ export function EvaluationOperationsView({
             tenantId={tenantId}
             venueId={venueId}
             insights={sourceInsights}
+            rejectedCandidates={rejectedCandidates}
           />
           <EvaluationRunRequestPanel
             tenantId={tenantId}
