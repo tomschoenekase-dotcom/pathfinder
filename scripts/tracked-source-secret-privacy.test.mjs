@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { readFile, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +17,13 @@ const protectedPathPatterns = [
   /\.(?:key|pem|p12|pfx)$/u,
 ]
 
+// Credential prefixes must begin and end at lexical token boundaries. This
+// keeps ordinary filenames such as `front-desk-...pdf` out of the scan while
+// still allowing punctuation, query delimiters, quotes, and newlines around a
+// credential token.
+const credentialTokenBoundary = '(?<![A-Za-z0-9_-])'
+const credentialTokenEndBoundary = '(?![A-Za-z0-9_-])'
+
 const credentialPatterns = [
   {
     id: 'private-key-header',
@@ -26,27 +34,45 @@ const credentialPatterns = [
   },
   {
     id: 'openai-api-key',
-    expression: new RegExp(['sk-', '(?!ant-)', '(?:proj-)?', '[A-Za-z0-9_-]{20,}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, 'sk-', '(?!ant-)', '(?:proj-)?', '[A-Za-z0-9_-]{20,}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
   {
     id: 'anthropic-api-key',
-    expression: new RegExp(['sk-', 'ant-', '[A-Za-z0-9_-]{20,}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, 'sk-', 'ant-', '[A-Za-z0-9_-]{20,}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
   {
     id: 'stripe-live-key',
-    expression: new RegExp(['(?:sk|rk)', '_live_', '[A-Za-z0-9]{16,}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, '(?:sk|rk)', '_live_', '[A-Za-z0-9]{16,}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
   {
     id: 'github-token',
-    expression: new RegExp(['gh', '[pousr]_', '[A-Za-z0-9]{20,}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, 'gh', '[pousr]_', '[A-Za-z0-9]{20,}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
   {
     id: 'aws-access-key',
-    expression: new RegExp(['(?:AK', 'IA|AS', 'IA)', '[A-Z0-9]{16}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, '(?:AK', 'IA|AS', 'IA)', '[A-Z0-9]{16}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
   {
     id: 'slack-token',
-    expression: new RegExp(['xox', '[baprs]-', '[A-Za-z0-9-]{20,}'].join(''), 'u'),
+    expression: new RegExp(
+      [credentialTokenBoundary, 'xox', '[baprs]-', '[A-Za-z0-9-]{20,}', credentialTokenEndBoundary].join(''),
+      'u',
+    ),
   },
 ]
 
@@ -63,14 +89,14 @@ function trackedFiles() {
     .map((entry) => entry.replaceAll('\\', '/'))
 }
 
-function historicalCredentialChanges() {
+function historicalCredentialChanges(cwd = repositoryRoot) {
   const historyExpression = [
-    ['-----BEGIN ', '(RSA |EC |OPENSSH |DSA )?', 'PRIVATE KEY-----'].join(''),
-    ['sk-', '(proj-)?', '[A-Za-z0-9_-]{20,}'].join(''),
-    ['(sk|rk)', '_live_', '[A-Za-z0-9]{16,}'].join(''),
-    ['gh', '[pousr]_', '[A-Za-z0-9]{20,}'].join(''),
-    ['(AK', 'IA|AS', 'IA)', '[A-Z0-9]{16}'].join(''),
-    ['xox', '[baprs]-', '[A-Za-z0-9-]{20,}'].join(''),
+    '-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----',
+    '(^|[^[:alnum:]_-])sk-(proj-)?[A-Za-z0-9_-]{20,}([^[:alnum:]_-]|$)',
+    '(^|[^[:alnum:]_-])(sk|rk)_live_[A-Za-z0-9]{16,}([^[:alnum:]_-]|$)',
+    '(^|[^[:alnum:]_-])gh[pousr]_[A-Za-z0-9]{20,}([^[:alnum:]_-]|$)',
+    '(^|[^[:alnum:]_-])(AKIA|ASIA)[A-Z0-9]{16}([^[:alnum:]_-]|$)',
+    '(^|[^[:alnum:]_-])xox[baprs]-[A-Za-z0-9-]{20,}([^[:alnum:]_-]|$)',
   ].join('|')
   return execFileSync(
     'git',
@@ -86,7 +112,7 @@ function historicalCredentialChanges() {
       '.',
     ],
     {
-      cwd: repositoryRoot,
+      cwd,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,
@@ -152,5 +178,65 @@ test('credential pattern canaries are detected by identifier and path only', () 
     const findings = scanContent('fixture.txt', canary)
     assert.deepEqual(findings, [{ path: 'fixture.txt', pattern }])
     assert.equal(JSON.stringify(findings).includes(canary), false)
+  }
+})
+
+test('credential matching respects lexical boundaries without weakening token detection', () => {
+  const syntheticKey = ['sk-', 'proj-', 'A1b2C3d4E5f6G7h8I9j0K1'].join('')
+  const harmlessFilename = ['front-desk-', 'A1b2C3d4E5f6G7h8I9j0K1', '.pdf'].join('')
+
+  assert.deepEqual(scanContent('fixture.txt', harmlessFilename), [])
+
+  for (const surroundingText of [
+    syntheticKey,
+    `"${syntheticKey}"`,
+    `https://example.test/?token=${syntheticKey}&next=1`,
+    `before,${syntheticKey}!\nafter`,
+  ]) {
+    assert.deepEqual(scanContent('fixture.txt', surroundingText), [
+      { path: 'fixture.txt', pattern: 'openai-api-key' },
+    ])
+  }
+})
+
+test('actual Git history scanner detects added and removed canaries with token boundaries', async () => {
+  // Retained disposable repository; no production history or account is touched.
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'torchiko-secret-history-'))
+  const git = (...args) => execFileSync('git', args, {
+    cwd: fixtureRoot, encoding: 'utf8', windowsHide: true,
+  }).trim()
+  git('init', '--quiet')
+  git('config', 'user.name', 'Disposable scanner fixture')
+  git('config', 'user.email', 'scanner@example.test')
+  const commit = (message) => {
+    git('add', '.')
+    git('-c', 'core.hooksPath=NUL', 'commit', '--quiet', '-m', message)
+    return git('rev-parse', 'HEAD')
+  }
+  await writeFile(path.join(fixtureRoot, 'harmless.txt'), ['front-desk-', 'A1b2C3d4E5f6G7h8I9j0K1', '.pdf'].join(''))
+  commit('Harmless embedded filename')
+  assert.equal(historicalCredentialChanges(fixtureRoot), '')
+  const canaries = [
+    ['sk-', 'proj-', 'A1b2C3d4E5f6G7h8I9j0K1'].join(''),
+    ['sk-', 'ant-', 'A1b2C3d4E5f6G7h8I9j0K1'].join(''),
+    ['sk', '_live_', 'A1b2C3d4E5f6G7h8'].join(''),
+    ['gh', 'p_', 'A1b2C3d4E5f6G7h8I9j0K1'].join(''),
+    ['AK', 'IA', 'A1B2C3D4E5F6G7H8'].join(''),
+    ['AS', 'IA', 'A1B2C3D4E5F6G7H8'].join(''),
+    ['xox', 'b-', 'A1b2C3d4E5f6G7h8I9j0-K1'].join(''),
+    ['-----BEGIN ', 'PRIVATE KEY-----'].join(''),
+  ]
+  for (const [index, canary] of canaries.entries()) {
+    const filename = `canary-${index}.txt`
+    await writeFile(path.join(fixtureRoot, filename), `https://example.test/?token=${canary}&next=1\n`)
+    const added = commit(`Add synthetic canary ${index}`)
+    await writeFile(path.join(fixtureRoot, filename), 'Removed synthetic fixture value\n')
+    const removed = commit(`Remove synthetic canary ${index}`)
+    const findings = historicalCredentialChanges(fixtureRoot)
+    assert.ok(findings.includes(`COMMIT ${added}`), `Addition detected for canary ${index}`)
+    assert.ok(findings.includes(`COMMIT ${removed}`), `Removal detected for canary ${index}`)
+    assert.ok(findings.includes(filename))
+    assert.equal(findings.includes(canary), false)
+    assert.equal(findings.includes('harmless.txt'), false)
   }
 })
