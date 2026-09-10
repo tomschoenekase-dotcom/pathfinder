@@ -1721,12 +1721,14 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         message?: string
         anonymousToken?: string
         operationId?: string
+        visitContext?: { visitedPlaceIds: string[]; interests: string[] }
       }) =>
         testRouter.createCaller(context(input.employee)).chat.send({
           venueId: input.venueId ?? venueId,
           anonymousToken: input.anonymousToken ?? randomUUID(),
           operationId: input.operationId ?? randomUUID(),
           message: input.message ?? 'What should I know?',
+          ...(input.visitContext ? { visitContext: input.visitContext } : {}),
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
 
@@ -2167,6 +2169,69 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         }),
       ).resolves.toBe(1)
 
+      embeddingMocks.queryEmbedding = semanticEmbedding
+      const visitedPublic = { visitedPlaceIds: [publicPlaceId], interests: ['gallery'] }
+      const nativeRecommendation = await send({
+        message: 'What should I see next for public gallery arrival?',
+        visitContext: visitedPublic,
+      })
+      expect(nativeRecommendation.places).toEqual([])
+      expect(
+        nativeRecommendation.citations.filter(({ detail }) => detail.startsWith('Place:')),
+      ).toEqual([])
+      expect(latestPrompt()).toContain('RECOMMENDATION SCOPE')
+      expect(latestPrompt()).not.toContain('Native override: public gallery arrival point.')
+      expect(logger.info).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          action: 'guest-chat.native-content-read',
+          readPath: 'NATIVE',
+          gateReason: 'NATIVE_READY',
+          releaseId: release.id,
+        }),
+      )
+      const activeNativeSnapshot = await resolveNativeGuestReadSnapshotAction({
+        client: db,
+        tenantId,
+        venueId,
+      })
+      expect(activeNativeSnapshot).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+      })
+      const nativeRecommendationVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'What should I see next for public gallery arrival?',
+        visitContext: visitedPublic,
+        asOf: now,
+        nativeSnapshot: activeNativeSnapshot,
+      })
+      expect(nativeRecommendationVoice.sourceIds.filter((id) => id.startsWith('place:'))).toEqual(
+        [],
+      )
+      expect(nativeRecommendationVoice.context).toContain('Native override: use the east entrance.')
+      expect(nativeRecommendationVoice.context).toContain('west entrance is closed today')
+      expect(nativeRecommendationVoice.nativeProjection).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+        stateHash: release.desiredStateHash,
+      })
+      expect(nativeRecommendationVoice.nativeProjection.effectiveContentPath).toBe('NATIVE')
+      const visitedDirectFact = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Describe Native Public Gallery',
+        visitContext: visitedPublic,
+        asOf: now,
+        nativeSnapshot: activeNativeSnapshot,
+      })
+      expect(visitedDirectFact.sourceIds).toContain(`place:${publicPlaceId}`)
+      expect(visitedDirectFact.context).toContain('Native override: public gallery arrival point.')
+      expect(visitedDirectFact.nativeProjection.path).toBe('NATIVE')
       embeddingMocks.queryEmbedding = null
 
       await db.tenantFeatureFlag.update({

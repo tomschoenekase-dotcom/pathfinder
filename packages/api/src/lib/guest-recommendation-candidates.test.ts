@@ -60,18 +60,19 @@ describe('guest recommendation candidates', () => {
     })
   })
 
-  it.each(['Would you recommend Train Hall?', 'Could you recommend visiting the Train Hall?'])(
-    'preserves an explicitly requested visited place: %s',
-    (query) => {
-      expect(
-        partitionGuestRecommendationPlaces({
-          query,
-          places,
-          visitContext: { visitedPlaceIds: ['train'], interests: [] },
-        }),
-      ).toMatchObject({ recommendationOnly: false, places })
-    },
-  )
+  it.each([
+    'Would you recommend Train Hall?',
+    'Could you recommend visiting the Train Hall?',
+    'Would you recommend Train Hall for kids?',
+  ])('preserves an explicitly requested visited place: %s', (query) => {
+    expect(
+      partitionGuestRecommendationPlaces({
+        query,
+        places,
+        visitContext: { visitedPlaceIds: ['train'], interests: [] },
+      }),
+    ).toMatchObject({ recommendationOnly: false, places })
+  })
 
   it('uses a named comparison as reference rather than a new recommendation', () => {
     expect(
