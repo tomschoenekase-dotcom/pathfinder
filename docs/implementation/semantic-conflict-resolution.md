@@ -18,4 +18,6 @@ The immutable SQL record has composite foreign keys, a trigger requiring the exa
 
 ## Remaining integration
 
-The API and durable backend are the current slice. The existing SemanticUpdatePreview UI still needs a scoped resolution form showing the actual answer, keep/replace choice, editable replacement and note, and navigation to the pending replacement review. Native evidence must pass before claiming this backend verified. Existing provider/device/customer/release gates and all original requirements remain intact.
+The API and durable backend are the current slice. The existing SemanticUpdatePreview UI still needs a scoped resolution form showing the actual answer, keep/replace choice, editable replacement and note, and navigation to the pending replacement review. Native `2a3918f077fd` passes on243 migrations /261 tables with29 stable source hashes; PostgreSQL stopped. See `docs/evidence/semantic-conflict-resolution-native-2026-09-10.json` for exact revision and proof limits. Existing provider/device/customer/release gates and all original requirements remain intact.
+
+The final consumer also pins the replacement proposal target, proposed text, HUMAN creator type and creator ID to the immutable resolution. An edited or re-authored replacement cannot reuse the prior decision. Existing proposals without a resolution retain their previous preview hashes.
