@@ -7,6 +7,7 @@ import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { claimAgentBridgeTask, registerAgentBridgeSession } from './agent-bridge-actions'
 import { assertCurrentAgentWorkerClaim } from './agent-current-worker-claim'
 import { requestAgentRunCancellationAction } from './agent-run-cancellation-actions'
+import { claimAgentRunExecution } from './agent-run-execution-actions'
 import { registerAgentWorkerAction } from './agent-worker-actions'
 import {
   activateAgentBridgeCredentialAction,
@@ -42,7 +43,7 @@ describe.skipIf(!enabled)('current worker claim on disposable PostgreSQL', () =>
         data: { id: venueId, tenantId, slug: venueId, name: 'Disposable worker claim venue' },
       })
 
-      async function fixture(label: string) {
+      async function fixture(label: string, options: { shortLease?: boolean } = {}) {
         const identityId = `content-${label}-${suffix}`
         await db.agentIdentity.create({
           data: {
@@ -127,25 +128,40 @@ describe.skipIf(!enabled)('current worker claim on disposable PostgreSQL', () =>
             maxAttempts: 2,
           },
         })
-        const claimed = await claimAgentBridgeTask({
-          sessionId,
-          venueId,
-          workerKey: worker.workerKey,
-          credential,
-        })
-        expect(claimed.task).toMatchObject({ id: run.id })
+        let leaseToken: string
+        if (options.shortLease) {
+          const claimed = await claimAgentRunExecution({
+            tenantId,
+            runId: run.id,
+            leaseDurationMs: 5_000,
+            bridgeSessionId: sessionId,
+            executionWorkerId: worker.id,
+          })
+          leaseToken = claimed.leaseToken
+        } else {
+          const claimed = await claimAgentBridgeTask({
+            sessionId,
+            venueId,
+            workerKey: worker.workerKey,
+            credential,
+          })
+          expect(claimed.task).toMatchObject({ id: run.id })
+          leaseToken = claimed.task!.leaseToken
+        }
         const persisted = await db.agentRun.findFirstOrThrow({
           where: { id: run.id, tenantId, venueId },
           select: {
             executionLeaseToken: true,
+            executionLeaseExpiresAt: true,
             executionBridgeSessionId: true,
             executionWorkerId: true,
           },
         })
         expect(persisted).toEqual({
-          executionLeaseToken: claimed.task!.leaseToken,
+          executionLeaseToken: leaseToken,
           executionBridgeSessionId: sessionId,
           executionWorkerId: worker.id,
+          executionLeaseExpiresAt: expect.any(Date),
         })
         return {
           activated,
@@ -155,7 +171,8 @@ describe.skipIf(!enabled)('current worker claim on disposable PostgreSQL', () =>
           run,
           sessionId,
           worker,
-          leaseToken: claimed.task!.leaseToken,
+          leaseToken,
+          leaseExpiresAt: persisted.executionLeaseExpiresAt!,
         }
       }
 
@@ -352,6 +369,99 @@ describe.skipIf(!enabled)('current worker claim on disposable PostgreSQL', () =>
         value: { credential: { id: raced.credential.credentialId } },
       })
       await expect(admit(raced)).rejects.toThrow()
+
+      const expiring = await fixture('lease-after-identity-wait', { shortLease: true })
+      let releaseIdentity: (() => void) | undefined
+      let identityLocked: (() => void) | undefined
+      let identityBlockerFailed: ((error: unknown) => void) | undefined
+      const heldIdentity = new Promise<void>((resolve, reject) => {
+        identityLocked = resolve
+        identityBlockerFailed = reject
+      })
+      const unblockIdentity = new Promise<void>((resolve) => {
+        releaseIdentity = resolve
+      })
+      const identityBlocker = db.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM agent_identities
+            WHERE id=${expiring.identityId} AND tenant_id=${tenantId} FOR UPDATE`
+          identityLocked?.()
+          await unblockIdentity
+        },
+        { timeout: 20_000 },
+      )
+      const identityBlockerSettled = identityBlocker.then(
+        () => ({ ok: true as const }),
+        (error: unknown) => {
+          identityBlockerFailed?.(error)
+          return { ok: false as const, error }
+        },
+      )
+      await heldIdentity
+      let harmlessEffects = 0
+      const expiringAdmission = db.$transaction(
+        async (tx) => {
+          await assertCurrentAgentWorkerClaim(tx, {
+            tenantId,
+            clientId: tenantId,
+            venueId,
+            agentRunId: expiring.run.id,
+            executionLeaseToken: expiring.leaseToken,
+            bridgeSessionId: expiring.sessionId,
+            workerId: expiring.worker.id,
+            credentialScope: expiring.credential,
+            requiredAgentType: 'CONTENT',
+            requiredIdentityCapability: 'intake.read',
+            requiredTransportCapabilities: ['resources:read'],
+          })
+          harmlessEffects += 1
+          return tx.agentRun.findFirstOrThrow({
+            where: { id: expiring.run.id, tenantId, venueId },
+            select: { id: true, requestedOperation: true },
+          })
+        },
+        { timeout: 20_000 },
+      )
+      const expiringSettled = expiringAdmission.then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      )
+      let identityBlockerResult: Awaited<typeof identityBlockerSettled> | undefined
+      let expiringResult: Awaited<typeof expiringSettled> | undefined
+      try {
+        let observedIdentityWait = false
+        for (let attempt = 0; attempt < 120 && !observedIdentityWait; attempt += 1) {
+          const rows = await db.$queryRaw<Array<{ waiting: boolean }>>`
+            SELECT EXISTS (
+              SELECT 1 FROM pg_stat_activity
+              WHERE datname = current_database() AND pid <> pg_backend_pid()
+                AND wait_event_type = 'Lock'
+                AND query ILIKE ${'%FROM agent_identities%'}
+                AND query ILIKE ${'%FOR SHARE%'}
+            ) AS waiting
+          `
+          observedIdentityWait = rows[0]?.waiting === true
+          if (!observedIdentityWait) await pause(25)
+        }
+        expect(observedIdentityWait).toBe(true)
+        let expiredAtDatabaseClock = false
+        for (let attempt = 0; attempt < 320 && !expiredAtDatabaseClock; attempt += 1) {
+          const rows = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`
+          expiredAtDatabaseClock = Boolean(rows[0]?.now && rows[0].now >= expiring.leaseExpiresAt)
+          if (!expiredAtDatabaseClock) await pause(25)
+        }
+        expect(expiredAtDatabaseClock).toBe(true)
+      } finally {
+        releaseIdentity?.()
+        identityBlockerResult = await identityBlockerSettled
+        expiringResult = await expiringSettled
+      }
+      expect(identityBlockerResult).toEqual({ ok: true })
+      expect(expiringResult).toMatchObject({
+        ok: false,
+        error: { code: 'CURRENT_AGENT_WORKER_CLAIM_DENIED' },
+      })
+      expect(harmlessEffects).toBe(0)
     })
-  }, 30_000)
+  }, 45_000)
 })
