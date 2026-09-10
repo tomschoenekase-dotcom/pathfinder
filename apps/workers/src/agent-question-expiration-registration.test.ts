@@ -35,8 +35,8 @@ describe('agent question expiration worker registration', () => {
       'AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB',
     )
     expect(workerStart).toBeGreaterThan(schedulerStart)
-    expect(source.slice(workerStart, workerEnd)).toContain(
-      'new Worker(\n      AGENT_QUESTION_MAINTENANCE_QUEUE,',
+    expect(source.slice(workerStart, workerEnd)).toMatch(
+      /new Worker\(\s+AGENT_QUESTION_MAINTENANCE_QUEUE,/u,
     )
     expect(source.slice(workerStart, workerEnd)).toContain('queueSafeJobProcessor')
     expect(source.slice(workerStart, workerEnd)).not.toContain('AGENT_RUNNER_ENABLED')
