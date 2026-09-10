@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-10",
+  "scope": "W02/P08-03 exact-target duplicate preview prerequisite",
+  "implementationCommit": "ce807aba9c2d3b5fc4c012610da6b01a7e0c56fc",
+  "checks": {
+    "targetedTests": 24,
+    "apiTypecheck": "passed",
+    "configuredLint": "passed",
+    "independentReview": "no blocker; scope/request binding suggestion incorporated"
+  },
+  "sourceManifest": [
+    {
+      "source": "packages/api/src/lib/semantic-venue-updater.ts",
+      "sha256": "e199e1f34802c81658b77c5f0b2238e3b4263e2c5ad3910e69beee6f0dce969f"
+    },
+    {
+      "source": "packages/api/src/lib/semantic-venue-updater.test.ts",
+      "sha256": "4d37c482e8d4ad0f9cb06aac7b1718c975359576db715447baf255acd26b93f9"
+    },
+    {
+      "source": "packages/api/src/lib/semantic-venue-updater-service.test.ts",
+      "sha256": "e451958ab7180872cfd5f09164be74808bf95526e6ebbb8e32d4289aaab4923a"
+    }
+  ],
+  "behavior": [
+    "An unrelated exact match cannot discharge correction or supersession of another target.",
+    "Missing explicit target remains a conflict even when another row matches.",
+    "Untargeted duplicate selection uses stable ID ordering.",
+    "Duplicate preview identity binds matched row ID, exact title/category/content/enabled/authority snapshot, venue, relation and requested desired fields.",
+    "Non-duplicate preview hash shape remains unchanged."
+  ],
+  "limits": [
+    "Pure classification and mocked scoped-service proof only; no new persistence, UI, live-provider or customer proof.",
+    "This is not the durable reviewed no-change outcome receipt and does not authorize completion.",
+    "The duplicate snapshot covers semantic fields and derived authority; a durable action must additionally bind proposal version, source, scope, actor and exact replay input, and recheck canonical state under locks.",
+    "Previous native source manifests including semantic-venue-updater.ts are historical at their recorded candidate; this change is verified by targeted tests."
+  ]
+}
