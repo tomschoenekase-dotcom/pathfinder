@@ -4,6 +4,9 @@ import { AgentSourceAssignment } from '@pathfinder/contracts'
 
 import {
   AgentTaskActionError,
+  configureIntakeSourceAgentRouting,
+  IntakeSourceAgentRoutingInput,
+  IntakeSourceAgentRoutingError,
   createAgentTaskAction,
   db,
   withTenantIsolationBypass,
@@ -15,6 +18,32 @@ import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 
 export const adminAgentTaskRequestsRouter = router({
+  getIntakeSourceAgentRouting: adminProcedure
+    .input(
+      z
+        .object({
+          tenantId: z.string().trim().min(1).max(191),
+          venueId: z.string().trim().min(1).max(191),
+        })
+        .strict(),
+    )
+    .query(({ ctx, input }) =>
+      ctx.db.intakeSourceAgentRoutingPolicy.findUnique({
+        where: { tenantId: input.tenantId, tenantId_venueId: input },
+      }),
+    ),
+  configureIntakeSourceAgentRouting: adminProcedure
+    .input(IntakeSourceAgentRoutingInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await configureIntakeSourceAgentRouting(input, ctx.session.userId, ctx.db)
+      } catch (error) {
+        if (error instanceof IntakeSourceAgentRoutingError)
+          throw new TRPCError({ code: error.code, message: error.message })
+        throw error
+      }
+    }),
+
   createAgentTask: adminProcedure
     .input(
       z.object({

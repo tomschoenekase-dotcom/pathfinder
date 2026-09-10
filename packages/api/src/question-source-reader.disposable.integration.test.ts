@@ -15,6 +15,9 @@ import {
   claimIntakeV1FileExtractionDispatch,
   claimAgentRunExecution,
   createAgentTaskAction,
+  configureIntakeSourceAgentRouting,
+  assertIntakeSourceAgentRoutingInTransaction,
+  createSystemSourceAgentTaskInTransaction,
   completeIntakeV1FileExtractionDispatch,
   db,
   issueExternalCredentialAction,
@@ -113,6 +116,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           accessScope: 'VENUE',
           accessCapabilities: ['intake.read', 'content.draft'],
           autonomyLevel: 'DRAFT',
+          autonomousActions: ['content.prepare-draft'],
           enabled: true,
           createdBy: actorId,
         },
@@ -426,6 +430,95 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         agentIdentityId: wrongIdentityId,
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    const routingInput = { ...scope, agentIdentityId: identityId, expectedRevision: 0 }
+    const routingCreates = await Promise.allSettled([
+      configureIntakeSourceAgentRouting(routingInput, actorId),
+      configureIntakeSourceAgentRouting(routingInput, actorId),
+    ])
+    expect(routingCreates.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(routingCreates.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    const routing = await db.intakeSourceAgentRoutingPolicy.findFirstOrThrow({ where: scope })
+    expect(routing).toMatchObject({ enabled: false, revision: 1, agentIdentityId: identityId })
+    await expect(
+      configureIntakeSourceAgentRouting(
+        { ...routingInput, agentIdentityId: wrongIdentityId, expectedRevision: 1, enabled: true },
+        actorId,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const enabledRouting = await configureIntakeSourceAgentRouting(
+      { ...routingInput, expectedRevision: 1, enabled: true },
+      actorId,
+    )
+    expect(enabledRouting).toMatchObject({
+      taskDispatched: false,
+      policy: { enabled: true, revision: 2 },
+    })
+    expect(await db.intakeSourceAgentRoutingPolicy.count({ where: scope })).toBe(1)
+    expect(
+      await db.auditLog.count({
+        where: { tenantId, targetId: routing.id, action: 'intake-source-agent.routing-configured' },
+      }),
+    ).toBe(2)
+
+    const extractionDispatch = await db.intakeV1ProcessingDispatch.findFirstOrThrow({
+      where: { ...scope, intakeRunId },
+      select: { id: true },
+    })
+    const systemTaskInput = {
+      ...scope,
+      operationId: randomUUID(),
+      agentIdentityId: identityId,
+      sourceAssignment,
+      dispatchId: extractionDispatch.id,
+      policyRevision: 2,
+    }
+    await expect(
+      db.$transaction(async (tx) => {
+        const admitTask = async () => {
+          await assertIntakeSourceAgentRoutingInTransaction(tx, systemTaskInput)
+        }
+        const systemTask = await createSystemSourceAgentTaskInTransaction(tx, systemTaskInput, {
+          admitTask,
+        })
+        const replay = await createSystemSourceAgentTaskInTransaction(tx, systemTaskInput, {
+          admitTask,
+        })
+        expect(replay).toMatchObject({ replayed: true, run: { id: systemTask.run.id } })
+        const stored = await tx.agentRun.findFirstOrThrow({
+          where: { id: systemTask.run.id, ...scope },
+        })
+        expect(stored).toMatchObject({
+          initiatedByType: 'SYSTEM',
+          requestedOperation: 'intake_source_review',
+          scopeSnapshot: {
+            sourceDispatch: { version: 1, dispatchId: extractionDispatch.id, policyRevision: 2 },
+          },
+        })
+        expect(
+          await tx.agentMessage.findFirstOrThrow({ where: { ...scope, agentRunId: stored.id } }),
+        ).toMatchObject({ role: 'SYSTEM', messageType: 'PROMPT' })
+        expect(
+          await tx.auditLog.findFirstOrThrow({
+            where: { tenantId, targetId: stored.id, action: 'agent-task.queued' },
+          }),
+        ).toMatchObject({ actorType: 'SYSTEM' })
+        await expect(
+          createSystemSourceAgentTaskInTransaction(tx, systemTaskInput, {
+            admitTask: async () => {
+              await assertIntakeSourceAgentRoutingInTransaction(tx, {
+                ...systemTaskInput,
+                policyRevision: 1,
+              })
+            },
+          }),
+        ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        throw new Error('rollback system task construction proof')
+      }),
+    ).rejects.toThrow('rollback system task construction proof')
+    expect(
+      await db.agentRun.count({ where: { tenantId, operationId: systemTaskInput.operationId } }),
+    ).toBe(0)
 
     const questionCount = () => db.agentQuestion.count({ where: { tenantId } })
     const runStatus = (id: string) =>

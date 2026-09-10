@@ -94,6 +94,7 @@ export const TENANTED_TABLES = [
   'MediaProviderOperation',
   'EmbeddingWorkClaim',
   'EmbeddingDispatch',
+  'IntakeSourceAgentRoutingPolicy',
   'AgentIdentity',
   'AgentBridgeSession',
   'AgentWorker',

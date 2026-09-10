@@ -858,7 +858,11 @@ export {
   askAgentQuestionAction,
   askAgentQuestionActionInTransaction,
 } from './helpers/agent-question-actions'
-export { AgentTaskActionError, createAgentTaskAction } from './helpers/agent-task-actions'
+export {
+  AgentTaskActionError,
+  createAgentTaskAction,
+  createSystemSourceAgentTaskInTransaction,
+} from './helpers/agent-task-actions'
 export type { AgentTaskClient, CreateAgentTaskInput } from './helpers/agent-task-actions'
 export type {
   AgentQuestionTransaction,
@@ -1441,3 +1445,10 @@ export * from './helpers/intake-v1-package-draft-proposal-actions'
 export * from './helpers/intake-v1-package-machine-authority'
 
 export * from './helpers/intake-v1-file-extraction-dispatch-actions'
+
+export {
+  configureIntakeSourceAgentRouting,
+  IntakeSourceAgentRoutingInput,
+  IntakeSourceAgentRoutingError,
+  assertIntakeSourceAgentRoutingInTransaction,
+} from './helpers/intake-source-agent-routing-actions'

@@ -3,7 +3,10 @@ vi.mock('./agent-workflow-run-binding', () => ({
   bindEligibleAgentWorkflows: vi.fn(async () => ({ bindings: [], replayed: false })),
 }))
 
-import { createAgentTaskAction } from './agent-task-actions'
+import {
+  createAgentTaskAction,
+  createSystemSourceAgentTaskInTransaction,
+} from './agent-task-actions'
 
 describe('agent task action', () => {
   it('freezes enabled specialist scope into a queued run without execution', async () => {
@@ -229,8 +232,11 @@ describe('immutable Content source assignment', () => {
       id: 'run-1',
       venueId: input.venueId,
       agentIdentityId: input.agentIdentityId,
+      requestedOperation: 'operator_task',
       requestPrompt: input.prompt,
       scopeSnapshot: { sourceAssignment: assignment },
+      initiatedByType: 'HUMAN',
+      initiatedById: input.actor.actorId,
     })
     await expect(createAgentTaskAction(input, client as never)).resolves.toMatchObject({
       replayed: true,
@@ -244,5 +250,162 @@ describe('immutable Content source assignment', () => {
       ).rejects.toMatchObject({ code: 'CONFLICT' })
     }
     expect(tx.agentRun.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('system assigned-source task construction', () => {
+  const assignment = {
+    version: 1 as const,
+    kind: 'FILE_EXTRACTION' as const,
+    intakeRunId: 'intake-1',
+    receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    extractedTextHash: 'a'.repeat(64),
+  }
+  const input = {
+    operationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    sourceAssignment: assignment,
+    dispatchId: 'dispatch-1',
+    policyRevision: 1,
+  }
+  function setup() {
+    const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'run-1', status: 'QUEUED' }),
+      },
+      agentIdentity: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'content-1',
+          agentType: 'CONTENT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['intake.read', 'content.draft'],
+          autonomyLevel: 'DRAFT',
+          autonomousActions: [],
+          defaultProvider: 'fixture',
+          defaultModel: 'fixture',
+        }),
+      },
+      intakeFileExtractionReceipt: {
+        findFirst: vi.fn().mockResolvedValue({ id: assignment.receiptId }),
+      },
+      prospectTerritory: { count: vi.fn() },
+      agentTimelineEvent: { create: vi.fn() },
+      agentMessage: { create: vi.fn() },
+      auditLog: { create: vi.fn() },
+    }
+    return tx
+  }
+
+  it('admits under both locks before lookup and records bounded system provenance', async () => {
+    const tx = setup()
+    const admitTask = vi.fn(async () => undefined)
+    await createSystemSourceAgentTaskInTransaction(tx as never, input, { admitTask })
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.$executeRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      admitTask.mock.invocationCallOrder[0]!,
+    )
+    expect(admitTask.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.agentRun.findFirst.mock.invocationCallOrder[0]!,
+    )
+    expect(tx.agentRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          requestedOperation: 'intake_source_review',
+          initiatedByType: 'SYSTEM',
+          initiatedById: 'intake-source:dispatch-1',
+          status: 'QUEUED',
+          scopeSnapshot: expect.objectContaining({
+            sourceAssignment: assignment,
+            sourceDispatch: { version: 1, dispatchId: 'dispatch-1', policyRevision: 1 },
+          }),
+        }),
+      }),
+    )
+    expect(tx.agentMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        role: 'SYSTEM',
+        messageType: 'PROMPT',
+        actorId: 'intake-source:dispatch-1',
+        content: expect.stringMatching(/pathfinder\.read.*ask_operator.*retained human answer/),
+      }),
+    })
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'SYSTEM',
+        actorId: 'intake-source:dispatch-1',
+        actorRole: 'SYSTEM',
+      }),
+    })
+  })
+
+  it('requires the trusted admission callback at runtime', async () => {
+    const tx = setup()
+    await expect(
+      createSystemSourceAgentTaskInTransaction(tx as never, input, undefined as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(tx.$executeRaw).not.toHaveBeenCalled()
+  })
+
+  it('runs admission before replay and conflicts when dispatch or policy changes', async () => {
+    for (const changed of [
+      { dispatchId: 'dispatch-2', policyRevision: input.policyRevision },
+      { dispatchId: input.dispatchId, policyRevision: 2 },
+    ]) {
+      const tx = setup()
+      tx.agentRun.findFirst.mockResolvedValue({
+        id: 'run-1',
+        venueId: input.venueId,
+        agentIdentityId: input.agentIdentityId,
+        requestedOperation: 'intake_source_review',
+        requestPrompt:
+          'Read only the assigned source through pathfinder.read. Ask the exact clarification questions needed through ask_operator and resolve_source_clarification. Wait for a retained human answer before creating any evidence amendment, and create one only when that answer supports it. Do not review, apply, or publish any change.',
+        scopeSnapshot: {
+          sourceAssignment: assignment,
+          sourceDispatch: {
+            version: 1,
+            dispatchId: input.dispatchId,
+            policyRevision: input.policyRevision,
+          },
+        },
+        initiatedByType: 'SYSTEM',
+        initiatedById: `intake-source:${input.dispatchId}`,
+      })
+      const admitTask = vi.fn()
+      await expect(
+        createSystemSourceAgentTaskInTransaction(
+          tx as never,
+          { ...input, ...changed },
+          { admitTask },
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(admitTask).toHaveBeenCalledOnce()
+      expect(admitTask.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.agentRun.findFirst.mock.invocationCallOrder[0]!,
+      )
+      expect(tx.agentRun.create).not.toHaveBeenCalled()
+    }
+  })
+
+  it('keeps the human API schema closed to SYSTEM callers', async () => {
+    const client = { $transaction: vi.fn() }
+    await expect(
+      createAgentTaskAction(
+        {
+          operationId: input.operationId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          agentIdentityId: input.agentIdentityId,
+          prompt: 'Review this source.',
+          actor: { actorType: 'SYSTEM', actorId: 'worker-1', auditRole: 'SYSTEM' },
+        } as never,
+        client as never,
+      ),
+    ).rejects.toThrow()
+    expect(client.$transaction).not.toHaveBeenCalled()
   })
 })
