@@ -24,6 +24,8 @@ import {
   SupportCompletionContentFulfillmentV2,
   SupportCompletionTemporalFulfillment,
   SupportCompletionProposalApprovalSnapshot,
+  SupportCompletionPackageFulfillment,
+  SupportCompletionProposalResolutionFulfillment,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
   SupportPackageApplicationApplyParameters,
@@ -164,6 +166,149 @@ describe('support completion fulfillment contract', () => {
     ).toThrow('Package-free observability')
     expect(() =>
       SupportCompletionApplyParameters.parse({ ...parameters, completionOutcome: 'FORGED' }),
+    ).toThrow()
+  })
+})
+
+describe('support completion proposal resolution fulfillment', () => {
+  const decline = {
+    resolutionId: '11111111-1111-4111-8111-111111111111',
+    proposalId: '22222222-2222-4222-8222-222222222222',
+    sourceProposalId: '33333333-3333-4333-8333-333333333333',
+    sourceRequestVersion: 2,
+    replacementOfProposalId: null,
+    proposalUpdatedAt: '2030-01-02T00:00:00.000Z',
+    reviewedProposalUpdatedAt: '2030-01-02T00:00:01.000Z',
+    reviewedAt: '2030-01-02T00:00:02.000Z',
+    reviewNoteHash: 'a'.repeat(64),
+    reviewNote: 'The requested change is not approved.',
+    proposalSummary: 'Add free parking.',
+    sourceEvidenceHash: 'b'.repeat(64),
+    createdBy: 'admin-1',
+    decisionCreatedAt: '2030-01-02T00:00:03.000Z',
+  }
+  const replacement = {
+    resolutionId: '44444444-4444-4444-8444-444444444444',
+    proposalId: '55555555-5555-4555-8555-555555555555',
+    sourceRequestVersion: 2,
+    replacementProposalId: '66666666-6666-4666-8666-666666666666',
+    proposalUpdatedAt: '2030-01-02T00:00:00.000Z',
+    decisionProposalUpdatedAt: '2030-01-02T00:00:01.000Z',
+    questionId: 'question-1',
+    questionUpdatedAt: '2030-01-02T00:00:02.000Z',
+    answeredAt: '2030-01-02T00:00:03.000Z',
+    answerHash: 'c'.repeat(64),
+    createdBy: 'admin-1',
+    decisionCreatedAt: '2030-01-02T00:00:04.000Z',
+    replacementFulfillmentKind: 'CONTENT' as const,
+  }
+  const value = {
+    contractVersion: 1 as const,
+    declines: [decline],
+    replacements: [replacement],
+    verifiedAt: '2030-01-02T00:00:05.000Z',
+    digest: 'd'.repeat(64),
+  }
+
+  it('accepts bounded strict resolution evidence and rejects forged fields and identities', () => {
+    expect(SupportCompletionProposalResolutionFulfillment.parse(value)).toEqual(value)
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({ ...value, forged: true }),
+    ).toThrow()
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        declines: [{ ...decline, reviewNoteHash: 'A'.repeat(64) }],
+      }),
+    ).toThrow()
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [{ ...replacement, resolutionId: decline.resolutionId }],
+      }),
+    ).toThrow('duplicate resolution identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [{ ...replacement, proposalId: decline.proposalId }],
+      }),
+    ).toThrow('duplicate proposal identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [
+          replacement,
+          {
+            ...replacement,
+            resolutionId: '77777777-7777-4777-8777-777777777777',
+            proposalId: decline.sourceProposalId,
+          },
+        ],
+      }),
+    ).toThrow('duplicate replacement identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        declines: Array.from({ length: 51 }, (_, index) => ({
+          ...decline,
+          resolutionId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          proposalId: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        })),
+        replacements: Array.from({ length: 50 }, (_, index) => ({
+          ...replacement,
+          resolutionId: `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          proposalId: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          replacementProposalId: `40000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        })),
+      }),
+    ).toThrow('limited to 100')
+  })
+
+  it('adds V7 without changing the accepted V6 shape', () => {
+    const base = {
+      linkedPackageCount: 0,
+      packages: [],
+      digest: 'a'.repeat(64),
+      guestObservability: {
+        contractVersion: 1,
+        configuredPath: 'NOT_APPLICABLE',
+        reason: 'NO_LINKED_PACKAGES',
+        releaseId: null,
+        nativeStateHash: null,
+        effects: [],
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'b'.repeat(64),
+      },
+      contentFulfillment: {
+        contractVersion: 2,
+        receipts: [],
+        guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'c'.repeat(64),
+      },
+      temporalFulfillment: {
+        contractVersion: 1,
+        receipts: [],
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'd'.repeat(64),
+      },
+      noChangeFulfillment: {
+        contractVersion: 1,
+        receipts: [],
+        guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'e'.repeat(64),
+      },
+    }
+    const v6 = { contractVersion: 6, ...base }
+    expect(SupportCompletionPackageFulfillment.parse(v6)).toEqual(v6)
+    const v7 = { contractVersion: 7, ...base, proposalResolutionFulfillment: value }
+    expect(SupportCompletionPackageFulfillment.parse(v7)).toEqual(v7)
+    expect(() =>
+      SupportCompletionPackageFulfillment.parse({
+        ...v6,
+        proposalResolutionFulfillment: value,
+      }),
     ).toThrow()
   })
 })

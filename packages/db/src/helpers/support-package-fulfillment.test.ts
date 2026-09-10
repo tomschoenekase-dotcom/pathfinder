@@ -498,3 +498,125 @@ describe('no-change approval identity', () => {
     ).toThrow('No-change guidance is no longer effective')
   })
 })
+
+describe('reviewed-decline V7 approval identity', () => {
+  it('binds the immutable decline decision, ignores only verification time, and keeps current content expiry fenced', async () => {
+    const empty = await readSupportPackageFulfillment(
+      {
+        $executeRaw: vi.fn().mockResolvedValue(0),
+        supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
+        knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticReviewedDecline: { findMany: vi.fn().mockResolvedValue([]) },
+        supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
+      scope,
+    )
+    if (empty.contractVersion !== 6) throw new Error('Expected current fulfillment')
+    const current = {
+      ...empty,
+      contractVersion: 7 as const,
+      proposalResolutionFulfillment: {
+        contractVersion: 1 as const,
+        declines: [
+          {
+            resolutionId: '11111111-1111-4111-8111-111111111111',
+            proposalId: '22222222-2222-4222-8222-222222222222',
+            sourceProposalId: '33333333-3333-4333-8333-333333333333',
+            sourceRequestVersion: 4,
+            replacementOfProposalId: null,
+            proposalUpdatedAt: '2026-09-10T11:00:00.000Z',
+            reviewedProposalUpdatedAt: '2026-09-10T11:01:00.000Z',
+            reviewedAt: '2026-09-10T11:01:00.000Z',
+            reviewNoteHash: 'a'.repeat(64),
+            reviewNote: 'The evidence does not support this requested change.',
+            proposalSummary: 'A reviewed support proposal.',
+            sourceEvidenceHash: 'b'.repeat(64),
+            createdBy: 'operator_1',
+            decisionCreatedAt: '2026-09-10T11:01:00.000Z',
+          },
+        ],
+        replacements: [],
+        verifiedAt: '2026-09-10T12:00:00.000Z',
+        digest: 'c'.repeat(64),
+      },
+    }
+    const digestOf = (value: typeof current) =>
+      supportPackageFulfillmentDigest({
+        contractVersion: 7,
+        linkedPackageCount: value.linkedPackageCount,
+        packages: value.packages,
+        guestObservability: value.guestObservability,
+        contentFulfillment: value.contentFulfillment,
+        temporalFulfillment: value.temporalFulfillment,
+        noChangeFulfillment: value.noChangeFulfillment,
+        proposalResolutionFulfillment: value.proposalResolutionFulfillment,
+      })
+    current.digest = digestOf(current)
+    const later = {
+      ...current,
+      proposalResolutionFulfillment: {
+        ...current.proposalResolutionFulfillment,
+        verifiedAt: '2030-01-01T00:00:00.000Z',
+      },
+    }
+    expect(sameSupportPackageFulfillment(current, later)).toBe(true)
+    expect(
+      sameSupportPackageFulfillment(
+        { contractVersion: 1, linkedPackageCount: 0, packages: [], digest: 'd'.repeat(64) },
+        current,
+      ),
+    ).toBe(false)
+    for (const changed of [
+      { reviewNoteHash: 'e'.repeat(64) },
+      { sourceEvidenceHash: 'f'.repeat(64) },
+      { replacementOfProposalId: '44444444-4444-4444-8444-444444444444' },
+    ]) {
+      expect(
+        sameSupportPackageFulfillment(current, {
+          ...current,
+          proposalResolutionFulfillment: {
+            ...current.proposalResolutionFulfillment,
+            declines: [{ ...current.proposalResolutionFulfillment.declines[0]!, ...changed }],
+          },
+        }),
+      ).toBe(false)
+    }
+    const expiring = {
+      ...current,
+      contentFulfillment: {
+        ...current.contentFulfillment,
+        receipts: [
+          {
+            receiptKind: 'UNIVERSAL' as const,
+            moduleKind: 'POLICY' as const,
+            effectiveFrom: null,
+            effectiveUntil: '2026-09-10T13:00:00.000Z',
+            operationalFactExpiresAt: null,
+            revisionVersion: 1,
+            replacementOfProposalId: null,
+            classification: 'ADDITION',
+            relation: 'NEW_FACT',
+            expectedBaseRevisionId: null,
+            expectedBaseVersion: null,
+            state: 'CURRENT' as const,
+            supersededByReceiptId: null,
+            receiptId: 'receipt',
+            proposalId: 'proposal',
+            sourceProposalId: 'proposal',
+            sourceRequestVersion: 1,
+            moduleId: 'module',
+            revisionId: 'revision',
+            publicationId: 'publication',
+            projectionId: 'projection',
+            observedStateHash: 'c'.repeat(64),
+          },
+        ],
+      },
+    }
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(expiring, new Date('2026-09-10T13:00:00.000Z')),
+    ).toThrow('Content fulfillment is no longer currently effective')
+  })
+})

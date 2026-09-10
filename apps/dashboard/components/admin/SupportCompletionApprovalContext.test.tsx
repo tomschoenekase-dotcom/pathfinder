@@ -30,6 +30,28 @@ describe('SupportCompletionApprovalContext', () => {
     )
   })
 
+  it('shows reviewed declines before the founder decision body for a resolved no-change completion', () => {
+    render(
+      <SupportCompletionApprovalContext
+        proposal={{
+          completionOutcome: 'RESOLVED',
+          reviewedDeclines: [
+            {
+              proposalSummary: 'Replace the accessible entrance directions.',
+              reviewNote: 'The evidence did not establish a permanent route.',
+            },
+          ],
+          body: 'We reviewed the requested guidance.',
+        }}
+      />,
+    )
+    const heading = screen.getByText('Declined changes')
+    const body = screen.getByText('We reviewed the requested guidance.')
+    expect(screen.getByText('Request resolved')).toBeTruthy()
+    expect(screen.getByText('Replace the accessible entrance directions.')).toBeTruthy()
+    expect(heading.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('does not invent an outcome for a historical proposal without one', () => {
     render(
       <SupportCompletionApprovalContext

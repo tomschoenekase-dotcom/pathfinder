@@ -17,6 +17,20 @@ function fulfillment(overrides: Record<string, unknown> = {}) {
   } as unknown as SupportCompletionPackageFulfillment
 }
 
+function resolutionFulfillment(overrides: Record<string, unknown> = {}) {
+  return fulfillment({
+    contractVersion: 7,
+    proposalResolutionFulfillment: {
+      contractVersion: 1,
+      declines: [],
+      replacements: [],
+      verifiedAt: '2030-01-02T00:00:00.000Z',
+      digest: 'f'.repeat(64),
+    },
+    ...overrides,
+  })
+}
+
 describe('deriveSupportCompletionOutcome', () => {
   it.each([
     ['RESOLVED', fulfillment()],
@@ -57,6 +71,61 @@ describe('deriveSupportCompletionOutcome', () => {
         packages: [],
         digest: 'a'.repeat(64),
       }),
+    ).toBe('RESOLVED')
+  })
+
+  it('treats declines as resolved unless independently observed mutations make the result mixed', () => {
+    const decline = { resolutionId: 'resolution-1' }
+    expect(
+      deriveSupportCompletionOutcome(
+        resolutionFulfillment({
+          proposalResolutionFulfillment: {
+            contractVersion: 1,
+            declines: [decline],
+            replacements: [],
+            verifiedAt: '2030-01-02T00:00:00.000Z',
+            digest: 'f'.repeat(64),
+          },
+        }),
+      ),
+    ).toBe('RESOLVED')
+    expect(
+      deriveSupportCompletionOutcome(
+        resolutionFulfillment({
+          noChangeFulfillment: { receipts: [{}] },
+          proposalResolutionFulfillment: {
+            contractVersion: 1,
+            declines: [decline],
+            replacements: [],
+          },
+        }),
+      ),
+    ).toBe('RESOLVED')
+    expect(
+      deriveSupportCompletionOutcome(
+        resolutionFulfillment({
+          temporalFulfillment: { receipts: [{}] },
+          proposalResolutionFulfillment: {
+            contractVersion: 1,
+            declines: [decline],
+            replacements: [],
+          },
+        }),
+      ),
+    ).toBe('MIXED')
+  })
+
+  it('does not treat replacement retirement by itself as a guest-visible update', () => {
+    expect(
+      deriveSupportCompletionOutcome(
+        resolutionFulfillment({
+          proposalResolutionFulfillment: {
+            contractVersion: 1,
+            declines: [],
+            replacements: [{ resolutionId: 'resolution-1' }],
+          },
+        }),
+      ),
     ).toBe('RESOLVED')
   })
 })

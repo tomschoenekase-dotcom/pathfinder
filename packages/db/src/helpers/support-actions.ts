@@ -1565,12 +1565,14 @@ async function manualSupportLoopActionOnce(
           'Completion outcome or fulfillment changed; refresh completion evidence.',
         )
       if (
-        (currentCompletionOutcome === 'NO_CHANGE' || currentCompletionOutcome === 'MIXED') &&
+        (currentCompletionOutcome === 'NO_CHANGE' ||
+          currentCompletionOutcome === 'MIXED' ||
+          currentPackageFulfillment.contractVersion === 7) &&
         parsed.expectedCompletionOutcome === undefined
       )
         throw new SupportActionError(
           'CONFLICT',
-          'Verified no-change completion requires the exact reviewed outcome and fulfillment digest.',
+          'Verified decision completion requires the exact reviewed outcome and fulfillment digest.',
         )
       completionPackageFulfillment = currentPackageFulfillment
       completionOutcome = currentCompletionOutcome

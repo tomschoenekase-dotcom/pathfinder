@@ -16,10 +16,15 @@ export function deriveSupportCompletionOutcome(
   const temporalMutation =
     'temporalFulfillment' in fulfillment && fulfillment.temporalFulfillment.receipts.length > 0
   const noChange =
-    fulfillment.contractVersion === 6 && fulfillment.noChangeFulfillment.receipts.length > 0
+    (fulfillment.contractVersion === 6 || fulfillment.contractVersion === 7) &&
+    fulfillment.noChangeFulfillment.receipts.length > 0
+  const declines =
+    fulfillment.contractVersion === 7 &&
+    fulfillment.proposalResolutionFulfillment.declines.length > 0
   const mutation = packageMutation || contentMutation || temporalMutation
-  if (mutation && noChange) return 'MIXED'
+  if (mutation && (noChange || declines)) return 'MIXED'
   if (mutation) return 'UPDATED'
+  if (declines) return 'RESOLVED'
   if (noChange) return 'NO_CHANGE'
   return 'RESOLVED'
 }

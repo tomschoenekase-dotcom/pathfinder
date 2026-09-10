@@ -27,6 +27,7 @@ function supportCompletionProposalProjection(input: {
 }): {
   completionOutcome: 'UPDATED' | 'NO_CHANGE' | 'MIXED' | 'RESOLVED' | null
   body: string
+  reviewedDeclines?: Array<{ proposalSummary: string; reviewNote: string }>
 } | null {
   if (input.proposedAction !== SUPPORT_COMPLETION_APPLY_ACTION) return null
   const snapshot = SupportCompletionProposalApprovalSnapshot.safeParse(input.scopeSnapshot)
@@ -34,6 +35,14 @@ function supportCompletionProposalProjection(input: {
   return {
     completionOutcome: snapshot.data.completionOutcome ?? null,
     body: snapshot.data.body,
+    ...(snapshot.data.packageFulfillment.contractVersion === 7
+      ? {
+          reviewedDeclines:
+            snapshot.data.packageFulfillment.proposalResolutionFulfillment.declines.map(
+              ({ proposalSummary, reviewNote }) => ({ proposalSummary, reviewNote }),
+            ),
+        }
+      : {}),
   }
 }
 

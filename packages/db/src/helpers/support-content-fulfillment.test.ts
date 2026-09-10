@@ -165,7 +165,7 @@ describe('support content fulfillment', () => {
     )
   })
 
-  it('allows an explicitly rejected source proposal with no content receipt', async () => {
+  it('rejects bare rejection and accepts only exact independently verified decline IDs', async () => {
     const db = reader({
       knowledgeChangeProposal: {
         findMany: vi.fn().mockResolvedValue([
@@ -182,7 +182,21 @@ describe('support content fulfillment', () => {
       },
       knowledgeProposalUniversalContentHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     })
-    const value = await readSupportContentFulfillment(db as never, { ...scope, asOf })
+    await expect(readSupportContentFulfillment(db as never, { ...scope, asOf })).rejects.toThrow(
+      'no verified content',
+    )
+    await expect(
+      readSupportContentFulfillment(db as never, {
+        ...scope,
+        asOf,
+        verifiedReviewedDeclineProposalIds: ['another-proposal'],
+      }),
+    ).rejects.toThrow('no verified content')
+    const value = await readSupportContentFulfillment(db as never, {
+      ...scope,
+      asOf,
+      verifiedReviewedDeclineProposalIds: ['proposal_1'],
+    })
     expect(value).toMatchObject({ receipts: [], guestRead: { path: 'NOT_APPLICABLE' } })
     expect(db.tenantFeatureFlag.findFirst).not.toHaveBeenCalled()
   })

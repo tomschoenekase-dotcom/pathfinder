@@ -7,6 +7,12 @@ import {
 
 import { db } from '../client'
 import {
+  readSupportProposalResolutionEvidence,
+  finalizeSupportProposalResolutionFulfillment,
+  SupportProposalResolutionError,
+  type SupportProposalResolutionReader,
+} from './support-proposal-resolution-fulfillment'
+import {
   readSupportNoChangeFulfillment,
   SupportNoChangeFulfillmentError,
   type SupportNoChangeFulfillmentReader,
@@ -34,7 +40,8 @@ type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff' | '$exe
   SupportPackageObservabilityReader &
   SupportContentFulfillmentReader &
   SupportTemporalFulfillmentReader &
-  SupportNoChangeFulfillmentReader
+  SupportNoChangeFulfillmentReader &
+  SupportProposalResolutionReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -61,12 +68,21 @@ export function supportPackageFulfillmentDigest(
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 5 }>, 'digest'>
-    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 6 }>, 'digest'>,
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 6 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 7 }>, 'digest'>,
 ): string {
   const normalized =
     value.contractVersion !== 1
       ? {
           ...value,
+          ...('proposalResolutionFulfillment' in value
+            ? {
+                proposalResolutionFulfillment: {
+                  ...value.proposalResolutionFulfillment,
+                  verifiedAt: null,
+                },
+              }
+            : {}),
           ...('noChangeFulfillment' in value
             ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
             : {}),
@@ -149,6 +165,7 @@ export async function readSupportPackageFulfillment(
   let contentFulfillment
   let temporalFulfillment
   let noChangeFulfillment
+  let proposalResolutionFulfillment
   try {
     guestObservability = await readSupportPackageGuestObservability({
       client,
@@ -162,18 +179,50 @@ export async function readSupportPackageFulfillment(
     })
     temporalFulfillment = await readSupportTemporalFulfillment(client, input)
     noChangeFulfillment = await readSupportNoChangeFulfillment(client, input)
+    const resolutionEvidence = await readSupportProposalResolutionEvidence(client, input)
     contentFulfillment = await readSupportContentFulfillment(client, {
+      verifiedReviewedDeclineProposalIds: resolutionEvidence.declines.map(
+        ({ proposalId }) => proposalId,
+      ),
+      verifiedReplacementOriginalProposalIds: resolutionEvidence.replacements.map(
+        ({ proposalId }) => proposalId,
+      ),
       ...input,
       verifiedNoChangeProposalIds: noChangeFulfillment.receipts.map(({ proposalId }) => proposalId),
       verifiedPackageIds: packages.map(({ packageId }) => packageId),
       verifiedTemporalProposalIds: temporalFulfillment.receipts.map(({ proposalId }) => proposalId),
     })
+    proposalResolutionFulfillment = finalizeSupportProposalResolutionFulfillment(
+      resolutionEvidence,
+      [
+        ...contentFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'CONTENT' as const,
+        })),
+        ...temporalFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'TEMPORAL' as const,
+        })),
+        ...noChangeFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'NO_CHANGE' as const,
+        })),
+        ...resolutionEvidence.sources
+          .filter(
+            (source) =>
+              source.packageHandoffVenuePackageId &&
+              packages.some(({ packageId }) => packageId === source.packageHandoffVenuePackageId),
+          )
+          .map(({ proposalId }) => ({ proposalId, kind: 'PACKAGE' as const })),
+      ],
+    )
   } catch (error) {
     if (
       error instanceof SupportPackageObservabilityError ||
       error instanceof SupportContentFulfillmentError ||
       error instanceof SupportTemporalFulfillmentError ||
-      error instanceof SupportNoChangeFulfillmentError
+      error instanceof SupportNoChangeFulfillmentError ||
+      error instanceof SupportProposalResolutionError
     )
       throw new SupportPackageFulfillmentError(error.message)
     throw error
@@ -187,9 +236,14 @@ export async function readSupportPackageFulfillment(
     temporalFulfillment,
     noChangeFulfillment,
   }
+  const currentIdentity =
+    proposalResolutionFulfillment.declines.length ||
+    proposalResolutionFulfillment.replacements.length
+      ? { ...identity, contractVersion: 7 as const, proposalResolutionFulfillment }
+      : identity
   return SupportCompletionPackageFulfillment.parse({
-    ...identity,
-    digest: supportPackageFulfillmentDigest(identity),
+    ...currentIdentity,
+    digest: supportPackageFulfillmentDigest(currentIdentity),
   })
 }
 
@@ -201,6 +255,12 @@ export function sameSupportPackageFulfillment(
     return (
       left.linkedPackageCount === 0 &&
       right.linkedPackageCount === 0 &&
+      (!('proposalResolutionFulfillment' in left) ||
+        (left.proposalResolutionFulfillment.declines.length === 0 &&
+          left.proposalResolutionFulfillment.replacements.length === 0)) &&
+      (!('proposalResolutionFulfillment' in right) ||
+        (right.proposalResolutionFulfillment.declines.length === 0 &&
+          right.proposalResolutionFulfillment.replacements.length === 0)) &&
       (!('noChangeFulfillment' in left) || left.noChangeFulfillment.receipts.length === 0) &&
       (!('noChangeFulfillment' in right) || right.noChangeFulfillment.receipts.length === 0) &&
       (!('contentFulfillment' in left) || left.contentFulfillment.receipts.length === 0) &&
@@ -213,11 +273,19 @@ export function sameSupportPackageFulfillment(
     value: Extract<
       SupportCompletionPackageFulfillmentValue,
       {
-        contractVersion: 2 | 3 | 4 | 5 | 6
+        contractVersion: 2 | 3 | 4 | 5 | 6 | 7
       }
     >,
   ) => ({
     ...value,
+    ...('proposalResolutionFulfillment' in value
+      ? {
+          proposalResolutionFulfillment: {
+            ...value.proposalResolutionFulfillment,
+            verifiedAt: null,
+          },
+        }
+      : {}),
     ...('noChangeFulfillment' in value
       ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
       : {}),
@@ -243,7 +311,7 @@ export function assertSupportFulfillmentEffectiveAt(
   if (!Number.isFinite(now.getTime()))
     throw new SupportPackageFulfillmentError('Invalid completion time.')
   if (
-    (value.contractVersion === 5 || value.contractVersion === 6) &&
+    (value.contractVersion === 5 || value.contractVersion === 6 || value.contractVersion === 7) &&
     value.contentFulfillment.receipts.some(
       (receipt) =>
         receipt.state === 'CURRENT' &&

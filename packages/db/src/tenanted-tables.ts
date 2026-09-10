@@ -1,6 +1,7 @@
 export const TENANTED_TABLES = [
   'SemanticConflictResolution',
   'SemanticDuplicateResolution',
+  'SemanticReviewedDecline',
   'TenantMembership',
   'CustomerAccessRequest',
   'FounderDirectiveTaskRequest',

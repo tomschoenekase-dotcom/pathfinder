@@ -516,7 +516,7 @@ const supportCompletionChainedReceiptShape = {
   receiptId: z.string().min(1).max(191),
   proposalId: z.string().min(1).max(191),
   sourceProposalId: z.string().min(1).max(191),
-  sourceRequestVersion: z.number().int().positive(),
+  sourceRequestVersion: z.number().int(),
   replacementOfProposalId: z.string().min(1).max(191).nullable(),
   moduleId: z.string().min(1).max(191),
   moduleKind: z.enum(['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP']),
@@ -755,6 +755,92 @@ export const SupportCompletionPackageFulfillmentV6 = z
   })
   .strict()
 
+const resolutionIdentity = {
+  resolutionId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  sourceRequestVersion: z.number().int().positive(),
+  proposalUpdatedAt: z.string().datetime(),
+  createdBy: z.string().trim().min(1).max(191),
+  decisionCreatedAt: z.string().datetime(),
+} as const
+
+export const SupportCompletionProposalResolutionFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    declines: z
+      .array(
+        z
+          .object({
+            ...resolutionIdentity,
+            sourceProposalId: z.string().uuid(),
+            replacementOfProposalId: z.string().uuid().nullable(),
+            reviewedProposalUpdatedAt: z.string().datetime(),
+            reviewedAt: z.string().datetime(),
+            reviewNoteHash: z.string().regex(/^[a-f0-9]{64}$/),
+            reviewNote: z.string().min(1).max(2000),
+            proposalSummary: z.string().min(1).max(500),
+            sourceEvidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    replacements: z
+      .array(
+        z
+          .object({
+            ...resolutionIdentity,
+            replacementProposalId: z.string().uuid(),
+            decisionProposalUpdatedAt: z.string().datetime(),
+            questionId: z.string().trim().min(1).max(191),
+            questionUpdatedAt: z.string().datetime(),
+            answeredAt: z.string().datetime(),
+            answerHash: z.string().regex(/^[a-f0-9]{64}$/),
+            replacementFulfillmentKind: z.enum([
+              'CONTENT',
+              'PACKAGE',
+              'TEMPORAL',
+              'NO_CHANGE',
+              'DECLINE',
+            ]),
+          })
+          .strict(),
+      )
+      .max(100),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const all = [...value.declines, ...value.replacements]
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['declines'], message })
+    if (all.length > 100) issue('Proposal resolution fulfillment is limited to 100 decisions.')
+    if (new Set(all.map(({ resolutionId }) => resolutionId)).size !== all.length)
+      issue('Proposal resolution fulfillment contains duplicate resolution identities.')
+    if (new Set(all.map(({ proposalId }) => proposalId)).size !== all.length)
+      issue('Proposal resolution fulfillment contains duplicate proposal identities.')
+    if (
+      new Set(value.replacements.map(({ replacementProposalId }) => replacementProposalId)).size !==
+      value.replacements.length
+    )
+      issue('Proposal resolution fulfillment contains duplicate replacement identities.')
+    const replacementOriginals = new Set(value.replacements.map(({ proposalId }) => proposalId))
+    if (value.declines.some(({ proposalId }) => replacementOriginals.has(proposalId)))
+      issue('A proposal cannot be both declined and replaced.')
+  })
+
+export const SupportCompletionPackageFulfillmentV7 = z
+  .object({
+    contractVersion: z.literal(7),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+    noChangeFulfillment: SupportCompletionNoChangeFulfillment,
+    proposalResolutionFulfillment: SupportCompletionProposalResolutionFulfillment,
+  })
+  .strict()
+
 export const SupportCompletionPackageFulfillment = z
   .discriminatedUnion('contractVersion', [
     SupportCompletionPackageFulfillmentV1,
@@ -763,6 +849,7 @@ export const SupportCompletionPackageFulfillment = z
     SupportCompletionPackageFulfillmentV4,
     SupportCompletionPackageFulfillmentV5,
     SupportCompletionPackageFulfillmentV6,
+    SupportCompletionPackageFulfillmentV7,
   ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {

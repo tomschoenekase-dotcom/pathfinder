@@ -11,6 +11,8 @@ import {
 import { router } from '../../core'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import { adminProcedure } from '../../trpc'
+import { SemanticReviewedDeclineInput } from '../../lib/semantic-reviewed-decline-contract'
+import { createSemanticReviewedDeclineService } from '../../lib/semantic-reviewed-decline-service'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
@@ -19,6 +21,17 @@ function isUniqueConflict(error: unknown) {
 }
 
 export const adminKnowledgeProposalReviewRouter = router({
+  recordSupportReviewedDecline: adminProcedure
+    .input(SemanticReviewedDeclineInput)
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        createSemanticReviewedDeclineService({
+          db,
+          actorId: ctx.session.userId,
+          input,
+        }),
+      ),
+    ),
   listKnowledgeProposals: adminProcedure
     .input(
       z
@@ -50,6 +63,14 @@ export const adminKnowledgeProposalReviewRouter = router({
           take: input.limit,
           select: {
             id: true,
+            reviewedDecline: {
+              select: { id: true, reviewedProposalUpdatedAt: true, createdAt: true },
+            },
+            conflictResolutions: { select: { id: true }, take: 1 },
+            packageHandoff: { select: { id: true } },
+            operationalUpdateHandoff: { select: { id: true } },
+            universalContentHandoff: { select: { id: true } },
+            legacyContentAdoption: { select: { id: true } },
             duplicateResolution: {
               select: {
                 id: true,
@@ -96,6 +117,12 @@ export const adminKnowledgeProposalReviewRouter = router({
         return rows.map(
           ({
             duplicateResolution,
+            reviewedDecline,
+            conflictResolutions,
+            packageHandoff,
+            operationalUpdateHandoff,
+            universalContentHandoff,
+            legacyContentAdoption,
             producedByConflictResolution,
             targetKnowledgeEntry,
             ...proposal
@@ -111,6 +138,28 @@ export const adminKnowledgeProposalReviewRouter = router({
               targetKnowledgeEntry.contentPublicationId == null
             return {
               ...proposal,
+              canRecordReviewedDecline:
+                hasSupportProvenance &&
+                (proposal.status === 'PENDING_REVIEW' || proposal.status === 'REJECTED') &&
+                !reviewedDecline &&
+                !duplicateResolution &&
+                !conflictResolutions?.length &&
+                !packageHandoff &&
+                !operationalUpdateHandoff &&
+                !universalContentHandoff &&
+                !legacyContentAdoption,
+              reviewedDecline: reviewedDecline
+                ? {
+                    resolutionId: reviewedDecline.id,
+                    outcome: 'REVIEWED_DECLINE' as const,
+                    createdAt: reviewedDecline.createdAt,
+                    proposalRevisionCurrent:
+                      proposal.status === 'REJECTED' &&
+                      proposal.updatedAt.getTime() ===
+                        reviewedDecline.reviewedProposalUpdatedAt.getTime(),
+                    currentFulfillmentVerified: false as const,
+                  }
+                : null,
               duplicateResolution: duplicateResolution
                 ? {
                     resolutionId: duplicateResolution.id,

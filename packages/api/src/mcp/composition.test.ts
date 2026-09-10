@@ -1340,10 +1340,13 @@ describe('safe operational MCP composition', () => {
       expect.objectContaining({
         actionName: 'pathfinder.apply_support_completion',
         capability: 'support:complete',
+        actor: expect.objectContaining({ actorId: 'agent-1', agentRunId: 'run-1' }),
         parameters: expect.objectContaining({
           fromStatus: 'IN_REVIEW',
           toStatus: 'COMPLETED',
           body: 'Your requested venue update is complete.',
+          packageFulfillment: reviewedScope.packageFulfillment,
+          completionOutcome: 'RESOLVED',
         }),
       }),
       expect.anything(),
@@ -1429,28 +1432,7 @@ describe('safe operational MCP composition', () => {
       expect.anything(),
     )
 
-    readSupportFulfillment.mockResolvedValueOnce({
-      contractVersion: 6,
-      guestObservability: { effects: [] },
-      contentFulfillment: { receipts: [] },
-      temporalFulfillment: { receipts: [] },
-      noChangeFulfillment: { receipts: [{ id: 'no-change_1' }] },
-      digest: 'c'.repeat(64),
-    })
-    tx.approvalGrant.findFirst.mockResolvedValueOnce({
-      approvalDecision: { approvalRequest: { scopeSnapshot: historicalScope } },
-    })
-    const consumesBeforeNoChange = consumeApproval.mock.calls.length
-    const completionsBeforeNoChange = completeSupport.mock.calls.length
-    await expect(
-      registry.callTool(
-        'pathfinder.apply_support_completion',
-        { ...input, operationId: '4b444444-4444-4444-8444-444444444444' },
-        { credential: supportCredential, approvalGrantId: 'grant-1' },
-      ),
-    ).rejects.toThrow('Historical support completion approval cannot apply a no-change outcome')
-    expect(consumeApproval).toHaveBeenCalledTimes(consumesBeforeNoChange)
-    expect(completeSupport).toHaveBeenCalledTimes(completionsBeforeNoChange)
+    expect(readSupportFulfillment).not.toHaveBeenCalled()
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {

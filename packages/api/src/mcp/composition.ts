@@ -37,7 +37,6 @@ import {
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
   readGuestAnswerAttributionAgreement,
-  readSupportPackageFulfillment,
   recordCompanyMeetingExtractionAction,
   completeCompanyMeetingProcessingAction,
   listAccountCorrespondence,
@@ -3731,12 +3730,6 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       if (!run)
         throw new McpActionBindingError('Verified support-completion worker run is unavailable')
       const result = await database.$transaction(async (tx) => {
-        const packageFulfillment = await readSupportPackageFulfillment(tx, {
-          tenantId: context.credential.tenantId,
-          venueId,
-          supportRequestId: input.requestId,
-        })
-        const completionOutcome = deriveSupportCompletionOutcome(packageFulfillment)
         const approvedGrant = await tx.approvalGrant.findFirst({
           where: {
             id: context.approvalGrantId!,
@@ -3757,14 +3750,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         )
         if (!reviewedSnapshot.success)
           throw new McpActionBindingError('Approved support completion parameters are unavailable')
+        const packageFulfillment = reviewedSnapshot.data.packageFulfillment
+        const completionOutcome = deriveSupportCompletionOutcome(packageFulfillment)
         const outcomeWasReviewed = reviewedSnapshot.data.completionOutcome !== undefined
-        if (
-          !outcomeWasReviewed &&
-          (completionOutcome === 'NO_CHANGE' || completionOutcome === 'MIXED')
-        )
-          throw new McpActionBindingError(
-            'Historical support completion approval cannot apply a no-change outcome; refresh review.',
-          )
         const parameters = {
           clientId: context.credential.clientId,
           venueId,

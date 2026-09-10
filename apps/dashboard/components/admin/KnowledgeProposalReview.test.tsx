@@ -16,6 +16,20 @@ vi.mock('./SemanticUpdatePreview', () => ({
     </button>
   ),
 }))
+vi.mock('./SemanticReviewedDeclineForm', () => ({
+  SemanticReviewedDeclineForm: ({
+    onFrozenChange,
+    onRecorded,
+  }: {
+    onFrozenChange?: (frozen: boolean) => void
+    onRecorded: () => void
+  }) => (
+    <>
+      <button onClick={() => onFrozenChange?.(true)}>Fixture start reviewed decline</button>
+      <button onClick={onRecorded}>Fixture finish reviewed decline</button>
+    </>
+  ),
+}))
 
 import { KnowledgeProposalReview } from './KnowledgeProposalReview'
 
@@ -142,5 +156,127 @@ describe('KnowledgeProposalReview', () => {
     expect(screen.getByText(/does not verify current fulfillment/)).toBeTruthy()
     expect(screen.getByText(/proposal has changed since this receipt/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Complete semantic resolution' })).toBeNull()
+  })
+
+  it('replaces bare support rejection with reviewed decline and freezes sibling approval', () => {
+    const proposal = {
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'PENDING_REVIEW',
+      observedVisitorClaim: null,
+      aiInference: null,
+      proposedChange: 'Retire unsupported guidance.',
+      reason: 'Support review found insufficient evidence.',
+      confidence: 0.8,
+      evidenceMessageIds: ['message-1'],
+      targetKnowledgeEntryId: 'entry-1',
+      createdAt: '2026-09-10T11:00:00.000Z',
+      updatedAt: '2026-09-10T12:00:00.000Z',
+      reviewerId: null,
+      reviewNote: null,
+      reviewedAt: null,
+      supportRequestId: 'request-1',
+      canRecordReviewedDecline: true,
+    }
+    render(<KnowledgeProposalReview tenantId="tenant-1" venueId="venue-1" proposals={[proposal]} />)
+    expect(screen.queryByRole('button', { name: 'Reject proposal' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Review note'), { target: { value: 'Approve.' } })
+    const approve = screen.getByRole('button', { name: 'Approve evidence' }) as HTMLButtonElement
+    expect(approve.disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Fixture start reviewed decline' }))
+    expect(approve.disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Complete semantic resolution' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Fixture finish reviewed decline' }))
+    expect(screen.queryByRole('button', { name: 'Approve evidence' })).toBeNull()
+    expect(screen.getByText('Reviewed decline recorded')).toBeTruthy()
+  })
+
+  it('renders current and stale reviewed-decline receipts without fulfillment claims', () => {
+    const base = {
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'REJECTED',
+      observedVisitorClaim: null,
+      aiInference: null,
+      proposedChange: 'Retire unsupported guidance.',
+      reason: 'Reviewed decline.',
+      confidence: 0.8,
+      evidenceMessageIds: ['message-1'],
+      targetKnowledgeEntryId: 'entry-1',
+      createdAt: '2026-09-10T11:00:00.000Z',
+      updatedAt: '2026-09-10T12:00:00.000Z',
+      reviewerId: 'reviewer-1',
+      reviewNote: 'Declined.',
+      reviewedAt: '2026-09-10T12:00:00.000Z',
+      canRecordReviewedDecline: false,
+    }
+    const view = render(
+      <KnowledgeProposalReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        proposals={[
+          {
+            ...base,
+            reviewedDecline: {
+              resolutionId: 'resolution-1',
+              outcome: 'REVIEWED_DECLINE' as const,
+              createdAt: '2026-09-10T12:01:00.000Z',
+              proposalRevisionCurrent: true,
+              currentFulfillmentVerified: false as const,
+            },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Reviewed decline recorded')).toBeTruthy()
+    expect(screen.getByText(/does not verify current fulfillment/)).toBeTruthy()
+    expect(screen.queryByText(/proposal has changed/)).toBeNull()
+
+    view.rerender(
+      <KnowledgeProposalReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        proposals={[
+          {
+            ...base,
+            reviewedDecline: {
+              resolutionId: 'resolution-1',
+              outcome: 'REVIEWED_DECLINE' as const,
+              createdAt: '2026-09-10T12:01:00.000Z',
+              proposalRevisionCurrent: false,
+              currentFulfillmentVerified: false as const,
+            },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText(/proposal has changed since this receipt/)).toBeTruthy()
+  })
+
+  it('keeps the legacy non-support reject action', () => {
+    render(
+      <KnowledgeProposalReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        proposals={[
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            status: 'PENDING_REVIEW',
+            observedVisitorClaim: null,
+            aiInference: null,
+            proposedChange: 'Legacy proposal.',
+            reason: 'Legacy review.',
+            confidence: 0.8,
+            evidenceMessageIds: [],
+            targetKnowledgeEntryId: null,
+            createdAt: '2026-09-10T11:00:00.000Z',
+            updatedAt: '2026-09-10T12:00:00.000Z',
+            reviewerId: null,
+            reviewNote: null,
+            reviewedAt: null,
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Reject proposal' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Fixture start reviewed decline' })).toBeNull()
   })
 })

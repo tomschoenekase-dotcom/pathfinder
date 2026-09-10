@@ -936,6 +936,8 @@ describe('admin knowledge proposals', () => {
         supportRequestId: null,
         supportRequestVersion: null,
         duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
         hasSupportProvenance: true,
         hasLegacyTarget: false,
         resolutionDraft: { desired, relation: 'SUPERSEDES' },
@@ -945,6 +947,8 @@ describe('admin knowledge proposals', () => {
         supportRequestId: 'support-direct',
         supportRequestVersion: 3,
         duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
         hasSupportProvenance: true,
         hasLegacyTarget: true,
         resolutionDraft: null,
@@ -954,6 +958,8 @@ describe('admin knowledge proposals', () => {
         supportRequestId: null,
         supportRequestVersion: null,
         duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
         hasSupportProvenance: false,
         hasLegacyTarget: false,
         resolutionDraft: null,
@@ -1058,5 +1064,77 @@ describe('admin knowledge proposals', () => {
       { id: 'no-duplicate', duplicateResolution: null },
     ])
     expect(rows[0]?.duplicateResolution).not.toHaveProperty('proposalUpdatedAt')
+  })
+  it('projects exact decline eligibility and bounded historical receipt metadata', async () => {
+    const updatedAt = new Date('2026-09-10T12:00:00.000Z')
+    const base = {
+      id: operationId,
+      status: 'REJECTED',
+      updatedAt,
+      supportRequestId: 'request-1',
+      supportRequestVersion: 2,
+      producedByConflictResolution: null,
+      targetKnowledgeEntry: null,
+      conflictResolutions: [],
+      reviewedDecline: null,
+    }
+    mocks.proposalList.mockResolvedValueOnce([
+      base,
+      { ...base, id: 'retired', conflictResolutions: [{ id: 'conflict' }] },
+      {
+        ...base,
+        id: 'recorded',
+        reviewedDecline: {
+          id: 'decline',
+          reviewedProposalUpdatedAt: updatedAt,
+          createdAt: updatedAt,
+        },
+      },
+      {
+        ...base,
+        id: 'changed',
+        reviewedDecline: {
+          id: 'decline-stale',
+          reviewedProposalUpdatedAt: new Date(0),
+          createdAt: updatedAt,
+        },
+      },
+      { ...base, id: 'not-support', supportRequestId: null, supportRequestVersion: null },
+    ])
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows.map((row) => row.canRecordReviewedDecline)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+    ])
+    expect(rows[2]?.reviewedDecline).toEqual({
+      resolutionId: 'decline',
+      outcome: 'REVIEWED_DECLINE',
+      createdAt: updatedAt,
+      proposalRevisionCurrent: true,
+      currentFulfillmentVerified: false,
+    })
+    expect(rows[3]?.reviewedDecline?.proposalRevisionCurrent).toBe(false)
+    expect(rows[1]).not.toHaveProperty('conflictResolutions')
+    expect(rows[2]?.reviewedDecline).not.toHaveProperty('reviewedProposalUpdatedAt')
+  })
+
+  it('denies non-admin access to the explicit decline action', async () => {
+    const ctx = context()
+    const nonAdmin = { ...ctx, session: { ...ctx.session!, isPlatformAdmin: false } } as TRPCContext
+    await expect(
+      app.createCaller(nonAdmin).admin.recordSupportReviewedDecline({
+        operationId,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedProposalUpdatedAt: '2026-09-10T12:00:00.000Z',
+        resolutionNote: 'Do not apply this change.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })

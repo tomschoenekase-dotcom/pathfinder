@@ -11,6 +11,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { SupportCompletionApprovalContext } from './SupportCompletionApprovalContext'
 import type { SupportCompletionOutcomeValue } from '../SupportCompletionOutcome'
+import type { SupportCompletionReviewedDecline } from './SupportCompletionReviewFacts'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
@@ -86,6 +87,7 @@ type Approval = {
   supportCompletionProposal?: {
     completionOutcome: SupportCompletionOutcomeValue | null
     body: string
+    reviewedDeclines?: SupportCompletionReviewedDecline[]
   } | null
 }
 

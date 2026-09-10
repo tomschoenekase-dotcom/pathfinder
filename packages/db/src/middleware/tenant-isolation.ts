@@ -30,6 +30,7 @@ tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIso
 const APPEND_ONLY_MODELS = [
   'SemanticConflictResolution',
   'SemanticDuplicateResolution',
+  'SemanticReviewedDecline',
   'AgentWorkflowVersion',
   'AgentWorkflowPromotionAssessment',
   'AgentWorkflowActivationEvent',

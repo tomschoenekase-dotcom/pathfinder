@@ -750,7 +750,17 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       supportRequestId: fixtureRows[0]!.requestId,
     })
     expect(adoptionFulfillment).toMatchObject({
-      contractVersion: 6,
+      contractVersion: 7,
+      proposalResolutionFulfillment: {
+        declines: [],
+        replacements: [
+          expect.objectContaining({
+            proposalId: conflictProposal.id,
+            replacementProposalId: replacement.id,
+            replacementFulfillmentKind: 'CONTENT',
+          }),
+        ],
+      },
       contentFulfillment: {
         receipts: [
           expect.objectContaining({

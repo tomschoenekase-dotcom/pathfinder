@@ -82,6 +82,7 @@ describe('tenantIsolationMiddleware', () => {
     expect(TENANTED_TABLES_LIST).toEqual([
       'SemanticConflictResolution',
       'SemanticDuplicateResolution',
+      'SemanticReviewedDecline',
       'TenantMembership',
       'CustomerAccessRequest',
       'FounderDirectiveTaskRequest',
@@ -418,6 +419,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectImportReportEntry',
       'SemanticConflictResolution',
       'SemanticDuplicateResolution',
+      'SemanticReviewedDecline',
     ].flatMap((model) =>
       ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),
     ),

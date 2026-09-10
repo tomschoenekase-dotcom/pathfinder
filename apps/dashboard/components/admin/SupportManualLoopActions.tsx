@@ -11,6 +11,10 @@ import {
   type SupportCompletionOutcomeValue,
 } from '../SupportCompletionOutcome'
 import type { SupportRequestStatus } from '@pathfinder/contracts/support-workflow'
+import {
+  SupportCompletionReviewFacts,
+  type SupportCompletionReviewedDecline,
+} from './SupportCompletionReviewFacts'
 
 type Draft = {
   scope: string
@@ -94,6 +98,7 @@ export function SupportManualLoopActions({
     outcome: SupportCompletionOutcomeValue
     fulfillmentDigest: string
     expectedVersion: number
+    reviewedDeclines?: SupportCompletionReviewedDecline[]
   } | null>(null)
   const completionPreview = completionPreviewState?.scope === scope ? completionPreviewState : null
   const [completionUnknownScope, setCompletionUnknownScope] = useState<string | null>(null)
@@ -387,6 +392,9 @@ export function SupportManualLoopActions({
               className="rounded-xl border border-pf-light px-3 py-2 font-normal"
             />
           </label>
+          {completionPreview ? (
+            <SupportCompletionReviewFacts reviewedDeclines={completionPreview.reviewedDeclines} />
+          ) : null}
           {completionPreview ? (
             <label className="flex items-start gap-2 text-sm text-pf-deep/75">
               <input

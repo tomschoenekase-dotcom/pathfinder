@@ -69,6 +69,13 @@ export const adminSupportManualLoopRouter = router({
           return {
             outcome: deriveSupportCompletionOutcome(fulfillment),
             fulfillmentDigest: fulfillment.digest,
+            ...(fulfillment.contractVersion === 7
+              ? {
+                  reviewedDeclines: fulfillment.proposalResolutionFulfillment.declines.map(
+                    ({ proposalSummary, reviewNote }) => ({ proposalSummary, reviewNote }),
+                  ),
+                }
+              : {}),
             expectedVersion: request.version,
           }
         })
