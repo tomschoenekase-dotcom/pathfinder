@@ -92,6 +92,7 @@ describe('voice grounding production retrieval parity', () => {
       tenantId: 'tenant',
       venueId: 'venue',
       query: 'Tell me about Case 12',
+      visitContext: { visitedPlaceIds: ['case-first'], interests: [] },
     })
     expect(result.identityClarificationRequired).toBe(true)
     expect(result.context).toContain('IDENTITY CLARIFICATION DATA')
@@ -545,6 +546,114 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).toContain('Train Hall')
     expect(result.visitContext?.visitedPlaces).toEqual([])
     expect(result.provider.called).toBe(false)
+  })
+
+  it('over-fetches past visited recommendations and retains visited labels only as preference context', async () => {
+    const places = Array.from({ length: 9 }, (_, index) =>
+      place({ id: `place-${index + 1}`, name: `Gallery ${index + 1}` }),
+    )
+    const visitedPlaceIds = places.slice(0, 8).map(({ id }) => id)
+    const findMany = vi.fn(async (args: Prisma.PlaceFindManyArgs) => {
+      void args
+      return places
+    })
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What should I see next?',
+      visitContext: { visitedPlaceIds, interests: ['galleries'] },
+    })
+
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 16 })
+    expect(result.context).toContain('[PLACE: Gallery 9]')
+    expect(result.sourceIds).toContain('place:place-9')
+    for (let index = 1; index <= 8; index += 1) {
+      expect(result.context).not.toContain(`[PLACE: Gallery ${index}]`)
+      expect(result.sourceIds).not.toContain(`place:place-${index}`)
+    }
+    expect(result.visitContext?.visitedPlaces).toHaveLength(8)
+    expect(result.visitContext?.visitedPlaces.map(({ name }) => name)).toContain('Gallery 1')
+    expect(result.context).toContain('Recommend only eligible PLACE choices included below')
+  })
+
+  it('keeps the final recommendation place budget at eight despite twenty unknown visited IDs', async () => {
+    const places = Array.from({ length: 28 }, (_, index) =>
+      place({ id: `eligible-${index + 1}`, name: `Eligible Gallery ${index + 1}` }),
+    )
+    const findMany = vi.fn(async (args: Prisma.PlaceFindManyArgs) => {
+      void args
+      return places
+    })
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: { findMany },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What should I see next?',
+      visitContext: {
+        visitedPlaceIds: Array.from({ length: 20 }, (_, index) => `unknown-${index + 1}`),
+        interests: [],
+      },
+    })
+
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 28 })
+    expect(result.sourceIds.filter((sourceId) => sourceId.startsWith('place:'))).toHaveLength(8)
+    expect(result.context.match(/\[PLACE:/gu)).toHaveLength(8)
+    expect(result.sourceIds).not.toContain('place:eligible-9')
+  })
+
+  it('honestly leaves no place recommendation when every authorized choice was visited', async () => {
+    const places = [
+      place({ id: 'visited-1', name: 'Visited One' }),
+      place({ id: 'visited-2', name: 'Visited Two' }),
+    ]
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [row('safety', 'Next', 'Use the lift.')] },
+        place: { findMany: async () => places },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What should I see next?',
+      visitContext: { visitedPlaceIds: ['visited-1', 'visited-2'], interests: [] },
+    })
+
+    expect(result.context).not.toContain('[PLACE:')
+    expect(result.sourceIds).not.toContain('place:visited-1')
+    expect(result.sourceIds).not.toContain('place:visited-2')
+    expect(result.context).toContain(
+      'If no new eligible PLACE choice is available, say so honestly',
+    )
+    expect(result.context).toContain('[KNOWLEDGE: Next]')
+    expect(result.visitContext?.visitedPlaces).toHaveLength(2)
+  })
+
+  it('retains visited place facts for an explicit revisit instead of applying next-choice filtering', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async () => [
+            place({ id: 'train-hall', name: 'Train Hall', hours: 'Open until 5 PM' }),
+          ],
+        },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Take me back to Train Hall',
+      visitContext: { visitedPlaceIds: ['train-hall'], interests: [] },
+    })
+
+    expect(result.context).toContain('[PLACE: Train Hall]')
+    expect(result.context).toContain('Open until 5 PM')
+    expect(result.sourceIds).toContain('place:train-hall')
+    expect(result.context).not.toContain('RECOMMENDATION SCOPE')
   })
 
   it('never emits a partial item or claims an omitted oversized source was included', async () => {

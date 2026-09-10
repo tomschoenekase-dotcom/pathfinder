@@ -628,6 +628,84 @@ describe('chat router', () => {
       )
     })
 
+    it('withholds visited recommendation facts, cards and citations while retaining visit labels', async () => {
+      setupHappyPath('Elephants and Penguins are worth seeing.', {
+        ...venueRow,
+        aiFeaturedPlaceId: 'p1',
+      })
+      semanticSearch.places.mockResolvedValueOnce([
+        {
+          ...placeRows[0]!,
+          shortDescription: 'Already visited detail only.',
+          sourceName: 'Elephant source',
+          sourceUrl: 'https://zoo.example/elephants',
+        },
+        {
+          ...placeRows[0]!,
+          id: 'p2',
+          name: 'Penguins',
+          shortDescription: 'Observe their underwater movement.',
+          sourceName: 'Penguin source',
+          sourceUrl: 'https://zoo.example/penguins',
+        },
+      ])
+      const result = await caller.chat.send({
+        ...sendInput,
+        message: 'What should I see next?',
+        visitContext: { visitedPlaceIds: ['p1', 'foreign-id'], interests: [] },
+      })
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).toContain('RECOMMENDATION SCOPE:')
+      expect(prompt).toContain('"visitedPlaces":[{"name":"Elephants"')
+      expect(prompt).not.toContain('Already visited detail only.')
+      expect(prompt).not.toContain('foreign-id')
+      expect(result.places?.map((place) => place.id)).toEqual(['p2'])
+      expect(result.citations).toEqual([
+        expect.objectContaining({ href: 'https://zoo.example/penguins' }),
+      ])
+    })
+
+    it('finds the ninth unvisited option and does not refill an empty recommendation pool with visited places', async () => {
+      setupHappyPath('Penguins are worth seeing.')
+      const visited = Array.from({ length: 8 }, (_, i) => ({
+        ...placeRows[0]!,
+        id: `seen-${i}`,
+        name: `Seen exhibit ${i}`,
+      }))
+      semanticSearch.places.mockResolvedValueOnce([
+        ...visited,
+        { ...placeRows[0]!, id: 'p2', name: 'Penguins' },
+      ])
+      const input = {
+        ...sendInput,
+        message: 'What should I see next?',
+        visitContext: { visitedPlaceIds: visited.map(({ id }) => id), interests: [] },
+      }
+      const result = await caller.chat.send(input)
+      expect(semanticSearch.places).toHaveBeenCalledWith(expect.objectContaining({ limit: 16 }))
+      expect(result.places?.map((place) => place.id)).toEqual(['p2'])
+      setupHappyPath('Elephants are worth seeing.')
+      semanticSearch.places.mockResolvedValueOnce(placeRows)
+      const empty = await caller.chat.send({
+        ...sendInput,
+        message: input.message,
+        visitContext: { visitedPlaceIds: ['p1'], interests: [] },
+      })
+      expect(empty.places).toEqual([])
+      expect(getConcatenatedSystemPrompt()).toContain('no new grounded option is available')
+    })
+
+    it('retains visited facts and cards for an explicit revisit request', async () => {
+      setupHappyPath('Elephants are worth seeing again.')
+      const result = await caller.chat.send({
+        ...sendInput,
+        message: 'Would you recommend visiting Elephants again?',
+        visitContext: { visitedPlaceIds: ['p1'], interests: [] },
+      })
+      expect(result.places?.map((place) => place.id)).toEqual(['p1'])
+      expect(getConcatenatedSystemPrompt()).not.toContain('RECOMMENDATION SCOPE:')
+    })
+
     it('uses explicit interests in recommendation retrieval without changing the visitor message', async () => {
       setupHappyPath('Try the train exhibit.')
       const message = 'What should I see next?'

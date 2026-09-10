@@ -67,11 +67,24 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v21')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v22')
   })
 
   it('matches the broad production prompt contract manifest', () => {
     const prompts = [
+      ...[false, true].map((empty) => ({
+        id: `recommendation-candidates-${empty ? 'empty' : 'available'}`,
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces: empty ? [] : [{ ...relevantPlaces[1]!, id: 'new' }],
+          authorizedVisitPlaces: [{ ...relevantPlaces[0]!, id: 'seen' }],
+          visitContext: { visitedPlaceIds: ['seen', 'foreign'], interests: ['animals'] },
+          recommendationOnly: true,
+          userLat: null,
+          userLng: null,
+        }),
+      })),
+
       {
         id: 'bounded-explicit-visit-preferences',
         prompt: buildVenueSystemPrompt({

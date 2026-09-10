@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { guestVisitRetrievalQuery } from './guest-visit-retrieval-query'
+import { guestVisitRetrievalQuery, isGuestRecommendationQuery } from './guest-visit-retrieval-query'
 
 describe('guestVisitRetrievalQuery', () => {
   it('adds only explicit interests to an English recommendation query', () => {
@@ -35,6 +35,23 @@ describe('guestVisitRetrievalQuery', () => {
     expect(guestVisitRetrievalQuery(query, { interests: ['trains'], visitedPlaceIds: [] })).toBe(
       query,
     )
+  })
+
+  it.each([
+    'Can we revisit the train hall?',
+    'What should I see again?',
+    'Can we go back to Case 12?',
+    'Tell me more about the train hall.',
+    'Describe the train hall.',
+  ])('does not treat explicit revisit or factual detail as a recommendation: %s', (query) => {
+    expect(isGuestRecommendationQuery(query)).toBe(false)
+    expect(guestVisitRetrievalQuery(query, { interests: ['trains'], visitedPlaceIds: [] })).toBe(
+      query,
+    )
+  })
+
+  it('keeps unknown-language queries conservative', () => {
+    expect(isGuestRecommendationQuery('¿Qué me recomiendas ahora?')).toBe(false)
   })
 
   it('keeps an augmented retrieval query within the bounded length', () => {

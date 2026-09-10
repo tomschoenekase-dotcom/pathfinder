@@ -1,3 +1,7 @@
+import {
+  guestRecommendationRetrievalLimit,
+  partitionGuestRecommendationPlaces,
+} from '../lib/guest-recommendation-candidates'
 import { guestVisitRetrievalQuery } from '../lib/guest-visit-retrieval-query'
 import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -1034,6 +1038,11 @@ const chatReadRouter = router({
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
     //    Knowledge uses bounded lexical excerpts when embeddings are unavailable.
     const retrievalStartedAt = performance.now()
+    const recommendationRetrievalLimit = guestRecommendationRetrievalLimit(
+      effectiveIdentityQuery,
+      input.visitContext,
+      NEAREST_PLACES_LIMIT,
+    )
     const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
       client: ctx.db,
       tenantId: venue.tenantId,
@@ -1049,7 +1058,7 @@ const chatReadRouter = router({
           tenantId: venue.tenantId,
           userLat: rankingLocation?.lat ?? null,
           userLng: rankingLocation?.lng ?? null,
-          limit: NEAREST_PLACES_LIMIT,
+          limit: recommendationRetrievalLimit,
           includeSecondLayer,
         }),
         retrieveGuestKnowledge({
@@ -1116,7 +1125,7 @@ const chatReadRouter = router({
           importanceScore: true,
         },
         orderBy: { importanceScore: 'desc' },
-        take: NEAREST_PLACES_LIMIT,
+        take: recommendationRetrievalLimit,
       })
       const importanceRankedPlaces = fallbackPlaces.map(({ importanceScore, ...place }) => {
         void importanceScore
@@ -1127,7 +1136,7 @@ const chatReadRouter = router({
           rankingLocation.lat,
           rankingLocation.lng,
           importanceRankedPlaces,
-          NEAREST_PLACES_LIMIT,
+          recommendationRetrievalLimit,
         )
         relevantPlaces = hasLiveLocation
           ? rankedPlaces
@@ -1169,6 +1178,13 @@ const chatReadRouter = router({
       places: relevantPlaces,
       saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
     })
+    const recommendationSelection = partitionGuestRecommendationPlaces({
+      query: effectiveIdentityQuery,
+      visitContext: input.visitContext,
+      places: relevantPlaces,
+      identityUnresolved: Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
+    })
+    relevantPlaces = recommendationSelection.places
     // Resolve over every authorized candidate before preserving the existing fact budget.
     relevantPlaces = selectGuestPlaceIdentityContext({
       query: effectiveIdentityQuery,
@@ -1198,7 +1214,11 @@ const chatReadRouter = router({
       blurb: string
     } | null = null
 
-    if (venue.aiFeaturedPlaceId) {
+    if (
+      venue.aiFeaturedPlaceId &&
+      (!recommendationSelection.recommendationOnly ||
+        relevantPlaces.some((place) => place.id === venue.aiFeaturedPlaceId))
+    ) {
       const matchingPlace = relevantPlaces.find((place) => place.id === venue.aiFeaturedPlaceId)
       const compatibilityFeaturedPlace =
         matchingPlace ??
@@ -1274,6 +1294,8 @@ const chatReadRouter = router({
         },
         relevantPlaces,
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
+        authorizedVisitPlaces: recommendationSelection.authorizedVisitPlaces,
+        recommendationOnly: recommendationSelection.recommendationOnly,
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         placeIdentityDiscoveryIncomplete,
         adjacentPlaceIdentityRequestedName: acceptedAdjacentIdentityName,

@@ -20,6 +20,10 @@ import {
   hasIncompleteGuestPlaceIdentityDiscovery,
   selectGuestPlaceIdentityContext,
 } from './guest-place-identity-discovery'
+import {
+  guestRecommendationRetrievalLimit,
+  partitionGuestRecommendationPlaces,
+} from './guest-recommendation-candidates'
 
 const MAX_VOICE_CONTEXT_CHARS = 12_000
 const MAX_IDENTITY_CLARIFICATION_CHARS = 1_500
@@ -87,7 +91,7 @@ export async function buildVoiceGroundingContext(input: {
             ...lexicalWhere(['name', 'shortDescription', 'longDescription', 'areaName']),
           },
           orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
-          take: 8,
+          take: guestRecommendationRetrievalLimit(input.query, input.visitContext, 8),
           select: {
             id: true,
             name: true,
@@ -187,11 +191,17 @@ export async function buildVoiceGroundingContext(input: {
     places: authorizedPlaces,
     saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
   })
+  const recommendationPartition = partitionGuestRecommendationPlaces({
+    query: input.query,
+    visitContext: input.visitContext,
+    places: authorizedPlaces,
+    identityUnresolved: placeIdentity.ambiguity !== null || identityDiscoveryIncomplete,
+  })
   const prioritizedAuthorizedPlaces = selectGuestPlaceIdentityContext({
     query: input.query,
-    places: authorizedPlaces,
+    places: recommendationPartition.places,
     identity: placeIdentity,
-    limit: authorizedPlaces.length,
+    limit: recommendationPartition.recommendationOnly ? 8 : authorizedPlaces.length,
   })
   const detailedIdentityClarification = placeIdentity.ambiguity?.conflictingClues
     ? 'IDENTITY CLARIFICATION DATA: The supplied floor and location clues do not identify a compatible exhibit. Identity remains unresolved.'
@@ -209,6 +219,12 @@ export async function buildVoiceGroundingContext(input: {
     detailedIdentityClarification.length <= MAX_IDENTITY_CLARIFICATION_CHARS
       ? detailedIdentityClarification
       : 'IDENTITY CLARIFICATION DATA: Multiple authorized places match the requested exhibit; location details are unavailable in this bounded context.'
+  const recommendationScopeInstruction = recommendationPartition.recommendationOnly
+    ? 'RECOMMENDATION SCOPE: Recommend only eligible PLACE choices included below. Do not reintroduce visited places as new recommendations. If no new eligible PLACE choice is available, say so honestly. Do not invent hours, proximity, accessibility, availability, or other facts.'
+    : ''
+  const contextPrelude = [identityClarificationHeader, recommendationScopeInstruction]
+    .filter(Boolean)
+    .join('\n\n')
   const coreCandidates = [
     ...updates.map((update) => ({
       id: `update:${String(update.id)}`,
@@ -224,7 +240,7 @@ export async function buildVoiceGroundingContext(input: {
     })),
   ]
   const included: typeof coreCandidates = []
-  let used = identityClarificationHeader.length
+  let used = contextPrelude.length
   for (const candidate of coreCandidates) {
     const separator = used > 0 ? 2 : 0
     if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
@@ -276,11 +292,14 @@ export async function buildVoiceGroundingContext(input: {
   }
   const candidates = [...coreCandidates, ...mediaCandidates]
   const groundedContext = included.map((candidate) => candidate.text).join('\n\n')
-  const context = [identityClarificationHeader, groundedContext].filter(Boolean).join('\n\n')
+  const context = [contextPrelude, groundedContext].filter(Boolean).join('\n\n')
   return {
     context,
     identityClarificationRequired: placeIdentity.ambiguity !== null || identityDiscoveryIncomplete,
-    visitContext: projectGuestVisitContext(input.visitContext, includedPlaces),
+    visitContext: projectGuestVisitContext(
+      input.visitContext,
+      recommendationPartition.authorizedVisitPlaces,
+    ),
     sourceIds: included.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),
     omittedSourceIds: candidates
