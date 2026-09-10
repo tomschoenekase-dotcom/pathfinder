@@ -18,6 +18,20 @@ const enabled =
   /\/pathfinder_disposable_support_addition_[a-f0-9]{12}$/u.test(process.env.DATABASE_URL ?? '')
 const app = router({ admin: mergeRouters(adminKnowledgeProposalsRouter) })
 
+async function bounded<T>(promise: Promise<T>, message: string, timeoutMs = 3_000): Promise<T> {
+  let timer!: ReturnType<typeof setTimeout>
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
   afterAll(async () => db.$disconnect())
   it('records one immutable reviewed support duplicate without changing canonical content', async () => {
@@ -277,15 +291,86 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
     expect(
       await db.supportRequest.findFirstOrThrow({ where: { ...scope, id: requestId } }),
     ).toEqual(requestBefore)
-    await db.venueKnowledgeEntry.updateMany({
-      where: { ...scope, id: targetId },
-      data: { content: 'The fixture canonical guidance changed after review.' },
+    let writerLocked!: () => void
+    let releaseWriter!: () => void
+    const locked = new Promise<void>((resolve) => {
+      writerLocked = resolve
     })
-    await expect(
-      db.$transaction((tx) =>
-        readSupportPackageFulfillment(tx, { ...scope, supportRequestId: requestId }),
-      ),
-    ).rejects.toThrow()
+    const release = new Promise<void>((resolve) => {
+      releaseWriter = resolve
+    })
+    const changedContent = 'The fixture canonical guidance changed after review.'
+    const writer = db.$transaction(
+      async (tx) => {
+        const changed = await tx.venueKnowledgeEntry.updateMany({
+          where: { ...scope, id: targetId },
+          data: { content: changedContent },
+        })
+        expect(changed.count).toBe(1)
+        writerLocked()
+        await bounded(release, 'Timed out waiting to release the canonical target writer', 8_000)
+      },
+      { timeout: 10_000 },
+    )
+    const writerSettled = Promise.allSettled([writer])
+    let readerSettled: Promise<PromiseSettledResult<unknown>[]> | undefined
+    let coordinationError: unknown
+    try {
+      await bounded(locked, 'Timed out acquiring the canonical target writer lock')
+      let reportReaderPid!: (pid: number) => void
+      const readerPid = new Promise<number>((resolve) => {
+        reportReaderPid = resolve
+      })
+      const racedRead = db.$transaction(
+        async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ pid: number }>>`
+            SELECT pg_backend_pid() AS "pid"
+          `
+          reportReaderPid(rows[0]?.pid ?? -1)
+          return await readSupportPackageFulfillment(tx, {
+            ...scope,
+            supportRequestId: requestId,
+          })
+        },
+        { timeout: 10_000 },
+      )
+      readerSettled = Promise.allSettled([racedRead])
+      const pid = await bounded(readerPid, 'Timed out starting the fulfillment reader')
+      expect(pid).toBeGreaterThan(0)
+      const waitDeadline = Date.now() + 3_000
+      let waiting = false
+      do {
+        const rows = await db.$queryRaw<Array<{ waiting: boolean }>>`
+          SELECT EXISTS (
+            SELECT 1 FROM pg_stat_activity
+            WHERE pid = ${pid} AND wait_event_type = 'Lock'
+              AND query LIKE '%venue_knowledge_entries%'
+          ) AS "waiting"
+        `
+        waiting = rows[0]?.waiting ?? false
+        if (!waiting && Date.now() >= waitDeadline)
+          throw new Error('Timed out proving the fulfillment reader waited on the target lock')
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10))
+      } while (!waiting)
+    } catch (error) {
+      coordinationError = error
+    } finally {
+      releaseWriter()
+    }
+    const [writerResult] = await writerSettled
+    const [readerResult] = readerSettled ? await readerSettled : []
+    if (coordinationError) throw coordinationError
+    expect(writerResult?.status).toBe('fulfilled')
+    expect(readerResult?.status).toBe('rejected')
+    expect(readerResult?.status === 'rejected' ? readerResult.reason : null).toMatchObject({
+      message: expect.stringContaining('No-change target snapshot changed'),
+    })
+    expect(
+      await db.venueKnowledgeEntry.findFirstOrThrow({ where: { ...scope, id: targetId } }),
+    ).toMatchObject({ content: changedContent })
+    expect(
+      await db.supportRequest.findFirstOrThrow({ where: { ...scope, id: requestId } }),
+    ).toEqual(requestBefore)
     await expect(caller.resolveSupportSemanticDuplicate(input)).resolves.toMatchObject({
       replayed: true,
       currentFulfillmentVerified: false,
