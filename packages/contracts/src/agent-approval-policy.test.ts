@@ -20,6 +20,7 @@ import {
   SupportInformationRequestApplyParameters,
   SupportInformationRequestProposalApprovalSnapshot,
   SupportCompletionApplyParameters,
+  SupportCompletionContentFulfillment,
   SupportCompletionProposalApprovalSnapshot,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
@@ -609,5 +610,49 @@ describe('intake notes proposal policy contract', () => {
     expect(() =>
       IntakeNotesProposalPolicyParameters.parse({ ...parameters, autoApply: true }),
     ).toThrow()
+  })
+})
+
+describe('support completion content receipt contract', () => {
+  const empty = {
+    contractVersion: 1,
+    receipts: [],
+    guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+    verifiedAt: '2026-09-10T12:00:00.000Z',
+    digest: 'a'.repeat(64),
+  }
+  const receipt = {
+    receiptKind: 'UNIVERSAL',
+    receiptId: 'receipt',
+    proposalId: 'proposal',
+    sourceProposalId: 'source',
+    sourceRequestVersion: 1,
+    moduleId: 'module',
+    revisionId: 'revision',
+    publicationId: 'publication',
+    projectionId: 'projection',
+    observedStateHash: 'b'.repeat(64),
+  }
+  it('requires applicable observable paths and rejects duplicate receipt evidence', () => {
+    expect(SupportCompletionContentFulfillment.safeParse(empty).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({ ...empty, receipts: [receipt] }).success,
+    ).toBe(false)
+    const published = {
+      ...empty,
+      receipts: [receipt],
+      guestRead: { ...empty.guestRead, path: 'LEGACY' },
+    }
+    expect(SupportCompletionContentFulfillment.safeParse(published).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({ ...published, receipts: [receipt, receipt] })
+        .success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({
+        ...published,
+        guestRead: { ...published.guestRead, path: 'NATIVE' },
+      }).success,
+    ).toBe(false)
   })
 })

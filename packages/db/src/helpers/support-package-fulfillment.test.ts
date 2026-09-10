@@ -3,17 +3,21 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   readSupportPackageFulfillment,
   sameSupportPackageFulfillment,
+  supportPackageFulfillmentDigest,
 } from './support-package-fulfillment'
 
 const scope = { tenantId: 'tenant_1', venueId: 'venue_1', supportRequestId: 'request_1' }
 
 describe('support package fulfillment evidence', () => {
   it('represents package-free completion with a deterministic exact digest', async () => {
-    const reader = { supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) } }
+    const reader = {
+      knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+      supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
+    }
     const first = await readSupportPackageFulfillment(reader as never, scope)
     const second = await readSupportPackageFulfillment(reader as never, scope)
     expect(first).toMatchObject({
-      contractVersion: 2,
+      contractVersion: 3,
       linkedPackageCount: 0,
       packages: [],
       guestObservability: {
@@ -68,6 +72,7 @@ describe('support package fulfillment evidence', () => {
       },
     }
     const reader = {
+      knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([applied]) },
       contentVersion: {
         findMany: vi.fn().mockResolvedValue([
@@ -88,7 +93,7 @@ describe('support package fulfillment evidence', () => {
     }
     const fulfillment = await readSupportPackageFulfillment(reader as never, scope)
     expect(fulfillment).toMatchObject({
-      contractVersion: 2,
+      contractVersion: 3,
       linkedPackageCount: 1,
       packages: [
         {
@@ -110,13 +115,17 @@ describe('support package fulfillment evidence', () => {
         ],
       },
     })
-    if (fulfillment.contractVersion !== 2) throw new Error('Expected observable fulfillment')
+    if (fulfillment.contractVersion !== 3) throw new Error('Expected observable fulfillment')
     const laterVerification = {
       ...fulfillment,
       guestObservability: {
         ...fulfillment.guestObservability,
         verifiedAt: '2030-01-01T00:00:00.000Z',
       },
+    }
+    laterVerification.contentFulfillment = {
+      ...fulfillment.contentFulfillment,
+      verifiedAt: '2030-01-01T00:00:00.000Z',
     }
     expect(sameSupportPackageFulfillment(fulfillment, laterVerification)).toBe(true)
     expect(
@@ -150,6 +159,7 @@ describe('support package fulfillment evidence', () => {
 
   it('holds an applied legacy package without supported observable apply evidence', async () => {
     const reader = {
+      knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -173,5 +183,75 @@ describe('support package fulfillment evidence', () => {
     await expect(readSupportPackageFulfillment(reader as never, scope)).rejects.toThrow(
       'schema version 2 does not record immutable applyVersionId, itemKey, and package-action bindings',
     )
+  })
+})
+
+describe('support completion content approval identity', () => {
+  it('does not accept legacy package-free approval for a content receipt and binds content drift', async () => {
+    const empty = await readSupportPackageFulfillment(
+      {
+        supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
+        knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
+      scope,
+    )
+    if (empty.contractVersion !== 3) throw new Error('Expected current fulfillment')
+    const receipt = {
+      receiptKind: 'UNIVERSAL' as const,
+      receiptId: 'receipt',
+      proposalId: 'proposal',
+      sourceProposalId: 'proposal',
+      sourceRequestVersion: 2,
+      moduleId: 'module',
+      revisionId: 'revision',
+      publicationId: 'publication',
+      projectionId: 'projection',
+      observedStateHash: 'a'.repeat(64),
+    }
+    const filled = {
+      ...empty,
+      contentFulfillment: {
+        ...empty.contentFulfillment,
+        receipts: [receipt],
+        guestRead: { path: 'LEGACY' as const, releaseId: null, nativeStateHash: null },
+      },
+    }
+    const digestOf = (value: typeof filled) =>
+      supportPackageFulfillmentDigest({
+        contractVersion: value.contractVersion,
+        linkedPackageCount: value.linkedPackageCount,
+        packages: value.packages,
+        guestObservability: value.guestObservability,
+        contentFulfillment: value.contentFulfillment,
+      })
+    filled.digest = digestOf(filled)
+    const legacy = {
+      contractVersion: 1 as const,
+      linkedPackageCount: 0,
+      packages: [],
+      digest: 'b'.repeat(64),
+    }
+    expect(sameSupportPackageFulfillment(legacy, empty)).toBe(true)
+    expect(sameSupportPackageFulfillment(legacy, filled)).toBe(false)
+    expect(sameSupportPackageFulfillment(filled, legacy)).toBe(false)
+    expect(sameSupportPackageFulfillment(empty, filled)).toBe(false)
+    const drifted = {
+      ...filled,
+      contentFulfillment: {
+        ...filled.contentFulfillment,
+        receipts: [{ ...receipt, observedStateHash: 'c'.repeat(64) }],
+      },
+    }
+    expect(sameSupportPackageFulfillment(filled, drifted)).toBe(false)
+    expect(digestOf(drifted)).not.toBe(filled.digest)
+    expect(
+      digestOf({
+        ...filled,
+        contentFulfillment: {
+          ...filled.contentFulfillment,
+          verifiedAt: '2030-01-01T00:00:00.000Z',
+        },
+      }),
+    ).toBe(filled.digest)
   })
 })

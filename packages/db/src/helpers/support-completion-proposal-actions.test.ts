@@ -46,6 +46,7 @@ function harness(missingInformation: string[] = []) {
         missingInformation,
       }),
     },
+    knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
     supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     agentAction: { create: vi.fn().mockResolvedValue({ id: 'action_1' }) },
     agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline_1' }) },

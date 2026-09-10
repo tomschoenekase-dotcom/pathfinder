@@ -7,6 +7,11 @@ import {
 
 import { db } from '../client'
 import {
+  readSupportContentFulfillment,
+  SupportContentFulfillmentError,
+  type SupportContentFulfillmentReader,
+} from './support-content-fulfillment'
+import {
   readSupportPackageGuestObservability,
   SupportPackageObservabilityError,
   type SupportPackageObservabilityReader,
@@ -14,7 +19,8 @@ import {
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff'> &
-  SupportPackageObservabilityReader
+  SupportPackageObservabilityReader &
+  SupportContentFulfillmentReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -37,13 +43,17 @@ function canonicalJson(value: unknown): string {
 export function supportPackageFulfillmentDigest(
   value:
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 1 }>, 'digest'>
-    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>,
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>,
 ): string {
   const normalized =
-    value.contractVersion === 2
+    value.contractVersion !== 1
       ? {
           ...value,
           guestObservability: { ...value.guestObservability, verifiedAt: null },
+          ...(value.contractVersion === 3
+            ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
+            : {}),
         }
       : value
   return createHash('sha256').update(canonicalJson(normalized)).digest('hex')
@@ -110,6 +120,7 @@ export async function readSupportPackageFulfillment(
     packageUpdatedAt: venuePackage.updatedAt.toISOString(),
   }))
   let guestObservability
+  let contentFulfillment
   try {
     guestObservability = await readSupportPackageGuestObservability({
       client,
@@ -121,16 +132,24 @@ export async function readSupportPackageFulfillment(
         appliedEntities: venuePackage.appliedEntities,
       })),
     })
+    contentFulfillment = await readSupportContentFulfillment(client, {
+      ...input,
+      verifiedPackageIds: packages.map(({ packageId }) => packageId),
+    })
   } catch (error) {
-    if (error instanceof SupportPackageObservabilityError)
+    if (
+      error instanceof SupportPackageObservabilityError ||
+      error instanceof SupportContentFulfillmentError
+    )
       throw new SupportPackageFulfillmentError(error.message)
     throw error
   }
   const identity = {
-    contractVersion: 2 as const,
+    contractVersion: 3 as const,
     linkedPackageCount: packages.length,
     packages,
     guestObservability,
+    contentFulfillment,
   }
   return SupportCompletionPackageFulfillment.parse({
     ...identity,
@@ -143,18 +162,26 @@ export function sameSupportPackageFulfillment(
   right: SupportCompletionPackageFulfillmentValue,
 ): boolean {
   if (left.contractVersion === 1 || right.contractVersion === 1) {
-    return left.linkedPackageCount === 0 && right.linkedPackageCount === 0
+    return (
+      left.linkedPackageCount === 0 &&
+      right.linkedPackageCount === 0 &&
+      (left.contractVersion !== 3 || left.contentFulfillment.receipts.length === 0) &&
+      (right.contractVersion !== 3 || right.contentFulfillment.receipts.length === 0)
+    )
   }
   const withoutVerificationTime = (
     value: Extract<
       SupportCompletionPackageFulfillmentValue,
       {
-        contractVersion: 2
+        contractVersion: 2 | 3
       }
     >,
   ) => ({
     ...value,
     guestObservability: { ...value.guestObservability, verifiedAt: null },
+    ...(value.contractVersion === 3
+      ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
+      : {}),
   })
   return (
     left.digest === right.digest &&

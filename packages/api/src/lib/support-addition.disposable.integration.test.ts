@@ -6,6 +6,8 @@ import {
   db,
   prepareSupportKnowledgeProposalAction,
   publishUniversalContentAction,
+  readSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -285,6 +287,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
         expectedUpdatedAt: approvedProposal.updatedAt,
       }),
     ).resolves.toMatchObject({ state: 'NO_TARGET' })
+    await expect(
+      readSupportPackageFulfillment(db as never, { tenantId, venueId, supportRequestId }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
     const created = await caller.createSupportSemanticUniversalContentDraft(approvedDraftInput)
     await expect(
       caller.getSupportProposalAuthoringState({
@@ -300,6 +305,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     })
 
     expect(created).toMatchObject({ classification: 'ADDITION', version: 1, replayed: false })
+    await expect(
+      readSupportPackageFulfillment(db as never, { tenantId, venueId, supportRequestId }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
     expect(
       await db.contentModuleEvidence.findMany({
         where: {
@@ -348,6 +356,27 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     const published = await publishUniversalContentAction(publicationInput)
     expect(published).toMatchObject({ replayed: false })
     expect((await guestRead()).entries.map((entry) => entry.content)).toContain(uniqueFact)
+    const additionFulfillment = await readSupportPackageFulfillment(db as never, {
+      tenantId,
+      venueId,
+      supportRequestId,
+    })
+    expect(additionFulfillment).toMatchObject({
+      contractVersion: 3,
+      contentFulfillment: {
+        receipts: [
+          expect.objectContaining({
+            receiptKind: 'UNIVERSAL',
+            proposalId: operationId,
+            sourceProposalId: operationId,
+            sourceRequestVersion: supportVersion,
+            moduleId: created.moduleId,
+            revisionId: created.revisionId,
+            publicationId: published.publicationId,
+          }),
+        ],
+      },
+    })
 
     const draftReplay = await caller.createSupportSemanticUniversalContentDraft(approvedDraftInput)
     expect(draftReplay).toMatchObject({
@@ -481,6 +510,13 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       replayed: false,
     })
     expect(supersedingRevision.revisionId).not.toBe(created.revisionId)
+    await expect(
+      readSupportPackageFulfillment(db as never, {
+        tenantId,
+        venueId,
+        supportRequestId: supersessionRequestId,
+      }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
     expect(
       await db.contentModuleEvidence.findMany({
         where: {
@@ -513,6 +549,27 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     expect(supersessionPublication).toMatchObject({ replayed: false })
     expect((await guestRead()).entries.map((entry) => entry.content)).toContain(supersedingFact)
     expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(uniqueFact)
+    const supersessionFulfillment = await readSupportPackageFulfillment(db as never, {
+      tenantId,
+      venueId,
+      supportRequestId: supersessionRequestId,
+    })
+    expect(supersessionFulfillment).toMatchObject({
+      contractVersion: 3,
+      contentFulfillment: {
+        receipts: [
+          expect.objectContaining({
+            receiptKind: 'UNIVERSAL',
+            proposalId: supersessionOperationId,
+            sourceProposalId: supersessionOperationId,
+            sourceRequestVersion: supersessionVersion,
+            moduleId: created.moduleId,
+            revisionId: supersedingRevision.revisionId,
+            publicationId: supersessionPublication.publicationId,
+          }),
+        ],
+      },
+    })
 
     await expect(
       caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput),

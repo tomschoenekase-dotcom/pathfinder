@@ -372,10 +372,85 @@ export const SupportCompletionPackageFulfillmentV2 = z
   })
   .strict()
 
+export const SupportCompletionContentFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            receiptKind: z.enum(['UNIVERSAL', 'ADOPTION']),
+            receiptId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            moduleId: z.string().min(1).max(191),
+            revisionId: z.string().min(1).max(191),
+            publicationId: z.string().min(1).max(191),
+            projectionId: z.string().min(1).max(191),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    guestRead: z
+      .object({
+        path: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+        releaseId: z.string().min(1).max(191).nullable(),
+        nativeStateHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .nullable(),
+      })
+      .strict(),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestRead'],
+        message: 'Content receipts require an applicable guest read.',
+      })
+    }
+    if (
+      new Set(value.receipts.map((receipt) => `${receipt.receiptKind}:${receipt.receiptId}`))
+        .size !== value.receipts.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['receipts'],
+        message: 'Content fulfillment contains duplicate receipts.',
+      })
+    }
+    if (
+      value.guestRead.path === 'NATIVE' &&
+      (!value.guestRead.releaseId || !value.guestRead.nativeStateHash)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestRead'],
+        message: 'Native content fulfillment requires exact release and state identity.',
+      })
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV3 = z
+  .object({
+    contractVersion: z.literal(3),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillment,
+  })
+  .strict()
+
 export const SupportCompletionPackageFulfillment = z
   .discriminatedUnion('contractVersion', [
     SupportCompletionPackageFulfillmentV1,
     SupportCompletionPackageFulfillmentV2,
+    SupportCompletionPackageFulfillmentV3,
   ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {
@@ -393,7 +468,7 @@ export const SupportCompletionPackageFulfillment = z
         message: 'Support completion package evidence contains duplicate packages.',
       })
     }
-    if (value.contractVersion !== 2) return
+    if (value.contractVersion === 1) return
     const observation = value.guestObservability
     const packageFree = value.linkedPackageCount === 0
     const notApplicable =

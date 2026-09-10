@@ -62,6 +62,7 @@ function harness(overrides: Record<string, unknown> = {}) {
       create: vi.fn().mockResolvedValue(message),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
+    knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
     supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
   }
