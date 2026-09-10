@@ -220,6 +220,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.readiness',
       'pathfinder.retention-preview',
       'pathfinder.questions',
+      'pathfinder.question-source',
       'pathfinder.outcomes',
       'pathfinder.agent-improvements',
     ])
@@ -320,6 +321,64 @@ describe('Torchiko MCP v0 contracts', () => {
         clientId: 'client-1',
         venueId: 'venue-1',
         agentRunId: 'run-1',
+      }),
+    ).toThrow()
+  })
+
+  it('requires a question and exact run for bounded question-source reads', () => {
+    const read = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.read')!
+    expect(read.inputSchema).toMatchObject({
+      properties: {
+        questionId: { type: 'string', maxLength: 120 },
+        sourceCursor: { type: 'string', maxLength: 1024 },
+        pageSize: { type: 'integer', minimum: 1, maximum: 4000 },
+        search: { type: 'string', maxLength: 200 },
+      },
+    })
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+        agentRunId: 'run-1',
+        sourceCursor: 'page-1',
+        pageSize: 4000,
+        search: 'greenhouse',
+      }),
+    ).not.toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+        agentRunId: 'run-1',
+        cursor: 'generic-page-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'questions',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        sourceCursor: 'page-1',
       }),
     ).toThrow()
   })

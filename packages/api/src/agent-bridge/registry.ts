@@ -33,6 +33,7 @@ import {
 
 import { createProspectAgentRegistry } from '../prospect-agent/registry'
 import { createSafeOperationalMcpRegistry } from '../mcp/composition'
+import { McpExecutionClaim } from '../mcp/execution-claim'
 
 const sessionScope = z
   .object({
@@ -369,11 +370,25 @@ export function createAgentBridgeRegistry(
           venueId: z.string().trim().min(1).max(191).optional(),
           toolName: z.string().trim().min(1).max(191),
           arguments: z.record(z.unknown()),
+          executionClaim: McpExecutionClaim.optional(),
         })
         .strict()
         .parse(raw)
       if (input.venueId && !context.credential.venueIds.includes(input.venueId))
         throw new Error('Operational tools require exact credential venue scope')
+      const questionSource =
+        input.toolName === 'pathfinder.read' && input.arguments.resource === 'question-source'
+      if (
+        questionSource &&
+        (!input.venueId ||
+          !input.executionClaim ||
+          input.executionClaim.agentRunId !== input.arguments.agentRunId ||
+          context.credential.tenantId !== context.credential.clientId ||
+          !context.credential.capabilities.includes('agent-runs:execute'))
+      )
+        throw new Error('Question source requires an exact worker execution claim')
+      if (!questionSource && input.executionClaim)
+        throw new Error('Execution claim is only supported for question source reads')
       return operational().callTool(
         input.toolName,
         {
@@ -381,7 +396,10 @@ export function createAgentBridgeRegistry(
           clientId: context.credential.clientId,
           ...(input.venueId ? { venueId: input.venueId } : {}),
         },
-        context,
+        {
+          ...context,
+          ...(input.executionClaim ? { executionClaim: input.executionClaim } : {}),
+        },
       )
     },
     register: (raw: unknown, rawContext: unknown) => {

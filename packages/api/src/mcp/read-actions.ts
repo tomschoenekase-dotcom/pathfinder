@@ -15,6 +15,7 @@ import {
 } from '@pathfinder/db'
 
 import type { PathfinderMcpDomainActions, VerifiedMcpInvocationContext } from './registry'
+import { readQuestionBoundSource } from './question-source-reader'
 import { loadCustomerStatePreservation } from '../lib/customer-state-preservation'
 
 const CURSOR_VERSION = 1 as const
@@ -145,6 +146,9 @@ export async function readMcpResource(
   services: McpReadServices = {},
 ): Promise<McpToolResult> {
   assertExactScope(input, context)
+  if (input.resource === 'question-source') {
+    return readQuestionBoundSource(db as never, input, context)
+  }
   const limit = Math.min(input.limit, MAX_PAGE_SIZE)
   const cursor = decodeMcpReadCursor(input.cursor, input.resource)
 

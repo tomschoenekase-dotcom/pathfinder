@@ -96,6 +96,7 @@ export const McpCapability = z.enum([
   'support:request-information',
   'support:complete',
   'intake:draft',
+  'intake-source:read',
   'updates:draft',
   'evaluations:request',
   'characters:build',
@@ -428,6 +429,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'questions:read',
   ],
   [
+    'question-source',
+    'Agent question source',
+    'One bounded, question-bound intake extraction source page for the claimed agent run.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-questions/{questionId}/source',
+    'venue',
+    'intake-source:read',
+  ],
+  [
     'outcomes',
     'Agent outcomes',
     'Explicit outcome observations for venue-scoped agent work.',
@@ -491,14 +500,20 @@ const resultSchema = strictObject(
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
   agentRunId: Identifier.optional(),
+  questionId: Identifier.optional(),
   artifactIndex: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   artifactOffset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(100).default(25),
+  sourceCursor: z.string().trim().min(1).max(1024).optional(),
+  pageSize: z.number().int().min(1).max(4000).optional(),
+  search: z.string().trim().min(1).max(200).optional(),
 })
   .strict()
   .superRefine((value, context) => {
-    const exactRunResource = ['agent-run-trace', 'agent-run-result'].includes(value.resource)
+    const exactRunResource = ['agent-run-trace', 'agent-run-result', 'question-source'].includes(
+      value.resource,
+    )
     if (exactRunResource && !value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -511,6 +526,37 @@ export const McpReadInput = McpRequestedScope.extend({
         code: z.ZodIssueCode.custom,
         path: ['agentRunId'],
         message: 'agentRunId is only accepted for an exact agent run resource.',
+      })
+    }
+    const sourceResource = value.resource === 'question-source'
+    if (sourceResource && !value.questionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['questionId'],
+        message: 'questionId is required for a question source resource.',
+      })
+    }
+    if (!sourceResource && value.questionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['questionId'],
+        message: 'questionId is only accepted for a question source resource.',
+      })
+    }
+    for (const field of ['sourceCursor', 'pageSize', 'search'] as const) {
+      if (!sourceResource && value[field] !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is only accepted for a question source resource.`,
+        })
+      }
+    }
+    if (sourceResource && value.cursor !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cursor'],
+        message: 'question-source does not accept a generic cursor.',
       })
     }
     if (value.resource !== 'agent-run-result' && value.artifactIndex !== undefined) {
@@ -3380,7 +3426,13 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           type: 'string',
           minLength: 1,
           maxLength: 120,
-          description: 'Required only for agent-run-trace and agent-run-result.',
+          description: 'Required only for agent-run-trace, agent-run-result, and question-source.',
+        },
+        questionId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 120,
+          description: 'Required only for question-source.',
         },
         artifactIndex: {
           type: 'integer',
@@ -3396,6 +3448,24 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         },
         cursor: { type: 'string', minLength: 1, maxLength: 500 },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+        sourceCursor: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 1024,
+          description: 'Question-source page cursor. It is separate from generic resource cursors.',
+        },
+        pageSize: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 4000,
+          description: 'Optional maximum character count for a question-source page.',
+        },
+        search: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: 'Optional bounded search text for question-source.',
+        },
       },
       ['clientId', 'resource'],
     ),

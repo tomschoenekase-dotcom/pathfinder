@@ -1,3 +1,5 @@
+import { McpExecutionClaim } from './execution-claim'
+
 import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
@@ -66,6 +68,8 @@ import {
  */
 export type VerifiedMcpInvocationContext = Readonly<{
   credential: VerifiedMcpCredentialScope
+  /** Untrusted claim keys. Source actions must validate these inside their effect transaction. */
+  executionClaim?: McpExecutionClaim
   /** Opaque evidence already verified by the canonical approval boundary. */
   approvalGrantId?: string
 }>
@@ -377,6 +381,9 @@ export function createPathfinderMcpRegistry(
 
       const context: VerifiedMcpInvocationContext = {
         credential: VerifiedMcpCredentialScope.parse(rawContext.credential),
+        ...(rawContext.executionClaim !== undefined
+          ? { executionClaim: McpExecutionClaim.parse(rawContext.executionClaim) }
+          : {}),
         ...(rawContext.approvalGrantId !== undefined
           ? { approvalGrantId: zApprovalGrantId(rawContext.approvalGrantId) }
           : {}),

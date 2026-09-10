@@ -403,4 +403,58 @@ describe('agent bridge registry', () => {
     ).toThrow(/exact credential venue scope/u)
     expect(mocks.operationalCall).not.toHaveBeenCalled()
   })
+
+  it('forwards outer execution claim keys with authenticated scope for source admission', async () => {
+    const executionClaim = {
+      agentRunId: 'run-1',
+      bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workerId: 'worker-1',
+      executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    await registry.callOperationalTool(
+      {
+        venueId: 'venue-1',
+        toolName: 'pathfinder.read',
+        executionClaim,
+        arguments: {
+          resource: 'question-source',
+          agentRunId: 'run-1',
+          questionId: 'question-1',
+          clientId: 'spoofed',
+        },
+      },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.read',
+      {
+        resource: 'question-source',
+        agentRunId: 'run-1',
+        questionId: 'question-1',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+      },
+      { credential, executionClaim },
+    )
+  })
+
+  it('does not derive source execution authority from arbitrary arguments or raw context', () => {
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    expect(() =>
+      registry.callOperationalTool(
+        {
+          venueId: 'venue-1',
+          toolName: 'pathfinder.read',
+          arguments: { resource: 'question-source', agentRunId: 'run-1', executionClaim: {} },
+        },
+        { credential, executionClaim: {} },
+      ),
+    ).toThrow(/exact worker execution claim/u)
+    expect(mocks.operationalCall).not.toHaveBeenCalled()
+  })
 })

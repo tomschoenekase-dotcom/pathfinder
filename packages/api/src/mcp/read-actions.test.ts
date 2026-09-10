@@ -11,6 +11,7 @@ import {
   McpReadBindingError,
   readMcpResource,
 } from './read-actions'
+import { QuestionSourceReaderError } from './question-source-reader'
 
 const credential: VerifiedMcpCredentialScope = {
   credentialId: 'credential-1',
@@ -144,6 +145,24 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
 }
 
 describe('MCP v0 concrete read bindings', () => {
+  it('dispatches question-source before generic row cursor decoding', async () => {
+    const db = database()
+    await expect(
+      readMcpResource(
+        db as never,
+        {
+          resource: 'question-source',
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          agentRunId: 'run-1',
+          questionId: 'question-1',
+          cursor: 'not-a-generic-cursor',
+          limit: 25,
+        },
+        { credential },
+      ),
+    ).rejects.toBeInstanceOf(QuestionSourceReaderError)
+  })
   it('binds through the registry and reapplies exact tenant/client/venue scope to safe selects', async () => {
     const db = database()
     db.place.findMany.mockResolvedValue([
