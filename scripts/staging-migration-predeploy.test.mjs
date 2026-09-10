@@ -39,6 +39,15 @@ test('the new local review migrations are not silently admitted by the frozen st
   assert.deepEqual(current.names.slice(EXPECTED.migrationCount), [
     '20260908170000_add_conversation_learning_review',
     '20260908180000_add_character_candidate_reviews',
+    '20260909190000_sync_character_credential_capabilities',
+    '20260909230000_add_intake_source_read_capability',
+    '20260910080000_add_intake_source_agent_routing_policy',
+    '20260910090000_add_intake_source_agent_dispatch',
+    '20260910100000_add_semantic_conflict_resolution',
+    '20260910110000_add_semantic_duplicate_resolution',
+    '20260910120000_add_support_message_completion_outcome',
+    '20260910130000_support_duplicate_outcome_exclusion',
+    '20260910140000_add_semantic_reviewed_decline',
   ])
   assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
   const reviewed = await readMigrationManifest('packages/db/prisma')
