@@ -478,7 +478,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     expect(
       await db.intakeSourceAgentDispatch.findFirst({ where: sourceDispatchInput }),
     ).toMatchObject({ holdReason: 'ROUTING_UNCONFIGURED', agentRunId: null })
-    expect((await ownerProcessing()).members[0].sourceReview).toEqual({
+    expect((await ownerProcessing()).members[0]?.sourceReview).toEqual({
       status: 'HELD',
       reasonCode: 'REVIEW_SETUP_REQUIRED',
     })
@@ -1148,7 +1148,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     expect(automaticTasks[1].runId).toBe(automaticTasks[0].runId)
     expect(automaticTasks.filter((result) => result.replayed)).toHaveLength(1)
     const httpTask = { run: { id: automaticTasks[0].runId! } }
-    expect((await ownerProcessing()).members[0].sourceReview?.status).toBe('QUEUED')
+    expect((await ownerProcessing()).members[0]?.sourceReview?.status).toBe('QUEUED')
     expect(await db.agentRun.count({ where: { ...scope, operationId: sourceOutbox.id } })).toBe(1)
     // Simulate the persisted retry deadline after a lost queue publication, without network.
     await db.intakeSourceAgentDispatch.update({

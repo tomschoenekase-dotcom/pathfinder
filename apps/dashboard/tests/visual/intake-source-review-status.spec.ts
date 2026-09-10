@@ -92,7 +92,7 @@ test('V1 receipt separates extracted files from held and answer-waiting source r
   })
   page.on('pageerror', (error) => runtimeErrors.push(`page: ${error.message}`))
 
-  let reviewReads = 0
+  let reviewState = 'HELD'
   await page.route('**/api/trpc/**', async (route) => {
     const url = new URL(route.request().url())
     const procedures = decodeURIComponent(url.pathname.split('/api/trpc/')[1]!).split(',')
@@ -100,7 +100,6 @@ test('V1 receipt separates extracted files from held and answer-waiting source r
       if (procedure === 'intake.getSubmissionDraft') return { result: { data: { json: null } } }
       if (procedure === 'intake.getLatestV1') return { result: { data: { json: receipt() } } }
       if (procedure === 'intake.getV1Processing') {
-        reviewReads += 1
         return {
           result: {
             data: {
@@ -126,7 +125,7 @@ test('V1 receipt separates extracted files from held and answer-waiting source r
                     status: 'COMPLETED',
                     reasonCode: null,
                     sourceReview: {
-                      status: reviewReads === 1 ? 'HELD' : 'WAITING_FOR_ANSWER',
+                      status: reviewState,
                       reasonCode: null,
                     },
                   },
@@ -164,6 +163,7 @@ test('V1 receipt separates extracted files from held and answer-waiting source r
   const refresh = processing.getByRole('button', { name: 'Refresh status' })
   await refresh.focus()
   await expect(refresh).toBeFocused()
+  reviewState = 'WAITING_FOR_ANSWER'
   await refresh.press('Enter')
   await expect(refresh).toBeEnabled()
   await expect(processing.getByText('Waiting for an answer', { exact: true })).toBeVisible()
