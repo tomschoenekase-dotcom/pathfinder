@@ -1202,6 +1202,10 @@ const chatReadRouter = router({
           ? (entryRead.places[0] ?? null)
           : null
         : legacyEntryPlace
+    const rejectedNativeEntryPlaceId =
+      input.entryPlaceId && nativeReadSnapshot.path === 'NATIVE' && entryRead?.path !== 'NATIVE'
+        ? input.entryPlaceId
+        : null
     if (entryPlace) {
       relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
     }
@@ -1216,7 +1220,11 @@ const chatReadRouter = router({
     })
     const nativeRead = applyNativeGuestContentRead({
       snapshot: nativeReadSnapshot,
-      legacyPlaces: identityDiscovery.places,
+      // A scanned ID rejected by the active release cannot return through
+      // lexical expansion if a separate compatibility candidate falls back.
+      legacyPlaces: rejectedNativeEntryPlaceId
+        ? identityDiscovery.places.filter((place) => place.id !== rejectedNativeEntryPlaceId)
+        : identityDiscovery.places,
       legacyKnowledgeEntries: relevantKnowledgeEntries,
     })
     relevantPlaces = nativeRead.places
@@ -1317,6 +1325,7 @@ const chatReadRouter = router({
 
     if (
       venue.aiFeaturedPlaceId &&
+      venue.aiFeaturedPlaceId !== rejectedNativeEntryPlaceId &&
       (!recommendationSelection.recommendationOnly ||
         relevantPlaces.some((place) => place.id === venue.aiFeaturedPlaceId))
     ) {

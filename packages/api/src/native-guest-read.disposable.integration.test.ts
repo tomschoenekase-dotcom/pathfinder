@@ -836,9 +836,14 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       const tenantId = `tenant-guestread-${suffix}`
       const controlTenantId = `tenant-guestread-control-${suffix}`
       const venueId = `venue-guestread-${suffix}`
+      const siblingVenueId = `venue-guestread-sibling-${suffix}`
       const controlVenueId = `venue-guestread-control-${suffix}`
       const publicPlaceId = `place-public-${suffix}`
       const employeePlaceId = `place-employee-${suffix}`
+      const privateQrPlaceId = `place-qr-private-${suffix}`
+      const inactiveQrPlaceId = `place-qr-inactive-${suffix}`
+      const foreignVenueQrPlaceId = `place-qr-foreign-venue-${suffix}`
+      const foreignTenantQrPlaceId = `place-qr-foreign-tenant-${suffix}`
       const publicKnowledgeId = randomUUID()
       const employeeKnowledgeId = randomUUID()
       const secondLayerKey = randomUUID()
@@ -868,6 +873,13 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             guideMode: 'non_location',
             secondLayerEnabled: true,
             secondLayerAccessKey: secondLayerKey,
+          },
+          {
+            id: siblingVenueId,
+            tenantId,
+            name: 'Native guest-read sibling venue',
+            slug: siblingVenueId,
+            guideMode: 'non_location',
           },
           {
             id: controlVenueId,
@@ -901,6 +913,51 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             visibility: 'SECOND_LAYER',
             importanceScore: 90,
             tags: ['employee'],
+          },
+          {
+            id: privateQrPlaceId,
+            tenantId,
+            venueId,
+            name: 'Private QR Exhibit',
+            shortDescription: 'PRIVATE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'SECOND_LAYER',
+            importanceScore: 89,
+            tags: ['private-qr'],
+          },
+          {
+            id: inactiveQrPlaceId,
+            tenantId,
+            venueId,
+            name: 'Inactive QR Exhibit',
+            shortDescription: 'INACTIVE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            isActive: false,
+            importanceScore: 88,
+            tags: ['inactive-qr'],
+          },
+          {
+            id: foreignVenueQrPlaceId,
+            tenantId,
+            venueId: siblingVenueId,
+            name: 'Foreign Venue QR Exhibit',
+            shortDescription: 'FOREIGN_VENUE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            importanceScore: 87,
+            tags: ['foreign-venue-qr'],
+          },
+          {
+            id: foreignTenantQrPlaceId,
+            tenantId: controlTenantId,
+            venueId: controlVenueId,
+            name: 'Foreign Tenant QR Exhibit',
+            shortDescription: 'FOREIGN_TENANT_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            importanceScore: 86,
+            tags: ['foreign-tenant-qr'],
           },
           {
             id: `place-control-${suffix}`,
@@ -1721,6 +1778,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         message?: string
         anonymousToken?: string
         operationId?: string
+        entryPlaceId?: string
         visitContext?: { visitedPlaceIds: string[]; interests: string[] }
       }) =>
         testRouter.createCaller(context(input.employee)).chat.send({
@@ -1728,6 +1786,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           anonymousToken: input.anonymousToken ?? randomUUID(),
           operationId: input.operationId ?? randomUUID(),
           message: input.message ?? 'What should I know?',
+          ...(input.entryPlaceId ? { entryPlaceId: input.entryPlaceId } : {}),
           ...(input.visitContext ? { visitContext: input.visitContext } : {}),
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
@@ -1879,6 +1938,97 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           gateReason: 'NATIVE_READY',
         }),
       )
+
+      const expectQrEntryUnbound = async (input: {
+        entryPlaceId: string
+        message: string
+        sentinel: string
+      }) => {
+        const response = await send(input)
+        expect(latestPrompt()).not.toContain(input.sentinel)
+        expect(response.places.map((place) => place.id)).not.toContain(input.entryPlaceId)
+      }
+      await expectQrEntryUnbound({
+        entryPlaceId: privateQrPlaceId,
+        message: 'Tell me about Private QR Exhibit',
+        sentinel: 'PRIVATE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: inactiveQrPlaceId,
+        message: 'Tell me about Inactive QR Exhibit',
+        sentinel: 'INACTIVE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: foreignVenueQrPlaceId,
+        message: 'Tell me about Foreign Venue QR Exhibit',
+        sentinel: 'FOREIGN_VENUE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: foreignTenantQrPlaceId,
+        message: 'Tell me about Foreign Tenant QR Exhibit',
+        sentinel: 'FOREIGN_TENANT_QR_SENTINEL',
+      })
+
+      const staleQrPlaceId = `place-qr-stale-release-${suffix}`
+      await db.place.create({
+        data: {
+          id: staleQrPlaceId,
+          tenantId,
+          venueId,
+          name: 'Stale Release QR Exhibit',
+          shortDescription: 'STALE_RELEASE_QR_SENTINEL',
+          type: 'EXHIBIT',
+          visibility: 'PUBLIC',
+          importanceScore: 101,
+          tags: ['stale-release-qr'],
+        },
+      })
+      await db.venue.update({
+        where: { id: venueId },
+        data: { aiFeaturedPlaceId: staleQrPlaceId },
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: staleQrPlaceId,
+        message: 'Tell me about Stale Release QR Exhibit',
+        sentinel: 'STALE_RELEASE_QR_SENTINEL',
+      })
+
+      await send({
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12',
+      })
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('Second floor west gallery')
+      expect(latestPrompt()).not.toContain('First floor east gallery')
+
+      await send({
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12 on the First floor',
+      })
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).not.toContain('Second floor west gallery')
+
+      const durableQrToken = randomUUID()
+      const durableQrOperationId = randomUUID()
+      await send({
+        anonymousToken: durableQrToken,
+        operationId: durableQrOperationId,
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12',
+      })
+      const providerCallsBeforeQrConflict = anthropicCreate.mock.calls.length
+      await expect(
+        send({
+          anonymousToken: durableQrToken,
+          operationId: durableQrOperationId,
+          entryPlaceId: firstCaseId,
+          message: 'Tell me about Case 12',
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(anthropicCreate).toHaveBeenCalledTimes(providerCallsBeforeQrConflict)
+      await db.venue.update({ where: { id: venueId }, data: { aiFeaturedPlaceId: null } })
+      await db.place.delete({ where: { id: staleQrPlaceId } })
 
       const adjacentToken = randomUUID()
       const adjacentFirstOperationId = randomUUID()

@@ -1201,12 +1201,21 @@ describe('chat router', () => {
     })
 
     it('does not bind a stale QR item absent from the active native release', async () => {
-      setupHappyPath('Please clarify the floor.')
       const fixture = caseTwelveRankingFixture()
-      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      setupHappyPath('Please clarify the floor.', {
+        ...venueRow,
+        aiFeaturedPlaceId: fixture.second.id,
+      })
+      const unrelatedDrift = {
+        ...placeRows[0],
+        id: 'unrelated-legacy-drift',
+        name: 'Unrelated legacy drift',
+        shortDescription: 'Unrelated compatibility content.',
+      }
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second, unrelatedDrift])
       placeFindMany.mockReset()
       placeFindMany.mockResolvedValue([fixture.first, fixture.second])
-      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      placeFindFirst.mockResolvedValue(fixture.second)
       venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
       resolveNativeGuestReadSnapshotAction.mockResolvedValueOnce({
         path: 'NATIVE',
@@ -1224,7 +1233,13 @@ describe('chat router', () => {
         message: 'Tell me about Case 12',
       })
 
-      expectCaseTwelveClarificationPrompt()
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).not.toContain('Second-floor case.')
+      expect(prompt).not.toContain('Second floor west gallery')
+      expect(prompt).toContain('First-floor case.')
+      expect(configLogger.info).toHaveBeenLastCalledWith(
+        expect.objectContaining({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' }),
+      )
     })
 
     it('uses the exact active native release projection for a valid QR item', async () => {
