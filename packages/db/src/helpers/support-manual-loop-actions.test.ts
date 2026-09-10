@@ -368,6 +368,83 @@ describe('manual Support loop actions', () => {
     expect(blocked.tx.supportRequest.updateMany).not.toHaveBeenCalled()
   })
 
+  it('fences and persists the derived structured completion outcome', async () => {
+    await completeSupportRequestAction(
+      {
+        operationId: '33333333-3333-4333-8333-333333333333',
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Probe the current verified fulfillment.',
+        actor: operator,
+      },
+      harness().client as never,
+    )
+    const currentDigest = (
+      audit.mock.calls.at(-1)?.[0] as { afterState: { packageFulfillmentDigest: string } }
+    ).afterState.packageFulfillmentDigest
+    audit.mockClear()
+    const h = harness()
+    await completeSupportRequestAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'This request has been resolved.',
+        expectedCompletionOutcome: 'RESOLVED',
+        expectedFulfillmentDigest: currentDigest,
+        actor: operator,
+      },
+      h.client as never,
+    )
+    expect(h.tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          body: 'This request has been resolved.',
+          completionOutcome: 'RESOLVED',
+        }),
+      }),
+    )
+
+    await expect(
+      completeSupportRequestAction(
+        {
+          operationId: '22222222-2222-4222-8222-222222222222',
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'This request has been resolved.',
+          expectedCompletionOutcome: 'NO_CHANGE',
+          expectedFulfillmentDigest: currentDigest,
+          actor: operator,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('requires expected completion outcome and digest as a pair', async () => {
+    await expect(
+      completeSupportRequestAction(
+        {
+          operationId,
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'This request has been resolved.',
+          expectedCompletionOutcome: 'RESOLVED',
+          actor: operator,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
   it('attributes approved agent completion and records customer contact truthfully', async () => {
     const h = harness()
     h.message.authorKind = 'AGENT'

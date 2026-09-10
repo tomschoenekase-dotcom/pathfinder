@@ -31,6 +31,7 @@ const mockDb = {
     create: messageCreate,
   },
   supportRequestAuditEvent: { create: auditEventCreate },
+  knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
   venuePackage: { findMany: packageFindMany, findFirst: packageFindFirst },
   supportPackageHandoff: {
     findMany: handoffFindMany,
@@ -159,7 +160,12 @@ describe('admin support operations', () => {
       createdAt: now,
       attachments: [],
     })
+    const preview = await testRouter
+      .createCaller(context(true))
+      .admin.getSupportCompletionPreview({ tenantId, venueId, requestId, expectedVersion: 1 })
     const result = await testRouter.createCaller(context(true)).admin.completeSupportRequest({
+      expectedCompletionOutcome: preview.outcome,
+      expectedFulfillmentDigest: preview.fulfillmentDigest,
       operationId,
       tenantId,
       venueId,
@@ -178,6 +184,49 @@ describe('admin support operations', () => {
         }),
       }),
     )
+  })
+
+  it('prepares an exact-scoped outcome without writing request state', async () => {
+    const preview = await testRouter
+      .createCaller(context(true))
+      .admin.getSupportCompletionPreview({ tenantId, venueId, requestId, expectedVersion: 1 })
+    expect(preview).toMatchObject({
+      outcome: 'RESOLVED',
+      expectedVersion: 1,
+      fulfillmentDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    expect(requestFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: requestId, tenantId, venueId } }),
+    )
+    expect(requestUpdateMany).not.toHaveBeenCalled()
+    expect(messageCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses stale and unauthorized completion previews', async () => {
+    const input = { tenantId, venueId, requestId, expectedVersion: 2 }
+    await expect(
+      testRouter.createCaller(context(true)).admin.getSupportCompletionPreview(input),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      testRouter.createCaller(context(false)).admin.getSupportCompletionPreview(input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(requestUpdateMany).not.toHaveBeenCalled()
+    expect(messageCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: 'COMPLETED', missingInformation: [] },
+    { status: 'WAITING_FOR_CLIENT', missingInformation: ['Effective date'] },
+    { status: 'IN_REVIEW', missingInformation: ['Effective date'] },
+  ])('refuses an ineligible completion preview: $status', async (state) => {
+    requestFindFirst.mockResolvedValueOnce({ version: 1, ...state })
+    await expect(
+      testRouter
+        .createCaller(context(true))
+        .admin.getSupportCompletionPreview({ tenantId, venueId, requestId, expectedVersion: 1 }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(requestUpdateMany).not.toHaveBeenCalled()
+    expect(messageCreate).not.toHaveBeenCalled()
   })
 
   it('lists safe exact-scope verified attachment choices for operators', async () => {

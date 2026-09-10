@@ -639,6 +639,7 @@ describe('admin agent operations router', () => {
           packages: [],
           digest: 'b'.repeat(64),
         },
+        completionOutcome: 'RESOLVED',
         allLinkedPackagesApplied: true,
         supportRequestChanged: false,
         clientActivityChanged: false,
@@ -687,6 +688,7 @@ describe('admin agent operations router', () => {
             packages: [],
             digest: 'b'.repeat(64),
           },
+          completionOutcome: 'RESOLVED',
         },
         approvalDecisionId: 'decision_completion_1',
       }),
@@ -1433,6 +1435,100 @@ describe('admin agent operations router', () => {
         }),
       }),
     )
+  })
+
+  it('projects only parsed support-completion outcome and body without exposing scope snapshots', async () => {
+    const createdAt = new Date('2026-08-11T12:00:00.000Z')
+    const completionSnapshot = {
+      contractVersion: 2,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'support_1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW',
+      toStatus: 'COMPLETED',
+      body: 'The requested update is complete.',
+      missingInformationCount: 0,
+      packageFulfillment: {
+        contractVersion: 1,
+        linkedPackageCount: 0,
+        packages: [],
+        digest: 'a'.repeat(64),
+      },
+      completionOutcome: 'NO_CHANGE',
+      allLinkedPackagesApplied: true,
+      supportRequestChanged: false,
+      clientActivityChanged: false,
+      clientVisibleMessageCreated: false,
+      customerContacted: false,
+      externalDeliveryTriggered: false,
+      executionAuthorized: false,
+    }
+    mocks.approvalRequestFindMany.mockResolvedValue([
+      {
+        id: 'approval_completion',
+        createdAt,
+        expiresAt: null,
+        decision: null,
+        proposedAction: 'pathfinder.apply_support_completion',
+        scopeSnapshot: completionSnapshot,
+      },
+      {
+        id: 'approval_other',
+        createdAt,
+        expiresAt: null,
+        decision: null,
+        proposedAction: 'pathfinder.create_update_draft',
+        scopeSnapshot: completionSnapshot,
+      },
+      {
+        id: 'approval_malformed_completion',
+        createdAt,
+        expiresAt: null,
+        decision: null,
+        proposedAction: 'pathfinder.apply_support_completion',
+        scopeSnapshot: { ...completionSnapshot, forged: true },
+      },
+    ])
+
+    const listed = await testRouter
+      .createCaller(context())
+      .agentOperations.listApprovalRequests({ tenantId: 'tenant_1', state: 'ALL' })
+    expect(listed.items).toMatchObject([
+      {
+        id: 'approval_completion',
+        supportCompletionProposal: {
+          completionOutcome: 'NO_CHANGE',
+          body: 'The requested update is complete.',
+        },
+      },
+      { id: 'approval_other', supportCompletionProposal: null },
+      { id: 'approval_malformed_completion', supportCompletionProposal: null },
+    ])
+    expect(listed.items[0]).not.toHaveProperty('scopeSnapshot')
+    expect(mocks.approvalRequestFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.objectContaining({ scopeSnapshot: true }) }),
+    )
+
+    const { completionOutcome: _outcome, ...historicalSnapshot } = completionSnapshot
+    expect(_outcome).toBe('NO_CHANGE')
+    mocks.approvalRequestFindFirst.mockResolvedValueOnce({
+      id: 'approval_historical_completion',
+      createdAt,
+      expiresAt: null,
+      decision: null,
+      proposedAction: 'pathfinder.apply_support_completion',
+      scopeSnapshot: historicalSnapshot,
+    })
+    const detail = await testRouter.createCaller(context()).agentOperations.getApprovalRequest({
+      tenantId: 'tenant_1',
+      approvalRequestId: 'approval_historical_completion',
+    })
+    expect(detail.supportCompletionProposal).toEqual({
+      completionOutcome: null,
+      body: 'The requested update is complete.',
+    })
+    expect(detail).not.toHaveProperty('scopeSnapshot')
   })
 
   it('distinguishes implicit expiry and persisted decisions on approval detail', async () => {

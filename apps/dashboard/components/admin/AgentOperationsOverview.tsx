@@ -9,6 +9,8 @@ import type { AppRouter } from '@pathfinder/api'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
+import { SupportCompletionApprovalContext } from './SupportCompletionApprovalContext'
+import type { SupportCompletionOutcomeValue } from '../SupportCompletionOutcome'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
@@ -80,6 +82,10 @@ type Approval = {
     sourceSupportMessageId: string
     providerInvitationId: string | null
     updatedAt: Date
+  } | null
+  supportCompletionProposal?: {
+    completionOutcome: SupportCompletionOutcomeValue | null
+    body: string
   } | null
 }
 
@@ -842,6 +848,7 @@ export function AgentOperationsOverview({
                   venueId={venueId}
                   request={approval.customerAccessRequest}
                 />
+                <SupportCompletionApprovalContext proposal={approval.supportCompletionProposal} />
                 {approval.state === 'PENDING' ? (
                   <ApprovalDecisionForm
                     tenantId={tenantId}

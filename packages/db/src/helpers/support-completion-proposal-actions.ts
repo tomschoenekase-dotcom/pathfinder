@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
-import { SUPPORT_COMPLETION_APPLY_ACTION } from '@pathfinder/contracts'
+import {
+  deriveSupportCompletionOutcome,
+  SUPPORT_COMPLETION_APPLY_ACTION,
+} from '@pathfinder/contracts'
 import { MachineActorContext } from '@pathfinder/contracts/actor'
 
 import { db } from '../client'
@@ -143,6 +146,7 @@ export async function prepareSupportCompletionProposalAction(
         body: parsed.body,
         missingInformationCount: 0 as const,
         packageFulfillment,
+        completionOutcome: deriveSupportCompletionOutcome(packageFulfillment),
         allLinkedPackagesApplied: true as const,
         supportRequestChanged: false as const,
         clientActivityChanged: false as const,

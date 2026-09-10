@@ -42,6 +42,7 @@ export const supportMessageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  completionOutcome: true,
   requestVersion: true,
   createdAt: true,
   attachments: {

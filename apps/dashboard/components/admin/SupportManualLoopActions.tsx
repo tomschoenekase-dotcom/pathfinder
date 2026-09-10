@@ -4,7 +4,12 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+import {
+  SupportCompletionOutcome,
+  type SupportCompletionOutcomeValue,
+} from '../SupportCompletionOutcome'
 import type { SupportRequestStatus } from '@pathfinder/contracts/support-workflow'
 
 type Draft = {
@@ -58,7 +63,7 @@ export function SupportManualLoopActions({
 }) {
   const client = useTRPCClient()
   const router = useRouter()
-  const scope = `${tenantId}:${venueId}:${requestId}:${expectedVersion}`
+  const scope = JSON.stringify([tenantId, venueId, requestId, expectedVersion])
   const scopeRef = useRef(scope)
   scopeRef.current = scope
   const [draftState, setDraftState] = useState(() => emptyDraft(scope))
@@ -84,6 +89,28 @@ export function SupportManualLoopActions({
   const generation = useRef(0)
   const requestAttempt = useRef({ scope, operationId: crypto.randomUUID() })
   const completionAttempt = useRef({ scope, operationId: crypto.randomUUID() })
+  const [completionPreviewState, setCompletionPreviewState] = useState<{
+    scope: string
+    outcome: SupportCompletionOutcomeValue
+    fulfillmentDigest: string
+    expectedVersion: number
+  } | null>(null)
+  const completionPreview = completionPreviewState?.scope === scope ? completionPreviewState : null
+  const [completionUnknownScope, setCompletionUnknownScope] = useState<string | null>(null)
+  const completionUnknown = completionUnknownScope === scope
+  const frozenCompletion = useRef<{
+    scope: string
+    input: {
+      operationId: string
+      tenantId: string
+      venueId: string
+      requestId: string
+      expectedVersion: number
+      body: string
+      expectedCompletionOutcome: SupportCompletionOutcomeValue
+      expectedFulfillmentDigest: string
+    }
+  } | null>(null)
 
   function updateDraft(change: (current: Draft) => Draft, rotate: 'request' | 'complete') {
     setDraftState((current) => change(current.scope === scope ? current : emptyDraft(scope)))
@@ -91,6 +118,11 @@ export function SupportManualLoopActions({
     attempt.current = { scope, operationId: crypto.randomUUID() }
     setFeedbackState(null)
     setConflictScope(null)
+    if (rotate === 'complete') {
+      setCompletionPreviewState(null)
+      setCompletionUnknownScope(null)
+      frozenCompletion.current = null
+    }
   }
 
   function operationId(attempt: typeof requestAttempt) {
@@ -179,20 +211,33 @@ export function SupportManualLoopActions({
 
   async function complete(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!completionAllowed || !draft.completionConfirmed) return
+    if (!completionAllowed || !draft.completionConfirmed || !completionPreview) return
     const currentGeneration = begin('complete')
     if (currentGeneration === null) return
+    const input =
+      frozenCompletion.current?.scope === scope
+        ? frozenCompletion.current.input
+        : {
+            operationId: operationId(completionAttempt),
+            tenantId,
+            venueId,
+            requestId,
+            expectedVersion,
+            body: draft.completionBody,
+            expectedCompletionOutcome: completionPreview.outcome,
+            expectedFulfillmentDigest: completionPreview.fulfillmentDigest,
+          }
+    frozenCompletion.current = { scope, input }
     try {
-      await client.admin.completeSupportRequest.mutate({
-        operationId: operationId(completionAttempt),
-        tenantId,
-        venueId,
-        requestId,
-        expectedVersion,
-        body: draft.completionBody,
+      await runBoundedClientRequest({
+        parentSignal: new AbortController().signal,
+        timeoutMs: 15_000,
+        request: (signal) => client.admin.completeSupportRequest.mutate(input, { signal }),
       })
       if (!finish(currentGeneration)) return
       completionAttempt.current = { scope, operationId: crypto.randomUUID() }
+      frozenCompletion.current = null
+      setCompletionUnknownScope(null)
       setFeedbackState({
         scope,
         failed: false,
@@ -203,7 +248,30 @@ export function SupportManualLoopActions({
       router.refresh()
     } catch (error) {
       if (!finish(currentGeneration)) return
+      if (errorCode(error) !== 'CONFLICT') setCompletionUnknownScope(scope)
       failure(error, 'manual completion')
+    }
+  }
+
+  async function prepareCompletion() {
+    const currentGeneration = begin('complete')
+    if (currentGeneration === null) return
+    try {
+      const result = await runBoundedClientRequest({
+        parentSignal: new AbortController().signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.getSupportCompletionPreview.query(
+            { tenantId, venueId, requestId, expectedVersion },
+            { signal },
+          ),
+      })
+      if (!finish(currentGeneration) || scopeRef.current !== scope) return
+      setCompletionPreviewState({ scope, ...result })
+      setFeedbackState(null)
+    } catch (error) {
+      if (!finish(currentGeneration)) return
+      failure(error, 'the completion outcome review')
     }
   }
 
@@ -284,13 +352,31 @@ export function SupportManualLoopActions({
           aria-busy={pending === 'complete'}
         >
           <h4 className="font-semibold text-pf-deep">Complete manually</h4>
+          {!completionPreview ? (
+            <button
+              type="button"
+              disabled={pending !== null || confirmed || conflict || completionUnknown}
+              onClick={() => void prepareCompletion()}
+              className="min-h-11 rounded-xl border border-pf-primary px-5 text-sm font-semibold text-pf-primary disabled:opacity-50"
+            >
+              {pending === 'complete' ? 'Reviewing outcome…' : 'Review completion outcome'}
+            </button>
+          ) : (
+            <div className="border-l-2 border-pf-primary pl-4">
+              <SupportCompletionOutcome outcome={completionPreview.outcome} />
+              <p className="mt-1 text-sm text-pf-deep/70">
+                This outcome reflects the currently reviewed work for request version{' '}
+                {completionPreview.expectedVersion}.
+              </p>
+            </div>
+          )}
           <label className="grid gap-2 text-sm font-semibold text-pf-deep">
             Completion message to client
             <textarea
               required
               rows={4}
               maxLength={20_000}
-              disabled={pending !== null || confirmed || conflict}
+              disabled={pending !== null || confirmed || conflict || completionUnknown}
               value={draft.completionBody}
               onChange={(event) =>
                 updateDraft(
@@ -301,29 +387,37 @@ export function SupportManualLoopActions({
               className="rounded-xl border border-pf-light px-3 py-2 font-normal"
             />
           </label>
-          <label className="flex items-start gap-2 text-sm text-pf-deep/75">
-            <input
-              type="checkbox"
-              checked={draft.completionConfirmed}
-              disabled={pending !== null || confirmed || conflict}
-              onChange={(event) =>
-                updateDraft(
-                  (current) => ({ ...current, completionConfirmed: event.target.checked }),
-                  'complete',
-                )
-              }
-              className="mt-1"
-            />
-            I confirm this conversation is complete. This does not approve, apply, or publish
-            package work.
-          </label>
-          <button
-            type="submit"
-            disabled={pending !== null || confirmed || conflict || !draft.completionConfirmed}
-            className="min-h-11 rounded-xl border border-pf-primary px-5 text-sm font-semibold text-pf-primary disabled:opacity-50"
-          >
-            {pending === 'complete' ? 'Completing…' : 'Complete support request'}
-          </button>
+          {completionPreview ? (
+            <label className="flex items-start gap-2 text-sm text-pf-deep/75">
+              <input
+                type="checkbox"
+                checked={draft.completionConfirmed}
+                disabled={pending !== null || confirmed || conflict || completionUnknown}
+                onChange={(event) =>
+                  setDraftState((current) => ({
+                    ...(current.scope === scope ? current : emptyDraft(scope)),
+                    completionConfirmed: event.target.checked,
+                  }))
+                }
+                className="mt-1"
+              />
+              I confirm this conversation is complete. This does not approve, apply, or publish
+              package work.
+            </label>
+          ) : null}
+          {completionPreview ? (
+            <button
+              type="submit"
+              disabled={pending !== null || confirmed || conflict || !draft.completionConfirmed}
+              className="min-h-11 rounded-xl border border-pf-primary px-5 text-sm font-semibold text-pf-primary disabled:opacity-50"
+            >
+              {pending === 'complete'
+                ? 'Completing…'
+                : completionUnknown
+                  ? 'Retry exact completion'
+                  : 'Complete support request'}
+            </button>
+          ) : null}
         </form>
       ) : (
         <p className="mt-4 rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/70">

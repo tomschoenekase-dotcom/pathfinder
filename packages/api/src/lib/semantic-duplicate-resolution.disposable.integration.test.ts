@@ -269,7 +269,7 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
         ],
       },
     })
-    // Evidence preparation is live; completion awaits truthful structured presentation.
+    // A no-change completion requires a reviewed outcome and exact fulfillment identity.
     const requestBefore = await db.supportRequest.findFirstOrThrow({
       where: { ...scope, id: requestId },
     })
@@ -287,10 +287,93 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
           auditRole: 'PLATFORM_ADMIN',
         },
       }),
-    ).rejects.toThrow('structured completion presentation')
+    ).rejects.toThrow(/outcome|structured completion|preview/i)
     expect(
       await db.supportRequest.findFirstOrThrow({ where: { ...scope, id: requestId } }),
     ).toEqual(requestBefore)
+    const completionInput = {
+      operationId: randomUUID(),
+      ...scope,
+      requestId,
+      expectedVersion: requestBefore.version,
+      expectedCompletionOutcome: 'NO_CHANGE' as const,
+      expectedFulfillmentDigest: fulfillment.digest,
+      body: 'The existing guidance already covers this request; it remains unchanged.',
+      actor: {
+        actorType: 'HUMAN' as const,
+        participantKind: 'OPERATOR' as const,
+        actorId: adminId,
+        auditRole: 'PLATFORM_ADMIN' as const,
+      },
+    }
+    await expect(
+      completeSupportRequestAction({ ...completionInput, expectedCompletionOutcome: 'UPDATED' }),
+    ).rejects.toThrow(/outcome|preview/i)
+    await expect(
+      completeSupportRequestAction({
+        ...completionInput,
+        expectedFulfillmentDigest: '0'.repeat(64),
+      }),
+    ).rejects.toThrow(/fulfillment|preview/i)
+    const completed = await completeSupportRequestAction(completionInput)
+    expect(completed).toMatchObject({
+      status: 'COMPLETED',
+      message: { completionOutcome: 'NO_CHANGE', body: completionInput.body },
+      replayed: false,
+    })
+    await expect(completeSupportRequestAction(completionInput)).resolves.toMatchObject({
+      message: {
+        id: completed.message.id,
+        completionOutcome: 'NO_CHANGE',
+        body: completionInput.body,
+      },
+      replayed: true,
+    })
+    const storedCompletion = await db.supportMessage.findFirstOrThrow({
+      where: { ...scope, id: completed.message.id },
+    })
+    expect(storedCompletion).toMatchObject({
+      completionOutcome: 'NO_CHANGE',
+      body: completionInput.body,
+      visibility: 'CLIENT_VISIBLE',
+    })
+    await expect(
+      db.$executeRaw`UPDATE support_messages SET completion_outcome='UPDATED' WHERE id=${completed.message.id}`,
+    ).rejects.toThrow(/append-only/i)
+    for (const invalid of [
+      {
+        visibility: 'INTERNAL_ONLY' as const,
+        requestVersion: completed.requestVersion,
+        completionOutcome: 'NO_CHANGE',
+      },
+      {
+        visibility: 'CLIENT_VISIBLE' as const,
+        requestVersion: null,
+        completionOutcome: 'NO_CHANGE',
+      },
+      {
+        visibility: 'CLIENT_VISIBLE' as const,
+        requestVersion: completed.requestVersion,
+        completionOutcome: 'INVENTED',
+      },
+    ]) {
+      await expect(
+        db.supportMessage.create({
+          data: {
+            ...scope,
+            supportRequestId: requestId,
+            authorKind: 'OPERATOR',
+            authorId: adminId,
+            body: 'Invalid outcome fixture',
+            clientVersion: invalid.visibility === 'CLIENT_VISIBLE' ? 999 : null,
+            ...invalid,
+          },
+        }),
+      ).rejects.toThrow(/completion_outcome_shape_check/)
+    }
+    const requestAfterCompletion = await db.supportRequest.findFirstOrThrow({
+      where: { ...scope, id: requestId },
+    })
     let writerLocked!: () => void
     let releaseWriter!: () => void
     const locked = new Promise<void>((resolve) => {
@@ -370,7 +453,7 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
     ).toMatchObject({ content: changedContent })
     expect(
       await db.supportRequest.findFirstOrThrow({ where: { ...scope, id: requestId } }),
-    ).toEqual(requestBefore)
+    ).toEqual(requestAfterCompletion)
     await expect(caller.resolveSupportSemanticDuplicate(input)).resolves.toMatchObject({
       replayed: true,
       currentFulfillmentVerified: false,

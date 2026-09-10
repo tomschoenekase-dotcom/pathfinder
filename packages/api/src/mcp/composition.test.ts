@@ -1162,6 +1162,7 @@ describe('safe operational MCP composition', () => {
           fromStatus: 'IN_REVIEW',
           toStatus: 'COMPLETED',
           body: 'Your requested venue update is complete.',
+          completionOutcome: 'RESOLVED',
           missingInformationCount: 0,
           packageFulfillment: {
             contractVersion: 1,
@@ -1236,6 +1237,31 @@ describe('safe operational MCP composition', () => {
   })
 
   it('consumes exact one-shot authority with the canonical support completion action', async () => {
+    const reviewedScope = {
+      contractVersion: 2,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      requestId: 'support-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      toStatus: 'COMPLETED' as const,
+      body: 'Your requested venue update is complete.',
+      missingInformationCount: 0,
+      packageFulfillment: {
+        contractVersion: 1,
+        linkedPackageCount: 0,
+        packages: [],
+        digest: 'b'.repeat(64),
+      },
+      completionOutcome: 'RESOLVED' as const,
+      allLinkedPackagesApplied: true,
+      supportRequestChanged: false,
+      clientActivityChanged: false,
+      clientVisibleMessageCreated: false,
+      customerContacted: false,
+      externalDeliveryTriggered: false,
+      executionAuthorized: false,
+    }
     consumeApproval
       .mockResolvedValueOnce({
         consumption: { id: 'consumption-1', resultReference: null },
@@ -1269,6 +1295,11 @@ describe('safe operational MCP composition', () => {
       })
     const tx = {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
+      approvalGrant: {
+        findFirst: vi.fn().mockResolvedValue({
+          approvalDecision: { approvalRequest: { scopeSnapshot: reviewedScope } },
+        }),
+      },
     }
     const database = {
       agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -1319,6 +1350,8 @@ describe('safe operational MCP composition', () => {
     )
     expect(completeSupport).toHaveBeenCalledWith(
       expect.objectContaining({
+        expectedCompletionOutcome: 'RESOLVED',
+        expectedFulfillmentDigest: 'b'.repeat(64),
         actor: expect.objectContaining({
           approvalGrantId: 'grant-1',
           capability: 'support:complete',
@@ -1361,6 +1394,63 @@ describe('safe operational MCP composition', () => {
       },
     })
     expect(tx.approvalGrantConsumption.update).toHaveBeenCalledTimes(1)
+
+    consumeApproval.mockResolvedValueOnce({
+      consumption: { id: 'consumption-legacy', resultReference: null },
+      replayed: false,
+    })
+    completeSupport.mockResolvedValueOnce({
+      message: { id: 'message-legacy' },
+      status: 'COMPLETED',
+      missingInformation: [],
+      requestVersion: 5,
+      clientVersion: 10,
+      operationVersion: { requestVersion: 5, clientVersion: 10 },
+      replayed: false,
+    })
+    const { completionOutcome: _reviewedOutcome, ...historicalScope } = reviewedScope
+    expect(_reviewedOutcome).toBe('RESOLVED')
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      approvalDecision: { approvalRequest: { scopeSnapshot: historicalScope } },
+    })
+    await registry.callTool(
+      'pathfinder.apply_support_completion',
+      { ...input, operationId: '4a444444-4444-4444-8444-444444444444' },
+      { credential: supportCredential, approvalGrantId: 'grant-1' },
+    )
+    expect(consumeApproval).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        parameters: expect.not.objectContaining({ completionOutcome: expect.anything() }),
+      }),
+      expect.anything(),
+    )
+    expect(completeSupport).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ expectedCompletionOutcome: expect.anything() }),
+      expect.anything(),
+    )
+
+    readSupportFulfillment.mockResolvedValueOnce({
+      contractVersion: 6,
+      guestObservability: { effects: [] },
+      contentFulfillment: { receipts: [] },
+      temporalFulfillment: { receipts: [] },
+      noChangeFulfillment: { receipts: [{ id: 'no-change_1' }] },
+      digest: 'c'.repeat(64),
+    })
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      approvalDecision: { approvalRequest: { scopeSnapshot: historicalScope } },
+    })
+    const consumesBeforeNoChange = consumeApproval.mock.calls.length
+    const completionsBeforeNoChange = completeSupport.mock.calls.length
+    await expect(
+      registry.callTool(
+        'pathfinder.apply_support_completion',
+        { ...input, operationId: '4b444444-4444-4444-8444-444444444444' },
+        { credential: supportCredential, approvalGrantId: 'grant-1' },
+      ),
+    ).rejects.toThrow('Historical support completion approval cannot apply a no-change outcome')
+    expect(consumeApproval).toHaveBeenCalledTimes(consumesBeforeNoChange)
+    expect(completeSupport).toHaveBeenCalledTimes(completionsBeforeNoChange)
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {

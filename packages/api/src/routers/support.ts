@@ -61,6 +61,7 @@ const clientMessageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  completionOutcome: true,
   createdAt: true,
   attachments: {
     select: {

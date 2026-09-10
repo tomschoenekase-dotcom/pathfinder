@@ -15,6 +15,7 @@ import {
   SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
   SupportPackageHandoffSupersessionApplyParameters,
   SupportCompletionProposalApprovalSnapshot,
+  deriveSupportCompletionOutcome,
   INTAKE_V1_PACKAGE_DRAFT_APPLY_ACTION,
   INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
   IntakeV1PackageDraftApplyParameters,
@@ -3735,6 +3736,35 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           venueId,
           supportRequestId: input.requestId,
         })
+        const completionOutcome = deriveSupportCompletionOutcome(packageFulfillment)
+        const approvedGrant = await tx.approvalGrant.findFirst({
+          where: {
+            id: context.approvalGrantId!,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: 'pathfinder.apply_support_completion',
+            capability: 'support:complete',
+          },
+          select: {
+            approvalDecision: {
+              select: { approvalRequest: { select: { scopeSnapshot: true } } },
+            },
+          },
+        })
+        const reviewedSnapshot = SupportCompletionProposalApprovalSnapshot.safeParse(
+          approvedGrant?.approvalDecision?.approvalRequest?.scopeSnapshot,
+        )
+        if (!reviewedSnapshot.success)
+          throw new McpActionBindingError('Approved support completion parameters are unavailable')
+        const outcomeWasReviewed = reviewedSnapshot.data.completionOutcome !== undefined
+        if (
+          !outcomeWasReviewed &&
+          (completionOutcome === 'NO_CHANGE' || completionOutcome === 'MIXED')
+        )
+          throw new McpActionBindingError(
+            'Historical support completion approval cannot apply a no-change outcome; refresh review.',
+          )
         const parameters = {
           clientId: context.credential.clientId,
           venueId,
@@ -3744,6 +3774,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           toStatus: 'COMPLETED' as const,
           body: input.body,
           packageFulfillment,
+          ...(outcomeWasReviewed ? { completionOutcome } : {}),
         }
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
@@ -3785,6 +3816,12 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
             expectedVersion: input.expectedVersion,
             body: input.body,
             packageFulfillment,
+            ...(outcomeWasReviewed
+              ? {
+                  expectedCompletionOutcome: completionOutcome,
+                  expectedFulfillmentDigest: packageFulfillment.digest,
+                }
+              : {}),
             actor: {
               actorType: 'AGENT',
               participantKind: 'AGENT',

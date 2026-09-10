@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { SupportCompletionOutcome } from './support-completion-outcome'
+
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION = 'pathfinder.create_update_draft' as const
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY = 'updates:draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_draft' as const
@@ -853,6 +855,9 @@ export const SupportCompletionApplyParameters = z
     toStatus: z.literal('COMPLETED'),
     body: z.string().trim().min(1).max(20_000),
     packageFulfillment: SupportCompletionPackageFulfillment,
+    // Historical grants predate the structured outcome. New completion proposals
+    // always bind it, while old approved grants remain parseable.
+    completionOutcome: z.enum(SupportCompletionOutcome).optional(),
   })
   .strict()
 
@@ -870,6 +875,7 @@ export const SupportCompletionProposalApprovalSnapshot = z
     body: z.string().trim().min(1).max(20_000),
     missingInformationCount: z.literal(0),
     packageFulfillment: SupportCompletionPackageFulfillment,
+    completionOutcome: z.enum(SupportCompletionOutcome).optional(),
     allLinkedPackagesApplied: z.literal(true),
     supportRequestChanged: z.literal(false),
     clientActivityChanged: z.literal(false),

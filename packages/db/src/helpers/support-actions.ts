@@ -16,7 +16,10 @@ import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
 import {
+  deriveSupportCompletionOutcome,
+  SupportCompletionOutcome,
   SupportCompletionPackageFulfillment,
+  type SupportCompletionOutcome as SupportCompletionOutcomeValue,
   type SupportCompletionPackageFulfillment as SupportCompletionPackageFulfillmentValue,
 } from '@pathfinder/contracts'
 
@@ -271,6 +274,11 @@ const operatorConversationInput = z
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
     packageFulfillment: SupportCompletionPackageFulfillment.optional(),
+    expectedCompletionOutcome: z.enum(SupportCompletionOutcome).optional(),
+    expectedFulfillmentDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
     actor: z.union([
       operatorConversationActor,
       approvedClientVisibleSupportAgentActor.refine(
@@ -347,6 +355,7 @@ const messageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  completionOutcome: true,
   clientVersion: true,
   createdAt: true,
   attachments: {
@@ -438,6 +447,7 @@ function safeReplayMessage(message: {
   authorId: string
   visibility: string
   body: string
+  completionOutcome: string | null
   createdAt: Date
   submissionRequestId: string | null
   submissionInputHash: string | null
@@ -459,6 +469,7 @@ function safeReplayMessage(message: {
     authorId: message.authorId,
     visibility: message.visibility,
     body: message.body,
+    completionOutcome: message.completionOutcome,
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => ({
       id: attachment.id,
@@ -1358,6 +1369,8 @@ type ManualLoopParsed = {
   missingInformation?: string[]
   attachments?: SupportAttachmentDraft[]
   packageFulfillment?: SupportCompletionPackageFulfillmentValue
+  expectedCompletionOutcome?: SupportCompletionOutcomeValue
+  expectedFulfillmentDigest?: string
   actor: SupportActionActor
 }
 
@@ -1376,6 +1389,19 @@ async function manualSupportLoopActionOnce(
   const isClient = kind === 'RESPOND_INFORMATION'
   const attachments: SupportAttachmentDraft[] = isClient ? (parsed.attachments ?? []) : []
   const requestedItems = kind === 'REQUEST_INFORMATION' ? (parsed.missingInformation ?? []) : []
+  if (
+    (parsed.expectedCompletionOutcome === undefined) !==
+    (parsed.expectedFulfillmentDigest === undefined)
+  )
+    throw new SupportActionError(
+      'INVALID_INPUT',
+      'Expected completion outcome and fulfillment digest must be supplied together',
+    )
+  if (kind !== 'COMPLETE_REQUEST' && parsed.expectedCompletionOutcome !== undefined)
+    throw new SupportActionError(
+      'INVALID_INPUT',
+      'Completion outcome evidence is only valid for request completion',
+    )
   const expectedVersion = 'expectedVersion' in parsed ? parsed.expectedVersion : undefined
   const expectedClientVersion =
     'expectedClientVersion' in parsed ? parsed.expectedClientVersion : undefined
@@ -1396,6 +1422,12 @@ async function manualSupportLoopActionOnce(
     body: parsed.body,
     ...(parsed.packageFulfillment
       ? { packageFulfillmentDigest: parsed.packageFulfillment.digest }
+      : {}),
+    ...(parsed.expectedCompletionOutcome !== undefined
+      ? {
+          expectedCompletionOutcome: parsed.expectedCompletionOutcome,
+          expectedFulfillmentDigest: parsed.expectedFulfillmentDigest,
+        }
       : {}),
     missingInformation: requestedItems,
     intakeUploadIds: attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
@@ -1475,6 +1507,7 @@ async function manualSupportLoopActionOnce(
     }
 
     let completionPackageFulfillment: SupportCompletionPackageFulfillmentValue | null = null
+    let completionOutcome: SupportCompletionOutcomeValue | null = null
     if (kind === 'REQUEST_INFORMATION') {
       if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
         throw new SupportActionError('CONFLICT', 'Request is not ready for an information prompt')
@@ -1521,16 +1554,26 @@ async function manualSupportLoopActionOnce(
           'Linked package fulfillment changed after founder review; refresh completion evidence.',
         )
       }
+      const currentCompletionOutcome = deriveSupportCompletionOutcome(currentPackageFulfillment)
       if (
-        'noChangeFulfillment' in currentPackageFulfillment &&
-        currentPackageFulfillment.noChangeFulfillment.receipts.length > 0
-      ) {
+        parsed.expectedCompletionOutcome !== undefined &&
+        (parsed.expectedCompletionOutcome !== currentCompletionOutcome ||
+          parsed.expectedFulfillmentDigest !== currentPackageFulfillment.digest)
+      )
         throw new SupportActionError(
           'CONFLICT',
-          'Verified no-change outcomes require structured completion presentation before this request can be completed.',
+          'Completion outcome or fulfillment changed; refresh completion evidence.',
         )
-      }
+      if (
+        (currentCompletionOutcome === 'NO_CHANGE' || currentCompletionOutcome === 'MIXED') &&
+        parsed.expectedCompletionOutcome === undefined
+      )
+        throw new SupportActionError(
+          'CONFLICT',
+          'Verified no-change completion requires the exact reviewed outcome and fulfillment digest.',
+        )
       completionPackageFulfillment = currentPackageFulfillment
+      completionOutcome = currentCompletionOutcome
     }
 
     const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
@@ -1577,6 +1620,7 @@ async function manualSupportLoopActionOnce(
         authorId: parsed.actor.actorId,
         visibility: 'CLIENT_VISIBLE',
         body: parsed.body,
+        ...(completionOutcome ? { completionOutcome } : {}),
         submissionRequestId: parsed.operationId,
         submissionInputHash: operationHash,
         clientVersion: nextClientVersion,

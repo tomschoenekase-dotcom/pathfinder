@@ -127,6 +127,7 @@ export const adminSupportCompletionApprovalRouter = router({
               toStatus: snapshot.data.toStatus,
               body: snapshot.data.body,
               packageFulfillment: snapshot.data.packageFulfillment,
+              completionOutcome: snapshot.data.completionOutcome,
             })
             const approvalGrant = await issueApprovalGrantAction(
               {

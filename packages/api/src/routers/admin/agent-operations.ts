@@ -2,6 +2,10 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  SUPPORT_COMPLETION_APPLY_ACTION,
+  SupportCompletionProposalApprovalSnapshot,
+} from '@pathfinder/contracts'
 
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
@@ -16,6 +20,22 @@ import { adminAgentIdentityReadsRouter } from './agent-identity-reads'
 import { adminAgentApprovalPolicyReadsRouter } from './agent-approval-policy-reads'
 import { adminAgentRunTraceRouter } from './agent-run-trace'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
+
+function supportCompletionProposalProjection(input: {
+  proposedAction: string
+  scopeSnapshot: unknown
+}): {
+  completionOutcome: 'UPDATED' | 'NO_CHANGE' | 'MIXED' | 'RESOLVED' | null
+  body: string
+} | null {
+  if (input.proposedAction !== SUPPORT_COMPLETION_APPLY_ACTION) return null
+  const snapshot = SupportCompletionProposalApprovalSnapshot.safeParse(input.scopeSnapshot)
+  if (!snapshot.success) return null
+  return {
+    completionOutcome: snapshot.data.completionOutcome ?? null,
+    body: snapshot.data.body,
+  }
+}
 
 /**
  * Read-only operator surfaces for the agent control plane. Raw JSON inputs,
@@ -306,6 +326,7 @@ const adminAgentRunOperationsRouter = router({
             requestedByType: true,
             requestedById: true,
             proposedAction: true,
+            scopeSnapshot: true,
             reason: true,
             riskCategory: true,
             expiresAt: true,
@@ -330,8 +351,12 @@ const adminAgentRunOperationsRouter = router({
         const page = pageResult(rows, input.limit)
         return {
           ...page,
-          items: page.items.map((request) => ({
+          items: page.items.map(({ scopeSnapshot, ...request }) => ({
             ...request,
+            supportCompletionProposal: supportCompletionProposalProjection({
+              proposedAction: request.proposedAction,
+              scopeSnapshot,
+            }),
             state: approvalState(request, now),
           })),
         }
@@ -358,6 +383,7 @@ const adminAgentRunOperationsRouter = router({
             requestedByType: true,
             requestedById: true,
             proposedAction: true,
+            scopeSnapshot: true,
             reason: true,
             riskCategory: true,
             expiresAt: true,
@@ -382,7 +408,15 @@ const adminAgentRunOperationsRouter = router({
         if (!request) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Approval request not found' })
         }
-        return { ...request, state: approvalState(request, now) }
+        const { scopeSnapshot, ...safeRequest } = request
+        return {
+          ...safeRequest,
+          supportCompletionProposal: supportCompletionProposalProjection({
+            proposedAction: safeRequest.proposedAction,
+            scopeSnapshot,
+          }),
+          state: approvalState(safeRequest, now),
+        }
       }),
     ),
 })

@@ -61,5 +61,6 @@ export * from './agent-workflow-registry'
 export * from './agent-workflow-promotion-assessment'
 export * from './agent-workflow-activation'
 export * from './semantic-canonical-knowledge'
+export * from './support-completion-outcome'
 
 export * from './agent-source-assignment'

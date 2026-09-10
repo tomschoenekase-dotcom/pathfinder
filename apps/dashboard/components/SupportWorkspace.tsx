@@ -16,6 +16,10 @@ import {
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import {
+  SupportCompletionOutcome,
+  type SupportCompletionOutcomeValue,
+} from './SupportCompletionOutcome'
 
 const SUPPORT_READ_TIMEOUT_MS = 15_000
 
@@ -56,6 +60,7 @@ type ClientMessage = {
   body: string
   createdAt: Date | string
   attachments: Attachment[]
+  completionOutcome?: SupportCompletionOutcomeValue | null
 }
 type RequestDetail = RequestSummary & {
   messages: ClientMessage[]
@@ -1219,6 +1224,12 @@ export function SupportWorkspace({
                             : 'Torchiko Support'}{' '}
                           · {dateLabel(message.createdAt)}
                         </p>
+                        {message.completionOutcome ? (
+                          <SupportCompletionOutcome
+                            outcome={message.completionOutcome}
+                            className="mt-2 opacity-80"
+                          />
+                        ) : null}
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
                         {message.attachments.length > 0 ? (
                           <ul className="mt-3 space-y-1 text-xs">

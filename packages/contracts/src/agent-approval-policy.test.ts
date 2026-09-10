@@ -90,6 +90,7 @@ describe('support completion fulfillment contract', () => {
       toStatus: 'COMPLETED' as const,
       body: 'Your requested update is complete.',
       packageFulfillment,
+      completionOutcome: 'UPDATED' as const,
     }
     expect(SupportCompletionApplyParameters.parse(parameters)).toEqual(parameters)
     const snapshot = {
@@ -103,6 +104,7 @@ describe('support completion fulfillment contract', () => {
       body: parameters.body,
       missingInformationCount: 0 as const,
       packageFulfillment,
+      completionOutcome: 'UPDATED' as const,
       allLinkedPackagesApplied: true as const,
       supportRequestChanged: false as const,
       clientActivityChanged: false as const,
@@ -112,6 +114,11 @@ describe('support completion fulfillment contract', () => {
       executionAuthorized: false as const,
     }
     expect(SupportCompletionProposalApprovalSnapshot.parse(snapshot)).toEqual(snapshot)
+    const { completionOutcome: _completionOutcome, ...historicalParameters } = parameters
+    expect(_completionOutcome).toBe('UPDATED')
+    expect(SupportCompletionApplyParameters.parse(historicalParameters)).toEqual(
+      historicalParameters,
+    )
     expect(
       SupportCompletionApplyParameters.parse({
         ...parameters,
@@ -155,6 +162,9 @@ describe('support completion fulfillment contract', () => {
         },
       }),
     ).toThrow('Package-free observability')
+    expect(() =>
+      SupportCompletionApplyParameters.parse({ ...parameters, completionOutcome: 'FORGED' }),
+    ).toThrow()
   })
 })
 

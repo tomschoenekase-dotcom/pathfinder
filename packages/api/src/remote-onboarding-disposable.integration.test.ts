@@ -651,7 +651,15 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       expect(internalMessage).toMatchObject({ requestVersion: 4, replayed: false })
 
       const completionOperationId = randomUUID()
+      const completionPreview = await admin.getSupportCompletionPreview({
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: internalMessage.requestVersion,
+      })
       const completionInput = {
+        expectedCompletionOutcome: completionPreview.outcome,
+        expectedFulfillmentDigest: completionPreview.fulfillmentDigest,
         operationId: completionOperationId,
         tenantId,
         venueId,

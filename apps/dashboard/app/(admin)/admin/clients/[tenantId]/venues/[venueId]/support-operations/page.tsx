@@ -1,11 +1,17 @@
 export const dynamic = 'force-dynamic'
 
 import { SupportOperationsView } from '../../../../../../../../components/admin/SupportOperationsView'
+import type { SupportCompletionOutcomeValue } from '../../../../../../../../components/SupportCompletionOutcome'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type Props = {
   params: Promise<{ tenantId: string; venueId: string }>
   searchParams: Promise<Record<string, string | undefined>>
+}
+function completionOutcome(value: string | null): SupportCompletionOutcomeValue | null {
+  return value === 'UPDATED' || value === 'NO_CHANGE' || value === 'MIXED' || value === 'RESOLVED'
+    ? value
+    : null
 }
 function requestCursor(query: Record<string, string | undefined>) {
   const updatedAt = query.requestCursorUpdatedAt
@@ -127,6 +133,7 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         authorKind: message.authorKind,
         visibility: message.visibility,
         body: message.body,
+        completionOutcome: completionOutcome(message.completionOutcome),
         requestVersion: message.requestVersion,
         createdAt: message.createdAt,
         attachments: message.attachments.map((attachment) => ({

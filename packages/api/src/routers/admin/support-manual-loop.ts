@@ -1,7 +1,11 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
+import { SupportCompletionOutcome, deriveSupportCompletionOutcome } from '@pathfinder/contracts'
 
 import {
   completeSupportRequestAction,
+  readSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
   requestSupportInformationAction,
   SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX,
   SUPPORT_TRIAGE_MISSING_INFORMATION_MAX,
@@ -32,6 +36,48 @@ function operatorActor(userId: string) {
 }
 
 export const adminSupportManualLoopRouter = router({
+  getSupportCompletionPreview: adminProcedure
+    .input(
+      adminSupportScope.extend({
+        requestId: z.string().min(1),
+        expectedVersion: z.number().int().positive(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await ctx.db.$transaction(async (tx) => {
+          const fulfillment = await readSupportPackageFulfillment(tx, {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            supportRequestId: input.requestId,
+          })
+          const request = await tx.supportRequest.findFirst({
+            where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+            select: { version: true, status: true, missingInformation: true },
+          })
+          if (!request)
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'Support request not found.' })
+          if (
+            request.version !== input.expectedVersion ||
+            !['OPEN', 'IN_REVIEW'].includes(request.status) ||
+            request.missingInformation.length > 0
+          )
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Refresh this request before preparing completion.',
+            })
+          return {
+            outcome: deriveSupportCompletionOutcome(fulfillment),
+            fulfillmentDigest: fulfillment.digest,
+            expectedVersion: request.version,
+          }
+        })
+      } catch (error) {
+        if (error instanceof SupportPackageFulfillmentError)
+          throw new TRPCError({ code: 'CONFLICT', message: error.message })
+        return supportActionError(error)
+      }
+    }),
   requestSupportInformation: adminProcedure
     .input(
       operatorMessageInput.extend({
@@ -55,7 +101,12 @@ export const adminSupportManualLoopRouter = router({
     }),
 
   completeSupportRequest: adminProcedure
-    .input(operatorMessageInput)
+    .input(
+      operatorMessageInput.extend({
+        expectedCompletionOutcome: z.enum(SupportCompletionOutcome),
+        expectedFulfillmentDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await completeSupportRequestAction(

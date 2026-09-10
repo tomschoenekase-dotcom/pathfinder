@@ -79,6 +79,7 @@ describe('support completion proposal action', () => {
               linkedPackageCount: 0,
               packages: [],
             }),
+            completionOutcome: 'RESOLVED',
             allLinkedPackagesApplied: true,
             clientVisibleMessageCreated: false,
             customerContacted: false,
