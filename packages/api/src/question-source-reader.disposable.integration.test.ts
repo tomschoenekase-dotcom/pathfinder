@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
+import { spawn } from 'node:child_process'
+import { Readable } from 'node:stream'
+import { fileURLToPath } from 'node:url'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
@@ -29,6 +33,7 @@ import {
 import { createFileExtractionClarificationQuestion } from './lib/intake-file-clarifications'
 import { executeIntakeFileExtraction } from './lib/intake-file-extraction-service'
 import { createAgentBridgeRegistry } from './agent-bridge/registry'
+import { handleAgentBridgeHttpRequest } from './agent-bridge/http'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './mcp/registry'
 import { readMcpResource } from './mcp/read-actions'
 import { createPathfinderMcpAgentActions } from './mcp/agent-actions'
@@ -56,6 +61,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     const wrongVenueRunId = `run-source-question-wrong-venue-${suffix}`
     const bridgeSessionId = randomUUID()
     let workerId = ''
+    let syntheticBearer = ''
     let credential!: Awaited<ReturnType<typeof verifyAgentBridgeCredential>>
     const sourcePrefix = 'Retained review notes. '.repeat(230)
     const excerpt =
@@ -96,6 +102,8 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           ...scope,
           identityKey: `source.question.${suffix}`,
           name: 'Synthetic Content identity',
+          defaultProvider: 'codex-bridge',
+          defaultModel: 'subscription-default',
           agentType: 'CONTENT',
           accessScope: 'VENUE',
           accessCapabilities: ['intake.read', 'content.draft'],
@@ -136,6 +144,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         ],
         expiresAt: new Date(Date.now() + 3_600_000),
       })
+      syntheticBearer = issued.plaintextSecret!
       const activated = await activateAgentBridgeCredentialAction({
         operationId: randomUUID(),
         tenantId,
@@ -832,6 +841,147 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       await expect(
         Promise.resolve().then(() => bridge.callOperationalTool(attempt, { credential })),
       ).rejects.toThrow()
+
+    // Exercise the real HTTP handler through separate, database-less client processes.
+    const httpTask = await createAgentTaskAction({
+      ...taskInput,
+      operationId: randomUUID(),
+      prompt:
+        'Read the assigned extraction and resolve the two-greenhouse ambiguity over the bridge.',
+    })
+    const server = createServer(async (request, response) => {
+      try {
+        const headers = new Headers()
+        for (const [key, value] of Object.entries(request.headers))
+          if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(',') : value)
+        const result = await handleAgentBridgeHttpRequest(
+          new Request('http://127.0.0.1/bridge', {
+            method: request.method!,
+            headers,
+            body: Readable.toWeb(request) as ReadableStream<Uint8Array>,
+            duplex: 'half',
+          } as RequestInit),
+          scope,
+          { registry: bridge },
+        )
+        response.writeHead(result.status, Object.fromEntries(result.headers.entries()))
+        response.end(Buffer.from(await result.arrayBuffer()))
+      } catch {
+        response.writeHead(500)
+        response.end('fixture-http-failure')
+      }
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Expected owned loopback port')
+    const url = `http://127.0.0.1:${address.port}/bridge`
+    const runHttpWorker = (mode: 'ask' | 'resume') =>
+      new Promise<{
+        pid: number
+        runId: string
+        attemptNumber: number
+        questionId: string
+        answer?: string
+        sourceHash: string
+        capacityRead: boolean
+      }>((resolve, reject) => {
+        const childEnv: NodeJS.ProcessEnv = { NODE_ENV: 'test' }
+        for (const key of ['SystemRoot', 'WINDIR', 'COMSPEC', 'PATH', 'PATHEXT', 'TEMP', 'TMP'])
+          if (process.env[key]) childEnv[key] = process.env[key]
+        const child = spawn(
+          process.execPath,
+          [
+            fileURLToPath(
+              new URL('../../../scripts/fixtures/source-question-http-worker.mjs', import.meta.url),
+            ),
+          ],
+          { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+        )
+        let stdout = ''
+        let stderr = ''
+        const timer = setTimeout(() => child.kill(), 30000)
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString()
+          if (stdout.length > 16000) child.kill()
+        })
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString()).slice(-2000)
+        })
+        child.once('error', (error) => {
+          clearTimeout(timer)
+          reject(error)
+        })
+        child.once('close', (code) => {
+          clearTimeout(timer)
+          if (code !== 0) {
+            reject(
+              new Error(
+                `Disposable HTTP worker ${mode} exited ${code}: ${stderr.replaceAll(syntheticBearer, '[redacted]')}`,
+              ),
+            )
+            return
+          }
+          try {
+            resolve(JSON.parse(stdout))
+          } catch {
+            reject(new Error('Invalid bounded worker proof result'))
+          }
+        })
+        child.stdin.end(
+          JSON.stringify({
+            url,
+            mode,
+            token: syntheticBearer,
+            sessionId: bridgeSessionId,
+            venueId,
+            workerKey: `worker-source-question-${suffix}`,
+            workerId,
+            identityId,
+          }),
+        )
+      })
+    try {
+      const unauthorized = await fetch(url, { method: 'POST', body: '{}' })
+      expect(unauthorized.status).toBe(401)
+      const firstWorker = await runHttpWorker('ask')
+      expect(firstWorker).toMatchObject({
+        runId: httpTask.run.id,
+        attemptNumber: 1,
+        sourceHash: extractedTextHash,
+        capacityRead: true,
+      })
+      const httpQuestion = await db.agentQuestion.findFirstOrThrow({
+        where: { id: firstWorker.questionId, ...scope, agentRunId: httpTask.run.id },
+        select: { updatedAt: true },
+      })
+      await answerAgentQuestionAction({
+        ...scope,
+        questionId: firstWorker.questionId,
+        expectedUpdatedAt: httpQuestion.updatedAt,
+        outcome: 'ANSWERED',
+        answer: 'They are two distinct greenhouse buildings; retain both identities.',
+        actor: { actorType: 'HUMAN', actorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const resumedWorker = await runHttpWorker('resume')
+      expect(resumedWorker.pid).not.toBe(firstWorker.pid)
+      expect(resumedWorker).toMatchObject({
+        runId: httpTask.run.id,
+        attemptNumber: 2,
+        questionId: firstWorker.questionId,
+        answer: 'They are two distinct greenhouse buildings; retain both identities.',
+        sourceHash: extractedTextHash,
+        capacityRead: true,
+      })
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+    expect(server.listening).toBe(false)
 
     const runless = await createFileExtractionClarificationQuestion(
       input({
