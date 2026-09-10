@@ -873,23 +873,15 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         requestId: randomUUID(),
         actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
       })
-      const nativeTarget = await db.venueKnowledgeEntry.create({
-        data: {
-          id: `native-quiet-room-${randomUUID()}`,
+      const nativeTarget = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: {
           tenantId,
           venueId,
-          title: 'Juniper quiet room',
-          category: 'Visitor services',
-          content: fixture.additionContent,
-          isEnabled: true,
-          visibility: 'PUBLIC',
-          sourceType: 'SYNTHETIC_FIXTURE',
-          authorship: 'HUMAN_AUTHORED',
           contentModuleId: additionReceiptBeforeRetry.moduleId,
           contentRevisionId: additionReceiptBeforeRetry.revisionId,
           contentPublicationId: additionPublication.publicationId,
         },
-        select: { id: true },
+        select: { id: true, title: true, category: true },
       })
       const supersedingContent =
         'The Juniper quiet room is now beside the south conservation studio.'
@@ -976,8 +968,8 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         .getByRole('button', { name: 'Build semantic change preview' })
         .click()
       await nativeSupersession.getByLabel('Change relationship').selectOption('SUPERSEDES')
-      await nativeSupersession.getByLabel('Visitor-facing title').fill('Juniper quiet room')
-      await nativeSupersession.getByLabel('Category').fill('Visitor services')
+      await nativeSupersession.getByLabel('Visitor-facing title').fill(nativeTarget.title)
+      await nativeSupersession.getByLabel('Category').fill(nativeTarget.category)
       await nativeSupersession.getByLabel('Visitor-facing content').fill(supersedingContent)
       await nativeSupersession.getByRole('button', { name: 'Compute semantic preview' }).click()
       await expect(nativeSupersession.getByText('SUPERSESSION', { exact: true })).toBeVisible()
@@ -1037,8 +1029,8 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         .getByRole('button', { name: 'Build semantic change preview' })
         .click()
       await reloadedSupersession.getByLabel('Change relationship').selectOption('SUPERSEDES')
-      await reloadedSupersession.getByLabel('Visitor-facing title').fill('Juniper quiet room')
-      await reloadedSupersession.getByLabel('Category').fill('Visitor services')
+      await reloadedSupersession.getByLabel('Visitor-facing title').fill(nativeTarget.title)
+      await reloadedSupersession.getByLabel('Category').fill(nativeTarget.category)
       await reloadedSupersession.getByLabel('Visitor-facing content').fill(supersedingContent)
       await reloadedSupersession.getByRole('button', { name: 'Compute semantic preview' }).click()
       await reloadedSupersession.getByRole('button', { name: 'Prepare private draft' }).click()
