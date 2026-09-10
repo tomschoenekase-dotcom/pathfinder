@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-10",
+  "scope": "Operational update expiry admission after real lock waits",
+  "candidate": "f16d871f9c3a73fb676fe5773b59eda371daee5e",
+  "proofLayer": "disposable-native-postgresql",
+  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-operational-lock-clock-32e9be8756ab\\result.json",
+  "resultSha256": "31220200dc608c3a60493911f9f92bcfa33844cf4240de564f4ad2cd36508212",
+  "result": {
+    "database": "pathfinder_disposable_operational_clock_32e9be8756ab",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-operational-lock-clock-32e9be8756ab",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "rejects expired admission after real entity and capacity lock waits",
+    "sourceHead": "f16d871f9c3a73fb676fe5773b59eda371daee5e",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/db/src/helpers/operational-update-actions.ts",
+        "retained": "measured-packages__db__src__helpers__operational-update-actions.ts",
+        "sha256": "34679164c59c3f45c24325c0c45cb2392f735f5b149d57ae7613d56485f256c1"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-update-actions.test.ts",
+        "retained": "measured-packages__db__src__helpers__operational-update-actions.test.ts",
+        "sha256": "679b451f3a43abcb1f559d9f0056ba351318dcf5cb9bb6eda51e61a9e5aa3d24"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-update-lock-clock.disposable.integration.test.ts",
+        "retained": "measured-packages__db__src__helpers__operational-update-lock-clock.disposable.integration.test.ts",
+        "sha256": "ffc280ea4e0ae573142a5e2df592455c4b36662857eb152cf265e9b44c818563"
+      },
+      {
+        "source": "packages/db/src/helpers/content-version-context.ts",
+        "retained": "measured-packages__db__src__helpers__content-version-context.ts",
+        "sha256": "5a98babaffe49f6bafceecd5de8a07c4b11b3fbcd8a49d8abf2045aafe0cd28a"
+      },
+      {
+        "source": "packages/db/src/helpers/audit.ts",
+        "retained": "measured-packages__db__src__helpers__audit.ts",
+        "sha256": "a9033dc1bcc66238ebe6b5089e3cbfd0f3879f5f349cde932bebde9e549793c5"
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "retained": "measured-packages__db__src__client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237"
+      },
+      {
+        "source": "packages/db/src/middleware/tenant-isolation.ts",
+        "retained": "measured-packages__db__src__middleware__tenant-isolation.ts",
+        "sha256": "cfa1cc1d156631e3cca8acdc3536ff2a5f5c7d7536b2f79c473f41750a1b0b99"
+      },
+      {
+        "source": "packages/db/src/tenanted-tables.ts",
+        "retained": "measured-packages__db__src__tenanted-tables.ts",
+        "sha256": "2c3b6b4f38da0f0db1f4789e03292d67c67c3284957a055ea4627a940af6bf31"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a3adb945c7b0bfcbc9fc64f21fc63e42fa46454beb5169eb472f31aab92cd3f2"
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "retained": "measured-scripts__lib__disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e"
+      }
+    ],
+    "runnerSha256": "7cd0f434c6687599506e32bb356f9137e1ef4d6850eee68d4ba9c221e52c1f5f",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "sourceHashesStable": true
+  },
+  "boundaries": [
+    "create-capacity",
+    "schedule-entity",
+    "schedule-capacity",
+    "update-draft-capacity",
+    "update-active-capacity"
+  ],
+  "targetedUnitTests": 15,
+  "limitations": [
+    "Synthetic tenant and actor; no live provider or customer proof.",
+    "One native test exercises five sequential lock boundaries; it is not five independent test cases.",
+    "Explicit injected input.now retains deterministic caller semantics.",
+    "Campaign acceptance and release gates remain open."
+  ]
+}
