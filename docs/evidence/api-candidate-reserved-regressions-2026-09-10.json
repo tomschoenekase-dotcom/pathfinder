@@ -59,5 +59,22 @@
     "Report NOT_FOUND select expectation must include generatedAt/weekStart/weekEnd/answerCount/sessionCount.",
     "Valid and CAS-miss draft mocks must supply complete generation evidence before exercising publish/CAS. Keep explicit incomplete-evidence rejection coverage; do not relax canonical guard."
   ],
-  "scope": "Read-only diagnosis of reserved failures, not permission to duplicate the external packet. Operation inventory mismatch is separately being repaired. 107 pending cases are not PASS; no native/provider proof from this run."
+  "scope": "Read-only diagnosis of reserved failures, not permission to duplicate the external packet. Operation inventory mismatch is separately being repaired. 107 pending cases are not PASS; no native/provider proof from this run.",
+  "followup": {
+    "commit": "57549df5",
+    "inventoryRepair": "Reviewed14 additions; 538 exact runtime operations, one existing canonical draft-tool binding,13 deliberately unbound. No new execution authority.",
+    "validation": {
+      "coverageTest": {
+        "passed": 1
+      },
+      "legacyDraftRouteAndMcpTests": {
+        "passed": 46
+      },
+      "apiTypes": "PASS",
+      "apiLint": "PASS"
+    },
+    "remaining": "Five original reserved _admin.test.ts failures remain pending packet integration. Full suite not rerun or claimed green.",
+    "inventorySha256": "52fb7cceb77762946c086a69e3fee099b394a3c7c1cf7648f5fedd33a51a337e",
+    "bindingSha256": "e43c87c990a177636bb49fcbf6fbcd58f26da18317f605cc0816b47c16ff18e1"
+  }
 }
