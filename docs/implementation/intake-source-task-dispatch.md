@@ -58,3 +58,9 @@ Next inspect the seam between the existing connected browser upload/V1/package/Q
 This integration exposed and fixed missing explicit tenant filters in credential replay (`1803c520`) and bridge-session upsert (`9cdf4814`). Earlier native source setup ran these registration actions inside fixture setup bypass, so it did not prove their middleware admission. The new connected path does. Targeted credential/processing/bridge tests total 34; DB/dashboard types and changed-source lint pass. Retained failed runs and exact proof boundaries are in the evidence file.
 
 Next inspect the remaining P01 progression requirements against this now-connected local flow, particularly useful independent work while a foundational question waits and later-upload amendment progression. Do not repeat this chain or treat synthetic human approval as autonomous delivery. Provider/device/release gates and original 32QA/A-B/C remain at their required layers.
+
+## Bounded client submission recovery
+
+`6b8a928d` adds a 15-second deadline to initial V1 submission and amendment through the existing scoped request helper. A never-returning transport now reaches the existing uncertain-result state instead of holding the client screen indefinitely. Retry retains the exact operation/selection/base revision; late success cannot replace current state. No automatic retry or new approval behavior.
+
+19 component tests, dashboard types and changed-source lint pass. Rendered `143fd0cd` on `72940e9f` passed eight initial/amendment cases across four viewports with keyboard/axe/overflow and frozen retry identity checks; inspected screenshots and Next stopped. Preliminary `a7d5b8cf` passed assertions but a screenshot exposed an unrelated revision mismatch in the fixture; this was corrected and the proof rerun. See `docs/evidence/intake-v1-mutation-recovery-2026-09-10.json`. This is intercepted transport proof; backend/native evidence remains at its recorded revision.

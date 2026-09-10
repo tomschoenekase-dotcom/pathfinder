@@ -1,0 +1,50 @@
+{
+  "date": "2026-09-10",
+  "requirements": ["V2-P01-05", "V2-P01-07"],
+  "implementationCommit": "6b8a928d",
+  "fixtureRefinementCommit": "72940e9f",
+  "change": "Bound initial submit and amendment requests to 15 seconds using existing scoped abort helper. Unknown outcomes preserve exact operation, source selection and amendment base for explicit retry; late completion is ignored.",
+  "unitTests": 19,
+  "dashboardTypecheck": "passed",
+  "changedSourceLint": "passed",
+  "rendered": {
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-v1-mutation-recovery-ui-143fd0cd",
+    "sources": [
+      {
+        "path": "apps/dashboard/components/IntakeV1SubmissionWorkspace.tsx",
+        "sha256": "d5b653646297aada0fab2cf4573f185a23cb88840295a7bc107b48970ace7ef8"
+      },
+      {
+        "path": "apps/dashboard/tests/visual/intake-v1-mutation-recovery.spec.ts",
+        "sha256": "7d16e5198779a39e7566f3d78d699ab11ac6fe2cda5b27315230911b362df38e"
+      },
+      {
+        "path": "apps/dashboard/lib/bounded-client-request.ts",
+        "sha256": "484db7ac9e0f45f34f19b7e3d2fe15fdbb427d7ef14ffcbad4dda82c274b1f77"
+      }
+    ],
+    "passed": true,
+    "stopped": true,
+    "pid": 27756,
+    "stats": {
+      "startTime": "2026-09-10T09:19:21.276Z",
+      "duration": 23527.114,
+      "expected": 8,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "result": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-mutation-recovery-ui-143fd0cd\\result.json",
+  "viewportsInspected": ["phone", "tablet", "laptop", "wide"],
+  "earlierProof": {
+    "id": "a7d5b8cf",
+    "testsPassed": 8,
+    "limitation": "Screenshot review found unrelated processing warning caused by fixture returning revision2 for revision1. Corrected fixture, added absence assertion and reran."
+  },
+  "limits": [
+    "Rendered transport is intercepted; it simulates saved server state with a response that never arrives. No database or live network durability claim from this test.",
+    "Canonical persistence/replay and connected delivery proof remain revision-limited to their retained sources, including source-worker-connected-2026-09-10.json.",
+    "No approval, publication, provider or customer authority changes. Original128 requirements,32QA and A/B/C remain open at required layers."
+  ]
+}
