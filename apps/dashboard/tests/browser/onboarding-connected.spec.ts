@@ -1465,7 +1465,9 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       const response = await submitted
       expect(await response.text()).not.toContain('"error"')
       await expect(page.getByText('Version 1 received', { exact: true })).toBeVisible()
-      await expect(page.getByText('Material processing', { exact: true })).toBeVisible()
+      await expect(
+        page.getByRole('heading', { name: 'Material processing', exact: true }),
+      ).toBeVisible()
       await expect(
         page.getByText(
           'Processing details could not be refreshed. Your saved submission is unchanged.',
