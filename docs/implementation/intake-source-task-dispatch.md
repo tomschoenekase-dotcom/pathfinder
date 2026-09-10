@@ -1,8 +1,12 @@
 # Intake extraction to Content task dispatch
 
-Source checkpoint: `0bd2eb32`, inspected 2026-09-10. This is the implementation contract for the next W01 connection, not an implemented or enabled service.
+Source checkpoint: `0bd2eb32`, inspected 2026-09-10. This records the W01 connection design and its current proof limits; it does not authorize service activation.
 
-Current implementation: `21c26ea9` adds the scoped disabled-by-default routing policy, admin configuration/read routes, trusted routing admission and SYSTEM source-task constructor; `83fa875b` retains native proof `59ef61baa53a` (241 migrations, 259 tables, 48 measured source hashes). Automatic extraction outbox/dispatch reconciliation remains unimplemented. Continue with decisions 3-6 below; reuse the completed primitives rather than rebuilding them.
+Current implementation: `5733e139` connects successful extraction to a durable source dispatch, exact configured SYSTEM task creation, and the existing extraction recovery sweep. Native proof `1195c6b06909` passed 242 migrations / 260 tables / 52 measured sources; PostgreSQL stopped. See `../evidence/source-agent-dispatch-native-2026-09-10.json`. Prior routing/system-constructor proof remains revision-limited to `21c26ea9` / `59ef61baa53a`.
+
+The historical gap and design decisions below explain the implemented connection; do not rebuild it. The outbox UUID is the durable task operation identity, with one outbox per extraction dispatch. Its immutable source locator and retained chosen policy revision/identity provide decision lineage. Completed retries recover the same run even after routing changes. The sweep also discovers completed dispatches whose exact scoped run is still QUEUED, and delays replay publication attempts by 60 seconds using database time.
+
+Remaining scoped work: bounded recovery for already-COMPLETED extraction rows predating the outbox migration; real disposable Redis/BullMQ publication/restart proof (current publication-failure tests inject the queue); configuration/held-status UI if needed for operator usability; atomic identity revocation admission review beyond existing effect checks. No historical rows are silently backfilled. The accepted candidate remains a synthetic human review branch rolled back in native proof, not automatic approval.
 
 ## Confirmed gap
 

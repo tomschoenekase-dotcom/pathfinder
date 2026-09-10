@@ -163,13 +163,25 @@ describe('V1 file extraction dispatch lifecycle', () => {
       extractedText: text,
       extractedTextHash: createHash('sha256').update(text).digest('hex'),
     }
-    const { value, update } = client(row, receipt)
+    const { value, update, tx } = client(row, receipt)
     await expect(
       claimIntakeV1FileExtractionDispatch(
         { dispatchId: row.id, leaseOwner: 'worker-a' },
         value as never,
       ),
     ).resolves.toBeNull()
+    expect(tx.intakeSourceAgentDispatch.upsert).toHaveBeenCalledWith({
+      where: { extractionDispatchId: row.id, tenantId: row.tenantId },
+      create: {
+        tenantId: row.tenantId,
+        venueId: row.venueId,
+        extractionDispatchId: row.id,
+        intakeRunId: row.intakeRunId,
+        receiptId,
+        extractedTextHash: receipt.extractedTextHash,
+      },
+      update: {},
+    })
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'COMPLETED', fileExtractionReceiptId: receiptId }),
