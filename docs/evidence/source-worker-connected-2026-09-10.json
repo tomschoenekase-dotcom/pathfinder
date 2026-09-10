@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-10",
+  "requirements": ["V2-P01-04", "V2-P01-07", "V2-P01-08"],
+  "sourceHead": "9cdf4814ae4196dcf7f782c4a5f5c10ec1eef64a",
+  "result": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-worker-connected-c1b4a29dd599\\result.json",
+  "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-source-worker-connected-proof.mjs",
+  "runnerSha256": "82b775547253b384ab31c865c9fcf3eb3891e4daed9312db88b71e52f3433149",
+  "measuredSources": 113,
+  "currentSourceHashesVerified": true,
+  "browserCounts": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0
+  },
+  "database": {
+    "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+    "timezone": "UTC",
+    "vectorVersion": "0.8.6",
+    "migrationCount": 242,
+    "publicTableCount": 260
+  },
+  "lineage": {
+    "tenantId": "fixture-remote-onboarding-tenant",
+    "venueId": "c000000000000000000000001",
+    "selectedUploadId": "cmtvb34h0000m8twc6t4sw2a0",
+    "selectedRunId": "cmtvb34vo000y8twco0pompcl",
+    "extractionReceiptId": "194e733a-8a18-4b0e-8356-3af565702189",
+    "submissionId": "cmtvb366m00168twcj823dz3r",
+    "manifestHash": "88535c96d6ba10b5be98e94abd597ec88123b76d2a5be8d2befeab661823cc86",
+    "candidateHash": "59275aea449a3cc5b10512188e66170e8bdf9479ce1a0a49e76ffdb3f2bdd929",
+    "payloadHash": "9b4e9c454ba873e026e7358bc187fb332cab433a91f1ded3d16dbf932c686340",
+    "packageId": "cmtvb38go002p8twc57fwxj4p",
+    "appliedStatus": "APPLIED",
+    "contentVersionIds": ["829ac607-9df6-4dff-88c6-4dca5642240b"],
+    "contentVersions": [
+      {
+        "id": "829ac607-9df6-4dff-88c6-4dca5642240b",
+        "entityType": "KNOWLEDGE_ENTRY",
+        "entityId": "cmtvb3afd00328twc2bp7kqi4"
+      }
+    ],
+    "publicKnowledgeIds": ["cmtvb3afd00328twc2bp7kqi4"],
+    "guestSessionId": "cmtvb3ag700348twc5m3zwj32",
+    "venueSlug": "c000000000000000000000001",
+    "lifecycleState": "LIVE",
+    "released": true,
+    "publicScopeResolved": true,
+    "qrDecodedUrl": "http://127.0.0.1:3002/c000000000000000000000001/chat?source=qr",
+    "sourceWorkerProof": {
+      "agentIdentityId": "connected-source-4cfbbf36e3fe",
+      "agentRunId": "cmtvb37ty001m8twcx07e5dqo",
+      "workerId": "cmtvb37t4001j8twcarac16ws",
+      "questionId": "cmtvb381w001v8twcmjjd3ip7",
+      "resolutionId": "53d7a48b-df52-49eb-a8d5-daa013cbd3c8",
+      "amendmentDigest": "6220bfc4380935a97ce19622f6affa5c1e0a44b55f62a07c2c50d66774c7a787",
+      "initialAttemptNumber": 1,
+      "resumedAttemptNumber": 2,
+      "serverStopped": true
+    },
+    "capacity137SourceProof": {
+      "sourceCharacterCount": 4945,
+      "factOffset": 4778,
+      "extractionReceiptId": "194e733a-8a18-4b0e-8356-3af565702189",
+      "extractedTextHash": "acaaff69417272b1c370d01859b5db8268463e1bcf3694786e6bb5f2a8e24a99",
+      "knowledgeEntryId": "cmtvb3afd00328twc2bp7kqi4",
+      "capacity": 137
+    },
+    "providerProof": false
+  },
+  "allFiveServicesStopped": true,
+  "targetedTests": {
+    "credential": 9,
+    "processingRead": 20,
+    "bridgeActions": 5
+  },
+  "typechecks": ["db", "dashboard"],
+  "changedSourceLint": "passed",
+  "renderedInspected": [
+    "file-v1-receipt-390.png",
+    "scanner-release-qr-390.png",
+    "scanner-release-qr-1440.png"
+  ],
+  "fixes": [
+    "1803c520: credential operation and activation replay queries now carry exact tenant filters; global operation collisions fail closed.",
+    "9cdf4814: bridge-session upsert explicitly carries tenant filter alongside scoped composite key."
+  ],
+  "failedAttempts": [
+    {
+      "id": "490960e8d0c9",
+      "reason": "Old processing text selector ambiguous after status UI; repaired."
+    },
+    {
+      "id": "8bf31b451f67",
+      "reason": "Fixture import.meta incompatible with Playwright module format; repaired."
+    },
+    {
+      "id": "783b33ba5149",
+      "reason": "Real credential replay missing tenant filter; repaired."
+    },
+    {
+      "id": "27710298f84a",
+      "reason": "Real bridge-session upsert missing explicit tenant filter; repaired."
+    }
+  ],
+  "limits": [
+    "Synthetic local authentication, deterministic source question and human answer, synthetic embeddings, disposable storage/scanner definitions. No live inference.",
+    "Human source acceptance and OWNER approval/application remain explicit fixture actions; not autonomous founder-free acceptance.",
+    "Worker dispatch is invoked through the canonical dispatcher in this fixture; periodic scheduler and Redis recovery have separate retained proof.",
+    "Local LIVE lifecycle and decoded loopback QR are disposable states, not hosted release, physical device or customer evidence.",
+    "All original 128 requirements, 32 QA and A/B/C remain required; no full campaign completion claim."
+  ]
+}
