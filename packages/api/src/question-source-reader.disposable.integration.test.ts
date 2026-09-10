@@ -1022,6 +1022,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         answer?: string
         sourceHash: string
         capacityRead: boolean
+        resolutionId?: string
       }>((resolve, reject) => {
         const childEnv: NodeJS.ProcessEnv = { NODE_ENV: 'test' }
         for (const key of ['SystemRoot', 'WINDIR', 'COMSPEC', 'PATH', 'PATHEXT', 'TEMP', 'TMP'])
@@ -1136,6 +1137,26 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       })
       const resumedWorker = await runHttpWorker('resume')
       expect(resumedWorker.pid).not.toBe(firstWorker.pid)
+      expect(resumedWorker.resolutionId).toEqual(expect.any(String))
+      const resumedResolution = await db.intakeFileClarificationResolution.findFirstOrThrow({
+        where: { id: resumedWorker.resolutionId!, ...scope, questionId: firstWorker.questionId },
+      })
+      expect(resumedResolution).toMatchObject({
+        createdBy: identityId,
+        amendedExcerpt: founderAnswer,
+      })
+      expect(
+        await db.auditLog.count({
+          where: {
+            tenantId,
+            targetId: resumedResolution.id,
+            actorType: 'AGENT',
+            agentRunId: httpTask.run.id,
+            action: 'intake-file-clarification.agent-amendment-recorded',
+          },
+        }),
+      ).toBe(1)
+
       expect(resumedWorker).toMatchObject({
         runId: httpTask.run.id,
         attemptNumber: 2,

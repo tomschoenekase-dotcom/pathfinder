@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 
 // Disposable HTTP client only. No product imports, database access or durable local state.
 let raw = ''
@@ -54,6 +55,7 @@ const second = await operational('pathfinder.read', {
 assert(second.structuredContent.data.page.text.includes('137'))
 let questionId
 let answer
+let resolutionId
 if (input.mode === 'ask') {
   const excerpt = second.structuredContent.data.page.text
     .split('\n')
@@ -91,6 +93,23 @@ if (input.mode === 'ask') {
     pageSize: 4000,
   })
   assert.equal(read.structuredContent.data.extractedTextHash, assignment.extractedTextHash)
+  const resolution = await operational('pathfinder.resolve_source_clarification', {
+    agentIdentityId: input.identityId,
+    agentRunId: task.id,
+    requestId: randomUUID(),
+    runId: assignment.intakeRunId,
+    receiptId: assignment.receiptId,
+    expectedExtractedTextHash: assignment.extractedTextHash,
+    questionId,
+    expectedAnsweredAt: context.currentResolvedQuestions[0].answeredAt,
+    kind: 'REPLACE_EXCERPT',
+    amendedExcerpt: answer,
+    rationale: 'The retained answer distinguishes the two greenhouse buildings.',
+  })
+  assert.equal(resolution.structuredContent.data.terminalReviewRequired, true)
+  assert.equal(resolution.structuredContent.data.canonicalVenueChanged, false)
+  resolutionId = resolution.structuredContent.data.resolutionId
+
 }
 // Only bounded synthetic proof facts leave this process; never the bearer or lease token.
 process.stdout.write(
@@ -102,5 +121,6 @@ process.stdout.write(
     answer,
     sourceHash: assignment.extractedTextHash,
     capacityRead: true,
+    resolutionId,
   }),
 )
