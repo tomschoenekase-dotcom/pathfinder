@@ -6,7 +6,11 @@ Current implementation: `5733e139` connects successful extraction to a durable s
 
 The historical gap and design decisions below explain the implemented connection; do not rebuild it. The outbox UUID is the durable task operation identity, with one outbox per extraction dispatch. Its immutable source locator and retained chosen policy revision/identity provide decision lineage. Completed retries recover the same run even after routing changes. The sweep also discovers completed dispatches whose exact scoped run is still QUEUED, and delays replay publication attempts by 60 seconds using database time.
 
-Remaining scoped work: bounded recovery for already-COMPLETED extraction rows predating the outbox migration; real disposable Redis/BullMQ publication/restart proof (current publication-failure tests inject the queue); configuration/held-status UI if needed for operator usability; atomic identity revocation admission review beyond existing effect checks. No historical rows are silently backfilled. The accepted candidate remains a synthetic human review branch rolled back in native proof, not automatic approval.
+Subsequent review fixes: `487250c0` redrives retained failed BullMQ jobs and locks/rechecks source authority at execution claim and portable effects. `c3a761de` adds bounded metadata recovery for older completed extractions, before normal source dispatch reconciliation. Native `4a4acfb2ab83` passed 242 migrations / 260 tables / 53 measured sources including concurrent missing-record recovery and explicit post-dispatch capability/autonomy revocations; PG stopped. Historical `d11bf41f1c1b` preserves the preceding authority-only candidate.
+
+Disposable Redis proof `28dafb5a342d` on `1aa9fc93` passed retained failed-job redrive, concurrent reconciliation, single recovery execution and completed replay; Redis stopped. This uses real Redis with worker replacement, not a Redis server crash test. The coherent database suite passed 408 tests; worker tests 8, enqueue tests 43, plus DB/API/workers/jobs typechecks.
+
+Remaining scoped work: configuration/held-status UI if needed for operator usability; complete provider/device/acceptance gates at their authorized layers. Legacy recovery has concurrent disposable missing-record proof, not a production upgrade rehearsal. The accepted candidate remains a synthetic human review branch rolled back in native proof, not automatic approval.
 
 ## Confirmed gap
 
