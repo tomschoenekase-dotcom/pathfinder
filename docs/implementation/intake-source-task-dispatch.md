@@ -36,3 +36,9 @@ Remaining scoped work: configuration/held-status UI if needed for operator usabi
 - Unit/contract tests for strict policy input, system provenance and operation identity; UI proof only if a configuration/status view changes.
 
 No source review, package approval/application, publication, provider activation, customer contact or deployment authority is added. Original128 requirements,32QA and A/B/C remain intact. The broader Sol handoff packet is intentionally unchanged per Tom's latest instruction.
+
+## Client review-stage visibility
+
+`22623cf6` / test refinement `eee99c4c` extend the existing owner-scoped V1 processing read and client list with a separate source review stage. Extraction completion counts remain unchanged. Held, queued, running, awaiting-answer, failed/cancelled, completed preparation and recorded human review are projected without agent IDs, raw errors or source text. Rejected human source review needs attention; an agent awaiting approval is not reported as completed preparation.
+
+Native `b9363520a9a2` passed with 54 measured source hashes, including foreign-owner denial; rendered `fe7ce40f` passed four viewports with keyboard refresh/axe/overflow checks. Both services stopped. See `docs/evidence/source-review-status-2026-09-10.json` for exact proof boundaries and retained failed fixture attempt. Next implementable surface is operator routing configuration/status using the existing admin API, not another source dispatch implementation.
