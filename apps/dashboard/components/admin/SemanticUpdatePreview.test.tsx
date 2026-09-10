@@ -7,6 +7,7 @@ const query = vi.fn()
 const mutate = vi.fn()
 const mutateOperational = vi.fn()
 const mutateQuestion = vi.fn()
+const resolveConflict = vi.fn()
 const listTemporalEvidence = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
@@ -14,6 +15,7 @@ vi.mock('../../lib/trpc', () => ({
       previewSemanticVenueUpdate: { query },
       createSemanticVenueUpdatePackageDraft: { mutate },
       createSemanticOperationalUpdateDraft: { mutate: mutateOperational },
+      resolveSemanticConflict: { mutate: resolveConflict },
       createSemanticConflictQuestion: { mutate: mutateQuestion },
       listKnowledgeProposalTemporalEvidence: { query: listTemporalEvidence },
     },
@@ -693,5 +695,93 @@ describe('SemanticUpdatePreview', () => {
     await act(async () => {})
     expect(screen.queryByText(old.desired.title)).toBeNull()
     expect(await screen.findByText('Current review closure')).toBeTruthy()
+  })
+  it('refreshes a known conflict even when the evidence version is unchanged, then links the separately reviewed replacement', async () => {
+    const snapshot = {
+      classification: 'CONFLICT',
+      operationCount: 0,
+      authority: 'TRUSTED_PARTNER',
+      confidence: 0.95,
+      blockers: [{ code: 'LOWER_AUTHORITY_CONFLICT', message: 'Human-confirmed hours differ.' }],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      proposalStatus: 'APPROVED',
+      previewHash: 'a'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+      conflictQuestion: {
+        id: 'question-1',
+        status: 'ANSWERED',
+        answer: 'Use the signed hours sheet.',
+        updatedAt: '2026-09-10T12:00:00.000Z',
+        answeredAt: '2026-09-10T12:00:00.000Z',
+        answerHash: 'b'.repeat(64),
+      },
+      questionAgentIdentities: [],
+    }
+    query.mockResolvedValue(snapshot)
+    resolveConflict.mockRejectedValueOnce({ data: { code: 'CONFLICT' } }).mockResolvedValueOnce({
+      resolutionId: 'resolution-1',
+      replacementProposalId: 'replacement-1',
+      outcome: 'PROPOSE_REPLACEMENT',
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'hours' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Gallery hours' },
+    })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Closes at 7 PM.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    fireEvent.click(await screen.findByLabelText(/Keep current guidance/))
+    fireEvent.change(screen.getByLabelText('Resolution note'), {
+      target: { value: 'Keep verified guidance.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    const refresh = await screen.findByRole('button', { name: 'Refresh conflict' })
+    expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByLabelText('Visitor-facing title').closest('fieldset') as HTMLFieldSetElement)
+        .disabled,
+    ).toBe(true)
+    fireEvent.click(refresh)
+    await waitFor(() => expect(query).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    )
+    expect((screen.getByLabelText(/Keep current guidance/) as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByLabelText(/Propose replacement/))
+    fireEvent.change(screen.getByLabelText('Replacement content'), {
+      target: { value: 'Closes at 6 PM.' },
+    })
+    fireEvent.change(screen.getByLabelText('Resolution note'), {
+      target: { value: 'Use signed sheet.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    const link = await screen.findByRole('link', { name: 'Review replacement proposal' })
+    expect(link.getAttribute('href')).toBe(
+      '/admin/clients/tenant-a/venues/venue-a/knowledge-proposals?review=replacement-1#proposal-replacement-1',
+    )
+    expect(screen.getByText('Replacement awaits review')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Compute semantic preview' })).toBeNull()
+    expect(mutate).not.toHaveBeenCalled()
+    expect(mutateOperational).not.toHaveBeenCalled()
   })
 })

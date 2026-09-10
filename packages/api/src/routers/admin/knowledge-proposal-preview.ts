@@ -8,6 +8,7 @@ import {
 } from '../../lib/knowledge-proposal-temporal-evidence-options'
 
 import { router } from '../../core'
+import { hashSemanticConflictAnswer } from '../../lib/semantic-conflict-resolution-contract'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
   previewSemanticVenueUpdateFromProposal,
@@ -102,7 +103,19 @@ export const adminKnowledgeProposalPreviewRouter = router({
             select: { id: true, identityKey: true, name: true },
           }),
         ])
-        return { ...preview, conflictQuestion, questionAgentIdentities }
+        return {
+          ...preview,
+          conflictQuestion: conflictQuestion
+            ? {
+                ...conflictQuestion,
+                answerHash:
+                  conflictQuestion.status === 'ANSWERED' && conflictQuestion.answer !== null
+                    ? hashSemanticConflictAnswer(conflictQuestion.answer)
+                    : null,
+              }
+            : null,
+          questionAgentIdentities,
+        }
       } catch (error) {
         if (error instanceof SemanticVenueUpdaterError) {
           throw new TRPCError({

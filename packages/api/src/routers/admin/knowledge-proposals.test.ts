@@ -664,6 +664,7 @@ describe('admin knowledge proposals', () => {
         id: 'question-1',
         status: 'ANSWERED',
         answer: 'Use the signed hours sheet.',
+        answerHash: 'd4e4c404ef4019636ad420aefe855ec91174b0e8267a4341101f972b6807f424',
       },
       questionAgentIdentities: [
         { id: 'content-agent-1', identityKey: 'content-steward', name: 'Content Steward' },

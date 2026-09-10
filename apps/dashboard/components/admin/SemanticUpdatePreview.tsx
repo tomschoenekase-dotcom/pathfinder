@@ -14,6 +14,8 @@ import {
   type TemporalEvidenceReference,
 } from './TemporalEvidenceSelector'
 
+import { SemanticConflictResolutionForm } from './SemanticConflictResolutionForm'
+
 const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
 
 type Preview = inferRouterOutputs<AppRouter>['admin']['previewSemanticVenueUpdate']
@@ -84,7 +86,15 @@ export function SemanticUpdatePreview({
     | 'SOLD_OUT_ACTIVITY'
     | 'TEMPORARY_VENDOR_LOCATION'
   >('GENERAL_NOTICE')
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [previewValue, setPreview] = useState<Preview | null>(null)
+  const [previewScope, setPreviewScope] = useState<string | null>(null)
+  const [previewGeneration, setPreviewGeneration] = useState(0)
+  const [resolutionFrozen, setResolutionFrozen] = useState(false)
+  const [resolution, setResolution] = useState<{
+    scope: string
+    replacementProposalId: string | null
+    outcome: string
+  } | null>(null)
   const [draft, setDraft] = useState<SemanticDraft | null>(null)
   const [operationalDraft, setOperationalDraft] = useState<SemanticOperationalDraft | null>(null)
   const [conflictQuestion, setConflictQuestion] = useState<SemanticConflictQuestion | null>(null)
@@ -96,6 +106,7 @@ export function SemanticUpdatePreview({
   const previewRunning = useRef(false)
   const activeRequest = useRef<AbortController | null>(null)
   const scope = `${tenantId}:${venueId}:${proposalId}:${new Date(proposalUpdatedAt).toISOString()}`
+  const preview = previewScope === scope ? previewValue : null
   const currentScope = useRef(scope)
   currentScope.current = scope
   const selectedTemporalEvidence = temporalEvidenceScope === scope ? temporalEvidence : null
@@ -116,6 +127,8 @@ export function SemanticUpdatePreview({
     activeRequest.current = null
     previewRunning.current = false
     setBusy(false)
+    setResolutionFrozen(false)
+    setResolution(null)
     setPreview(null)
     setDraft(null)
     setOperationalDraft(null)
@@ -234,6 +247,8 @@ export function SemanticUpdatePreview({
           ),
       })
       if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setPreviewGeneration((value) => value + 1)
+        setPreviewScope(startedScope)
         setPreview(next)
         setDraft(null)
         setOperationalDraft(null)
@@ -371,6 +386,39 @@ export function SemanticUpdatePreview({
     }
   }
 
+  if (resolution?.scope === scope) {
+    const reviewPath = `/admin/clients/${encodeURIComponent(tenantId)}/venues/${encodeURIComponent(venueId)}/knowledge-proposals`
+    return (
+      <section
+        className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+        aria-label="Conflict resolution recorded"
+      >
+        <p role="status" className="font-semibold text-slate-950">
+          {resolution.outcome === 'KEEP_CANONICAL'
+            ? 'Current knowledge kept'
+            : 'Replacement awaits review'}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          {resolution.outcome === 'KEEP_CANONICAL'
+            ? 'The conflicting proposal is closed. Visitor-facing knowledge is unchanged.'
+            : 'The replacement needs separate approval before a draft can be created. Visitor-facing knowledge is unchanged.'}
+        </p>
+        <a
+          className="mt-3 inline-flex min-h-11 items-center font-semibold text-violet-900 underline"
+          href={
+            resolution.replacementProposalId
+              ? `${reviewPath}?review=${encodeURIComponent(resolution.replacementProposalId)}#proposal-${encodeURIComponent(resolution.replacementProposalId)}`
+              : reviewPath
+          }
+        >
+          {resolution.replacementProposalId
+            ? 'Review replacement proposal'
+            : 'Return to proposal review'}
+        </a>
+      </section>
+    )
+  }
+
   if (!open) {
     return (
       <button
@@ -397,6 +445,7 @@ export function SemanticUpdatePreview({
         </div>
         <button
           type="button"
+          disabled={resolutionFrozen}
           onClick={() => {
             invalidatePreview(true)
             setOpen(false)
@@ -409,170 +458,172 @@ export function SemanticUpdatePreview({
       <p className="mt-2 text-sm leading-6 text-slate-600">
         Review the wording and dates before creating a draft. Previewing does not publish an update.
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-medium text-slate-800">
-          Change relationship
-          <select
-            value={relation}
-            onChange={(event) => {
-              setRelation(event.target.value as typeof relation)
-              clearBoundTemporalEvidence()
-            }}
-            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-          >
-            <option value="NEW_FACT">Addition</option>
-            <option value="CORRECTS">Correction</option>
-            <option value="SUPERSEDES">Supersession</option>
-          </select>
-        </label>
-        <label className="text-sm font-medium text-slate-800">
-          Category
-          <input
-            required
-            maxLength={100}
-            value={category}
-            onChange={(event) => {
-              setCategory(event.target.value)
-              clearBoundTemporalEvidence()
-            }}
-            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-          />
-        </label>
-      </div>
-      <label className="mt-3 block text-sm font-medium text-slate-800">
-        Visitor-facing title
-        <input
-          required
-          maxLength={temporal ? 60 : 200}
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value)
-            clearBoundTemporalEvidence()
-          }}
-          className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-        />
-      </label>
-      <label className="mt-3 block text-sm font-medium text-slate-800">
-        Visitor-facing content
-        <textarea
-          required
-          rows={4}
-          maxLength={temporal ? 300 : 5000}
-          value={content}
-          onChange={(event) => {
-            setContent(event.target.value)
-            clearBoundTemporalEvidence()
-          }}
-          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
-        />
-      </label>
-      {!temporal ? (
-        <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-          <input
-            type="checkbox"
-            checked={isEnabled}
-            onChange={(event) => {
-              setIsEnabled(event.target.checked)
-              clearBoundTemporalEvidence()
-            }}
-          />
-          Enabled in canonical knowledge
-        </label>
-      ) : null}
-      <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-        <input
-          type="checkbox"
-          checked={temporal}
-          onChange={(event) => {
-            setTemporal(event.target.checked)
-            setRequiresTemporalEvidence(event.target.checked ? null : false)
-            setTemporalEvidenceRequirementScope(event.target.checked ? null : scope)
-            clearBoundTemporalEvidence()
-          }}
-        />
-        Time-bounded operational fact
-      </label>
-      {temporal ? (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <fieldset disabled={resolutionFrozen} className="min-w-0">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">
-            Starts at
-            <input
-              type="datetime-local"
-              step="any"
-              value={validFrom}
-              onChange={(event) => {
-                setValidFrom(event.target.value)
-                clearBoundTemporalEvidence()
-              }}
-              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-800">
-            Expires at
-            <input
-              type="datetime-local"
-              step="any"
-              value={validUntil}
-              onChange={(event) => {
-                setValidUntil(event.target.value)
-                clearBoundTemporalEvidence()
-              }}
-              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-800 sm:col-span-2">
-            Operational update type
+            Change relationship
             <select
-              value={operationalUpdateType}
+              value={relation}
               onChange={(event) => {
-                setOperationalUpdateType(event.target.value as typeof operationalUpdateType)
-                invalidatePreview()
+                setRelation(event.target.value as typeof relation)
+                clearBoundTemporalEvidence()
               }}
               className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
             >
-              <option value="GENERAL_NOTICE">General notice</option>
-              <option value="TEMPORARY_CLOSURE">Temporary closure</option>
-              <option value="UNAVAILABLE_EXHIBIT">Unavailable exhibit</option>
-              <option value="CHANGED_HOURS">Changed hours</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="SPECIAL_EVENT">Special event</option>
-              <option value="SOLD_OUT_ACTIVITY">Sold-out activity</option>
-              <option value="TEMPORARY_VENDOR_LOCATION">Temporary vendor location</option>
+              <option value="NEW_FACT">Addition</option>
+              <option value="CORRECTS">Correction</option>
+              <option value="SUPERSEDES">Supersession</option>
             </select>
           </label>
+          <label className="text-sm font-medium text-slate-800">
+            Category
+            <input
+              required
+              maxLength={100}
+              value={category}
+              onChange={(event) => {
+                setCategory(event.target.value)
+                clearBoundTemporalEvidence()
+              }}
+              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+            />
+          </label>
         </div>
-      ) : null}
-      {temporal ? (
-        <TemporalEvidenceSelector
-          key={scope}
-          tenantId={tenantId}
-          venueId={venueId}
-          proposalId={proposalId}
-          proposalUpdatedAt={proposalUpdatedAt}
-          selectedKey={selectedTemporalEvidenceKey}
-          onSelect={selectTemporalEvidence}
-          onClearSelection={clearBoundTemporalEvidence}
-          onRequirementChange={handleTemporalEvidenceRequirement}
-        />
-      ) : null}
-      <button
-        type="button"
-        disabled={
-          busy ||
-          !title.trim() ||
-          !category.trim() ||
-          !content.trim() ||
-          (temporal &&
-            (!validFrom ||
-              !validUntil ||
-              scopedTemporalEvidenceRequirement === null ||
-              (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
-        }
-        onClick={() => void inspect()}
-        className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
-      >
-        {busy ? 'Computing preview…' : 'Compute semantic preview'}
-      </button>
+        <label className="mt-3 block text-sm font-medium text-slate-800">
+          Visitor-facing title
+          <input
+            required
+            maxLength={temporal ? 60 : 200}
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value)
+              clearBoundTemporalEvidence()
+            }}
+            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+          />
+        </label>
+        <label className="mt-3 block text-sm font-medium text-slate-800">
+          Visitor-facing content
+          <textarea
+            required
+            rows={4}
+            maxLength={temporal ? 300 : 5000}
+            value={content}
+            onChange={(event) => {
+              setContent(event.target.value)
+              clearBoundTemporalEvidence()
+            }}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
+          />
+        </label>
+        {!temporal ? (
+          <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              checked={isEnabled}
+              onChange={(event) => {
+                setIsEnabled(event.target.checked)
+                clearBoundTemporalEvidence()
+              }}
+            />
+            Enabled in canonical knowledge
+          </label>
+        ) : null}
+        <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={temporal}
+            onChange={(event) => {
+              setTemporal(event.target.checked)
+              setRequiresTemporalEvidence(event.target.checked ? null : false)
+              setTemporalEvidenceRequirementScope(event.target.checked ? null : scope)
+              clearBoundTemporalEvidence()
+            }}
+          />
+          Time-bounded operational fact
+        </label>
+        {temporal ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium text-slate-800">
+              Starts at
+              <input
+                type="datetime-local"
+                step="any"
+                value={validFrom}
+                onChange={(event) => {
+                  setValidFrom(event.target.value)
+                  clearBoundTemporalEvidence()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-800">
+              Expires at
+              <input
+                type="datetime-local"
+                step="any"
+                value={validUntil}
+                onChange={(event) => {
+                  setValidUntil(event.target.value)
+                  clearBoundTemporalEvidence()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-800 sm:col-span-2">
+              Operational update type
+              <select
+                value={operationalUpdateType}
+                onChange={(event) => {
+                  setOperationalUpdateType(event.target.value as typeof operationalUpdateType)
+                  invalidatePreview()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              >
+                <option value="GENERAL_NOTICE">General notice</option>
+                <option value="TEMPORARY_CLOSURE">Temporary closure</option>
+                <option value="UNAVAILABLE_EXHIBIT">Unavailable exhibit</option>
+                <option value="CHANGED_HOURS">Changed hours</option>
+                <option value="MAINTENANCE">Maintenance</option>
+                <option value="SPECIAL_EVENT">Special event</option>
+                <option value="SOLD_OUT_ACTIVITY">Sold-out activity</option>
+                <option value="TEMPORARY_VENDOR_LOCATION">Temporary vendor location</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
+        {temporal ? (
+          <TemporalEvidenceSelector
+            key={scope}
+            tenantId={tenantId}
+            venueId={venueId}
+            proposalId={proposalId}
+            proposalUpdatedAt={proposalUpdatedAt}
+            selectedKey={selectedTemporalEvidenceKey}
+            onSelect={selectTemporalEvidence}
+            onClearSelection={clearBoundTemporalEvidence}
+            onRequirementChange={handleTemporalEvidenceRequirement}
+          />
+        ) : null}
+        <button
+          type="button"
+          disabled={
+            busy ||
+            !title.trim() ||
+            !category.trim() ||
+            !content.trim() ||
+            (temporal &&
+              (!validFrom ||
+                !validUntil ||
+                scopedTemporalEvidenceRequirement === null ||
+                (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
+          }
+          onClick={() => void inspect()}
+          className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? 'Computing preview…' : 'Compute semantic preview'}
+        </button>
+      </fieldset>
       {error ? (
         <p className="mt-3 text-sm text-rose-700" role="alert">
           {error}
@@ -597,7 +648,46 @@ export function SemanticUpdatePreview({
               onCreate={() => void createOperationalDraft()}
             />
           ) : null}
-          {preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
+          {preview.proposalStatus === 'APPROVED' &&
+          !temporal &&
+          relation !== 'NEW_FACT' &&
+          preview.classification === 'CONFLICT' &&
+          preview.blockers.length === 1 &&
+          preview.blockers[0]?.code === 'LOWER_AUTHORITY_CONFLICT' &&
+          preview.questions.length === 1 &&
+          preview.questions[0]?.blockerCodes.length === 1 &&
+          preview.questions[0]?.blockerCodes[0] === 'LOWER_AUTHORITY_CONFLICT' &&
+          preview.conflictQuestion?.status === 'ANSWERED' &&
+          preview.conflictQuestion.answer !== null &&
+          preview.conflictQuestion.answeredAt &&
+          preview.conflictQuestion.answerHash ? (
+            <SemanticConflictResolutionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}:${preview.conflictQuestion.updatedAt}:${preview.conflictQuestion.answerHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              previewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              question={{
+                ...preview.conflictQuestion,
+                answer: preview.conflictQuestion.answer,
+                answeredAt: preview.conflictQuestion.answeredAt,
+                answerHash: preview.conflictQuestion.answerHash,
+              }}
+              onFrozenChange={setResolutionFrozen}
+              onRefresh={() => void inspect()}
+              onResolved={(result) => {
+                if (currentScope.current === scope) setResolution({ ...result, scope })
+              }}
+            />
+          ) : preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
             <SemanticConflictQuestionAction
               creating={creating}
               questionStatus={

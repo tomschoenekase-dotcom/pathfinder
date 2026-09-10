@@ -140,6 +140,7 @@ export function KnowledgeProposalReview({
         <div className="grid gap-4 xl:grid-cols-2">
           {proposals.map((proposal) => (
             <article
+              id={`proposal-${proposal.id}`}
               key={proposal.id}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             >

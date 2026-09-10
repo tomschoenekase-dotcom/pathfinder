@@ -67,7 +67,7 @@ describe('semantic conflict resolution contract', () => {
     Object.assign(inherited, validInput)
     expect(SemanticConflictResolutionInput.safeParse(inherited).success).toBe(false)
 
-    const keepCanonical: Partial<typeof validInput> = { ...validInput }
+    const keepCanonical: Record<string, unknown> = { ...validInput }
     delete keepCanonical.replacementDesired
     expect(
       SemanticConflictResolutionInput.parse({
