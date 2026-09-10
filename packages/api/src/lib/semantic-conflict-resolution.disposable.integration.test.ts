@@ -6,6 +6,7 @@ import {
   answerAgentQuestionAction,
   db,
   prepareSupportKnowledgeProposalAction,
+  publishUniversalContentAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -559,6 +560,58 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
         },
       },
     }
+    // Pause only the wrapper's first real receipt read. The competing adoption and
+    // its explicit fixture publication then commit before this request continues.
+    let resumeReceiptRead!: () => void
+    let receiptReadObserved!: () => void
+    const receiptReadGate = new Promise<void>((resolve) => {
+      resumeReceiptRead = resolve
+    })
+    const observedReceiptRead = new Promise<void>((resolve) => {
+      receiptReadObserved = resolve
+    })
+    let pauseFirstReceiptRead = true
+    const delayedDb = new Proxy(db, {
+      get(target, property, receiver) {
+        if (property === 'legacyKnowledgeUniversalContentAdoption') {
+          return new Proxy(target.legacyKnowledgeUniversalContentAdoption, {
+            get(delegate, method, delegateReceiver) {
+              if (method === 'findFirst') {
+                return async (args: Parameters<typeof delegate.findFirst>[0]) => {
+                  const result = await delegate.findFirst(args)
+                  if (pauseFirstReceiptRead) {
+                    pauseFirstReceiptRead = false
+                    expect(result).toBeNull()
+                    receiptReadObserved()
+                    await receiptReadGate
+                  }
+                  return result
+                }
+              }
+              return Reflect.get(delegate, method, delegateReceiver)
+            },
+          })
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const delayedCaller = app.createCaller({ ...context(adminId), db: delayedDb }).admin
+    const racingUniversalResult = delayedCaller
+      .createSupportSemanticUniversalContentDraft({
+        tenantId,
+        venueId,
+        proposalId: replacement.id,
+        expectedProposalUpdatedAt: approvedReplacement.updatedAt.toISOString(),
+        expectedPreviewHash: preparedAdoption.expectedPreviewHash,
+        relation: 'CORRECTS',
+        desired: replacementDesired,
+        draft: adoptionInput.draft,
+      })
+      .then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      )
+    await observedReceiptRead
     const adoption = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
     const adoptionReplay = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
     expect(adoption).toMatchObject({ requiresExplicitPublication: true, autoPublished: false })
@@ -602,5 +655,30 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
         select: { content: true },
       }),
     ).toEqual({ content: canonical.content })
+
+    // All private-draft zero-publication assertions above remain required. This
+    // subsequent publication is explicit and confined to the disposable fixture.
+    await publishUniversalContentAction({
+      db,
+      tenantId,
+      venueId,
+      moduleId: adoption.moduleId,
+      revisionId: adoption.revisionId,
+      expectedLatestVersion: 1,
+      requestId: randomUUID(),
+      actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
+    })
+    resumeReceiptRead()
+    expect(await racingUniversalResult).toMatchObject({
+      error: {
+        code: 'PRECONDITION_FAILED',
+        message: 'This proposal already produced an adoption draft; review that revision.',
+      },
+    })
+    expect(await db.contentModuleRevision.count({ where: { tenantId, venueId } })).toBe(1)
+    expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(1)
+    expect(
+      await db.knowledgeProposalUniversalContentHandoff.count({ where: { tenantId, venueId } }),
+    ).toBe(0)
   })
 })

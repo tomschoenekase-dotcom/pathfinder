@@ -277,6 +277,22 @@ export const adminKnowledgeProposalDraftRouter = router({
       const result = await createSemanticUniversalContentDraftService({
         db: ctx.db,
         actorId: ctx.session.userId,
+        atomicPrecondition: async (tx) => {
+          const currentAdoption = await tx.legacyKnowledgeUniversalContentAdoption.findFirst({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              proposalId: input.proposalId,
+            },
+            select: { id: true },
+          })
+          if (currentAdoption) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'This proposal already produced an adoption draft; review that revision.',
+            })
+          }
+        },
         input: { ...input, draft: { ...input.draft, evidence } },
       })
       return {

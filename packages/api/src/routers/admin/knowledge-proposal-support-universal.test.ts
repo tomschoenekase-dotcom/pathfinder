@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resolveEvidence: vi.fn(),
   createUniversalDraft: vi.fn(),
   adoptionFind: vi.fn(),
+  atomicAdoptionFind: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -83,10 +84,16 @@ function context(isPlatformAdmin = true): TRPCContext {
   }
 }
 
+const atomicDb = {
+  marker: 'atomic-db',
+  legacyKnowledgeUniversalContentAdoption: { findFirst: mocks.atomicAdoptionFind },
+}
+
 describe('createSupportSemanticUniversalContentDraft', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.adoptionFind.mockResolvedValue(null)
+    mocks.atomicAdoptionFind.mockResolvedValue(null)
   })
 
   it('derives retained support evidence and delegates the exact scope and actor', async () => {
@@ -99,13 +106,16 @@ describe('createSupportSemanticUniversalContentDraft', () => {
       },
     ]
     mocks.resolveEvidence.mockResolvedValueOnce(evidence)
-    mocks.createUniversalDraft.mockResolvedValueOnce({
-      moduleId: 'module-1',
-      revisionId: 'revision-1',
-      version: 1,
-      classification: 'ADDITION',
-      draftHash: 'c'.repeat(64),
-      replayed: false,
+    mocks.createUniversalDraft.mockImplementationOnce(async (params) => {
+      await params.atomicPrecondition(atomicDb)
+      return {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        version: 1,
+        classification: 'ADDITION',
+        draftHash: 'c'.repeat(64),
+        replayed: false,
+      }
     })
 
     await expect(
@@ -134,11 +144,22 @@ describe('createSupportSemanticUniversalContentDraft', () => {
       },
       select: { id: true },
     })
-    expect(mocks.createUniversalDraft).toHaveBeenCalledWith({
-      db: expect.objectContaining({ marker: 'context-db' }),
-      actorId: 'admin-support',
-      input: { ...input, draft: { ...input.draft, evidence } },
+    expect(mocks.atomicAdoptionFind).toHaveBeenCalledWith({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+      },
+      select: { id: true },
     })
+    expect(mocks.createUniversalDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db: expect.objectContaining({ marker: 'context-db' }),
+        actorId: 'admin-support',
+        atomicPrecondition: expect.any(Function),
+        input: { ...input, draft: { ...input.draft, evidence } },
+      }),
+    )
   })
 
   it('rejects caller-injected source evidence before resolving support provenance', async () => {
@@ -207,6 +228,29 @@ describe('createSupportSemanticUniversalContentDraft', () => {
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(mocks.resolveEvidence).not.toHaveBeenCalled()
     expect(mocks.createUniversalDraft).not.toHaveBeenCalled()
+  })
+
+  it('rejects an adoption receipt that appears after the outer read and before revision creation', async () => {
+    mocks.resolveEvidence.mockResolvedValueOnce([])
+    let revisionCreated = false
+    mocks.atomicAdoptionFind.mockResolvedValueOnce({ id: 'adoption-appeared' })
+    mocks.createUniversalDraft.mockImplementationOnce(async (params) => {
+      await params.atomicPrecondition(atomicDb)
+      revisionCreated = true
+      return {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        version: 1,
+        classification: 'ADDITION',
+        draftHash: 'c'.repeat(64),
+        replayed: false,
+      }
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSupportSemanticUniversalContentDraft(input),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(revisionCreated).toBe(false)
   })
 
   it('requires an authenticated platform administrator', async () => {

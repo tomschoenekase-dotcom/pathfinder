@@ -165,6 +165,7 @@ function exactReplay<
 export async function createSemanticUniversalContentDraftService(params: {
   db: ScopedDb
   actorId: string
+  atomicPrecondition?: (tx: ScopedDb) => Promise<void>
   agentActor?: Readonly<{
     agentIdentityId: string
     agentRunId: string
@@ -309,6 +310,7 @@ export async function createSemanticUniversalContentDraftService(params: {
   }
   const precondition = async (rawTx: unknown) => {
     const tx = rawTx as ScopedDb
+    await params.atomicPrecondition?.(tx)
     const claimed = await tx.knowledgeProposalUniversalContentHandoff.findFirst({
       where: { proposalId: parsed.proposalId, tenantId: parsed.tenantId, venueId: parsed.venueId },
       select: { id: true },
