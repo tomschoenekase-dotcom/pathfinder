@@ -439,6 +439,7 @@ export function SemanticUpdatePreview({
     return (
       <section
         className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+        role="group"
         aria-label="Conflict resolution recorded"
       >
         <p role="status" className="font-semibold text-slate-950">
@@ -482,6 +483,7 @@ export function SemanticUpdatePreview({
   return (
     <section
       className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-4"
+      role="group"
       aria-label="Semantic change preview"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -434,7 +434,11 @@ export function SupportLegacyAdoptionForm(props: Props) {
   const frozenControls = pending === 'CREATE' || unknown || Boolean(frozen.current)
 
   return (
-    <section className="border-t border-pf-light pt-5" aria-label="Support content draft">
+    <section
+      className="border-t border-pf-light pt-5"
+      role="group"
+      aria-label="Support content draft"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-pf-deep">Prepare a private content draft</h3>
