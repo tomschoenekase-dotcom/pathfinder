@@ -19,6 +19,7 @@ vi.mock('@pathfinder/db', () => ({
 import {
   createFileExtractionClarificationQuestion,
   resolveFileExtractionClarification,
+  resolveFileExtractionClarificationInTransaction,
 } from './intake-file-clarifications'
 
 const receiptId = '975140d8-5af9-4c2d-9132-40b5cf6f5962'
@@ -323,6 +324,20 @@ describe('file extraction clarification', () => {
     await expect(resolveFileExtractionClarification(request as never)).resolves.toMatchObject({
       replayed: true,
     })
+    const admission = vi.fn(async (tx: unknown) => {
+      expect(tx).toBe(transaction)
+      expect(transaction.$executeRaw).toHaveBeenCalled()
+      throw new Error('current claim rejected')
+    })
+    const replayReads = findUnique.mock.calls.length
+    await expect(
+      resolveFileExtractionClarificationInTransaction(transaction as never, request, {
+        admitResolution: admission,
+      }),
+    ).rejects.toThrow('current claim rejected')
+    expect(admission).toHaveBeenCalledOnce()
+    expect(findUnique).toHaveBeenCalledTimes(replayReads)
+
     expect(create).toHaveBeenCalledOnce()
   })
 

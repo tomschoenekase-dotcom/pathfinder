@@ -30,7 +30,10 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-import { createFileExtractionClarificationQuestion } from './lib/intake-file-clarifications'
+import {
+  createFileExtractionClarificationQuestion,
+  resolveFileExtractionClarificationInTransaction,
+} from './lib/intake-file-clarifications'
 import { executeIntakeFileExtraction } from './lib/intake-file-extraction-service'
 import { createAgentBridgeRegistry } from './agent-bridge/registry'
 import { handleAgentBridgeHttpRequest } from './agent-bridge/http'
@@ -737,6 +740,54 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       })
       expect(admitted.agentIdentityId).toBe(identityId)
     }
+    // Caller-owned amendment transaction proof; this is not a registered machine write route.
+    const answered = await db.agentQuestion.findFirstOrThrow({
+      where: { id: question.id, ...scope },
+      select: { answeredAt: true },
+    })
+    const resolutionInput = {
+      ...scope,
+      runId: intakeRunId,
+      receiptId,
+      requestId: randomUUID(),
+      expectedExtractedTextHash: extractedTextHash,
+      questionId: question.id,
+      expectedAnsweredAt: answered.answeredAt!,
+      kind: 'REPLACE_EXCERPT' as const,
+      amendedExcerpt: founderAnswer,
+      rationale: 'Disposable caller transaction rollback proof.',
+      actorId,
+    }
+    await expect(
+      db.$transaction(async (tx) => {
+        const resolution = await resolveFileExtractionClarificationInTransaction(
+          tx,
+          resolutionInput,
+          {
+            admitResolution: admitQuestion,
+          },
+        )
+        expect(resolution).toMatchObject({ replayed: false, terminalReviewRequired: true })
+        const replay = await resolveFileExtractionClarificationInTransaction(tx, resolutionInput, {
+          admitResolution: admitQuestion,
+        })
+        expect(replay).toMatchObject({ replayed: true, resolutionId: resolution.resolutionId })
+        await expect(
+          resolveFileExtractionClarificationInTransaction(tx, resolutionInput, {
+            admitResolution: async () => {
+              throw new Error('resolution admission denied')
+            },
+          }),
+        ).rejects.toThrow('resolution admission denied')
+        throw new Error('rollback composed resolution')
+      }),
+    ).rejects.toThrow('rollback composed resolution')
+    expect(
+      await db.intakeFileClarificationResolution.count({
+        where: { ...scope, requestId: resolutionInput.requestId },
+      }),
+    ).toBe(0)
+
     const beforeComposedQuestion = await questionCount()
     const composed = await db.$transaction((tx) =>
       askAgentQuestionActionInTransaction(tx, localQuestionInput, { admitQuestion }),
