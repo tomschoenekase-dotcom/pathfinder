@@ -54,15 +54,38 @@ async function expectScrollableVisitorShell(page: Page) {
   expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
 
   const composer = page.getByRole('textbox')
-  await composer.scrollIntoViewIfNeeded()
+  const composerField = composer.locator('..')
+  await expect(composer).toBeInViewport()
   await composer.focus()
   await expect(composer).toBeFocused()
-  const bounds = await composer.boundingBox()
-  const viewportHeight = await page.evaluate(() => window.innerHeight)
-  expect(bounds).not.toBeNull()
-  expect(bounds!.height).toBeGreaterThanOrEqual(56)
-  expect(bounds!.y).toBeGreaterThanOrEqual(0)
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewportHeight + 1)
+  const [composerBounds, composerFieldBounds, clip] = await Promise.all([
+    composer.boundingBox(),
+    composerField.boundingBox(),
+    composerField.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      let visibleTop = Math.max(0, rect.top)
+      let visibleBottom = Math.min(window.innerHeight, rect.bottom)
+      let ancestor = element.parentElement
+      while (ancestor) {
+        const style = window.getComputedStyle(ancestor)
+        if (['auto', 'clip', 'hidden', 'scroll'].includes(style.overflowY)) {
+          const ancestorRect = ancestor.getBoundingClientRect()
+          visibleTop = Math.max(visibleTop, ancestorRect.top)
+          visibleBottom = Math.min(visibleBottom, ancestorRect.bottom)
+        }
+        ancestor = ancestor.parentElement
+      }
+      return {
+        height: rect.height,
+        visibleHeight: Math.max(0, visibleBottom - visibleTop),
+      }
+    }),
+  ])
+  expect(composerBounds).not.toBeNull()
+  expect(composerFieldBounds).not.toBeNull()
+  expect(composerBounds!.height).toBeGreaterThanOrEqual(44)
+  expect(composerFieldBounds!.height).toBeGreaterThanOrEqual(56)
+  expect(clip.visibleHeight, JSON.stringify(clip)).toBeGreaterThanOrEqual(clip.height - 1)
 }
 
 async function hideFrameworkDevChrome(page: Page, options: { clerk?: boolean } = {}) {

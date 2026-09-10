@@ -632,6 +632,11 @@ describe('admin router', () => {
           failedRequestCount: 1,
           totalTokens: 120,
           estimatedCostUsd: '0.10000001',
+          observedEstimatedCostUsd: '0.10000001',
+          observedUsageRequestCount: 2,
+          unknownUsageRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
           venue: { name: 'Main Venue' },
         },
         {
@@ -643,6 +648,11 @@ describe('admin router', () => {
           failedRequestCount: 0,
           totalTokens: 5,
           estimatedCostUsd: '2e-8',
+          observedEstimatedCostUsd: '2e-8',
+          observedUsageRequestCount: 1,
+          unknownUsageRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
           venue: { name: 'Main Venue' },
         },
         {
@@ -654,6 +664,11 @@ describe('admin router', () => {
           failedRequestCount: 0,
           totalTokens: 170,
           estimatedCostUsd: '0.00111000',
+          observedEstimatedCostUsd: '0.00111000',
+          observedUsageRequestCount: 1,
+          unknownUsageRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
           venue: null,
         },
       ])
@@ -679,6 +694,14 @@ describe('admin router', () => {
         failedRequestCount: 1,
         totalTokens: 295,
         estimatedCostUsd: '0.10111003',
+        observedEstimatedCostUsd: '0.10111003',
+        usageCoverage: {
+          observedRequestCount: 4,
+          unknownRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
+          status: 'COMPLETE_RECORDED_USAGE',
+        },
       })
       expect(result.costs.map((row) => row.estimatedCostUsd)).toEqual([
         '0.10000001',
@@ -692,18 +715,36 @@ describe('admin router', () => {
           requestCount: 3,
           totalTokens: 125,
           estimatedCostUsd: '0.10000003',
+          observedEstimatedCostUsd: '0.10000003',
+          observedRequestCount: 3,
+          unknownRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
+          usageCoverageStatus: 'COMPLETE_RECORDED_USAGE',
           features: [
             {
               feature: 'guest-chat',
               requestCount: 2,
               totalTokens: 120,
               estimatedCostUsd: '0.10000001',
+              observedEstimatedCostUsd: '0.10000001',
+              observedRequestCount: 2,
+              unknownRequestCount: 0,
+              notDispatchedRequestCount: 0,
+              legacyUnclassifiedRequestCount: 0,
+              usageCoverageStatus: 'COMPLETE_RECORDED_USAGE',
             },
             {
               feature: 'place-embedding',
               requestCount: 1,
               totalTokens: 5,
               estimatedCostUsd: '0.00000002',
+              observedEstimatedCostUsd: '0.00000002',
+              observedRequestCount: 1,
+              unknownRequestCount: 0,
+              notDispatchedRequestCount: 0,
+              legacyUnclassifiedRequestCount: 0,
+              usageCoverageStatus: 'COMPLETE_RECORDED_USAGE',
             },
           ],
         },
@@ -713,12 +754,24 @@ describe('admin router', () => {
           requestCount: 1,
           totalTokens: 170,
           estimatedCostUsd: '0.00111000',
+          observedEstimatedCostUsd: '0.00111000',
+          observedRequestCount: 1,
+          unknownRequestCount: 0,
+          notDispatchedRequestCount: 0,
+          legacyUnclassifiedRequestCount: 0,
+          usageCoverageStatus: 'COMPLETE_RECORDED_USAGE',
           features: [
             {
               feature: 'weekly-digest',
               requestCount: 1,
               totalTokens: 170,
               estimatedCostUsd: '0.00111000',
+              observedEstimatedCostUsd: '0.00111000',
+              observedRequestCount: 1,
+              unknownRequestCount: 0,
+              notDispatchedRequestCount: 0,
+              legacyUnclassifiedRequestCount: 0,
+              usageCoverageStatus: 'COMPLETE_RECORDED_USAGE',
             },
           ],
         },
@@ -749,6 +802,14 @@ describe('admin router', () => {
       failedRequestCount: 0,
       totalTokens: 0,
       estimatedCostUsd: '0.00000000',
+      observedEstimatedCostUsd: '0.00000000',
+      usageCoverage: {
+        observedRequestCount: 0,
+        unknownRequestCount: 0,
+        notDispatchedRequestCount: 0,
+        legacyUnclassifiedRequestCount: 0,
+        status: 'NO_RECORDED_USAGE',
+      },
     })
 
     await expect(
@@ -2303,7 +2364,16 @@ describe('admin router', () => {
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     expect(weeklyReportFindFirst).toHaveBeenCalledWith({
       where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'wrong_venue' },
-      select: { status: true, content: true, updatedAt: true },
+      select: {
+        status: true,
+        content: true,
+        updatedAt: true,
+        generatedAt: true,
+        weekStart: true,
+        weekEnd: true,
+        answerCount: true,
+        sessionCount: true,
+      },
     })
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
     expect(writeAuditLogMock).not.toHaveBeenCalled()
@@ -2314,6 +2384,11 @@ describe('admin router', () => {
       status: 'DRAFT',
       content: 'Some content',
       updatedAt: reportRevision,
+      generatedAt: reportRevision,
+      weekStart: new Date('2026-08-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-08-08T00:00:00.000Z'),
+      answerCount: 4,
+      sessionCount: 2,
     })
 
     const caller = testRouter.createCaller(adminCtx())
@@ -2347,6 +2422,11 @@ describe('admin router', () => {
       status: 'DRAFT',
       content: 'Some content',
       updatedAt: reportRevision,
+      generatedAt: reportRevision,
+      weekStart: new Date('2026-08-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-08-08T00:00:00.000Z'),
+      answerCount: 4,
+      sessionCount: 2,
     })
     weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
 
