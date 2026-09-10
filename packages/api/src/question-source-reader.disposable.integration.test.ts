@@ -1,3 +1,5 @@
+import { adminAgentTaskRequestsRouter } from './routers/admin/agent-task-requests'
+import type { TRPCContext } from './context'
 import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
@@ -492,6 +494,43 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         fileExtractionEnabled: true,
       }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    const clientScopeIdentityId = `source-client-${suffix}`
+    await db.agentIdentity.create({
+      data: {
+        id: clientScopeIdentityId,
+        tenantId,
+        venueId: null,
+        identityKey: `source.client.${suffix}`,
+        name: 'Client-wide source reviewer',
+        agentType: 'CONTENT',
+        accessScope: 'CLIENT',
+        accessCapabilities: ['intake.read', 'content.draft'],
+        autonomyLevel: 'DRAFT',
+        autonomousActions: ['content.prepare-draft'],
+        enabled: true,
+        defaultProvider: 'codex-bridge',
+        defaultModel: 'subscription-default',
+        createdBy: actorId,
+      },
+    })
+    const routingCaller = adminAgentTaskRequestsRouter.createCaller({
+      db,
+      headers: new Headers(),
+      session: {
+        userId: actorId,
+        activeTenantId: tenantId,
+        role: 'MANAGER',
+        isPlatformAdmin: true,
+      },
+    } as TRPCContext)
+    const routingCandidates = await routingCaller.listIntakeSourceAgentRoutingCandidates({
+      ...scope,
+      limit: 100,
+    })
+    expect(routingCandidates.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([identityId, clientScopeIdentityId]),
+    )
+    expect(routingCandidates.items.map((item) => item.id)).not.toContain(wrongIdentityId)
     const routingInput = { ...scope, agentIdentityId: identityId, expectedRevision: 0 }
     const routingCreates = await Promise.allSettled([
       configureIntakeSourceAgentRouting(routingInput, actorId),
