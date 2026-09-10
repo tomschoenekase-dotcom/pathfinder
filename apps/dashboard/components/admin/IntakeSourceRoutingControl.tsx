@@ -245,7 +245,7 @@ export function IntakeSourceRoutingControl({ tenantId, venueId, identities = [] 
         <h3 id="source-routing-heading" className="text-lg font-semibold text-pf-deep">
           Source review preparation
         </h3>
-        <p className="mt-1 text-sm leading-6 text-pf-deep/65">
+        <p className="mt-1 text-sm leading-6 text-pf-deep/75">
           Choose who may prepare uploaded sources awaiting Torchiko review. The matching worker must
           also be available. This setting does not approve or publish content, and it does not
           reroute tasks already created. Edits remain local until you save.
@@ -253,7 +253,7 @@ export function IntakeSourceRoutingControl({ tenantId, venueId, identities = [] 
       </div>
 
       {!loaded && pending === 'read' ? (
-        <p className="mt-4 text-sm text-pf-deep/60" role="status">
+        <p className="mt-4 text-sm text-pf-deep/75" role="status">
           Loading source review routing…
         </p>
       ) : loaded ? (
@@ -307,7 +307,7 @@ export function IntakeSourceRoutingControl({ tenantId, venueId, identities = [] 
             />
             <span>
               <span className="font-semibold">Enable source review preparation</span>
-              <span className="mt-1 block text-pf-deep/60">
+              <span className="mt-1 block text-pf-deep/75">
                 You can disable a saved route while retaining its selected specialist.
               </span>
             </span>
@@ -326,7 +326,7 @@ export function IntakeSourceRoutingControl({ tenantId, venueId, identities = [] 
             >
               {pending === 'save' ? 'Saving…' : 'Save routing'}
             </button>
-            <span className="text-sm text-pf-deep/60">
+            <span className="text-sm text-pf-deep/75">
               Selected setting: {enabled ? 'Enabled' : 'Disabled'}
             </span>
           </div>
