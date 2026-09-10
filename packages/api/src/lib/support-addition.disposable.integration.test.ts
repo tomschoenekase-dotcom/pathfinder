@@ -40,10 +40,14 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     const adminId = `admin-support-addition-${suffix}`
     const operationId = randomUUID()
     const uniqueFact = `The Juniper quiet room is beside gallery ${suffix}.`
+    const supersedingFact = `The Juniper quiet room is in the east lobby ${suffix}.`
     const siblingId = `sibling-support-addition-${suffix}`
     let supportRequestId = ''
     let supportVersion = 0
     let evidenceMessageId = ''
+    let supersessionRequestId = ''
+    let supersessionVersion = 0
+    let supersessionEvidenceMessageId = ''
 
     await withTenantIsolationBypass(async () => {
       await db.tenant.create({
@@ -97,6 +101,50 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
         },
       })
       evidenceMessageId = message.id
+      const supersessionRequest = await db.supportRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          category: 'CONTENT_CORRECTION',
+          status: 'IN_REVIEW',
+          subject: 'Replace the Juniper quiet room location',
+          createdByKind: 'OPERATOR',
+          createdById: adminId,
+          updatedByKind: 'OPERATOR',
+          updatedById: adminId,
+        },
+      })
+      supersessionRequestId = supersessionRequest.id
+      supersessionVersion = supersessionRequest.version
+      await db.supportRequestAuditEvent.create({
+        data: {
+          tenantId,
+          venueId,
+          supportRequestId: supersessionRequest.id,
+          requestVersion: supersessionRequest.version,
+          eventType: 'STATUS_CHANGED',
+          actorKind: 'OPERATOR',
+          actorId: adminId,
+          fromStatus: 'OPEN',
+          toStatus: 'IN_REVIEW',
+        },
+      })
+      const supersessionMessage = await db.supportMessage.create({
+        data: {
+          tenantId,
+          venueId,
+          supportRequestId: supersessionRequest.id,
+          authorKind: 'CLIENT',
+          authorId: adminId,
+          visibility: 'CLIENT_VISIBLE',
+          body: supersedingFact,
+          submissionRequestId: randomUUID(),
+          submissionInputHash: 'b'.repeat(64),
+          requestVersion: supersessionRequest.version,
+          clientVersion: supersessionRequest.clientVersion,
+        },
+      })
+      supersessionEvidenceMessageId = supersessionMessage.id
       await db.venueKnowledgeEntry.create({
         data: {
           id: siblingId,
@@ -312,5 +360,176 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       isEnabled: true,
       contentModuleId: null,
     })
+
+    const publishedEntry = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { tenantId, venueId, contentModuleId: created.moduleId },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        contentRevisionId: true,
+        contentPublicationId: true,
+      },
+    })
+    const supersessionOperationId = randomUUID()
+    const supersessionProposalInput = {
+      operationId: supersessionOperationId,
+      tenantId,
+      venueId,
+      supportRequestId: supersessionRequestId,
+      expectedVersion: supersessionVersion,
+      evidenceMessageIds: [supersessionEvidenceMessageId],
+      targetKnowledgeEntryId: publishedEntry.id,
+      correctionKind: 'UPDATE_KNOWLEDGE' as const,
+      aiInference: 'The reviewed support evidence replaces the prior visitor-services fact.',
+      proposedChange: supersedingFact,
+      reason: 'Prepare a superseding revision while preserving the published revision lineage.',
+      confidence: 0.94,
+      actor: {
+        ...proposalInput.actor,
+        idempotencyKey: supersessionOperationId,
+        agentRunId: `run-support-supersession-${suffix}`,
+      },
+    }
+    await expect(
+      prepareSupportKnowledgeProposalAction(supersessionProposalInput),
+    ).resolves.toMatchObject({
+      replayed: false,
+      proposal: { id: supersessionOperationId, status: 'PENDING_REVIEW' },
+    })
+    const pendingSupersession = await db.knowledgeChangeProposal.findFirstOrThrow({
+      where: { id: supersessionOperationId, tenantId, venueId },
+      select: { updatedAt: true },
+    })
+    await caller.reviewKnowledgeProposal({
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      proposalId: supersessionOperationId,
+      expectedUpdatedAt: pendingSupersession.updatedAt.toISOString(),
+      decision: 'APPROVED',
+      reviewNote: 'The newer support evidence supersedes the prior published location.',
+    })
+    const approvedSupersession = await db.knowledgeChangeProposal.findFirstOrThrow({
+      where: { id: supersessionOperationId, tenantId, venueId },
+      select: { updatedAt: true },
+    })
+    const supersedingDesired = {
+      ...desired,
+      title: publishedEntry.title,
+      category: publishedEntry.category,
+      content: supersedingFact,
+    }
+    const supersessionPreview = await previewSemanticVenueUpdateFromProposal({
+      db,
+      tenantId,
+      venueId,
+      proposalId: supersessionOperationId,
+      expectedUpdatedAt: approvedSupersession.updatedAt,
+      relation: 'SUPERSEDES',
+      desired: supersedingDesired,
+    })
+    expect(supersessionPreview).toMatchObject({
+      classification: 'SUPERSESSION',
+      targetKnowledgeEntryId: publishedEntry.id,
+    })
+    const supersessionDraftInput = {
+      tenantId,
+      venueId,
+      proposalId: supersessionOperationId,
+      expectedProposalUpdatedAt: approvedSupersession.updatedAt.toISOString(),
+      expectedPreviewHash: supersessionPreview.previewHash,
+      relation: 'SUPERSEDES' as const,
+      desired: supersedingDesired,
+      draft: {
+        ...draft,
+        evidence: [
+          {
+            sourceId: `support-message:${supersessionEvidenceMessageId}`,
+            locator: `support-request:${supersessionRequestId}`,
+            capturedAt: new Date().toISOString(),
+            excerptHash: createHash('sha256').update(supersedingFact).digest('hex'),
+          },
+        ],
+        payload: { ...draft.payload, rule: supersedingFact },
+      },
+    }
+    const supersedingRevision = await createSemanticUniversalContentDraftService({
+      db,
+      actorId: adminId,
+      input: supersessionDraftInput,
+    })
+    expect(supersedingRevision).toMatchObject({
+      moduleId: created.moduleId,
+      version: 2,
+      classification: 'SUPERSESSION',
+      replayed: false,
+    })
+    expect(supersedingRevision.revisionId).not.toBe(created.revisionId)
+    expect((await guestRead()).entries.map((entry) => entry.content)).toContain(uniqueFact)
+    expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(supersedingFact)
+
+    const supersessionPublicationInput = {
+      ...publicationInput,
+      revisionId: supersedingRevision.revisionId,
+      expectedLatestVersion: 2,
+      requestId: randomUUID(),
+    }
+    const supersessionPublication = await publishUniversalContentAction(
+      supersessionPublicationInput,
+    )
+    expect(supersessionPublication).toMatchObject({ replayed: false })
+    expect((await guestRead()).entries.map((entry) => entry.content)).toContain(supersedingFact)
+    expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(uniqueFact)
+
+    await expect(
+      createSemanticUniversalContentDraftService({
+        db,
+        actorId: adminId,
+        input: supersessionDraftInput,
+      }),
+    ).resolves.toMatchObject({
+      moduleId: created.moduleId,
+      revisionId: supersedingRevision.revisionId,
+      version: 2,
+      classification: 'SUPERSESSION',
+      replayed: true,
+    })
+    await expect(
+      publishUniversalContentAction(supersessionPublicationInput),
+    ).resolves.toMatchObject({
+      publicationId: supersessionPublication.publicationId,
+      replayed: true,
+    })
+    await expect(publishUniversalContentAction(publicationInput)).resolves.toMatchObject({
+      publicationId: published.publicationId,
+      replayed: true,
+    })
+    expect((await guestRead()).entries.map((entry) => entry.content)).toContain(supersedingFact)
+    expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(uniqueFact)
+    const supersessionCounts = await Promise.all([
+      db.contentModuleIdentity.count({ where: { tenantId, venueId } }),
+      db.contentModuleRevision.count({ where: { tenantId, venueId } }),
+      db.contentModulePublication.count({ where: { tenantId, venueId } }),
+      db.contentModuleRevision.findFirstOrThrow({
+        where: { id: created.revisionId, tenantId, venueId, moduleId: created.moduleId },
+        select: { version: true, policy: { select: { rule: true } } },
+      }),
+      db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { id: publishedEntry.id, tenantId, venueId },
+        select: { contentRevisionId: true, contentPublicationId: true },
+      }),
+      db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { id: siblingId, tenantId, venueId },
+        select: { title: true, content: true, isEnabled: true, contentModuleId: true },
+      }),
+    ])
+    expect(supersessionCounts.slice(0, 3)).toEqual([1, 2, 2])
+    expect(supersessionCounts[3]).toEqual({ version: 1, policy: { rule: uniqueFact } })
+    expect(supersessionCounts[4]).toEqual({
+      contentRevisionId: supersedingRevision.revisionId,
+      contentPublicationId: supersessionPublication.publicationId,
+    })
+    expect(supersessionCounts[5]).toEqual(final[3])
   })
 })
