@@ -137,7 +137,7 @@ export async function prepareSupportKnowledgeProposalAction(
       await lockSupportRequest(tx, parsed.tenantId, parsed.supportRequestId)
 
       const existing = await tx.knowledgeChangeProposal.findUnique({
-        where: { id: parsed.operationId },
+        where: { id: parsed.operationId, tenantId: parsed.tenantId, venueId: parsed.venueId },
         select: {
           id: true,
           tenantId: true,
@@ -199,6 +199,8 @@ export async function prepareSupportKnowledgeProposalAction(
 
       const requestEvent = await tx.supportRequestAuditEvent.findUnique({
         where: {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
           supportRequestId_tenantId_venueId_requestVersion: {
             supportRequestId: request.id,
             tenantId: parsed.tenantId,

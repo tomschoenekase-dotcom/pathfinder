@@ -68,6 +68,19 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       })
       supportRequestId = request.id
       supportVersion = request.version
+      await db.supportRequestAuditEvent.create({
+        data: {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+          requestVersion: request.version,
+          eventType: 'STATUS_CHANGED',
+          actorKind: 'OPERATOR',
+          actorId: adminId,
+          fromStatus: 'OPEN',
+          toStatus: 'IN_REVIEW',
+        },
+      })
       const message = await db.supportMessage.create({
         data: {
           tenantId,
