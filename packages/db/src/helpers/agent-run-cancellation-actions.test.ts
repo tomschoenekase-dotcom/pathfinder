@@ -19,14 +19,19 @@ function harness(
 ) {
   const findFirst = vi.fn().mockResolvedValue(run)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+  const queryRaw = vi.fn().mockResolvedValue([{ id: 'parent-1' }])
   const timelineCreate = vi.fn().mockResolvedValue({ id: 'timeline-1' })
+  const timelineFindFirst = vi.fn().mockResolvedValue(null)
   const auditCreate = vi.fn().mockResolvedValue({ id: 'audit-1' })
   const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' })
+  const questionFindFirst = vi.fn().mockResolvedValue(null)
   const tx = {
     agentRun: { findFirst, updateMany },
-    agentTimelineEvent: { create: timelineCreate },
+    agentTimelineEvent: { create: timelineCreate, findFirst: timelineFindFirst },
     agentMessage: { create: messageCreate },
+    agentQuestion: { findFirst: questionFindFirst },
     auditLog: { create: auditCreate },
+    $queryRaw: queryRaw,
   }
   const transaction = vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx))
   return {
@@ -34,9 +39,12 @@ function harness(
     transaction,
     findFirst,
     updateMany,
+    queryRaw,
     timelineCreate,
+    timelineFindFirst,
     auditCreate,
     messageCreate,
+    questionFindFirst,
   }
 }
 
@@ -232,9 +240,44 @@ describe('requestAgentRunCancellationAction', () => {
         actorId: 'child-agent-1',
       },
     })
+    expect(h.queryRaw).toHaveBeenCalledOnce()
+    expect((h.queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')).toContain(
+      'SELECT id FROM agent_runs',
+    )
+    expect(h.queryRaw.mock.calls[0]?.slice(1)).toEqual(['parent-1', 'tenant-1', 'venue-1'])
+    expect(h.timelineFindFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'parent-1',
+        eventType: 'DELEGATED_DEPENDENCY_WAITING',
+        data: { path: ['childAgentRunId'], equals: 'run-1' },
+      },
+      select: { id: true },
+    })
+    expect(h.questionFindFirst).not.toHaveBeenCalled()
     expect(
       h.timelineCreate.mock.calls.filter(([call]) => call.data.agentRunId === 'parent-1'),
-    ).toHaveLength(1)
+    ).toEqual([
+      [
+        {
+          data: {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            agentRunId: 'parent-1',
+            actorType: 'SYSTEM',
+            actorId: 'agent-runtime',
+            eventType: 'DELEGATED_TASK_CANCELLED',
+            message: 'A delegated specialist task cancelled and retained its terminal result.',
+            data: {
+              childAgentRunId: 'run-1',
+              resultReference: 'agent-run:run-1',
+              outcome: 'CANCELLED',
+            },
+          },
+        },
+      ],
+    ])
   })
 
   it('fails a missing exact-scope delegated parent before child mutation', async () => {
