@@ -307,4 +307,68 @@ describe('agent bridge actions', () => {
     )
     expect(result.task?.id).toBe('available-run')
   })
+  it('derives source requirements for older snapshots without allowing unsuitable workers to claim', async () => {
+    mocks.sessionFind.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      provider: 'CODEX_SUBSCRIPTION',
+      supportedModels: ['subscription-default'],
+    })
+    const sourceAssignment = {
+      version: 1,
+      kind: 'FILE_EXTRACTION',
+      intakeRunId: 'intake-1',
+      receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      extractedTextHash: 'a'.repeat(64),
+    }
+    mocks.runFindMany.mockResolvedValue([{ id: 'source-run', scopeSnapshot: { sourceAssignment } }])
+    const required = ['agent-runs:execute', 'intake-source:read', 'resources:read']
+    for (const worker of [
+      null,
+      { id: 'worker-1', capabilities: required, agentRoles: ['OPERATIONS'] },
+      { id: 'worker-1', capabilities: ['agent-runs:execute'], agentRoles: ['CONTENT'] },
+    ]) {
+      mocks.workerFind.mockResolvedValue(worker)
+      const result = await claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        ...(worker ? { workerKey: 'worker-1' } : {}),
+        credential: credential as never,
+      })
+      expect(result.task).toBeNull()
+      expect(mocks.claim).not.toHaveBeenCalled()
+    }
+    mocks.workerFind.mockResolvedValue({
+      id: 'worker-1',
+      capabilities: required,
+      agentRoles: ['CONTENT'],
+    })
+    mocks.claim.mockRejectedValue(new Error('selected-compatible-source-run'))
+    await expect(
+      claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        workerKey: 'worker-1',
+        credential: credential as never,
+      }),
+    ).rejects.toThrow('selected-compatible-source-run')
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'source-run', executionWorkerId: 'worker-1' }),
+    )
+    mocks.claim.mockClear()
+    mocks.runFindMany.mockResolvedValue([
+      {
+        id: 'corrupt-source-run',
+        scopeSnapshot: { sourceAssignment: { ...sourceAssignment, extractedTextHash: 'wrong' } },
+      },
+    ])
+    await expect(
+      claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        workerKey: 'worker-1',
+        credential: credential as never,
+      }),
+    ).resolves.toEqual({ task: null })
+    expect(mocks.claim).not.toHaveBeenCalled()
+  })
 })

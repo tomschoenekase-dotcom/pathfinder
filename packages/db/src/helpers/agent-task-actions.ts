@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { AgentSourceAssignment, readAgentSourceAssignment } from '@pathfinder/contracts'
+import {
+  AgentSourceAssignment,
+  readAgentSourceAssignment,
+  AGENT_SOURCE_WORKER_ROLES,
+  AGENT_SOURCE_WORKER_CAPABILITIES,
+} from '@pathfinder/contracts'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -190,7 +195,13 @@ export async function createAgentTaskAction(
           accessCapabilities: identity.accessCapabilities,
           autonomyLevel: identity.autonomyLevel,
           autonomousActions: identity.autonomousActions,
-          ...(input.sourceAssignment ? { sourceAssignment: input.sourceAssignment } : {}),
+          ...(input.sourceAssignment
+            ? {
+                sourceAssignment: input.sourceAssignment,
+                requiredWorkerRoles: [...AGENT_SOURCE_WORKER_ROLES],
+                requiredWorkerCapabilities: [...AGENT_SOURCE_WORKER_CAPABILITIES],
+              }
+            : {}),
           ...(input.prospectScope
             ? {
                 prospectScope: input.prospectScope,

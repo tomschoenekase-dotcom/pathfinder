@@ -173,7 +173,15 @@ describe('immutable Content source assignment', () => {
     expect(tx.agentRun.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          scopeSnapshot: expect.objectContaining({ sourceAssignment: assignment }),
+          scopeSnapshot: expect.objectContaining({
+            sourceAssignment: assignment,
+            requiredWorkerRoles: ['CONTENT'],
+            requiredWorkerCapabilities: [
+              'agent-runs:execute',
+              'intake-source:read',
+              'resources:read',
+            ],
+          }),
         }),
       }),
     )

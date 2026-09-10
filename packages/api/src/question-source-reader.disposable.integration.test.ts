@@ -946,6 +946,40 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     try {
       const unauthorized = await fetch(url, { method: 'POST', body: '{}' })
       expect(unauthorized.status).toBe(401)
+      const incompatibleKeys = [`wrong-role-${suffix}`, `missing-source-${suffix}`]
+      for (const [index, workerKey] of incompatibleKeys.entries())
+        await registerAgentWorkerAction(
+          {
+            workerKey,
+            runtimeType: 'CODEX',
+            label: 'Disposable incompatible source worker',
+            protocolVersion: 'mcp-2026-07-28',
+            softwareVersion: 'integration/1',
+            capabilities:
+              index === 0
+                ? ['agent-runs:execute', 'intake-source:read', 'resources:read']
+                : ['agent-runs:execute', 'resources:read'],
+            agentRoles: index === 0 ? ['OPERATIONS'] : ['CONTENT'],
+            safeHealth: {},
+          },
+          credential,
+        )
+      for (const workerKey of [undefined, ...incompatibleKeys]) {
+        const unsuitable = await fetch(url, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${syntheticBearer}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            method: 'claimTask',
+            params: { sessionId: bridgeSessionId, venueId, ...(workerKey ? { workerKey } : {}) },
+          }),
+        })
+        expect(unsuitable.status).toBe(200)
+        expect(await unsuitable.json()).toMatchObject({ ok: true, result: { task: null } })
+        await expect(runStatus(httpTask.run.id)).resolves.toEqual({ status: 'QUEUED' })
+      }
       const firstWorker = await runHttpWorker('ask')
       expect(firstWorker).toMatchObject({
         runId: httpTask.run.id,

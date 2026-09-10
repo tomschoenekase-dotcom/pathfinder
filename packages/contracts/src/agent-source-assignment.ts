@@ -19,3 +19,11 @@ export function readAgentSourceAssignment(snapshot: unknown): AgentSourceAssignm
   )
   return parsed.success ? parsed.data : null
 }
+
+/** Minimum dispatch requirements; effect-time checks remain mandatory. */
+export const AGENT_SOURCE_WORKER_ROLES = ['CONTENT'] as const
+export const AGENT_SOURCE_WORKER_CAPABILITIES = [
+  'agent-runs:execute',
+  'intake-source:read',
+  'resources:read',
+] as const

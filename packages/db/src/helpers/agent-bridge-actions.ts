@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  readAgentSourceAssignment,
+  AGENT_SOURCE_WORKER_ROLES,
+  AGENT_SOURCE_WORKER_CAPABILITIES,
+} from '@pathfinder/contracts'
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
@@ -34,8 +39,24 @@ function workerMatchesRun(
   scopeSnapshot: unknown,
   worker: { capabilities: string[]; agentRoles: string[] } | null,
 ) {
-  const requiredRoles = readStringList(scopeSnapshot, 'requiredWorkerRoles')
-  const requiredCapabilities = readStringList(scopeSnapshot, 'requiredWorkerCapabilities')
+  const assignment = readAgentSourceAssignment(scopeSnapshot)
+  // Older immutable assignments predate explicit scheduling metadata. Derive the same
+  // minimum requirements rather than rewriting their snapshots or claiming unusable work.
+  if (
+    scopeSnapshot &&
+    typeof scopeSnapshot === 'object' &&
+    'sourceAssignment' in scopeSnapshot &&
+    !assignment
+  )
+    return false
+  const requiredRoles = [
+    ...readStringList(scopeSnapshot, 'requiredWorkerRoles'),
+    ...(assignment ? AGENT_SOURCE_WORKER_ROLES : []),
+  ]
+  const requiredCapabilities = [
+    ...readStringList(scopeSnapshot, 'requiredWorkerCapabilities'),
+    ...(assignment ? AGENT_SOURCE_WORKER_CAPABILITIES : []),
+  ]
   if (requiredRoles.length === 0 && requiredCapabilities.length === 0) return true
   if (!worker) return false
   return (
