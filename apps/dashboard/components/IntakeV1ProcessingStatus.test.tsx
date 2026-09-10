@@ -20,6 +20,10 @@ function read(
     processingKind: string | null
     status: string
     reasonCode?: string | null
+    sourceReview?: {
+      status: string
+      reasonCode: string | null
+    } | null
   }>,
 ) {
   return {
@@ -97,10 +101,91 @@ describe('IntakeV1ProcessingStatus', () => {
     expect(screen.getByText('Research saved')).toBeTruthy()
     expect(screen.getByText('Not scheduled for this earlier version')).toBeTruthy()
     expect(screen.getByText(/does not mean a visitor package was built/i)).toBeTruthy()
+    expect(screen.queryByText(/ready guide/i)).toBeNull()
     expect(mocks.query).toHaveBeenCalledWith(
       { venueId: 'venue-1', submissionId: 'submission-1', revision: 2 },
       { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('separates material processing from the source review stage', async () => {
+    mocks.query.mockResolvedValueOnce(
+      read([
+        {
+          memberId: 'waiting-review',
+          processingKind: 'REVIEW_READY',
+          status: 'COMPLETED',
+          sourceReview: { status: 'WAITING', reasonCode: null },
+        },
+        {
+          memberId: 'prepared-review',
+          processingKind: 'REVIEW_READY',
+          status: 'COMPLETED',
+          sourceReview: { status: 'READY_FOR_REVIEW', reasonCode: null },
+        },
+        {
+          memberId: 'no-review-stage',
+          processingKind: 'WEBSITE_RESEARCH',
+          status: 'COMPLETED',
+          sourceReview: null,
+        },
+      ]),
+    )
+    render(
+      <IntakeV1ProcessingStatus
+        ownerId="user-1"
+        venueId="venue-1"
+        submissionId="submission-1"
+        revision={2}
+      />,
+    )
+
+    expect(await screen.findByText('Waiting for Torchiko review')).toBeTruthy()
+    expect(screen.getByText('Prepared for Torchiko review')).toBeTruthy()
+    expect(screen.getAllByText('Material processing')).toHaveLength(2)
+    expect(screen.getAllByText('File preparation')).toHaveLength(2)
+    expect(screen.getAllByText('Source review')).toHaveLength(2)
+    expect(screen.queryByText(/published guide|guide is ready/i)).toBeNull()
+  })
+
+  it('keeps a long filename and waiting review status wrappable on phones', async () => {
+    const longName = `${'Annual visitor accessibility and exhibit information '.repeat(6)}.pdf`
+    mocks.query.mockResolvedValueOnce({
+      ...read([
+        {
+          memberId: 'long-file',
+          processingKind: 'REVIEW_READY',
+          status: 'COMPLETED',
+          sourceReview: { status: 'WAITING', reasonCode: null },
+        },
+      ]),
+      members: [
+        {
+          ...read([
+            {
+              memberId: 'long-file',
+              processingKind: 'REVIEW_READY',
+              status: 'COMPLETED',
+              sourceReview: { status: 'WAITING', reasonCode: null },
+            },
+          ]).members[0],
+          displayName: longName,
+        },
+      ],
+    })
+    render(
+      <IntakeV1ProcessingStatus
+        ownerId="user-1"
+        venueId="venue-1"
+        submissionId="submission-1"
+        revision={2}
+      />,
+    )
+
+    expect((await screen.findByText(longName)).className).toContain('break-words')
+    const waiting = screen.getByText('Waiting for Torchiko review')
+    expect(waiting.className).toContain('break-words')
+    expect(waiting.className).not.toContain('shrink-0')
   })
 
   it('refreshes only on demand and recovers from a failed read', async () => {

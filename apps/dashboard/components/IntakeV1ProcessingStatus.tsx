@@ -28,6 +28,20 @@ function statusLabel(member: ProcessingMember): string {
   return 'Ready for review'
 }
 
+function sourceReviewStatusLabel(
+  status: NonNullable<ProcessingMember['sourceReview']>['status'],
+): string {
+  if (status === 'WAITING') return 'Waiting for Torchiko review'
+  if (status === 'HELD') return 'Torchiko review needs setup'
+  if (status === 'QUEUED') return 'Review preparation queued'
+  if (status === 'IN_PROGRESS') return 'Preparing review'
+  if (status === 'WAITING_FOR_ANSWER') return 'Waiting for an answer'
+  if (status === 'READY_FOR_REVIEW') return 'Prepared for Torchiko review'
+  if (status === 'NEEDS_ATTENTION') return 'Review needs attention'
+  if (status === 'CANCELLED') return 'Review preparation stopped'
+  return 'Source review recorded'
+}
+
 export function IntakeV1ProcessingStatus({
   ownerId,
   venueId,
@@ -147,12 +161,27 @@ export function IntakeV1ProcessingStatus({
             {result.members.map((member) => (
               <li
                 key={member.memberId}
-                className="flex min-w-0 flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+                className="grid min-w-0 gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,auto)] sm:items-start sm:gap-6"
               >
                 <span className="min-w-0 break-words text-sm font-medium text-pf-deep">
                   {member.displayName ?? member.sourceLabel}
                 </span>
-                <span className="shrink-0 text-sm text-pf-deep/75">{statusLabel(member)}</span>
+                <dl className="min-w-0 text-sm sm:text-right">
+                  <div className="min-w-0">
+                    <dt className="text-xs font-medium text-pf-deep/55">
+                      {member.sourceReview ? 'File preparation' : 'Material processing'}
+                    </dt>
+                    <dd className="min-w-0 break-words text-pf-deep/75">{statusLabel(member)}</dd>
+                  </div>
+                  {member.sourceReview ? (
+                    <div className="mt-2 min-w-0 border-t border-pf-light/80 pt-2">
+                      <dt className="text-xs font-medium text-pf-deep/55">Source review</dt>
+                      <dd className="min-w-0 break-words text-pf-deep/75">
+                        {sourceReviewStatusLabel(member.sourceReview.status)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
               </li>
             ))}
           </ul>

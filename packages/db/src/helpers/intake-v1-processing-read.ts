@@ -115,6 +115,59 @@ function ownerStatus(
   return dispatch.status as 'PENDING' | 'COMPLETED' | 'HELD' | 'FAILED'
 }
 
+type SourceReviewRead = {
+  status:
+    | 'WAITING'
+    | 'HELD'
+    | 'QUEUED'
+    | 'IN_PROGRESS'
+    | 'WAITING_FOR_ANSWER'
+    | 'READY_FOR_REVIEW'
+    | 'NEEDS_ATTENTION'
+    | 'CANCELLED'
+    | 'REVIEWED'
+  reasonCode: string | null
+}
+function sourceReviewRead(
+  dispatch: {
+    kind: string
+    status: string
+    fileExtractionReceipt?: { review: { decision: string } | null } | null
+    intakeSourceAgentDispatches?: Array<{
+      status: string
+      holdReason: string | null
+      agentRun: { status: string } | null
+    }>
+  } | null,
+): SourceReviewRead | null {
+  if (dispatch?.kind !== 'FILE_EXTRACTION' || dispatch.status !== 'COMPLETED') return null
+  if (dispatch.fileExtractionReceipt?.review)
+    return dispatch.fileExtractionReceipt.review.decision === 'REJECTED'
+      ? { status: 'NEEDS_ATTENTION', reasonCode: 'SOURCE_REVIEW_REJECTED' }
+      : { status: 'REVIEWED', reasonCode: null }
+  const source = dispatch.intakeSourceAgentDispatches?.[0]
+  if (!source || source.status === 'PENDING') return { status: 'WAITING', reasonCode: null }
+  if (source.status === 'HELD') return { status: 'HELD', reasonCode: 'REVIEW_SETUP_REQUIRED' }
+  if (source.status === 'CANCELLED') return { status: 'CANCELLED', reasonCode: null }
+  if (source.status !== 'COMPLETED') return { status: 'NEEDS_ATTENTION', reasonCode: null }
+  switch (source.agentRun?.status) {
+    case 'QUEUED':
+      return { status: 'QUEUED', reasonCode: null }
+    case 'RUNNING':
+      return { status: 'IN_PROGRESS', reasonCode: null }
+    case 'AWAITING_INPUT':
+      return { status: 'WAITING_FOR_ANSWER', reasonCode: null }
+    case 'AWAITING_APPROVAL':
+      return { status: 'NEEDS_ATTENTION', reasonCode: 'REVIEW_APPROVAL_REQUIRED' }
+    case 'COMPLETED':
+      return { status: 'READY_FOR_REVIEW', reasonCode: null }
+    case 'CANCELLED':
+      return { status: 'CANCELLED', reasonCode: null }
+    default:
+      return { status: 'NEEDS_ATTENTION', reasonCode: null }
+  }
+}
+
 export async function getIntakeV1ProcessingRead(
   input: z.input<typeof inputSchema>,
   client: Client = db,
@@ -149,7 +202,18 @@ export async function getIntakeV1ProcessingRead(
           intakeRun: { select: { displayName: true, sourceKind: true } },
           intakeUpload: { select: { displayName: true } },
           processingDispatch: {
-            select: { kind: true, status: true, holdReason: true, leaseExpiresAt: true },
+            select: {
+              kind: true,
+              status: true,
+              holdReason: true,
+              leaseExpiresAt: true,
+              fileExtractionReceipt: { select: { review: { select: { decision: true } } } },
+              intakeSourceAgentDispatches: {
+                where: { tenantId: scope.tenantId, venueId: scope.venueId },
+                take: 1,
+                select: { status: true, holdReason: true, agentRun: { select: { status: true } } },
+              },
+            },
           },
         },
       },
@@ -168,6 +232,7 @@ export async function getIntakeV1ProcessingRead(
   }
   const members = row.members.map((member) => {
     const status = ownerStatus(member.processingDispatch, flags, now)
+    const sourceReview = sourceReviewRead(member.processingDispatch)
     return {
       memberId: member.id,
       ordinal: member.ordinal,
@@ -176,6 +241,7 @@ export async function getIntakeV1ProcessingRead(
       processingKind: member.processingDispatch?.kind ?? null,
       status,
       reasonCode: safeReason(member.processingDispatch, flags, now),
+      ...(sourceReview ? { sourceReview } : {}),
     }
   })
   const counts = {

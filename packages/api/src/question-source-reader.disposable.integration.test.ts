@@ -21,6 +21,7 @@ import {
   dispatchIntakeSourceAgentTask,
   listPendingIntakeSourceAgentDispatches,
   recoverMissingIntakeSourceAgentDispatches,
+  getIntakeV1ProcessingRead,
   completeIntakeV1FileExtractionDispatch,
   db,
   issueExternalCredentialAction,
@@ -80,6 +81,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     const lateCapacity = 'The approved visitor capacity is exactly 137.'
     const extractedText = `${sourcePrefix}\n${excerpt}\n${lateCapacity}\n`
     let intakeRunId = ''
+    let processingSubmissionId = ''
     let receiptId = ''
     let extractedTextHash = ''
     const scope = { tenantId, venueId }
@@ -333,6 +335,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           intakeUploadIds: [upload.upload.id],
         },
       })
+      processingSubmissionId = submission.submissionId
       const revision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
         where: { tenantId, venueId, submissionId: submission.submissionId, revision: 1 },
         include: { members: true },
@@ -455,12 +458,40 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       where: { ...scope, intakeRunId },
     })
     const sourceDispatchInput = { id: sourceOutbox.id, ...scope }
+    const ownerProcessing = () =>
+      getIntakeV1ProcessingRead({
+        ...scope,
+        ownerUserId: actorId,
+        submissionId: processingSubmissionId,
+        revision: 1,
+        websiteResearchEnabled: false,
+        fileExtractionEnabled: true,
+      })
+    expect((await ownerProcessing()).members[0]).toMatchObject({
+      status: 'COMPLETED',
+      sourceReview: { status: 'WAITING' },
+    })
+
     await expect(dispatchIntakeSourceAgentTask(sourceDispatchInput)).resolves.toEqual({
       status: 'HELD',
     })
     expect(
       await db.intakeSourceAgentDispatch.findFirst({ where: sourceDispatchInput }),
     ).toMatchObject({ holdReason: 'ROUTING_UNCONFIGURED', agentRunId: null })
+    expect((await ownerProcessing()).members[0].sourceReview).toEqual({
+      status: 'HELD',
+      reasonCode: 'REVIEW_SETUP_REQUIRED',
+    })
+    await expect(
+      getIntakeV1ProcessingRead({
+        ...scope,
+        ownerUserId: `${actorId}-foreign`,
+        submissionId: processingSubmissionId,
+        revision: 1,
+        websiteResearchEnabled: false,
+        fileExtractionEnabled: true,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     const routingInput = { ...scope, agentIdentityId: identityId, expectedRevision: 0 }
     const routingCreates = await Promise.allSettled([
       configureIntakeSourceAgentRouting(routingInput, actorId),
@@ -1117,6 +1148,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     expect(automaticTasks[1].runId).toBe(automaticTasks[0].runId)
     expect(automaticTasks.filter((result) => result.replayed)).toHaveLength(1)
     const httpTask = { run: { id: automaticTasks[0].runId! } }
+    expect((await ownerProcessing()).members[0].sourceReview?.status).toBe('QUEUED')
     expect(await db.agentRun.count({ where: { ...scope, operationId: sourceOutbox.id } })).toBe(1)
     // Simulate the persisted retry deadline after a lost queue publication, without network.
     await db.intakeSourceAgentDispatch.update({

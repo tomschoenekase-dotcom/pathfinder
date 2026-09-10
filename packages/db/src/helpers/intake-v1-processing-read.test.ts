@@ -35,6 +35,73 @@ function member(
 }
 
 describe('getIntakeV1ProcessingRead', () => {
+  it.each([
+    ['PENDING', null, 'WAITING'],
+    ['HELD', null, 'HELD'],
+    ['CANCELLED', null, 'CANCELLED'],
+    ['COMPLETED', 'QUEUED', 'QUEUED'],
+    ['COMPLETED', 'RUNNING', 'IN_PROGRESS'],
+    ['COMPLETED', 'AWAITING_INPUT', 'WAITING_FOR_ANSWER'],
+    ['COMPLETED', 'AWAITING_APPROVAL', 'NEEDS_ATTENTION'],
+    ['COMPLETED', 'COMPLETED', 'READY_FOR_REVIEW'],
+    ['COMPLETED', 'FAILED', 'NEEDS_ATTENTION'],
+    ['COMPLETED', 'CANCELLED', 'CANCELLED'],
+    ['COMPLETED', null, 'NEEDS_ATTENTION'],
+  ])(
+    'separates completed extraction from source task %s/%s',
+    async (status, runStatus, expected) => {
+      const source = {
+        ...member(1, { kind: 'FILE_EXTRACTION', status: 'COMPLETED', holdReason: null }),
+      }
+      Object.assign(source.processingDispatch!, {
+        intakeSourceAgentDispatches: [
+          {
+            status,
+            holdReason: 'private error detail',
+            agentRun: runStatus ? { status: runStatus, id: 'private-run' } : null,
+          },
+        ],
+      })
+      const result = await getIntakeV1ProcessingRead(base, {
+        intakeV1SubmissionRevision: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ submissionId: base.submissionId, revision: 2, members: [source] }),
+        },
+      } as never)
+      expect(result.members[0]).toMatchObject({
+        status: 'COMPLETED',
+        sourceReview: { status: expected },
+      })
+      expect(result.counts.completed).toBe(1)
+      expect(result.publicationCreated).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(
+        /private error|private-run|agentIdentityId|receiptId/,
+      )
+    },
+  )
+  it.each([
+    ['ACCEPTED_FOR_PROPOSAL', 'REVIEWED'],
+    ['REJECTED', 'NEEDS_ATTENTION'],
+  ])(
+    'prefers terminal human source decision %s over an older queued task',
+    async (decision, expected) => {
+      const source = member(1, { kind: 'FILE_EXTRACTION', status: 'COMPLETED', holdReason: null })
+      Object.assign(source.processingDispatch!, {
+        fileExtractionReceipt: { review: { decision } },
+        intakeSourceAgentDispatches: [{ status: 'COMPLETED', agentRun: { status: 'QUEUED' } }],
+      })
+      const result = await getIntakeV1ProcessingRead(base, {
+        intakeV1SubmissionRevision: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ submissionId: base.submissionId, revision: 2, members: [source] }),
+        },
+      } as never)
+      expect(result.members[0].sourceReview?.status).toBe(expected)
+    },
+  )
+
   it('returns bounded safe owner progress without provider or source internals', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       submissionId: 'submission-a',
