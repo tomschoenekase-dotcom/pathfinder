@@ -19,6 +19,7 @@ import {
 import { IntakeV1ProcessingStatus } from './IntakeV1ProcessingStatus'
 
 const QUERY_TIMEOUT_MS = 15_000
+const MUTATION_TIMEOUT_MS = 15_000
 
 type Cursor = { createdAt: string; id: string }
 type Candidate = {
@@ -547,14 +548,22 @@ export function IntakeV1SubmissionWorkspace({
     setError(null)
     const mutation = (async () => {
       try {
-        const result = review.base
-          ? await client.intake.amendV1.mutate({
-              venueId,
-              submissionId: review.base.submissionId,
-              expectedCurrentRevision: review.base.revision,
-              selection,
-            })
-          : await client.intake.submitV1.mutate({ venueId, selection })
+        const result = await runBoundedClientRequest({
+          parentSignal: queryScope.current.signal,
+          timeoutMs: MUTATION_TIMEOUT_MS,
+          request: (signal) =>
+            review.base
+              ? client.intake.amendV1.mutate(
+                  {
+                    venueId,
+                    submissionId: review.base.submissionId,
+                    expectedCurrentRevision: review.base.revision,
+                    selection,
+                  },
+                  { signal },
+                )
+              : client.intake.submitV1.mutate({ venueId, selection }, { signal }),
+        })
         if (!scopeCurrent(generation)) return
         const excludedDescriptions = exclusions(result.criticalMissing)
         setReceipt({

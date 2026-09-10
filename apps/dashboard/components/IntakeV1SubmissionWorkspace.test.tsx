@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
@@ -169,6 +169,7 @@ describe('IntakeV1SubmissionWorkspace', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     cleanup()
     vi.clearAllMocks()
   })
@@ -296,13 +297,105 @@ describe('IntakeV1SubmissionWorkspace', () => {
     const submit = await screen.findByRole('button', { name: 'Submit this version' })
     fireEvent.click(submit)
     fireEvent.click(submit)
-    expect(mocks.submit).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1))
     const operationId = mocks.submit.mock.calls[0]![0].selection.operationId
     pending.reject(new Error('network ended'))
     const retry = await screen.findByRole('button', { name: 'Check this submission again' })
     fireEvent.click(retry)
     await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(2))
     expect(mocks.submit.mock.calls[1]![0].selection.operationId).toBe(operationId)
+  })
+
+  it('times out a pending first submission and ignores its late completion before exact retry', async () => {
+    const pending = deferred<{
+      submissionId: string
+      revision: number
+      criticalMissing: never[]
+      replayed: boolean
+    }>()
+    mocks.submit.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revision: 1,
+      criticalMissing: [],
+      replayed: true,
+    })
+    render(<IntakeV1SubmissionWorkspace ownerId="user-1" venueId="venue-1" proposals={[]} />)
+    await waitFor(() => expect(mocks.latest).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Review my materials' }))
+    const submit = await screen.findByRole('button', { name: 'Submit this version' })
+    vi.useFakeTimers()
+    fireEvent.click(submit)
+    await act(() => vi.advanceTimersByTimeAsync(15_000))
+
+    const operationId = mocks.submit.mock.calls[0]![0].selection.operationId
+    expect(screen.getByRole('button', { name: 'Check this submission again' })).toBeTruthy()
+    await act(async () => {
+      pending.resolve({
+        submissionId: 'submission-late',
+        revision: 99,
+        criticalMissing: [],
+        replayed: false,
+      })
+      await Promise.resolve()
+    })
+    expect(screen.queryByText('Version 99 received')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Check this submission again' })).toBeTruthy()
+
+    vi.useRealTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this submission again' }))
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(2))
+    expect(mocks.submit.mock.calls[1]![0].selection.operationId).toBe(operationId)
+  })
+
+  it('times out an amendment and retains its exact operation, selection, and base for retry', async () => {
+    const pending = deferred<{
+      submissionId: string
+      revision: number
+      criticalMissing: never[]
+      replayed: boolean
+    }>()
+    mocks.latest.mockResolvedValue(receipt(4))
+    mocks.get.mockResolvedValue(receipt(5))
+    mocks.amend.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revision: 5,
+      criticalMissing: [],
+      replayed: true,
+    })
+    render(<IntakeV1SubmissionWorkspace ownerId="user-1" venueId="venue-1" proposals={[]} />)
+    await screen.findByText('Version 4 received')
+    fireEvent.click(screen.getByRole('button', { name: 'Review an update' }))
+    const submit = await screen.findByRole('button', { name: 'Submit this update' })
+    vi.useFakeTimers()
+    fireEvent.click(submit)
+    await act(() => vi.advanceTimersByTimeAsync(15_000))
+
+    const first = mocks.amend.mock.calls[0]![0]
+    expect(screen.getByRole('button', { name: 'Check this submission again' })).toBeTruthy()
+    await act(async () => {
+      pending.resolve({
+        submissionId: 'submission-1',
+        revision: 99,
+        criticalMissing: [],
+        replayed: false,
+      })
+      await Promise.resolve()
+    })
+    expect(screen.queryByText('Version 99 received')).toBeNull()
+
+    vi.useRealTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this submission again' }))
+    await waitFor(() => expect(mocks.amend).toHaveBeenCalledTimes(2))
+    expect(mocks.amend.mock.calls[1]![0]).toMatchObject({
+      submissionId: first.submissionId,
+      expectedCurrentRevision: first.expectedCurrentRevision,
+      selection: {
+        operationId: first.selection.operationId,
+        intakeRunIds: first.selection.intakeRunIds,
+        intakeUploadIds: first.selection.intakeUploadIds,
+        drafts: first.selection.drafts,
+      },
+    })
   })
 
   it('unlocks a frozen selection after an uncertain retry receives a definitive conflict', async () => {
