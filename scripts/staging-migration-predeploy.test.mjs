@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
@@ -16,7 +17,230 @@ import {
   readMigrationManifest as readCurrentMigrationManifest,
   expectedPublicTableCount,
   createMigrationChildEnvironment,
+  readStagingApplicationPolicy,
+  assertStagingApplicationPolicy,
+  withStagingApplicationHold,
+  stagingPredeployExitClassification,
 } from './run-staging-migration-predeploy.mjs'
+
+test('application hold accepts exact 0/1, defaults unset to 0 and captures policy once', () => {
+  assert.equal(readStagingApplicationPolicy({}).hold, false)
+  for (const value of ['', 'true', 'false', ' 1', '1 ', '01', 0, 1, true, null]) {
+    assert.throws(
+      () => readStagingApplicationPolicy({ PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: value }),
+      /hold must be exactly 0 or 1/u,
+    )
+  }
+  const environment = {
+    PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: '1',
+    PATHFINDER_ALLOW_STAGING_MIGRATIONS: '1',
+  }
+  const policy = readStagingApplicationPolicy(environment)
+  environment.PATHFINDER_STAGING_MIGRATION_ONLY_HOLD = '0'
+  environment.PATHFINDER_ALLOW_STAGING_MIGRATIONS = '0'
+  assert.deepEqual(policy, { hold: true, migrationOptIn: '1' })
+  assert.ok(Object.isFrozen(policy))
+})
+
+test('preserved pending migration requires hold and code-only reopening requires closed opt-in', () => {
+  for (const hold of [undefined, '0', '1']) {
+    for (const optIn of [undefined, '', 'false', '0', '1']) {
+      const policy = readStagingApplicationPolicy({
+        PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: hold,
+        PATHFINDER_ALLOW_STAGING_MIGRATIONS: optIn,
+      })
+      const complete = () => assertStagingApplicationPolicy(policy, { state: 'complete' })
+      const pending = () =>
+        assertStagingApplicationPolicy(policy, {
+          state: 'current-staging',
+          dataPolicy: 'preserve-existing',
+        })
+      if (hold === '1' || optIn === '0') assert.doesNotThrow(complete)
+      else assert.throws(complete, /opt-in explicitly closed/u)
+      if (hold === '1') assert.doesNotThrow(pending)
+      else assert.throws(pending, /requires migration-only hold/u)
+    }
+  }
+  // This gate supplements rather than replaces the existing mutation/backup admission.
+  assert.doesNotThrow(() =>
+    assertStagingApplicationPolicy(readStagingApplicationPolicy({}), {
+      state: 'current-staging',
+      dataPolicy: 'synthetic-only',
+    }),
+  )
+})
+
+test('verified hold rejects both completed and newly migrated paths after cleanup, preventing startup', async () => {
+  for (const state of ['complete', 'current-staging']) {
+    const calls = []
+    const policy = readStagingApplicationPolicy({ PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: '1' })
+    let applicationStarts = 0
+    await assert.rejects(
+      withStagingApplicationHold(policy, async () => {
+        try {
+          assertStagingApplicationPolicy(policy, { state, dataPolicy: 'preserve-existing' })
+          if (state === 'complete') {
+            calls.push('integrity')
+            return 'complete'
+          }
+          calls.push('migration', 'integrity', 'preservation')
+          return 'migrated'
+        } finally {
+          calls.push('disconnect')
+        }
+      }).then(() => applicationStarts++),
+      (error) => {
+        assert.equal(error.message, 'Migration verified; application held')
+        assert.deepEqual(stagingPredeployExitClassification(error), {
+          action: 'staging-migration.application-held',
+          errorCode: 'migration-verified-application-held',
+          exitCode: 2,
+        })
+        return true
+      },
+    )
+    assert.equal(applicationStarts, 0)
+    assert.deepEqual(
+      calls,
+      state === 'complete'
+        ? ['integrity', 'disconnect']
+        : ['migration', 'integrity', 'preservation', 'disconnect'],
+    )
+  }
+})
+
+test('hold never replaces migration, integrity or disconnect failure with verified classification', async () => {
+  const policy = readStagingApplicationPolicy({ PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: '1' })
+  for (const stage of ['migration', 'integrity', 'preservation', 'disconnect']) {
+    const failure = new Error(stage)
+    await assert.rejects(
+      withStagingApplicationHold(policy, async () => {
+        throw failure
+      }),
+      (error) => {
+        assert.equal(error, failure)
+        assert.equal(stagingPredeployExitClassification(error).exitCode, 1)
+        assert.equal(stagingPredeployExitClassification(error).action, 'staging-migration.failed')
+        return true
+      },
+    )
+  }
+  const spoofed = new Error('Migration verified; application held')
+  spoofed.name = 'StagingApplicationHeld'
+  assert.equal(stagingPredeployExitClassification(spoofed).exitCode, 1)
+})
+
+test('hold-off code-only completion preserves verification result with opt-in closed', async () => {
+  for (const hold of [undefined, '0']) {
+    const policy = readStagingApplicationPolicy({
+      PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: hold,
+      PATHFINDER_ALLOW_STAGING_MIGRATIONS: '0',
+    })
+    let calls = 0
+    const result = await withStagingApplicationHold(policy, async () => {
+      assertStagingApplicationPolicy(policy, { state: 'complete' })
+      calls++
+      return 'verified-complete'
+    })
+    assert.equal(result, 'verified-complete')
+    assert.equal(calls, 1)
+  }
+})
+
+test('canonical main captures policy after target admission and wraps every DB completion path', async () => {
+  const source = await readFile(
+    new URL('./run-staging-migration-predeploy.mjs', import.meta.url),
+    'utf8',
+  )
+  const main = source.slice(
+    source.indexOf('async function main()'),
+    source.indexOf('export function expectedPublicTableCount'),
+  )
+  const capture = main.indexOf('readStagingApplicationPolicy(process.env)')
+  const boundary = main.indexOf(
+    'return withStagingApplicationHold(applicationPolicy, async () => {',
+  )
+  const connect = main.indexOf('new PrismaClient(')
+  assert.ok(capture > main.indexOf('assertStagingSchemaReadAdmission(process.env)'))
+  assert.ok(boundary > capture && connect > boundary)
+  assert.equal(main.match(/readStagingApplicationPolicy\(/gu)?.length, 1)
+  assert.equal(main.match(/assertStagingApplicationPolicy\(/gu)?.length, 2)
+  const completeBranch = main.slice(
+    main.indexOf("if (initialState === 'complete')"),
+    main.indexOf('const admission ='),
+  )
+  assert.ok(
+    completeBranch.indexOf('assertStagingApplicationPolicy(') <
+      completeBranch.indexOf('assertPostMigrationIntegrity('),
+  )
+  const pendingBranch = main.slice(main.indexOf('const admission ='))
+  assert.ok(
+    pendingBranch.indexOf('assertStagingApplicationPolicy(') <
+      pendingBranch.indexOf('assertBackupEvidenceMatchesLedger('),
+  )
+  assert.ok(
+    pendingBranch.indexOf('await database.$disconnect()') >
+      pendingBranch.indexOf('assertPostMigrationIntegrity('),
+  )
+})
+
+test('hold boundary and production reporter produce actual held, failed and reopened process exits', () => {
+  const wrapper = new URL('./run-staging-migration-predeploy.mjs', import.meta.url).href
+  const reporter = new URL('./lib/operator-cli-failure.mjs', import.meta.url).href
+  for (const fixture of [
+    { state: 'complete', hold: '1', failure: false, exit: 2 },
+    { state: 'current-staging', hold: '1', failure: false, exit: 2 },
+    { state: 'current-staging', hold: '1', failure: true, exit: 1 },
+    { state: 'complete', hold: '0', failure: false, exit: 0 },
+  ]) {
+    // No database or hosted admission is invoked; this exercises the production
+    // completion boundary and reporter in a real, independently exiting process.
+    const source = `
+      import { readStagingApplicationPolicy, assertStagingApplicationPolicy,
+        withStagingApplicationHold, stagingPredeployExitClassification } from ${JSON.stringify(wrapper)};
+      import { reportOperatorCliFailure } from ${JSON.stringify(reporter)};
+      const fixture = ${JSON.stringify(fixture)};
+      const policy = readStagingApplicationPolicy({
+        PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: fixture.hold,
+        PATHFINDER_ALLOW_STAGING_MIGRATIONS: '0'
+      });
+      try {
+        await withStagingApplicationHold(policy, async () => {
+          try {
+            assertStagingApplicationPolicy(policy, {state: fixture.state, dataPolicy: 'preserve-existing'});
+            if (fixture.failure) throw new Error('private fixture failure details');
+            process.stdout.write('verified\\n');
+          } finally { process.stdout.write('disconnected\\n'); }
+        });
+        process.stdout.write('application-released\\n');
+      } catch (error) {
+        process.exitCode = reportOperatorCliFailure(stagingPredeployExitClassification(error));
+      }
+    `
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+      env: process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {},
+    })
+    assert.equal(child.error, undefined)
+    assert.equal(child.signal, null)
+    assert.equal(child.status, fixture.exit)
+    assert.equal(child.stdout.includes('application-released'), fixture.exit === 0)
+    assert.equal(child.stdout.includes('verified'), !fixture.failure)
+    assert.match(child.stdout, /disconnected\n/u)
+    if (fixture.exit === 0) assert.equal(child.stderr, '')
+    else
+      assert.deepEqual(JSON.parse(child.stderr), {
+        ok: false,
+        action:
+          fixture.exit === 2 ? 'staging-migration.application-held' : 'staging-migration.failed',
+        errorCode:
+          fixture.exit === 2 ? 'migration-verified-application-held' : 'staging-migration-failed',
+      })
+    assert.ok(!child.stderr.includes('private fixture failure details'))
+  }
+})
 
 test('migration child marker preserves every non-marker URL byte and the parent environment', () => {
   const releaseSha = 'a'.repeat(40)

@@ -242,9 +242,28 @@ Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before startin
 rollout, set the non-secret Railway **web service variable**
 `PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-247-20260910`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
-Prisma when migrations are pending. After the exact migration and hosted health pass, restore
-`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
-deployments with a complete exact ledger run read-only integrity checks with that gate closed;
+Prisma when migrations are pending. A pending `preserve-existing` migration also requires
+`PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1`. Capture the final owner SHA, pause application autodeploy
+without deploying, require owner CI, drain old writers and external ingress, and verify the final
+release-bound backup/restore evidence before arming this one web attempt. Keep dashboard/workers
+stopped and verify the provider predeploy timeout independently. The hold is captured once;
+only exact `0` and `1` are accepted, and unset means `0` for code-only compatibility.
+
+With hold `1`, successful migration and all integrity/preservation checks deliberately end predeploy
+with exit `2`, action `staging-migration.application-held`, and code
+`migration-verified-application-held`. Railway marks this migration-only deployment FAILED and does
+not start its application. The already-complete ledger path is held too. A genuine migration,
+integrity or disconnect error retains ordinary failure classification; the held event is not proof
+of healthy application deployment. Keep the exact failed deployment ID and database verification
+receipt, and never retry automatically after an unresolved cancellation or stop alarm.
+
+After the operator accepts that exact database readback, set both
+`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` and `PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=0` with
+`--skip-deploys`. Manually deploy web again at the same frozen owner SHA through the existing source
+path. Only after code-only web health passes may dashboard and dormant workers be released at that
+SHA; restore reviewed autodeploy settings without deployment after full admission. Code-only
+deployments with a complete exact ledger require migration opt-in explicitly `0` and run read-only
+integrity checks with that gate closed;
 they do not require fresh migration permission or backup attestations. A pending suffix still
 requires every migration admission and preservation check before Prisma runs. The provider Git
 SHA may identify the release without a configured override; any configured override must agree.
@@ -380,9 +399,15 @@ verifies that both the candidate and recorded base are ancestors of the owner co
 reused, malformed, dirty, stale, or already-pushed handoff, replaces every owner-revision placeholder,
 and emits a deterministic resolved manifest. Use only the exact commands and identity in that
 resolved manifest for `PATHFINDER_RELEASE_SHA`, local-upload messages, topology admission, runtime
-audit, and hosted verification. Stage every required Railway variable with `--skip-deploys` before
-pushing the owner branch because that push may immediately create Git-backed deployments. Require
-owner CI success before waiting services are released.
+audit, and hosted verification. Stage the exact release identity and approval variables with
+`--skip-deploys` before pushing the owner branch because that push may immediately create
+Git-backed deployments. For a preserved-data migration, first pause all three application
+autodeploy triggers without deploying, then push and require owner CI success while the branch
+remains frozen. Leave mutation opt-in closed until the subsequent drain, final backup/restore and
+recovery gates pass; only then stage the release-bound backup evidence and arm migration opt-in
+and hold together with `--skip-deploys`. Follow the held web-only
+migration and separate same-SHA code-only web release above before dashboard/workers; Wait for CI
+alone does not impose migration ordering between services.
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
 emits only the three application deployment IDs, immutable image digests, expected revision, and

@@ -133,6 +133,17 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     admittedValue: '1',
     closedValue: '0',
   })
+  assert.deepEqual(first.rolloutSafety.stagingPredeployServiceEnvironment.migrationOnlyHold, {
+    name: 'PATHFINDER_STAGING_MIGRATION_ONLY_HOLD',
+    heldValue: '1',
+    releasedValue: '0',
+    unsetValue: '0',
+    pendingPreservedDataRequiresHold: true,
+    verifiedHeldExitCode: 2,
+    verifiedHeldDeploymentStatus: 'FAILED',
+    codeOnlyRequiresMigrationOptIn: '0',
+    releaseRequiresManualSameRevisionDeploy: true,
+  })
   assert.deepEqual(first.rolloutSafety.variableUpdateDeploymentPolicy, {
     suppressAutomaticDeploys: true,
     railwayCliFlag: '--skip-deploys',
@@ -166,6 +177,15 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   const migrationCloseAction = first.admission.requiredActions.findIndex((action) =>
     action.includes('PATHFINDER_ALLOW_STAGING_MIGRATIONS=0'),
   )
+  const pauseAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('pause autodeploy'),
+  )
+  const drainAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('drain every known old application writer'),
+  )
+  const downstreamAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('manually release dashboard and dormant workers'),
+  )
   const localUploadOpenAction = first.admission.requiredActions.findIndex(
     (action) =>
       action.includes('PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL') &&
@@ -187,32 +207,62 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.ok(migrationOptInAction >= 0)
   assert.ok(migrationApprovalAction >= 0)
   assert.ok(deployAction >= 0)
-  assert.equal(migrationPredeployAction, deployAction)
+  assert.ok(migrationPredeployAction > deployAction)
   assert.ok(migrationCloseAction >= 0)
   assert.ok(localUploadOpenAction >= 0)
   assert.ok(localUploadCloseAction >= 0)
   assert.match(first.admission.requiredActions[migrationCloseAction], /--skip-deploys/u)
-  assert.equal(
-    first.admission.requiredActions
-      .slice(releaseVariableAction, deployAction)
-      .every((action) => action.includes('--skip-deploys')),
-    true,
-  )
   assert.ok(releaseVariableAction < deployAction)
-  assert.ok(migrationOptInAction < deployAction)
   assert.ok(migrationApprovalAction < deployAction)
-  assert.ok(localUploadOpenAction < deployAction)
+  assert.ok(pauseAction >= 0 && pauseAction < deployAction)
+  assert.ok(deployAction < drainAction && drainAction < migrationOptInAction)
+  assert.ok(migrationOptInAction < migrationPredeployAction)
+  assert.ok(localUploadOpenAction < migrationPredeployAction)
+  assert.ok(migrationPredeployAction < migrationCloseAction)
+  assert.ok(migrationCloseAction < downstreamAction)
+  for (const index of [migrationPredeployAction, migrationCloseAction, downstreamAction]) {
+    assert.match(
+      first.admission.requiredActions[index],
+      /^For the pending preserve-existing cutover only,/u,
+    )
+  }
+  const codeOnlyAction = first.admission.requiredActions.find((action) =>
+    action.startsWith('For an already-complete exact schema code-only candidate,'),
+  )
+  assert.ok(codeOnlyAction)
+  assert.match(codeOnlyAction, /PATHFINDER_ALLOW_STAGING_MIGRATIONS=0/u)
+  assert.match(codeOnlyAction, /PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=0 or unset/u)
+  assert.match(codeOnlyAction, /normal CI-gated source release with read-only integrity admission/u)
+  assert.match(
+    codeOnlyAction,
+    /No intentional held FAILED deployment or second web deployment is required/u,
+  )
+  assert.match(
+    first.admission.requiredActions[migrationOptInAction],
+    /PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1/u,
+  )
+  assert.match(
+    first.admission.requiredActions[migrationCloseAction],
+    /PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=0/u,
+  )
+  assert.match(first.admission.requiredActions[migrationCloseAction], /same owner SHA/u)
+  assert.match(
+    first.admission.requiredActions[migrationPredeployAction],
+    /migration-verified-application-held/u,
+  )
+  assert.match(first.admission.requiredActions[migrationPredeployAction], /FAILED/u)
   assert.ok(deployAction < migrationCloseAction)
   assert.ok(deployAction < localUploadCloseAction)
   assert.match(first.admission.requiredActions[localUploadOpenAction], /--skip-deploys/u)
   assert.match(first.admission.requiredActions[localUploadCloseAction], /--skip-deploys/u)
-  assert.equal(
-    first.admission.requiredActions
-      .slice(1, deployAction)
-      .filter((action) => action.includes('Railway') || action.includes('PATHFINDER_'))
-      .every((action) => action.includes('--skip-deploys')),
-    true,
-  )
+  for (const index of [
+    releaseVariableAction,
+    migrationApprovalAction,
+    migrationOptInAction,
+    migrationCloseAction,
+  ]) {
+    assert.match(first.admission.requiredActions[index], /--skip-deploys/u)
+  }
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
@@ -323,7 +373,11 @@ test('finalizes the owner revision deterministically only after exact lineage pr
   assert.match(resolved.admission.completedActions[0], new RegExp(CANDIDATE, 'u'))
   assert.match(resolved.admission.completedActions[0], new RegExp(ownerRevision, 'u'))
   assert.doesNotMatch(resolved.admission.requiredActions[0], /integrate this exact candidate/u)
-  assert.match(resolved.admission.requiredActions[0], new RegExp(ownerRevision, 'u'))
+  assert.match(resolved.admission.requiredActions[0], /pause autodeploy/u)
+  assert.match(
+    resolved.admission.requiredActions.find((action) => action.includes('PATHFINDER_RELEASE_SHA=')),
+    new RegExp(ownerRevision, 'u'),
+  )
   assert.equal(JSON.stringify(resolved).includes('<owner-staging-revision>'), false)
 })
 

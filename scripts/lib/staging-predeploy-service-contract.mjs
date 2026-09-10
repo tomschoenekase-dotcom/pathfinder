@@ -20,6 +20,17 @@ export function buildStagingPredeployServiceContract(approval, releaseSha) {
       admittedValue: '1',
       closedValue: '0',
     },
+    migrationOnlyHold: {
+      name: 'PATHFINDER_STAGING_MIGRATION_ONLY_HOLD',
+      heldValue: '1',
+      releasedValue: '0',
+      unsetValue: '0',
+      pendingPreservedDataRequiresHold: true,
+      verifiedHeldExitCode: 2,
+      verifiedHeldDeploymentStatus: 'FAILED',
+      codeOnlyRequiresMigrationOptIn: '0',
+      releaseRequiresManualSameRevisionDeploy: true,
+    },
     imageEnvironmentIsNotServiceEnvironment: true,
   }
 }

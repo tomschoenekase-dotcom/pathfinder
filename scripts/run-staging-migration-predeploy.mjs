@@ -227,6 +227,56 @@ export function admitPendingStagingMigrations(environment, initialState) {
   return assertStagingMigrationAdmission(environment)
 }
 
+export function readStagingApplicationPolicy(environment) {
+  const configuredHold = environment.PATHFINDER_STAGING_MIGRATION_ONLY_HOLD
+  const hold = configuredHold === undefined ? '0' : configuredHold
+  if (hold !== '0' && hold !== '1') fail('migration-only hold must be exactly 0 or 1')
+  return Object.freeze({
+    hold: hold === '1',
+    migrationOptIn: environment.PATHFINDER_ALLOW_STAGING_MIGRATIONS,
+  })
+}
+
+export function assertStagingApplicationPolicy(policy, { state, dataPolicy }) {
+  if (state === 'complete') {
+    if (!policy.hold && policy.migrationOptIn !== '0') {
+      fail('code-only application startup requires migration opt-in explicitly closed')
+    }
+  } else if (dataPolicy === 'preserve-existing' && !policy.hold) {
+    fail('pending preserved-data migration requires migration-only hold')
+  }
+}
+
+class StagingApplicationHeld extends Error {
+  constructor() {
+    super('Migration verified; application held')
+    this.name = 'StagingApplicationHeld'
+  }
+}
+
+/** The common completion boundary also covers the already-complete early return.
+ * Verification or disconnect failures propagate unchanged and cannot claim verified hold.
+ */
+export async function withStagingApplicationHold(policy, verify) {
+  const result = await verify()
+  if (policy.hold) throw new StagingApplicationHeld()
+  return result
+}
+
+export function stagingPredeployExitClassification(error) {
+  return error instanceof StagingApplicationHeld
+    ? {
+        action: 'staging-migration.application-held',
+        errorCode: 'migration-verified-application-held',
+        exitCode: 2,
+      }
+    : {
+        action: 'staging-migration.failed',
+        errorCode: 'staging-migration-failed',
+        exitCode: 1,
+      }
+}
+
 export async function readMigrationManifest(prismaDirectory) {
   const migrationRoot = path.join(prismaDirectory, 'migrations')
   const entries = await readdir(migrationRoot)
@@ -752,6 +802,7 @@ export function runPrismaDeploy(cli, schema, environment) {
 
 async function main() {
   const { releaseSha } = assertStagingSchemaReadAdmission(process.env)
+  const applicationPolicy = readStagingApplicationPolicy(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
@@ -759,57 +810,64 @@ async function main() {
   assertFrozenManifest(manifest)
   console.log(`staging-migration: frozen ${EXPECTED.migrationCount}-file manifest accepted`)
 
-  const { PrismaClient } = await import('@prisma/client')
-  const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
-  try {
-    const initialLedger = await ledgerRows(database)
-    const initialState = ledgerState(initialLedger, manifest)
-    await assertVerifiedBaselineSchema(database, initialLedger)
-    console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
-    if (initialState === 'complete') {
-      await assertPostMigrationIntegrity(database, manifest)
-      console.log(
-        `staging-migration: already complete (${EXPECTED.migrationCount}/${EXPECTED.migrationCount}); integrity checks passed`,
-      )
-      return
-    }
-
-    const admission = admitPendingStagingMigrations(process.env, initialState)
-    assertBackupEvidenceMatchesLedger(admission, initialLedger)
-
-    const beforeCounts = await publicTableCounts(database)
-    const expectedInitialTableCount = expectedPublicTableCount(initialState)
-    if (beforeCounts.size !== expectedInitialTableCount) {
-      fail(`unexpected initial public table count ${beforeCounts.size}`)
-    }
-    const child = createMigrationChildEnvironment(process.env, releaseSha)
-    console.log(
-      `staging-migration: child starting release=${releaseSha} application_name=${child.applicationName}`,
-    )
+  return withStagingApplicationHold(applicationPolicy, async () => {
+    const { PrismaClient } = await import('@prisma/client')
+    const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
     try {
-      await runPrismaDeploy(
-        prismaCli,
-        path.join(prismaDirectory, 'schema.prisma'),
-        child.environment,
+      const initialLedger = await ledgerRows(database)
+      const initialState = ledgerState(initialLedger, manifest)
+      await assertVerifiedBaselineSchema(database, initialLedger)
+      console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
+      if (initialState === 'complete') {
+        assertStagingApplicationPolicy(applicationPolicy, { state: initialState })
+        await assertPostMigrationIntegrity(database, manifest)
+        console.log(
+          `staging-migration: already complete (${EXPECTED.migrationCount}/${EXPECTED.migrationCount}); integrity checks passed`,
+        )
+        return
+      }
+
+      const admission = admitPendingStagingMigrations(process.env, initialState)
+      assertStagingApplicationPolicy(applicationPolicy, {
+        state: initialState,
+        dataPolicy: admission.dataPolicy,
+      })
+      assertBackupEvidenceMatchesLedger(admission, initialLedger)
+
+      const beforeCounts = await publicTableCounts(database)
+      const expectedInitialTableCount = expectedPublicTableCount(initialState)
+      if (beforeCounts.size !== expectedInitialTableCount) {
+        fail(`unexpected initial public table count ${beforeCounts.size}`)
+      }
+      const child = createMigrationChildEnvironment(process.env, releaseSha)
+      console.log(
+        `staging-migration: child starting release=${releaseSha} application_name=${child.applicationName}`,
       )
-      console.log(`staging-migration: child completed application_name=${child.applicationName}`)
-    } catch {
-      console.log(`staging-migration: child failed application_name=${child.applicationName}`)
-      throw new Error('Prisma migration child failed')
+      try {
+        await runPrismaDeploy(
+          prismaCli,
+          path.join(prismaDirectory, 'schema.prisma'),
+          child.environment,
+        )
+        console.log(`staging-migration: child completed application_name=${child.applicationName}`)
+      } catch {
+        console.log(`staging-migration: child failed application_name=${child.applicationName}`)
+        throw new Error('Prisma migration child failed')
+      }
+      await assertPostMigrationIntegrity(database, manifest)
+      const afterCounts = await publicTableCounts(database)
+      for (const [table, count] of beforeCounts) {
+        if (table === '_prisma_migrations') continue
+        if (afterCounts.get(table) !== count)
+          fail(`row count changed for pre-existing table ${table}`)
+      }
+      console.log(
+        `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; ${EXPECTED.migrationCount}/${EXPECTED.migrationCount} ledger and integrity checks passed`,
+      )
+    } finally {
+      await database.$disconnect()
     }
-    await assertPostMigrationIntegrity(database, manifest)
-    const afterCounts = await publicTableCounts(database)
-    for (const [table, count] of beforeCounts) {
-      if (table === '_prisma_migrations') continue
-      if (afterCounts.get(table) !== count)
-        fail(`row count changed for pre-existing table ${table}`)
-    }
-    console.log(
-      `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; ${EXPECTED.migrationCount}/${EXPECTED.migrationCount} ledger and integrity checks passed`,
-    )
-  } finally {
-    await database.$disconnect()
-  }
+  })
 }
 
 export function expectedPublicTableCount(state) {
@@ -862,11 +920,8 @@ export function expectedPublicTableCount(state) {
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 if (isMain) {
-  main().catch(async () => {
-    process.exitCode = reportOperatorCliFailure({
-      action: 'staging-migration.failed',
-      errorCode: 'staging-migration-failed',
-    })
+  main().catch(async (error) => {
+    process.exitCode = reportOperatorCliFailure(stagingPredeployExitClassification(error))
     await new Promise((resolve) => setTimeout(resolve, 2_000))
   })
 }
