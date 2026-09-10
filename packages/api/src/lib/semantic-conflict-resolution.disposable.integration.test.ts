@@ -7,6 +7,8 @@ import {
   db,
   prepareSupportKnowledgeProposalAction,
   publishUniversalContentAction,
+  readSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -549,6 +551,13 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       state: 'LEGACY_UNADOPTED',
     })
     await expect(
+      readSupportPackageFulfillment(db as never, {
+        tenantId,
+        venueId,
+        supportRequestId: fixtureRows[0]!.requestId,
+      }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
+    await expect(
       caller.getSupportProposalAuthoringState({
         ...authoringInput,
         venueId: `${venueId}-other`,
@@ -644,6 +653,13 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
     })
 
     expect(adoptionReplay).toMatchObject({ revisionId: adoption.revisionId, replayed: true })
+    await expect(
+      readSupportPackageFulfillment(db as never, {
+        tenantId,
+        venueId,
+        supportRequestId: fixtureRows[0]!.requestId,
+      }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
     // The adoption already contains this proposal's approved wording. A second route
     // must not append another revision, regardless of the adoption's publication state.
     await expect(
@@ -686,7 +702,7 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
 
     // All private-draft zero-publication assertions above remain required. This
     // subsequent publication is explicit and confined to the disposable fixture.
-    await publishUniversalContentAction({
+    const adoptionPublication = await publishUniversalContentAction({
       db,
       tenantId,
       venueId,
@@ -695,6 +711,28 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       expectedLatestVersion: 1,
       requestId: randomUUID(),
       actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
+    })
+    const adoptionFulfillment = await readSupportPackageFulfillment(db as never, {
+      tenantId,
+      venueId,
+      supportRequestId: fixtureRows[0]!.requestId,
+    })
+    expect(adoptionFulfillment).toMatchObject({
+      contractVersion: 3,
+      contentFulfillment: {
+        receipts: [
+          expect.objectContaining({
+            receiptKind: 'ADOPTION',
+            proposalId: replacement.id,
+            sourceProposalId: conflictProposal.id,
+            sourceRequestVersion: fixtureRows[0]!.version,
+            moduleId: adoption.moduleId,
+            revisionId: adoption.revisionId,
+            publicationId: adoptionPublication.publicationId,
+            projectionId: entryId,
+          }),
+        ],
+      },
     })
     await expect(caller.getSupportProposalAuthoringState(authoringInput)).resolves.toMatchObject({
       state: 'OWN_ADOPTION_RECEIPT',
