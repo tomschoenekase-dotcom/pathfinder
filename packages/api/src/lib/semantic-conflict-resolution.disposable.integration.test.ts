@@ -563,6 +563,23 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
     const adoptionReplay = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
     expect(adoption).toMatchObject({ requiresExplicitPublication: true, autoPublished: false })
     expect(adoptionReplay).toMatchObject({ revisionId: adoption.revisionId, replayed: true })
+    // The adoption already contains this proposal's approved wording. A second route
+    // must not append another revision, regardless of the adoption's publication state.
+    await expect(
+      caller.createSupportSemanticUniversalContentDraft({
+        tenantId,
+        venueId,
+        proposalId: replacement.id,
+        expectedProposalUpdatedAt: approvedReplacement.updatedAt.toISOString(),
+        expectedPreviewHash: preparedAdoption.expectedPreviewHash,
+        relation: 'CORRECTS',
+        desired: replacementDesired,
+        draft: adoptionInput.draft,
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'This proposal already produced an adoption draft; review that revision.',
+    })
     const retainedEvidence = await db.contentModuleEvidence.findMany({
       where: { tenantId, venueId, revisionId: adoption.revisionId },
       select: { sourceId: true, locator: true, excerptHash: true },

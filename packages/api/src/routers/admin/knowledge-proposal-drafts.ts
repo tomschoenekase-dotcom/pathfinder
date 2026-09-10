@@ -254,6 +254,20 @@ export const adminKnowledgeProposalDraftRouter = router({
   createSupportSemanticUniversalContentDraft: adminProcedure
     .input(AdminCreateSupportSemanticUniversalContentDraftInput)
     .mutation(async ({ ctx, input }) => {
+      const adoption = await ctx.db.legacyKnowledgeUniversalContentAdoption.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          proposalId: input.proposalId,
+        },
+        select: { id: true },
+      })
+      if (adoption) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'This proposal already produced an adoption draft; review that revision.',
+        })
+      }
       const evidence = await resolveSupportProposalContentEvidence({
         db: ctx.db,
         tenantId: input.tenantId,

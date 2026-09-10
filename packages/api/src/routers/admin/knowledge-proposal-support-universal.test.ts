@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   resolveEvidence: vi.fn(),
   createUniversalDraft: vi.fn(),
+  adoptionFind: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -68,7 +69,10 @@ const input = {
 
 function context(isPlatformAdmin = true): TRPCContext {
   return {
-    db: { marker: 'context-db' } as unknown as TRPCContext['db'],
+    db: {
+      marker: 'context-db',
+      legacyKnowledgeUniversalContentAdoption: { findFirst: mocks.adoptionFind },
+    } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: {
       userId: 'admin-support',
@@ -82,6 +86,7 @@ function context(isPlatformAdmin = true): TRPCContext {
 describe('createSupportSemanticUniversalContentDraft', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.adoptionFind.mockResolvedValue(null)
   })
 
   it('derives retained support evidence and delegates the exact scope and actor', async () => {
@@ -120,6 +125,14 @@ describe('createSupportSemanticUniversalContentDraft', () => {
       tenantId: input.tenantId,
       venueId: input.venueId,
       proposalId: input.proposalId,
+    })
+    expect(mocks.adoptionFind).toHaveBeenCalledWith({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+      },
+      select: { id: true },
     })
     expect(mocks.createUniversalDraft).toHaveBeenCalledWith({
       db: expect.objectContaining({ marker: 'context-db' }),
@@ -183,6 +196,16 @@ describe('createSupportSemanticUniversalContentDraft', () => {
     await expect(
       app.createCaller(context()).admin.createSupportSemanticUniversalContentDraft(input),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(mocks.createUniversalDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps a proposal that already owns an adoption receipt on its adoption route', async () => {
+    mocks.adoptionFind.mockResolvedValueOnce({ id: 'adoption-1' })
+
+    await expect(
+      app.createCaller(context()).admin.createSupportSemanticUniversalContentDraft(input),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.resolveEvidence).not.toHaveBeenCalled()
     expect(mocks.createUniversalDraft).not.toHaveBeenCalled()
   })
 
