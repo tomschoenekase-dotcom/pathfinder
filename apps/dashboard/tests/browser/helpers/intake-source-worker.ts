@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
-import { resolve } from 'node:path'
+import { resolve as resolvePath } from 'node:path'
 
 import {
   activateAgentBridgeCredentialAction,
@@ -231,7 +231,7 @@ export async function runConnectedSourceWorker(
         if (process.env[key]) childEnv[key] = process.env[key]
       const child = spawn(
         process.execPath,
-        [resolve(process.cwd(), '../../scripts/fixtures/source-question-http-worker.mjs')],
+        [resolvePath(process.cwd(), '../../scripts/fixtures/source-question-http-worker.mjs')],
         { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
       )
       let stdout = ''
@@ -316,6 +316,8 @@ export async function runConnectedSourceWorker(
       resumedWorker.runId !== agentRunId ||
       resumedWorker.questionId !== question.id ||
       resumedWorker.answer !== founderAnswer ||
+      resumedWorker.sourceHash !== input.extractedTextHash ||
+      !resumedWorker.capacityRead ||
       !resumedWorker.resolutionId
     )
       throw new Error('Connected source worker returned mismatched resumed identity')
@@ -327,7 +329,14 @@ export async function runConnectedSourceWorker(
   }
   const resolution = await withTenantIsolationBypass(() =>
     db.intakeFileClarificationResolution.findFirstOrThrow({
-      where: { id: resumedWorker.resolutionId!, ...scope, questionId: question.id },
+      where: {
+        id: resumedWorker.resolutionId!,
+        ...scope,
+        questionId: question.id,
+        receiptId: input.receiptId,
+        runId: input.intakeRunId,
+        expectedExtractedTextHash: input.extractedTextHash,
+      },
       select: {
         id: true,
         receiptId: true,
@@ -350,6 +359,6 @@ export async function runConnectedSourceWorker(
     amendmentDigest: sha256(JSON.stringify(resolution)),
     initialAttemptNumber: firstWorker.attemptNumber,
     resumedAttemptNumber: resumedWorker.attemptNumber,
-    serverStopped: true,
+    serverStopped: !server.listening,
   }
 }
