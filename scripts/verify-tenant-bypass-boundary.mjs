@@ -19,6 +19,14 @@ const approvedCallCounts = new Map([
   // re-enters exact tenant/venue/member/source/lease scope for canonical research
   // and receipt transitions. No bypass grants package or publication authority.
   ['apps/workers/src/processors/intake-v1-source-processing.ts', 7],
+  // Source-agent recovery discovers at most 25 opaque scoped dispatch identities and
+  // backfills missing extraction metadata. Canonical dispatch then rechecks exact
+  // tenant+venue+receipt, current routing and identity authority before task creation.
+  ['apps/workers/src/processors/intake-source-agent-dispatch.ts', 2],
+  // Opt-in disposable onboarding helper: exact tenant+venue fixture setup and
+  // receipt/question/amendment readback only. Keep an exact inventory entry rather
+  // than excluding all browser helpers from the default-deny boundary.
+  ['apps/dashboard/tests/browser/helpers/intake-source-worker.ts', 4],
   // Platform-admin review reads bounded candidate summaries and exact scoped receipts;
   // no portable body is loaded and current activation authority is never inferred.
   ['packages/api/src/routers/admin/agent-workflow-activation-review.ts', 1],
@@ -210,7 +218,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/location-proposal-application.ts', 1],
   // Platform-admin proposal review and exact support-source handoff are always constrained to the
   // requested tenant and venue; the support action revalidates the frozen request version/messages.
-  ['packages/api/src/routers/admin/knowledge-proposal-review.ts', 3],
+  // The fourth call records a human-admin reviewed decline under a scoped content
+  // lock with exact proposal/source revision and immutable audit; no publication grant.
+  ['packages/api/src/routers/admin/knowledge-proposal-review.ts', 4],
   ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],
