@@ -487,6 +487,62 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       } as Omit<PathfinderMcpDomainActions, 'askOperator' | 'delegateSpecialist'>),
     )
     const bridge = createAgentBridgeRegistry({ operationalRegistry })
+    const assignedSourceArgs = {
+      venueId,
+      toolName: 'pathfinder.read',
+      executionClaim: {
+        agentRunId: runId,
+        bridgeSessionId,
+        workerId,
+        executionLeaseToken: initialClaim.leaseToken,
+      },
+      arguments: { resource: 'assigned-source', agentRunId: runId, pageSize: 4000 },
+    }
+    const initialSourcePage = await bridge.callOperationalTool(assignedSourceArgs, { credential })
+    const initialSourceData = initialSourcePage.structuredContent!.data as {
+      page: { text: string }
+      nextSourceCursor: string
+    }
+    expect(initialSourceData.page.text).not.toContain(lateCapacity)
+    expect(initialSourceData.nextSourceCursor).toBeTruthy()
+    const initialSourceContinuation = await bridge.callOperationalTool(
+      {
+        ...assignedSourceArgs,
+        arguments: {
+          ...assignedSourceArgs.arguments,
+          sourceCursor: initialSourceData.nextSourceCursor,
+        },
+      },
+      { credential },
+    )
+    const initialSourceText = (
+      initialSourceContinuation.structuredContent!.data as { page: { text: string } }
+    ).page.text
+    expect(initialSourceText).toContain(excerpt)
+    expect(initialSourceText).toContain(lateCapacity)
+    expect(await questionCount()).toBe(beforeRejected)
+    for (const attempt of [
+      {
+        ...assignedSourceArgs,
+        arguments: { ...assignedSourceArgs.arguments, receiptId: randomUUID() },
+      },
+      {
+        ...assignedSourceArgs,
+        arguments: { ...assignedSourceArgs.arguments, sourceCursor: 'forged-cursor' },
+      },
+      {
+        ...assignedSourceArgs,
+        arguments: { ...assignedSourceArgs.arguments, agentRunId: siblingRunId },
+        executionClaim: { ...assignedSourceArgs.executionClaim, agentRunId: siblingRunId },
+      },
+      {
+        ...assignedSourceArgs,
+        executionClaim: { ...assignedSourceArgs.executionClaim, executionLeaseToken: randomUUID() },
+      },
+    ])
+      await expect(
+        Promise.resolve().then(() => bridge.callOperationalTool(attempt, { credential })),
+      ).rejects.toThrow()
     const sourceQuestionArgs = {
       venueId,
       toolName: 'pathfinder.ask_operator',
@@ -507,7 +563,10 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           fieldPath: input().fieldPath,
           reason: 'CONTRADICTION',
           blockerScope: 'FOUNDATIONAL',
-          evidenceExcerpt: excerpt,
+          evidenceExcerpt: initialSourceText.slice(
+            initialSourceText.indexOf(excerpt),
+            initialSourceText.indexOf(excerpt) + excerpt.length,
+          ),
         },
       },
     }
@@ -544,6 +603,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     }
     // FOUNDATIONAL creation relinquishes the first claim; it must not authorize a replay.
     await expect(bridge.callOperationalTool(sourceQuestionArgs, { credential })).rejects.toThrow()
+    await expect(bridge.callOperationalTool(assignedSourceArgs, { credential })).rejects.toThrow()
     expect(created).toMatchObject({
       questionStatus: 'PENDING',
       blockerScope: 'FOUNDATIONAL',
@@ -795,6 +855,9 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       createdBy: actorId,
     })
     await expect(bridge.callOperationalTool(sourceArgs, { credential })).rejects.toThrow()
+    await expect(
+      bridge.callOperationalTool({ ...assignedSourceArgs, executionClaim }, { credential }),
+    ).rejects.toThrow()
     await expect(
       bridge.callOperationalTool({ ...sourceQuestionArgs, executionClaim }, { credential }),
     ).rejects.toThrow()

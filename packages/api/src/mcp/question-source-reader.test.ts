@@ -226,3 +226,91 @@ describe('question-bound source reader', () => {
     expect(JSON.stringify(response)).not.toContain('credential-1')
   })
 })
+
+describe('assigned source reader', () => {
+  const sourceAssignment = {
+    version: 1,
+    kind: 'FILE_EXTRACTION',
+    intakeRunId: 'intake-run-1',
+    receiptId,
+    extractedTextHash: hash,
+  }
+  const assignedInput = { ...input, resource: 'assigned-source', questionId: undefined }
+  function assignedFixture() {
+    const f = fixture()
+    const tx = {
+      ...f.tx,
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ scopeSnapshot: { sourceAssignment } }) },
+    }
+    const db = {
+      ...f.db,
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ scopeSnapshot: { sourceAssignment } }) },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    }
+    return { ...f, db, tx }
+  }
+  it('reads only the locked persisted assignment without a question lookup', async () => {
+    const { db, tx, assertClaim, readSource } = assignedFixture()
+    const result = await readQuestionBoundSource(db as never, assignedInput, context as never, {
+      assertCurrentAgentWorkerClaim: assertClaim,
+      readIntakeFileExtractionSource: readSource,
+    })
+    expect(result.kind).toBe('pathfinder.assigned-source')
+    expect(readSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'intake-run-1',
+        receiptId,
+        expectedExtractedTextHash: hash,
+      }),
+      tx,
+    )
+    expect(db.agentQuestion.findFirst).not.toHaveBeenCalled()
+    expect(tx.agentQuestion.findFirst).not.toHaveBeenCalled()
+    expect(tx.agentRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: input.agentRunId, agentIdentityId: 'identity-1' }),
+      }),
+    )
+  })
+  it('denies absent or changed assignment before returning source text', async () => {
+    for (const scopeSnapshot of [
+      {},
+      {
+        sourceAssignment: {
+          ...sourceAssignment,
+          receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+      },
+    ]) {
+      const { db, tx, assertClaim, readSource } = assignedFixture()
+      tx.agentRun.findFirst.mockResolvedValue({ scopeSnapshot } as never)
+      await expect(
+        readQuestionBoundSource(db as never, assignedInput, context as never, {
+          assertCurrentAgentWorkerClaim: assertClaim,
+          readIntakeFileExtractionSource: readSource,
+        }),
+      ).rejects.toBeInstanceOf(QuestionSourceReaderError)
+      expect(readSource).not.toHaveBeenCalled()
+    }
+  })
+  it('does not admit an unassigned run or an unrelated question ID', async () => {
+    const { db, assertClaim, readSource } = assignedFixture()
+    db.agentRun.findFirst.mockResolvedValue({ scopeSnapshot: {} } as never)
+    await expect(
+      readQuestionBoundSource(db as never, assignedInput, context as never, {
+        assertCurrentAgentWorkerClaim: assertClaim,
+        readIntakeFileExtractionSource: readSource,
+      }),
+    ).rejects.toBeInstanceOf(QuestionSourceReaderError)
+    await expect(
+      readQuestionBoundSource(
+        db as never,
+        { ...assignedInput, questionId: 'unrelated' },
+        context as never,
+        { assertCurrentAgentWorkerClaim: assertClaim, readIntakeFileExtractionSource: readSource },
+      ),
+    ).rejects.toBeInstanceOf(QuestionSourceReaderError)
+    expect(assertClaim).not.toHaveBeenCalled()
+    expect(readSource).not.toHaveBeenCalled()
+  })
+})

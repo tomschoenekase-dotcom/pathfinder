@@ -377,7 +377,8 @@ export function createAgentBridgeRegistry(
       if (input.venueId && !context.credential.venueIds.includes(input.venueId))
         throw new Error('Operational tools require exact credential venue scope')
       const questionSource =
-        (input.toolName === 'pathfinder.read' && input.arguments.resource === 'question-source') ||
+        (input.toolName === 'pathfinder.read' &&
+          ['question-source', 'assigned-source'].includes(input.arguments.resource as string)) ||
         (input.toolName === 'pathfinder.ask_operator' &&
           input.arguments.sourceClarification !== undefined)
       if (

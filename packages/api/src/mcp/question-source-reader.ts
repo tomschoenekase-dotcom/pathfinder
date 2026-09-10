@@ -1,12 +1,16 @@
 import type { PrismaClient } from '@prisma/client'
 
 import { assertMcpScope, type McpReadInput, type McpToolResult } from '@pathfinder/contracts/mcp-v0'
+import { readAgentSourceAssignment } from '@pathfinder/contracts'
 import { assertCurrentAgentWorkerClaim } from '@pathfinder/db'
 
 import { readIntakeFileExtractionSource } from '../lib/intake-file-extraction-reader'
 import type { VerifiedMcpInvocationContext } from './registry'
 
-export type QuestionSourceReaderDb = Pick<PrismaClient, '$transaction' | 'agentQuestion'>
+export type QuestionSourceReaderDb = Pick<
+  PrismaClient,
+  '$transaction' | 'agentQuestion' | 'agentRun'
+>
 
 export type QuestionSourceReaderServices = Readonly<{
   assertCurrentAgentWorkerClaim?: typeof assertCurrentAgentWorkerClaim
@@ -56,6 +60,18 @@ function locator(value: unknown): SourceLocator | null {
   }
 }
 
+function assignmentLocator(snapshot: unknown, agentRunId: string): SourceLocator | null {
+  const assignment = readAgentSourceAssignment(snapshot)
+  return assignment
+    ? {
+        runId: assignment.intakeRunId,
+        receiptId: assignment.receiptId,
+        extractedTextHash: assignment.extractedTextHash,
+        agentRunId,
+      }
+    : null
+}
+
 function sameLocator(left: SourceLocator, right: SourceLocator) {
   return (
     left.runId === right.runId &&
@@ -66,10 +82,10 @@ function sameLocator(left: SourceLocator, right: SourceLocator) {
 }
 
 /**
- * Reads a retained extraction page only through an exact persisted source question and a current
+ * Reads a retained extraction page only through an exact persisted source question or task assignment and a current
  * authenticated worker claim. Caller-provided IDs select rows; the locked transaction admits them.
  */
-export async function readQuestionBoundSource(
+export async function readWorkerBoundSource(
   db: QuestionSourceReaderDb,
   input: McpReadInput,
   context: VerifiedMcpInvocationContext,
@@ -77,9 +93,9 @@ export async function readQuestionBoundSource(
 ): Promise<McpToolResult> {
   const executionClaim = context.executionClaim
   if (
-    input.resource !== 'question-source' ||
+    !['question-source', 'assigned-source'].includes(input.resource) ||
     !input.agentRunId ||
-    !input.questionId ||
+    (input.resource === 'question-source' ? !input.questionId : input.questionId !== undefined) ||
     !input.venueId ||
     !executionClaim ||
     executionClaim.agentRunId !== input.agentRunId ||
@@ -97,16 +113,30 @@ export async function readQuestionBoundSource(
   const questionId = input.questionId
   const venueId = input.venueId
 
-  const firstQuestion = await db.agentQuestion.findFirst({
-    where: {
-      id: questionId,
-      tenantId: context.credential.tenantId,
-      venueId,
-      agentRunId,
-    },
-    select: { callbackMetadata: true },
-  })
-  const initialLocator = locator(firstQuestion?.callbackMetadata)
+  const initialLocator =
+    input.resource === 'assigned-source'
+      ? assignmentLocator(
+          (
+            await db.agentRun.findFirst({
+              where: { id: agentRunId, tenantId: context.credential.tenantId, venueId },
+              select: { scopeSnapshot: true },
+            })
+          )?.scopeSnapshot,
+          agentRunId,
+        )
+      : locator(
+          (
+            await db.agentQuestion.findFirst({
+              where: {
+                id: questionId!,
+                tenantId: context.credential.tenantId,
+                venueId,
+                agentRunId,
+              },
+              select: { callbackMetadata: true },
+            })
+          )?.callbackMetadata,
+        )
   if (!initialLocator || initialLocator.agentRunId !== agentRunId)
     throw new QuestionSourceReaderError()
 
@@ -131,17 +161,36 @@ export async function readQuestionBoundSource(
         requiredTransportCapabilities: ['resources:read', 'intake-source:read'],
       })
 
-      const question = await tx.agentQuestion.findFirst({
-        where: {
-          id: questionId,
-          tenantId: context.credential.tenantId,
-          venueId,
-          agentRunId,
-          agentIdentityId: admitted.agentIdentityId,
-        },
-        select: { callbackMetadata: true },
-      })
-      const lockedLocator = locator(question?.callbackMetadata)
+      const lockedLocator =
+        input.resource === 'assigned-source'
+          ? assignmentLocator(
+              (
+                await tx.agentRun.findFirst({
+                  where: {
+                    id: agentRunId,
+                    tenantId: context.credential.tenantId,
+                    venueId,
+                    agentIdentityId: admitted.agentIdentityId,
+                  },
+                  select: { scopeSnapshot: true },
+                })
+              )?.scopeSnapshot,
+              agentRunId,
+            )
+          : locator(
+              (
+                await tx.agentQuestion.findFirst({
+                  where: {
+                    id: questionId!,
+                    tenantId: context.credential.tenantId,
+                    venueId,
+                    agentRunId,
+                    agentIdentityId: admitted.agentIdentityId,
+                  },
+                  select: { callbackMetadata: true },
+                })
+              )?.callbackMetadata,
+            )
       if (
         !lockedLocator ||
         lockedLocator.agentRunId !== agentRunId ||
@@ -178,10 +227,13 @@ export async function readQuestionBoundSource(
       )
 
       return {
-        kind: 'pathfinder.question-source',
-        summary: 'Authorized question source page read completed.',
+        kind:
+          input.resource === 'assigned-source'
+            ? 'pathfinder.assigned-source'
+            : 'pathfinder.question-source',
+        summary: 'Authorized worker source page read completed.',
         data: {
-          questionId,
+          ...(questionId ? { questionId } : {}),
           agentRunId,
           extractedTextHash: page.extractedTextHash,
           extractedCharacterCount: page.extractedCharacterCount,
@@ -196,3 +248,6 @@ export async function readQuestionBoundSource(
     throw new QuestionSourceReaderError()
   }
 }
+
+// Retain the existing export for question-reader callers.
+export const readQuestionBoundSource = readWorkerBoundSource

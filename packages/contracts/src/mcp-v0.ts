@@ -429,6 +429,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'questions:read',
   ],
   [
+    'assigned-source',
+    'Assigned task source',
+    'One bounded page from the claimed Content run’s immutable source assignment, before a question exists.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/source',
+    'venue',
+    'intake-source:read',
+  ],
+  [
     'question-source',
     'Agent question source',
     'One bounded, question-bound intake extraction source page for the claimed agent run.',
@@ -511,9 +519,12 @@ export const McpReadInput = McpRequestedScope.extend({
 })
   .strict()
   .superRefine((value, context) => {
-    const exactRunResource = ['agent-run-trace', 'agent-run-result', 'question-source'].includes(
-      value.resource,
-    )
+    const exactRunResource = [
+      'agent-run-trace',
+      'agent-run-result',
+      'question-source',
+      'assigned-source',
+    ].includes(value.resource)
     if (exactRunResource && !value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -528,15 +539,16 @@ export const McpReadInput = McpRequestedScope.extend({
         message: 'agentRunId is only accepted for an exact agent run resource.',
       })
     }
-    const sourceResource = value.resource === 'question-source'
-    if (sourceResource && !value.questionId) {
+    const questionSource = value.resource === 'question-source'
+    const sourceResource = questionSource || value.resource === 'assigned-source'
+    if (questionSource && !value.questionId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['questionId'],
         message: 'questionId is required for a question source resource.',
       })
     }
-    if (!sourceResource && value.questionId) {
+    if (!questionSource && value.questionId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['questionId'],
@@ -548,7 +560,7 @@ export const McpReadInput = McpRequestedScope.extend({
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: [field],
-          message: `${field} is only accepted for a question source resource.`,
+          message: `${field} is only accepted for a worker source resource.`,
         })
       }
     }
@@ -556,7 +568,7 @@ export const McpReadInput = McpRequestedScope.extend({
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['cursor'],
-        message: 'question-source does not accept a generic cursor.',
+        message: 'Source pages do not accept a generic cursor.',
       })
     }
     if (value.resource !== 'agent-run-result' && value.artifactIndex !== undefined) {
@@ -3459,7 +3471,8 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           type: 'string',
           minLength: 1,
           maxLength: 120,
-          description: 'Required only for agent-run-trace, agent-run-result, and question-source.',
+          description:
+            'Required for agent-run-trace, agent-run-result, question-source, and assigned-source.',
         },
         questionId: {
           type: 'string',
@@ -3491,13 +3504,14 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           type: 'integer',
           minimum: 1,
           maximum: 4000,
-          description: 'Optional maximum character count for a question-source page.',
+          description:
+            'Optional maximum character count for a question-source or assigned-source page.',
         },
         search: {
           type: 'string',
           minLength: 1,
           maxLength: 200,
-          description: 'Optional bounded search text for question-source.',
+          description: 'Optional bounded search text for question-source or assigned-source.',
         },
       },
       ['clientId', 'resource'],

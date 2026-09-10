@@ -221,6 +221,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.readiness',
       'pathfinder.retention-preview',
       'pathfinder.questions',
+      'pathfinder.assigned-source',
       'pathfinder.question-source',
       'pathfinder.outcomes',
       'pathfinder.agent-improvements',
@@ -799,4 +800,24 @@ describe('source-bound operator question contract', () => {
     ).toMatchObject({ blocking: true, choices: [] })
     expect(McpAskOperatorInput.safeParse(generic).success).toBe(false)
   })
+})
+
+it('accepts bounded assigned-source pages but never caller-selected receipt or question authority', () => {
+  const input = {
+    resource: 'assigned-source',
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentRunId: 'run-1',
+    pageSize: 4000,
+  }
+  expect(McpReadInput.safeParse(input).success).toBe(true)
+  for (const extra of [
+    { agentRunId: undefined },
+    { questionId: 'question-1' },
+    { receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    { cursor: 'generic' },
+    { pageSize: 4001 },
+    { sourceCursor: 'x'.repeat(1025) },
+  ])
+    expect(McpReadInput.safeParse({ ...input, ...extra }).success).toBe(false)
 })
