@@ -1428,6 +1428,7 @@ export {
 export * from './helpers/agent-workflow-registry-actions'
 export * from './helpers/agent-workflow-promotion-assessment-actions'
 export * from './helpers/agent-workflow-run-lease'
+export * from './helpers/agent-current-worker-claim'
 export * from './helpers/agent-workflow-activation-actions'
 export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'

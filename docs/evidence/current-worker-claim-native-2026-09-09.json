@@ -1,0 +1,124 @@
+{
+  "date": "2026-09-09",
+  "baseHead": "af5d93d74152bcf7015e3ff58e877de1ea6f10f4",
+  "scope": "Current portable-worker claim admission prerequisite for question-bound source access. No source route or new grant added.",
+  "requirements": ["V2-P01-04", "V2-P13-02"],
+  "implementation": [
+    "Canonical workflow binding/run lease checks retained, including fail-closed selected workflow capability behavior.",
+    "Exact current run/identity/worker/credential/session metadata locked and checked within caller transaction.",
+    "Separate identity capability and MCP/worker grants; agent-runs:execute mandatory; venue-scoped verified credential and clientId=tenantId.",
+    "Final database clock checks run, worker, credential and session after all locks; returns admitted IDs only."
+  ],
+  "unit": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\worker-claim-units.json",
+    "sha256": "af1fbb5366f845e5b043616be43acd48d1b225f445616ac4a66628bccd2500ab",
+    "passed": 22,
+    "failed": 0
+  },
+  "checks": [
+    "DB typecheck passed",
+    "Configured ESLint passed for all three helper/test files",
+    "Root reviewed scope predicates, mandatory execution permission, lock order and transaction semantics"
+  ],
+  "native": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-worker-claim-5cdd8b846f88\\result.json",
+    "sha256": "8da412db163eab7cbd5bbc74967ed92547ba9201a53d6d1cf655abfdeb6fd697",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "migrations": 239,
+    "tables": 258,
+    "stopped": true,
+    "sourceHashesStable": true,
+    "sourceManifest": [
+      {
+        "source": "packages/db/src/index.ts",
+        "retained": "measured-packages__db__src__index.ts",
+        "sha256": "a0dce5fac0059f4eb8274607d2d659a3c8aab822020907255b3ce056d1242057"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-current-worker-claim.ts",
+        "retained": "measured-packages__db__src__helpers__agent-current-worker-claim.ts",
+        "sha256": "613bbe31258568e85797d9e1a43961851bab2e2faac3cbc60ae87f7ebed85993"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-current-worker-claim.disposable.integration.test.ts",
+        "retained": "measured-packages__db__src__helpers__agent-current-worker-claim.disposable.integration.test.ts",
+        "sha256": "9f4dab0992aa57e934b00ccdd6976e2b8b5d569b041c9a41702aebf483c807b8"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-workflow-run-lease.ts",
+        "retained": "measured-packages__db__src__helpers__agent-workflow-run-lease.ts",
+        "sha256": "7e19f735f49edb84b44476bf413a05259441839806f6dcfd5f6fb13b272b1c84"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-workflow-run-binding.ts",
+        "retained": "measured-packages__db__src__helpers__agent-workflow-run-binding.ts",
+        "sha256": "9f459f955473d83b4b5a56a554acc8b0588578079d0a65a9dba297dd21a72aa4"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-worker-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-worker-actions.ts",
+        "sha256": "d732f75c1398435be2404376dfa162f79ef87cea57b5bd3d87e8b3a24cf022fc"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-bridge-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-bridge-actions.ts",
+        "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-actions.ts",
+        "sha256": "8c4fb77cac6a2b3ec2d292f2d6f24393b0b0e45131f1e2f1562f34c3a05df23b"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-cancellation-actions.ts",
+        "sha256": "84a3d55c68e8a85559f055f7d2ed556349cc5357360bcf7f6e8e91e7f2e4388b"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-actions.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-actions.ts",
+        "sha256": "e076d295cb86f844b2251632989bebb12fc4d85f201b814d07419dc059796eac"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-verification.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-verification.ts",
+        "sha256": "dfa6f10331aa042d57f21d8c6b14e0a013b2b6465fbfebbc91f732605afdcee5"
+      },
+      {
+        "source": "packages/contracts/src/agent-identity.ts",
+        "retained": "measured-packages__contracts__src__agent-identity.ts",
+        "sha256": "2d500e7cb0114c80a34db912b0ab8e8262ef2c3517e14acca39d40dd50c15694"
+      },
+      {
+        "source": "packages/contracts/src/mcp-v0.ts",
+        "retained": "measured-packages__contracts__src__mcp-v0.ts",
+        "sha256": "976bcad5a91f0e37584cba8ad8471a89665046eb4e266d8d44635a4a962892a7"
+      },
+      {
+        "source": "packages/db/src/middleware/tenant-isolation.ts",
+        "retained": "measured-packages__db__src__middleware__tenant-isolation.ts",
+        "sha256": "5529f95b22be7e3496fd1fe72f1ec087989ba700dbd9ce511ad68e159aaac6b2"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+      }
+    ],
+    "exercised": [
+      "Canonical disposable issue/activation/verification, session and worker registration, exact bridge claim",
+      "Wrong run/token/session/worker/credential/venue denied",
+      "Canonical cancellation-first and credential-revoke-first denied",
+      "Admitted read holds transaction; PostgreSQL observed credential revocation lock wait; read completes, revoke commits, next admission denied"
+    ]
+  },
+  "limitations": [
+    "Helper is exported but not wired to a source reader or question tool yet. Caller must own advisory locks and use same interactive transaction for bounded effect.",
+    "Native test uses unbound workflow and synthetic disposable identities/credentials. No provider, source payload, queue restart or browser journey is exercised.",
+    "Additional native session revoke, identity disable, worker replacement, expiry-during-wait and selected workflow cases remain for connected integration.",
+    "Existing OPERATOR_QUESTION/BILLING_PROPOSAL activation holds preserved; no permission expansion or live credential changes.",
+    "Not full Case A/B/C, QA18 or campaign completion."
+  ]
+}
