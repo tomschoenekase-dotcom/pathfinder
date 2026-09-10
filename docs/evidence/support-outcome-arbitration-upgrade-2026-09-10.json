@@ -1,0 +1,86 @@
+{
+  "recordedAt": "2026-09-10",
+  "implementationCommit": "89e23b4def56c9473af55ae5a09d8a74bba9777f",
+  "scope": "Atomic local upgrade of semantic proposal outcome arbitration; explicit reviewed-decline cutover design only, not implemented.",
+  "migration": {
+    "path": "packages/db/prisma/migrations/20260910130000_support_duplicate_outcome_exclusion/migration.sql",
+    "sha256": "52bb639653911555ed005929200f06669ad8154607c171669129e501cd60eab7",
+    "migrations": 246,
+    "tables": 263,
+    "change": "Explicit READ COMMITTED transaction; proposal table then all six source tables locked before DDL/backfill; commit after all triggers."
+  },
+  "freshNative": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-semantic-duplicate-resolution-246-0ed590404a0d",
+    "resultSha256": "4556c87d85020345d458eae31379ed32a7fd8dedfd0949a1a013e770147c4a2f",
+    "sourceCount": 52,
+    "measuredBytesMatchImplementationCommit": true,
+    "cases": 2,
+    "passed": true,
+    "stopped": true,
+    "coverage": [
+      "Reviewed duplicate resolution and completion/replay",
+      "Post-install incompatible outcome races under Read Committed and Repeatable Read"
+    ]
+  },
+  "seededPrismaUpgrade": {
+    "summary": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\support-duplicate-outcome-upgrade-c03d2539db8a-result.json",
+    "sha256": "31323a805b7ae5576c7f8e4cca029aa998e7d42959d96eb17db8cb24818cefc0",
+    "runnerSha256": "a3e0dbdd655e2d4a5122cbec095272211f7189398eb81256a0172746d5721d4b",
+    "cases": [
+      {
+        "kind": "valid",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-outcome-upgrade-valid-c03d2539db8a",
+        "data": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-outcome-upgrade-valid-c03d2539db8a\\data",
+        "started": true,
+        "stopped": true,
+        "passed": true,
+        "migrationStatus": 0,
+        "readback": ["CONTENT|1", "DUPLICATE|1", "0", "1"],
+        "databaseIdentity": "pathfinder_disposable_support_addition_66309daad654|C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-support-duplicate-outcome-upgrade-valid-c03d2539db8a/data|55491"
+      },
+      {
+        "kind": "contradictory",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-outcome-upgrade-contradictory-c03d2539db8a",
+        "data": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-outcome-upgrade-contradictory-c03d2539db8a\\data",
+        "started": true,
+        "stopped": true,
+        "passed": true,
+        "migrationStatus": 1,
+        "readback": ["t", "t", "0", "1", "1", "0"],
+        "databaseIdentity": "pathfinder_disposable_support_addition_66309daad654|C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-support-duplicate-outcome-upgrade-contradictory-c03d2539db8a/data|55491",
+        "contradictionDiagnostic": "Existing proposal has contradictory duplicate and content outcomes"
+      }
+    ],
+    "originalSourceTreeHash": "f256dd099931ab29a00de45f89d112a2c61f2b69ee43aa56f907e5c271788997",
+    "originalSourceBytesUnchanged": true,
+    "coverage": [
+      "Exact duplicate/content backfill identity set difference zero",
+      "Contradictory source history refused with exact server diagnostic",
+      "Claim table/function/new triggers rolled back; preexisting and contradictory seed rows preserved"
+    ]
+  },
+  "migrationWriter": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-outcome-upgrade-writer-cc7b373014d7",
+    "resultSha256": "37068d8f9aa8dbb5897532812add53ee4c0aa3effcddbbb13a1b40c5dfdd3d0a",
+    "runnerSha256": "01cad4064ddadf3b7b37b4012de1c75f5cc31b7036e1a3d806ba77a18dd73b2c",
+    "passed": true,
+    "stopped": true,
+    "writerWait": "25208|Lock|relation",
+    "transport": "Exact migration SQL streamed through psql; trailing COMMIT withheld until observed writer Lock wait. Prisma deploy covered by separate seeded proof.",
+    "originalSourceBytesUnchanged": true,
+    "coverage": "Observed actual INSERT backend waiting for relation lock; after migration commit installed claim guard rejects; attempted handoff count zero and duplicate claim retained."
+  },
+  "retainedFailedAttempt": {
+    "summary": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\support-duplicate-outcome-upgrade-6a34b6581835-result.json",
+    "classification": "FAILED proof attempt despite erroneous aggregate passed=true. Contradictory case readback is null: runner expected original diagnostic in Prisma output, which reported aborted transaction instead. Fixed runner verifies server diagnostic, readback and per-case passed flags. Original retained, not acceptance evidence."
+  },
+  "review": "Independent review found missing transaction/write exclusion, then accepted fixed source. Final proof review recorded separately in implementation note.",
+  "limits": [
+    "Disposable PostgreSQL and synthetic source data only; no hosted/shared migration or deployment.",
+    "Seeded content backfill uses one operational handoff; exhaustive mixed compatible historical content combinations were not seeded.",
+    "Migration writer barrier uses psql exact SQL stream; separate seeded cases use actual Prisma deploy.",
+    "No UI behavior changed this slice; prior rendered proof retains its source/revision scope.",
+    "Reviewed-decline receipts, replacement-original qualification and completion cutover remain pending.",
+    "Original 128 requirements, 32 QA cases, A/B/C, external reservations and provider/device/release gates remain intact."
+  ]
+}
