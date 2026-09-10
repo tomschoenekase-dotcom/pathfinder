@@ -212,6 +212,13 @@
       "passed": 21,
       "failed": 0,
       "skipped": 0
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\source-assignment-db-units-postcommit.json",
+      "sha256": "80677a3b2fa64c34dd85aa0f9fdaca08f97a884ae6c47580d2ddfed99840801a",
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
     }
   ],
   "checks": [
@@ -234,5 +241,13 @@
     "Native task creation uses canonical helper, not rendered admin form or HTTP endpoint",
     "No actual separate worker-process restart/provider/device/customer/fullCase acceptance",
     "Original128requirements and external reservations unchanged"
-  ]
+  ],
+  "postCommitSourceCheck": {
+    "matchingMeasuredSources": 37,
+    "testOnlyFormattingChange": {
+      "path": "packages/db/src/helpers/agent-task-actions.test.ts",
+      "sha256": "e114c356c76dd550d6260bb78662e988120634eaadd4fde0ff20ad8ab6eb8e61",
+      "description": "Commit hook reformatted a vi.fn mock chain. Runtime and native fixture unchanged; final unit test file rerun successfully. Native proof retains its preformat unit-test hash; no new native run claimed."
+    }
+  }
 }
