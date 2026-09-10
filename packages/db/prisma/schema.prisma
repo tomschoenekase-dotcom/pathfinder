@@ -1679,6 +1679,7 @@ model Place {
 }
 
 model VenueKnowledgeEntry {
+  semanticConflictResolutions SemanticConflictResolution[]
   id                       String                                   @id @default(cuid())
   tenantId                 String                                   @map("tenant_id")
   venueId                  String                                   @map("venue_id")
@@ -3785,6 +3786,8 @@ enum KnowledgeChangeProposalStatus {
 /// Human-reviewed bridge from conversational evidence to canonical venue knowledge.
 /// Approval never mutates the target entry; publishing remains a distinct audited action.
 model KnowledgeChangeProposal {
+  conflictResolutions SemanticConflictResolution[] @relation("ConflictOriginalProposal")
+  producedByConflictResolution SemanticConflictResolution? @relation("ConflictReplacementProposal")
   id                        String                                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId                  String                                     @map("tenant_id")
   venueId                   String                                     @map("venue_id")
@@ -5896,6 +5899,7 @@ model ApprovalRequest {
 /// A durable clarification raised by an agent and answered by a human operator.
 /// Questions are coordination state, not approvals and never grant execution authority.
 model AgentQuestion {
+  semanticConflictResolution SemanticConflictResolution?
   id                               String                                  @id @default(cuid())
   operationId                      String                                  @map("operation_id") @db.Uuid
   tenantId                         String                                  @map("tenant_id")
@@ -9591,4 +9595,39 @@ model IntakeSourceAgentDispatch {
   @@unique([id, tenantId, venueId], map: "intake_source_agent_dispatch_scope_key")
   @@index([status, nextAttemptAt, id], map: "intake_source_agent_dispatch_ready_idx")
   @@map("intake_source_agent_dispatches")
+}
+
+/// Immutable explicit human adjudication of one exact answered semantic conflict.
+/// This record never grants approval, publication, or verified source authority.
+model SemanticConflictResolution {
+  id                     String                   @id @db.Uuid
+  tenantId               String                   @map("tenant_id")
+  venueId                String                   @map("venue_id")
+  proposalId             String                   @map("proposal_id") @db.Uuid
+  proposalUpdatedAt      DateTime                 @map("proposal_updated_at")
+  previewHash            String                   @map("preview_hash") @db.Char(64)
+  questionId             String                   @map("question_id")
+  questionUpdatedAt      DateTime                 @map("question_updated_at")
+  answeredAt             DateTime                 @map("answered_at")
+  answerHash             String                   @map("answer_hash") @db.Char(64)
+  targetKnowledgeEntryId String                   @map("target_knowledge_entry_id")
+  targetSnapshotHash     String                   @map("target_snapshot_hash") @db.Char(64)
+  inputHash              String                   @map("input_hash") @db.Char(64)
+  relation               String                   @db.VarChar(16)
+  conflictDesired Json @map("conflict_desired")
+  desired                Json
+  outcome                String                   @db.VarChar(24)
+  resolutionNote         String                   @map("resolution_note") @db.VarChar(2000)
+  replacementProposalId  String?                  @map("replacement_proposal_id") @db.Uuid
+  createdBy              String                   @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  proposal               KnowledgeChangeProposal  @relation("ConflictOriginalProposal", fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "semantic_conflict_resolution_proposal_fkey")
+  replacementProposal    KnowledgeChangeProposal? @relation("ConflictReplacementProposal", fields: [replacementProposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "semantic_conflict_resolution_replacement_fkey")
+  question               AgentQuestion            @relation(fields: [questionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "semantic_conflict_resolution_question_fkey")
+  target                 VenueKnowledgeEntry      @relation(fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "semantic_conflict_resolution_target_fkey")
+
+  @@unique([questionId, tenantId, venueId], map: "semantic_conflict_resolution_question_key")
+  @@unique([replacementProposalId, tenantId, venueId], map: "semantic_conflict_resolution_replacement_key")
+  @@index([tenantId, venueId, proposalId], map: "semantic_conflict_resolution_scope_idx")
+  @@map("semantic_conflict_resolutions")
 }

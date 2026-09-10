@@ -1,4 +1,6 @@
 import { TRPCError } from '@trpc/server'
+import { SemanticConflictResolutionInput } from '../../lib/semantic-conflict-resolution-contract'
+import { resolveSemanticConflictService } from '../../lib/semantic-conflict-resolution-service'
 import { z } from 'zod'
 
 import { AgentQuestionActionError, askAgentQuestionAction } from '@pathfinder/db'
@@ -15,6 +17,11 @@ import { adminProcedure } from '../../trpc'
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
 export const adminKnowledgeProposalConflictRouter = router({
+  resolveSemanticConflict: adminProcedure
+    .input(SemanticConflictResolutionInput)
+    .mutation(({ ctx, input }) =>
+      resolveSemanticConflictService({ db: ctx.db, actorId: ctx.session.userId, input }),
+    ),
   createSemanticConflictQuestion: adminProcedure
     .input(
       z

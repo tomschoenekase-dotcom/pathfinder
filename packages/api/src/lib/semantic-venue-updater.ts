@@ -56,6 +56,8 @@ const semanticUpdaterInput = z
     desired: SemanticUpdaterDesiredKnowledge,
     contentOrigin: z.enum(['HUMAN_AUTHORED', 'AI_GENERATED']),
     evidenceReview: z.enum(['UNREVIEWED', 'HUMAN_REVIEWED']),
+    // Supplied only after the scoped service validates an immutable human resolution.
+    operatorConflictResolutionId: z.string().uuid().optional(),
     evidence: z.array(sourceEvidence).min(1).max(20),
     validFrom: z.string().datetime().optional(),
     validUntil: z.string().datetime().optional(),
@@ -205,7 +207,10 @@ export function buildSemanticVenueUpdate(
         ? 'The requested target is not current in this venue scope.'
         : 'A conflicting logical fact requires an explicit target before it can be changed.',
     })
-  } else if (SOURCE_AUTHORITY[primary.authority] < SOURCE_AUTHORITY[target.authority]) {
+  } else if (
+    SOURCE_AUTHORITY[primary.authority] < SOURCE_AUTHORITY[target.authority] &&
+    !input.operatorConflictResolutionId
+  ) {
     classification = 'CONFLICT'
     blockers.push({
       code: 'LOWER_AUTHORITY_CONFLICT',

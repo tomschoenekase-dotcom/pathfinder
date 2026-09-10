@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import {
+  hashSemanticConflictAnswer,
+  hashSemanticConflictTarget,
+} from './semantic-conflict-resolution-contract'
 
 import type { TRPCContext } from '../context'
 import {
@@ -94,6 +99,21 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     },
     select: {
       id: true,
+      producedByConflictResolution: {
+        select: {
+          id: true,
+          inputHash: true,
+          outcome: true,
+          relation: true,
+          desired: true,
+          targetKnowledgeEntryId: true,
+          targetSnapshotHash: true,
+          answerHash: true,
+          answeredAt: true,
+          questionUpdatedAt: true,
+          question: { select: { status: true, answer: true, answeredAt: true, updatedAt: true } },
+        },
+      },
       status: true,
       targetKnowledgeEntryId: true,
       conversationInsightId: true,
@@ -178,9 +198,38 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       sourceType: true,
     },
   })
+  const resolution = proposal.producedByConflictResolution
+  let operatorResolutionId: string | null = null
+  if (resolution) {
+    const target = current.find((entry) => entry.id === resolution.targetKnowledgeEntryId)
+    const question = resolution.question
+    if (
+      resolution.outcome !== 'PROPOSE_REPLACEMENT' ||
+      resolution.relation !== input.relation ||
+      !isDeepStrictEqual(resolution.desired, input.desired) ||
+      !target ||
+      hashSemanticConflictTarget(target) !== resolution.targetSnapshotHash ||
+      question.status !== 'ANSWERED' ||
+      !question.answer ||
+      question.updatedAt.getTime() !== resolution.questionUpdatedAt.getTime() ||
+      question.answeredAt?.getTime() !== resolution.answeredAt.getTime() ||
+      hashSemanticConflictAnswer(question.answer) !== resolution.answerHash ||
+      input.validFrom ||
+      input.validUntil
+    ) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        'The exact operator resolution, target or answered evidence changed; resolve the new conflict explicitly.',
+      )
+    }
+    if (proposal.status === 'APPROVED') operatorResolutionId = resolution.id
+  }
   const normalizedHash = createHash('sha256')
     .update(
       JSON.stringify({
+        ...(resolution
+          ? { operatorResolutionId, operatorResolutionInputHash: resolution.inputHash }
+          : {}),
         proposalId: proposal.id,
         proposedChange: proposal.proposedChange,
         reason: proposal.reason,
@@ -193,6 +242,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
   const classification = buildSemanticVenueUpdate(
     {
       venueId: input.venueId,
+      ...(operatorResolutionId ? { operatorConflictResolutionId: operatorResolutionId } : {}),
       relation: input.relation,
       ...(proposal.targetKnowledgeEntryId
         ? { targetKnowledgeEntryId: proposal.targetKnowledgeEntryId }
@@ -232,6 +282,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     ? proposal.evidenceMessageIds.filter((value): value is string => typeof value === 'string')
     : []
   return {
+    operatorResolutionId,
     proposalId: proposal.id,
     proposalStatus: proposal.status,
     proposalUpdatedAt: proposal.updatedAt,

@@ -1,4 +1,5 @@
 export const TENANTED_TABLES = [
+  'SemanticConflictResolution',
   'TenantMembership',
   'CustomerAccessRequest',
   'FounderDirectiveTaskRequest',

@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import {
+  hashSemanticConflictAnswer,
+  hashSemanticConflictTarget,
+} from './semantic-conflict-resolution-contract'
 
 import {
   previewSemanticVenueUpdateFromProposal,
@@ -277,5 +281,83 @@ describe('previewSemanticVenueUpdateFromProposal', () => {
       }),
     ).rejects.toMatchObject({ code: 'STALE' })
     expect(fixture.entryFindMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('explicit operator resolution preview fence', () => {
+  function resolvedFixture() {
+    const fixture = dbFixture()
+    const target = {
+      ...fixture.current[0]!,
+      humanConfirmedAt: updatedAt,
+      authorship: 'HUMAN_AUTHORED',
+    }
+    const desired = {
+      title: target.title,
+      category: target.category,
+      content: 'Operator chosen hours',
+      isEnabled: true,
+    }
+    const resolution = {
+      id: '22222222-2222-4222-8222-222222222222',
+      inputHash: 'a'.repeat(64),
+      outcome: 'PROPOSE_REPLACEMENT',
+      relation: 'CORRECTS',
+      desired,
+      targetKnowledgeEntryId: target.id,
+      targetSnapshotHash: hashSemanticConflictTarget(target),
+      answerHash: hashSemanticConflictAnswer('Reviewed answer'),
+      answeredAt: updatedAt,
+      questionUpdatedAt: updatedAt,
+      question: { status: 'ANSWERED', answer: 'Reviewed answer', answeredAt: updatedAt, updatedAt },
+    }
+    const proposal = { ...fixture.proposal, producedByConflictResolution: resolution }
+    fixture.proposalFindFirst.mockResolvedValue(proposal)
+    fixture.entryFindMany.mockResolvedValue([target])
+    const input = {
+      db: fixture.db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      proposalId: proposal.id,
+      expectedUpdatedAt: updatedAt,
+      relation: 'CORRECTS' as const,
+      desired,
+    }
+    return { ...fixture, target, desired, resolution, proposal, input }
+  }
+  it('requires separate approval without inventing higher source authority', async () => {
+    const f = resolvedFixture()
+    await expect(previewSemanticVenueUpdateFromProposal(f.input)).resolves.toMatchObject({
+      classification: 'CORRECTION',
+      authority: 'TRUSTED_PARTNER',
+      operatorResolutionId: f.resolution.id,
+      autoPublish: false,
+    })
+    f.proposalFindFirst.mockResolvedValue({ ...f.proposal, status: 'PENDING_REVIEW' })
+    await expect(previewSemanticVenueUpdateFromProposal(f.input)).resolves.toMatchObject({
+      classification: 'CONFLICT',
+      authority: 'UNVERIFIED',
+      operatorResolutionId: null,
+    })
+  })
+  it('rejects changed desired, relation, canonical truth, authority and answered evidence', async () => {
+    for (const change of ['desired', 'relation', 'target', 'authority', 'answer', 'answer-time']) {
+      const f = resolvedFixture()
+      const input = { ...f.input }
+      if (change === 'desired') input.desired = { ...f.desired, content: 'Unreviewed edit' }
+      if (change === 'relation') Object.assign(input, { relation: 'SUPERSEDES' })
+      if (change === 'target')
+        f.entryFindMany.mockResolvedValue([{ ...f.target, content: 'Changed current truth' }])
+      if (change === 'authority')
+        f.entryFindMany.mockResolvedValue([
+          { ...f.target, humanConfirmedAt: new Date(updatedAt.getTime() + 1) },
+        ])
+      if (change === 'answer') f.resolution.question.answer = 'Different answer'
+      if (change === 'answer-time')
+        f.resolution.question.updatedAt = new Date(updatedAt.getTime() + 1)
+      await expect(previewSemanticVenueUpdateFromProposal(input)).rejects.toMatchObject({
+        code: 'NOT_REVIEWABLE',
+      })
+    }
   })
 })
