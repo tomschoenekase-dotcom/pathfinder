@@ -247,6 +247,8 @@ export async function readSupportContentFulfillment(
   for (const source of sources.values()) {
     const frozen = await client.supportRequestAuditEvent.findUnique({
       where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
         supportRequestId_tenantId_venueId_requestVersion: {
           supportRequestId: input.supportRequestId,
           tenantId: input.tenantId,
