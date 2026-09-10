@@ -95,6 +95,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
           visibility: 'PUBLIC',
           isEnabled: true,
           lastReviewedAt: new Date(),
+          lastReviewedBy: adminId,
+          sourceType: 'SYNTHETIC_FIXTURE',
+          authorship: 'HUMAN_AUTHORED',
         },
       })
     })
