@@ -10,7 +10,7 @@ Subsequent review fixes: `487250c0` redrives retained failed BullMQ jobs and loc
 
 Disposable Redis proof `28dafb5a342d` on `1aa9fc93` passed retained failed-job redrive, concurrent reconciliation, single recovery execution and completed replay; Redis stopped. This uses real Redis with worker replacement, not a Redis server crash test. The coherent database suite passed 408 tests; worker tests 8, enqueue tests 43, plus DB/API/workers/jobs typechecks.
 
-Remaining scoped work: configuration/held-status UI if needed for operator usability; complete provider/device/acceptance gates at their authorized layers. Legacy recovery has concurrent disposable missing-record proof, not a production upgrade rehearsal. The accepted candidate remains a synthetic human review branch rolled back in native proof, not automatic approval.
+Configuration and held-status UI are now implemented below. Remaining scoped work: connected acceptance proof and provider/device gates at their authorized layers. Legacy recovery has concurrent disposable missing-record proof, not a production upgrade rehearsal. The accepted candidate remains a synthetic human review branch rolled back in native proof, not automatic approval.
 
 ## Confirmed gap
 
@@ -42,3 +42,11 @@ No source review, package approval/application, publication, provider activation
 `22623cf6` / test refinement `eee99c4c` extend the existing owner-scoped V1 processing read and client list with a separate source review stage. Extraction completion counts remain unchanged. Held, queued, running, awaiting-answer, failed/cancelled, completed preparation and recorded human review are projected without agent IDs, raw errors or source text. Rejected human source review needs attention; an agent awaiting approval is not reported as completed preparation.
 
 Native `b9363520a9a2` passed with 54 measured source hashes, including foreign-owner denial; rendered `fe7ce40f` passed four viewports with keyboard refresh/axe/overflow checks. Both services stopped. See `docs/evidence/source-review-status-2026-09-10.json` for exact proof boundaries and retained failed fixture attempt. Next implementable surface is operator routing configuration/status using the existing admin API, not another source dispatch implementation.
+
+## Operator routing controls
+
+`9cd741df` / `f9a72fd0` add exact tenant/venue candidate pagination and an operator control with default-off routing, explicit specialist selection, revision-based saves and canonical refresh after conflicts or uncertain outcomes. Client-wide CONTENT specialists are eligible only within the exact tenant; no implicit first-candidate selection. Existing tasks retain their original routing. `b0644dcd` / `1990deee` repair the rendered assertion and text contrast.
+
+Native `317665743bf0` and rendered `763b2bc6` passed; all 54 native and three rendered source hashes match the current checkout. Four representative viewports passed keyboard, accessibility and overflow checks and were visually inspected. API routing tests 3/3 and control tests 9/9 passed, with API/dashboard typechecks and changed-source lint. Both services stopped. Exact artifacts and limits are retained in `docs/evidence/intake-source-routing-control-2026-09-10.json`.
+
+Next inspect the seam between the existing connected browser upload/V1/package/QR proof and the automatically dispatched registered-worker question/amendment chain. Reuse both fixtures; do not rebuild these capabilities or infer combined acceptance from separate passes. Broad handoff refresh remains deferred.

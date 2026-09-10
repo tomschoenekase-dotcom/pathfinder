@@ -1,0 +1,62 @@
+{
+  "date": "2026-09-10",
+  "slice": "Operator source review routing",
+  "commits": ["9cd741df", "f9a72fd0", "b0644dcd", "1990deee"],
+  "native": {
+    "result": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-routing-candidates-317665743bf0\\result.json",
+    "passed": true,
+    "stopped": true,
+    "measuredSources": 54,
+    "currentHashesVerified": true
+  },
+  "rendered": {
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-source-routing-ui-763b2bc6",
+    "sources": [
+      {
+        "path": "apps/dashboard/components/admin/IntakeSourceRoutingControl.tsx",
+        "sha256": "23e4344d8896ec34780327644da275503dff920d0dd7f187190cf260ac2e99a0"
+      },
+      {
+        "path": "apps/dashboard/tests/visual/intake-source-routing.spec.ts",
+        "sha256": "c8e6423ae1372ac0549c56e87514bf96de007cd86bff8d4bfdc24dccc4a827b0"
+      },
+      {
+        "path": "packages/api/src/routers/admin/agent-task-requests.ts",
+        "sha256": "132550c83870ee29c066c0191608391143204e6624b82549b886dce371158667"
+      }
+    ],
+    "passed": true,
+    "stopped": true,
+    "pid": 37448,
+    "stats": {
+      "startTime": "2026-09-10T08:40:53.405Z",
+      "duration": 17411.41,
+      "expected": 4,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "checks": {
+    "apiRoutingTests": 3,
+    "controlTests": 9,
+    "typechecks": ["api", "dashboard"],
+    "changedSourceLint": "passed",
+    "viewportsInspected": ["phone", "tablet", "laptop", "wide"]
+  },
+  "retainedFailures": [
+    {
+      "proof": "ec333182",
+      "reason": "Global alert assertion collided with Next route announcer; scoped to control."
+    },
+    {
+      "proof": "99ac885c",
+      "reason": "Secondary text contrast below 4.5; corrected to deep/75."
+    }
+  ],
+  "limits": [
+    "Rendered fixture intercepts API; native PostgreSQL proves scoped candidates and existing worker source chain separately.",
+    "No combined browser/database/provider acceptance claim.",
+    "Original 128 requirements, 32 QA and A/B/C remain required. No deployment or activation."
+  ]
+}
