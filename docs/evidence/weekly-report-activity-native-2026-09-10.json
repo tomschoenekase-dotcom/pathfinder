@@ -1,0 +1,57 @@
+{
+  "recordedAt": "2026-09-10",
+  "implementationCommit": "9eb39b7770493853a0daba646187a544a5c2cc01",
+  "requirement": "V2-P08-06",
+  "originalSource": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P08_SUPPORT_AND_INSIGHTS.md",
+  "scope": "Native database request -> execution claim -> direct real weekly-report processor -> scoped MCP lifecycle, deterministic provider, synthetic venue data.",
+  "productionCodeChanged": false,
+  "native": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-report-generation-activity-c3767a0bcf4f",
+    "resultSha256": "23b7eab359a892823c626bf9cb06107b9cd421c755fecdd3bd14d9ce73daa494",
+    "runnerPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-report-generation-activity-proof.mjs",
+    "runnerSha256": "d3b0aa49dcec4d8bef452c0f87c18d098419d572f05dce309c318671663ffc9d",
+    "recordedHead": "3e35e7803ef42d94f32664558eb9cc15afdeec5a",
+    "sourceCount": 32,
+    "worktreeBytesMatchManifest": true,
+    "gitContentMatchesIgnoringCheckoutLineEndings": true,
+    "migrations": 247,
+    "tables": 264,
+    "tests": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "stopped": true
+  },
+  "assertions": [
+    "High/low/zero fixture public session and message populations are 6/1/0; all captured-answer counts are zero.",
+    "High and low invoke the deterministic provider exactly once each; zero invokes no provider.",
+    "Valid public message citation retained; unknown source ID finding omitted.",
+    "High prompt excludes low venue evidence; SECOND_LAYER marker excluded from prompts, stored reports and lifecycle.",
+    "High normal sample wording, low sample qualification and zero honest no-data wording.",
+    "All three persisted reports are DRAFT with generatedAt and no publishedAt; exact MCP scope shows REVIEW and NOT_PUBLISHED/clientVisible false.",
+    "Each generation dispatch is CONSUMED and has one COMPLETE weekly-report job.",
+    "No OperationalEventDelivery or non-weekly-report JobRecord exists for the isolated fixture tenant."
+  ],
+  "otherChecks": {
+    "workerUnitTests": 33,
+    "apiTypecheck": "pass",
+    "ownedConfiguredLint": "pass",
+    "prettier": "pass",
+    "freshReadOnlyReview": "no concrete blocker"
+  },
+  "excludedAttempts": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-report-generation-activity-4e3849f5a3ec",
+      "reason": "Fixture used invalid PRIVATE scope; native schema correctly rejected it. The initial high/low setup also did not cross the real sample threshold. Corrected to SECOND_LAYER and 6/1 before passing proof."
+    }
+  ],
+  "remainingLimits": [
+    "Direct processor invocation does not prove Redis queue transport/pickup.",
+    "Deterministic valid/invalid citations do not establish live provider insight quality or semantic entailment of arbitrary findings.",
+    "No PostgreSQL captured-answer snapshot concurrency or bounded sample-cap proof added here; captured answers are zero in this slice.",
+    "No customer report publication or email delivery executed or authorized.",
+    "First-week operations external reservations, original128/32QA/A-B-C, provider/device/release gates unchanged."
+  ]
+}
