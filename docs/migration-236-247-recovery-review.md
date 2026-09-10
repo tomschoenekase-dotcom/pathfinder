@@ -2,7 +2,7 @@
 
 > **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
 
-This is a proposed staging recovery decision, not authorization to recover an external database. The production stop in [database-incident-stop.md](database-incident-stop.md) remains ACTIVE. The canonical staging entrypoint and existing approval remain unchanged. The local runner uses only the existing disposable wrapper and new native loopback databases.
+This is a proposed staging recovery decision, not authorization to recover an external database. The production stop in [database-incident-stop.md](database-incident-stop.md) remains ACTIVE. The canonical staging entrypoint is retained; its reviewed local endpoint is now 247/264 with an explicit 236/256 predecessor. The code approval value does not authorize hosted recovery. Local rehearsals use the existing disposable wrapper and new loopback databases.
 
 Migration 246 has an explicit transaction around its seven-table lock, contradiction check, canonical claim backfill and enforcement installation. A contradiction rolls that transaction back, but Prisma can retain an unfinished failed ledger row. Repeating the deploy must refuse that ledger. Neither deletion of evidence nor marking the migration resolved is an admitted recovery path.
 
@@ -10,30 +10,40 @@ Migration 246 has an explicit transaction around its seven-table lock, contradic
 
 Before staging is admitted, designate the release and recovery operator and establish a write drain across web, dashboard, workers and integrations. Retain a backup from that quiescent boundary. Keep the drain in effect until migration and read-back pass, so restoration cannot silently lose acknowledged work.
 
-Preferred recovery is to retain the failed database and its logs, then restore the exact verified pre-upgrade staging backup into a new separately identified staging resource. That resource must pass the existing database identity, production denylist, checksum, topology and preservation gates before cutover. Replacement resource IDs and application variables must be reviewed together. Reuse the canonical migration wrapper for any subsequent suffix application.
+The concrete proposed recovery retains the failed database and its logs, restores the exact verified pre-upgrade staging archive into a new named database inside the same existing staging PostgreSQL service, verifies the restored data and properties, then performs two transactional database renames. Both original OIDs/databases and independent failed-state archives remain retained. This avoids inventing a provider clone or new resource. Root must finish the exact command/backup/candidate receipt and obtain Tom's explicit approval before a hosted restore or identity cutover. The reviewed local rename mechanism proves active-session refusal, rollback when the second rename fails, and preservation of both OIDs; it is not hosted permission. No drop, clean-in-place, resolve, or automatic retry is proposed.
 
 If the backup contains a real duplicate/content contradiction, restoration preserves that contradiction and migration must still refuse. Stop admission and obtain a scoped reconciliation decision that preserves every source/outcome record. There is no approved automatic forward repair or schema downgrade.
 
 ## Required concrete hosted receipt
 
-The following values are unavailable and must remain explicit blockers until grounded in current provider state:
+The following table separates established preflight evidence from the remaining hosted gates:
 
-The integration lead's read-only staging inspection on 2026-09-10 observed PostgreSQL 17.6 (Debian 17.6-1.pgdg12+1), 207 ledger rows, tip `20260901020000_support_tenant_wide_ai_accounting`, and no unfinished, unrolled migration. The authenticated provider browser console exposed `pg_dump` 17.6; CLI SSH remained unavailable. These observations establish the current inspection surface, not a backup or a restore receipt. The previously admitted 208–236 suffix still precedes this 237–247 proposal.
+The integration lead's authenticated staging inspection on 2026-09-10 observed PostgreSQL 17.6, 207 ledger rows, tip `20260901020000_support_tenant_wide_ai_accounting`, and no unfinished, unrolled migration. It created and downloaded a full owner/ACL-preserving archive through the existing console. The [retained full-archive preflight](evidence/staging-full-archive-restore-preflight-2026-09-10.json) pins the archive, source and independent review. Local PostgreSQL 17.11 restored two copies, upgraded one through 247, and preserved the other as recovery evidence. The hosted database was not changed. The previously admitted 208–236 suffix still precedes 237–247.
 
-| Required field                                                       | Current status                                    |
-| -------------------------------------------------------------------- | ------------------------------------------------- |
-| Named release/recovery operator                                      | Owner designation required                        |
-| Exact source and restored staging database resource IDs              | Current provider read-back required               |
-| Separate backup-storage resource ID                                  | Not supplied                                      |
-| Backup archive identity, SHA-256, timestamp and source ledger        | Actual hosted backup required                     |
-| Restore proof identity, SHA-256, timestamp and row/schema comparison | Actual matching restore proof required            |
-| Exact approved provider restore/reclone command or UI operation      | Unavailable; cannot be inferred from old examples |
-| Write-drain cutoff and no-loss check                                 | Not observed                                      |
-| Failed attempt ledger and log archive                                | Capture if a hosted failure occurs                |
-| Restored private host/database fingerprints                          | Verify before admitting replacement resource      |
-| Full application release SHA and migration manifest                  | Freeze the integrated admitted candidate          |
+| Required field                                                       | Current status                                                                                                                                              |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Named release/recovery operator                                      | Root Astra Medium; Tom approves hosted recovery                                                                                                             |
+| Exact source and restored staging database resource IDs              | Existing service `7bd81064-588f-48a5-b138-1fc86691a09b`; proposed new database in same service, not yet created                                             |
+| Separate backup-storage resource ID                                  | Confirmed workstation storage `workstation:THOMAS_COMPUTER:torchiko-staging-release-backups-20260910`; Tom/SYSTEM/Administrators ACL, no automatic deletion |
+| Backup archive identity, SHA-256, timestamp and source ledger        | Full preflight 20:46:11UTC, SHA `71e1ea6a06fabab392ccb8c9ec496b9a70bd43a6bfc659e8abe9850b4b6c9ea7`,207 rows; final drained backup still required            |
+| Restore proof identity, SHA-256, timestamp and row/schema comparison | Full local result SHA `ae6bbe8390ec1f1e2fd0cb5642c6184c86de3010d4beb8b7c519218764f86497`; exact final candidate refresh still required                      |
+| Exact approved restore and cutover operation                         | Concrete same-resource restore/two-rename proposal prepared in final launch packet; Tom approval and final receipt pending                                  |
+| Write-drain cutoff and no-loss check                                 | Not observed                                                                                                                                                |
+| Failed attempt ledger and log archive                                | Capture if a hosted failure occurs                                                                                                                          |
+| Restored private host/database fingerprints                          | Recheck same-resource host, restored database name/OID and full properties before any cutover                                                               |
+| Full application release SHA and migration manifest                  | Freeze the integrated admitted candidate                                                                                                                    |
 
 Existing preserved-data admission requires ordered backup and restoration timestamps no older than 24 hours, matching full release SHA, matching database resource and ledger count, and separately confirmed backup storage. Supplying syntactically valid attestations does not create or verify any backup. Synthetic-only data classification does not authorize discarding retained staging evidence.
+
+Full preflight preservation covers the complete 207 ledger, 231 application tables (65 populated),
+two sequence definitions/states/dependencies, eight schema catalogues, object owners and ACLs,
+and all 40 newly applied SQL checksums. Fifteen inherited checksums match exact CRLF bytes; one
+weekly-digest checksum uses the existing canonical historical fingerprint rule. No exception or
+ledger was changed. The local engine/vector versions differ from hosted 17.6/vector0.8.0;
+recorded and actual libc collation versions are both 2.36. Root's source metadata is an explicit
+console-readback attestation. The retained container is stopped with its port released (exit 137),
+which does not prove graceful shutdown or restart durability. These limits remain visible in the
+receipt and do not disappear when the local admission constant advances.
 
 ## Local mechanism proof
 

@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-236-20260908',
+  approval: 'torchiko-staging-lineage-to-247-20260910',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 236,
+  migrationCount: 247,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -141,10 +141,15 @@ const EXPECTED = Object.freeze({
     '20260908150000_add_intake_v1_file_extraction_dispatches',
   fileExtractionPredecessorManifestHash:
     '968270ab6d65dd64e9b3027e3c6d6b906d4805d7312190eecaa3b269cc34d0e5',
-  finalMigration: '20260908160000_add_agent_question_operations',
-  manifestHash: 'f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9',
-  // Exact 236 candidate boundary; retained relational proof is recorded separately.
-  finalPublicTableCount: 256,
+  agentQuestionOperationsPredecessorCount: 236,
+  agentQuestionOperationsPredecessorPublicTableCount: 256,
+  agentQuestionOperationsPredecessorFinalMigration: '20260908160000_add_agent_question_operations',
+  agentQuestionOperationsPredecessorManifestHash:
+    'f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9',
+  finalMigration: '20260910140000_add_semantic_reviewed_decline',
+  manifestHash: 'accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c',
+  // Exact 247 candidate boundary; retained relational proof is recorded separately.
+  finalPublicTableCount: 264,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -285,6 +290,17 @@ export function assertFrozenManifest(manifest) {
   )
   if (fileExtractionPredecessorHash !== EXPECTED.fileExtractionPredecessorManifestHash) {
     fail('file extraction predecessor manifest checksum changed')
+  }
+  const agentQuestionOperationsPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.agentQuestionOperationsPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    agentQuestionOperationsPredecessorHash !==
+    EXPECTED.agentQuestionOperationsPredecessorManifestHash
+  ) {
+    fail('agent question operations predecessor manifest checksum changed')
   }
   if (manifest.names[EXPECTED.baselineCount - 1] !== EXPECTED.baselineLastMigration) {
     fail('verified baseline boundary changed')
@@ -440,6 +456,11 @@ export function assertFrozenManifest(manifest) {
     EXPECTED.fileExtractionPredecessorFinalMigration
   )
     fail('file extraction predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.agentQuestionOperationsPredecessorCount - 1] !==
+    EXPECTED.agentQuestionOperationsPredecessorFinalMigration
+  )
+    fail('agent question operations predecessor migration changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -482,6 +503,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.expiryPredecessorCount &&
     rows.length !== EXPECTED.websitePdfPredecessorCount &&
     rows.length !== EXPECTED.fileExtractionPredecessorCount &&
+    rows.length !== EXPECTED.agentQuestionOperationsPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -561,6 +583,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.expiryPredecessorCount) return 'expiry-predecessor'
   if (rows.length === EXPECTED.websitePdfPredecessorCount) return 'website-pdf-predecessor'
   if (rows.length === EXPECTED.fileExtractionPredecessorCount) return 'file-extraction-predecessor'
+  if (rows.length === EXPECTED.agentQuestionOperationsPredecessorCount)
+    return 'agent-question-operations-predecessor'
   return 'complete'
 }
 
@@ -759,6 +783,8 @@ export function expectedPublicTableCount(state) {
     'expiry-predecessor': EXPECTED.expiryPredecessorPublicTableCount,
     'website-pdf-predecessor': EXPECTED.websitePdfPredecessorPublicTableCount,
     'file-extraction-predecessor': EXPECTED.fileExtractionPredecessorPublicTableCount,
+    'agent-question-operations-predecessor':
+      EXPECTED.agentQuestionOperationsPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
