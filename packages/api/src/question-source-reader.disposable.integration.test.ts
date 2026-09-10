@@ -10,6 +10,7 @@ import {
   claimIntakeUploadVerificationAction,
   claimIntakeV1FileExtractionDispatch,
   claimAgentRunExecution,
+  createAgentTaskAction,
   completeIntakeV1FileExtractionDispatch,
   db,
   issueExternalCredentialAction,
@@ -49,7 +50,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     const actorId = `founder-source-question-${suffix}`
     const identityId = `identity-source-question-${suffix}`
     const wrongIdentityId = `identity-source-question-wrong-${suffix}`
-    const runId = `run-source-question-${suffix}`
+    let runId = ''
     const siblingRunId = `run-source-question-sibling-${suffix}`
     const terminalRunId = `run-source-question-terminal-${suffix}`
     const wrongVenueRunId = `run-source-question-wrong-venue-${suffix}`
@@ -180,19 +181,6 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       })
       await db.agentRun.createMany({
         data: [
-          {
-            id: runId,
-            operationId: randomUUID(),
-            ...scope,
-            agentIdentityId: identityId,
-            runType: 'FILE_SOURCE_FIXTURE',
-            requestedOperation: 'source-question.resume',
-            requestPrompt: 'Use retained source evidence after founder clarification.',
-            scopeSnapshot: { authority: 'data-only', source: 'synthetic-file-receipt' },
-            status: 'QUEUED',
-            initiatedByType: 'HUMAN',
-            initiatedById: actorId,
-          },
           {
             id: siblingRunId,
             operationId: randomUUID(),
@@ -376,6 +364,53 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       extractedTextHash = receipt.extractedTextHash!
     })
 
+    const sourceAssignment = {
+      version: 1 as const,
+      kind: 'FILE_EXTRACTION' as const,
+      intakeRunId,
+      receiptId,
+      extractedTextHash,
+    }
+    const taskInput = {
+      operationId: randomUUID(),
+      ...scope,
+      agentIdentityId: identityId,
+      prompt:
+        'Review the assigned exact extraction and clarify whether the greenhouse references describe distinct buildings.',
+      sourceAssignment,
+      actor: { actorType: 'HUMAN' as const, actorId, auditRole: 'PLATFORM_ADMIN' as const },
+    }
+    // Concurrent retries must recover one canonical task with one immutable source input.
+    const tasks = await Promise.all([
+      createAgentTaskAction(taskInput),
+      createAgentTaskAction(taskInput),
+    ])
+    expect(tasks[0].run.id).toBe(tasks[1].run.id)
+    expect(tasks.map((task) => task.replayed).sort()).toEqual([false, true])
+    runId = tasks[0].run.id
+    for (const changedSource of [
+      undefined,
+      { ...sourceAssignment, extractedTextHash: 'b'.repeat(64) },
+    ])
+      await expect(
+        createAgentTaskAction({ ...taskInput, sourceAssignment: changedSource }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      createAgentTaskAction({
+        ...taskInput,
+        operationId: randomUUID(),
+        sourceAssignment: { ...sourceAssignment, receiptId: randomUUID() },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      createAgentTaskAction({
+        ...taskInput,
+        operationId: randomUUID(),
+        venueId: wrongVenueId,
+        agentIdentityId: wrongIdentityId,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
     const questionCount = () => db.agentQuestion.count({ where: { tenantId } })
     const runStatus = (id: string) =>
       db.agentRun.findFirstOrThrow({ where: { id, tenantId }, select: { status: true } })
@@ -401,6 +436,14 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       bridgeSessionId,
       executionWorkerId: workerId,
     })
+    const initialContext = JSON.parse(initialClaim.executionContext) as {
+      sourceAssignment: typeof sourceAssignment
+      currentResolvedQuestions: unknown[]
+    }
+    expect(initialContext.sourceAssignment).toEqual(sourceAssignment)
+    expect(initialContext.currentResolvedQuestions).toEqual([])
+    expect(await db.agentQuestion.count({ where: { ...scope, agentRunId: runId } })).toBe(0)
+    expect(initialClaim.executionContext.length).toBeLessThanOrEqual(8000)
     expect(initialClaim).toMatchObject({
       status: 'RUNNING',
       attemptNumber: 1,
@@ -458,9 +501,9 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         agentRunId: runId,
         question: input().question,
         sourceClarification: {
-          runId: intakeRunId,
-          receiptId,
-          expectedExtractedTextHash: extractedTextHash,
+          runId: initialContext.sourceAssignment.intakeRunId,
+          receiptId: initialContext.sourceAssignment.receiptId,
+          expectedExtractedTextHash: initialContext.sourceAssignment.extractedTextHash,
           fieldPath: input().fieldPath,
           reason: 'CONTRADICTION',
           blockerScope: 'FOUNDATIONAL',

@@ -1,4 +1,6 @@
-const EXECUTION_CONTEXT_VERSION = 3
+import { readAgentSourceAssignment } from '@pathfinder/contracts'
+
+const EXECUTION_CONTEXT_VERSION = 4
 const DEFAULT_CONTEXT_MAX_CHARS = 8_000
 
 type ExecutionQuestion = {
@@ -145,6 +147,7 @@ export function buildBoundedAgentRunExecutionContext(
         })),
       }
     }),
+    sourceAssignment: readAgentSourceAssignment(run.scopeSnapshot),
     currentScopeSnapshot: boundedJson(run.scopeSnapshot, 600),
     relevantMessages: [...run.messages].reverse().map((message) => ({
       messageId: message.id,
@@ -225,6 +228,7 @@ export function buildBoundedAgentRunExecutionContext(
     contextVersion: EXECUTION_CONTEXT_VERSION,
     authorityNotice: context.authorityNotice,
     provenance: context.provenance,
+    sourceAssignment: context.sourceAssignment,
     currentResolvedQuestions: context.currentResolvedQuestions.map((question) => ({
       questionId: question.questionId,
       answer: boundedText(question.answer, 80),

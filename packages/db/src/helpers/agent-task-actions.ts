@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentSourceAssignment, readAgentSourceAssignment } from '@pathfinder/contracts'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -14,6 +15,7 @@ const inputSchema = z
     agentIdentityId: z.string().trim().min(1).max(191),
     prompt: z.string().trim().min(1).max(10_000),
     promptIdentity: z.string().trim().min(1).max(191).optional(),
+    sourceAssignment: AgentSourceAssignment.optional(),
     prospectScope: z
       .discriminatedUnion('mode', [
         z.object({ mode: z.literal('ALL') }).strict(),
@@ -54,6 +56,11 @@ export async function createAgentTaskAction(
 ) {
   const input = inputSchema.parse(rawInput)
   return client.$transaction(async (transaction) => {
+    if (input.sourceAssignment) {
+      const source = input.sourceAssignment
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${source.receiptId}`}, 0))`
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:agent-task-operation:${input.tenantId}:${input.operationId}`}, 0))`
+    }
     const replay = await transaction.agentRun.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
       select: {
@@ -71,6 +78,8 @@ export async function createAgentTaskAction(
         replay.venueId !== input.venueId ||
         replay.agentIdentityId !== input.agentIdentityId ||
         replay.requestPrompt !== input.prompt ||
+        JSON.stringify(readAgentSourceAssignment(replay.scopeSnapshot)) !==
+          JSON.stringify(input.sourceAssignment ?? null) ||
         (() => {
           const snapshot = replay.scopeSnapshot as {
             prospectScope?: unknown
@@ -113,6 +122,38 @@ export async function createAgentTaskAction(
     if (!identity) {
       throw new AgentTaskActionError('FORBIDDEN', 'Enabled agent identity is not in scope')
     }
+    if (input.sourceAssignment) {
+      if (
+        identity.agentType !== 'CONTENT' ||
+        !identity.accessCapabilities.includes('intake.read') ||
+        input.prospectScope
+      )
+        throw new AgentTaskActionError(
+          'FORBIDDEN',
+          'Source assignments require a scoped Content identity with intake.read and no prospect scope',
+        )
+      const source = input.sourceAssignment
+      const receipt = await transaction.intakeFileExtractionReceipt.findFirst({
+        where: {
+          id: source.receiptId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: source.intakeRunId,
+          extractedTextHash: source.extractedTextHash,
+          outcome: 'SUCCEEDED',
+          review: { is: null },
+          run: { sourceKind: 'FILE_UPLOAD', status: 'AWAITING_REVIEW' },
+        },
+        select: { id: true },
+      })
+      if (!receipt)
+        throw new AgentTaskActionError(
+          'BAD_REQUEST',
+          'Exact unreviewed source is unavailable for assignment',
+        )
+    }
+    // Assignment is immutable input metadata. Current execution/read authority is checked
+    // independently when the worker claims and consumes it; this snapshot grants none.
     const prospectCapabilities = identity.accessCapabilities.filter((capability) =>
       capability.startsWith('prospects.'),
     )
@@ -149,6 +190,7 @@ export async function createAgentTaskAction(
           accessCapabilities: identity.accessCapabilities,
           autonomyLevel: identity.autonomyLevel,
           autonomousActions: identity.autonomousActions,
+          ...(input.sourceAssignment ? { sourceAssignment: input.sourceAssignment } : {}),
           ...(input.prospectScope
             ? {
                 prospectScope: input.prospectScope,

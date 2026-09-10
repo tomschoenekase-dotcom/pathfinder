@@ -48,7 +48,7 @@ describe('bounded agent run execution context', () => {
       questions: [linkedClientQuestion()],
     }
     const roomy = JSON.parse(buildBoundedAgentRunExecutionContext(source))
-    expect(roomy.contextVersion).toBe(3)
+    expect(roomy.contextVersion).toBe(4)
     expect(roomy.currentResolvedQuestions[0]).toMatchObject({
       answer: 'Client response recorded in support message support-message-1.',
       clientResponse: {
@@ -198,7 +198,7 @@ describe('bounded agent run execution context', () => {
       1_300,
     )
     const context = JSON.parse(serialized)
-    expect(context.contextVersion).toBe(3)
+    expect(context.contextVersion).toBe(4)
     expect(context.currentResolvedQuestions[0].answer).toBe('Use the east greenhouse.')
     expect(context.currentResolvedQuestions[0].discussion.at(-1)).toMatchObject({
       messageId: 'discussion-6',
@@ -411,4 +411,38 @@ describe('bounded agent run execution context', () => {
       omittedMessages: expect.any(Number),
     })
   })
+})
+
+it('preserves exact bounded source assignment even when the descriptive snapshot is truncated', () => {
+  const sourceAssignment = {
+    version: 1,
+    kind: 'FILE_EXTRACTION',
+    intakeRunId: 'intake-1',
+    receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    extractedTextHash: 'a'.repeat(64),
+  }
+  const run = {
+    id: 'run-1',
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    attemptNumber: 1,
+    scopeSnapshot: { descriptive: 'x'.repeat(20000), sourceAssignment },
+    questions: [],
+    messages: [],
+  }
+  const text = buildBoundedAgentRunExecutionContext(run)
+  const value = JSON.parse(text)
+  expect(value.sourceAssignment).toEqual(sourceAssignment)
+  expect(value.omissions.scopeTruncated).toBe(true)
+  expect(text.length).toBeLessThanOrEqual(8000)
+  expect(value.currentResolvedQuestions).toEqual([])
+  const invalid = JSON.parse(
+    buildBoundedAgentRunExecutionContext({
+      ...run,
+      scopeSnapshot: {
+        sourceAssignment: { ...sourceAssignment, hiddenTranscript: 'do not retain' },
+      },
+    }),
+  )
+  expect(invalid.sourceAssignment).toBeNull()
 })

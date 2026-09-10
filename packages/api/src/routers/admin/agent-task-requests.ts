@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { AgentSourceAssignment } from '@pathfinder/contracts'
 
 import {
   AgentTaskActionError,
@@ -23,6 +24,7 @@ export const adminAgentTaskRequestsRouter = router({
         agentIdentityId: z.string().min(1),
         prompt: z.string().trim().min(1).max(10_000),
         promptIdentity: z.string().trim().min(1).max(191).optional(),
+        sourceAssignment: AgentSourceAssignment.optional(),
         prospectScope: z
           .discriminatedUnion('mode', [
             z.object({ mode: z.literal('ALL') }).strict(),
