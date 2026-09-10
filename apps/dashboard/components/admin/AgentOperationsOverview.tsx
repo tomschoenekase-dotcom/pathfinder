@@ -15,6 +15,7 @@ import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
 import { AgentQuestionDiscussion } from './AgentQuestionDiscussion'
 import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
+import { IntakeSourceRoutingControl } from './IntakeSourceRoutingControl'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
 import { AgentApprovalPolicyControl } from './AgentApprovalPolicyControl'
 import {
@@ -306,6 +307,13 @@ export function AgentOperationsOverview({
           </a>
         ))}
       </nav>
+
+      <IntakeSourceRoutingControl
+        key={`${tenantId}:${venueId}`}
+        tenantId={tenantId}
+        venueId={venueId}
+        identities={identities.items}
+      />
 
       <div id="new-task">
         <AgentTaskComposer tenantId={tenantId} venueId={venueId} identities={identities.items} />
