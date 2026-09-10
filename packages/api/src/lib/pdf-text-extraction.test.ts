@@ -4,6 +4,7 @@ import {
   createPdfLoadingTaskCleanup,
   extractPdfDocumentText,
   PDF_EXTRACTION_MAX_BYTES,
+  PDF_EXTRACTION_TIMEOUT_MS,
 } from './pdf-text-extraction'
 
 function pdfWithText(text: string, pageCount = 1) {
@@ -44,17 +45,22 @@ function pdfWithText(text: string, pageCount = 1) {
 }
 
 describe('shared PDF text extraction', () => {
-  it('extracts actual pdf.js text with page provenance', async () => {
-    await expect(
-      extractPdfDocumentText(pdfWithText('Visitor information', 2)),
-    ).resolves.toMatchObject({
-      outcome: 'SUCCEEDED',
-      text: 'Visitor information\n\nVisitor information',
-      pageCount: 2,
-      characterCount: 40,
-      lineCount: 3,
-    })
-  })
+  it(
+    'extracts actual pdf.js text with page provenance',
+    async () => {
+      await expect(
+        extractPdfDocumentText(pdfWithText('Visitor information', 2)),
+      ).resolves.toMatchObject({
+        outcome: 'SUCCEEDED',
+        text: 'Visitor information\n\nVisitor information',
+        pageCount: 2,
+        characterCount: 40,
+        lineCount: 3,
+      })
+    },
+    // Include cold pdf.js loading while preserving the extractor's own deadline.
+    PDF_EXTRACTION_TIMEOUT_MS + 5_000,
+  )
 
   it('fails closed for invalid, over-page, over-byte, and pre-cancelled inputs', async () => {
     await expect(extractPdfDocumentText(Buffer.from('invalid'))).resolves.toEqual({
