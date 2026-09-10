@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
-import { isFeatureEnabled } from '@pathfinder/config'
+import { isFeatureEnabled, logger } from '@pathfinder/config'
 import {
   checkBullMQConnection,
   closeBullMQConnection,
@@ -34,8 +34,21 @@ export async function handleIntakeV1FileExtraction(
   }
   if (job.name === INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB) {
     const result = await reconcileIntakeV1FileExtractionJobs()
-    await reconcileIntakeSourceAgentDispatches()
-    return result
+    const sourceDispatch = await reconcileIntakeSourceAgentDispatches()
+    if (sourceDispatch.discovered > 0 || sourceDispatch.failed > 0) {
+      const observation = {
+        action: 'intake-source-agent-dispatch.reconciled',
+        discovered: sourceDispatch.discovered,
+        completed: sourceDispatch.completed,
+        held: sourceDispatch.held,
+        cancelled: sourceDispatch.cancelled,
+        enqueued: sourceDispatch.enqueued,
+        failed: sourceDispatch.failed,
+      }
+      if (sourceDispatch.failed > 0) logger.warn(observation)
+      else logger.info(observation)
+    }
+    return { ...result, sourceDispatch }
   }
   return processIntakeV1FileExtractionJob(
     job.data as IntakeV1FileExtractionJobPayload,

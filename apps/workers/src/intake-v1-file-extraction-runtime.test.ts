@@ -4,10 +4,15 @@ const mocks = vi.hoisted(() => ({
   process: vi.fn(),
   reconcile: vi.fn(),
   reconcileSourceDispatches: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
   enabled: true,
 }))
 
-vi.mock('@pathfinder/config', () => ({ isFeatureEnabled: () => mocks.enabled }))
+vi.mock('@pathfinder/config', () => ({
+  isFeatureEnabled: () => mocks.enabled,
+  logger: { warn: mocks.warn, info: mocks.info },
+}))
 vi.mock('@pathfinder/jobs', () => ({
   INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB: 'intake-v1-file-extraction-process',
   INTAKE_V1_FILE_EXTRACTION_QUEUE: 'test-intake-v1-file-extraction',
@@ -39,6 +44,15 @@ describe('V1 file extraction runtime queue boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.enabled = true
+    mocks.reconcile.mockResolvedValue({ discovered: 0 })
+    mocks.reconcileSourceDispatches.mockResolvedValue({
+      discovered: 0,
+      completed: 0,
+      held: 0,
+      cancelled: 0,
+      enqueued: 0,
+      failed: 0,
+    })
   })
 
   it('passes only an opaque dispatch identity to the enabled processor', async () => {
@@ -85,5 +99,37 @@ describe('V1 file extraction runtime queue boundary', () => {
     await expect(startIntakeV1FileExtractionRuntime()).rejects.toThrow(
       'Intake V1 file extraction worker is disabled.',
     )
+  })
+
+  it('retains partial dispatch failure counts and warns without exposing source contents', async () => {
+    const counts = { discovered: 3, completed: 1, held: 1, cancelled: 0, enqueued: 0, failed: 1 }
+    mocks.reconcile.mockResolvedValue({ discovered: 2 })
+    mocks.reconcileSourceDispatches.mockResolvedValue(counts)
+    await expect(
+      handleIntakeV1FileExtraction({
+        name: 'intake-v1-file-extraction-recovery',
+        data: {},
+      } as never),
+    ).resolves.toEqual({ discovered: 2, sourceDispatch: counts })
+    expect(mocks.warn).toHaveBeenCalledExactlyOnceWith({
+      action: 'intake-source-agent-dispatch.reconciled',
+      ...counts,
+    })
+    expect(mocks.info).not.toHaveBeenCalled()
+  })
+
+  it('keeps idle sweeps quiet and reports nonempty successful dispatch progress', async () => {
+    const job = { name: 'intake-v1-file-extraction-recovery', data: {} } as never
+    await handleIntakeV1FileExtraction(job)
+    expect(mocks.warn).not.toHaveBeenCalled()
+    expect(mocks.info).not.toHaveBeenCalled()
+    const counts = { discovered: 1, completed: 1, held: 0, cancelled: 0, enqueued: 1, failed: 0 }
+    mocks.reconcileSourceDispatches.mockResolvedValue(counts)
+    await handleIntakeV1FileExtraction(job)
+    expect(mocks.info).toHaveBeenCalledExactlyOnceWith({
+      action: 'intake-source-agent-dispatch.reconciled',
+      ...counts,
+    })
+    expect(mocks.warn).not.toHaveBeenCalled()
   })
 })
