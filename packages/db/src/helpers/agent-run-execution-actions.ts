@@ -451,6 +451,29 @@ export async function claimAgentRunExecution(
     if (!run.agentIdentity.enabled) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent identity is disabled')
     }
+    if (run.requestedOperation === 'intake_source_review') {
+      // Workflow heads precede run and identity locks. Hold current authority through
+      // the claim write so a disable/edit/re-enable cannot race automatic source work.
+      const lockedRun = await transaction.$queryRaw<Array<{ id: string }>>`SELECT id FROM agent_runs
+        WHERE id=${run.id} AND tenant_id=${run.tenantId} AND venue_id=${run.venueId}
+          AND agent_identity_id=${run.agentIdentityId} AND requested_operation='intake_source_review'
+        FOR UPDATE`
+      if (lockedRun.length !== 1)
+        throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Source run changed')
+      const authorized = await transaction.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM agent_identities
+        WHERE id=${run.agentIdentityId} AND tenant_id=${run.tenantId} AND enabled=TRUE AND agent_type='CONTENT'
+          AND ((venue_id=${run.venueId} AND access_scope='VENUE') OR (venue_id IS NULL AND access_scope='CLIENT'))
+          AND access_capabilities @> ARRAY['intake.read','content.draft']::text[]
+          AND 'content.prepare-draft'=ANY(autonomous_actions) AND autonomy_level<>'READ_ONLY'
+        FOR SHARE`
+      if (authorized.length !== 1)
+        throw new AgentRunExecutionError(
+          'NOT_CLAIMABLE',
+          'Current source review authority is unavailable',
+        )
+    }
     if (run.attemptNumber >= run.maxAttempts) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run exhausted its attempts')
     }

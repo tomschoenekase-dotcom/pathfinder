@@ -73,6 +73,27 @@ function client(transaction: object) {
 }
 
 describe('agent run execution actions', () => {
+  it('denies a queued automatic source run when current authority was revoked', async () => {
+    const transaction = {
+      $queryRaw: vi.fn(async (parts: readonly string[]) =>
+        parts.join('').includes('FROM agent_identities') ? [] : [{ id: baseRun.id }],
+      ),
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ ...baseRun, requestedOperation: 'intake_source_review' }),
+        updateMany: vi.fn(),
+      },
+    }
+    await expect(
+      claimAgentRunExecution(
+        { tenantId: baseRun.tenantId, runId: baseRun.id, leaseDurationMs: 60000 },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+  })
+
   it('atomically claims a queued run with a bounded lease and immutable attempt evidence', async () => {
     const transaction = {
       agentRun: {

@@ -1128,6 +1128,30 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     expect(await db.agentRun.findFirst({ where: { id: httpTask.run.id, ...scope } })).toMatchObject(
       { initiatedByType: 'SYSTEM' },
     )
+    const retainedAuthority = await db.agentIdentity.findFirstOrThrow({
+      where: { id: identityId, tenantId },
+    })
+    for (const revoked of [
+      { autonomousActions: [] },
+      { autonomyLevel: 'READ_ONLY' as const },
+      { accessCapabilities: ['intake.read'] },
+    ]) {
+      await db.agentIdentity.update({ where: { id: identityId, tenantId }, data: revoked })
+      await expect(
+        claimAgentRunExecution({ tenantId, runId: httpTask.run.id, leaseDurationMs: 60000 }),
+      ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+      expect(
+        await db.agentRun.findFirst({ where: { id: httpTask.run.id, ...scope } }),
+      ).toMatchObject({ status: 'QUEUED', attemptNumber: 0 })
+      await db.agentIdentity.update({
+        where: { id: identityId, tenantId },
+        data: {
+          autonomousActions: retainedAuthority.autonomousActions,
+          autonomyLevel: retainedAuthority.autonomyLevel,
+          accessCapabilities: retainedAuthority.accessCapabilities,
+        },
+      })
+    }
     const server = createServer(async (request, response) => {
       try {
         const headers = new Headers()

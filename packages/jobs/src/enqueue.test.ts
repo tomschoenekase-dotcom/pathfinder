@@ -93,6 +93,73 @@ describe('job enqueues', () => {
     )
   })
 
+  it('redrives a retained failed agent run job', async () => {
+    const retained = {
+      getState: vi.fn(async () => 'failed'),
+      retry: vi.fn(async () => undefined),
+    }
+    mocks.getJob.mockResolvedValue(retained)
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: true })
+
+    expect(mocks.getJob).toHaveBeenCalledWith('agent-run-run_1')
+    expect(retained.retry).toHaveBeenCalledWith('failed')
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.loggerInfo).toHaveBeenCalledWith({
+      action: 'jobs.agent-run.redriven',
+      tenantId: 'tenant_1',
+      runId: 'run_1',
+    })
+  })
+
+  it.each(['waiting', 'active', 'delayed', 'prioritized'])(
+    'accepts a retained %s agent run job without adding a duplicate',
+    async (state) => {
+      mocks.getJob.mockResolvedValue({ getState: vi.fn(async () => state) })
+
+      await expect(
+        enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+      ).resolves.toEqual({ enqueued: true })
+
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
+
+  it('accepts a concurrent agent run redrive only after confirming queued state', async () => {
+    const retained = {
+      getState: vi.fn(async () => 'failed'),
+      retry: vi.fn(async () => {
+        throw new Error('job is no longer failed')
+      }),
+    }
+    mocks.getJob
+      .mockResolvedValueOnce(retained)
+      .mockResolvedValueOnce({ getState: vi.fn(async () => 'waiting') })
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: true })
+    expect(mocks.getJob).toHaveBeenCalledTimes(2)
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
+  it('preserves completed agent task replay without assuming durable run state', async () => {
+    mocks.getJob.mockResolvedValue({ getState: vi.fn(async () => 'completed') })
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: false })
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.loggerInfo).toHaveBeenCalledWith({
+      action: 'jobs.agent-run.reconciliation-needed',
+      tenantId: 'tenant_1',
+      runId: 'run_1',
+      queueState: 'completed',
+    })
+  })
+
   afterEach(async () => {
     for (const instance of mocks.instances.values()) instance.close.mockResolvedValue(undefined)
     await closeJobQueues()

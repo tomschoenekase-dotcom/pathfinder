@@ -380,9 +380,41 @@ export async function enqueueAgentRun(
   if (!payload.tenantId.trim() || !payload.runId.trim()) {
     throw new Error('Agent run payload requires exact tenant and run identity')
   }
-  await getQueue(AGENT_RUN_QUEUE).add(AGENT_RUN_PROCESS_JOB, payload, {
+  const queue = getQueue(AGENT_RUN_QUEUE)
+  const jobId = `agent-run-${payload.runId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`
+  const retained = await queue.getJob(jobId)
+  const queuedStates = ['waiting', 'active', 'delayed', 'prioritized']
+  const retainedState = retained ? await retained.getState() : null
+
+  if (retained && retainedState === 'failed') {
+    try {
+      await retained.retry('failed')
+    } catch (error) {
+      const reconciled = await queue.getJob(jobId)
+      const state = reconciled ? await reconciled.getState() : null
+      if (!state || !queuedStates.includes(state)) throw error
+    }
+    logger.info({
+      action: 'jobs.agent-run.redriven',
+      tenantId: payload.tenantId,
+      runId: payload.runId,
+    })
+    return { enqueued: true }
+  }
+  if (retainedState === 'completed') {
+    logger.info({
+      action: 'jobs.agent-run.reconciliation-needed',
+      tenantId: payload.tenantId,
+      runId: payload.runId,
+      queueState: 'completed',
+    })
+    return { enqueued: false }
+  }
+  if (retainedState && queuedStates.includes(retainedState)) return { enqueued: true }
+
+  await queue.add(AGENT_RUN_PROCESS_JOB, payload, {
     ...agentRunJobOptions,
-    jobId: `agent-run-${payload.runId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`,
+    jobId,
   })
   logger.info({
     action: 'jobs.agent-run.enqueued',

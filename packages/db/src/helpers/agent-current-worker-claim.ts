@@ -102,12 +102,13 @@ export async function assertCurrentAgentWorkerClaim(
     Array<{
       id: string
       agentIdentityId: string
+      requestedOperation: string
       executionWorkerId: string | null
       executionBridgeSessionId: string | null
       executionLeaseExpiresAt: Date | null
       cancelRequestedAt: Date | null
     }>
-  >`SELECT id, agent_identity_id AS "agentIdentityId",
+  >`SELECT id, agent_identity_id AS "agentIdentityId", requested_operation AS "requestedOperation",
       execution_worker_id AS "executionWorkerId",
       execution_bridge_session_id AS "executionBridgeSessionId",
       execution_lease_expires_at AS "executionLeaseExpiresAt",
@@ -132,6 +133,9 @@ export async function assertCurrentAgentWorkerClaim(
       AND ((access_scope='CLIENT' AND venue_id IS NULL) OR
         (access_scope='VENUE' AND venue_id=${input.venueId}))
       AND ${input.requiredIdentityCapability}=ANY(access_capabilities)
+      AND (${run.requestedOperation !== 'intake_source_review'} OR
+        (agent_type='CONTENT' AND access_capabilities @> ARRAY['intake.read','content.draft']::text[]
+          AND 'content.prepare-draft'=ANY(autonomous_actions) AND autonomy_level<>'READ_ONLY'))
     FOR SHARE`
   if (identities.length !== 1) throw new CurrentAgentWorkerClaimError()
 
