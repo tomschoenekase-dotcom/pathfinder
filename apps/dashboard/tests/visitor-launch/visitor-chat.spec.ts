@@ -134,10 +134,9 @@ test('keyboard-sized viewport gives footer space back to the conversation', asyn
   expect(screenshot.byteLength).toBeGreaterThan(2_000)
 })
 
-test('approved chat branding fails closed on a short mobile viewport', async ({
+test('approved chat branding remains usable on a short mobile viewport', async ({
   page,
 }, testInfo) => {
-  let failImages = false
   const interceptedAssets: string[] = []
   await page.setViewportSize({
     width: Math.min(page.viewportSize()?.width ?? 390, 390),
@@ -145,7 +144,6 @@ test('approved chat branding fails closed on a short mobile viewport', async ({
   })
   await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
     interceptedAssets.push(route.request().url())
-    if (failImages) return route.fulfill({ status: 404, body: '' })
     const banner = route.request().url().includes('visitor-brand-banner')
     return route.fulfill({
       contentType: 'image/svg+xml',
@@ -164,17 +162,33 @@ test('approved chat branding fails closed on a short mobile viewport', async ({
   await expect(header.locator('img')).toHaveCount(2)
   await expect.poll(() => interceptedAssets.length).toBe(2)
   await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(/text-white/u)
-  await expect(page.getByRole('button', { name: 'New conversation' })).toHaveClass(/text-white/u)
+  await expect(page.getByRole('button', { name: 'Clear chat' })).toHaveClass(/text-white/u)
   await expectViewportIntegrity(page)
   await expectComposerReachable(page)
   await expectTouchTargets(page)
   await expectAccessiblePage(page)
   await saveEvidence(page, testInfo, 'visitor-chat-approved-branding-short-mobile')
+})
 
-  failImages = true
-  interceptedAssets.length = 0
-  await page.reload()
+test('fresh chat branding delivery failure preserves short-mobile controls', async ({
+  page,
+}, testInfo) => {
+  const interceptedAssets: string[] = []
+  await page.setViewportSize({
+    width: Math.min(page.viewportSize()?.width ?? 390, 390),
+    height: 420,
+  })
+  // A fresh test context proves an actual failed delivery. WebKit can retain a
+  // previously decoded image across reload, which does not exercise onError.
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    interceptedAssets.push(route.request().url())
+    await route.fulfill({ status: 404, body: '' })
+  })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&branding=approved&theme=forest',
+  )
   await hideFrameworkDevChrome(page)
+  const header = page.locator('header')
   await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
   await expect(header.locator('img')).toHaveCount(0)
   await expect.poll(() => interceptedAssets.length).toBe(2)

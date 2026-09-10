@@ -32,6 +32,7 @@ export default defineConfig({
           env: {
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '',
             NEXT_PUBLIC_PWA_ENABLED: 'false',
+            RUN_VOICE_ROUTE_TOOLS_BROWSER_PROOF: '1',
           },
           reuseExistingServer: !process.env.CI,
           timeout: 180_000,
