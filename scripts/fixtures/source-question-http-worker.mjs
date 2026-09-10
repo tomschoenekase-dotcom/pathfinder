@@ -8,6 +8,23 @@ for await (const chunk of process.stdin) {
   assert(raw.length <= 16000, 'Fixture input exceeded bound')
 }
 const input = JSON.parse(raw)
+const sourceQuestion = input.sourceQuestion ?? {
+  excerptPrefix: 'The east and south greenhouses',
+  question: 'Are the east and south greenhouse references two distinct buildings?',
+  fieldPath: 'entities.greenhouse',
+  rationale: 'The retained answer distinguishes the two greenhouse buildings.',
+}
+for (const key of ['excerptPrefix', 'question', 'fieldPath', 'rationale']) {
+  assert.equal(typeof sourceQuestion[key], 'string')
+  assert(sourceQuestion[key].length > 0 && sourceQuestion[key].length <= 1000)
+}
+
+const clarificationReason = sourceQuestion.reason ?? 'CONTRADICTION'
+assert(
+  ['CONTRADICTION', 'DATE_SENSITIVE', 'LOW_CONFIDENCE', 'MISSING_CONTEXT'].includes(
+    clarificationReason,
+  ),
+)
 const url = new URL(input.url)
 assert.equal(url.hostname, '127.0.0.1')
 assert.equal(url.protocol, 'http:')
@@ -59,18 +76,18 @@ let resolutionId
 if (input.mode === 'ask') {
   const excerpt = second.structuredContent.data.page.text
     .split('\n')
-    .find((line) => line.startsWith('The east and south greenhouses'))
+    .find((line) => line.startsWith(sourceQuestion.excerptPrefix))
   assert(excerpt && excerpt.length <= 1000)
   const result = await operational('pathfinder.ask_operator', {
     agentIdentityId: input.identityId,
     agentRunId: task.id,
-    question: 'Are the east and south greenhouse references two distinct buildings?',
+    question: sourceQuestion.question,
     sourceClarification: {
       runId: assignment.intakeRunId,
       receiptId: assignment.receiptId,
       expectedExtractedTextHash: assignment.extractedTextHash,
-      fieldPath: 'entities.greenhouse',
-      reason: 'CONTRADICTION',
+      fieldPath: sourceQuestion.fieldPath,
+      reason: clarificationReason,
       blockerScope: 'FOUNDATIONAL',
       evidenceExcerpt: excerpt,
     },
@@ -104,12 +121,11 @@ if (input.mode === 'ask') {
     expectedAnsweredAt: context.currentResolvedQuestions[0].answeredAt,
     kind: 'REPLACE_EXCERPT',
     amendedExcerpt: answer,
-    rationale: 'The retained answer distinguishes the two greenhouse buildings.',
+    rationale: sourceQuestion.rationale,
   })
   assert.equal(resolution.structuredContent.data.terminalReviewRequired, true)
   assert.equal(resolution.structuredContent.data.canonicalVenueChanged, false)
   resolutionId = resolution.structuredContent.data.resolutionId
-
 }
 // Only bounded synthetic proof facts leave this process; never the bearer or lease token.
 process.stdout.write(

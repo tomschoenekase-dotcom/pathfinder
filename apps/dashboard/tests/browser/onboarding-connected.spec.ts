@@ -43,6 +43,10 @@ const scannerTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER ===
 const storageRecoveryEnabled = process.env.RUN_ONBOARDING_CONNECTED_STORAGE_RECOVERY === '1'
 const qrReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_QR_RELEASE === '1'
 const scannerReleaseEnabled = process.env.RUN_ONBOARDING_CONNECTED_SCANNER_RELEASE === '1'
+const sourceWorkerEnabled = process.env.RUN_ONBOARDING_CONNECTED_SOURCE_WORKER === '1'
+if (sourceWorkerEnabled && !scannerReleaseEnabled) {
+  throw new Error('Source worker proof requires the guarded scanner release mode.')
+}
 const themeRequestEnabled = process.env.RUN_ONBOARDING_CONNECTED_THEME_REQUEST === '1'
 if (themeRequestEnabled && !scannerReleaseEnabled) {
   throw new Error('Theme request proof requires the guarded scanner release mode.')
@@ -1736,6 +1740,24 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
         revision: 1,
         selectedMemberIds: [saved.memberId],
       }
+      let sourceWorkerProof: Record<string, unknown> | undefined
+      if (sourceWorkerEnabled) {
+        const { runConnectedSourceWorker } = await import('./helpers/intake-source-worker')
+        sourceWorkerProof = await runConnectedSourceWorker({
+          tenantId,
+          venueId,
+          actorId: adminUserId,
+          intakeRunId: submittedSource.runId,
+          receiptId: exactReceiptId,
+          extractedTextHash: submittedSource.extractedTextHash,
+          sourceText: scannerCleanText,
+        })
+        expect(sourceWorkerProof).toMatchObject({
+          initialAttemptNumber: 1,
+          resumedAttemptNumber: 2,
+          serverStopped: true,
+        })
+      }
       const beforeReview = await admin.admin.previewIntakeV1Package(selection)
       expect(beforeReview.ready).toBe(false)
       expect(beforeReview.members[0]).toMatchObject({ state: 'REVIEW_REQUIRED' })
@@ -1786,11 +1808,19 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
                   expectedExtractedTextHash: true,
                   proposalNotes: true,
                   proposalNotesHash: true,
+                  clarificationResolutionCount: true,
+                  clarificationResolutionDigest: true,
                 },
               },
             },
           }),
         )
+        if (sourceWorkerEnabled) {
+          expect(acceptedScannerLineage.review).toMatchObject({
+            clarificationResolutionCount: 1,
+            clarificationResolutionDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          })
+        }
         expect(acceptedScannerLineage).toMatchObject({
           sourceSha256: submittedSource.sourceSha256,
           sourceObjectGeneration: submittedSource.objectGeneration,
@@ -2126,6 +2156,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             released: releasedLifecycle?.release.released,
             publicScopeResolved: publicScope !== null,
             qrDecodedUrl,
+            sourceWorkerProof,
             capacity137SourceProof: {
               sourceCharacterCount: Array.from(scannerCleanText).length,
               factOffset: scannerCapacityFactOffset,
