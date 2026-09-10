@@ -39,6 +39,13 @@ const SemanticOperationalUpdateDesiredKnowledge = SemanticUpdaterDesiredKnowledg
 
 const AdminCreateLegacyKnowledgeAdoptionDraftInput =
   CreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
+    if (!input.desired.isEnabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['desired', 'isEnabled'],
+        message: 'Disabling legacy guidance requires a separate retirement workflow.',
+      })
+    }
     const payload = input.draft.payload
     const matchesDesired =
       payload.kind === 'POLICY'

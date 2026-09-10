@@ -167,6 +167,16 @@ describe('admin legacy knowledge adoption draft', () => {
     expect(mocks.createDraft).not.toHaveBeenCalled()
   })
 
+  it('rejects disabled legacy guidance instead of losing its disabled state in a native draft', async () => {
+    await expect(
+      testRouter.createCaller(context()).admin.createLegacyKnowledgeAdoptionDraft({
+        ...input,
+        desired: { ...input.desired, isEnabled: false },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.createDraft).not.toHaveBeenCalled()
+  })
+
   it('delegates exact scope and CAS input as the platform-admin human actor', async () => {
     const result = await testRouter
       .createCaller(context())
