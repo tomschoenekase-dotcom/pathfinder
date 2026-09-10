@@ -442,7 +442,7 @@ export function SupportLegacyAdoptionForm(props: Props) {
       {receipt ? (
         <div className="mt-4 border-l-2 border-emerald-600 pl-4 text-sm text-pf-deep">
           <p className="font-semibold">Private draft ready for separate publication review</p>
-          <p className="mt-1 break-all text-xs text-pf-deep/60">
+          <p className="mt-1 break-all text-xs text-pf-deep/80">
             Module {receipt.moduleId} · revision {receipt.revisionId} · version {receipt.version}
           </p>
           <a
