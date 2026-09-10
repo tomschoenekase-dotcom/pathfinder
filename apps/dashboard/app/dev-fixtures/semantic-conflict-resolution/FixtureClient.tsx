@@ -7,6 +7,7 @@ import {
   type KnowledgeProposal,
 } from '../../../components/admin/KnowledgeProposalReview'
 import { TRPCProvider, useTRPCClient } from '../../../lib/trpc'
+import { runBoundedClientRequest } from '../../../lib/bounded-client-request'
 
 const scope = {
   tenantId: 'fixture-conflict-tenant',
@@ -25,15 +26,19 @@ function ConnectedReview() {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    void client.admin.listKnowledgeProposals
-      .query(
-        {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          limit: 100,
-        },
-        { signal: controller.signal },
-      )
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: 15_000,
+      request: (signal) =>
+        client.admin.listKnowledgeProposals.query(
+          {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            limit: 100,
+          },
+          { signal },
+        ),
+    })
       .then((rows) => {
         if (!controller.signal.aborted)
           setProposals(

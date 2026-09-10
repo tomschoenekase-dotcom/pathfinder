@@ -250,6 +250,7 @@ export function VoiceControl({
   const sequenceRef = useRef(0)
   const stopTimerRef = useRef<number | null>(null)
   const realtimeRequestRef = useRef<AbortController | null>(null)
+  const routeRequestsRef = useRef(new Map<string, AbortController>())
   const activeResponseIdRef = useRef<string | null>(null)
   const pendingAssistantTranscriptRef = useRef<
     Map<string, { text: string; providerEventId: string }>
@@ -289,6 +290,8 @@ export function VoiceControl({
     stopTimerRef.current = null
     realtimeRequestRef.current?.abort()
     realtimeRequestRef.current = null
+    routeRequestsRef.current.forEach((controller) => controller.abort())
+    routeRequestsRef.current.clear()
     channelRef.current?.close()
     peerRef.current?.close()
     remoteAudioRef.current?.pause()
@@ -562,6 +565,8 @@ export function VoiceControl({
         const eventId = typeof event.event_id === 'string' ? event.event_id : crypto.randomUUID()
         if (type === 'input_audio_buffer.speech_started') {
           groundingTurnRef.current += 1
+          routeRequestsRef.current.forEach((controller) => controller.abort())
+          routeRequestsRef.current.clear()
           pendingGroundingCallsRef.current.clear()
           const responseId = activeResponseIdRef.current
           if (responseId && channelRef.current) {
@@ -625,6 +630,7 @@ export function VoiceControl({
             generatingResponseIdsRef.current.delete(response.id)
             if (response.status !== 'completed') {
               interruptedResponseIdsRef.current.add(response.id)
+              routeRequestsRef.current.get(response.id)?.abort()
               saveUsage(event, eventId)
               return
             }
@@ -655,6 +661,8 @@ export function VoiceControl({
               const groundingTurn = groundingTurnRef.current
               const voiceSessionId = sessionIdRef.current
               if (!voiceSessionId || !anonymousToken) return
+              const routeController = new AbortController()
+              routeRequestsRef.current.set(response.id, routeController)
               const freshCalls = calls.slice(0, 3).filter((item) => {
                 const callId = item.call_id as string
                 if (
@@ -685,9 +693,17 @@ export function VoiceControl({
                         offset > VOICE_ROUTE_CATALOG_MAX_OFFSET
                       )
                         throw new Error('INVALID_TOOL_ARGS')
-                      const result = await client.location.catalog.query({
-                        venueId,
-                        anonymousToken,
+                      const result = await runBoundedClientRequest({
+                        parentSignal: routeController.signal,
+                        timeoutMs: 15_000,
+                        request: (signal) =>
+                          client.location.catalog.query(
+                            {
+                              venueId,
+                              anonymousToken,
+                            },
+                            { signal },
+                          ),
                       })
                       const locations = result.locations
                         .slice(offset, offset + VOICE_ROUTE_CATALOG_LIMIT)
@@ -730,12 +746,21 @@ export function VoiceControl({
                         typeof args.accessibleOnly !== 'boolean'
                       )
                         throw new Error('INVALID_TOOL_ARGS')
-                      const route = await client.location.route.query({
-                        venueId,
-                        anonymousToken,
-                        fromLocationId: fromLocationId.trim(),
-                        toLocationId: toLocationId.trim(),
-                        accessibleOnly: args.accessibleOnly,
+                      const accessibleOnly = args.accessibleOnly
+                      const route = await runBoundedClientRequest({
+                        parentSignal: routeController.signal,
+                        timeoutMs: 15_000,
+                        request: (signal) =>
+                          client.location.route.query(
+                            {
+                              venueId,
+                              anonymousToken,
+                              fromLocationId: fromLocationId.trim(),
+                              toLocationId: toLocationId.trim(),
+                              accessibleOnly,
+                            },
+                            { signal },
+                          ),
                       })
                       const output = { grounded: true, route }
                       if (JSON.stringify(output).length > VOICE_TOOL_OUTPUT_MAX_CHARS)
@@ -776,6 +801,7 @@ export function VoiceControl({
                   const outputs = [...groundedOutputs, ...overflowOutputs]
                   if (
                     !outputs.length ||
+                    routeController.signal.aborted ||
                     lifecycleGenerationRef.current !== generation ||
                     groundingTurnRef.current !== groundingTurn ||
                     sessionIdRef.current !== voiceSessionId ||
@@ -802,6 +828,10 @@ export function VoiceControl({
                   }
                 })
                 .catch(() => undefined)
+                .finally(() => {
+                  if (routeRequestsRef.current.get(response.id as string) === routeController)
+                    routeRequestsRef.current.delete(response.id as string)
+                })
             }
           }
           saveUsage(event, eventId)
@@ -858,6 +888,7 @@ export function VoiceControl({
           if (finalizedResponseIdsRef.current.has(event.response_id)) return
           const responseId = event.response_id
           interruptedResponseIdsRef.current.add(responseId)
+          routeRequestsRef.current.get(responseId)?.abort()
           setLiveAssistantCaption((caption) =>
             caption?.responseId === responseId ? { ...caption, interrupted: true } : caption,
           )

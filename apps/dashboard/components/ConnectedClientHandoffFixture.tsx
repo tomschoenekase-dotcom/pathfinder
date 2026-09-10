@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { supportCreateDraft } from '../lib/support-create-intent'
 import { buildGuestChatUrl } from '../lib/guest-chat-url'
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { SupportWorkspace } from './SupportWorkspace'
 import { isVenueQrKitAvailable, VenueQrKitAvailability } from './VenueQrKitAvailability'
 
@@ -40,10 +41,15 @@ export function ConnectedClientHandoffFixture({
       setError(null)
       setLoaded(null)
       try {
-        const [venueRows, lifecycleRows] = await Promise.all([
-          client.venue.list.query(undefined, { signal: controller.signal }),
-          client.portal.getVenueLifecycles.query(undefined, { signal: controller.signal }),
-        ])
+        const [venueRows, lifecycleRows] = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: 15_000,
+          request: (signal) =>
+            Promise.all([
+              client.venue.list.query(undefined, { signal }),
+              client.portal.getVenueLifecycles.query(undefined, { signal }),
+            ]),
+        })
         const venue = venueRows.find((candidate) => candidate.id === venueId)
         const lifecycle = lifecycleRows.find((candidate) => candidate.venueId === venueId)
         if (!venue || !lifecycle) throw new Error('Scoped venue evidence is unavailable')
@@ -55,16 +61,16 @@ export function ConnectedClientHandoffFixture({
           guestChatUrl,
           lifecycle.release.released,
         )
-        const [requests, attachments, places] = await Promise.all([
-          client.support.listRequests.query({ venueId }, { signal: controller.signal }),
-          client.support.listEligibleAttachments.query(
-            { venueId, limit: 20 },
-            { signal: controller.signal },
-          ),
-          available
-            ? client.place.list.query({ venueId }, { signal: controller.signal })
-            : Promise.resolve([]),
-        ])
+        const [requests, attachments, places] = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: 15_000,
+          request: (signal) =>
+            Promise.all([
+              client.support.listRequests.query({ venueId }, { signal }),
+              client.support.listEligibleAttachments.query({ venueId, limit: 20 }, { signal }),
+              available ? client.place.list.query({ venueId }, { signal }) : Promise.resolve([]),
+            ]),
+        })
         if (controller.signal.aborted) return
         setLoaded({
           venue,

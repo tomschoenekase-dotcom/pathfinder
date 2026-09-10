@@ -717,6 +717,121 @@ describe('VoiceControl', () => {
     },
   )
 
+  it.each(['deadline', 'speech interruption', 'unmount', 'scope change'] as const)(
+    'aborts pending route and catalog transports on %s and fences late results',
+    async (ending) => {
+      mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+      mocks.start.mockResolvedValue({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'ephemeral',
+        maxDurationSeconds: 600,
+      })
+      mocks.connected.mockResolvedValue({ connected: true })
+      mocks.getUserMedia.mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+      })
+      const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+      const send = vi.fn()
+      vi.stubGlobal(
+        'RTCPeerConnection',
+        vi.fn(() => ({
+          addTrack: vi.fn(),
+          createDataChannel: () => ({
+            readyState: 'open',
+            send,
+            close: vi.fn(),
+            addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+              listeners.set(type, listener),
+          }),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+          setLocalDescription: vi.fn(),
+          setRemoteDescription: vi.fn(),
+          close: vi.fn(),
+          ontrack: null,
+        })),
+      )
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+      let resolveCatalog!: (value: unknown) => void
+      let resolveRoute!: (value: unknown) => void
+      mocks.locationCatalog.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCatalog = resolve
+        }),
+      )
+      mocks.locationRoute.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRoute = resolve
+        }),
+      )
+      const view = render(<VoiceControl {...props} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+      await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+      act(() => listeners.get('open')?.({} as MessageEvent<string>))
+      const event = (value: Record<string, unknown>) =>
+        listeners.get('message')?.({ data: JSON.stringify(value) } as MessageEvent<string>)
+      vi.useFakeTimers()
+      await act(async () =>
+        event({
+          type: 'response.done',
+          response: {
+            id: 'pending-routes',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'list_reviewed_route_locations',
+                call_id: 'pending-catalog',
+                arguments: JSON.stringify({ offset: 0 }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_reviewed_route',
+                call_id: 'pending-route',
+                arguments: JSON.stringify({
+                  fromLocationId: 'one',
+                  toLocationId: 'two',
+                  accessibleOnly: true,
+                }),
+              },
+            ],
+          },
+        }),
+      )
+      const catalogSignal = mocks.locationCatalog.mock.calls[0]?.[1].signal as AbortSignal
+      const routeSignal = mocks.locationRoute.mock.calls[0]?.[1].signal as AbortSignal
+      expect(catalogSignal.aborted).toBe(false)
+      expect(routeSignal.aborted).toBe(false)
+      send.mockClear()
+      await act(async () => {
+        if (ending === 'deadline') await vi.advanceTimersByTimeAsync(15_000)
+        else if (ending === 'speech interruption')
+          event({ type: 'input_audio_buffer.speech_started' })
+        else if (ending === 'unmount') view.unmount()
+        else view.rerender(<VoiceControl {...props} venueId="venue-2" />)
+      })
+      expect(catalogSignal.aborted).toBe(true)
+      expect(routeSignal.aborted).toBe(true)
+      const outputs = () =>
+        send.mock.calls
+          .map(([value]) => JSON.parse(value as string))
+          .filter((value) => value.type === 'conversation.item.create')
+      if (ending === 'deadline') {
+        expect(outputs()).toHaveLength(2)
+        for (const output of outputs())
+          expect(JSON.parse(output.item.output)).toMatchObject({
+            grounded: false,
+            error: 'GROUNDING_UNAVAILABLE',
+          })
+      } else expect(outputs()).toHaveLength(0)
+      const beforeLateResults = send.mock.calls.length
+      await act(async () => {
+        resolveCatalog({ locations: [] })
+        resolveRoute({ segments: [] })
+      })
+      expect(send).toHaveBeenCalledTimes(beforeLateResults)
+    },
+  )
+
   it('registers bounded route tools and dispatches exact canonical location inputs', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
@@ -860,17 +975,23 @@ describe('VoiceControl', () => {
       }),
     )
     await waitFor(() => expect(mocks.locationRoute).toHaveBeenCalledOnce())
-    expect(mocks.locationCatalog).toHaveBeenCalledWith({
-      venueId: props.venueId,
-      anonymousToken: props.anonymousToken,
-    })
-    expect(mocks.locationRoute).toHaveBeenCalledWith({
-      venueId: props.venueId,
-      anonymousToken: props.anonymousToken,
-      fromLocationId: 'location-4',
-      toLocationId: 'location-9',
-      accessibleOnly: true,
-    })
+    expect(mocks.locationCatalog).toHaveBeenCalledWith(
+      {
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.locationRoute).toHaveBeenCalledWith(
+      {
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        fromLocationId: 'location-4',
+        toLocationId: 'location-9',
+        accessibleOnly: true,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(mocks.locationRoute.mock.calls[0]?.[0]).not.toHaveProperty('visitContext')
     expect(mocks.locationCatalog).toHaveBeenCalledOnce()
     expect(mocks.groundingContext).toHaveBeenCalledOnce()
