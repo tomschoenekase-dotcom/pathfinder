@@ -20,6 +20,7 @@ import {
   createSystemSourceAgentTaskInTransaction,
   dispatchIntakeSourceAgentTask,
   listPendingIntakeSourceAgentDispatches,
+  recoverMissingIntakeSourceAgentDispatches,
   completeIntakeV1FileExtractionDispatch,
   db,
   issueExternalCredentialAction,
@@ -433,6 +434,23 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
 
+    // Disposable legacy-state simulation: a completed extraction predating outbox support.
+    expect(await db.intakeSourceAgentDispatch.count({ where: { ...scope, intakeRunId } })).toBe(1)
+    await db.intakeSourceAgentDispatch.deleteMany({
+      where: { ...scope, intakeRunId, status: 'PENDING' },
+    })
+    const recoveredOutboxes = await withTenantIsolationBypass(() =>
+      Promise.all([
+        recoverMissingIntakeSourceAgentDispatches({ limit: 25 }),
+        recoverMissingIntakeSourceAgentDispatches({ limit: 25 }),
+      ]),
+    )
+    expect(recoveredOutboxes.reduce((sum, count) => sum + count, 0)).toBe(1)
+    expect(
+      await withTenantIsolationBypass(() =>
+        recoverMissingIntakeSourceAgentDispatches({ limit: 25 }),
+      ),
+    ).toBe(0)
     const sourceOutbox = await db.intakeSourceAgentDispatch.findFirstOrThrow({
       where: { ...scope, intakeRunId },
     })

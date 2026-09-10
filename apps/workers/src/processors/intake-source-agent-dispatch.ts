@@ -2,6 +2,7 @@ import { env, isFeatureEnabled } from '@pathfinder/config'
 import {
   dispatchIntakeSourceAgentTask,
   listPendingIntakeSourceAgentDispatches,
+  recoverMissingIntakeSourceAgentDispatches,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
@@ -14,6 +15,7 @@ type DispatchResult = {
 }
 
 export type IntakeSourceAgentDispatchDependencies = {
+  recoverMissing(limit: number): Promise<number>
   listPending(limit: number): Promise<PendingDispatch[]>
   dispatch(input: PendingDispatch): Promise<DispatchResult>
   enqueue(tenantId: string, runId: string): Promise<{ enqueued: boolean }>
@@ -31,6 +33,8 @@ export type IntakeSourceAgentDispatchReconcileResult = {
 }
 
 const dependencies: IntakeSourceAgentDispatchDependencies = {
+  recoverMissing: (limit) =>
+    withTenantIsolationBypass(() => recoverMissingIntakeSourceAgentDispatches({ limit })),
   listPending: (limit) =>
     withTenantIsolationBypass(() => listPendingIntakeSourceAgentDispatches({ limit })),
   dispatch: (input) => dispatchIntakeSourceAgentTask(input),
@@ -52,6 +56,7 @@ export async function reconcileIntakeSourceAgentDispatches(
   }
   if (!(options.enabled ?? isFeatureEnabled('intakeV1FileExtractionWorker'))) return counts
 
+  await injected.recoverMissing(25)
   const pending = await injected.listPending(25)
   counts.discovered = pending.length
   for (const candidate of pending) {

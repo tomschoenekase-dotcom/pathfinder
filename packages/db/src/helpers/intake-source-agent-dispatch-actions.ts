@@ -24,6 +24,32 @@ export async function listPendingIntakeSourceAgentDispatches(
   >`SELECT d.id,d.tenant_id AS "tenantId",d.venue_id AS "venueId" FROM intake_source_agent_dispatches d WHERE (d.status IN ('PENDING','HELD') OR (d.status='COMPLETED' AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.id=d.agent_run_id AND r.tenant_id=d.tenant_id AND r.venue_id=d.venue_id AND r.status='QUEUED'))) AND d.next_attempt_at <= clock_timestamp() ORDER BY d.next_attempt_at,d.id LIMIT ${limit}`
 }
 
+/** Recover metadata for pre-outbox completed extraction rows, without re-extraction or
+ * task creation. Concurrent sweeps converge on the extraction unique key. Current
+ * review/routing/identity authority is independently rechecked by dispatch. */
+export async function recoverMissingIntakeSourceAgentDispatches(
+  input: { limit?: number },
+  client: Pick<typeof db, '$executeRaw'> = db,
+) {
+  const { limit } = z
+    .object({ limit: z.number().int().min(1).max(100).default(25) })
+    .strict()
+    .parse(input)
+  return client.$executeRaw`INSERT INTO intake_source_agent_dispatches
+    (id,tenant_id,venue_id,extraction_dispatch_id,intake_run_id,receipt_id,extracted_text_hash,updated_at)
+    SELECT gen_random_uuid(),d.tenant_id,d.venue_id,d.id,d.intake_run_id,r.id,r.extracted_text_hash,clock_timestamp()
+    FROM intake_v1_processing_dispatches d
+    JOIN intake_file_extraction_receipts r ON r.id=d.file_extraction_receipt_id
+      AND r.tenant_id=d.tenant_id AND r.venue_id=d.venue_id AND r.run_id=d.intake_run_id
+    JOIN intake_runs i ON i.id=d.intake_run_id AND i.tenant_id=d.tenant_id AND i.venue_id=d.venue_id
+    WHERE d.kind='FILE_EXTRACTION' AND d.status='COMPLETED' AND r.outcome='SUCCEEDED'
+      AND r.extracted_text_hash IS NOT NULL AND i.source_kind='FILE_UPLOAD' AND i.status='AWAITING_REVIEW'
+      AND NOT EXISTS (SELECT 1 FROM intake_file_extraction_reviews v WHERE v.receipt_id=r.id)
+      AND NOT EXISTS (SELECT 1 FROM intake_source_agent_dispatches existing WHERE existing.extraction_dispatch_id=d.id)
+    ORDER BY d.created_at,d.id LIMIT ${limit}
+    ON CONFLICT (extraction_dispatch_id) DO NOTHING`
+}
+
 /** No network or provider work. Source review lock precedes task/policy locks; never called
  * from inside the extraction transaction, which holds upload/processing locks. */
 export async function dispatchIntakeSourceAgentTask(

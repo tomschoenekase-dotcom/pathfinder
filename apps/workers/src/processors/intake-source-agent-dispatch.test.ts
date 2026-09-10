@@ -7,6 +7,7 @@ vi.mock('@pathfinder/config', () => ({
 vi.mock('@pathfinder/db', () => ({
   dispatchIntakeSourceAgentTask: vi.fn(),
   listPendingIntakeSourceAgentDispatches: vi.fn(),
+  recoverMissingIntakeSourceAgentDispatches: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
 }))
 vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: vi.fn() }))
@@ -20,6 +21,7 @@ function dependencies(
   overrides: Partial<IntakeSourceAgentDispatchDependencies> = {},
 ): IntakeSourceAgentDispatchDependencies {
   return {
+    recoverMissing: vi.fn(async () => 0),
     listPending: vi.fn(async () => []),
     dispatch: vi.fn(async () => ({ status: 'COMPLETED' as const, runId: 'run-1' })),
     enqueue: vi.fn(async () => ({ enqueued: true })),
@@ -38,6 +40,7 @@ describe('intake source agent dispatch reconciliation', () => {
       enqueued: 0,
       failed: 0,
     })
+    expect(deps.recoverMissing).not.toHaveBeenCalled()
     expect(deps.listPending).not.toHaveBeenCalled()
     expect(deps.dispatch).not.toHaveBeenCalled()
     expect(deps.enqueue).not.toHaveBeenCalled()
@@ -62,6 +65,7 @@ describe('intake source agent dispatch reconciliation', () => {
       enqueued: 1,
       failed: 0,
     })
+    expect(deps.recoverMissing).toHaveBeenCalledWith(25)
     expect(deps.listPending).toHaveBeenCalledWith(25)
     expect(dispatch).toHaveBeenCalledWith({
       id: 'dispatch-1',

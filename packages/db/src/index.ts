@@ -1455,5 +1455,6 @@ export {
 
 export {
   listPendingIntakeSourceAgentDispatches,
+  recoverMissingIntakeSourceAgentDispatches,
   dispatchIntakeSourceAgentTask,
 } from './helpers/intake-source-agent-dispatch-actions'
