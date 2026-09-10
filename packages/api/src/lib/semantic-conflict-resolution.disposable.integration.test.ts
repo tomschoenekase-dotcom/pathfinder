@@ -484,6 +484,26 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       canonicalKnowledgeChanged: false,
       approvalGranted: false,
     })
+    const keepFulfillment = await db.$transaction((tx) =>
+      readSupportPackageFulfillment(tx, {
+        tenantId,
+        venueId,
+        supportRequestId: fixtureRows[1]!.requestId,
+      }),
+    )
+    expect(keepFulfillment).toMatchObject({
+      contractVersion: 6,
+      noChangeFulfillment: {
+        receipts: [
+          expect.objectContaining({
+            outcome: 'KEEP_CANONICAL',
+            resolutionId: kept.resolutionId,
+            proposalId: keepProposal.id,
+            targetKnowledgeEntryId: entryId,
+          }),
+        ],
+      },
+    })
     await expect(
       db.knowledgeChangeProposal.findFirstOrThrow({
         where: { id: keepProposal.id, tenantId, venueId },
@@ -730,7 +750,7 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       supportRequestId: fixtureRows[0]!.requestId,
     })
     expect(adoptionFulfillment).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       contentFulfillment: {
         receipts: [
           expect.objectContaining({

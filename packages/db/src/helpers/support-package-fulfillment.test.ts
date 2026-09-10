@@ -14,12 +14,15 @@ describe('support package fulfillment evidence', () => {
     const reader = {
       $executeRaw: vi.fn().mockResolvedValue(0),
       knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+      semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     }
     const first = await readSupportPackageFulfillment(reader as never, scope)
     const second = await readSupportPackageFulfillment(reader as never, scope)
     expect(first).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       linkedPackageCount: 0,
       packages: [],
       guestObservability: {
@@ -80,6 +83,9 @@ describe('support package fulfillment evidence', () => {
     const reader = {
       $executeRaw: vi.fn().mockResolvedValue(0),
       knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+      semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([applied]) },
       contentVersion: {
         findMany: vi.fn().mockResolvedValue([
@@ -100,7 +106,7 @@ describe('support package fulfillment evidence', () => {
     }
     const fulfillment = await readSupportPackageFulfillment(reader as never, scope)
     expect(fulfillment).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       linkedPackageCount: 1,
       packages: [
         {
@@ -122,7 +128,7 @@ describe('support package fulfillment evidence', () => {
         ],
       },
     })
-    if (fulfillment.contractVersion !== 5) throw new Error('Expected observable fulfillment')
+    if (fulfillment.contractVersion !== 6) throw new Error('Expected observable fulfillment')
     const laterVerification = {
       ...fulfillment,
       guestObservability: {
@@ -201,10 +207,13 @@ describe('support completion content approval identity', () => {
         $executeRaw: vi.fn().mockResolvedValue(0),
         supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
         knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
       } as never,
       scope,
     )
-    if (empty.contractVersion !== 5) throw new Error('Expected current fulfillment')
+    if (empty.contractVersion !== 6) throw new Error('Expected current fulfillment')
     const receipt = {
       receiptKind: 'UNIVERSAL' as const,
       moduleKind: 'POLICY' as const,
@@ -245,6 +254,7 @@ describe('support completion content approval identity', () => {
         guestObservability: value.guestObservability,
         contentFulfillment: value.contentFulfillment,
         temporalFulfillment: value.temporalFulfillment,
+        noChangeFulfillment: value.noChangeFulfillment,
       })
     filled.digest = digestOf(filled)
     const windowed = {
@@ -315,10 +325,13 @@ describe('temporal approval identity', () => {
         $executeRaw: vi.fn().mockResolvedValue(0),
         supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
         knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
       } as never,
       scope,
     )
-    if (empty.contractVersion !== 5) throw new Error('Expected current fulfillment')
+    if (empty.contractVersion !== 6) throw new Error('Expected current fulfillment')
     const current = {
       ...empty,
       temporalFulfillment: {
@@ -341,12 +354,13 @@ describe('temporal approval identity', () => {
     }
     const digestOf = (value: typeof current) =>
       supportPackageFulfillmentDigest({
-        contractVersion: 5,
+        contractVersion: 6,
         linkedPackageCount: value.linkedPackageCount,
         packages: value.packages,
         guestObservability: value.guestObservability,
         contentFulfillment: value.contentFulfillment,
         temporalFulfillment: value.temporalFulfillment,
+        noChangeFulfillment: value.noChangeFulfillment,
       })
     current.digest = digestOf(current)
     expect(() =>
@@ -382,5 +396,105 @@ describe('temporal approval identity', () => {
     }
     expect(digestOf(changed)).not.toBe(current.digest)
     expect(sameSupportPackageFulfillment(current, changed)).toBe(false)
+  })
+})
+
+describe('no-change approval identity', () => {
+  it('binds a current no-change outcome while ignoring verification time', async () => {
+    const empty = await readSupportPackageFulfillment(
+      {
+        $executeRaw: vi.fn().mockResolvedValue(0),
+        supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
+        knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticDuplicateResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        semanticConflictResolution: { findMany: vi.fn().mockResolvedValue([]) },
+        supportMessage: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
+      scope,
+    )
+    if (empty.contractVersion !== 6) throw new Error('Expected current fulfillment')
+    const current = {
+      ...empty,
+      noChangeFulfillment: {
+        contractVersion: 1 as const,
+        receipts: [
+          {
+            outcome: 'DUPLICATE_NOOP' as const,
+            resolutionId: 'resolution_1',
+            proposalId: 'proposal_1',
+            sourceProposalId: 'proposal_1',
+            sourceRequestVersion: 3,
+            replacementOfProposalId: null,
+            proposalUpdatedAt: '2026-09-10T11:00:00.000Z',
+            targetKnowledgeEntryId: 'entry_1',
+            targetSnapshotHash: 'a'.repeat(64),
+            observedStateHash: 'b'.repeat(64),
+            decisionCreatedAt: '2026-09-10T11:01:00.000Z',
+            contentModuleId: null,
+            contentRevisionId: null,
+            contentPublicationId: null,
+            effectiveFrom: null,
+            effectiveUntil: null,
+            operationalFactExpiresAt: null,
+          },
+        ],
+        guestRead: { path: 'LEGACY' as const, releaseId: null, nativeStateHash: null },
+        verifiedAt: '2026-09-10T12:00:00.000Z',
+        digest: 'c'.repeat(64),
+      },
+    }
+    const digestOf = (value: typeof current) =>
+      supportPackageFulfillmentDigest({
+        contractVersion: 6,
+        linkedPackageCount: value.linkedPackageCount,
+        packages: value.packages,
+        guestObservability: value.guestObservability,
+        contentFulfillment: value.contentFulfillment,
+        temporalFulfillment: value.temporalFulfillment,
+        noChangeFulfillment: value.noChangeFulfillment,
+      })
+    current.digest = digestOf(current)
+    const later = {
+      ...current,
+      noChangeFulfillment: {
+        ...current.noChangeFulfillment,
+        verifiedAt: '2030-01-01T00:00:00.000Z',
+      },
+    }
+    expect(sameSupportPackageFulfillment(current, later)).toBe(true)
+    const changedTarget = {
+      ...current,
+      noChangeFulfillment: {
+        ...current.noChangeFulfillment,
+        receipts: [
+          { ...current.noChangeFulfillment.receipts[0]!, targetSnapshotHash: 'd'.repeat(64) },
+        ],
+      },
+    }
+    expect(sameSupportPackageFulfillment(current, changedTarget)).toBe(false)
+    expect(
+      sameSupportPackageFulfillment(
+        { contractVersion: 1, linkedPackageCount: 0, packages: [], digest: 'e'.repeat(64) },
+        current,
+      ),
+    ).toBe(false)
+    const expiring = {
+      ...current,
+      noChangeFulfillment: {
+        ...current.noChangeFulfillment,
+        receipts: [
+          {
+            ...current.noChangeFulfillment.receipts[0]!,
+            effectiveUntil: '2026-09-10T13:00:00.000Z',
+          },
+        ],
+      },
+    }
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(expiring, new Date('2026-09-10T12:59:59.000Z')),
+    ).not.toThrow()
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(expiring, new Date('2026-09-10T13:00:00.000Z')),
+    ).toThrow('No-change guidance is no longer effective')
   })
 })

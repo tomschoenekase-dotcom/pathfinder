@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   db,
+  completeSupportRequestAction,
   prepareSupportKnowledgeProposalAction,
   readSupportPackageFulfillment,
   withTenantIsolationBypass,
@@ -238,9 +239,56 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
         where: { tenantId: 'other-tenant', venueId, id: receipt.id },
       }),
     ).toBeNull()
-    // Recording a reviewed decision does not yet bypass the shared completion gate.
+    const fulfillment = await db.$transaction((tx) =>
+      readSupportPackageFulfillment(tx, { ...scope, supportRequestId: requestId }),
+    )
+    expect(fulfillment).toMatchObject({
+      contractVersion: 6,
+      noChangeFulfillment: {
+        receipts: [
+          expect.objectContaining({
+            outcome: 'DUPLICATE_NOOP',
+            resolutionId: receipt.id,
+            proposalId,
+            targetKnowledgeEntryId: targetId,
+          }),
+        ],
+      },
+    })
+    // Evidence preparation is live; completion awaits truthful structured presentation.
+    const requestBefore = await db.supportRequest.findFirstOrThrow({
+      where: { ...scope, id: requestId },
+    })
     await expect(
-      readSupportPackageFulfillment(db, { ...scope, supportRequestId: requestId }),
+      completeSupportRequestAction({
+        operationId: randomUUID(),
+        ...scope,
+        requestId,
+        expectedVersion: requestBefore.version,
+        body: 'Your update is complete.',
+        actor: {
+          actorType: 'HUMAN',
+          participantKind: 'OPERATOR',
+          actorId: adminId,
+          auditRole: 'PLATFORM_ADMIN',
+        },
+      }),
+    ).rejects.toThrow('structured completion presentation')
+    expect(
+      await db.supportRequest.findFirstOrThrow({ where: { ...scope, id: requestId } }),
+    ).toEqual(requestBefore)
+    await db.venueKnowledgeEntry.updateMany({
+      where: { ...scope, id: targetId },
+      data: { content: 'The fixture canonical guidance changed after review.' },
+    })
+    await expect(
+      db.$transaction((tx) =>
+        readSupportPackageFulfillment(tx, { ...scope, supportRequestId: requestId }),
+      ),
     ).rejects.toThrow()
+    await expect(caller.resolveSupportSemanticDuplicate(input)).resolves.toMatchObject({
+      replayed: true,
+      currentFulfillmentVerified: false,
+    })
   }, 30000)
 })

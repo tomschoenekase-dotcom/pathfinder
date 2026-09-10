@@ -1521,6 +1521,15 @@ async function manualSupportLoopActionOnce(
           'Linked package fulfillment changed after founder review; refresh completion evidence.',
         )
       }
+      if (
+        'noChangeFulfillment' in currentPackageFulfillment &&
+        currentPackageFulfillment.noChangeFulfillment.receipts.length > 0
+      ) {
+        throw new SupportActionError(
+          'CONFLICT',
+          'Verified no-change outcomes require structured completion presentation before this request can be completed.',
+        )
+      }
       completionPackageFulfillment = currentPackageFulfillment
     }
 

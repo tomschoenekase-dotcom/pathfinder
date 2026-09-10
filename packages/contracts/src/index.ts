@@ -60,5 +60,6 @@ export * from './legacy-knowledge-adoption'
 export * from './agent-workflow-registry'
 export * from './agent-workflow-promotion-assessment'
 export * from './agent-workflow-activation'
+export * from './semantic-canonical-knowledge'
 
 export * from './agent-source-assignment'

@@ -6,6 +6,11 @@ import {
 } from '@pathfinder/contracts'
 
 import { db } from '../client'
+import {
+  readSupportNoChangeFulfillment,
+  SupportNoChangeFulfillmentError,
+  type SupportNoChangeFulfillmentReader,
+} from './support-no-change-fulfillment'
 import { lockVenueContentMutation } from './venue-content-lock'
 import { lockSupportRequest } from './support-request-lock'
 import {
@@ -28,7 +33,8 @@ type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff' | '$executeRaw'> &
   SupportPackageObservabilityReader &
   SupportContentFulfillmentReader &
-  SupportTemporalFulfillmentReader
+  SupportTemporalFulfillmentReader &
+  SupportNoChangeFulfillmentReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -54,12 +60,16 @@ export function supportPackageFulfillmentDigest(
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>
-    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 5 }>, 'digest'>,
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 5 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 6 }>, 'digest'>,
 ): string {
   const normalized =
     value.contractVersion !== 1
       ? {
           ...value,
+          ...('noChangeFulfillment' in value
+            ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
+            : {}),
           ...('temporalFulfillment' in value
             ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
             : {}),
@@ -138,6 +148,7 @@ export async function readSupportPackageFulfillment(
   let guestObservability
   let contentFulfillment
   let temporalFulfillment
+  let noChangeFulfillment
   try {
     guestObservability = await readSupportPackageGuestObservability({
       client,
@@ -150,8 +161,10 @@ export async function readSupportPackageFulfillment(
       })),
     })
     temporalFulfillment = await readSupportTemporalFulfillment(client, input)
+    noChangeFulfillment = await readSupportNoChangeFulfillment(client, input)
     contentFulfillment = await readSupportContentFulfillment(client, {
       ...input,
+      verifiedNoChangeProposalIds: noChangeFulfillment.receipts.map(({ proposalId }) => proposalId),
       verifiedPackageIds: packages.map(({ packageId }) => packageId),
       verifiedTemporalProposalIds: temporalFulfillment.receipts.map(({ proposalId }) => proposalId),
     })
@@ -159,18 +172,20 @@ export async function readSupportPackageFulfillment(
     if (
       error instanceof SupportPackageObservabilityError ||
       error instanceof SupportContentFulfillmentError ||
-      error instanceof SupportTemporalFulfillmentError
+      error instanceof SupportTemporalFulfillmentError ||
+      error instanceof SupportNoChangeFulfillmentError
     )
       throw new SupportPackageFulfillmentError(error.message)
     throw error
   }
   const identity = {
-    contractVersion: 5 as const,
+    contractVersion: 6 as const,
     linkedPackageCount: packages.length,
     packages,
     guestObservability,
     contentFulfillment,
     temporalFulfillment,
+    noChangeFulfillment,
   }
   return SupportCompletionPackageFulfillment.parse({
     ...identity,
@@ -186,6 +201,8 @@ export function sameSupportPackageFulfillment(
     return (
       left.linkedPackageCount === 0 &&
       right.linkedPackageCount === 0 &&
+      (!('noChangeFulfillment' in left) || left.noChangeFulfillment.receipts.length === 0) &&
+      (!('noChangeFulfillment' in right) || right.noChangeFulfillment.receipts.length === 0) &&
       (!('contentFulfillment' in left) || left.contentFulfillment.receipts.length === 0) &&
       (!('temporalFulfillment' in left) || left.temporalFulfillment.receipts.length === 0) &&
       (!('contentFulfillment' in right) || right.contentFulfillment.receipts.length === 0) &&
@@ -196,11 +213,14 @@ export function sameSupportPackageFulfillment(
     value: Extract<
       SupportCompletionPackageFulfillmentValue,
       {
-        contractVersion: 2 | 3 | 4 | 5
+        contractVersion: 2 | 3 | 4 | 5 | 6
       }
     >,
   ) => ({
     ...value,
+    ...('noChangeFulfillment' in value
+      ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
+      : {}),
     ...('temporalFulfillment' in value
       ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
       : {}),
@@ -223,7 +243,7 @@ export function assertSupportFulfillmentEffectiveAt(
   if (!Number.isFinite(now.getTime()))
     throw new SupportPackageFulfillmentError('Invalid completion time.')
   if (
-    value.contractVersion === 5 &&
+    (value.contractVersion === 5 || value.contractVersion === 6) &&
     value.contentFulfillment.receipts.some(
       (receipt) =>
         receipt.state === 'CURRENT' &&
@@ -236,6 +256,19 @@ export function assertSupportFulfillmentEffectiveAt(
   )
     throw new SupportPackageFulfillmentError(
       'Content fulfillment is no longer currently effective; refresh completion evidence.',
+    )
+  if (
+    'noChangeFulfillment' in value &&
+    value.noChangeFulfillment.receipts.some(
+      (receipt) =>
+        (receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > now.getTime()) ||
+        (receipt.effectiveUntil !== null && Date.parse(receipt.effectiveUntil) <= now.getTime()) ||
+        (receipt.operationalFactExpiresAt !== null &&
+          Date.parse(receipt.operationalFactExpiresAt) <= now.getTime()),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'No-change guidance is no longer effective; refresh completion evidence.',
     )
   if (!('temporalFulfillment' in value)) return
   if (

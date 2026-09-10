@@ -364,7 +364,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId,
     })
     expect(additionFulfillment).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       contentFulfillment: {
         contractVersion: 2,
         receipts: [
@@ -526,10 +526,10 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId,
     })
     expect(chainFulfillment).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       contentFulfillment: { contractVersion: 2 },
     })
-    if (chainFulfillment.contractVersion !== 5) throw new Error('Expected fulfillment v5')
+    if (chainFulfillment.contractVersion !== 6) throw new Error('Expected fulfillment v5')
     expect(chainFulfillment.contentFulfillment.receipts).toHaveLength(2)
     expect(
       chainFulfillment.contentFulfillment.receipts.find(
@@ -716,7 +716,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId: supersessionRequestId,
     })
     expect(supersessionFulfillment).toMatchObject({
-      contractVersion: 5,
+      contractVersion: 6,
       contentFulfillment: {
         contractVersion: 2,
         receipts: [

@@ -675,6 +675,84 @@ export const SupportCompletionPackageFulfillmentV5 = z
   })
   .strict()
 
+export const SupportCompletionNoChangeFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            outcome: z.enum(['DUPLICATE_NOOP', 'KEEP_CANONICAL']),
+            resolutionId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            replacementOfProposalId: z.string().min(1).max(191).nullable(),
+            proposalUpdatedAt: z.string().datetime(),
+            targetKnowledgeEntryId: z.string().min(1).max(191),
+            targetSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+            decisionCreatedAt: z.string().datetime(),
+            contentModuleId: z.string().min(1).max(191).nullable(),
+            contentRevisionId: z.string().min(1).max(191).nullable(),
+            contentPublicationId: z.string().min(1).max(191).nullable(),
+            effectiveFrom: z.string().datetime().nullable(),
+            effectiveUntil: z.string().datetime().nullable(),
+            operationalFactExpiresAt: z.string().datetime().nullable(),
+          })
+          .strict(),
+      )
+      .max(100),
+    guestRead: z
+      .object({
+        path: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+        releaseId: z.string().nullable(),
+        nativeStateHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .nullable(),
+      })
+      .strict(),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['receipts'], message })
+    if (
+      new Set(value.receipts.map((r) => r.resolutionId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((r) => r.proposalId)).size !== value.receipts.length
+    )
+      issue('No-change outcomes must have unique decision and proposal identities.')
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE'))
+      issue('No-change observation path must match the presence of outcomes.')
+    for (const r of value.receipts) {
+      const links = [r.contentModuleId, r.contentRevisionId, r.contentPublicationId]
+      if (links.some((v) => v !== null) && links.some((v) => v === null))
+        issue('No-change native projection identity must be complete.')
+      if (
+        (r.effectiveFrom !== null && Date.parse(r.effectiveFrom) > Date.parse(value.verifiedAt)) ||
+        (r.effectiveUntil !== null &&
+          Date.parse(r.effectiveUntil) <= Date.parse(value.verifiedAt)) ||
+        (r.operationalFactExpiresAt !== null &&
+          Date.parse(r.operationalFactExpiresAt) <= Date.parse(value.verifiedAt))
+      )
+        issue('No-change guidance must be effective at verification.')
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV6 = z
+  .object({
+    contractVersion: z.literal(6),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+    noChangeFulfillment: SupportCompletionNoChangeFulfillment,
+  })
+  .strict()
+
 export const SupportCompletionPackageFulfillment = z
   .discriminatedUnion('contractVersion', [
     SupportCompletionPackageFulfillmentV1,
@@ -682,6 +760,7 @@ export const SupportCompletionPackageFulfillment = z
     SupportCompletionPackageFulfillmentV3,
     SupportCompletionPackageFulfillmentV4,
     SupportCompletionPackageFulfillmentV5,
+    SupportCompletionPackageFulfillmentV6,
   ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {

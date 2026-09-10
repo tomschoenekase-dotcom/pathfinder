@@ -171,6 +171,7 @@ export async function readSupportContentFulfillment(
     supportRequestId: string
     verifiedPackageIds?: string[]
     verifiedTemporalProposalIds?: string[]
+    verifiedNoChangeProposalIds?: string[]
     asOf?: Date
   },
 ): Promise<SupportContentFulfillment> {
@@ -273,6 +274,7 @@ export async function readSupportContentFulfillment(
   const receiptProposalIds = new Set(receipts.map(({ proposalId }) => proposalId))
   const verifiedPackageIds = new Set(input.verifiedPackageIds ?? [])
   const verifiedTemporalProposalIds = new Set(input.verifiedTemporalProposalIds ?? [])
+  const verifiedNoChangeProposalIds = new Set(input.verifiedNoChangeProposalIds ?? [])
   for (const source of sources) {
     if (receiptProposalIds.has(source.proposalId)) continue
     if (source.operationalUpdateHandoffId)
@@ -281,6 +283,7 @@ export async function readSupportContentFulfillment(
         throw new SupportContentFulfillmentError(
           'A source-bound temporal update remains pending verified fulfillment.',
         )
+    if (verifiedNoChangeProposalIds.has(source.proposalId)) continue
     if (source.status === 'REJECTED') continue
     if (
       source.packageHandoffVenuePackageId &&

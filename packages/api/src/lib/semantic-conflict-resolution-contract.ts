@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { z } from 'zod'
+export { hashSemanticCanonicalKnowledgeTarget as hashSemanticConflictTarget } from '@pathfinder/contracts'
 
 import { SemanticUpdaterDesiredKnowledge } from './semantic-venue-updater'
 
@@ -57,35 +58,4 @@ export type SemanticConflictResolutionInputValue = z.infer<typeof SemanticConfli
 
 export function hashSemanticConflictAnswer(answer: string): string {
   return createHash('sha256').update(answer).digest('hex')
-}
-
-const SemanticConflictTarget = plainObject({
-  id: z.string(),
-  title: z.string(),
-  category: z.string(),
-  content: z.string(),
-  isEnabled: z.boolean(),
-  humanConfirmedAt: z.date().nullable(),
-  authorship: z.string(),
-  sourceType: z.string(),
-})
-
-export function hashSemanticConflictTarget(
-  rawTarget: z.input<typeof SemanticConflictTarget>,
-): string {
-  const target = SemanticConflictTarget.parse(rawTarget)
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        id: target.id,
-        title: target.title,
-        category: target.category,
-        content: target.content,
-        isEnabled: target.isEnabled,
-        humanConfirmedAt: target.humanConfirmedAt?.toISOString() ?? null,
-        authorship: target.authorship,
-        sourceType: target.sourceType,
-      }),
-    )
-    .digest('hex')
 }
