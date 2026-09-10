@@ -67,6 +67,13 @@ describe('agent bridge actions', () => {
       credential: credential as never,
     })
     const call = mocks.sessionUpsert.mock.calls[0]![0]
+    expect(call.where).toEqual({
+      id_tenantId: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        tenantId: 'tenant-1',
+      },
+      tenantId: 'tenant-1',
+    })
     expect(call.create).toMatchObject({ credentialId: 'credential-1', provider: 'HERMES' })
     expect(JSON.stringify(call)).not.toMatch(/secret|token|browser/i)
   })

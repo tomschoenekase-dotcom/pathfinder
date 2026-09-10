@@ -143,6 +143,7 @@ export async function registerAgentBridgeSession(rawInput: {
   return db.agentBridgeSession.upsert({
     where: {
       id_tenantId: { id: input.sessionId, tenantId: credential.tenantId },
+      tenantId: credential.tenantId,
     },
     create: {
       id: input.sessionId,
