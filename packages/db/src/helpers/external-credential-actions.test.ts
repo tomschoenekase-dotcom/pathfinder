@@ -107,7 +107,28 @@ describe('disabled external credential actions', () => {
     await expect(
       issueExternalCredentialAction(input, replay.client as never),
     ).resolves.toMatchObject({ plaintextSecret: null, replayed: true })
+    expect(replay.client.externalCredentialOperationReceipt.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { operationId: input.operationId, tenantId: input.tenantId },
+      }),
+    )
     expect(replay.client.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('does not replay a globally colliding operation from outside the requested tenant', async () => {
+    const { client } = harness()
+    client.$transaction.mockRejectedValue({ code: 'P2002' })
+    client.externalCredentialOperationReceipt.findFirst.mockResolvedValue(null)
+
+    await expect(issueExternalCredentialAction(input, client as never)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Credential prefix collision',
+    })
+    expect(client.externalCredentialOperationReceipt.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { operationId: input.operationId, tenantId: input.tenantId },
+      }),
+    )
   })
 
   it('activates only an exact venue MCP bridge credential with append-only evidence', async () => {
@@ -133,6 +154,14 @@ describe('disabled external credential actions', () => {
       client as never,
     )
     expect(result).toMatchObject({ credential: { enabled: true }, plaintextSecret: null })
+    expect(client.externalCredentialActivation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          tenantId: 'tenant-1',
+        },
+      }),
+    )
     expect(tx.externalCredentialActivation.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

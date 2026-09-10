@@ -98,7 +98,7 @@ describe('getIntakeV1ProcessingRead', () => {
             .mockResolvedValue({ submissionId: base.submissionId, revision: 2, members: [source] }),
         },
       } as never)
-      expect(result.members[0].sourceReview?.status).toBe(expected)
+      expect(result.members[0]?.sourceReview?.status).toBe(expected)
     },
   )
 

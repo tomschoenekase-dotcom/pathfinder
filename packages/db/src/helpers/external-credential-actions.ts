@@ -120,10 +120,10 @@ function isP2034(error: unknown) {
 
 async function replay(
   client: ExternalCredentialActionClient,
-  input: { operationId: string; operationHash: string; actorId: string },
+  input: { operationId: string; operationHash: string; actorId: string; tenantId: string },
 ) {
   const receipt = await client.externalCredentialOperationReceipt.findFirst({
-    where: { operationId: input.operationId },
+    where: { operationId: input.operationId, tenantId: input.tenantId },
     select: { operationHash: true, actorId: true, credential: { select: credentialSelect } },
   })
   if (!receipt) return null
@@ -163,6 +163,7 @@ export async function issueExternalCredentialAction(
     operationId: input.operationId,
     operationHash: opHash,
     actorId: actor.id,
+    tenantId: input.tenantId,
   })
   if (prior) return prior
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -240,6 +241,7 @@ export async function issueExternalCredentialAction(
         operationId: input.operationId,
         operationHash: opHash,
         actorId: actor.id,
+        tenantId: input.tenantId,
       })
       if (converged) return converged
       if (attempt === 3)
@@ -285,7 +287,7 @@ export async function activateAgentBridgeCredentialAction(
     actorId: input.actor.id,
   })
   const prior = await client.externalCredentialActivation.findFirst({
-    where: { operationId: input.operationId },
+    where: { operationId: input.operationId, tenantId: input.tenantId },
     select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
   })
   if (prior) {
@@ -375,7 +377,7 @@ export async function activateAgentBridgeCredentialAction(
     const replayableRace = isP2002(error) || isP2034(error)
     if (!replayableRace) throw error
     const converged = await client.externalCredentialActivation.findFirst({
-      where: { operationId: input.operationId },
+      where: { operationId: input.operationId, tenantId: input.tenantId },
       select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
     })
     if (converged?.operationHash === opHash && converged.activatedBy === input.actor.id)
@@ -408,6 +410,7 @@ export async function rotateExternalCredentialAction(
     operationId: input.operationId,
     operationHash: opHash,
     actorId: input.actor.id,
+    tenantId: input.tenantId,
   })
   if (prior) return prior
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -526,6 +529,7 @@ export async function rotateExternalCredentialAction(
         operationId: input.operationId,
         operationHash: opHash,
         actorId: input.actor.id,
+        tenantId: input.tenantId,
       })
       if (converged) return converged
       if (!isP2002(error)) throw error
@@ -573,6 +577,7 @@ export async function revokeExternalCredentialAction(
     operationId: input.operationId,
     operationHash: opHash,
     actorId: input.actor.id,
+    tenantId: input.tenantId,
   })
   if (prior) return { ...prior, plaintextSecret: null }
   try {
@@ -667,6 +672,7 @@ export async function revokeExternalCredentialAction(
       operationId: input.operationId,
       operationHash: opHash,
       actorId: input.actor.id,
+      tenantId: input.tenantId,
     })
     if (converged) return { ...converged, plaintextSecret: null }
     if (error instanceof ExternalCredentialActionError) throw error

@@ -350,6 +350,7 @@ export async function runConnectedSourceWorker(
   if (resolution.createdBy !== identityId)
     throw new Error('Connected source amendment has the wrong author identity')
 
+  if (server.listening) throw new Error('Connected source bridge did not stop')
   return {
     agentIdentityId: identityId,
     agentRunId,
@@ -359,6 +360,6 @@ export async function runConnectedSourceWorker(
     amendmentDigest: sha256(JSON.stringify(resolution)),
     initialAttemptNumber: firstWorker.attemptNumber,
     resumedAttemptNumber: resumedWorker.attemptNumber,
-    serverStopped: !server.listening,
+    serverStopped: true,
   }
 }
