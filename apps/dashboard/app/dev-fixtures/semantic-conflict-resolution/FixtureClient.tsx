@@ -1,6 +1,6 @@
 'use client'
 
-import { SemanticUpdatePreview } from '../../../components/admin/SemanticUpdatePreview'
+import { KnowledgeProposalReview } from '../../../components/admin/KnowledgeProposalReview'
 import { TRPCProvider } from '../../../lib/trpc'
 
 const scope = {
@@ -16,7 +16,7 @@ function FixtureBody() {
       data-fixture="semantic-conflict-resolution"
       className="min-h-screen bg-pf-cream px-4 py-8 text-pf-deep sm:px-8"
     >
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-6xl">
         <header className="border-b border-pf-light pb-6">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-pf-primary">
             Human conflict review
@@ -27,16 +27,41 @@ function FixtureBody() {
             human review before any visitor-facing draft or publication.
           </p>
         </header>
-        <section className="mt-6 border-l-2 border-amber-300 bg-white px-4 py-5 shadow-sm sm:px-6">
-          <p className="text-sm font-semibold">Approved proposal · Willow gallery hours</p>
-          <p className="mt-1 text-xs text-slate-600">
-            Current guidance has stronger reviewed authority than the proposed change.
-          </p>
-          <SemanticUpdatePreview {...scope} hasTarget />
-        </section>
+        <div className="mt-6">
+          <KnowledgeProposalReview
+            tenantId={scope.tenantId}
+            venueId={scope.venueId}
+            proposals={[
+              {
+                id: scope.proposalId,
+                status: 'APPROVED',
+                observedVisitorClaim: 'A support source reports later Willow gallery hours.',
+                aiInference: 'The proposed time conflicts with reviewed venue guidance.',
+                proposedChange: desired.content,
+                reason: 'An operator must resolve the lower-authority conflict.',
+                confidence: 0.9,
+                evidenceMessageIds: ['fixture-message-hours'],
+                targetKnowledgeEntryId: 'fixture-current-hours',
+                createdAt: '2026-09-10T11:55:00.000Z',
+                updatedAt: scope.proposalUpdatedAt,
+                reviewerId: 'fixture-reviewer',
+                reviewNote: 'Evidence reviewed; semantic conflict remains.',
+                reviewedAt: '2026-09-10T12:00:00.000Z',
+                createdByType: 'AGENT',
+              },
+            ]}
+          />
+        </div>
       </div>
     </main>
   )
+}
+
+const desired = {
+  title: 'Willow gallery hours',
+  category: 'Hours',
+  content: 'The Willow gallery closes at 7 PM.',
+  isEnabled: true,
 }
 
 export function SemanticConflictResolutionFixtureClient() {

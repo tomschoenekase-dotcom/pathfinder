@@ -174,6 +174,7 @@ for (const width of [390, 768, 1280, 1440]) {
     await expect(retry).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByText('Replacement awaits review')).toBeVisible()
+    await expect(page.getByText('CLOSED AFTER RESOLUTION')).toBeVisible()
     expect(resolutionInputs[1]).toEqual(frozen)
     await expect(page.getByRole('link', { name: 'Review replacement proposal' })).toHaveAttribute(
       'href',
@@ -187,6 +188,7 @@ for (const width of [390, 768, 1280, 1440]) {
     await page.getByLabel('Resolution note').fill('Keep the current reviewed venue guidance.')
     await page.getByRole('button', { name: 'Record resolution' }).click()
     await expect(page.getByText('Current knowledge kept')).toBeVisible()
+    await expect(page.getByText('CLOSED AFTER RESOLUTION')).toBeVisible()
     expect(resolutionInputs.at(-1)).toMatchObject({ outcome: 'KEEP_CANONICAL' })
 
     await openConflict()

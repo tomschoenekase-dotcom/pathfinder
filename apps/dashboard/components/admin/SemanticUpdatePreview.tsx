@@ -48,12 +48,14 @@ export function SemanticUpdatePreview({
   proposalId,
   proposalUpdatedAt,
   hasTarget,
+  onResolutionRecorded,
 }: {
   tenantId: string
   venueId: string
   proposalId: string
   proposalUpdatedAt: Date | string
   hasTarget: boolean
+  onResolutionRecorded?: () => void
 }) {
   const client = useTRPCClient()
   const [open, setOpen] = useState(false)
@@ -105,7 +107,12 @@ export function SemanticUpdatePreview({
   const requestSequence = useRef(0)
   const previewRunning = useRef(false)
   const activeRequest = useRef<AbortController | null>(null)
-  const scope = `${tenantId}:${venueId}:${proposalId}:${new Date(proposalUpdatedAt).toISOString()}`
+  const scope = JSON.stringify([
+    tenantId,
+    venueId,
+    proposalId,
+    new Date(proposalUpdatedAt).toISOString(),
+  ])
   const preview = previewScope === scope ? previewValue : null
   const currentScope = useRef(scope)
   currentScope.current = scope
@@ -684,7 +691,10 @@ export function SemanticUpdatePreview({
               onFrozenChange={setResolutionFrozen}
               onRefresh={() => void inspect()}
               onResolved={(result) => {
-                if (currentScope.current === scope) setResolution({ ...result, scope })
+                if (currentScope.current === scope) {
+                  setResolution({ ...result, scope })
+                  onResolutionRecorded?.()
+                }
               }}
             />
           ) : preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
