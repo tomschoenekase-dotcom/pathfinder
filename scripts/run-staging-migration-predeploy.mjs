@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -681,7 +681,61 @@ async function assertPostMigrationIntegrity(database, manifest) {
   if (unvalidatedConstraints !== 0) fail('unvalidated public constraints remain')
 }
 
-function runPrismaDeploy(cli, schema, environment) {
+function withMigrationApplicationName(raw, marker) {
+  try {
+    if (typeof raw !== 'string' || raw.trim() !== raw || /[\u0000-\u0020\u007f]/u.test(raw)) {
+      throw new Error('invalid URL input')
+    }
+    const parsed = new URL(raw)
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+      throw new Error('invalid URL protocol')
+    }
+    // Only rewrite the named query pairs. URLSearchParams.set would also
+    // normalize unrelated credential/options encoding in the serialized URL.
+    const fragmentAt = raw.indexOf('#')
+    const beforeFragment = fragmentAt < 0 ? raw : raw.slice(0, fragmentAt)
+    const fragment = fragmentAt < 0 ? '' : raw.slice(fragmentAt)
+    const queryAt = beforeFragment.indexOf('?')
+    const prefix = queryAt < 0 ? beforeFragment : beforeFragment.slice(0, queryAt)
+    const query = queryAt < 0 ? '' : beforeFragment.slice(queryAt + 1)
+    const otherPairs = (query ? query.split('&') : []).filter((pair) => {
+      const key = pair.split('=', 1)[0]
+      return decodeURIComponent(key.replace(/\+/gu, ' ')) !== 'application_name'
+    })
+    otherPairs.push(`application_name=${encodeURIComponent(marker)}`)
+    return `${prefix}?${otherPairs.join('&')}${fragment}`
+  } catch {
+    // Do not propagate URL parser errors or their credential-bearing input.
+    throw new Error('Migration child connection URL is invalid')
+  }
+}
+
+/** Main has already admitted target, release, lineage, and backup authority.
+ * This pure child-only transform is also exercised with guarded local fixtures.
+ */
+export function createMigrationChildEnvironment(
+  environment,
+  releaseSha,
+  nonce = randomBytes(8).toString('hex'),
+) {
+  if (!/^[a-f0-9]{40}$/u.test(releaseSha ?? '') || !/^[a-f0-9]{16}$/u.test(nonce ?? '')) {
+    throw new Error('Migration child release identity or nonce is invalid')
+  }
+  const applicationName = `tkm:${releaseSha}:${nonce}`
+  return {
+    applicationName,
+    environment: {
+      ...environment,
+      DATABASE_URL: withMigrationApplicationName(environment.DATABASE_URL, applicationName),
+      DIRECT_DATABASE_URL: withMigrationApplicationName(
+        environment.DIRECT_DATABASE_URL,
+        applicationName,
+      ),
+    },
+  }
+}
+
+export function runPrismaDeploy(cli, schema, environment) {
   return new Promise((resolve, reject) => {
     const child = spawn(cli, ['migrate', 'deploy', '--schema', schema], {
       env: environment,
@@ -697,7 +751,7 @@ function runPrismaDeploy(cli, schema, environment) {
 }
 
 async function main() {
-  assertStagingSchemaReadAdmission(process.env)
+  const { releaseSha } = assertStagingSchemaReadAdmission(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
@@ -728,7 +782,21 @@ async function main() {
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
-    await runPrismaDeploy(prismaCli, path.join(prismaDirectory, 'schema.prisma'), process.env)
+    const child = createMigrationChildEnvironment(process.env, releaseSha)
+    console.log(
+      `staging-migration: child starting release=${releaseSha} application_name=${child.applicationName}`,
+    )
+    try {
+      await runPrismaDeploy(
+        prismaCli,
+        path.join(prismaDirectory, 'schema.prisma'),
+        child.environment,
+      )
+      console.log(`staging-migration: child completed application_name=${child.applicationName}`)
+    } catch {
+      console.log(`staging-migration: child failed application_name=${child.applicationName}`)
+      throw new Error('Prisma migration child failed')
+    }
     await assertPostMigrationIntegrity(database, manifest)
     const afterCounts = await publicTableCounts(database)
     for (const [table, count] of beforeCounts) {

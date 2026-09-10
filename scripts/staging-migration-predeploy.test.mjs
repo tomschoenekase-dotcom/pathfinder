@@ -15,7 +15,113 @@ import {
   remainingMigrationNames as currentRemainingMigrationNames,
   readMigrationManifest as readCurrentMigrationManifest,
   expectedPublicTableCount,
+  createMigrationChildEnvironment,
 } from './run-staging-migration-predeploy.mjs'
+
+test('migration child marker preserves every non-marker URL byte and the parent environment', () => {
+  const releaseSha = 'a'.repeat(40)
+  const nonce = '0123456789abcdef'
+  const prefix = 'postgresql://sentinel%3Auser:sentinel%40password@fixture.invalid:5432/disposable'
+  const unchanged = 'options=-c%20statement_timeout%3D0&schema=public&x=one+two&x=one%20two&&'
+  const original = Object.freeze({
+    DATABASE_URL: `${prefix}?application_name=old&${unchanged}application%5Fname=second#kept`,
+    DIRECT_DATABASE_URL: `${prefix}?${unchanged}application_name=direct-old#kept`,
+    OTHER: 'unchanged',
+  })
+  const result = createMigrationChildEnvironment(original, releaseSha, nonce)
+  const marker = `tkm:${releaseSha}:${nonce}`
+  const expected = `${prefix}?${unchanged}application_name=${encodeURIComponent(marker)}#kept`
+  assert.equal(result.applicationName, marker)
+  assert.equal(Buffer.byteLength(marker, 'ascii'), 61)
+  assert.equal(result.environment.DATABASE_URL, expected)
+  assert.equal(result.environment.DIRECT_DATABASE_URL, expected)
+  assert.equal(result.environment.OTHER, 'unchanged')
+  assert.notEqual(result.environment, original)
+  assert.match(original.DATABASE_URL, /application_name=old/u)
+  for (const key of ['DATABASE_URL', 'DIRECT_DATABASE_URL']) {
+    const before = new URL(original[key])
+    const after = new URL(result.environment[key])
+    for (const field of [
+      'protocol',
+      'hostname',
+      'port',
+      'pathname',
+      'username',
+      'password',
+      'hash',
+    ]) {
+      assert.equal(after[field], before[field])
+    }
+    assert.deepEqual(after.searchParams.getAll('application_name'), [marker])
+    assert.deepEqual(
+      [...after.searchParams].filter(([key]) => key !== 'application_name'),
+      [...before.searchParams].filter(([key]) => key !== 'application_name'),
+    )
+  }
+})
+
+test('migration child nonce is fresh and URLs without queries preserve their target', () => {
+  const original = {
+    DATABASE_URL: 'postgres://fixture/db',
+    DIRECT_DATABASE_URL: 'postgres://fixture/db#part',
+  }
+  const first = createMigrationChildEnvironment(original, 'b'.repeat(40))
+  const second = createMigrationChildEnvironment(original, 'b'.repeat(40))
+  assert.match(first.applicationName, /^tkm:b{40}:[a-f0-9]{16}$/u)
+  assert.notEqual(first.applicationName, second.applicationName)
+  assert.equal(new URL(first.environment.DIRECT_DATABASE_URL).hash, '#part')
+  assert.equal(new URL(first.environment.DATABASE_URL).pathname, '/db')
+})
+
+test('migration child transform refuses malformed inputs without exposing URL credentials', () => {
+  const valid = 'postgres://sentinel-user:sentinel-password@fixture/db'
+  for (const bad of [
+    undefined,
+    'not-a-url-sentinel-password',
+    ` ${valid}`,
+    valid + '?%zz=x',
+    'https://sentinel-password@fixture/db',
+  ]) {
+    assert.throws(
+      () =>
+        createMigrationChildEnvironment(
+          { DATABASE_URL: valid, DIRECT_DATABASE_URL: bad },
+          'c'.repeat(40),
+        ),
+      (error) => error.message === 'Migration child connection URL is invalid',
+    )
+  }
+  for (const [releaseSha, nonce] of [
+    ['short', '0'.repeat(16)],
+    ['c'.repeat(40), 'bad'],
+    [undefined, undefined],
+  ]) {
+    assert.throws(
+      () =>
+        createMigrationChildEnvironment(
+          { DATABASE_URL: valid, DIRECT_DATABASE_URL: valid },
+          releaseSha,
+          nonce,
+        ),
+      /Migration child release identity or nonce is invalid/u,
+    )
+  }
+})
+
+test('child tagging remains after all mutation gates and the complete-ledger return', async () => {
+  const source = await readFile(
+    new URL('./run-staging-migration-predeploy.mjs', import.meta.url),
+    'utf8',
+  )
+  const main = source.slice(source.indexOf('async function main()'))
+  const tag = main.indexOf('const child = createMigrationChildEnvironment(process.env, releaseSha)')
+  assert.ok(tag > main.indexOf("if (initialState === 'complete')"))
+  assert.ok(tag > main.indexOf('assertBackupEvidenceMatchesLedger(admission, initialLedger)'))
+  assert.ok(tag > main.indexOf('beforeCounts.size !== expectedInitialTableCount'))
+  assert.ok(
+    main.indexOf('new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })') < tag,
+  )
+})
 
 const REVIEWED_236_TO_247 = [
   '20260908170000_add_conversation_learning_review',
