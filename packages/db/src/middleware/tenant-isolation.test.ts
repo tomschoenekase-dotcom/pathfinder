@@ -176,6 +176,7 @@ describe('tenantIsolationMiddleware', () => {
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',
       'IntakeSourceAgentRoutingPolicy',
+      'IntakeSourceAgentDispatch',
       'AgentIdentity',
       'AgentBridgeSession',
       'AgentWorker',

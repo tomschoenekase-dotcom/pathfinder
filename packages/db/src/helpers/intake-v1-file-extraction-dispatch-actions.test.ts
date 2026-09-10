@@ -78,6 +78,7 @@ function client(row: ReturnType<typeof fixture>, receipt: unknown = null) {
       findFirst: vi.fn().mockResolvedValue(null),
       update,
     },
+    intakeSourceAgentDispatch: { upsert: vi.fn() },
     intakeFileExtractionReceipt: { findFirst: vi.fn().mockResolvedValue(receipt) },
   }
   return {

@@ -18,6 +18,7 @@ import {
   processIntakeV1FileExtractionJob,
   reconcileIntakeV1FileExtractionJobs,
 } from './processors/intake-v1-file-extraction'
+import { reconcileIntakeSourceAgentDispatches } from './processors/intake-source-agent-dispatch'
 
 export async function handleIntakeV1FileExtraction(
   job: Job<IntakeV1FileExtractionJobPayload | Record<string, never>>,
@@ -32,7 +33,9 @@ export async function handleIntakeV1FileExtraction(
     return job.name === INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB ? { discovered: 0 } : 'disabled'
   }
   if (job.name === INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB) {
-    return reconcileIntakeV1FileExtractionJobs()
+    const result = await reconcileIntakeV1FileExtractionJobs()
+    await reconcileIntakeSourceAgentDispatches()
+    return result
   }
   return processIntakeV1FileExtractionJob(
     job.data as IntakeV1FileExtractionJobPayload,

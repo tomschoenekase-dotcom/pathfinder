@@ -195,6 +195,20 @@ async function inherit(
       lastError: null,
     },
   })
+  if (status === 'COMPLETED' && receipt.extractedTextHash) {
+    await tx.intakeSourceAgentDispatch.upsert({
+      where: { extractionDispatchId: row.id, tenantId: row.tenantId },
+      create: {
+        tenantId: row.tenantId,
+        venueId: row.venueId,
+        extractionDispatchId: row.id,
+        intakeRunId: row.intakeRunId,
+        receiptId: receipt.id,
+        extractedTextHash: receipt.extractedTextHash,
+      },
+      update: {},
+    })
+  }
   return { status }
 }
 

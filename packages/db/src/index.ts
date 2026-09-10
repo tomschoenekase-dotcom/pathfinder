@@ -1452,3 +1452,8 @@ export {
   IntakeSourceAgentRoutingError,
   assertIntakeSourceAgentRoutingInTransaction,
 } from './helpers/intake-source-agent-routing-actions'
+
+export {
+  listPendingIntakeSourceAgentDispatches,
+  dispatchIntakeSourceAgentTask,
+} from './helpers/intake-source-agent-dispatch-actions'

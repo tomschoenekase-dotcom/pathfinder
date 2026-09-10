@@ -18,6 +18,8 @@ import {
   configureIntakeSourceAgentRouting,
   assertIntakeSourceAgentRoutingInTransaction,
   createSystemSourceAgentTaskInTransaction,
+  dispatchIntakeSourceAgentTask,
+  listPendingIntakeSourceAgentDispatches,
   completeIntakeV1FileExtractionDispatch,
   db,
   issueExternalCredentialAction,
@@ -431,6 +433,16 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
 
+    const sourceOutbox = await db.intakeSourceAgentDispatch.findFirstOrThrow({
+      where: { ...scope, intakeRunId },
+    })
+    const sourceDispatchInput = { id: sourceOutbox.id, ...scope }
+    await expect(dispatchIntakeSourceAgentTask(sourceDispatchInput)).resolves.toEqual({
+      status: 'HELD',
+    })
+    expect(
+      await db.intakeSourceAgentDispatch.findFirst({ where: sourceDispatchInput }),
+    ).toMatchObject({ holdReason: 'ROUTING_UNCONFIGURED', agentRunId: null })
     const routingInput = { ...scope, agentIdentityId: identityId, expectedRevision: 0 }
     const routingCreates = await Promise.allSettled([
       configureIntakeSourceAgentRouting(routingInput, actorId),
@@ -440,6 +452,12 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     expect(routingCreates.filter((result) => result.status === 'rejected')).toHaveLength(1)
     const routing = await db.intakeSourceAgentRoutingPolicy.findFirstOrThrow({ where: scope })
     expect(routing).toMatchObject({ enabled: false, revision: 1, agentIdentityId: identityId })
+    await expect(dispatchIntakeSourceAgentTask(sourceDispatchInput)).resolves.toEqual({
+      status: 'HELD',
+    })
+    expect(
+      await db.intakeSourceAgentDispatch.findFirst({ where: sourceDispatchInput }),
+    ).toMatchObject({ holdReason: 'ROUTING_DISABLED', agentRunId: null })
     await expect(
       configureIntakeSourceAgentRouting(
         { ...routingInput, agentIdentityId: wrongIdentityId, expectedRevision: 1, enabled: true },
@@ -1072,12 +1090,44 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       ).rejects.toThrow()
 
     // Exercise the real HTTP handler through separate, database-less client processes.
-    const httpTask = await createAgentTaskAction({
-      ...taskInput,
-      operationId: randomUUID(),
-      prompt:
-        'Read the assigned extraction and resolve the two-greenhouse ambiguity over the bridge.',
+    const automaticTasks = await Promise.all([
+      dispatchIntakeSourceAgentTask(sourceDispatchInput),
+      dispatchIntakeSourceAgentTask(sourceDispatchInput),
+    ])
+    expect(automaticTasks[0].status).toBe('COMPLETED')
+    expect(automaticTasks[0].runId).toBeTruthy()
+    expect(automaticTasks[1].runId).toBe(automaticTasks[0].runId)
+    expect(automaticTasks.filter((result) => result.replayed)).toHaveLength(1)
+    const httpTask = { run: { id: automaticTasks[0].runId! } }
+    expect(await db.agentRun.count({ where: { ...scope, operationId: sourceOutbox.id } })).toBe(1)
+    // Simulate the persisted retry deadline after a lost queue publication, without network.
+    await db.intakeSourceAgentDispatch.update({
+      where: sourceDispatchInput,
+      data: { nextAttemptAt: new Date(0) },
     })
+    expect(
+      await withTenantIsolationBypass(() => listPendingIntakeSourceAgentDispatches({ limit: 25 })),
+    ).toContainEqual(sourceDispatchInput)
+    await expect(dispatchIntakeSourceAgentTask(sourceDispatchInput)).resolves.toEqual({
+      status: 'COMPLETED',
+      runId: httpTask.run.id,
+      replayed: true,
+    })
+    expect(
+      await withTenantIsolationBypass(() => listPendingIntakeSourceAgentDispatches({ limit: 25 })),
+    ).not.toContainEqual(sourceDispatchInput)
+
+    expect(
+      await db.intakeSourceAgentDispatch.findFirst({ where: sourceDispatchInput }),
+    ).toMatchObject({
+      status: 'COMPLETED',
+      agentRunId: httpTask.run.id,
+      agentIdentityId: identityId,
+      policyRevision: 2,
+    })
+    expect(await db.agentRun.findFirst({ where: { id: httpTask.run.id, ...scope } })).toMatchObject(
+      { initiatedByType: 'SYSTEM' },
+    )
     const server = createServer(async (request, response) => {
       try {
         const headers = new Headers()

@@ -142,6 +142,7 @@ model ClientCreateIntentEvent {
 }
 
 model Tenant {
+  intakeSourceAgentDispatches IntakeSourceAgentDispatch[]
   intakeSourceAgentRoutingPolicies IntakeSourceAgentRoutingPolicy[]
   id                                        String                                      @id
   name                                      String
@@ -1442,6 +1443,7 @@ enum VenuePackageStatus {
 }
 
 model Venue {
+  intakeSourceAgentDispatches IntakeSourceAgentDispatch[]
   intakeSourceAgentRoutingPolicies IntakeSourceAgentRoutingPolicy[]
   id                                        String                                      @id @default(cuid())
   tenantId                                  String                                      @map("tenant_id")
@@ -2086,6 +2088,7 @@ model IntakeWebsiteResearchReceipt {
 /// upload. Extracted text is private review material and never grants package, approval, apply, or
 /// publication authority.
 model IntakeFileExtractionReceipt {
+  intakeSourceAgentDispatches IntakeSourceAgentDispatch[]
   id                       String                              @id @db.Uuid
   tenantId                 String                              @map("tenant_id")
   venueId                  String                              @map("venue_id")
@@ -2444,6 +2447,7 @@ model IntakeV1SubmissionMember {
 /// Durable progression state for one immutable V1 member. Website research and bounded file
 /// extraction are executable; extraction completion never grants mapping or publication approval.
 model IntakeV1ProcessingDispatch {
+  intakeSourceAgentDispatches IntakeSourceAgentDispatch[]
   id                      String                        @id @default(cuid())
   tenantId                String                        @map("tenant_id")
   venueId                 String                        @map("venue_id")
@@ -5726,6 +5730,7 @@ model AgentIdentity {
 }
 
 model AgentRun {
+  intakeSourceAgentDispatches IntakeSourceAgentDispatch[]
   id                        String                       @id @default(cuid())
   operationId               String?                      @map("operation_id") @db.Uuid
   tenantId                  String                       @map("tenant_id")
@@ -9559,4 +9564,31 @@ model IntakeSourceAgentRoutingPolicy {
   @@unique([id, tenantId, venueId], map: "intake_source_agent_routing_scope_key")
   @@index([agentIdentityId, tenantId], map: "intake_source_agent_routing_identity_idx")
   @@map("intake_source_agent_routing_policies")
+}
+
+/// Durable continuation after successful extraction; no task is created in the extraction transaction.
+model IntakeSourceAgentDispatch {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id")
+  venueId String @map("venue_id")
+  extractionDispatchId String @unique(map: "intake_source_agent_dispatch_extraction_key") @map("extraction_dispatch_id")
+  intakeRunId String @map("intake_run_id")
+  receiptId String @db.Uuid @map("receipt_id")
+  extractedTextHash String @db.Char(64) @map("extracted_text_hash")
+  status String @default("PENDING") @db.VarChar(16)
+  holdReason String? @map("hold_reason") @db.VarChar(64)
+  policyRevision Int? @map("policy_revision")
+  agentIdentityId String? @map("agent_identity_id")
+  agentRunId String? @map("agent_run_id")
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue Venue @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  extractionDispatch IntakeV1ProcessingDispatch @relation(fields: [extractionDispatchId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  receipt IntakeFileExtractionReceipt @relation(fields: [receiptId, tenantId, venueId, intakeRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun AgentRun? @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([id, tenantId, venueId], map: "intake_source_agent_dispatch_scope_key")
+  @@index([status, nextAttemptAt, id], map: "intake_source_agent_dispatch_ready_idx")
+  @@map("intake_source_agent_dispatches")
 }

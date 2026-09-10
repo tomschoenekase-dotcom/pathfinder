@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ process: vi.fn(), reconcile: vi.fn(), enabled: true }))
+const mocks = vi.hoisted(() => ({
+  process: vi.fn(),
+  reconcile: vi.fn(),
+  reconcileSourceDispatches: vi.fn(),
+  enabled: true,
+}))
 
 vi.mock('@pathfinder/config', () => ({ isFeatureEnabled: () => mocks.enabled }))
 vi.mock('@pathfinder/jobs', () => ({
@@ -19,6 +24,9 @@ vi.mock('./lib/isolated-runtime-readiness', () => ({
 vi.mock('./processors/intake-v1-file-extraction', () => ({
   processIntakeV1FileExtractionJob: mocks.process,
   reconcileIntakeV1FileExtractionJobs: mocks.reconcile,
+}))
+vi.mock('./processors/intake-source-agent-dispatch', () => ({
+  reconcileIntakeSourceAgentDispatches: mocks.reconcileSourceDispatches,
 }))
 
 import {
@@ -51,6 +59,10 @@ describe('V1 file extraction runtime queue boundary', () => {
       data: {},
     } as never)
     expect(mocks.reconcile).toHaveBeenCalledOnce()
+    expect(mocks.reconcileSourceDispatches).toHaveBeenCalledOnce()
+    expect(mocks.reconcile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.reconcileSourceDispatches.mock.invocationCallOrder[0]!,
+    )
     await expect(
       handleIntakeV1FileExtraction({ name: 'unknown', data: {} } as never),
     ).rejects.toThrow('Unsupported intake V1 file extraction job: unknown')
@@ -65,6 +77,8 @@ describe('V1 file extraction runtime queue boundary', () => {
       } as never),
     ).resolves.toBe('disabled')
     expect(mocks.process).not.toHaveBeenCalled()
+    expect(mocks.reconcile).not.toHaveBeenCalled()
+    expect(mocks.reconcileSourceDispatches).not.toHaveBeenCalled()
     await expect(createIntakeV1FileExtractionResources()).rejects.toThrow(
       'Intake V1 file extraction worker is disabled.',
     )
