@@ -1,3 +1,19 @@
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+
+-- Hold the source set stable until every claim and enforcement trigger is installed.
+-- Lock the proposal table first, before the foreign-key DDL and outcome tables, so
+-- ordinary proposal writers finish before the migration begins its source scan.
+LOCK TABLE "knowledge_change_proposals" IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE
+  "semantic_duplicate_resolutions",
+  "knowledge_proposal_package_handoffs",
+  "knowledge_proposal_operational_update_handoffs",
+  "knowledge_proposal_universal_content_handoffs",
+  "legacy_knowledge_universal_content_adoptions",
+  "semantic_conflict_resolutions"
+IN SHARE ROW EXCLUSIVE MODE;
+
 CREATE TABLE "semantic_proposal_outcome_claims" (
   "proposal_id" UUID NOT NULL,
   "tenant_id" TEXT NOT NULL,
@@ -213,3 +229,5 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+COMMIT;
