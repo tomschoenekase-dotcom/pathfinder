@@ -141,7 +141,9 @@ for (const width of [390, 768, 1280, 1440]) {
     await openConflict()
     await expect(page.getByRole('button', { name: 'Record resolution' })).toBeDisabled()
     await page.getByLabel(/Propose replacement/).check()
-    await page.getByLabel('Replacement content').fill('The Willow gallery closes at 6 PM.')
+    await page
+      .getByRole('textbox', { name: 'Replacement content', exact: true })
+      .fill('The Willow gallery closes at 6 PM.')
     await page
       .getByLabel('Resolution note')
       .fill('Use the signed sheet for a separately reviewed replacement.')
