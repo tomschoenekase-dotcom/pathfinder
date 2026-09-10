@@ -70,6 +70,9 @@ describe('portable agent worker registry', () => {
       { now, client },
     )
     expect(result.status).toBe('ONLINE')
+    expect(tx.agentWorker.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { workerKey: 'friend-hermes-01', tenantId: 'tenant_1' } }),
+    )
     expect(tx.agentWorker.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
