@@ -22,7 +22,9 @@ test('founder question queue supports fast evidence-backed triage without wideni
 
   await expect(page.locator('[data-fixture="founder-question-triage"]')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible()
-  await expect(page.getByText(/Showing 3 of 3 loaded open questions/)).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText(
+    'Showing 3 matching questions from 3 loaded open questions; additional older questions exist.',
+  )
   await expect(page.getByText(/additional older questions exist/)).toBeVisible()
 
   const foundational = page.getByText('Which building does the uploaded handbook describe?')
@@ -45,7 +47,9 @@ test('founder question queue supports fast evidence-backed triage without wideni
   await page.getByLabel('Dependency').selectOption('LOCAL')
   await expect(foundational).toBeHidden()
   await expect(page.getByText('Are the holiday café hours still current?')).toBeVisible()
-  await expect(page.getByText(/Showing 2 of 3 loaded open questions/)).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText(
+    'Showing 2 matching questions from 3 loaded open questions; additional older questions exist.',
+  )
   await page.getByLabel('Find a question').fill('River Room')
   await expect(page.getByText('Should “River Room” be retained as a public alias?')).toBeVisible()
   await expect(page.getByText('Are the holiday café hours still current?')).toBeHidden()
