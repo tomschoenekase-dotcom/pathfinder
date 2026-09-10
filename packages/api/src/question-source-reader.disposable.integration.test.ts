@@ -40,6 +40,7 @@ import { handleAgentBridgeHttpRequest } from './agent-bridge/http'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './mcp/registry'
 import { readMcpResource } from './mcp/read-actions'
 import { createPathfinderMcpAgentActions } from './mcp/agent-actions'
+import { writeSourceClarificationAmendment } from './mcp/source-amendment-writer'
 
 const enabled =
   process.env.RUN_QUESTION_SOURCE_READER_DB_INTEGRATION === '1' &&
@@ -142,6 +143,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         capabilities: [
           'agent-runs:execute',
           'intake-source:read',
+          'intake:draft',
           'questions:ask',
           'resources:read',
         ],
@@ -173,6 +175,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           capabilities: [
             'agent-runs:execute',
             'intake-source:read',
+            'intake:draft',
             'questions:ask',
             'resources:read',
           ],
@@ -788,6 +791,88 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       }),
     ).toBe(0)
 
+    const amendmentArgs = {
+      sessionId: bridgeSessionId,
+      venueId,
+      toolName: 'pathfinder.resolve_source_clarification',
+      executionClaim,
+      arguments: {
+        clientId: tenantId,
+        venueId,
+        agentRunId: runId,
+        agentIdentityId: identityId,
+        runId: intakeRunId,
+        receiptId,
+        requestId: resolutionInput.requestId,
+        expectedExtractedTextHash: extractedTextHash,
+        questionId: question.id,
+        expectedAnsweredAt: answered.answeredAt!.toISOString(),
+        kind: resolutionInput.kind,
+        amendedExcerpt: founderAnswer,
+        rationale: resolutionInput.rationale,
+      },
+    }
+    await expect(
+      bridge.callOperationalTool(amendmentArgs, {
+        credential: {
+          ...credential,
+          capabilities: credential.capabilities.filter((g) => g !== 'intake:draft'),
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      writeSourceClarificationAmendment(
+        db as never,
+        amendmentArgs.arguments,
+        {
+          credential,
+          executionClaim,
+        },
+        {
+          writeAuditLogStrict: async () => {
+            throw new Error('synthetic audit failure')
+          },
+        },
+      ),
+    ).rejects.toThrow('unavailable')
+    expect(
+      await db.intakeFileClarificationResolution.count({
+        where: { ...scope, questionId: question.id },
+      }),
+    ).toBe(0)
+    const amendment = await bridge.callOperationalTool(amendmentArgs, { credential })
+    expect(amendment.structuredContent!.data).toMatchObject({
+      replayed: false,
+      terminalReviewRequired: true,
+      canonicalVenueChanged: false,
+    })
+    const amendmentReplay = await bridge.callOperationalTool(amendmentArgs, { credential })
+    expect(amendmentReplay.structuredContent!.data).toMatchObject({ replayed: true })
+    const audit = await db.auditLog.findMany({
+      where: {
+        tenantId,
+        targetId: resolutionInput.requestId,
+        action: 'intake-file-clarification.agent-amendment-recorded',
+      },
+    })
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({
+      actorType: 'AGENT',
+      agentRunId: runId,
+      agentIdentityId: identityId,
+      workerId,
+    })
+    expect(JSON.stringify(audit)).not.toContain(founderAnswer)
+    await expect(
+      bridge.callOperationalTool(
+        {
+          ...amendmentArgs,
+          executionClaim: { ...executionClaim, executionLeaseToken: randomUUID() },
+        },
+        { credential },
+      ),
+    ).rejects.toThrow()
+
     const beforeComposedQuestion = await questionCount()
     const composed = await db.$transaction((tx) =>
       askAgentQuestionActionInTransaction(tx, localQuestionInput, { admitQuestion }),
@@ -1089,6 +1174,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       rationale: 'Disposable proof: terminal source review fences later worker reads.',
       createdBy: actorId,
     })
+    await expect(bridge.callOperationalTool(amendmentArgs, { credential })).rejects.toThrow()
     await expect(bridge.callOperationalTool(sourceArgs, { credential })).rejects.toThrow()
     await expect(
       bridge.callOperationalTool({ ...assignedSourceArgs, executionClaim }, { credential }),

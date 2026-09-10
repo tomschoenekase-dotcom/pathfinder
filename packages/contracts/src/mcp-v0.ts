@@ -1455,6 +1455,39 @@ const McpSourceOperatorQuestion = McpRequestedScope.extend({
 export const McpAskOperatorInput = z.union([McpGenericOperatorQuestion, McpSourceOperatorQuestion])
 export type McpAskOperatorInput = z.infer<typeof McpAskOperatorInput>
 
+export const McpResolveSourceClarificationInput = McpRequestedScope.extend({
+  venueId: Identifier,
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  requestId: z.string().uuid(),
+  runId: z.string().trim().min(1).max(191),
+  receiptId: z.string().uuid(),
+  expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  questionId: Identifier,
+  expectedAnsweredAt: z.string().datetime({ offset: true }),
+  kind: z.enum(['REPLACE_EXCERPT', 'EXCLUDE_EVIDENCE']),
+  amendedExcerpt: z.string().trim().min(1).max(2_000).optional(),
+  rationale: z.string().trim().min(1).max(500),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (value.kind === 'REPLACE_EXCERPT' && value.amendedExcerpt === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amendedExcerpt'],
+        message: 'amendedExcerpt is required when replacing source evidence.',
+      })
+    }
+    if (value.kind === 'EXCLUDE_EVIDENCE' && value.amendedExcerpt !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amendedExcerpt'],
+        message: 'amendedExcerpt is only accepted when replacing source evidence.',
+      })
+    }
+  })
+export type McpResolveSourceClarificationInput = z.infer<typeof McpResolveSourceClarificationInput>
+
 export const McpDelegateSpecialistInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   parentAgentRunId: Identifier,
@@ -1553,6 +1586,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.integrations.health'
   | 'torchiko.reports.get_lifecycle'
   | 'pathfinder.ask_operator'
+  | 'pathfinder.resolve_source_clarification'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
@@ -3601,6 +3635,61 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'questions:ask', 'interaction') },
+  },
+  {
+    name: 'pathfinder.resolve_source_clarification',
+    title: 'Resolve a source clarification',
+    description:
+      'Record one bounded amendment as retained evidence for an answered intake-source clarification. It does not review, approve, apply, or publish content.',
+    inputSchema: {
+      ...strictObject(
+        {
+          ...scopeProperties,
+          agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+          agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+          requestId: { type: 'string', format: 'uuid' },
+          runId: { type: 'string', minLength: 1, maxLength: 191 },
+          receiptId: { type: 'string', format: 'uuid' },
+          expectedExtractedTextHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          questionId: { type: 'string', minLength: 1, maxLength: 120 },
+          expectedAnsweredAt: { type: 'string', format: 'date-time' },
+          kind: { type: 'string', enum: ['REPLACE_EXCERPT', 'EXCLUDE_EVIDENCE'] },
+          amendedExcerpt: { type: 'string', minLength: 1, maxLength: 2000 },
+          rationale: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        [
+          ...scopeRequired,
+          'agentIdentityId',
+          'agentRunId',
+          'requestId',
+          'runId',
+          'receiptId',
+          'expectedExtractedTextHash',
+          'questionId',
+          'expectedAnsweredAt',
+          'kind',
+          'rationale',
+        ],
+      ),
+      oneOf: [
+        {
+          properties: { kind: { const: 'REPLACE_EXCERPT' } },
+          required: ['amendedExcerpt'],
+        },
+        {
+          properties: { kind: { const: 'EXCLUDE_EVIDENCE' } },
+          not: { required: ['amendedExcerpt'] },
+        },
+      ],
+    },
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'intake:draft', 'interaction') },
   },
   {
     name: 'pathfinder.delegate_specialist',

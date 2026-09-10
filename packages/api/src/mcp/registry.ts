@@ -34,6 +34,7 @@ import {
   McpMeetingProcessInput,
   McpReportLifecycleInput,
   McpReadInput,
+  McpResolveSourceClarificationInput,
   McpSupportDraftInput,
   McpSupportOpenInput,
   McpSupportInternalNoteInput,
@@ -113,6 +114,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.integrations.health'
         | 'torchiko.reports.get_lifecycle'
         | 'pathfinder.ask_operator'
+        | 'pathfinder.resolve_source_clarification'
         | 'pathfinder.delegate_specialist'
         | 'pathfinder.propose_billing_action'
       >
@@ -281,6 +283,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   askOperator: (
     input: McpAskOperatorInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  resolveSourceClarification?: (
+    input: McpResolveSourceClarificationInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   delegateSpecialist: (
@@ -762,6 +768,21 @@ export function createPathfinderMcpRegistry(
           result = await actions.askOperator(input, context)
           break
         }
+        case 'pathfinder.resolve_source_clarification': {
+          const input = McpResolveSourceClarificationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          assertMcpScope(context.credential, input, 'intake-source:read', 'venue')
+          assertMcpScope(context.credential, input, 'agent-runs:execute', 'venue')
+          if (!context.executionClaim || context.executionClaim.agentRunId !== input.agentRunId)
+            throw new Error(
+              'Source clarification resolution requires an exact worker execution claim',
+            )
+          await options.beforeAction?.(name, input, context)
+          if (!actions.resolveSourceClarification)
+            throw new Error('Source clarification resolution is unavailable')
+          result = await actions.resolveSourceClarification(input, context)
+          break
+        }
         case 'pathfinder.delegate_specialist': {
           const input = McpDelegateSpecialistInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -959,6 +980,7 @@ async function verifyApproval(
     | 'torchiko.integrations.health'
     | 'torchiko.reports.get_lifecycle'
     | 'pathfinder.ask_operator'
+    | 'pathfinder.resolve_source_clarification'
     | 'pathfinder.delegate_specialist'
     | 'pathfinder.propose_billing_action'
     | 'pathfinder.propose_support_package_application'

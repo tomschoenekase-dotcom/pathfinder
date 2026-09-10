@@ -380,7 +380,8 @@ export function createAgentBridgeRegistry(
         (input.toolName === 'pathfinder.read' &&
           ['question-source', 'assigned-source'].includes(input.arguments.resource as string)) ||
         (input.toolName === 'pathfinder.ask_operator' &&
-          input.arguments.sourceClarification !== undefined)
+          input.arguments.sourceClarification !== undefined) ||
+        input.toolName === 'pathfinder.resolve_source_clarification'
       if (
         questionSource &&
         (!input.venueId ||

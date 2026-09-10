@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMcpScope,
   McpReadInput,
+  McpResolveSourceClarificationInput,
   McpAskOperatorInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
@@ -799,6 +800,60 @@ describe('source-bound operator question contract', () => {
       }),
     ).toMatchObject({ blocking: true, choices: [] })
     expect(McpAskOperatorInput.safeParse(generic).success).toBe(false)
+  })
+})
+
+describe('source clarification resolution contract', () => {
+  const input = {
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'agent-run-1',
+    requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    runId: 'intake-run-1',
+    receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    expectedExtractedTextHash: 'a'.repeat(64),
+    questionId: 'question-1',
+    expectedAnsweredAt: '2026-09-10T12:00:00.000Z',
+    kind: 'REPLACE_EXCERPT' as const,
+    amendedExcerpt: 'The east greenhouse is a separate structure.',
+    rationale: 'The operator clarified the ambiguous source excerpt.',
+  }
+
+  it('accepts only the bounded amendment shape and publishes matching draft metadata', () => {
+    expect(McpResolveSourceClarificationInput.parse(input)).toEqual(input)
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'pathfinder.resolve_source_clarification',
+    )!
+    expect(definition._meta['com.pathfinder/security']).toMatchObject({
+      scope: 'venue',
+      capability: 'intake:draft',
+      effect: 'interaction',
+      approvalRequired: false,
+    })
+    expect(definition.description).toContain('does not review, approve, apply, or publish')
+  })
+
+  it('requires amended text only for replacement and rejects unbounded or unknown input', () => {
+    expect(
+      McpResolveSourceClarificationInput.safeParse({
+        ...input,
+        kind: 'EXCLUDE_EVIDENCE',
+        amendedExcerpt: undefined,
+      }).success,
+    ).toBe(true)
+    for (const invalid of [
+      { ...input, amendedExcerpt: undefined },
+      { ...input, kind: 'EXCLUDE_EVIDENCE', amendedExcerpt: 'forged replacement' },
+      { ...input, requestId: 'not-a-uuid' },
+      { ...input, expectedExtractedTextHash: 'wrong' },
+      { ...input, venueId: undefined },
+      { ...input, expectedAnsweredAt: 'yesterday' },
+      { ...input, rationale: ' ' },
+      { ...input, amendedExcerpt: 'x'.repeat(2001) },
+      { ...input, publish: true },
+    ])
+      expect(McpResolveSourceClarificationInput.safeParse(invalid).success).toBe(false)
   })
 })
 

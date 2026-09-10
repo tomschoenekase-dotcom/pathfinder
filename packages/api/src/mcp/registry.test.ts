@@ -1168,3 +1168,63 @@ it('requires source grants and exact claim before dispatching source questions',
     expect.objectContaining({ executionClaim }),
   )
 })
+
+it('requires source grants and an exact outer claim before resolving a source clarification', async () => {
+  const domain: PathfinderMcpDomainActions = {
+    ...actions(),
+    resolveSourceClarification: vi.fn().mockResolvedValue({
+      kind: 'test',
+      summary: 'Resolved',
+      data: { id: 'resolution-1' },
+    }),
+  }
+  const registry = createPathfinderMcpRegistry(domain)
+  const input = {
+    clientId: 'client-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'run-1',
+    requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    runId: 'intake-run-1',
+    receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    expectedExtractedTextHash: 'a'.repeat(64),
+    questionId: 'question-1',
+    expectedAnsweredAt: '2026-09-10T12:00:00.000Z',
+    kind: 'EXCLUDE_EVIDENCE' as const,
+    rationale: 'The operator confirmed this evidence should be excluded.',
+  }
+  const allowed: VerifiedMcpCredentialScope = {
+    ...credential,
+    capabilities: [
+      ...credential.capabilities,
+      'intake:draft',
+      'intake-source:read',
+      'agent-runs:execute',
+    ],
+  }
+  const executionClaim = {
+    agentRunId: 'run-1',
+    bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    workerId: 'worker-1',
+    executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  }
+
+  for (const context of [
+    { credential },
+    { credential: allowed },
+    { credential: allowed, executionClaim: { ...executionClaim, agentRunId: 'other-run' } },
+  ])
+    await expect(
+      registry.callTool('pathfinder.resolve_source_clarification', input, context),
+    ).rejects.toThrow()
+  expect(domain.resolveSourceClarification).not.toHaveBeenCalled()
+
+  await registry.callTool('pathfinder.resolve_source_clarification', input, {
+    credential: allowed,
+    executionClaim,
+  })
+  expect(domain.resolveSourceClarification).toHaveBeenCalledWith(
+    input,
+    expect.objectContaining({ executionClaim }),
+  )
+})

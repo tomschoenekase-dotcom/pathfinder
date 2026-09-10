@@ -6,6 +6,7 @@ import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import type { PathfinderMcpDomainActions } from './registry'
 import { writeSourceClarificationQuestion } from './source-question-writer'
+import { writeSourceClarificationAmendment } from './source-amendment-writer'
 
 /** Adds the first durable agent-to-operator interaction without adding transport or execution. */
 export function createPathfinderMcpAgentActions(
@@ -14,6 +15,14 @@ export function createPathfinderMcpAgentActions(
 ): PathfinderMcpDomainActions {
   return {
     ...remainingActions,
+    async resolveSourceClarification(input, context) {
+      const result = await writeSourceClarificationAmendment(db as never, input, context)
+      return {
+        kind: 'pathfinder.source-clarification-resolution',
+        summary: 'Source amendment retained for terminal human review.',
+        data: { ...result, createdAt: result.createdAt.toISOString() },
+      }
+    },
     async proposeBillingAction(input, context) {
       const payload =
         input.action === 'CREATE_NEGOTIATED_CHECKOUT'
