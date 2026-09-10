@@ -3,9 +3,15 @@ import { z } from 'zod'
 import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
+import { CreateLegacyKnowledgeAdoptionDraftInput } from '@pathfinder/contracts/legacy-knowledge-adoption'
 import { CreateSemanticUniversalContentDraftInput } from '@pathfinder/contracts/universal-content-actions'
 
 import { router } from '../../core'
+import { createLegacyKnowledgeAdoptionDraftService } from '../../lib/legacy-knowledge-adoption-service'
+import {
+  LegacyKnowledgeAdoptionPreparationInput,
+  prepareLegacyKnowledgeAdoptionDraftService,
+} from '../../lib/legacy-knowledge-adoption-preparation'
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
 import { createSemanticUniversalContentDraftService } from '../../lib/semantic-universal-content-handoff-service'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
@@ -29,6 +35,31 @@ const SemanticOperationalUpdateDesiredKnowledge = SemanticUpdaterDesiredKnowledg
   title: z.string().trim().min(1).max(60),
   content: z.string().trim().min(1).max(300),
 })
+
+const AdminCreateLegacyKnowledgeAdoptionDraftInput =
+  CreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
+    const payload = input.draft.payload
+    const matchesDesired =
+      payload.kind === 'POLICY'
+        ? payload.title === input.desired.title && payload.rule === input.desired.content
+        : payload.kind === 'ITEM'
+          ? payload.name === input.desired.title && payload.description === input.desired.content
+          : payload.kind === 'SERVICE'
+            ? payload.name === input.desired.title && payload.description === input.desired.content
+            : payload.kind === 'EVENT'
+              ? payload.name === input.desired.title &&
+                payload.description === input.desired.content
+              : payload.kind === 'OPERATIONAL_FACT'
+                ? payload.label === input.desired.title && payload.value === input.desired.content
+                : false
+    if (!matchesDesired) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draft', 'payload'],
+        message: 'Draft payload text must exactly match the approved semantic change.',
+      })
+    }
+  })
 
 const operationalUpdateHandoffSelect = {
   previewHash: true,
@@ -99,6 +130,28 @@ function exactOperationalDraftFromHandoff(
 }
 
 export const adminKnowledgeProposalDraftRouter = router({
+  prepareLegacyKnowledgeAdoptionDraft: adminProcedure
+    .input(LegacyKnowledgeAdoptionPreparationInput)
+    .query(({ ctx, input }) => prepareLegacyKnowledgeAdoptionDraftService({ db: ctx.db, input })),
+  createLegacyKnowledgeAdoptionDraft: adminProcedure
+    .input(AdminCreateLegacyKnowledgeAdoptionDraftInput)
+    .mutation(async ({ ctx, input }) => {
+      const result = await createLegacyKnowledgeAdoptionDraftService({
+        db: ctx.db,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input,
+      })
+      return {
+        moduleId: result.moduleId,
+        revisionId: result.revisionId,
+        version: result.version,
+        draftHash: result.draftHash,
+        legacySnapshotHash: result.legacySnapshotHash,
+        replayed: result.replayed,
+        requiresExplicitPublication: true as const,
+        autoPublished: false as const,
+      }
+    }),
   createSemanticUniversalContentDraft: adminProcedure
     .input(
       CreateSemanticUniversalContentDraftInput.extend({ desired: SemanticUpdaterDesiredKnowledge }),

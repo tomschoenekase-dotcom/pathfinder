@@ -9,7 +9,7 @@ import {
 } from '@pathfinder/db'
 
 import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
-import { legacyKnowledgeSnapshotHash } from './legacy-knowledge-adoption'
+import { prepareLegacyKnowledgeAdoptionDraftService } from './legacy-knowledge-adoption-preparation'
 import { createLegacyKnowledgeAdoptionDraftService } from './legacy-knowledge-adoption-service'
 import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
 
@@ -79,37 +79,21 @@ describe.skipIf(!enabled)('legacy knowledge adoption on disposable PostgreSQL', 
         relation: 'CORRECTS',
         desired,
       })
-      const sourceSnapshot = {
-        id: legacy.id,
-        title: legacy.title,
-        category: legacy.category,
-        content: legacy.content,
-        isEnabled: legacy.isEnabled,
-        visibility: legacy.visibility,
-        sourceType: legacy.sourceType,
-        authorship: legacy.authorship,
-        sourceName: legacy.sourceName,
-        sourceUrl: legacy.sourceUrl,
-        importedAt: legacy.importedAt?.toISOString() ?? null,
-        humanConfirmedAt: legacy.humanConfirmedAt?.toISOString() ?? null,
-        humanConfirmedBy: legacy.humanConfirmedBy,
-        lastReviewedAt: legacy.lastReviewedAt?.toISOString() ?? null,
-        lastReviewedBy: legacy.lastReviewedBy,
-        sourcePackageId: legacy.sourcePackageId,
-        createdAt: legacy.createdAt.toISOString(),
-        updatedAt: legacy.updatedAt.toISOString(),
-      }
+      const prepared = await prepareLegacyKnowledgeAdoptionDraftService({
+        db,
+        input: {
+          tenantId,
+          venueId,
+          proposalId: proposal.id,
+          expectedUpdatedAt: proposal.updatedAt,
+          relation: 'CORRECTS',
+          desired,
+        },
+      })
+      expect(prepared.expectedPreviewHash).toBe(preview.previewHash)
+      expect(prepared.legacyKnowledgeEntryId).toBe(legacy.id)
       const input = {
-        tenantId,
-        venueId,
-        proposalId: proposal.id,
-        legacyKnowledgeEntryId: legacy.id,
-        expectedProposalUpdatedAt: proposal.updatedAt.toISOString(),
-        expectedPreviewHash: preview.previewHash,
-        expectedLegacyUpdatedAt: legacy.updatedAt.toISOString(),
-        expectedLegacySnapshotHash: legacyKnowledgeSnapshotHash(sourceSnapshot),
-        relation: 'CORRECTS' as const,
-        desired,
+        ...prepared,
         draft: {
           audience: 'PUBLIC' as const,
           evidence: [
@@ -126,6 +110,26 @@ describe.skipIf(!enabled)('legacy knowledge adoption on disposable PostgreSQL', 
           },
         },
       }
+      await expect(
+        prepareLegacyKnowledgeAdoptionDraftService({
+          db,
+          input: {
+            tenantId,
+            venueId: `${venueId}-other`,
+            proposalId: proposal.id,
+            expectedUpdatedAt: proposal.updatedAt,
+            relation: 'CORRECTS',
+            desired,
+          },
+        }),
+      ).rejects.toThrow()
+      await expect(
+        createLegacyKnowledgeAdoptionDraftService({
+          db,
+          actor,
+          input: { ...input, expectedLegacySnapshotHash: '0'.repeat(64) },
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
       const race = await Promise.all([
         createLegacyKnowledgeAdoptionDraftService({ db, actor, input }),
         createLegacyKnowledgeAdoptionDraftService({ db, actor, input }),
@@ -189,6 +193,14 @@ describe.skipIf(!enabled)('legacy knowledge adoption on disposable PostgreSQL', 
       })
       expect(afterPublish.entries.map(({ id }) => id)).not.toContain(legacy.id)
       expect(afterPublish.entries).toHaveLength(1)
+      const replayAfterPublish = await createLegacyKnowledgeAdoptionDraftService({
+        db,
+        actor,
+        input,
+      })
+      expect(replayAfterPublish.replayed).toBe(true)
+      expect(replayAfterPublish.revisionId).toBe(adopted.revisionId)
+      expect(await db.contentModuleRevision.count({ where: { tenantId, venueId } })).toBe(1)
 
       await withdrawUniversalContentAction({
         db,

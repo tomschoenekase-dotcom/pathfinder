@@ -21,7 +21,7 @@ type Receipt = {
   draftHash: string
 }
 
-const legacySelect = {
+export const legacySelect = {
   id: true,
   title: true,
   category: true,
@@ -45,8 +45,10 @@ const legacySelect = {
   updatedAt: true,
 } as const
 
-function snapshot(
-  row: Awaited<ReturnType<typeof loadLegacy>> extends infer T ? NonNullable<T> : never,
+export function legacyKnowledgeSnapshot(
+  row: Awaited<ReturnType<typeof loadLegacyKnowledgeEntry>> extends infer T
+    ? NonNullable<T>
+    : never,
 ) {
   return {
     id: row.id,
@@ -70,7 +72,10 @@ function snapshot(
   }
 }
 
-async function loadLegacy(db: ScopedDb, scope: { tenantId: string; venueId: string; id: string }) {
+export async function loadLegacyKnowledgeEntry(
+  db: ScopedDb,
+  scope: { tenantId: string; venueId: string; id: string },
+) {
   return db.venueKnowledgeEntry.findFirst({ where: scope, select: legacySelect })
 }
 
@@ -122,7 +127,7 @@ export async function createLegacyKnowledgeAdoptionDraftService(params: {
       message: 'The exact targeted proposal is not approved.',
     })
   }
-  const source = await loadLegacy(params.db, {
+  const source = await loadLegacyKnowledgeEntry(params.db, {
     tenantId: input.tenantId,
     venueId: input.venueId,
     id: input.legacyKnowledgeEntryId,
@@ -135,7 +140,7 @@ export async function createLegacyKnowledgeAdoptionDraftService(params: {
       message: 'The knowledge source is already native.',
     })
   }
-  const sourceSnapshot = snapshot(source)
+  const sourceSnapshot = legacyKnowledgeSnapshot(source)
   const sourceHash = legacyKnowledgeSnapshotHash(sourceSnapshot)
   if (
     source.updatedAt.getTime() !== legacyUpdatedAt.getTime() ||
@@ -202,15 +207,18 @@ export async function createLegacyKnowledgeAdoptionDraftService(params: {
   }
   const precondition = async (rawTx: unknown) => {
     const tx = rawTx as ScopedDb
-    const current = await loadLegacy(tx, {
+    const current = await loadLegacyKnowledgeEntry(tx, {
       tenantId: input.tenantId,
       venueId: input.venueId,
       id: input.legacyKnowledgeEntryId,
     })
     if (
       !current ||
+      current.contentModuleId ||
+      current.contentRevisionId ||
+      current.contentPublicationId ||
       current.updatedAt.getTime() !== legacyUpdatedAt.getTime() ||
-      legacyKnowledgeSnapshotHash(snapshot(current)) !== sourceHash
+      legacyKnowledgeSnapshotHash(legacyKnowledgeSnapshot(current)) !== sourceHash
     ) {
       throw new TRPCError({ code: 'CONFLICT', message: 'Legacy knowledge source changed.' })
     }
