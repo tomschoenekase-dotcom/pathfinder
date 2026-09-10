@@ -35,7 +35,7 @@ BEGIN
  PERFORM 1 FROM "agent_questions" q WHERE q.id=NEW.question_id AND q.tenant_id=NEW.tenant_id AND q.venue_id=NEW.venue_id
   AND q.status='ANSWERED' AND q.updated_at=NEW.question_updated_at AND q.answered_at=NEW.answered_at
   AND q.answered_by_id IS NOT NULL AND q.answer IS NOT NULL
-  AND encode(digest(convert_to(q.answer,'UTF8'),'sha256'),'hex')=NEW.answer_hash
+  AND pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(q.answer,'UTF8')),'hex')=NEW.answer_hash
   AND q.callback_metadata->>'workflow'='semantic-venue-update'
   AND q.callback_metadata->>'proposalId'=NEW.proposal_id::text
   AND q.callback_metadata->>'previewHash'=NEW.preview_hash
