@@ -70,6 +70,90 @@ describe('semantic venue updater', () => {
     })
   })
 
+  it.each(['CORRECTS', 'SUPERSEDES'] as const)(
+    'does not let another exact match hide a targeted %s',
+    (relation) => {
+      const result = buildSemanticVenueUpdate(
+        { ...base, relation, targetKnowledgeEntryId: current.id, desired: changedHours },
+        [current, { ...current, ...changedHours, id: 'cm22345678901234567890123' }],
+      )
+      expect(result.classification).toBe(relation === 'CORRECTS' ? 'CORRECTION' : 'SUPERSESSION')
+      expect(result.duplicateMatch).toBeNull()
+      expect(result.operationCount).toBe(1)
+    },
+  )
+
+  it('does not let another exact match hide a missing explicit target', () => {
+    const result = buildSemanticVenueUpdate(
+      {
+        ...base,
+        relation: 'CORRECTS',
+        targetKnowledgeEntryId: 'missing',
+        desired: {
+          title: current.title,
+          category: current.category,
+          content: current.content,
+          isEnabled: true,
+        },
+      },
+      [current],
+    )
+    expect(result.classification).toBe('CONFLICT')
+    expect(result.blockers).toContainEqual(expect.objectContaining({ code: 'TARGET_NOT_FOUND' }))
+    expect(result.duplicateMatch).toBeNull()
+  })
+
+  it('binds a targeted duplicate to that target even when another equal row sorts first', () => {
+    const result = buildSemanticVenueUpdate(
+      {
+        ...base,
+        relation: 'CORRECTS',
+        targetKnowledgeEntryId: current.id,
+        desired: {
+          title: current.title,
+          category: current.category,
+          content: current.content,
+          isEnabled: true,
+        },
+      },
+      [{ ...current, id: 'a-first' }, current],
+    )
+    expect(result.classification).toBe('DUPLICATE_NOOP')
+    expect(result.duplicateMatch?.knowledgeEntryId).toBe(current.id)
+  })
+
+  it('binds duplicate preview identity to deterministic exact canonical bytes', () => {
+    const desired = {
+      title: current.title,
+      category: current.category,
+      content: current.content,
+      isEnabled: true,
+    }
+    const preview = (entries: (typeof current)[]) =>
+      buildSemanticVenueUpdate({ ...base, desired }, entries)
+    const other = { ...current, id: 'z-last' }
+    const original = preview([other, current])
+    expect(preview([current, other]).previewHash).toBe(original.previewHash)
+    expect(original.duplicateMatch?.knowledgeEntryId).toBe(current.id)
+    expect(preview([other]).previewHash).not.toBe(original.previewHash)
+    const recased = preview([{ ...current, title: current.title.toUpperCase() }])
+    expect(recased.classification).toBe('DUPLICATE_NOOP')
+    expect(recased.previewHash).not.toBe(original.previewHash)
+    expect(recased.duplicateMatch?.snapshotHash).not.toBe(original.duplicateMatch?.snapshotHash)
+    expect(
+      buildSemanticVenueUpdate({ ...base, desired, venueId: 'another-venue' }, [current])
+        .previewHash,
+    ).not.toBe(original.previewHash)
+    expect(
+      buildSemanticVenueUpdate(
+        { ...base, desired: { ...desired, content: desired.content.toUpperCase() } },
+        [current],
+      ).previewHash,
+    ).not.toBe(original.previewHash)
+    expect(original.operationCount).toBe(0)
+    expect(original.autoApply).toBe(false)
+  })
+
   it.each([
     ['CORRECTS', 'CORRECTION'],
     ['SUPERSEDES', 'SUPERSESSION'],

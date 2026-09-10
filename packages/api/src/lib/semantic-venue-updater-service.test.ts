@@ -105,6 +105,64 @@ describe('previewSemanticVenueUpdateFromProposal', () => {
     })
   })
 
+  it('retains the exact proposal target when another scoped row already matches the desired correction', async () => {
+    const fixture = dbFixture()
+    fixture.current.push({
+      ...fixture.current[0]!,
+      id: 'cm22345678901234567890123',
+      content: fixture.proposal.proposedChange,
+    })
+    const result = await previewSemanticVenueUpdateFromProposal({
+      db: fixture.db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      proposalId: fixture.proposal.id,
+      expectedUpdatedAt: updatedAt,
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Museum hours',
+        category: 'HOURS',
+        content: fixture.proposal.proposedChange,
+        isEnabled: true,
+      },
+    })
+    expect(result.classification).toBe('CORRECTION')
+    expect(result.targetKnowledgeEntryId).toBe(fixture.proposal.targetKnowledgeEntryId)
+    expect(result.duplicateMatch).toBeNull()
+  })
+
+  it('returns a distinct matched identity for untargeted duplicate previews and refreshes after canonical drift', async () => {
+    const fixture = dbFixture()
+    fixture.proposalFindFirst.mockResolvedValue({
+      ...fixture.proposal,
+      targetKnowledgeEntryId: null,
+    })
+    const input = {
+      db: fixture.db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      proposalId: fixture.proposal.id,
+      expectedUpdatedAt: updatedAt,
+      relation: 'NEW_FACT' as const,
+      desired: {
+        title: 'Museum hours',
+        category: 'HOURS',
+        content: fixture.current[0]!.content,
+        isEnabled: true,
+      },
+    }
+    const first = await previewSemanticVenueUpdateFromProposal(input)
+    expect(first.classification).toBe('DUPLICATE_NOOP')
+    expect(first.targetKnowledgeEntryId).toBeNull()
+    expect(first.duplicateMatch?.knowledgeEntryId).toBe(fixture.current[0]!.id)
+    fixture.current[0]!.content = fixture.current[0]!.content.toUpperCase()
+    const changed = await previewSemanticVenueUpdateFromProposal(input)
+    expect(changed.classification).toBe('DUPLICATE_NOOP')
+    expect(changed.previewHash).not.toBe(first.previewHash)
+    expect(changed.duplicateMatch?.snapshotHash).not.toBe(first.duplicateMatch?.snapshotHash)
+    expect(changed.operationCount).toBe(0)
+  })
+
   it('retains all six change classes through the proposal/current-truth service boundary', async () => {
     const cases = [
       {

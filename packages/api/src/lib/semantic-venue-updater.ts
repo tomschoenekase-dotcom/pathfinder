@@ -157,10 +157,17 @@ export function buildSemanticVenueUpdate(
   const evidenceRefs = rankedEvidence.map(
     (item) => `source-evidence:${item.id}:${item.normalizedHash}`,
   )
-  const exactMatch = currentEntries.find((entry) => sameKnowledge(entry, input.desired))
   const target = input.targetKnowledgeEntryId
     ? currentEntries.find((entry) => entry.id === input.targetKnowledgeEntryId)
     : undefined
+  // A match elsewhere cannot discharge an explicit correction of a different target.
+  const exactMatch = input.targetKnowledgeEntryId
+    ? target && sameKnowledge(target, input.desired)
+      ? target
+      : undefined
+    : [...currentEntries]
+        .filter((entry) => sameKnowledge(entry, input.desired))
+        .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0]
   const logicalMatches = currentEntries.filter((entry) => sameLogicalKey(entry, input.desired))
   const blockers: SemanticUpdaterBlocker[] = []
 
@@ -280,11 +287,40 @@ export function buildSemanticVenueUpdate(
         }
       : null
 
+  // Retain exact bytes and authority, even when normalized text compares equal.
+  // This is preview identity only; it does not constitute a durable reviewed outcome.
+  const duplicateMatch =
+    classification === 'DUPLICATE_NOOP' && exactMatch
+      ? {
+          knowledgeEntryId: exactMatch.id,
+          snapshotHash: createHash('sha256')
+            .update(
+              JSON.stringify({
+                id: exactMatch.id,
+                title: exactMatch.title,
+                category: exactMatch.category,
+                content: exactMatch.content,
+                isEnabled: exactMatch.isEnabled,
+                authority: exactMatch.authority,
+              }),
+            )
+            .digest('hex'),
+        }
+      : null
+
   const previewHash = createHash('sha256')
     .update(
       JSON.stringify({
         schemaVersion: 1,
         classification,
+        ...(duplicateMatch
+          ? {
+              duplicateMatch,
+              venueId: input.venueId,
+              relation: input.relation,
+              desired: input.desired,
+            }
+          : {}),
         confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
         authority: primary.authority,
         targetKnowledgeEntryId: target?.id ?? null,
@@ -299,6 +335,7 @@ export function buildSemanticVenueUpdate(
   return {
     schemaVersion: 1 as const,
     previewHash,
+    duplicateMatch,
     classification,
     confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
     authority: primary.authority,
