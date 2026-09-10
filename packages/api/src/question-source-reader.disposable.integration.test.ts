@@ -41,6 +41,7 @@ import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './
 import { readMcpResource } from './mcp/read-actions'
 import { createPathfinderMcpAgentActions } from './mcp/agent-actions'
 import { writeSourceClarificationAmendment } from './mcp/source-amendment-writer'
+import { buildIntakeVenuePackageCandidate } from './lib/intake-venue-package-candidate'
 
 const enabled =
   process.env.RUN_QUESTION_SOURCE_READER_DB_INTEGRATION === '1' &&
@@ -1172,6 +1173,60 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       )
     }
     expect(server.listening).toBe(false)
+
+    // Explicit synthetic human review consumes both worker-produced amendments. Roll back
+    // this branch so the independent rejection/terminal-read proof below retains its coverage.
+    await expect(
+      db.$transaction(async (tx) => {
+        const review = await reviewIntakeFileExtractionAction(
+          {
+            operationId: randomUUID(),
+            ...scope,
+            sourceRunId: intakeRunId,
+            receiptId,
+            expectedExtractedTextHash: extractedTextHash,
+            decision: 'ACCEPTED_FOR_PROPOSAL',
+            proposalTitle: 'Reviewed greenhouse identities and auditorium capacity',
+            proposalNotes: `${founderAnswer} The auditorium capacity is 137.`,
+            rationale: 'Synthetic human review of the exact worker amendment lineage.',
+            createdBy: actorId,
+          },
+          {
+            $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+          } as never,
+        )
+        expect(review).toMatchObject({
+          proposalCreated: true,
+          packageDraftCreated: false,
+          autoApproved: false,
+        })
+        const storedReview = await tx.intakeFileExtractionReview.findFirstOrThrow({
+          where: { ...scope, receiptId },
+        })
+        expect(storedReview.clarificationResolutionCount).toBe(2)
+        expect(storedReview.clarificationResolutionDigest).toMatch(/^[a-f0-9]{64}$/u)
+        const candidate = await buildIntakeVenuePackageCandidate({
+          db: tx as never,
+          ...scope,
+          runId: storedReview.proposalRunId!,
+        })
+        expect(candidate).toMatchObject({
+          ready: true,
+          autoApprove: false,
+          autoApply: false,
+          published: false,
+        })
+        expect(candidate.payload?.knowledgeEntries.create).toEqual([
+          expect.objectContaining({
+            value: expect.objectContaining({
+              content: `${founderAnswer} The auditorium capacity is 137.`,
+            }),
+          }),
+        ])
+        throw new Error('rollback synthetic review branch')
+      }),
+    ).rejects.toThrow('rollback synthetic review branch')
+    expect(await db.intakeFileExtractionReview.count({ where: { ...scope, receiptId } })).toBe(0)
 
     const runless = await createFileExtractionClarificationQuestion(
       input({
