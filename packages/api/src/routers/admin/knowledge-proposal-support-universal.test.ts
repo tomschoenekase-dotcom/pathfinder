@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   resolveEvidence: vi.fn(),
+  resolveAuthoringState: vi.fn(),
   createUniversalDraft: vi.fn(),
   adoptionFind: vi.fn(),
   atomicAdoptionFind: vi.fn(),
@@ -26,6 +27,9 @@ vi.mock('../../lib/semantic-universal-content-handoff-service', () => ({
 }))
 vi.mock('../../lib/semantic-operational-update-finalizer', () => ({
   semanticOperationalUpdateDraftFinalizer: vi.fn(),
+}))
+vi.mock('../../lib/support-proposal-authoring-state', () => ({
+  resolveSupportProposalAuthoringState: mocks.resolveAuthoringState,
 }))
 vi.mock('../../lib/support-proposal-content-evidence', () => ({
   resolveSupportProposalContentEvidence: mocks.resolveEvidence,
@@ -258,5 +262,37 @@ describe('createSupportSemanticUniversalContentDraft', () => {
       app.createCaller(context(false)).admin.createSupportSemanticUniversalContentDraft(input),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(mocks.resolveEvidence).not.toHaveBeenCalled()
+  })
+})
+
+describe('getSupportProposalAuthoringState', () => {
+  it('passes only the exact scoped proposal and version to the read-only resolver', async () => {
+    const stateInput = {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      proposalId: input.proposalId,
+      expectedUpdatedAt: new Date(input.expectedProposalUpdatedAt),
+    }
+    mocks.resolveAuthoringState.mockResolvedValueOnce({ state: 'NO_TARGET' })
+    await expect(
+      app.createCaller(context()).admin.getSupportProposalAuthoringState(stateInput),
+    ).resolves.toEqual({ state: 'NO_TARGET' })
+    expect(mocks.resolveAuthoringState).toHaveBeenCalledWith({
+      db: expect.objectContaining({ marker: 'context-db' }),
+      input: stateInput,
+    })
+  })
+
+  it('denies a non-admin before reading authoring state', async () => {
+    mocks.resolveAuthoringState.mockClear()
+    await expect(
+      app.createCaller(context(false)).admin.getSupportProposalAuthoringState({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+        expectedUpdatedAt: new Date(input.expectedProposalUpdatedAt),
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.resolveAuthoringState).not.toHaveBeenCalled()
   })
 })

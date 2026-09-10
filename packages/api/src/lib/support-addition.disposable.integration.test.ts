@@ -277,7 +277,28 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       expectedProposalUpdatedAt: approvedProposal.updatedAt.toISOString(),
       expectedPreviewHash: approvedPreview.previewHash,
     }
+    await expect(
+      caller.getSupportProposalAuthoringState({
+        tenantId,
+        venueId,
+        proposalId: approvedDraftInput.proposalId,
+        expectedUpdatedAt: approvedProposal.updatedAt,
+      }),
+    ).resolves.toMatchObject({ state: 'NO_TARGET' })
     const created = await caller.createSupportSemanticUniversalContentDraft(approvedDraftInput)
+    await expect(
+      caller.getSupportProposalAuthoringState({
+        tenantId,
+        venueId,
+        proposalId: approvedDraftInput.proposalId,
+        expectedUpdatedAt: approvedProposal.updatedAt,
+      }),
+    ).resolves.toMatchObject({
+      state: 'OWN_UNIVERSAL_RECEIPT',
+      moduleId: created.moduleId,
+      revisionId: created.revisionId,
+    })
+
     expect(created).toMatchObject({ classification: 'ADDITION', version: 1, replayed: false })
     expect(
       await db.contentModuleEvidence.findMany({
@@ -443,6 +464,14 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
         payload: { ...draft.payload, rule: supersedingFact },
       },
     }
+    await expect(
+      caller.getSupportProposalAuthoringState({
+        tenantId,
+        venueId,
+        proposalId: supersessionDraftInput.proposalId,
+        expectedUpdatedAt: approvedSupersession.updatedAt,
+      }),
+    ).resolves.toMatchObject({ state: 'NATIVE_READY', moduleId: created.moduleId })
     const supersedingRevision =
       await caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput)
     expect(supersedingRevision).toMatchObject({

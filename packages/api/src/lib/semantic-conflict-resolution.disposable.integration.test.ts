@@ -539,6 +539,28 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
     ).resolves.toEqual({ id: resolution.resolutionId })
 
     // Draft creation is a later explicit action, after the resolution's zero-effect assertions.
+    const authoringInput = {
+      tenantId,
+      venueId,
+      proposalId: replacement.id,
+      expectedUpdatedAt: approvedReplacement.updatedAt,
+    }
+    await expect(caller.getSupportProposalAuthoringState(authoringInput)).resolves.toMatchObject({
+      state: 'LEGACY_UNADOPTED',
+    })
+    await expect(
+      caller.getSupportProposalAuthoringState({
+        ...authoringInput,
+        venueId: `${venueId}-other`,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(
+      caller.getSupportProposalAuthoringState({
+        ...authoringInput,
+        expectedUpdatedAt: new Date(0),
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
     const preparedAdoption = await caller.prepareLegacyKnowledgeAdoptionDraft({
       tenantId,
       venueId,
@@ -615,6 +637,12 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
     const adoption = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
     const adoptionReplay = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
     expect(adoption).toMatchObject({ requiresExplicitPublication: true, autoPublished: false })
+    await expect(caller.getSupportProposalAuthoringState(authoringInput)).resolves.toMatchObject({
+      state: 'OWN_ADOPTION_RECEIPT',
+      moduleId: adoption.moduleId,
+      revisionId: adoption.revisionId,
+    })
+
     expect(adoptionReplay).toMatchObject({ revisionId: adoption.revisionId, replayed: true })
     // The adoption already contains this proposal's approved wording. A second route
     // must not append another revision, regardless of the adoption's publication state.
@@ -667,6 +695,11 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       expectedLatestVersion: 1,
       requestId: randomUUID(),
       actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
+    })
+    await expect(caller.getSupportProposalAuthoringState(authoringInput)).resolves.toMatchObject({
+      state: 'OWN_ADOPTION_RECEIPT',
+      moduleId: adoption.moduleId,
+      revisionId: adoption.revisionId,
     })
     resumeReceiptRead()
     expect(await racingUniversalResult).toMatchObject({

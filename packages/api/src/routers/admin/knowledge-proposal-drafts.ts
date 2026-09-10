@@ -18,6 +18,7 @@ import {
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
 import { createSemanticUniversalContentDraftService } from '../../lib/semantic-universal-content-handoff-service'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
+import { resolveSupportProposalAuthoringState } from '../../lib/support-proposal-authoring-state'
 import { resolveSupportProposalContentEvidence } from '../../lib/support-proposal-content-evidence'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
@@ -183,6 +184,18 @@ function exactOperationalDraftFromHandoff(
 }
 
 export const adminKnowledgeProposalDraftRouter = router({
+  getSupportProposalAuthoringState: adminProcedure
+    .input(
+      z
+        .object({
+          ...scope,
+          proposalId: z.string().uuid(),
+          expectedUpdatedAt: z.date(),
+        })
+        .strict(),
+    )
+    .query(({ ctx, input }) => resolveSupportProposalAuthoringState({ db: ctx.db, input })),
+
   prepareLegacyKnowledgeAdoptionDraft: adminProcedure
     .input(LegacyKnowledgeAdoptionPreparationInput)
     .query(({ ctx, input }) => prepareLegacyKnowledgeAdoptionDraftService({ db: ctx.db, input })),
