@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "recordedAt": "2026-09-10",
-  "candidate": "9fa5a89ca85b6674b146814931f8063a38879331",
+  "candidate": "461fab77c96e342fe0c490b1a2fc669215a05960",
   "scope": "Server-derived support evidence for addition and native supersession",
   "proofLayer": "disposable-native-postgresql-scoped-admin-router",
-  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-universal-source-243-dbc856c56fa3\\result.json",
-  "resultSha256": "d49958db1b3cd13601188f0862ba3d708c0c4ee2fe3ec03fb25fdd4db267c91d",
+  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-universal-source-243-6cde882231c9\\result.json",
+  "resultSha256": "e4c005efa6d0542c12958cb872d29a79a13b794a249a458c90ff2f3f6025336d",
   "result": {
-    "sourceHead": "9fa5a89ca85b6674b146814931f8063a38879331",
-    "database": "pathfinder_disposable_support_addition_dbc856c56fa3",
+    "sourceHead": "461fab77c96e342fe0c490b1a2fc669215a05960",
+    "database": "pathfinder_disposable_support_addition_6cde882231c9",
     "port": "55491",
-    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-universal-source-243-dbc856c56fa3",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-universal-source-243-6cde882231c9",
     "backend": "native-windows-postgresql16.15-pgvector0.8.6",
     "targetCase": "publishes a reviewed support addition once and retrieves the new fact",
     "expectedTests": 1,
@@ -127,7 +127,7 @@
       {
         "source": "packages/api/src/lib/semantic-universal-content-handoff-service.ts",
         "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff-service.ts",
-        "sha256": "5f747ae623d998330bcba4c04df0a8c1e7cbc5c6fe98952276bb621a83eccec7"
+        "sha256": "9571af01d4869e7353f2eb7d68ecbbc0113fb78453da7a97dee3912ec2beeffd"
       },
       {
         "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
@@ -152,7 +152,7 @@
       {
         "source": "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
         "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-drafts.ts",
-        "sha256": "0d4f21fb86d1a9b4fbedddf1b8995125cf51fe9712275a3113c90b041034fee2"
+        "sha256": "f5d909a948778f36cd03e923dc6b570dea2ac35d43f3901f7cdb29ec29e9f227"
       }
     ],
     "runnerSha256": "78937c2aebbdafe88445d43d0a3550356ee7e03343e75616c5400e7f355fda7e",
@@ -164,7 +164,7 @@
     },
     "sourceHashesStable": true
   },
-  "targetedApiTests": 37,
+  "targetedApiTests": 13,
   "checks": [
     "Unapproved draft denied",
     "Scoped source-bound addition creates one private revision",
@@ -173,12 +173,20 @@
     "Exact draft replay after publication",
     "Native supersession appends revision2 to same module with separate support evidence",
     "Old revision retained; separate publication and retry do not duplicate effects",
-    "Sibling content unchanged"
+    "Sibling content unchanged",
+    "Addition and native supersession remain valid with the new support-only atomic adoption guard."
   ],
   "limitations": [
     "Synthetic session and fixture setup; no production login or external provider.",
     "Explicit publications occur only in disposable fixture; no live publication authority inferred.",
     "Universal addition/native-target operator UI remains pending.",
     "Current raw hasLegacyTarget projection is insufficient to route already-adopted legacy targets; account for adoption receipt and activation before extending UI."
+  ],
+  "historicalRuns": [
+    {
+      "candidate": "9fa5a89ca85b6674b146814931f8063a38879331",
+      "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-universal-source-243-dbc856c56fa3\\result.json",
+      "resultSha256": "d49958db1b3cd13601188f0862ba3d708c0c4ee2fe3ec03fb25fdd4db267c91d"
+    }
   ]
 }

@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "recordedAt": "2026-09-10",
-  "candidate": "3c006c5e3bb9f95aaf8132f4305eee6c242fd09a",
+  "candidate": "763f2624f040e6d5f4751e16140254787a6fc34a",
   "scope": "Connected support resolution, separate review, private adoption and exact retry",
   "proofLayer": "disposable-native-postgresql-and-rendered-browser",
-  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\result.json",
-  "resultSha256": "9d34cb41e6a0ee93ad1c42d2f84b5e3e364c2afe5158eb65a858bd8b9302056a",
+  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\result.json",
+  "resultSha256": "a308260892aa6b899aeaa175671394d16f9601bc2bad51ab1b71aa51958d4af5",
   "result": {
-    "database": "pathfinder_disposable_conflict_browser_cd5b3dcac439",
+    "database": "pathfinder_disposable_conflict_browser_b8e9d421a11f",
     "port": "55491",
-    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f",
     "backend": "native-windows-postgresql16.15-pgvector0.8.6",
     "targetCase": "semantic conflict resolution connected browser",
-    "sourceHead": "3c006c5e3bb9f95aaf8132f4305eee6c242fd09a",
+    "sourceHead": "763f2624f040e6d5f4751e16140254787a6fc34a",
     "nextStopped": true,
     "expectedTests": 1,
     "migrationsPassed": true,
@@ -292,10 +292,10 @@
       }
     ],
     "runnerSha256": "ff4511c55bfa18313faaa4e38171019e65c1dbd2094b05ba7b149d9367be7493",
-    "nextPid": 42156,
+    "nextPid": 7792,
     "browser": {
-      "startTime": "2026-09-10T11:37:23.107Z",
-      "duration": 12504.309,
+      "startTime": "2026-09-10T11:45:45.950Z",
+      "duration": 12961.003,
       "expected": 1,
       "skipped": 0,
       "unexpected": 0,
@@ -305,36 +305,36 @@
   },
   "screenshots": [
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-1280.png",
-      "sha256": "c1db3943de998245016f2227aa345b42817d7d1a99accca4fce3afb261249379"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-1280.png",
+      "sha256": "8fc2bc52f737bd225c195d06a23bb855b9a3c788c68d9771f7b38265886e174b"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-1440.png",
-      "sha256": "04fd54f317d8735609a633a00423787e9e412912bd35f90b8ce53aea3ce97fd1"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-1440.png",
+      "sha256": "2fe00e7f848a47303c5d871a0cd73ed5f9e7a2f614326d877d78e5985c2f66bb"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-390.png",
-      "sha256": "0ecda34b9f24621401a03dd9745db201cf3c44193d38ea08a9aa29468d8011e2"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-390.png",
+      "sha256": "f75554e1a224fe33180da1758a5bf21367f31e402efbbe4b99c10710500c4836"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-768.png",
-      "sha256": "77289e6d1169166cb32af1e9e03a74f1a167d797c480a03f4521590d6f07737e"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\prepared-private-draft-768.png",
+      "sha256": "42451c7af1b7f58fe7be328b988815c7eb30798ef797bd5889e79aeffdbe359f"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-1280.png",
-      "sha256": "9bb5c059bed1cead4654879960bd0f936b55bf1f0b2e93100c9d6bd37088bf83"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-1280.png",
+      "sha256": "48e91746e42d85c183b6a8c6ff845dbca4f9a95bbf0393115fbf2ac34ae11177"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-1440.png",
-      "sha256": "d7b6579569a9241bdd3beeadb26d00e07013b06c3a2da3db9ef420667bba48ba"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-1440.png",
+      "sha256": "1d6c83508ef17dbe3d14625b007487f2c9c1b6623d107db42dc8e37c5ebcab2f"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-390.png",
-      "sha256": "4e684520c82a780869ebd856644982171241bce99c7ef0860bbee8c12e09eb28"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-390.png",
+      "sha256": "e0125322a8a899ef2e63fb2f78feb7af2346f5134037eae84727181f95e2b5bd"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-768.png",
-      "sha256": "1fffcfd1d6479be6692b1a97e4e3ed16aad48287c2de472818e33ad29c70502a"
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-b8e9d421a11f\\results\\semantic-conflict-resoluti-3c0ca-ly-approves-its-replacement\\replacement-private-draft-768.png",
+      "sha256": "ed7220b88cf111b1dc56b931fa8d034fcf1bd3c3cf10715a2edcb4bc312506df"
     }
   ],
   "viewports": [390, 768, 1280, 1440],
@@ -357,6 +357,14 @@
       "id": "081d477c6f62",
       "status": "failed",
       "reason": "Success receipt text contrast 4.02 below4.5; darkened in3c006c5e. PostgreSQL/Next stopped; artifacts retained."
+    },
+    {
+      "candidate": "3c006c5e3bb9f95aaf8132f4305eee6c242fd09a",
+      "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-adoption-browser-cd5b3dcac439\\result.json",
+      "resultSha256": "9d34cb41e6a0ee93ad1c42d2f84b5e3e364c2afe5158eb65a858bd8b9302056a",
+      "id": "cd5b3dcac439",
+      "status": "passed",
+      "limit": "Prior measured candidate; original artifacts retained."
     }
   ],
   "limitations": [
@@ -364,6 +372,7 @@
     "One combined browser case; four viewport states are not four separate acceptance cases.",
     "No browser-restart recovery, physical-device/provider/customer or release acceptance.",
     "No customer send, deployment, or publication performed.",
-    "Native-target/addition support UI and remaining campaign gates remain open."
+    "Native-target/addition support UI and remaining campaign gates remain open.",
+    "Measured browser candidate precedes the support universal duplicate-adoption transaction guard; that backend change has separate native proof. UI source unchanged."
   ]
 }

@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "recordedAt": "2026-09-10",
-  "candidate": "97075acb384619a726a48530939cff077ef58e6c",
-  "scope": "Explicit reviewed replacement to source-bound private legacy adoption",
+  "candidate": "461fab77c96e342fe0c490b1a2fc669215a05960",
+  "scope": "Source-bound private adoption and atomic duplicate-route rejection",
   "proofLayer": "disposable-native-postgresql-real-scoped-admin-router",
-  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-adoption-9af693d5ea53\\result.json",
-  "resultSha256": "00519202ed12af5d2cbe69fe5a4c289cf1d4259529b33517a315fbd90127890a",
+  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-adoption-c051882691ff\\result.json",
+  "resultSha256": "60101cf475c5442bdd7fb5b74d7febecace8c4cfe31c3bb44dee5e13a2e251a7",
   "result": {
-    "sourceHead": "97075acb384619a726a48530939cff077ef58e6c",
-    "database": "pathfinder_disposable_conflict_resolution_9af693d5ea53",
+    "sourceHead": "461fab77c96e342fe0c490b1a2fc669215a05960",
+    "database": "pathfinder_disposable_conflict_resolution_c051882691ff",
     "port": "55491",
-    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-adoption-9af693d5ea53",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-adoption-c051882691ff",
     "backend": "native-windows-postgresql16.15-pgvector0.8.6",
     "targetCase": "binds answered conflict to an unapproved replacement without changing canonical truth",
     "expectedTests": 1,
@@ -62,7 +62,7 @@
       {
         "source": "packages/api/src/routers/admin/knowledge-proposal-review.ts",
         "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-review.ts",
-        "sha256": "672578a6831da9650150678773540f63aa2ab0fef89acfc6f87ca30f537ef0ce"
+        "sha256": "07ff1f5fc4747ee74e45272089a6c2cb50df7d756bdab931a6e7f8e512c32c76"
       },
       {
         "source": "packages/api/src/trpc.ts",
@@ -82,7 +82,7 @@
       {
         "source": "packages/api/src/lib/semantic-conflict-resolution.disposable.integration.test.ts",
         "retained": "measured-packages__api__src__lib__semantic-conflict-resolution.disposable.integration.test.ts",
-        "sha256": "7e940ba070ef742c01177dcfb3afe2556b37f706407efc7e96ce6090fd6dde0e"
+        "sha256": "f2d933268c67e49cd9c2ae2cea94ca9cba3d33a5f4a3a96561f0293e80c6d0cf"
       },
       {
         "source": "packages/db/prisma/schema.prisma",
@@ -147,7 +147,7 @@
       {
         "source": "packages/api/src/lib/semantic-universal-content-handoff-service.ts",
         "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff-service.ts",
-        "sha256": "5f747ae623d998330bcba4c04df0a8c1e7cbc5c6fe98952276bb621a83eccec7"
+        "sha256": "9571af01d4869e7353f2eb7d68ecbbc0113fb78453da7a97dee3912ec2beeffd"
       },
       {
         "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
@@ -204,28 +204,45 @@
     },
     "sourceHashesStable": true
   },
-  "targetedUnitTests": 49,
+  "targetedUnitTests": 13,
   "assertions": [
     "Retained conflict resolution and separate approval invariants",
     "Explicit subsequent support adoption through admin router",
     "Source evidence follows immutable resolution to original support proposal",
     "Exact original support body hash retained; raw body not returned by resolver",
     "Exact retry returns same private revision",
-    "One native revision, zero publication and activation",
-    "Canonical legacy content unchanged"
+    "Before explicit publication: one native revision, zero publication and activation",
+    "Canonical legacy content unchanged",
+    "Existing own-adoption receipt rejects a second support universal draft route.",
+    "A barrier pauses the wrapper after an actual null receipt read; competing adoption and separate explicit disposable publication commit before resumption.",
+    "Transactional receipt recheck rejects the resumed request with exact PRECONDITION_FAILED; one revision, one explicit fixture publication, zero universal handoff receipts."
   ],
   "historicalRuns": [
     {
       "id": "c6f5ef3c8a74",
       "status": "passed",
       "limit": "Before disabled-guidance adapter rejection; retained without sourceHead field; exact manifest retained."
+    },
+    {
+      "id": "9af693d5ea53",
+      "status": "passed",
+      "candidate": "97075acb384619a726a48530939cff077ef58e6c",
+      "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-adoption-9af693d5ea53\\result.json",
+      "resultSha256": "00519202ed12af5d2cbe69fe5a4c289cf1d4259529b33517a315fbd90127890a",
+      "limit": "Private adoption proof before duplicate universal route guard."
+    },
+    {
+      "id": "daed5eeb5feb",
+      "status": "passed",
+      "candidate": "074bff0679da2e240cc00195f72f9c53d9f013dc",
+      "limit": "Early receipt guard only; no atomic interleaving proof."
     }
   ],
   "limitations": [
     "Synthetic authenticated session and disposable fixture setup; no actual login or operator browser path.",
     "Native combined case is one test, not one test per assertion.",
-    "Support draft panel and rendered connected proof remain pending.",
     "Retirement for disabled guidance uses a separate path; adapter rejects rather than silently losing disabled state.",
-    "No live provider, customer, production or campaign-completion claim."
+    "No live provider, customer, production or campaign-completion claim.",
+    "Barrier controls the interleaving, while receipt reads, transactions, adoption and publication use actual disposable PostgreSQL. Publication occurs only after the original zero-effect assertions, not automatically."
   ]
 }
