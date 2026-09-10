@@ -8,7 +8,7 @@ import type { AppRouter } from '@pathfinder/api'
 import {
   GuestPublicErrorCode,
   type GuestPublicErrorCode as GuestPublicErrorCodeType,
-} from '@pathfinder/contracts'
+} from '@pathfinder/contracts/guest-response'
 
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'

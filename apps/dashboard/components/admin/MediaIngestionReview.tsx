@@ -4,11 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
-import {
-  VenuePackagePayloadV1,
-  MediaVideoMethodSchema,
-  mediaVideoMethodLabel,
-} from '@pathfinder/contracts'
+import { VenuePackagePayloadV1 } from '@pathfinder/contracts/venue-package'
+import { MediaVideoMethodSchema, mediaVideoMethodLabel } from '@pathfinder/contracts/media-evidence'
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
