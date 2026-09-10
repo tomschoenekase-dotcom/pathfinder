@@ -72,7 +72,23 @@
   padding: 20px 20px 12px;
   scroll-padding-block: 20px;
 }
+.persistentControl {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.persistentControl:focus-visible {
+  outline: 2px solid var(--chat-accent-text);
+  outline-offset: -2px;
+}
+.persistentControl [data-voice-control-header] {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--chat-card);
+}
 .composer {
+  flex-shrink: 0;
   border: 0;
   padding: 10px 16px 0;
   background: var(--chat-surface);
@@ -220,6 +236,10 @@
   .composerField textarea {
     max-height: 96px;
   }
+  .persistentControl {
+    flex-shrink: 0;
+    max-height: 64px;
+  }
   .character {
     display: none;
   }
@@ -227,7 +247,7 @@
     padding-block: 0;
   }
   .conversation {
-    padding-top: 12px;
+    padding-block: 8px;
   }
   .welcome {
     padding-top: 8px;

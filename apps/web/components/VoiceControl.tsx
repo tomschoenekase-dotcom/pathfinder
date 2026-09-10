@@ -1201,7 +1201,7 @@ export function VoiceControlPanel({
 
   return (
     <div className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-2">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3" data-voice-control-header>
         <button
           type="button"
           disabled={disabled || state === 'requesting' || state === 'connecting'}

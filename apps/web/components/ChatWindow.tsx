@@ -42,6 +42,7 @@ type ChatWindowProps = {
   initialDraft?: string
   emptyState?: ReactNode
   conversationTools?: ReactNode
+  persistentVoiceControl?: ReactNode
   assistantLabel?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
@@ -71,6 +72,7 @@ export function ChatWindow({
   initialDraft = '',
   emptyState,
   conversationTools,
+  persistentVoiceControl,
   assistantLabel = 'Venue guide',
   onPlaceCardClick,
   onPlaceCardView,
@@ -278,6 +280,17 @@ export function ChatWindow({
           </div>
         ) : null}
       </div>
+
+      {persistentVoiceControl ? (
+        <div
+          className={styles.persistentControl}
+          role="region"
+          aria-label="Voice controls"
+          tabIndex={0}
+        >
+          {persistentVoiceControl}
+        </div>
+      ) : null}
 
       <div className="sr-only" role="status" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (

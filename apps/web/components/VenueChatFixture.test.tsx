@@ -193,11 +193,28 @@ describe('VenueChatFixture', () => {
         conversation="long"
         asset="ok"
         motion="reduced"
+        voice="idle"
         route="ready"
       />,
     )
 
     const plannerToggle = await screen.findByRole('button', { name: 'Plan a route' })
+    const voiceToggle = screen.getByRole('button', { name: 'Start voice conversation' })
+    const voiceControls = screen.getByRole('region', { name: 'Voice controls' })
+    const conversationLog = screen.getByRole('log', { name: 'Conversation' })
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect(conversationLog.contains(plannerToggle)).toBe(true)
+    expect(conversationLog.contains(voiceToggle)).toBe(false)
+    expect(voiceControls.contains(voiceToggle)).toBe(true)
+    expect(voiceControls.tabIndex).toBe(0)
+    expect(conversationLog.contains(composer)).toBe(false)
+    expect(
+      plannerToggle.compareDocumentPosition(voiceToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+    expect(
+      voiceToggle.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+
     fireEvent.click(plannerToggle)
     fireEvent.click(screen.getByLabelText('Use only connections marked accessible'))
     fireEvent.click(screen.getByRole('button', { name: 'Find route' }))

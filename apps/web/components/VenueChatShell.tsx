@@ -296,25 +296,10 @@ export function VenueChatShell(props: {
           </div>
         ) : null}
         <div className={`${styles.body} mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}>
-          {routePlanner}
-          {voiceControl === undefined ? (
-            isOnline ? (
-              <VoiceControl
-                venueId={venue.id}
-                anonymousToken={anonymousToken}
-                language={language}
-                disabled={isSending}
-                {...(visitContext ? { visitContext } : {})}
-                {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
-                {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
-              />
-            ) : null
-          ) : (
-            voiceControl
-          )}
           <ChatWindow
             conversationTools={
               <>
+                {routePlanner}
                 {visitPreferences}
                 <LocationBanner
                   permission={location.permission}
@@ -323,6 +308,23 @@ export function VenueChatShell(props: {
                   language={language}
                 />
               </>
+            }
+            persistentVoiceControl={
+              voiceControl === undefined ? (
+                isOnline ? (
+                  <VoiceControl
+                    venueId={venue.id}
+                    anonymousToken={anonymousToken}
+                    language={language}
+                    disabled={isSending}
+                    {...(visitContext ? { visitContext } : {})}
+                    {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+                    {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
+                  />
+                ) : null
+              ) : (
+                voiceControl
+              )
             }
             messages={messages}
             language={language}
