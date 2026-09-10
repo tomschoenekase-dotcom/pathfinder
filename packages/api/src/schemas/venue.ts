@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-import { KnowledgeEntryInput, PlaceInput, UpdateVenueBotConfiguration } from '@pathfinder/contracts'
+import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts/venue-package'
+import { UpdateVenueBotConfiguration } from '@pathfinder/contracts/venue-bot-configuration'
 import { TonePresetId } from '@pathfinder/contracts/tone-presets'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({

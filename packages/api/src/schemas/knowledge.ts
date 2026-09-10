@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { KnowledgeEntryInput as VenuePackageKnowledgeEntryInput } from '@pathfinder/contracts'
+import { KnowledgeEntryInput as VenuePackageKnowledgeEntryInput } from '@pathfinder/contracts/venue-package'
 
 // Preserve the legacy bulk-create behavior that strips unknown keys. Venue Package v1
 // imports use the strict shared contract directly at their boundary.

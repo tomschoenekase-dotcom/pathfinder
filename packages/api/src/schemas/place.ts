@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { PlaceInput } from '@pathfinder/contracts'
+import { PlaceInput } from '@pathfinder/contracts/venue-package'
 
 export { PlaceInput }
 

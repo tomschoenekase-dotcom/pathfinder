@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import {
-  TonePresetId,
   VENUE_PACKAGE_ITEM_LIMIT,
   VENUE_PACKAGE_SCHEMA_VERSION_V1,
   VenuePackagePayloadV1Object,
-} from '@pathfinder/contracts'
+} from '@pathfinder/contracts/venue-package'
+import { TonePresetId } from '@pathfinder/contracts/tone-presets'
 
 import { KnowledgeEntryInput } from './knowledge'
 import { PlaceInput } from './place'
