@@ -178,11 +178,18 @@ describe.skipIf(!enabled)('native prepared pgvector hybrid versus lexical guest 
         ).resolves.toEqual({ claimCompleted: true, stored: true })
       }
 
+      const measuredVectorWrites = [
+        { entryId: expectedCapacityId, embedding: vector(0) },
+        { entryId: expectedAccessId, embedding: vector(1) },
+        { entryId: privateId, embedding: vector(0) },
+        { entryId: staleId, embedding: vector(0) },
+      ]
       const preparationStartedAt = performance.now()
-      await putVector(expectedCapacityId, vector(0))
-      await putVector(expectedAccessId, vector(1))
-      await putVector(privateId, vector(0))
-      await putVector(staleId, vector(0))
+      for (const write of measuredVectorWrites) await putVector(write.entryId, write.embedding)
+      const preparationMs = performance.now() - preparationStartedAt
+
+      // Sibling setup and readback prove isolation, but are outside the target-venue preparation
+      // duration so the reported write count and measured work describe the same operation set.
       await putVector(siblingId, vector(0), { tenantId: siblingTenantId, venueId: siblingVenueId })
       const siblingVectorReadback = await searchKnowledgeByEmbedding({
         queryEmbedding: vector(0),
@@ -193,7 +200,6 @@ describe.skipIf(!enabled)('native prepared pgvector hybrid versus lexical guest 
         limit: 20,
       })
       expect(siblingVectorReadback.map(({ id }) => id)).toContain(siblingId)
-      const preparationMs = performance.now() - preparationStartedAt
 
       // A canonical correction changes source text/version after its vector write. The old vector remains
       // intentionally pending recomputation; retrieval must still return current canonical text/version only.
@@ -480,7 +486,7 @@ describe.skipIf(!enabled)('native prepared pgvector hybrid versus lexical guest 
       expect(recomputedDistance).toBeDefined()
 
       const measurement = {
-        version: 'guest-preparation-comparison-native-v1',
+        version: 'guest-preparation-comparison-native-v2',
         fixture: {
           tenantId,
           venueId,
@@ -497,7 +503,8 @@ describe.skipIf(!enabled)('native prepared pgvector hybrid versus lexical guest 
         },
         preparation: {
           vectorPersistenceMs: preparationMs,
-          vectorWrites: 4,
+          vectorWrites: measuredVectorWrites.length,
+          measurementScope: 'target-venue canonical fenced vector writes only',
           recompute: {
             sourceId: staleId,
             currentVersion: corrected.updatedAt.toISOString(),
