@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 524,
-    "sha256": "b74cfe3fd0eecd02cd3e4c05f37fb6c1f017653af55c206c8fbbbada4fea0f04",
+    "count": 538,
+    "sha256": "52fb7cceb77762946c086a69e3fee099b394a3c7c1cf7648f5fedd33a51a337e",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "b74cfe3fd0eecd02cd3e4c05f37fb6c1f017653af55c206c8fbbbada4fea0f04",
-      "sha256": "b04884a1eb2ac5b31ec7078969604da5381c58fd9b3d23b3badcf743c1a1d6dc"
+      "operationInventorySha256": "52fb7cceb77762946c086a69e3fee099b394a3c7c1cf7648f5fedd33a51a337e",
+      "sha256": "e43c87c990a177636bb49fcbf6fbcd58f26da18317f605cc0816b47c16ff18e1"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -120,6 +120,14 @@
         "surfaces": ["tool:torchiko.knowledge.prepare_from_support"],
         "decision": "The administrator and governed agent tool reuse the same exact-version support-to-knowledge proposal action. Both freeze immutable reviewed-request and message evidence into a separate PENDING_REVIEW proposal; neither changes canonical knowledge, support state, publication, or customer contact.",
         "evidence": "packages/db/src/helpers/support-knowledge-proposal-disposable.integration.test.ts"
+      },
+      {
+        "id": "legacy-knowledge-adoption-draft-action",
+        "kind": "direct-tool",
+        "operations": ["admin.createLegacyKnowledgeAdoptionDraft"],
+        "surfaces": ["tool:torchiko.knowledge.adopt_legacy_draft"],
+        "decision": "The administrator route and capability-gated machine tool both invoke the canonical createLegacyKnowledgeAdoptionDraftService for an exact approved proposal and legacy snapshot. The tool adds verified worker/run lineage; both create only a native draft and immutable adoption receipt, leaving publication separate.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-customer-access-preparation",

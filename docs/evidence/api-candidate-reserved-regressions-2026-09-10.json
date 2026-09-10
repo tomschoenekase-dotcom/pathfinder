@@ -1,0 +1,63 @@
+{
+  "candidate": "7e7bfe32",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\api-candidate-1789060023780",
+  "counts": {
+    "numPassedTests": 2583,
+    "numFailedTests": 6,
+    "numPendingTests": 107,
+    "numTotalTests": 2696
+  },
+  "failures": [
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/testing/agent-operation-coverage.test.ts",
+      "test": "agent operation coverage inventory matches the authoritative mounted tRPC runtime exactly",
+      "failure": [
+        "AssertionError: expected false to be true // Object.is equality\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\testing\\agent-operation-coverage.test.ts:34:57\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+runner@3.2.6/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ]
+    },
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/routers/admin/_admin.test.ts",
+      "test": "admin router admin.getClientAiCosts returns exact estimated totals for the tenant UTC window",
+      "failure": [
+        "Error: Invalid nonnegative AI cost\n    at aiCostDecimalToUnits (C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\ai\\src\\cost-decimal.ts:6:21)\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\client-analytics.ts:236:32\n    at Array.map (<anonymous>)\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\client-analytics.ts:232:28\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at resolveMiddleware (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:576:22)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)"
+      ]
+    },
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/routers/admin/_admin.test.ts",
+      "test": "admin router admin.getClientAiCosts has a graceful empty state and remains admin-only",
+      "failure": [
+        "AssertionError: expected { requestCount: +0, \u2026(6) } to deeply equal { requestCount: +0, \u2026(4) }\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\_admin.test.ts:746:27\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+runner@3.2.6/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ]
+    },
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/routers/admin/_admin.test.ts",
+      "test": "admin router admin.publishWeeklyReport returns NOT_FOUND for a report outside the supplied venue",
+      "failure": [
+        "AssertionError: expected \"spy\" to be called with arguments: [ { where: { \u2026(3) }, \u2026(1) } ]\u001b[90m\n\nReceived: \n\n\u001b[1m  1st spy call:\n\n\u001b[22m\u001b[33m@@ -1,11 +1,16 @@\u001b[90m\n\u001b[2m  [\u001b[22m\n\u001b[2m    {\u001b[22m\n\u001b[2m      \"select\": {\u001b[22m\n\u001b[31m+       \"answerCount\": true,\u001b[90m\n\u001b[2m        \"content\": true,\u001b[22m\n\u001b[31m+       \"generatedAt\": true,\u001b[90m\n\u001b[31m+       \"sessionCount\": true,\u001b[90m\n\u001b[2m        \"status\": true,\u001b[22m\n\u001b[2m        \"updatedAt\": true,\u001b[22m\n\u001b[31m+       \"weekEnd\": true,\u001b[90m\n\u001b[31m+       \"weekStart\": true,\u001b[90m\n\u001b[2m      },\u001b[22m\n\u001b[2m      \"where\": {\u001b[22m\n\u001b[2m        \"id\": \"report_1\",\u001b[22m\n\u001b[2m        \"tenantId\": \"tenant_1\",\u001b[22m\n\u001b[2m        \"venueId\": \"wrong_venue\",\u001b[22m\n\u001b[39m\u001b[90m\n\nNumber of calls: \u001b[1m1\u001b[22m\n\u001b[39m\n    at Proxy.<anonymous> (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+expect@3.2.6/node_modules/@vitest/expect/dist/index.js:1355:10)\n    at Proxy.<anonymous> (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+expect@3.2.6/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/chai@5.3.3/node_modules/chai/index.js:1686:25)\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\_admin.test.ts:2304:35\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+runner@3.2.6/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ]
+    },
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/routers/admin/_admin.test.ts",
+      "test": "admin router admin.publishWeeklyReport publishes a valid draft and audit-logs it",
+      "failure": [
+        "TRPCError: Report generation evidence is incomplete. Generate the report again before publishing.\n    at mapWeeklyReportActionError (C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\weekly-reports.ts:27:9)\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\weekly-reports.ts:236:9\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at resolveMiddleware (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:576:22)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at callRecursive (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:642:20)\n    at procedure (file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:682:20)\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@trpc+server@11.16.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/router.ts:474:20"
+      ]
+    },
+    {
+      "file": "C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/packages/api/src/routers/admin/_admin.test.ts",
+      "test": "admin router admin.publishWeeklyReport returns CONFLICT without an audit when its DRAFT CAS misses",
+      "failure": [
+        "AssertionError: expected error to match asymmetric matcher\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+expect@3.2.6/node_modules/@vitest/expect/dist/index.js:1639:20\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\packages\\api\\src\\routers\\admin\\_admin.test.ts:2354:5\n    at file:///C:/Users/tomsc/Downloads/PathFinder-evaluation-tenant-scope-integration/node_modules/.pnpm/@vitest+runner@3.2.6/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ]
+    }
+  ],
+  "reportSha256": "624ba69718c4d3926020e329a044f276b16b1b99934fd791bb8ed162fde1f682",
+  "reservation": "packages/api/src/routers/admin/_admin.test.ts remains owned by external first-week-operations packet; no edits made.",
+  "repairDirections": [
+    "Cost mocks need schema-default observedEstimatedCostUsd and observed/unknown/not-dispatched/legacy request counts; assert returned usageCoverage and observed cost explicitly. Do not treat unknown usage as zero-cost observed usage.",
+    "Empty cost totals now include observed cost and coverage fields. Preserve admin-only and UTC window assertions.",
+    "Report NOT_FOUND select expectation must include generatedAt/weekStart/weekEnd/answerCount/sessionCount.",
+    "Valid and CAS-miss draft mocks must supply complete generation evidence before exercising publish/CAS. Keep explicit incomplete-evidence rejection coverage; do not relax canonical guard."
+  ],
+  "scope": "Read-only diagnosis of reserved failures, not permission to duplicate the external packet. Operation inventory mismatch is separately being repaired. 107 pending cases are not PASS; no native/provider proof from this run."
+}
