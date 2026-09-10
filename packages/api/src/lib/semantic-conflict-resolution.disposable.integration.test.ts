@@ -712,6 +712,18 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
       requestId: randomUUID(),
       actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
     })
+    const publishedAdoptionProjection = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: {
+        tenantId,
+        venueId,
+        contentModuleId: adoption.moduleId,
+        contentRevisionId: adoption.revisionId,
+        contentPublicationId: adoptionPublication.publicationId,
+        isEnabled: true,
+        visibility: 'PUBLIC',
+      },
+      select: { id: true },
+    })
     const adoptionFulfillment = await readSupportPackageFulfillment(db as never, {
       tenantId,
       venueId,
@@ -729,7 +741,7 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
             moduleId: adoption.moduleId,
             revisionId: adoption.revisionId,
             publicationId: adoptionPublication.publicationId,
-            projectionId: entryId,
+            projectionId: publishedAdoptionProjection.id,
           }),
         ],
       },
