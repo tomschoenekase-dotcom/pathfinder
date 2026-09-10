@@ -1,0 +1,164 @@
+{
+  "date": "2026-09-10",
+  "requirements": ["V2-P08-02", "V2-P08-03"],
+  "implementationCommit": "fbd4d4440845932d0d40b35c21fc8c1b880efb2a",
+  "candidateCommit": "b81f86774b6b57fa7b3eb06ba81ca6480f3ee508",
+  "browser": {
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-semantic-conflict-resolution-ui-8d8404dd",
+    "sources": [
+      {
+        "path": "apps/dashboard/components/admin/SemanticConflictResolutionForm.tsx",
+        "sha256": "e145c4ddad9675a3ad999dbef9dfb13712403b9514497715bd42e9e71bef3c17"
+      },
+      {
+        "path": "apps/dashboard/components/admin/SemanticConflictResolutionForm.test.tsx",
+        "sha256": "3532df4bcf53699aa595ba5928183b89e3c193d204dfa7110e0e0f88cc3e4ee8"
+      },
+      {
+        "path": "apps/dashboard/components/admin/SemanticUpdatePreview.tsx",
+        "sha256": "dd2ad6be5dbc89ed5bd92e6a206949322f8f08706860ab4ed3949ce4cb0e3c4a"
+      },
+      {
+        "path": "apps/dashboard/components/admin/SemanticUpdatePreview.test.tsx",
+        "sha256": "c1a4bcbbec709996b033bdc2e1b73a309162b9a92619356acc02cdfc469cfb57"
+      },
+      {
+        "path": "apps/dashboard/components/admin/KnowledgeProposalReview.tsx",
+        "sha256": "834a4f2f338ff2190d0cc4e352c0992698bc7ca3d55fd6f6d9407ad1ab5702dd"
+      },
+      {
+        "path": "apps/dashboard/components/admin/KnowledgeProposalReview.test.tsx",
+        "sha256": "4cde56508ebc7ada8dd479629f18fb2f975b1dcfa3050403ad26f59bafcd6dae"
+      },
+      {
+        "path": "apps/dashboard/lib/bounded-client-request.ts",
+        "sha256": "484db7ac9e0f45f34f19b7e3d2fe15fdbb427d7ef14ffcbad4dda82c274b1f77"
+      },
+      {
+        "path": "apps/dashboard/app/dev-fixtures/semantic-conflict-resolution/page.tsx",
+        "sha256": "383f3e7e40f18bfca5fa220aea71c259f9fbe7394d870581df509734b4ecfb5e"
+      },
+      {
+        "path": "apps/dashboard/app/dev-fixtures/semantic-conflict-resolution/FixtureClient.tsx",
+        "sha256": "f1ea25fcc40daa1f831c8e9c3571f8a085968b9a09febb24a647588e9673a567"
+      },
+      {
+        "path": "apps/dashboard/tests/browser/semantic-conflict-resolution.spec.ts",
+        "sha256": "b306059598467bcac81125fdb71ff8007925200b1d7eec948e1993db03723ba1"
+      },
+      {
+        "path": "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "sha256": "91ac695c2e1ef20c1955885c41582403b0e13d856b3b0c6fe7cc8196c2c91e23"
+      },
+      {
+        "path": "packages/api/src/routers/admin/knowledge-proposals.test.ts",
+        "sha256": "813bdbc3eaeeaad6c186cba7613403ad6221b04373b3d1b9428cf1fe97b62bc5"
+      },
+      {
+        "path": "packages/api/src/lib/semantic-conflict-resolution-contract.ts",
+        "sha256": "384c7de79da4d0fefd564b8732e09454992a3e2c5a229ec9db33c1146378fa68"
+      }
+    ],
+    "sourceHead": "b81f86774b6b57fa7b3eb06ba81ca6480f3ee508",
+    "passed": true,
+    "stopped": true,
+    "pid": 43832,
+    "stats": {
+      "startTime": "2026-09-10T10:39:25.044Z",
+      "duration": 22586.867,
+      "expected": 4,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "viewports": [390, 768, 1280, 1440],
+  "proofLayer": "Real Next.js review component and browser interactions with mocked tRPC responses; separate retained native transaction proof.",
+  "covered": [
+    "Exact answered lower-authority conflict gate and server answer hash",
+    "Explicit keep or edited replacement choice; note required",
+    "Frozen full operation payload, duplicate-click fence, bounded 15-second timeout and exact retry",
+    "Original preview fields and Close disabled during pending/unknown outcome",
+    "Known conflict refresh resets choice even with unchanged evidence snapshot",
+    "Scoped closed-row status and exact pending-replacement review link",
+    "No draft/publication calls in browser flows; replacement approval remains separate",
+    "Reduced-motion rendering, axe checks, no horizontal overflow, keyboard Enter retry"
+  ],
+  "tests": {
+    "dashboard": {
+      "files": [
+        "SemanticConflictResolutionForm.test.tsx",
+        "SemanticUpdatePreview.test.tsx",
+        "KnowledgeProposalReview.test.tsx"
+      ],
+      "passed": 22
+    },
+    "api": {
+      "files": ["knowledge-proposals.test.ts", "semantic-conflict-resolution-contract.test.ts"],
+      "passed": 24
+    },
+    "typechecks": ["packages/api: tsc --noEmit --pretty false", "apps/dashboard: pnpm typecheck"],
+    "lint": "Configured ESLint passed for owned implementation and test paths",
+    "readOnlyReview": "/root/question_source_contract: no scoped form/API findings; root additionally found and fixed surrounding stale APPROVED badge."
+  },
+  "browserDiagnostics": [
+    {
+      "case": "answered semantic conflict resolution at 390px",
+      "uncaughtErrors": 0,
+      "expectedConsoleErrors": 3
+    },
+    {
+      "case": "answered semantic conflict resolution at 768px",
+      "uncaughtErrors": 0,
+      "expectedConsoleErrors": 3
+    },
+    {
+      "case": "answered semantic conflict resolution at 1280px",
+      "uncaughtErrors": 0,
+      "expectedConsoleErrors": 3
+    },
+    {
+      "case": "answered semantic conflict resolution at 1440px",
+      "uncaughtErrors": 0,
+      "expectedConsoleErrors": 3
+    }
+  ],
+  "visualReview": {
+    "inspected": ["replacement-edited-390.png", "unknown-retry-1440.png"],
+    "assessment": "Actual review row retains existing semantic-preview language; readable single-column phone controls and desktop review-card layout, no clipping. No decorative dashboard or artwork was introduced. Long phone form reflects separate original/replacement evidence; admin remains desktop-first. Development issue badge is expected tRPC logging from injected failures, with zero uncaught page errors."
+  },
+  "reusedNative": {
+    "evidence": "docs/evidence/semantic-conflict-resolution-native-2026-09-10.json",
+    "proof": "2a3918f077fd",
+    "sourceHashesStillMatch": 29,
+    "databaseStopped": true
+  },
+  "retainedEarlierRuns": [
+    {
+      "id": "55338836",
+      "passed": false,
+      "reason": "Ambiguous replacement-content selector; fixed exact textbox locator",
+      "stopped": true
+    },
+    {
+      "id": "0ebde6de",
+      "passed": true,
+      "limit": "Before browser diagnostics and actual review-row integration",
+      "stopped": true
+    },
+    {
+      "id": "230b5e90",
+      "passed": true,
+      "limit": "Before actual review-row integration",
+      "stopped": true
+    }
+  ],
+  "limitations": [
+    "No browser-to-real-database claim for this UI fixture; native backend proof is separate.",
+    "Review navigation target is asserted; destination approval/publication is not executed by the mocked browser case.",
+    "Exact retry retention is mounted-review state, not browser-restart durability.",
+    "No live provider, physical device, customer, publication, deployment or release proof.",
+    "All original 128 requirements, 32 QA cases and A/B/C gates remain; full six-class campaign acceptance is not complete.",
+    "Four reserved external packets remain untouched and await exact returned results."
+  ]
+}
