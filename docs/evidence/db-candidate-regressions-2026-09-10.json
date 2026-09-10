@@ -1,0 +1,38 @@
+{
+  "implementationCommit": "1fc5a12a4ff9713e057448e7f22b4fb8d7a3d2e7",
+  "scope": "Broader database regression gate after coherent backend integration",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\db-candidate-1789061173784",
+  "counts": {
+    "numPassedTests": 2061,
+    "numFailedTests": 0,
+    "numPendingTests": 133,
+    "numTotalTests": 2194
+  },
+  "initialFailedRun": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\db-candidate-1789061017241",
+    "passed": 2059,
+    "failed": 2,
+    "pending": 133
+  },
+  "repairs": [
+    "Prompt identity assertion pins current v22 and exact hash; retiredv15 new request explicitly rejected. Historical evidence untouched.",
+    "Cancellation fixture models canonical parent query/wait lookup and retained delegated result; no persistence guard removed."
+  ],
+  "types": "PASS",
+  "ownedLint": "PASS",
+  "sourceVerification": {
+    "manifestPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\db-candidate-1789061173784\\source-manifest-postcommit.json",
+    "trackedSourceCount": 715,
+    "allExceptTwoDeclaredTestRepairsUnchangedSinceInitialRun": true,
+    "changedSources": [
+      "packages/db/src/helpers/agent-run-cancellation-actions.test.ts",
+      "packages/db/src/helpers/evaluation-runs.test.ts"
+    ]
+  },
+  "reportSha256": "7261c7800706b7951db7a6d350d676616fabe85e778330cf7049a4e77433e948",
+  "limits": [
+    "133 gated/disposable cases skipped, not PASS. No native concurrency/provider/device proof from this unit/contract suite.",
+    "Separate API suite still has five reserved admin-fixture failures pending external packet integration.",
+    "No application behavior, authority, schema or production state changed."
+  ]
+}
