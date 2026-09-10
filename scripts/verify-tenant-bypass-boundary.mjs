@@ -105,7 +105,9 @@ const approvedCallCounts = new Map([
   // Separately credentialed platform workers read/propose/materialize one exact founder
   // directive task; every tenanted query retains explicit tenant+venue predicates.
   ['packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts', 3],
-  ['packages/api/src/routers/admin/agent-operations.ts', 6],
+  ['packages/api/src/routers/admin/agent-operations.ts', 4],
+  // Relocated platform-admin approval reads retain exact tenant and optional venue predicates.
+  ['packages/api/src/routers/admin/agent-approval-request-reads.ts', 2],
   // Human-admin-only execution re-enters one exact tenant+venue approved invitation,
   // fences provider I/O, and never writes membership directly.
   ['packages/api/src/routers/admin/customer-access-execution.ts', 1],
@@ -220,7 +222,9 @@ const approvedCallCounts = new Map([
   // requested tenant and venue; the support action revalidates the frozen request version/messages.
   // The fourth call records a human-admin reviewed decline under a scoped content
   // lock with exact proposal/source revision and immutable audit; no publication grant.
-  ['packages/api/src/routers/admin/knowledge-proposal-review.ts', 4],
+  ['packages/api/src/routers/admin/knowledge-proposal-review.ts', 3],
+  // Relocated platform-admin proposal listing retains exact tenant+venue and bounded projections.
+  ['packages/api/src/routers/admin/knowledge-proposal-reads.ts', 1],
   ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],

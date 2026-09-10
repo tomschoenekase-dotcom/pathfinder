@@ -5,23 +5,12 @@ import { z } from 'zod'
 import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
-import { CreateLegacyKnowledgeAdoptionDraftInput } from '@pathfinder/contracts/legacy-knowledge-adoption'
-import {
-  CreateSemanticUniversalContentDraftInput,
-  type GeneralizedContentPayload,
-} from '@pathfinder/contracts/universal-content-actions'
 
-import { router } from '../../core'
-import { createLegacyKnowledgeAdoptionDraftService } from '../../lib/legacy-knowledge-adoption-service'
-import {
-  LegacyKnowledgeAdoptionPreparationInput,
-  prepareLegacyKnowledgeAdoptionDraftService,
-} from '../../lib/legacy-knowledge-adoption-preparation'
+import { mergeRouters, router } from '../../core'
+import { adminKnowledgeProposalContentDraftRouter } from './knowledge-proposal-content-drafts'
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
-import { createSemanticUniversalContentDraftService } from '../../lib/semantic-universal-content-handoff-service'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
 import { resolveSupportProposalAuthoringState } from '../../lib/support-proposal-authoring-state'
-import { resolveSupportProposalContentEvidence } from '../../lib/support-proposal-content-evidence'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
   previewSemanticVenueUpdateFromProposal,
@@ -42,80 +31,6 @@ const SemanticOperationalUpdateDesiredKnowledge = SemanticUpdaterDesiredKnowledg
   title: z.string().trim().min(1).max(60),
   content: z.string().trim().min(1).max(300),
 })
-
-function matchesApprovedWording(
-  payload: GeneralizedContentPayload,
-  desired: { title: string; content: string },
-) {
-  switch (payload.kind) {
-    case 'POLICY':
-      return payload.title === desired.title && payload.rule === desired.content
-    case 'ITEM':
-    case 'SERVICE':
-    case 'EVENT':
-      return payload.name === desired.title && payload.description === desired.content
-    case 'OPERATIONAL_FACT':
-      return payload.label === desired.title && payload.value === desired.content
-    case 'RELATIONSHIP':
-      return false
-  }
-}
-
-const AdminCreateLegacyKnowledgeAdoptionDraftInput =
-  CreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
-    if (!input.desired.isEnabled) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['desired', 'isEnabled'],
-        message: 'Disabling legacy guidance requires a separate retirement workflow.',
-      })
-    }
-    if (!matchesApprovedWording(input.draft.payload, input.desired)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['draft', 'payload'],
-        message: 'Draft payload text must exactly match the approved semantic change.',
-      })
-    }
-  })
-
-const AdminCreateSupportLegacyKnowledgeAdoptionDraftInput =
-  AdminCreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
-    if (input.draft.evidence.length > 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['draft', 'evidence'],
-        message: 'Support adoption evidence is resolved from the retained proposal.',
-      })
-    }
-  })
-
-const AdminCreateSupportSemanticUniversalContentDraftInput =
-  CreateSemanticUniversalContentDraftInput.extend({
-    desired: SemanticUpdaterDesiredKnowledge,
-  }).superRefine((input, context) => {
-    if (!input.desired.isEnabled) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['desired', 'isEnabled'],
-        message: 'Disabling guidance requires a separate retirement workflow.',
-      })
-    }
-    if (!matchesApprovedWording(input.draft.payload, input.desired)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['draft', 'payload'],
-        message: 'Draft payload text must exactly match the approved semantic change.',
-      })
-    }
-    if (input.draft.evidence.length > 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['draft', 'evidence'],
-        message: 'Support evidence is resolved from the retained proposal.',
-      })
-    }
-  })
 
 const operationalUpdateHandoffSelect = {
   previewHash: true,
@@ -185,7 +100,7 @@ function exactOperationalDraftFromHandoff(
   return update
 }
 
-export const adminKnowledgeProposalDraftRouter = router({
+const adminKnowledgeProposalVenueDraftRouter = router({
   resolveSupportSemanticDuplicate: adminProcedure
     .input(SemanticDuplicateResolutionInput)
     .mutation(({ ctx, input }) =>
@@ -203,129 +118,6 @@ export const adminKnowledgeProposalDraftRouter = router({
     )
     .query(({ ctx, input }) => resolveSupportProposalAuthoringState({ db: ctx.db, input })),
 
-  prepareLegacyKnowledgeAdoptionDraft: adminProcedure
-    .input(LegacyKnowledgeAdoptionPreparationInput)
-    .query(({ ctx, input }) => prepareLegacyKnowledgeAdoptionDraftService({ db: ctx.db, input })),
-  createLegacyKnowledgeAdoptionDraft: adminProcedure
-    .input(AdminCreateLegacyKnowledgeAdoptionDraftInput)
-    .mutation(async ({ ctx, input }) => {
-      const result = await createLegacyKnowledgeAdoptionDraftService({
-        db: ctx.db,
-        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
-        input,
-      })
-      return {
-        moduleId: result.moduleId,
-        revisionId: result.revisionId,
-        version: result.version,
-        draftHash: result.draftHash,
-        legacySnapshotHash: result.legacySnapshotHash,
-        replayed: result.replayed,
-        requiresExplicitPublication: true as const,
-        autoPublished: false as const,
-      }
-    }),
-  createSupportLegacyKnowledgeAdoptionDraft: adminProcedure
-    .input(AdminCreateSupportLegacyKnowledgeAdoptionDraftInput)
-    .mutation(async ({ ctx, input }) => {
-      const evidence = await resolveSupportProposalContentEvidence({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        proposalId: input.proposalId,
-      })
-      const result = await createLegacyKnowledgeAdoptionDraftService({
-        db: ctx.db,
-        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
-        input: { ...input, draft: { ...input.draft, evidence } },
-      })
-      return {
-        moduleId: result.moduleId,
-        revisionId: result.revisionId,
-        version: result.version,
-        draftHash: result.draftHash,
-        legacySnapshotHash: result.legacySnapshotHash,
-        replayed: result.replayed,
-        requiresExplicitPublication: true as const,
-        autoPublished: false as const,
-      }
-    }),
-  createSemanticUniversalContentDraft: adminProcedure
-    .input(
-      CreateSemanticUniversalContentDraftInput.extend({ desired: SemanticUpdaterDesiredKnowledge }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const result = await createSemanticUniversalContentDraftService({
-        db: ctx.db,
-        actorId: ctx.session.userId,
-        input,
-      })
-      return {
-        moduleId: result.moduleId,
-        revisionId: result.revisionId,
-        version: result.version,
-        classification: result.classification,
-        draftHash: result.draftHash,
-        replayed: result.replayed,
-        requiresExplicitPublication: true as const,
-        autoPublished: false as const,
-      }
-    }),
-  createSupportSemanticUniversalContentDraft: adminProcedure
-    .input(AdminCreateSupportSemanticUniversalContentDraftInput)
-    .mutation(async ({ ctx, input }) => {
-      const adoption = await ctx.db.legacyKnowledgeUniversalContentAdoption.findFirst({
-        where: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          proposalId: input.proposalId,
-        },
-        select: { id: true },
-      })
-      if (adoption) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This proposal already produced an adoption draft; review that revision.',
-        })
-      }
-      const evidence = await resolveSupportProposalContentEvidence({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        proposalId: input.proposalId,
-      })
-      const result = await createSemanticUniversalContentDraftService({
-        db: ctx.db,
-        actorId: ctx.session.userId,
-        atomicPrecondition: async (tx) => {
-          const currentAdoption = await tx.legacyKnowledgeUniversalContentAdoption.findFirst({
-            where: {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              proposalId: input.proposalId,
-            },
-            select: { id: true },
-          })
-          if (currentAdoption) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: 'This proposal already produced an adoption draft; review that revision.',
-            })
-          }
-        },
-        input: { ...input, draft: { ...input.draft, evidence } },
-      })
-      return {
-        moduleId: result.moduleId,
-        revisionId: result.revisionId,
-        version: result.version,
-        classification: result.classification,
-        draftHash: result.draftHash,
-        replayed: result.replayed,
-        requiresExplicitPublication: true as const,
-        autoPublished: false as const,
-      }
-    }),
   createSemanticOperationalUpdateDraft: adminProcedure
     .input(
       z
@@ -556,3 +348,8 @@ export const adminKnowledgeProposalDraftRouter = router({
       }
     }),
 })
+
+export const adminKnowledgeProposalDraftRouter = mergeRouters(
+  adminKnowledgeProposalVenueDraftRouter,
+  adminKnowledgeProposalContentDraftRouter,
+)
