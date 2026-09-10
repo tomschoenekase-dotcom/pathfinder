@@ -106,6 +106,7 @@ vi.mock('./VoiceControl', () => ({
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
     conversationTools,
+    persistentVoiceControl,
     emptyState,
     errorMessage,
     messages,
@@ -122,6 +123,7 @@ vi.mock('./ChatWindow', () => ({
     onPlaceCardView,
   }: {
     conversationTools?: React.ReactNode
+    persistentVoiceControl?: React.ReactNode
     emptyState: React.ReactNode
     errorMessage?: string | null
     messages: Array<{ content: string; places?: Array<{ id: string }> }>
@@ -139,6 +141,7 @@ vi.mock('./ChatWindow', () => ({
   }) => (
     <div>
       {conversationTools}
+      {persistentVoiceControl}
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>

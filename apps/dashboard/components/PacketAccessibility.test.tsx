@@ -14,6 +14,7 @@ let pathname = '/admin'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn() }),
 }))
 vi.mock('../lib/trpc', () => ({

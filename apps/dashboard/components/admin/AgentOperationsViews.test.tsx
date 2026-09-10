@@ -1,7 +1,17 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  client: {
+    admin: {
+      getIntakeSourceAgentRouting: { query: vi.fn() },
+      listIntakeSourceAgentRoutingCandidates: { query: vi.fn() },
+      configureIntakeSourceAgentRouting: { mutate: vi.fn() },
+    },
+  },
+}))
 
 import { AgentOperationsOverview, formatAgentRunCost, formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunOperationsView } from './AgentRunOperationsView'
@@ -14,7 +24,8 @@ vi.mock('next/link', () => ({
   ),
 }))
 vi.mock('../../lib/trpc', () => ({
-  useTRPCClient: () => ({ admin: {} }),
+  // The real provider retains one client until its scope changes.
+  useTRPCClient: () => mocks.client,
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('./AgentQuestionAnswerForm', () => ({
@@ -29,6 +40,13 @@ vi.mock('./AgentQuestionDiscussion', () => ({
 }))
 
 describe('agent operations views', () => {
+  beforeEach(() => {
+    mocks.client.admin.getIntakeSourceAgentRouting.query.mockReset().mockResolvedValue(null)
+    mocks.client.admin.listIntakeSourceAgentRoutingCandidates.query
+      .mockReset()
+      .mockResolvedValue({ items: [], nextCursor: null })
+    mocks.client.admin.configureIntakeSourceAgentRouting.mutate.mockReset()
+  })
   afterEach(cleanup)
 
   it('formats fixed-point agent costs without floating-point conversion', () => {
@@ -40,7 +58,7 @@ describe('agent operations views', () => {
     expect(formatAgentRunCost(25_000_000n, 'EXACT')).toBe('$0.25')
   })
 
-  it('keeps access and autonomy separate and offers staged configuration without execution controls', () => {
+  it('keeps access and autonomy separate and offers staged configuration without execution controls', async () => {
     render(
       <AgentOperationsOverview
         tenantId="tenant_1"
@@ -71,6 +89,13 @@ describe('agent operations views', () => {
         questions={{ items: [], nextCursor: null }}
       />,
     )
+    await screen.findByLabelText('Content specialist')
+    expect(mocks.client.admin.getIntakeSourceAgentRouting.query).toHaveBeenCalledTimes(1)
+    expect(mocks.client.admin.getIntakeSourceAgentRouting.query).toHaveBeenCalledWith(
+      { tenantId: 'tenant_1', venueId: 'venue_1' },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.client.admin.configureIntakeSourceAgentRouting.mutate).not.toHaveBeenCalled()
     expect(screen.getByText('Access scope')).toBeTruthy()
     expect(screen.getByText('Autonomy')).toBeTruthy()
     expect(screen.getAllByText(/updates:draft/).length).toBeGreaterThan(0)
@@ -86,7 +111,7 @@ describe('agent operations views', () => {
     ).toBeTruthy()
   })
 
-  it('shows a provider as connected only while its exact bridge session is online and unexpired', () => {
+  it('shows a provider as connected only while its exact bridge session is online and unexpired', async () => {
     render(
       <AgentOperationsOverview
         tenantId="tenant_1"
@@ -110,11 +135,12 @@ describe('agent operations views', () => {
         ]}
       />,
     )
+    await screen.findByLabelText('Content specialist')
     expect(screen.getAllByText('Runner online')).toHaveLength(1)
     expect(screen.getByText('Codex desktop')).toBeTruthy()
   })
 
-  it('keeps saved responses and their discussion reachable without reopening answer controls', () => {
+  it('keeps saved responses and their discussion reachable without reopening answer controls', async () => {
     const answeredAt = new Date('2026-09-08T17:00:00.000Z')
     render(
       <AgentOperationsOverview
@@ -184,6 +210,7 @@ describe('agent operations views', () => {
       />,
     )
 
+    await screen.findByLabelText('Content specialist')
     expect(screen.getByRole('heading', { name: 'Question history' })).toBeTruthy()
     expect(screen.getAllByText('Recorded response')).toHaveLength(2)
     expect(screen.getByText('Use the east entrance after 9 a.m.')).toBeTruthy()
@@ -201,7 +228,7 @@ describe('agent operations views', () => {
     )
   })
 
-  it('retains answer controls for pending questions', () => {
+  it('retains answer controls for pending questions', async () => {
     render(
       <AgentOperationsOverview
         tenantId="tenant_1"
@@ -243,6 +270,7 @@ describe('agent operations views', () => {
       />,
     )
 
+    await screen.findByLabelText('Content specialist')
     expect(screen.getByRole('heading', { name: 'Needs your input' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Answer control question_pending' })).toBeTruthy()
     expect(screen.getByText('Discussion for question_pending')).toBeTruthy()

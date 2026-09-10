@@ -70,6 +70,34 @@ describe('IntakeSourceRoutingControl', () => {
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
+  it('preserves unsaved edits across same-scope renders with the same client', async () => {
+    const rendered = render(
+      <IntakeSourceRoutingControl tenantId="tenant-1" venueId="venue-1" identities={[eligible]} />,
+    )
+    fireEvent.change(await screen.findByLabelText('Content specialist'), {
+      target: { value: eligible.id },
+    })
+    fireEvent.click(screen.getByLabelText('Enable source review preparation'))
+
+    rendered.rerender(
+      <IntakeSourceRoutingControl
+        tenantId="tenant-1"
+        venueId="venue-1"
+        identities={[{ ...eligible }]}
+      />,
+    )
+
+    expect((screen.getByLabelText('Content specialist') as HTMLSelectElement).value).toBe(
+      eligible.id,
+    )
+    expect(
+      (screen.getByLabelText('Enable source review preparation') as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(mocks.query).toHaveBeenCalledTimes(1)
+    expect(mocks.client.admin.listIntakeSourceAgentRoutingCandidates.query).toHaveBeenCalledTimes(1)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
   it('offers a canonical retry after the first read fails', async () => {
     mocks.query.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(null)
     render(

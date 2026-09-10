@@ -80,5 +80,5 @@ describe('admin component query boundaries', () => {
     }
 
     expect(violations).toEqual([])
-  })
+  }, 30_000) // Whole-directory AST inventory, not an application request latency budget.
 })
