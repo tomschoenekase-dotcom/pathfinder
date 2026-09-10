@@ -194,7 +194,7 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
         errorCode: null,
       })
       expect(mixedReceipt.discoverySnapshot).toEqual({
-        policyVersion: 1,
+        policyVersion: 2,
         observedAt: observedAt.toISOString(),
         omittedCount: 0,
         items: [
@@ -442,7 +442,7 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
         fetchedBytes: 0,
         errorCode: 'NO_ACCESSIBLE_PAGES',
         discoverySnapshot: {
-          policyVersion: 1,
+          policyVersion: 2,
           observedAt: observedAt.toISOString(),
           omittedCount: 0,
           items: [
@@ -499,7 +499,7 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
           },
           outcome: 'INACCESSIBLE',
           discoverySnapshot: {
-            policyVersion: 1,
+            policyVersion: 2,
             observedAt: observedAt.toISOString(),
             omittedCount: 0,
             items: [
