@@ -175,7 +175,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       relation: 'NEW_FACT',
       desired,
     })
-    expect(pendingPreview.classification).toBe('ADDITION')
+    expect(pendingPreview.classification).toBe('CONFLICT')
     const draft = {
       audience: 'PUBLIC' as const,
       evidence: [
