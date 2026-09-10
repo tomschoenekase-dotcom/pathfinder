@@ -15,6 +15,7 @@ import {
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
 import { createSemanticUniversalContentDraftService } from '../../lib/semantic-universal-content-handoff-service'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
+import { resolveSupportProposalContentEvidence } from '../../lib/support-proposal-content-evidence'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
   previewSemanticVenueUpdateFromProposal,
@@ -57,6 +58,17 @@ const AdminCreateLegacyKnowledgeAdoptionDraftInput =
         code: z.ZodIssueCode.custom,
         path: ['draft', 'payload'],
         message: 'Draft payload text must exactly match the approved semantic change.',
+      })
+    }
+  })
+
+const AdminCreateSupportLegacyKnowledgeAdoptionDraftInput =
+  AdminCreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
+    if (input.draft.evidence.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draft', 'evidence'],
+        message: 'Support adoption evidence is resolved from the retained proposal.',
       })
     }
   })
@@ -140,6 +152,31 @@ export const adminKnowledgeProposalDraftRouter = router({
         db: ctx.db,
         actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
         input,
+      })
+      return {
+        moduleId: result.moduleId,
+        revisionId: result.revisionId,
+        version: result.version,
+        draftHash: result.draftHash,
+        legacySnapshotHash: result.legacySnapshotHash,
+        replayed: result.replayed,
+        requiresExplicitPublication: true as const,
+        autoPublished: false as const,
+      }
+    }),
+  createSupportLegacyKnowledgeAdoptionDraft: adminProcedure
+    .input(AdminCreateSupportLegacyKnowledgeAdoptionDraftInput)
+    .mutation(async ({ ctx, input }) => {
+      const evidence = await resolveSupportProposalContentEvidence({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+      })
+      const result = await createLegacyKnowledgeAdoptionDraftService({
+        db: ctx.db,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input: { ...input, draft: { ...input.draft, evidence } },
       })
       return {
         moduleId: result.moduleId,

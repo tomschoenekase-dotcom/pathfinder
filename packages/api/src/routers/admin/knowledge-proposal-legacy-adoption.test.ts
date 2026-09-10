@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createDraft: vi.fn(),
   prepareDraft: vi.fn(),
+  resolveSupportEvidence: vi.fn(),
 }))
 
 vi.mock('../../lib/legacy-knowledge-adoption-service', () => ({
@@ -14,6 +15,9 @@ vi.mock('../../lib/legacy-knowledge-adoption-preparation', async (importOriginal
     await importOriginal<typeof import('../../lib/legacy-knowledge-adoption-preparation')>()
   return { ...original, prepareLegacyKnowledgeAdoptionDraftService: mocks.prepareDraft }
 })
+vi.mock('../../lib/support-proposal-content-evidence', () => ({
+  resolveSupportProposalContentEvidence: mocks.resolveSupportEvidence,
+}))
 
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
@@ -85,6 +89,14 @@ describe('admin legacy knowledge adoption draft', () => {
       requiresExplicitPublication: true,
     })
     mocks.prepareDraft.mockResolvedValue({ tenantId: input.tenantId, venueId: input.venueId })
+    mocks.resolveSupportEvidence.mockResolvedValue([
+      {
+        sourceId: 'support-message:message_1',
+        locator: 'support-request:request_1',
+        capturedAt: '2026-09-10T10:00:00.000Z',
+        excerptHash: 'e'.repeat(64),
+      },
+    ])
   })
 
   it('gates and delegates the read-only adoption preparation query', async () => {
@@ -107,6 +119,12 @@ describe('admin legacy knowledge adoption draft', () => {
     await expect(
       testRouter.createCaller(context(false)).admin.createLegacyKnowledgeAdoptionDraft(input),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      testRouter
+        .createCaller(context(false))
+        .admin.createSupportLegacyKnowledgeAdoptionDraft(input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.resolveSupportEvidence).not.toHaveBeenCalled()
     expect(mocks.createDraft).not.toHaveBeenCalled()
   })
 
@@ -170,6 +188,74 @@ describe('admin legacy knowledge adoption draft', () => {
       requiresExplicitPublication: true,
       autoPublished: false,
     })
+  })
+
+  it('replaces empty caller evidence with exact scoped support evidence', async () => {
+    const result = await testRouter
+      .createCaller(context())
+      .admin.createSupportLegacyKnowledgeAdoptionDraft(input)
+
+    expect(mocks.resolveSupportEvidence).toHaveBeenCalledWith({
+      db,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      proposalId: input.proposalId,
+    })
+    expect(mocks.createDraft).toHaveBeenCalledWith({
+      db,
+      actor: { type: 'HUMAN', id: 'platform_admin_1', role: 'PLATFORM_ADMIN' },
+      input: {
+        ...input,
+        draft: {
+          ...input.draft,
+          evidence: [
+            {
+              sourceId: 'support-message:message_1',
+              locator: 'support-request:request_1',
+              capturedAt: '2026-09-10T10:00:00.000Z',
+              excerptHash: 'e'.repeat(64),
+            },
+          ],
+        },
+      },
+    })
+    expect(result).toMatchObject({
+      requiresExplicitPublication: true,
+      autoPublished: false,
+    })
+  })
+
+  it('rejects caller support evidence before resolver or service delegation', async () => {
+    await expect(
+      testRouter.createCaller(context()).admin.createSupportLegacyKnowledgeAdoptionDraft({
+        ...input,
+        draft: {
+          ...input.draft,
+          evidence: [
+            {
+              sourceId: 'caller-controlled',
+              capturedAt: '2026-09-10T10:00:00.000Z',
+              excerptHash: 'f'.repeat(64),
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.resolveSupportEvidence).not.toHaveBeenCalled()
+    expect(mocks.createDraft).not.toHaveBeenCalled()
+  })
+
+  it('propagates missing support provenance without creating a draft', async () => {
+    mocks.resolveSupportEvidence.mockRejectedValueOnce(
+      new TRPCError({ code: 'NOT_FOUND', message: 'Support request provenance not found.' }),
+    )
+    await expect(
+      testRouter.createCaller(context()).admin.createSupportLegacyKnowledgeAdoptionDraft(input),
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'Support request provenance not found.',
+    })
+    expect(mocks.createDraft).not.toHaveBeenCalled()
   })
 
   it('propagates service conflicts without changing their meaning', async () => {

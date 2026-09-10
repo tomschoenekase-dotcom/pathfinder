@@ -536,5 +536,54 @@ describe.skipIf(!enabled)('semantic conflict resolution on disposable PostgreSQL
         select: { id: true },
       }),
     ).resolves.toEqual({ id: resolution.resolutionId })
+
+    // Draft creation is a later explicit action, after the resolution's zero-effect assertions.
+    const preparedAdoption = await caller.prepareLegacyKnowledgeAdoptionDraft({
+      tenantId,
+      venueId,
+      proposalId: replacement.id,
+      expectedUpdatedAt: approvedReplacement.updatedAt,
+      relation: 'CORRECTS',
+      desired: replacementDesired,
+    })
+    const adoptionInput = {
+      ...preparedAdoption,
+      draft: {
+        audience: 'PUBLIC' as const,
+        evidence: [],
+        payload: {
+          kind: 'POLICY' as const,
+          title: replacementDesired.title,
+          rule: replacementDesired.content,
+          appliesTo: [],
+        },
+      },
+    }
+    const adoption = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
+    const adoptionReplay = await caller.createSupportLegacyKnowledgeAdoptionDraft(adoptionInput)
+    expect(adoption).toMatchObject({ requiresExplicitPublication: true, autoPublished: false })
+    expect(adoptionReplay).toMatchObject({ revisionId: adoption.revisionId, replayed: true })
+    const retainedEvidence = await db.contentModuleEvidence.findMany({
+      where: { tenantId, venueId, revisionId: adoption.revisionId },
+      select: { sourceId: true, locator: true, excerptHash: true },
+    })
+    expect(retainedEvidence).toEqual([
+      {
+        sourceId: `support-message:${fixtureRows[0]!.messageId}`,
+        locator: `support-request:${fixtureRows[0]!.requestId}`,
+        excerptHash: createHash('sha256').update(conflicting.content).digest('hex'),
+      },
+    ])
+    expect(await db.contentModuleRevision.count({ where: { tenantId, venueId } })).toBe(1)
+    expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(0)
+    expect(await db.legacyKnowledgeAdoptionActivation.count({ where: { tenantId, venueId } })).toBe(
+      0,
+    )
+    expect(
+      await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { id: entryId, tenantId, venueId },
+        select: { content: true },
+      }),
+    ).toEqual({ content: canonical.content })
   })
 })
