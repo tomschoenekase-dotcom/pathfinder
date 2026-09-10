@@ -200,7 +200,7 @@
   "apiTypecheck": "PASS",
   "apiConfiguredEslint": "PASS",
   "postCommitMeasuredBytes": "all unchanged",
-  "promptVersion": "torchiko-venue-system-v22",
+  "promptVersion": "guest-chat-prompt-v22",
   "promptHash": "f18deb6657f4c6ec6094cc7d35bf07017771e7a544791c6df735d358ce4dde41",
   "limitations": [
     "Candidate, card, PLACE citation/source eligibility only; deterministic provider prose deliberately names a visited place and is not output-validated.",
