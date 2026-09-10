@@ -23,6 +23,7 @@ const requestObjectSchema = scopeSchema
   .extend({
     visitorId: z.string().uuid().nullable(),
     message: z.string().trim().min(1).max(1000),
+    entryPlaceId: z.string().trim().min(1).max(191).optional(),
     language: z.string().trim().min(1).max(64).nullable(),
     lat: z.number().finite().min(-90).max(90).nullable(),
     lng: z.number().finite().min(-180).max(180).nullable(),
@@ -229,6 +230,7 @@ function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>):
         anonymousToken: value.anonymousToken,
         visitorId: value.visitorId,
         message: value.message,
+        ...(value.entryPlaceId ? { entryPlaceId: value.entryPlaceId } : {}),
         language: value.language,
         lat: value.lat,
         lng: value.lng,

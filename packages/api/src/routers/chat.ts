@@ -72,7 +72,12 @@ import {
   projectGuestModelHistory,
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
-import { projectGuestPlaceIdentity } from '../lib/guest-place-identity'
+import {
+  compatibleGuestPlaceIdentityCandidates,
+  explicitlyNamedGuestPlaceLabels,
+  guestPlaceIdentityKey,
+  projectGuestPlaceIdentity,
+} from '../lib/guest-place-identity'
 import { resolveGuestPlaceIdentityFollowup } from '../lib/guest-place-identity-followup'
 import {
   expandExplicitGuestPlaceIdentityCandidates,
@@ -607,6 +612,7 @@ const chatReadRouter = router({
       requestId: operationId,
       visitorId: input.visitorId ?? null,
       message: trimmedInput,
+      ...(input.entryPlaceId ? { entryPlaceId: input.entryPlaceId } : {}),
       ...(input.visitContext ? { visitContext: input.visitContext } : {}),
       language: input.language ?? null,
       lat: input.lat ?? null,
@@ -1048,6 +1054,35 @@ const chatReadRouter = router({
       tenantId: venue.tenantId,
       venueId: input.venueId,
     })
+    const entryPlacePromise =
+      input.entryPlaceId && ctx.experienceScope === 'PUBLIC'
+        ? ctx.db.place.findFirst({
+            where: {
+              id: input.entryPlaceId,
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              isActive: true,
+              visibility: 'PUBLIC',
+            },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              itemType: true,
+              shortDescription: true,
+              longDescription: true,
+              lat: true,
+              lng: true,
+              tags: true,
+              areaName: true,
+              hours: true,
+              photoUrl: true,
+              sourceType: true,
+              sourceName: true,
+              sourceUrl: true,
+            },
+          })
+        : Promise.resolve(null)
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
     if (queryEmbedding) {
@@ -1148,6 +1183,28 @@ const chatReadRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
+    const [nativeReadSnapshot, legacyEntryPlace] = await Promise.all([
+      nativeReadSnapshotPromise,
+      entryPlacePromise,
+    ])
+    const entryRead = legacyEntryPlace
+      ? applyNativeGuestContentRead({
+          snapshot: nativeReadSnapshot,
+          legacyPlaces: [legacyEntryPlace],
+          legacyKnowledgeEntries: [],
+        })
+      : null
+    // In native mode the active immutable release is authoritative. A stale QR
+    // ID that is absent from that release becomes ordinary unbound chat input.
+    const entryPlace =
+      nativeReadSnapshot.path === 'NATIVE'
+        ? entryRead?.path === 'NATIVE'
+          ? (entryRead.places[0] ?? null)
+          : null
+        : legacyEntryPlace
+    if (entryPlace) {
+      relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
+    }
     const identityDiscovery = await expandExplicitGuestPlaceIdentityCandidates({
       reader: ctx.db,
       query: effectiveIdentityQuery,
@@ -1157,15 +1214,19 @@ const chatReadRouter = router({
       places: relevantPlaces,
       ...(acceptedAdjacentIdentityName ? { explicitLabels: [acceptedAdjacentIdentityName] } : {}),
     })
-    const nativeReadSnapshot = await nativeReadSnapshotPromise
     const nativeRead = applyNativeGuestContentRead({
       snapshot: nativeReadSnapshot,
       legacyPlaces: identityDiscovery.places,
       legacyKnowledgeEntries: relevantKnowledgeEntries,
     })
     relevantPlaces = nativeRead.places
+    if (entryPlace) {
+      // Preserve the exact published entry projection even when an unrelated
+      // compatibility candidate makes the broader collection fall back.
+      relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
+    }
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
-    const placeIdentity = await projectGuestPlaceIdentity({
+    let placeIdentity = await projectGuestPlaceIdentity({
       reader: ctx.db,
       query: effectiveIdentityQuery,
       tenantId: venue.tenantId,
@@ -1173,10 +1234,50 @@ const chatReadRouter = router({
       includeSecondLayer,
       places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
     })
+    const entryNameWasExplicit = Boolean(
+      entryPlace &&
+      explicitlyNamedGuestPlaceLabels(effectiveIdentityQuery, [entryPlace]).length > 0,
+    )
+    let boundEntryNameKey: string | null = null
+    if (entryPlace && entryNameWasExplicit) {
+      const entryNameKey = guestPlaceIdentityKey(entryPlace.name)
+      const entryIdentity = placeIdentity.places.find((place) => place.id === entryPlace.id)
+      const sameNameCandidates = placeIdentity.places.filter(
+        (place) => guestPlaceIdentityKey(place.name) === entryNameKey,
+      )
+      const compatibleCandidates = compatibleGuestPlaceIdentityCandidates({
+        query: effectiveIdentityQuery,
+        candidates: sameNameCandidates,
+      })
+      if (entryIdentity && compatibleCandidates.some((place) => place.id === entryPlace.id)) {
+        boundEntryNameKey = entryNameKey
+        placeIdentity = {
+          places: [
+            entryIdentity,
+            ...placeIdentity.places.filter(
+              (place) =>
+                place.id !== entryPlace.id && guestPlaceIdentityKey(place.name) !== entryNameKey,
+            ),
+          ],
+          ambiguity:
+            placeIdentity.ambiguity &&
+            guestPlaceIdentityKey(placeIdentity.ambiguity.requestedName) === entryNameKey
+              ? null
+              : placeIdentity.ambiguity,
+        }
+      }
+    }
+    const unresolvedSaturatedLabelKeys = boundEntryNameKey
+      ? new Set(
+          [...identityDiscovery.saturatedLabelKeys].filter(
+            (labelKey) => labelKey !== boundEntryNameKey,
+          ),
+        )
+      : identityDiscovery.saturatedLabelKeys
     const placeIdentityDiscoveryIncomplete = hasIncompleteGuestPlaceIdentityDiscovery({
       query: effectiveIdentityQuery,
       places: relevantPlaces,
-      saturatedLabelKeys: identityDiscovery.saturatedLabelKeys,
+      saturatedLabelKeys: unresolvedSaturatedLabelKeys,
     })
     const recommendationSelection = partitionGuestRecommendationPlaces({
       query: effectiveIdentityQuery,

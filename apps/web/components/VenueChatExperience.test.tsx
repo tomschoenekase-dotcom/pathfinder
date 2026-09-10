@@ -310,6 +310,70 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
   })
 
+  it('keeps text and voice sending locked when stored history cannot be loaded', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174090'
+    mocks.anonymousToken = token
+    mocks.sessionId = 'session-1'
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.history.query.mockRejectedValueOnce(new Error('history unavailable'))
+
+    render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByText(/current history could not be confirmed/u)
+    const send = screen.getByRole('button', { name: 'Send test message' }) as HTMLButtonElement
+    expect(send.disabled).toBe(true)
+    fireEvent.click(send)
+    expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    expect(mocks.voiceControlProps).toBeNull()
+    expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
+  })
+
+  it('restores stored history before unlocking chat and preserves the pending QR identity', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174091'
+    mocks.anonymousToken = token
+    mocks.sessionId = 'session-1'
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.history.query
+      .mockRejectedValueOnce(new Error('history unavailable'))
+      .mockResolvedValueOnce({
+        messages: [
+          { role: 'user' as const, content: 'Where is Case 12?' },
+          { role: 'assistant' as const, content: 'It is in the west gallery.' },
+        ],
+      })
+
+    render(
+      <VenueChatExperience
+        venueSlug="museum"
+        entrySource="qr"
+        initialEntryPlaceId="case-12-second"
+      />,
+    )
+
+    await screen.findByText(/current history could not be confirmed/u)
+    fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
+
+    await screen.findByText('Latest: It is in the west gallery.')
+    expect(screen.getByText('Messages: 2')).toBeTruthy()
+    expect(mocks.client.chat.history.query).toHaveBeenCalledTimes(2)
+    expect(mocks.client.chat.history.query).toHaveBeenNthCalledWith(
+      2,
+      { venueId: activeVenue.id, anonymousToken: token },
+      { signal: expect.anything() },
+    )
+    expect(mocks.voiceControlProps).not.toBeNull()
+
+    const send = screen.getByRole('button', { name: 'Send test message' }) as HTMLButtonElement
+    expect(send.disabled).toBe(false)
+    fireEvent.click(send)
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce())
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ entryPlaceId: 'case-12-second' }),
+    )
+  })
+
   it('reconciles a pending finalized voice line with durable history and ignores foreign scope', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174099'
     const voiceId = 'voice:11111111-1111-4111-8111-111111111111:event-1'
@@ -1333,6 +1397,35 @@ describe('VenueChatExperience presentation boundary', () => {
         sessionId: nextToken,
         metadata: { entrySource: 'qr' },
       }),
+    )
+  })
+
+  it('sends a QR place identity on only the first new turn', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174033'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+
+    render(
+      <VenueChatExperience
+        venueSlug="museum"
+        presentation="standalone"
+        entrySource="qr"
+        initialEntryPlaceId="case-12-second"
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.client.chat.send.mutate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ entryPlaceId: 'case-12-second' }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
+    expect(mocks.client.chat.send.mutate).toHaveBeenNthCalledWith(
+      2,
+      expect.not.objectContaining({ entryPlaceId: expect.anything() }),
     )
   })
 

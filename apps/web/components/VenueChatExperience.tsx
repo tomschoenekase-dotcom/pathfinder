@@ -40,6 +40,7 @@ type VenueChatExperienceProps = {
   presentation?: VenueChatPresentation
   initialDraft?: string
   entrySource?: GuestEntrySource
+  initialEntryPlaceId?: string
   secondLayerKey?: string
 }
 
@@ -109,6 +110,7 @@ export function VenueChatExperience({
   presentation = 'standalone',
   initialDraft = '',
   entrySource,
+  initialEntryPlaceId,
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
@@ -126,7 +128,9 @@ export function VenueChatExperience({
   const [pageError, setPageError] = useState<string | null>(null)
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [recoveryMode, setRecoveryMode] = useState<'retry-turn' | 'check-history' | null>(null)
+  const [recoveryMode, setRecoveryMode] = useState<
+    'retry-turn' | 'check-history' | 'load-history' | null
+  >(null)
   const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
     const stored = getStoredLanguage()
     return SUPPORTED_LANGUAGES.some((entry) => entry.label === stored)
@@ -140,12 +144,26 @@ export function VenueChatExperience({
   const activeOperationRef = useRef<string | null>(null)
   const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
   const reconciliationAbortRef = useRef<AbortController | null>(null)
+  const historyBootstrapAbortRef = useRef<AbortController | null>(null)
+  const historyBootstrapFailureRef = useRef<{
+    venueId: string
+    anonymousToken: string
+    epoch: number
+  } | null>(null)
   const pendingTurnRef = useRef<PendingTurn | null>(null)
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
   const reconciliationRequiredRef = useRef(false)
   const stoppedOperationsRef = useRef(new Set<string>())
   const characterResetTimerRef = useRef<number | null>(null)
+  const entryPlaceRef = useRef({
+    scope: `${venueSlug}:${initialEntryPlaceId ?? ''}`,
+    value: initialEntryPlaceId,
+  })
+  const entryPlaceScope = `${venueSlug}:${initialEntryPlaceId ?? ''}`
+  if (entryPlaceRef.current.scope !== entryPlaceScope) {
+    entryPlaceRef.current = { scope: entryPlaceScope, value: initialEntryPlaceId }
+  }
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
@@ -211,6 +229,8 @@ export function VenueChatExperience({
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
       reconciliationAbortRef.current = null
+      historyBootstrapAbortRef.current?.abort()
+      historyBootstrapAbortRef.current = null
       stoppedOperationsRef.current.clear()
     },
     [],
@@ -240,6 +260,9 @@ export function VenueChatExperience({
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
       reconciliationAbortRef.current = null
+      historyBootstrapAbortRef.current?.abort()
+      historyBootstrapAbortRef.current = null
+      historyBootstrapFailureRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
       lastSyncedPosRef.current = null
@@ -285,10 +308,21 @@ export function VenueChatExperience({
                   { signal },
                 ),
             })
-            if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
-              setMessages(history.messages as ChatMessage[])
+            if (!disposed && conversationEpochRef.current === epoch) {
+              historyBootstrapFailureRef.current = null
+              if (history.messages.length) setMessages(history.messages as ChatMessage[])
+            }
           } catch {
-            // History is optional; a failed read starts an empty conversation.
+            if (!disposed && conversationEpochRef.current === epoch) {
+              historyBootstrapFailureRef.current = {
+                venueId: result.id,
+                anonymousToken: token,
+                epoch,
+              }
+              setRecoveryMode('load-history')
+              setSendError(getVisitorRecoveryCopy()[2])
+              setStableCharacterState('error')
+            }
           }
         }
       } catch (error) {
@@ -317,6 +351,7 @@ export function VenueChatExperience({
     resetAnalytics,
     secondLayerKey,
     setTemporaryCharacterState,
+    setStableCharacterState,
     venueSlug,
   ])
 
@@ -474,6 +509,53 @@ export function VenueChatExperience({
     }
   }
 
+  async function retryHistoryBootstrap() {
+    const failure = historyBootstrapFailureRef.current
+    if (!failure || activeOperationRef.current !== null) return
+    historyBootstrapAbortRef.current?.abort()
+    const controller = new AbortController()
+    historyBootstrapAbortRef.current = controller
+    setIsSending(true)
+    try {
+      const history = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: VISITOR_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.chat.history.query(
+            {
+              venueId: failure.venueId,
+              anonymousToken: failure.anonymousToken,
+              ...(secondLayerKey ? { secondLayerKey } : {}),
+            },
+            { signal },
+          ),
+      })
+      if (
+        historyBootstrapFailureRef.current !== failure ||
+        conversationEpochRef.current !== failure.epoch ||
+        currentVenueIdRef.current !== failure.venueId ||
+        currentAnonymousTokenRef.current !== failure.anonymousToken
+      )
+        return
+      setMessages(history.messages as ChatMessage[])
+      historyBootstrapFailureRef.current = null
+      setRecoveryMode(null)
+      setSendError(null)
+      setTemporaryCharacterState('success', 900)
+    } catch {
+      if (
+        historyBootstrapFailureRef.current === failure &&
+        conversationEpochRef.current === failure.epoch
+      )
+        setSendError(getVisitorRecoveryCopy()[9])
+    } finally {
+      if (historyBootstrapAbortRef.current === controller) {
+        historyBootstrapAbortRef.current = null
+        if (conversationEpochRef.current === failure.epoch) setIsSending(false)
+      }
+    }
+  }
+
   async function dispatchTurn(turn: PendingTurn, addOptimistic: boolean) {
     if (activeOperationRef.current !== null || !turnIsCurrent(turn)) return
     activeOperationRef.current = turn.operationId
@@ -607,7 +689,8 @@ export function VenueChatExperience({
       !anonymousToken ||
       !message ||
       activeOperationRef.current !== null ||
-      reconciliationRequiredRef.current
+      reconciliationRequiredRef.current ||
+      recoveryMode === 'load-history'
     )
       return
     abandonPendingOptimistic()
@@ -625,6 +708,7 @@ export function VenueChatExperience({
       anonymousToken,
       ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
+      ...(entryPlaceRef.current.value ? { entryPlaceId: entryPlaceRef.current.value } : {}),
       message,
       ...(visitContext.interests.length ||
       visitContext.visitedPlaceIds.length ||
@@ -635,6 +719,7 @@ export function VenueChatExperience({
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
       ...(language === 'English' ? {} : { language }),
     }
+    entryPlaceRef.current.value = undefined
     const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
     pendingTurnRef.current = turn
     void dispatchTurn(turn, true)
@@ -642,6 +727,10 @@ export function VenueChatExperience({
 
   function handleRetry() {
     if (!isOnline) return
+    if (recoveryMode === 'load-history') {
+      void retryHistoryBootstrap()
+      return
+    }
     const turn = pendingTurnRef.current
     if (!turn) return
     if (recoveryMode === 'check-history') {
@@ -733,6 +822,9 @@ export function VenueChatExperience({
     conversationEpochRef.current += 1
     activeOperationRef.current = null
     pendingTurnRef.current = null
+    historyBootstrapAbortRef.current?.abort()
+    historyBootstrapAbortRef.current = null
+    historyBootstrapFailureRef.current = null
     setMessages([])
     setSendError(null)
     setRecoveryMode(null)
@@ -817,12 +909,20 @@ export function VenueChatExperience({
       requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
-      retryLabel={recoveryMode === 'check-history' ? recoveryCopy[12] : recoveryCopy[13]}
-      {...(isSending && recoveryMode !== 'check-history'
+      retryLabel={
+        recoveryMode === 'check-history' || recoveryMode === 'load-history'
+          ? recoveryCopy[12]
+          : recoveryCopy[13]
+      }
+      {...(isSending && recoveryMode !== 'check-history' && recoveryMode !== 'load-history'
         ? { onStopResponse: handleStopResponse }
         : {})}
       stopResponseLabel={stopCopy.stop}
-      conversationLocked={reconciliationRequiredRef.current || recoveryMode === 'check-history'}
+      conversationLocked={
+        reconciliationRequiredRef.current ||
+        recoveryMode === 'check-history' ||
+        recoveryMode === 'load-history'
+      }
       onNewConversation={() => handleNewConversation()}
       visitContext={visitContext}
       visitPreferences={
@@ -836,6 +936,7 @@ export function VenueChatExperience({
       }
       onVoiceCharacterState={setStableCharacterState}
       onVoiceTranscriptLine={handleVoiceTranscriptLine}
+      {...(recoveryMode === 'load-history' ? { voiceControl: null } : {})}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {
           viewedPlaceIdsRef.current.add(placeId)

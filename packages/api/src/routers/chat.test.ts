@@ -53,6 +53,7 @@ const guestTurnActions = vi.hoisted(() => ({
   readAdjacentIdentity: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
+const resolveNativeGuestReadSnapshotAction = vi.hoisted(() => vi.fn())
 const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
@@ -70,6 +71,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
   readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+  resolveNativeGuestReadSnapshotAction,
   readActiveUnhealthyAiProviders,
   recordConversationLearningCandidate,
 }))
@@ -220,6 +222,12 @@ describe('chat router', () => {
     operationalUpdateFindMany.mockResolvedValue([])
     venueLocationFindMany.mockResolvedValue([])
     resolvePublishedUniversalContent.mockResolvedValue([])
+    resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+      path: 'LEGACY',
+      reason: 'SERVER_DISABLED',
+      releaseId: null,
+      state: null,
+    })
     readActiveUnhealthyAiProviders.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
@@ -1085,6 +1093,173 @@ describe('chat router', () => {
       expect(prompt).toContain('Case 12 — First floor')
       expect(prompt).toContain('Case 12 — Second floor')
     }
+
+    it('binds a valid public QR item to its exact duplicate-name exhibit', async () => {
+      setupHappyPath('This is the second-floor case.')
+      const fixture = caseTwelveRankingFixture()
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([fixture.first, fixture.second])
+      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: fixture.second.id,
+        message: 'Tell me about Case 12',
+      })
+
+      expect(placeFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: fixture.second.id,
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          },
+        }),
+      )
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(prompt).toContain('Second-floor case.')
+      expect(prompt).not.toContain('First-floor case.')
+    })
+
+    it('honors an explicit typed floor instead of the contradictory scanned duplicate', async () => {
+      setupHappyPath('This is the first-floor case.')
+      const fixture = caseTwelveRankingFixture()
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([fixture.first, fixture.second])
+      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: fixture.second.id,
+        message: 'Tell me about Case 12 on the First floor',
+      })
+
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(prompt).toContain('First-floor case.')
+      expect(prompt).not.toContain('Second-floor case.')
+    })
+
+    it('keeps an unrelated saturated named label fail-closed after binding a QR item', async () => {
+      setupHappyPath('Please clarify the bounded label.')
+      const fixture = caseTwelveRankingFixture()
+      const gallerySeed = {
+        ...placeRows[0],
+        id: 'gallery-seed',
+        name: 'Gallery',
+        shortDescription: 'One gallery candidate.',
+      }
+      const galleryCandidates = Array.from({ length: 65 }, (_, index) => ({
+        ...gallerySeed,
+        id: `gallery-${index}`,
+      }))
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second, gallerySeed])
+      placeFindMany.mockReset()
+      placeFindMany.mockImplementation(async (args) => {
+        const name = (args as { where?: { name?: { equals?: string } } }).where?.name?.equals
+        if (name === 'Case 12') return [fixture.first, fixture.second]
+        if (name === 'Gallery') return galleryCandidates
+        return []
+      })
+      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: fixture.second.id,
+        message: 'Tell me about Case 12 and Gallery',
+      })
+
+      expect(getConcatenatedSystemPrompt()).toContain(
+        'Discovery of the named exhibit reached its bounded limit',
+      )
+    })
+
+    it('falls back safely when a QR item is not public in the requested venue', async () => {
+      setupHappyPath('Please clarify the floor.')
+      const fixture = caseTwelveRankingFixture()
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([fixture.first, fixture.second])
+      placeFindFirst.mockResolvedValueOnce(null)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: 'foreign-or-private-case',
+        message: 'Tell me about Case 12',
+      })
+
+      expectCaseTwelveClarificationPrompt()
+    })
+
+    it('does not bind a stale QR item absent from the active native release', async () => {
+      setupHappyPath('Please clarify the floor.')
+      const fixture = caseTwelveRankingFixture()
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([fixture.first, fixture.second])
+      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+      resolveNativeGuestReadSnapshotAction.mockResolvedValueOnce({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        state: {
+          places: [fixture.first],
+          knowledgeEntries: [],
+        },
+      })
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: fixture.second.id,
+        message: 'Tell me about Case 12',
+      })
+
+      expectCaseTwelveClarificationPrompt()
+    })
+
+    it('uses the exact active native release projection for a valid QR item', async () => {
+      setupHappyPath('This is the current published case.')
+      const fixture = caseTwelveRankingFixture()
+      const publishedSecond = {
+        ...fixture.second,
+        shortDescription: 'Current published second-floor case.',
+      }
+      semanticSearch.places.mockResolvedValueOnce([fixture.first, fixture.second])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([fixture.first, fixture.second])
+      placeFindFirst.mockResolvedValueOnce(fixture.second)
+      venueLocationFindMany.mockResolvedValueOnce(fixture.floorRows)
+      resolveNativeGuestReadSnapshotAction.mockResolvedValueOnce({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        state: {
+          places: [fixture.first, publishedSecond],
+          knowledgeEntries: [],
+        },
+      })
+
+      await caller.chat.send({
+        ...sendInput,
+        entryPlaceId: fixture.second.id,
+        message: 'Tell me about Case 12',
+      })
+
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(prompt).toContain('Current published second-floor case.')
+      expect(prompt).not.toContain('First-floor case.')
+    })
 
     it('expands a no-embedding initial eight-place result to clarify duplicate Case 12 floors', async () => {
       setupHappyPath('Please clarify the floor.')

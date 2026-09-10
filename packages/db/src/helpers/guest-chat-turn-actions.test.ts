@@ -243,6 +243,7 @@ describe('guest chat turn actions', () => {
       { venueId: 'venue-2' },
       { anonymousToken: '33333333-3333-4333-8333-333333333333' },
       { visitorId: '44444444-4444-4444-8444-444444444444' },
+      { entryPlaceId: 'place-qr-entry' },
       { message: 'Where is parking?' },
       { language: 'Español' },
       { lat: 41.2 },
@@ -253,6 +254,12 @@ describe('guest chat turn actions', () => {
         guestChatRequestHash(request),
       )
     }
+    expect(guestChatRequestHash(request)).toBe(
+      '14d4540f58823dbbdac04931974309515d8c20174c98f4f46c3023e971cd4a60',
+    )
+    expect(guestChatRequestHash({ ...request, entryPlaceId: ' place-qr-entry ' })).toBe(
+      guestChatRequestHash({ ...request, entryPlaceId: 'place-qr-entry' }),
+    )
   })
 
   it('treats an omitted experience scope as public and binds second-layer requests', () => {
@@ -405,6 +412,36 @@ describe('guest chat turn actions', () => {
           turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
           assistantResponse: 'The cafe is downstairs.',
+          replayMetadata: { places: [] },
+          fallbackCode: null,
+          nextPending: { kind: 'NONE' },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Finalization request does not match reservation.',
+    })
+  })
+
+  it('rejects a changed QR entry identity for the same durable operation', async () => {
+    const tx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({
+          requestHash: guestChatRequestHash({ ...request, entryPlaceId: 'place-a' }),
+        }),
+      },
+    }
+
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: transactionClient(tx),
+        input: {
+          ...request,
+          entryPlaceId: 'place-b',
+          turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          assistantResponse: 'The exhibit is upstairs.',
           replayMetadata: { places: [] },
           fallbackCode: null,
           nextPending: { kind: 'NONE' },

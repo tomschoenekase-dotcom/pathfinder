@@ -69,6 +69,7 @@ export const ChatSendInput = z
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),
     secondLayerKey: z.string().uuid().optional(),
+    entryPlaceId: z.string().trim().min(1).max(191).optional(),
     message: z.string().trim().min(1).max(1000),
     responseIntent: z.enum(['DEFAULT', 'EXPAND']).optional(),
     visitContext: GuestVisitContextInput.optional(),
