@@ -1,13 +1,9 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
 
 const baseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
-const artifactDir = resolve(process.cwd(), 'artifacts/media-temporal-review')
 
-test('all-held receipt remains usable at 320px and desktop', async ({ page }) => {
-  mkdirSync(artifactDir, { recursive: true })
+test('all-held receipt remains usable at 320px and desktop', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto(`${baseUrl}/dev-fixtures/media-temporal-review`)
   await page.getByRole('button', { name: 'Retain evidence receipt' }).click()
@@ -32,11 +28,11 @@ test('all-held receipt remains usable at 320px and desktop', async ({ page }) =>
     true,
   )
   expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([])
-  await page.screenshot({ path: resolve(artifactDir, 'temporal-review-320.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('temporal-review-320.png'), fullPage: true })
 
   await page.setViewportSize({ width: 1440, height: 900 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
-  await page.screenshot({ path: resolve(artifactDir, 'temporal-review-1440.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('temporal-review-1440.png'), fullPage: true })
 })

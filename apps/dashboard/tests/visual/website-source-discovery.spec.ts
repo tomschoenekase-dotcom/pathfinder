@@ -15,7 +15,19 @@ test('source inventory preserves readable provenance and complete pagination', a
   const summary = page.locator('summary').filter({ hasText: 'Source inventory' })
   await summary.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/Images are not verified maps/)).toBeVisible()
+  await expect(page.getByText(/historical policy did not extract PDF text/)).toBeVisible()
+  await expect(page.getByText(/ownership and topic coverage have not been verified/)).toBeVisible()
+  await expect(page.getByText(/not the source publication or update date/)).toBeVisible()
+  await expect(page.getByText(/repeated pages are not independent corroboration/)).toBeVisible()
+  const imageReference = page.getByRole('listitem').filter({
+    has: page.getByRole('link', { name: 'https://greenhouse.example/site-map.png', exact: true }),
+  })
+  await expect(
+    imageReference.getByText('Image \u00b7 adapter unavailable', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    imageReference.getByText('Depth 1 \u00b7 not downloaded', { exact: true }),
+  ).toBeVisible()
   await expect(page.getByText(/1 exact-byte repeats/)).toBeVisible()
   for (const viewport of [
     { width: 320, height: 568 },
@@ -28,20 +40,24 @@ test('source inventory preserves readable provenance and complete pagination', a
       await page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth + 1),
     ).toBe(true)
     expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([])
+    await expect(page.getByRole('listitem')).toHaveCount(20)
+    await expect(page.getByRole('button', { name: 'Previous sources' })).toBeDisabled()
+    await page.getByRole('button', { name: 'Next sources' }).click()
+    await expect(page.getByText('Page 2 of 2')).toBeVisible()
+    await expect(page.getByRole('listitem')).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Next sources' })).toBeDisabled()
+    await expect(
+      page.getByRole('link', {
+        name: 'https://greenhouse.example/archive/guide-15.pdf',
+        exact: true,
+      }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Previous sources' }).click()
+    await expect(page.getByText('Page 1 of 2')).toBeVisible()
     await page.screenshot({
       path: testInfo.outputPath(`website-source-discovery-${viewport.width}.png`),
       fullPage: true,
     })
   }
-  await page.getByRole('button', { name: 'Next sources' }).click()
-  await expect(page.getByText('Page 2 of 2')).toBeVisible()
-  await expect(
-    page.getByRole('link', {
-      name: 'https://greenhouse.example/archive/guide-15.pdf',
-      exact: true,
-    }),
-  ).toBeVisible()
-  await page.getByRole('button', { name: 'Previous sources' }).click()
-  await expect(page.getByText('Page 1 of 2')).toBeVisible()
   expect(errors).toEqual([])
 })
