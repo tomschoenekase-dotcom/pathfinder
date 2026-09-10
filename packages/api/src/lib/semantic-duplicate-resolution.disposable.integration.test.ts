@@ -222,10 +222,17 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
         where: { ...scope, id: receipt.id },
         data: { resolutionNote: 'Rewrite' },
       }),
-    ).rejects.toThrow('append-only')
+    ).rejects.toThrow(/append-only/i)
     await expect(
       db.semanticDuplicateResolution.deleteMany({ where: { ...scope, id: receipt.id } }),
-    ).rejects.toThrow('append-only')
+    ).rejects.toThrow(/append-only/i)
+    // Raw SQL reaches the database trigger, independently of application middleware.
+    await expect(
+      db.$executeRaw`UPDATE semantic_duplicate_resolutions SET resolution_note='rewrite' WHERE id=${receipt.id}::uuid AND tenant_id=${tenantId} AND venue_id=${venueId}`,
+    ).rejects.toThrow(/append-only/i)
+    await expect(
+      db.$executeRaw`DELETE FROM semantic_duplicate_resolutions WHERE id=${receipt.id}::uuid AND tenant_id=${tenantId} AND venue_id=${venueId}`,
+    ).rejects.toThrow(/append-only/i)
     expect(
       await db.semanticDuplicateResolution.findFirst({
         where: { tenantId: 'other-tenant', venueId, id: receipt.id },
