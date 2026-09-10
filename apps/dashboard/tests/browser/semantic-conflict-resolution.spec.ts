@@ -19,6 +19,12 @@ const question = {
 
 for (const width of [390, 768, 1280, 1440]) {
   test(`answered semantic conflict resolution at ${width}px`, async ({ page }, info) => {
+    const pageErrors: string[] = []
+    const consoleErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text())
+    })
     await page.setViewportSize({ width, height: width <= 768 ? 1100 : 900 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     const resolutionInputs: Array<Record<string, unknown>> = []
@@ -204,5 +210,10 @@ for (const width of [390, 768, 1280, 1440]) {
       path: info.outputPath(`semantic-conflict-${width}.png`),
       fullPage: true,
     })
+    await info.attach('browser-errors', {
+      body: JSON.stringify({ pageErrors, consoleErrors }, null, 2),
+      contentType: 'application/json',
+    })
+    expect(pageErrors).toEqual([])
   })
 }
