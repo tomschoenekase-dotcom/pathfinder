@@ -7,6 +7,9 @@ import { writeAuditLogStrict } from './audit'
 import { expireAgentQuestionIfDue } from './agent-question-expiration-actions'
 
 export type AgentQuestionClient = Pick<typeof db, '$transaction'>
+export type AgentQuestionTransaction = Parameters<
+  Parameters<AgentQuestionClient['$transaction']>[0]
+>[0]
 
 const id = z.string().trim().min(1).max(191)
 const metadataValue = z.union([z.string().max(2000), z.number().finite(), z.boolean(), z.null()])
@@ -152,6 +155,21 @@ const answerFields = z
 
 export type AskAgentQuestionInput = z.input<typeof questionFields>
 export type AnswerAgentQuestionInput = z.input<typeof answerFields>
+export type ParsedAskAgentQuestionInput = z.output<typeof questionFields>
+
+/**
+ * Trusted callers can make a transaction-local admission decision after the
+ * source and operation locks are held, before an operation replay is returned.
+ * The callback must use the supplied transaction and must not perform transport.
+ */
+export type AskAgentQuestionAdmission = (
+  transaction: AgentQuestionTransaction,
+  input: ParsedAskAgentQuestionInput,
+) => Promise<void> | void
+
+export type AskAgentQuestionActionOptions = {
+  admitQuestion?: AskAgentQuestionAdmission
+}
 
 export class AgentQuestionActionError extends Error {
   constructor(
@@ -164,7 +182,7 @@ export class AgentQuestionActionError extends Error {
 }
 
 async function lockScopedAgentRun(
-  transaction: Parameters<Parameters<AgentQuestionClient['$transaction']>[0]>[0],
+  transaction: AgentQuestionTransaction,
   tenantId: string,
   venueId: string,
   agentRunId: string,
@@ -249,268 +267,281 @@ const returnedQuestionSelect = {
   updatedAt: true,
 } satisfies Prisma.AgentQuestionSelect
 
-/** Creates or replays one scoped clarification. It grants no approval or action authority. */
-export async function askAgentQuestionAction(
+/**
+ * Creates or replays one scoped clarification in a caller-owned transaction.
+ * It grants no approval or action authority and opens no transaction itself.
+ */
+export async function askAgentQuestionActionInTransaction(
+  transaction: AgentQuestionTransaction,
   rawInput: AskAgentQuestionInput,
-  client: AgentQuestionClient = db,
+  options: AskAgentQuestionActionOptions = {},
 ) {
   const input = questionFields.parse(rawInput)
-  return client.$transaction(async (transaction) => {
-    if (input.callbackMetadata?.workflow === 'intake-file-extraction-clarification') {
-      const receiptId = input.callbackMetadata.receiptId
-      const runId = input.callbackMetadata.runId
-      const extractedTextHash = input.callbackMetadata.extractedTextHash
-      if (
-        typeof receiptId !== 'string' ||
-        typeof runId !== 'string' ||
-        typeof extractedTextHash !== 'string'
-      ) {
-        throw new AgentQuestionActionError(
-          'INVALID_INPUT',
-          'File clarification callback evidence is incomplete',
-        )
-      }
-      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${receiptId}`}, 0))`
-      const exactReceipt = await transaction.intakeFileExtractionReceipt.findFirst({
-        where: {
-          id: receiptId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId,
-          outcome: 'SUCCEEDED',
-          extractedTextHash,
-          review: { is: null },
-        },
-        select: { id: true },
-      })
-      if (!exactReceipt) {
-        throw new AgentQuestionActionError(
-          'CONFLICT',
-          'Exact unreviewed file extraction is no longer available for clarification',
-        )
-      }
+  if (input.callbackMetadata?.workflow === 'intake-file-extraction-clarification') {
+    const receiptId = input.callbackMetadata.receiptId
+    const runId = input.callbackMetadata.runId
+    const extractedTextHash = input.callbackMetadata.extractedTextHash
+    if (
+      typeof receiptId !== 'string' ||
+      typeof runId !== 'string' ||
+      typeof extractedTextHash !== 'string'
+    ) {
+      throw new AgentQuestionActionError(
+        'INVALID_INPUT',
+        'File clarification callback evidence is incomplete',
+      )
     }
-    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:agent-question-operation:${input.tenantId}:${input.operationId}`}, 0))`
-    const operation = await transaction.agentQuestionOperation.findUnique({
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${receiptId}`}, 0))`
+    const exactReceipt = await transaction.intakeFileExtractionReceipt.findFirst({
       where: {
+        id: receiptId,
         tenantId: input.tenantId,
-        tenantId_operationId: { tenantId: input.tenantId, operationId: input.operationId },
-      },
-      select: { question: { select: returnedQuestionSelect } },
-    })
-    if (operation) {
-      if (!sameQuestion(operation.question, input)) {
-        throw new AgentQuestionActionError(
-          'CONFLICT',
-          'Question operation was already used for different content',
-        )
-      }
-      return { question: operation.question, replayed: true, consolidated: false }
-    }
-
-    const existing = await transaction.agentQuestion.findFirst({
-      where: { tenantId: input.tenantId, operationId: input.operationId },
-      select: returnedQuestionSelect,
-    })
-    if (existing) {
-      if (!sameQuestion(existing, input)) {
-        throw new AgentQuestionActionError(
-          'CONFLICT',
-          'Question operation was already used for different content',
-        )
-      }
-      await transaction.agentQuestionOperation.create({
-        data: {
-          tenantId: input.tenantId,
-          operationId: input.operationId,
-          venueId: input.venueId,
-          questionId: existing.id,
-        },
-      })
-      return { question: existing, replayed: true, consolidated: false }
-    }
-
-    const identity = await transaction.agentIdentity.findFirst({
-      where: {
-        id: input.agentIdentityId,
-        tenantId: input.tenantId,
-        enabled: true,
-        OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
+        venueId: input.venueId,
+        runId,
+        outcome: 'SUCCEEDED',
+        extractedTextHash,
+        review: { is: null },
       },
       select: { id: true },
     })
-    if (!identity) {
-      throw new AgentQuestionActionError('FORBIDDEN', 'Enabled agent identity is not in scope')
+    if (!exactReceipt) {
+      throw new AgentQuestionActionError(
+        'CONFLICT',
+        'Exact unreviewed file extraction is no longer available for clarification',
+      )
     }
-
-    if (input.agentRunId) {
-      if (
-        !(await lockScopedAgentRun(transaction, input.tenantId, input.venueId, input.agentRunId))
-      ) {
-        throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
-      }
-      const run = await transaction.agentRun.findFirst({
-        where: {
-          id: input.agentRunId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          agentIdentityId: input.agentIdentityId,
-          status: { in: ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] },
-        },
-        select: { id: true },
-      })
-      if (!run) throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
-
-      const duplicate = await transaction.agentQuestion.findFirst({
-        where: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          agentIdentityId: input.agentIdentityId,
-          agentRunId: input.agentRunId,
-          status: 'PENDING',
-          expiresAt: input.expiresAt ?? null,
-          question: input.question,
-          context: input.context ?? null,
-          questionType: input.questionType,
-          category: input.category,
-          urgency: input.urgency,
-          choices: { equals: input.choices },
-          dueAt: input.dueAt ?? null,
-          evidence: { equals: input.evidence },
-          proposedAnswer: {
-            equals: input.proposedAnswer ?? Prisma.AnyNull,
-          },
-          callbackMetadata: {
-            equals: input.callbackMetadata ?? Prisma.AnyNull,
-          },
-          blocking: input.blocking,
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: returnedQuestionSelect,
-      })
-      if (
-        duplicate &&
-        (duplicate.expiresAt === null || duplicate.expiresAt > new Date()) &&
-        sameQuestion(duplicate, input)
-      ) {
-        await transaction.agentQuestionOperation.create({
-          data: {
-            tenantId: input.tenantId,
-            operationId: input.operationId,
-            venueId: input.venueId,
-            questionId: duplicate.id,
-          },
-        })
-        await writeAuditLogStrict(
-          {
-            tenantId: input.tenantId,
-            actorId: input.agentIdentityId,
-            actorRole: 'AGENT',
-            action: 'agent-question.consolidated',
-            targetType: 'AgentQuestion',
-            targetId: duplicate.id,
-            afterState: {
-              venueId: input.venueId,
-              agentRunId: input.agentRunId,
-              operationId: input.operationId,
-            },
-          },
-          transaction,
-        )
-        return { question: duplicate, replayed: false, consolidated: true }
-      }
+  }
+  await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:agent-question-operation:${input.tenantId}:${input.operationId}`}, 0))`
+  await options.admitQuestion?.(transaction, input)
+  const operation = await transaction.agentQuestionOperation.findUnique({
+    where: {
+      tenantId: input.tenantId,
+      tenantId_operationId: { tenantId: input.tenantId, operationId: input.operationId },
+    },
+    select: { question: { select: returnedQuestionSelect } },
+  })
+  if (operation) {
+    if (!sameQuestion(operation.question, input)) {
+      throw new AgentQuestionActionError(
+        'CONFLICT',
+        'Question operation was already used for different content',
+      )
     }
+    return { question: operation.question, replayed: true, consolidated: false }
+  }
 
-    const created = await transaction.agentQuestion.create({
-      data: {
-        operationId: input.operationId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        agentIdentityId: input.agentIdentityId,
-        agentRunId: input.agentRunId ?? null,
-        question: input.question,
-        context: input.context ?? null,
-        choices: input.choices,
-        questionType: input.questionType,
-        category: input.category,
-        urgency: input.urgency,
-        dueAt: input.dueAt ?? null,
-        expiresAt: input.expiresAt ?? null,
-        evidence: input.evidence,
-        ...(input.proposedAnswer ? { proposedAnswer: input.proposedAnswer } : {}),
-        ...(input.callbackMetadata ? { callbackMetadata: input.callbackMetadata } : {}),
-        blocking: input.blocking,
-      },
-      select: returnedQuestionSelect,
-    })
-
+  const existing = await transaction.agentQuestion.findFirst({
+    where: { tenantId: input.tenantId, operationId: input.operationId },
+    select: returnedQuestionSelect,
+  })
+  if (existing) {
+    if (!sameQuestion(existing, input)) {
+      throw new AgentQuestionActionError(
+        'CONFLICT',
+        'Question operation was already used for different content',
+      )
+    }
     await transaction.agentQuestionOperation.create({
       data: {
         tenantId: input.tenantId,
         operationId: input.operationId,
         venueId: input.venueId,
-        questionId: created.id,
+        questionId: existing.id,
       },
     })
+    return { question: existing, replayed: true, consolidated: false }
+  }
 
-    await writeAuditLogStrict(
-      {
-        tenantId: input.tenantId,
-        actorId: input.agentIdentityId,
-        actorRole: 'AGENT',
-        action: 'agent-question.asked',
-        targetType: 'AgentQuestion',
-        targetId: created.id,
-        afterState: {
-          venueId: input.venueId,
-          agentRunId: input.agentRunId ?? null,
-          blocking: input.blocking,
-        },
-      },
-      transaction,
-    )
-
-    if (input.agentRunId) {
-      await transaction.agentTimelineEvent.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          agentRunId: input.agentRunId,
-          actorType: 'AGENT',
-          actorId: input.agentIdentityId,
-          eventType: 'QUESTION_ASKED',
-          message: input.blocking
-            ? 'Agent asked a blocking operator question.'
-            : 'Agent asked an operator question.',
-          data: { questionId: created.id, blocking: input.blocking },
-        },
-      })
-      await transaction.agentMessage.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          agentRunId: input.agentRunId,
-          agentIdentityId: input.agentIdentityId,
-          role: 'AGENT',
-          messageType: 'STATUS',
-          content: input.question,
-          actorId: input.agentIdentityId,
-        },
-      })
-      if (input.blocking) {
-        await transaction.agentRun.updateMany({
-          where: {
-            id: input.agentRunId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: { in: ['QUEUED', 'RUNNING'] },
-          },
-          data: { status: 'AWAITING_INPUT' },
-        })
-      }
-    }
-    return { question: created, replayed: false, consolidated: false }
+  const identity = await transaction.agentIdentity.findFirst({
+    where: {
+      id: input.agentIdentityId,
+      tenantId: input.tenantId,
+      enabled: true,
+      OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
+    },
+    select: { id: true },
   })
+  if (!identity) {
+    throw new AgentQuestionActionError('FORBIDDEN', 'Enabled agent identity is not in scope')
+  }
+
+  if (input.agentRunId) {
+    if (!(await lockScopedAgentRun(transaction, input.tenantId, input.venueId, input.agentRunId))) {
+      throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
+    }
+    const run = await transaction.agentRun.findFirst({
+      where: {
+        id: input.agentRunId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentIdentityId: input.agentIdentityId,
+        status: { in: ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] },
+      },
+      select: { id: true },
+    })
+    if (!run) throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
+
+    const duplicate = await transaction.agentQuestion.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        status: 'PENDING',
+        expiresAt: input.expiresAt ?? null,
+        question: input.question,
+        context: input.context ?? null,
+        questionType: input.questionType,
+        category: input.category,
+        urgency: input.urgency,
+        choices: { equals: input.choices },
+        dueAt: input.dueAt ?? null,
+        evidence: { equals: input.evidence },
+        proposedAnswer: {
+          equals: input.proposedAnswer ?? Prisma.AnyNull,
+        },
+        callbackMetadata: {
+          equals: input.callbackMetadata ?? Prisma.AnyNull,
+        },
+        blocking: input.blocking,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: returnedQuestionSelect,
+    })
+    if (
+      duplicate &&
+      (duplicate.expiresAt === null || duplicate.expiresAt > new Date()) &&
+      sameQuestion(duplicate, input)
+    ) {
+      await transaction.agentQuestionOperation.create({
+        data: {
+          tenantId: input.tenantId,
+          operationId: input.operationId,
+          venueId: input.venueId,
+          questionId: duplicate.id,
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          tenantId: input.tenantId,
+          actorId: input.agentIdentityId,
+          actorRole: 'AGENT',
+          action: 'agent-question.consolidated',
+          targetType: 'AgentQuestion',
+          targetId: duplicate.id,
+          afterState: {
+            venueId: input.venueId,
+            agentRunId: input.agentRunId,
+            operationId: input.operationId,
+          },
+        },
+        transaction,
+      )
+      return { question: duplicate, replayed: false, consolidated: true }
+    }
+  }
+
+  const created = await transaction.agentQuestion.create({
+    data: {
+      operationId: input.operationId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentIdentityId: input.agentIdentityId,
+      agentRunId: input.agentRunId ?? null,
+      question: input.question,
+      context: input.context ?? null,
+      choices: input.choices,
+      questionType: input.questionType,
+      category: input.category,
+      urgency: input.urgency,
+      dueAt: input.dueAt ?? null,
+      expiresAt: input.expiresAt ?? null,
+      evidence: input.evidence,
+      ...(input.proposedAnswer ? { proposedAnswer: input.proposedAnswer } : {}),
+      ...(input.callbackMetadata ? { callbackMetadata: input.callbackMetadata } : {}),
+      blocking: input.blocking,
+    },
+    select: returnedQuestionSelect,
+  })
+
+  await transaction.agentQuestionOperation.create({
+    data: {
+      tenantId: input.tenantId,
+      operationId: input.operationId,
+      venueId: input.venueId,
+      questionId: created.id,
+    },
+  })
+
+  await writeAuditLogStrict(
+    {
+      tenantId: input.tenantId,
+      actorId: input.agentIdentityId,
+      actorRole: 'AGENT',
+      action: 'agent-question.asked',
+      targetType: 'AgentQuestion',
+      targetId: created.id,
+      afterState: {
+        venueId: input.venueId,
+        agentRunId: input.agentRunId ?? null,
+        blocking: input.blocking,
+      },
+    },
+    transaction,
+  )
+
+  if (input.agentRunId) {
+    await transaction.agentTimelineEvent.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentRunId: input.agentRunId,
+        actorType: 'AGENT',
+        actorId: input.agentIdentityId,
+        eventType: 'QUESTION_ASKED',
+        message: input.blocking
+          ? 'Agent asked a blocking operator question.'
+          : 'Agent asked an operator question.',
+        data: { questionId: created.id, blocking: input.blocking },
+      },
+    })
+    await transaction.agentMessage.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentRunId: input.agentRunId,
+        agentIdentityId: input.agentIdentityId,
+        role: 'AGENT',
+        messageType: 'STATUS',
+        content: input.question,
+        actorId: input.agentIdentityId,
+      },
+    })
+    if (input.blocking) {
+      await transaction.agentRun.updateMany({
+        where: {
+          id: input.agentRunId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: { in: ['QUEUED', 'RUNNING'] },
+        },
+        data: { status: 'AWAITING_INPUT' },
+      })
+    }
+  }
+  return { question: created, replayed: false, consolidated: false }
+}
+
+/** Creates or replays one scoped clarification. It grants no approval or action authority. */
+export async function askAgentQuestionAction(
+  rawInput: AskAgentQuestionInput,
+  client: AgentQuestionClient = db,
+) {
+  // Preserve the public action's invalid-input behavior: fail before opening a transaction.
+  const input = questionFields.parse(rawInput)
+  return client.$transaction((transaction) =>
+    askAgentQuestionActionInTransaction(transaction, input),
+  )
 }
 
 /** Records one human response and makes a blocked run eligible to resume; it executes no tool. */

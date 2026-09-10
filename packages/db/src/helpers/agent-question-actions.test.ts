@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { answerAgentQuestionAction, askAgentQuestionAction } from './agent-question-actions'
+import {
+  answerAgentQuestionAction,
+  askAgentQuestionAction,
+  askAgentQuestionActionInTransaction,
+} from './agent-question-actions'
 
 function client(transaction: Record<string, unknown>) {
   transaction.$queryRaw ??= vi.fn(async (parts: readonly string[]) =>
@@ -696,5 +700,179 @@ describe('agent question actions', () => {
       select: { id: true },
     })
     expect(transaction.agentQuestion.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('runs trusted question admission in the locked transaction before operation replay lookup', async () => {
+    const events: string[] = []
+    const replayedQuestion = {
+      id: 'question-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      agentRunId: null,
+      question: 'Which entrance is authoritative?',
+      context: null,
+      choices: [],
+      blocking: true,
+      questionType: 'SHORT_TEXT',
+      category: 'builder-file-clarification',
+      urgency: 'NORMAL',
+      dueAt: null,
+      expiresAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: {
+        workflow: 'intake-file-extraction-clarification',
+        runId: 'run-file',
+        receiptId: '975140d8-5af9-4c2d-9132-40b5cf6f5962',
+        extractedTextHash: 'a'.repeat(64),
+      },
+      status: 'PENDING',
+      answer: null,
+      updatedAt: new Date('2026-09-09T12:00:00.000Z'),
+    }
+    let lockNumber = 0
+    const transaction = {
+      $executeRaw: vi.fn(async () => {
+        lockNumber += 1
+        events.push(lockNumber === 1 ? 'receipt-review-lock' : 'operation-lock')
+        return 1
+      }),
+      intakeFileExtractionReceipt: {
+        findFirst: vi.fn(async () => {
+          events.push('receipt-review')
+          return { id: 'receipt-1' }
+        }),
+      },
+      agentQuestionOperation: {
+        findUnique: vi.fn(async () => {
+          events.push('operation-replay')
+          return { question: replayedQuestion }
+        }),
+        create: vi.fn(),
+      },
+      agentQuestion: { findFirst: vi.fn(), create: vi.fn() },
+    }
+
+    const result = await askAgentQuestionActionInTransaction(
+      transaction as never,
+      {
+        operationId: '86d4ee39-a7c7-44ab-bf24-75c187cff002',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        question: replayedQuestion.question,
+        category: replayedQuestion.category,
+        callbackMetadata: replayedQuestion.callbackMetadata,
+      },
+      {
+        admitQuestion: async (admissionTransaction, input) => {
+          expect(admissionTransaction).toBe(transaction)
+          expect(input.blocking).toBe(true)
+          events.push('admission')
+        },
+      },
+    )
+
+    expect(result).toEqual({ question: replayedQuestion, replayed: true, consolidated: false })
+    expect(events).toEqual([
+      'receipt-review-lock',
+      'receipt-review',
+      'operation-lock',
+      'admission',
+      'operation-replay',
+    ])
+  })
+
+  it('does not inspect a replay or write when trusted question admission rejects', async () => {
+    const rejection = new Error('current worker claim is no longer valid')
+    const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      agentQuestionOperation: { findUnique: vi.fn(), create: vi.fn() },
+      agentQuestion: { findFirst: vi.fn(), create: vi.fn() },
+    }
+
+    await expect(
+      askAgentQuestionActionInTransaction(
+        transaction as never,
+        {
+          operationId: '3a4d1053-9239-42e1-a4cc-a3caeaf29c4c',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          question: 'Which entrance is authoritative?',
+        },
+        { admitQuestion: () => Promise.reject(rejection) },
+      ),
+    ).rejects.toBe(rejection)
+
+    expect(transaction.agentQuestionOperation.findUnique).not.toHaveBeenCalled()
+    expect(transaction.agentQuestionOperation.create).not.toHaveBeenCalled()
+    expect(transaction.agentQuestion.findFirst).not.toHaveBeenCalled()
+    expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps the public question wrapper compatible without a trusted admission hook', async () => {
+    const existing = {
+      id: 'question-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      agentRunId: null,
+      question: 'Continue?',
+      context: null,
+      choices: [],
+      blocking: true,
+      questionType: 'SHORT_TEXT',
+      category: 'general',
+      urgency: 'NORMAL',
+      dueAt: null,
+      expiresAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      status: 'PENDING',
+      answer: null,
+      updatedAt: new Date('2026-09-09T12:00:00.000Z'),
+    }
+    const transaction = {
+      agentQuestion: { findFirst: vi.fn(), create: vi.fn() },
+      agentQuestionOperation: {
+        findUnique: vi.fn().mockResolvedValue({ question: existing }),
+        create: vi.fn(),
+      },
+    }
+    const scopedClient = client(transaction)
+
+    await expect(
+      askAgentQuestionAction(
+        {
+          operationId: '3a4d1053-9239-42e1-a4cc-a3caeaf29c4c',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          question: existing.question,
+        },
+        scopedClient as never,
+      ),
+    ).resolves.toEqual({ question: existing, replayed: true, consolidated: false })
+    expect(scopedClient.$transaction).toHaveBeenCalledOnce()
+  })
+
+  it('rejects untrusted admission data before the public wrapper opens a transaction', async () => {
+    const scopedClient = client({})
+
+    await expect(
+      askAgentQuestionAction(
+        {
+          operationId: '3a4d1053-9239-42e1-a4cc-a3caeaf29c4c',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          question: 'Which entrance is authoritative?',
+          admitQuestion: 'untrusted',
+        } as never,
+        scopedClient as never,
+      ),
+    ).rejects.toThrow('Unrecognized key')
+    expect(scopedClient.$transaction).not.toHaveBeenCalled()
   })
 })

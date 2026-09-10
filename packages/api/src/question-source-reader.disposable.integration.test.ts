@@ -4,6 +4,8 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 import {
   answerAgentQuestionAction,
+  askAgentQuestionActionInTransaction,
+  assertCurrentAgentWorkerClaim,
   activateAgentBridgeCredentialAction,
   claimIntakeUploadVerificationAction,
   claimIntakeV1FileExtractionDispatch,
@@ -526,6 +528,86 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       workerId,
       executionLeaseToken: claimed.leaseToken,
     }
+    // Transaction-composition prerequisite only: this directly invokes the canonical
+    // action, not the still-pending registered source-question writing tool.
+    const localQuestionInput = {
+      operationId: randomUUID(),
+      ...scope,
+      agentIdentityId: identityId,
+      agentRunId: runId,
+      question: 'Transaction admission fixture: retain this source clarification?',
+      blocking: false,
+      callbackMetadata: {
+        workflow: 'intake-file-extraction-clarification',
+        runId: intakeRunId,
+        receiptId,
+        extractedTextHash,
+      },
+    }
+    const admitQuestion = async (tx: Parameters<typeof askAgentQuestionActionInTransaction>[0]) => {
+      const admitted = await assertCurrentAgentWorkerClaim(tx, {
+        ...scope,
+        clientId: tenantId,
+        ...executionClaim,
+        credentialScope: credential,
+        requiredAgentType: 'CONTENT',
+        requiredIdentityCapability: 'intake.read',
+        requiredTransportCapabilities: ['resources:read', 'intake-source:read'],
+      })
+      expect(admitted.agentIdentityId).toBe(identityId)
+    }
+    const beforeComposedQuestion = await questionCount()
+    const composed = await db.$transaction((tx) =>
+      askAgentQuestionActionInTransaction(tx, localQuestionInput, { admitQuestion }),
+    )
+    expect(composed).toMatchObject({ replayed: false })
+    expect(await questionCount()).toBe(beforeComposedQuestion + 1)
+    const composedReplay = await db.$transaction((tx) =>
+      askAgentQuestionActionInTransaction(tx, localQuestionInput, { admitQuestion }),
+    )
+    expect(composedReplay).toMatchObject({ replayed: true, question: { id: composed.question.id } })
+    await expect(
+      db.$transaction((tx) =>
+        askAgentQuestionActionInTransaction(tx, localQuestionInput, {
+          admitQuestion: async () => {
+            await assertCurrentAgentWorkerClaim(tx, {
+              ...scope,
+              clientId: tenantId,
+              ...executionClaim,
+              executionLeaseToken: randomUUID(),
+              credentialScope: credential,
+              requiredAgentType: 'CONTENT',
+              requiredIdentityCapability: 'intake.read',
+              requiredTransportCapabilities: ['resources:read', 'intake-source:read'],
+            })
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'LEASE_LOST' })
+    // A later failure must roll back the question AND its operation in the caller's tx.
+    const rollbackOperationId = randomUUID()
+    await expect(
+      db.$transaction(async (tx) => {
+        await askAgentQuestionActionInTransaction(
+          tx,
+          {
+            ...localQuestionInput,
+            operationId: rollbackOperationId,
+            question: 'Transaction admission fixture: this question must roll back.',
+          },
+          { admitQuestion },
+        )
+        throw new Error('deliberate-question-transaction-rollback')
+      }),
+    ).rejects.toThrow('deliberate-question-transaction-rollback')
+    expect(await questionCount()).toBe(beforeComposedQuestion + 1)
+    expect(
+      await db.agentQuestionOperation.count({
+        where: { tenantId, operationId: rollbackOperationId },
+      }),
+    ).toBe(0)
+    await expect(runStatus(runId)).resolves.toEqual({ status: 'RUNNING' })
+
     const sourceArgs = {
       venueId,
       toolName: 'pathfinder.read',

@@ -856,13 +856,18 @@ export {
   AgentQuestionActionError,
   answerAgentQuestionAction,
   askAgentQuestionAction,
+  askAgentQuestionActionInTransaction,
 } from './helpers/agent-question-actions'
 export { AgentTaskActionError, createAgentTaskAction } from './helpers/agent-task-actions'
 export type { AgentTaskClient, CreateAgentTaskInput } from './helpers/agent-task-actions'
 export type {
+  AgentQuestionTransaction,
   AgentQuestionClient,
   AnswerAgentQuestionInput,
+  AskAgentQuestionActionOptions,
+  AskAgentQuestionAdmission,
   AskAgentQuestionInput,
+  ParsedAskAgentQuestionInput,
 } from './helpers/agent-question-actions'
 export {
   expireAgentQuestionIfDue,
