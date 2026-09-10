@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-10",
+  "candidate": "02d1706baa5d383d53c9089954c64f964dd3acff",
+  "scope": "Private legacy adoption preparation and existing lifecycle regression",
+  "proofLayer": "disposable-native-postgresql",
+  "resultPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-legacy-adoption-preparation-766d8251ded2\\result.json",
+  "resultSha256": "fde0f10e269ad39f3e7e3b1e270492423c38db8d0b89bf5087f39a20e9417b4f",
+  "result": {
+    "database": "pathfinder_disposable_legacy_preparation_766d8251ded2",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-legacy-adoption-preparation-766d8251ded2",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "keeps legacy public through draft, switches once on publish, and never resurrects after withdraw",
+    "sourceHead": "02d1706baa5d383d53c9089954c64f964dd3acff",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/lib/legacy-knowledge-adoption-preparation.ts",
+        "retained": "measured-packages__api__src__lib__legacy-knowledge-adoption-preparation.ts",
+        "sha256": "44f8133493046abf6d66e61f4f450b545275f237a90a95d7ffafc2ae2439b191"
+      },
+      {
+        "source": "packages/api/src/lib/legacy-knowledge-adoption-service.ts",
+        "retained": "measured-packages__api__src__lib__legacy-knowledge-adoption-service.ts",
+        "sha256": "36d808230b2fc1474a5b194622056173cfc7f7d00a126351f37118205ed1c541"
+      },
+      {
+        "source": "packages/api/src/lib/legacy-knowledge-adoption.ts",
+        "retained": "measured-packages__api__src__lib__legacy-knowledge-adoption.ts",
+        "sha256": "4d779d6d2a2f962f3214da61d8985c74f9bafc796f9459e3b6ee20f51d6a58f5"
+      },
+      {
+        "source": "packages/api/src/lib/legacy-knowledge-adoption.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__lib__legacy-knowledge-adoption.disposable.integration.test.ts",
+        "sha256": "1f0534db667cdee825d4cfa27e3252c47795b2f56d5c11f5f6653a713a865d9a"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater-service.ts",
+        "sha256": "ddedc40e0582446ad6eb7672d060a8883f04af28e3e2ee254d309d1f8ce6a922"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater.ts",
+        "sha256": "233e231ff5ef76e0823370e55c343181036098b29f2e553023362b73e50b694d"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-packages__api__src__lib__guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/contracts/src/legacy-knowledge-adoption.ts",
+        "retained": "measured-packages__contracts__src__legacy-knowledge-adoption.ts",
+        "sha256": "fa0152b83f7678e54204a05cbd5a8ebd0b429bf328518103323cf2ee3bfd8840"
+      },
+      {
+        "source": "packages/contracts/src/universal-content-actions.ts",
+        "retained": "measured-packages__contracts__src__universal-content-actions.ts",
+        "sha256": "ad91c8b4855d0e4d105e83f99aeba51f93a0b576d514cd411df246168a922c5b"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a3adb945c7b0bfcbc9fc64f21fc63e42fa46454beb5169eb472f31aab92cd3f2"
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "retained": "measured-packages__db__src__client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237"
+      },
+      {
+        "source": "packages/db/src/middleware/tenant-isolation.ts",
+        "retained": "measured-packages__db__src__middleware__tenant-isolation.ts",
+        "sha256": "cfa1cc1d156631e3cca8acdc3536ff2a5f5c7d7536b2f79c473f41750a1b0b99"
+      },
+      {
+        "source": "packages/db/src/tenanted-tables.ts",
+        "retained": "measured-packages__db__src__tenanted-tables.ts",
+        "sha256": "2c3b6b4f38da0f0db1f4789e03292d67c67c3284957a055ea4627a940af6bf31"
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "retained": "measured-scripts__lib__disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-actions.ts",
+        "sha256": "76c426a4361bc3f1e79682679eaeec49ba4bf54f1ab48ccd9ada0cef441192fd"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-publication-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-publication-actions.ts",
+        "sha256": "4b20c27a5f798a20668563978227eb0ad4576574ee6ccd21a3e3c1a6d8e5a8fb"
+      },
+      {
+        "source": "packages/db/src/helpers/venue-content-lock.ts",
+        "retained": "measured-packages__db__src__helpers__venue-content-lock.ts",
+        "sha256": "ff85474fdba4a51fcf3cdb0e270f6322c5bdf714bdc3814bfb86fb381d441ab9"
+      },
+      {
+        "source": "packages/db/src/helpers/audit.ts",
+        "retained": "measured-packages__db__src__helpers__audit.ts",
+        "sha256": "a9033dc1bcc66238ebe6b5089e3cbfd0f3879f5f349cde932bebde9e549793c5"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-drafts.ts",
+        "sha256": "022c3454cfa23b285809a0a99fbbfc9673c98c3c5415908f83e14cc6b3d263bf"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-conflict-resolution-contract.ts",
+        "retained": "measured-packages__api__src__lib__semantic-conflict-resolution-contract.ts",
+        "sha256": "384c7de79da4d0fefd564b8732e09454992a3e2c5a229ec9db33c1146378fa68"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
+        "retained": "measured-packages__api__src__lib__knowledge-proposal-temporal-evidence.ts",
+        "sha256": "4586cab108d7f12ef6b10d3936b3ead8dec765123b30f8bc28e8a0053813009b"
+      },
+      {
+        "source": "packages/contracts/src/content-model.ts",
+        "retained": "measured-packages__contracts__src__content-model.ts",
+        "sha256": "1ddad9086f0c541708ebc91747f4e317e6e711bdf34ec19979e049e4f9e1d980"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260907021400_add_legacy_knowledge_adoption/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260907021400_add_legacy_knowledge_adoption__migration.sql",
+        "sha256": "0be272a70d7507db3a2fd95292a20f033ac7aa626cbb1a6baa8bcc332c06b7a2"
+      }
+    ],
+    "runnerSha256": "e07157adc62097a5ad27c4db51997d667b4a0e011e0935c03c377cc012d70a93",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "sourceHashesStable": true
+  },
+  "assertions": [
+    "Exact server preparation",
+    "Wrong-venue preparation rejected",
+    "Stale legacy snapshot rejected",
+    "Concurrent create returns one private revision",
+    "Legacy remains public before separate publication",
+    "Explicit fixture publication activates exactly once",
+    "Exact service replay after publication returns same revision",
+    "Withdrawal does not resurrect legacy"
+  ],
+  "limitations": [
+    "Setup and lifecycle execute under fixture tenant-isolation bypass; router authorization is separate unit proof.",
+    "No connected operator UI, real authentication, browser restart, provider, customer or deployment claim.",
+    "Low-level adapter accepts explicitly authored evidence; bounded server support-provenance integration remains pending."
+  ]
+}
