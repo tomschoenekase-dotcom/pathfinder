@@ -15,6 +15,7 @@ import {
 } from './TemporalEvidenceSelector'
 
 import { SemanticConflictResolutionForm } from './SemanticConflictResolutionForm'
+import { SupportLegacyAdoptionForm } from './SupportLegacyAdoptionForm'
 
 const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
 
@@ -50,12 +51,16 @@ export function SemanticUpdatePreview({
   hasTarget,
   onResolutionRecorded,
   resolutionDraft,
+  hasSupportProvenance = false,
+  hasLegacyTarget = false,
 }: {
   tenantId: string
   venueId: string
   proposalId: string
   proposalUpdatedAt: Date | string
   hasTarget: boolean
+  hasSupportProvenance?: boolean
+  hasLegacyTarget?: boolean
   onResolutionRecorded?: () => void
   resolutionDraft?: {
     desired: { title: string; category: string; content: string; isEnabled: boolean }
@@ -97,6 +102,8 @@ export function SemanticUpdatePreview({
   const [previewScope, setPreviewScope] = useState<string | null>(null)
   const [previewGeneration, setPreviewGeneration] = useState(0)
   const [resolutionFrozen, setResolutionFrozen] = useState(false)
+  const [adoptionFrozen, setAdoptionFrozen] = useState(false)
+  const actionsFrozen = resolutionFrozen || adoptionFrozen
   const [resolution, setResolution] = useState<{
     scope: string
     replacementProposalId: string | null
@@ -140,6 +147,7 @@ export function SemanticUpdatePreview({
     previewRunning.current = false
     setBusy(false)
     setResolutionFrozen(false)
+    setAdoptionFrozen(false)
     setResolution(null)
     setPreview(null)
     setDraft(null)
@@ -463,7 +471,7 @@ export function SemanticUpdatePreview({
         </div>
         <button
           type="button"
-          disabled={resolutionFrozen}
+          disabled={actionsFrozen}
           onClick={() => {
             invalidatePreview(true)
             setOpen(false)
@@ -481,7 +489,7 @@ export function SemanticUpdatePreview({
           This wording is fixed by the recorded resolution. Approval is a separate step.
         </p>
       ) : null}
-      <fieldset disabled={resolutionFrozen || Boolean(resolutionDraft)} className="min-w-0">
+      <fieldset disabled={actionsFrozen || Boolean(resolutionDraft)} className="min-w-0">
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">
             Change relationship
@@ -632,7 +640,7 @@ export function SemanticUpdatePreview({
       <button
         type="button"
         disabled={
-          resolutionFrozen ||
+          actionsFrozen ||
           busy ||
           !title.trim() ||
           !category.trim() ||
@@ -656,6 +664,31 @@ export function SemanticUpdatePreview({
       {preview ? (
         <>
           <SemanticUpdatePreviewResult preview={preview} />
+          {hasSupportProvenance &&
+          hasLegacyTarget &&
+          !temporal &&
+          relation !== 'NEW_FACT' &&
+          preview.proposalStatus === 'APPROVED' &&
+          !preview.venuePackagePatch &&
+          (preview.classification === 'CORRECTION' || preview.classification === 'SUPERSESSION') ? (
+            <SupportLegacyAdoptionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              expectedPreviewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              onFrozenChange={setAdoptionFrozen}
+            />
+          ) : null}
+
           {preview.proposalStatus === 'APPROVED' && preview.venuePackagePatch ? (
             <SemanticUpdateDraftAction
               tenantId={tenantId}

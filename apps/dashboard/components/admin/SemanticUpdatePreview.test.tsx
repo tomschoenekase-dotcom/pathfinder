@@ -22,6 +22,12 @@ vi.mock('../../lib/trpc', () => ({
   }),
 }))
 
+vi.mock('./SupportLegacyAdoptionForm', () => ({
+  SupportLegacyAdoptionForm: ({ onFrozenChange }: { onFrozenChange: (value: boolean) => void }) => (
+    <button onClick={() => onFrozenChange(true)}>Fixture freeze private draft</button>
+  ),
+}))
+
 import { SemanticUpdatePreview } from './SemanticUpdatePreview'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -30,6 +36,48 @@ describe('SemanticUpdatePreview', () => {
     cleanup()
     vi.useRealTimers()
     vi.clearAllMocks()
+  })
+
+  it('freezes preview controls while the support draft has a retained outcome', async () => {
+    query.mockResolvedValue({
+      proposalStatus: 'APPROVED',
+      classification: 'CORRECTION',
+      operationCount: 0,
+      authority: 'TRUSTED_PARTNER',
+      confidence: 0.9,
+      blockers: [],
+      questions: [],
+      previewHash: 'a'.repeat(64),
+      venuePackagePatch: null,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-09-10T12:00:00.000Z"
+        hasTarget
+        hasSupportProvenance
+        hasLegacyTarget
+        resolutionDraft={{
+          relation: 'CORRECTS',
+          desired: {
+            title: 'Gallery hours',
+            category: 'Hours',
+            content: 'Closes at 6 PM.',
+            isEnabled: true,
+          },
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Fixture freeze private draft' }))
+    expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
   })
 
   function temporalEvidence(key = 'review:closure') {

@@ -50,7 +50,13 @@ export const adminKnowledgeProposalReviewRouter = router({
           take: input.limit,
           select: {
             id: true,
-            producedByConflictResolution: { select: { desired: true, relation: true } },
+            producedByConflictResolution: {
+              select: {
+                desired: true,
+                relation: true,
+                proposal: { select: { supportRequestId: true, supportRequestVersion: true } },
+              },
+            },
             status: true,
             sessionId: true,
             observedVisitorClaim: true,
@@ -60,6 +66,13 @@ export const adminKnowledgeProposalReviewRouter = router({
             confidence: true,
             evidenceMessageIds: true,
             targetKnowledgeEntryId: true,
+            targetKnowledgeEntry: {
+              select: {
+                contentModuleId: true,
+                contentRevisionId: true,
+                contentPublicationId: true,
+              },
+            },
             conversationInsightId: true,
             supportRequestId: true,
             supportRequestVersion: true,
@@ -71,19 +84,32 @@ export const adminKnowledgeProposalReviewRouter = router({
             reviewedAt: true,
           },
         })
-        return rows.map(({ producedByConflictResolution, ...proposal }) => ({
-          ...proposal,
-          resolutionDraft: producedByConflictResolution
-            ? {
-                desired: SemanticUpdaterDesiredKnowledge.parse(
-                  producedByConflictResolution.desired,
-                ),
-                relation: z
-                  .enum(['CORRECTS', 'SUPERSEDES'])
-                  .parse(producedByConflictResolution.relation),
-              }
-            : null,
-        }))
+        return rows.map(({ producedByConflictResolution, targetKnowledgeEntry, ...proposal }) => {
+          const original = producedByConflictResolution?.proposal
+          const hasSupportProvenance =
+            (proposal.supportRequestId != null && proposal.supportRequestVersion != null) ||
+            (original?.supportRequestId != null && original.supportRequestVersion != null)
+          const hasLegacyTarget =
+            targetKnowledgeEntry != null &&
+            targetKnowledgeEntry.contentModuleId == null &&
+            targetKnowledgeEntry.contentRevisionId == null &&
+            targetKnowledgeEntry.contentPublicationId == null
+          return {
+            ...proposal,
+            hasSupportProvenance,
+            hasLegacyTarget,
+            resolutionDraft: producedByConflictResolution
+              ? {
+                  desired: SemanticUpdaterDesiredKnowledge.parse(
+                    producedByConflictResolution.desired,
+                  ),
+                  relation: z
+                    .enum(['CORRECTS', 'SUPERSEDES'])
+                    .parse(producedByConflictResolution.relation),
+                }
+              : null,
+          }
+        })
       }),
     ),
   createKnowledgeProposal: adminProcedure

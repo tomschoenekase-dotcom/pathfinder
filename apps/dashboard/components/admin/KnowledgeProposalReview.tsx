@@ -26,6 +26,8 @@ export type KnowledgeProposal = {
   createdByType?: string
   supportRequestId?: string | null
   supportRequestVersion?: number | null
+  hasSupportProvenance?: boolean
+  hasLegacyTarget?: boolean
   resolutionDraft?: {
     desired: { title: string; category: string; content: string; isEnabled: boolean }
     relation: 'CORRECTS' | 'SUPERSEDES'
@@ -246,6 +248,10 @@ export function KnowledgeProposalReview({
                 ) : null}
                 {proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
                   <SemanticUpdatePreview
+                    hasLegacyTarget={proposal.hasLegacyTarget ?? false}
+                    hasSupportProvenance={
+                      proposal.hasSupportProvenance ?? Boolean(proposal.supportRequestId)
+                    }
                     tenantId={tenantId}
                     venueId={venueId}
                     proposalId={proposal.id}

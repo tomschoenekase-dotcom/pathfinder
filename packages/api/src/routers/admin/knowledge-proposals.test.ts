@@ -893,21 +893,87 @@ describe('admin knowledge proposals', () => {
       isEnabled: false,
     }
     mocks.proposalList.mockResolvedValueOnce([
-      { id: operationId, producedByConflictResolution: { desired, relation: 'SUPERSEDES' } },
-      { id: 'ordinary', producedByConflictResolution: null },
+      {
+        id: operationId,
+        supportRequestId: null,
+        supportRequestVersion: null,
+        targetKnowledgeEntry: {
+          contentModuleId: 'native-module',
+          contentRevisionId: 'native-revision',
+          contentPublicationId: 'native-publication',
+        },
+        producedByConflictResolution: {
+          desired,
+          relation: 'SUPERSEDES',
+          proposal: { supportRequestId: 'support-original', supportRequestVersion: 4 },
+        },
+      },
+      {
+        id: 'direct',
+        supportRequestId: 'support-direct',
+        supportRequestVersion: 3,
+        targetKnowledgeEntry: {
+          contentModuleId: null,
+          contentRevisionId: null,
+          contentPublicationId: null,
+        },
+        producedByConflictResolution: null,
+      },
+      {
+        id: 'ordinary',
+        supportRequestId: null,
+        supportRequestVersion: null,
+        targetKnowledgeEntry: null,
+        producedByConflictResolution: null,
+      },
     ])
     const rows = await app
       .createCaller(context())
       .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
     expect(rows).toEqual([
-      { id: operationId, resolutionDraft: { desired, relation: 'SUPERSEDES' } },
-      { id: 'ordinary', resolutionDraft: null },
+      {
+        id: operationId,
+        supportRequestId: null,
+        supportRequestVersion: null,
+        hasSupportProvenance: true,
+        hasLegacyTarget: false,
+        resolutionDraft: { desired, relation: 'SUPERSEDES' },
+      },
+      {
+        id: 'direct',
+        supportRequestId: 'support-direct',
+        supportRequestVersion: 3,
+        hasSupportProvenance: true,
+        hasLegacyTarget: true,
+        resolutionDraft: null,
+      },
+      {
+        id: 'ordinary',
+        supportRequestId: null,
+        supportRequestVersion: null,
+        hasSupportProvenance: false,
+        hasLegacyTarget: false,
+        resolutionDraft: null,
+      },
     ])
     expect(mocks.proposalList).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { tenantId: 'tenant-1', venueId: 'venue-1' },
         select: expect.objectContaining({
-          producedByConflictResolution: { select: { desired: true, relation: true } },
+          producedByConflictResolution: {
+            select: {
+              desired: true,
+              relation: true,
+              proposal: { select: { supportRequestId: true, supportRequestVersion: true } },
+            },
+          },
+          targetKnowledgeEntry: {
+            select: {
+              contentModuleId: true,
+              contentRevisionId: true,
+              contentPublicationId: true,
+            },
+          },
         }),
       }),
     )

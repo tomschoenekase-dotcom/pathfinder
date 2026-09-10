@@ -32,10 +32,16 @@ type FixtureState = {
   proposalId: string
   entryId: string
   questionId: string
+  supportRequestId: string
+  supportMessageId: string
+  originalSupportBodyHash: string
   replacementContent: string
   dropCommittedResolutionResponse: boolean
   droppedResolutionResponses: number
   resolutionRequestBodies: string[]
+  dropCommittedDraftResponse: boolean
+  droppedDraftResponses: number
+  draftRequestBodies: string[]
 }
 
 let fixture: FixtureState | null = null
@@ -276,10 +282,16 @@ async function startFixtureServer(): Promise<FixtureState> {
     proposalId,
     entryId,
     questionId: asked.questionId,
+    supportRequestId: setup.request.id,
+    supportMessageId: setup.message.id,
+    originalSupportBodyHash: createHash('sha256').update(setup.message.body, 'utf8').digest('hex'),
     replacementContent,
     dropCommittedResolutionResponse: true,
     droppedResolutionResponses: 0,
     resolutionRequestBodies: [],
+    dropCommittedDraftResponse: true,
+    droppedDraftResponses: 0,
+    draftRequestBodies: [],
   }
   const server = createServer(async (request, response) => {
     try {
@@ -304,6 +316,8 @@ async function startFixtureServer(): Promise<FixtureState> {
       const body = Buffer.concat(chunks)
       if (request.url.includes('admin.resolveSemanticConflict'))
         state.resolutionRequestBodies.push(body.toString('utf8'))
+      if (request.url.includes('admin.createSupportLegacyKnowledgeAdoptionDraft'))
+        state.draftRequestBodies.push(body.toString('utf8'))
       const webRequest = new Request(`http://127.0.0.1${request.url}`, {
         method: request.method ?? 'GET',
         headers: new Headers(
@@ -341,6 +355,17 @@ async function startFixtureServer(): Promise<FixtureState> {
       ) {
         state.dropCommittedResolutionResponse = false
         state.droppedResolutionResponses += 1
+        response.destroy()
+        return
+      }
+      if (
+        state.dropCommittedDraftResponse &&
+        request.url.includes('admin.createSupportLegacyKnowledgeAdoptionDraft') &&
+        result.status >= 200 &&
+        result.status < 300
+      ) {
+        state.dropCommittedDraftResponse = false
+        state.droppedDraftResponses += 1
         response.destroy()
         return
       }
@@ -512,6 +537,92 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         db.contentModulePublication.count({ where: { tenantId, venueId } }),
       ])
       expect(contentEffects).toEqual([0, 0, 0])
+
+      await replacement.getByRole('button', { name: 'Prepare private draft' }).click()
+      await replacement.getByRole('combobox', { name: 'Content type' }).selectOption('POLICY')
+      await replacement.getByRole('combobox', { name: 'Content type' }).focus()
+      await page.keyboard.press('Tab')
+      await expect(replacement.getByRole('combobox', { name: 'Audience' })).toBeFocused()
+      for (const width of [390, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`prepared-private-draft-${width}.png`),
+          fullPage: true,
+        })
+      }
+
+      await replacement.getByRole('button', { name: 'Create private draft' }).click()
+      await expect(
+        replacement.getByRole('button', { name: 'Retry exact private draft' }),
+      ).toBeVisible()
+
+      const committedDraftBeforeRetry = await db.contentModuleRevision.findMany({
+        where: { tenantId, venueId },
+        select: {
+          id: true,
+          moduleId: true,
+          version: true,
+          audience: true,
+          policy: { select: { title: true, rule: true, appliesTo: true } },
+          evidence: {
+            select: { sourceId: true, locator: true, excerptHash: true },
+            orderBy: { sourceId: 'asc' },
+          },
+        },
+      })
+      expect(committedDraftBeforeRetry).toHaveLength(1)
+      expect(committedDraftBeforeRetry[0]).toMatchObject({
+        version: 1,
+        audience: 'PUBLIC',
+        policy: {
+          title: 'Willow gallery hours',
+          rule: fixture.replacementContent,
+          appliesTo: [],
+        },
+        evidence: [
+          {
+            sourceId: `support-message:${fixture.supportMessageId}`,
+            locator: `support-request:${fixture.supportRequestId}`,
+            excerptHash: fixture.originalSupportBodyHash,
+          },
+        ],
+      })
+      expect(
+        await Promise.all([
+          db.contentModuleIdentity.count({ where: { tenantId, venueId } }),
+          db.legacyKnowledgeUniversalContentAdoption.count({ where: { tenantId, venueId } }),
+        ]),
+      ).toEqual([1, 1])
+      expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(
+        await db.legacyKnowledgeAdoptionActivation.count({ where: { tenantId, venueId } }),
+      ).toBe(0)
+      expect(fixture.droppedDraftResponses).toBe(1)
+      expect(fixture.draftRequestBodies).toHaveLength(1)
+
+      await replacement.getByRole('button', { name: 'Retry exact private draft' }).click()
+      await expect(
+        replacement.getByText('Private draft ready for separate publication review'),
+      ).toBeVisible()
+      expect(fixture.droppedDraftResponses).toBe(1)
+      expect(fixture.draftRequestBodies).toHaveLength(2)
+      expect(fixture.draftRequestBodies[1]).toBe(fixture.draftRequestBodies[0])
+      expect(await db.contentModuleRevision.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(
+        await db.legacyKnowledgeAdoptionActivation.count({ where: { tenantId, venueId } }),
+      ).toBe(0)
+      expect(
+        await db.venueKnowledgeEntry.findFirstOrThrow({
+          where: { id: fixture.entryId, tenantId, venueId },
+          select: { content: true },
+        }),
+      ).toEqual({ content: 'The Willow gallery closes at 5 PM.' })
+
       await testInfo.attach('durable-resolution-readback', {
         body: JSON.stringify(
           {
@@ -524,6 +635,13 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
               .digest('hex'),
             replacementStatus: persisted.status,
             contentEffects,
+            privateDraft: committedDraftBeforeRetry[0],
+            privateDraftRequests: fixture.draftRequestBodies.length,
+            exactPrivateDraftRetryBodyHash: createHash('sha256')
+              .update(fixture.draftRequestBodies[0]!)
+              .digest('hex'),
+            publicationCount: 0,
+            activationCount: 0,
             canonical,
             authentication: 'synthetic platform admin; unauthenticated request denied',
           },
@@ -532,14 +650,14 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         ),
         contentType: 'application/json',
       })
-      for (const width of [1280, 390]) {
+      for (const width of [390, 768, 1280, 1440]) {
         await page.setViewportSize({ width, height: 900 })
         expect(
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
         ).toBe(true)
         expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
         await page.screenshot({
-          path: testInfo.outputPath(`replacement-approved-preview-${width}.png`),
+          path: testInfo.outputPath(`replacement-private-draft-${width}.png`),
           fullPage: true,
         })
       }
