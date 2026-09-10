@@ -1,3 +1,5 @@
+import { SemanticDuplicateResolutionInput } from '../../lib/semantic-duplicate-resolution-contract'
+import { resolveSemanticDuplicateService } from '../../lib/semantic-duplicate-resolution-service'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
@@ -184,6 +186,11 @@ function exactOperationalDraftFromHandoff(
 }
 
 export const adminKnowledgeProposalDraftRouter = router({
+  resolveSupportSemanticDuplicate: adminProcedure
+    .input(SemanticDuplicateResolutionInput)
+    .mutation(({ ctx, input }) =>
+      resolveSemanticDuplicateService({ db: ctx.db, actorId: ctx.session.userId, input }),
+    ),
   getSupportProposalAuthoringState: adminProcedure
     .input(
       z
