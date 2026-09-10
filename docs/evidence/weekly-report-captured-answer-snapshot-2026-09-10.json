@@ -1,0 +1,61 @@
+{
+  "recordedAt": "2026-09-10",
+  "implementationCommit": "e490c2fd205124d9931a5304da3581c64499f95d",
+  "requirement": "V2-P08-06",
+  "scope": "Native captured-answer count/sample snapshot and bounded Unicode evidence; actual report source reader, no production source changes.",
+  "native": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-report-captured-answer-snapshot-86e18dc30a3c",
+    "resultSha256": "9f7658bcc5b635122c79211092e2da649b4dd800042853551afa8b5e1c87e858",
+    "runnerPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-report-captured-answer-snapshot-proof.mjs",
+    "runnerSha256": "ce2c45e994c7bc7e6763f7d39cee5bea1c81ac21f35ffaf14b1ff8eea56c1bcc",
+    "recordedHead": "fadf5b102f2c3ced86b09f1cc98b127abfe328ef",
+    "sourceCount": 32,
+    "worktreeBytesMatchManifest": true,
+    "gitContentMatchesIgnoringCheckoutLineEndings": true,
+    "migrations": 247,
+    "tables": 264,
+    "tests": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "stopped": true
+  },
+  "witness": "The original real Prisma transaction is called with unchanged production options. A test-only get proxy delays the exact scoped real findMany until an independent writer finishes, and signals only after the exact real count query returns. Neither data nor isolation is substituted.",
+  "assertions": [
+    "Exactly one scoped count and one scoped sample intercepted during the first RepeatableRead operation.",
+    "Initial public non-AI population99; concurrent writer commits3 earlier-in-window answers before sample query proceeds.",
+    "Retained read count99/sample99/exact original IDs; fresh read count102/sample100 with all3 writer IDs and first97 original IDs.",
+    "Private SECOND_LAYER and sibling venue markers excluded from full source snapshot. AI-invented rows excluded from captured responses; genuine public answers may still appear in general message evidence.",
+    "All scoped non-AI response text expanded with multibyte content; count remains102, returned sample is nonempty and below100, individual text <=500 JS string units, full response JSON <=30000 UTF8 bytes."
+  ],
+  "staticChecks": {
+    "apiTypecheck": "pass",
+    "ownedConfiguredLint": "pass",
+    "prettier": "pass",
+    "freshReadOnlyReview": "No concrete blocker; real transaction/options and exact scoped timing witness verified against final fixture and retained hash."
+  },
+  "excludedAttempts": [
+    {
+      "id": "9095443eebde",
+      "reason": "Count barrier timeout hid an early fixture proxy error; not snapshot evidence."
+    },
+    {
+      "id": "f8fb7c5438f5",
+      "reason": "Early error surfaced invalid object spread of Prisma transaction proxy (ownKeys/$on); replaced with get-only proxy. Production reader unchanged."
+    }
+  ],
+  "remainingLimits": [
+    "One controlled insert interleaving, not every database scheduling permutation or concurrent deletion/update.",
+    "Report fields outside captured-answer count/sample are not asserted to share this snapshot.",
+    "No provider call, Redis dispatch, live customer report quality or publication/delivery acceptance.",
+    "Original128/32QA/A-B-C, external first-week reservations and provider/device/release boundaries remain intact."
+  ],
+  "candidateCleanup": {
+    "commit": "7fa53fd8025d3204d884e42079eaf8fdc4e87493",
+    "scope": "Removed five unused imports in media-resolution.disposable.integration.test.ts and routers/admin/agent-questions.ts; no behavior change.",
+    "fullApiConfiguredLint": "pass: pnpm exec eslint src --config ../config/eslint/base.js",
+    "apiTypecheck": "pass: pnpm exec tsc --noEmit"
+  }
+}
