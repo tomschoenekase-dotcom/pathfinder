@@ -2,7 +2,7 @@ import { lookup } from 'node:dns/promises'
 import { request as httpRequest, type IncomingHttpHeaders, type RequestOptions } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
-import { parse, type DefaultTreeAdapterMap } from 'parse5'
+import { defaultTreeAdapter, html, Parser, type DefaultTreeAdapterMap } from 'parse5'
 
 import { extractPdfDocumentText } from './pdf-text-extraction'
 
@@ -231,10 +231,164 @@ function assertHtmlComplexity(body: string) {
       throw new WebsiteIntakePolicyError('Website markup exceeded its extraction complexity limit')
     }
   }
+
+  // parse5 checks each attribute against earlier attributes, so even one tag
+  // can cause quadratic work. Bound complete start/end-tag syntax to 4,096
+  // UTF-16 code units, including quoted values and the closing bracket.
+  // This is a conservative policy scan, not an HTML tokenizer: tag-like text
+  // in comments/rawtext is checked too. Literal nested '<' is refused (use
+  // &lt; in attributes), preventing ambiguous syntax from hiding a later tag.
+  // Long SVG/data attributes or some valid comment/rawtext can be refused;
+  // content is never truncated or rewritten. Every character is visited once.
+  let tagStart = -1
+  let state:
+    | 'tag-name'
+    | 'before-attribute'
+    | 'attribute-name'
+    | 'after-attribute'
+    | 'before-value'
+    | 'quoted-value'
+    | 'unquoted-value'
+    | 'after-quoted-value'
+    | 'self-closing' = 'tag-name'
+  let quote = ''
+  for (let offset = 0; offset < body.length; offset += 1) {
+    const char = body[offset]!
+    if (tagStart < 0) {
+      if (char !== '<') continue
+      const closing = body[offset + 1] === '/'
+      const first = body.charCodeAt(offset + (closing ? 2 : 1))
+      if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122))) continue
+      tagStart = offset
+      state = 'tag-name'
+      if (closing) offset += 1
+      continue
+    }
+    if (offset - tagStart + 1 > 4_096 || char === '<') {
+      throw new WebsiteIntakePolicyError('Website markup exceeded its extraction complexity limit')
+    }
+    if (state === 'quoted-value') {
+      if (char === quote) state = 'after-quoted-value'
+      continue
+    }
+    if (char === '>') {
+      tagStart = -1
+      continue
+    }
+    const whitespace =
+      char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '\f'
+    switch (state) {
+      case 'tag-name':
+        if (char === '/') state = 'self-closing'
+        else if (whitespace) state = 'before-attribute'
+        break
+      case 'before-attribute':
+      case 'self-closing':
+        if (char === '/') state = 'self-closing'
+        else state = whitespace ? 'before-attribute' : 'attribute-name'
+        break
+      case 'attribute-name':
+        if (char === '=') state = 'before-value'
+        else if (char === '/') state = 'self-closing'
+        else if (whitespace) state = 'after-attribute'
+        break
+      case 'after-attribute':
+        if (char === '=') state = 'before-value'
+        else if (char === '/') state = 'self-closing'
+        else if (!whitespace) state = 'attribute-name'
+        break
+      case 'before-value':
+        if (whitespace) break
+        if (char === '"' || char === "'") {
+          quote = char
+          state = 'quoted-value'
+        } else state = 'unquoted-value'
+        break
+      case 'unquoted-value':
+        if (whitespace) state = 'before-attribute'
+        break
+      case 'after-quoted-value':
+        state = char === '/' ? 'self-closing' : whitespace ? 'before-attribute' : 'attribute-name'
+        break
+    }
+  }
+}
+
+function parseReadableHtml(body: string) {
+  // parse5 7.3 scans the open stack for a P before every nested block start.
+  // Preserve its tree construction, but skip that scan when P is provably absent.
+  // This depends on parse5's exported Parser/stack API: keep the parity and work
+  // regressions when updating parse5. Never bypass the namespace-work budget.
+  const openParagraphs = new Set<HtmlElement>()
+  let membershipIsExact = true
+  let namespaceReads = 0
+  const parser = new Parser<DefaultTreeAdapterMap>({
+    treeAdapter: {
+      ...defaultTreeAdapter,
+      getNamespaceURI(element) {
+        // Bound namespace reads in the original, potentially quadratic,
+        // scope/adoption algorithms. This is not a tokenizer-wide CPU budget.
+        if (++namespaceReads > 1_000_000) {
+          throw new WebsiteIntakePolicyError(
+            'Website markup exceeded its extraction complexity limit',
+          )
+        }
+        return defaultTreeAdapter.getNamespaceURI(element)
+      },
+      onItemPush(element) {
+        if (element.tagName === 'p' && element.namespaceURI === html.NS.HTML) {
+          openParagraphs.add(element)
+        }
+      },
+      onItemPop(element) {
+        openParagraphs.delete(element)
+      },
+    },
+  })
+  const stack = parser.openElements
+  if (
+    !Array.isArray(stack?.items) ||
+    !Array.isArray(stack.tagIDs) ||
+    typeof stack.hasInButtonScope !== 'function' ||
+    typeof stack.replace !== 'function' ||
+    typeof stack.insertAfter !== 'function'
+  ) {
+    throw new WebsiteIntakePolicyError('Website HTML parser compatibility check failed')
+  }
+  // Non-LIFO formatting reconstruction has different hook semantics. Once it
+  // occurs, trust the original scope algorithm for the rest of this document.
+  const replace = stack.replace.bind(stack)
+  stack.replace = (previous, replacement) => {
+    membershipIsExact = false
+    replace(previous, replacement)
+  }
+  const insertAfter = stack.insertAfter.bind(stack)
+  stack.insertAfter = (reference, element, tagId) => {
+    membershipIsExact = false
+    insertAfter(reference, element, tagId)
+  }
+  const hasInButtonScope = stack.hasInButtonScope.bind(stack)
+  stack.hasInButtonScope = (tagId) => {
+    const root = stack.items[0]
+    if (
+      membershipIsExact &&
+      openParagraphs.size === 0 &&
+      tagId === html.TAG_ID.P &&
+      root &&
+      'tagName' in root &&
+      root.tagName === 'html' &&
+      root.namespaceURI === html.NS.HTML
+    ) {
+      return false
+    }
+    return hasInButtonScope(tagId)
+  }
+  parser.tokenizer.write(body, true)
+  return parser.document
 }
 
 function readableHtmlBody(body: string) {
-  const document = parse(body)
+  const document = parseReadableHtml(body)
   let bodyElement: HtmlElement | undefined
   const search: HtmlNode[] = [document]
   while (search.length) {
