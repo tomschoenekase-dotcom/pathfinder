@@ -26,6 +26,10 @@ export type KnowledgeProposal = {
   createdByType?: string
   supportRequestId?: string | null
   supportRequestVersion?: number | null
+  resolutionDraft?: {
+    desired: { title: string; category: string; content: string; isEnabled: boolean }
+    relation: 'CORRECTS' | 'SUPERSEDES'
+  } | null
 }
 
 function ProposalActions({
@@ -247,6 +251,7 @@ export function KnowledgeProposalReview({
                     proposalId={proposal.id}
                     proposalUpdatedAt={proposal.updatedAt}
                     hasTarget={Boolean(proposal.targetKnowledgeEntryId)}
+                    resolutionDraft={proposal.resolutionDraft ?? null}
                     onResolutionRecorded={() => {
                       setClosedScopes((current) => {
                         const next = new Set(

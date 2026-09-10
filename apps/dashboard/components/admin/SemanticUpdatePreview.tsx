@@ -49,6 +49,7 @@ export function SemanticUpdatePreview({
   proposalUpdatedAt,
   hasTarget,
   onResolutionRecorded,
+  resolutionDraft,
 }: {
   tenantId: string
   venueId: string
@@ -56,16 +57,20 @@ export function SemanticUpdatePreview({
   proposalUpdatedAt: Date | string
   hasTarget: boolean
   onResolutionRecorded?: () => void
+  resolutionDraft?: {
+    desired: { title: string; category: string; content: string; isEnabled: boolean }
+    relation: 'CORRECTS' | 'SUPERSEDES'
+  } | null
 }) {
   const client = useTRPCClient()
   const [open, setOpen] = useState(false)
   const [relation, setRelation] = useState<'NEW_FACT' | 'CORRECTS' | 'SUPERSEDES'>(
-    hasTarget ? 'CORRECTS' : 'NEW_FACT',
+    resolutionDraft?.relation ?? (hasTarget ? 'CORRECTS' : 'NEW_FACT'),
   )
-  const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('')
-  const [content, setContent] = useState('')
-  const [isEnabled, setIsEnabled] = useState(true)
+  const [title, setTitle] = useState(resolutionDraft?.desired.title ?? '')
+  const [category, setCategory] = useState(resolutionDraft?.desired.category ?? '')
+  const [content, setContent] = useState(resolutionDraft?.desired.content ?? '')
+  const [isEnabled, setIsEnabled] = useState(resolutionDraft?.desired.isEnabled ?? true)
   const [temporal, setTemporal] = useState(false)
   const [validFrom, setValidFrom] = useState('')
   const [validUntil, setValidUntil] = useState('')
@@ -150,6 +155,12 @@ export function SemanticUpdatePreview({
     setRequiresTemporalEvidence(null)
     setTemporalEvidenceRequirementScope(null)
     setError(null)
+    setRelation(resolutionDraft?.relation ?? (hasTarget ? 'CORRECTS' : 'NEW_FACT'))
+    setTitle(resolutionDraft?.desired.title ?? '')
+    setCategory(resolutionDraft?.desired.category ?? '')
+    setContent(resolutionDraft?.desired.content ?? '')
+    setIsEnabled(resolutionDraft?.desired.isEnabled ?? true)
+    if (resolutionDraft) setTemporal(false)
   }, [scope])
 
   useEffect(
@@ -465,7 +476,12 @@ export function SemanticUpdatePreview({
       <p className="mt-2 text-sm leading-6 text-slate-600">
         Review the wording and dates before creating a draft. Previewing does not publish an update.
       </p>
-      <fieldset disabled={resolutionFrozen} className="min-w-0">
+      {resolutionDraft ? (
+        <p className="mt-3 text-sm leading-6 text-slate-700">
+          This wording is fixed by the recorded resolution. Approval is a separate step.
+        </p>
+      ) : null}
+      <fieldset disabled={resolutionFrozen || Boolean(resolutionDraft)} className="min-w-0">
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">
             Change relationship
@@ -612,25 +628,26 @@ export function SemanticUpdatePreview({
             onRequirementChange={handleTemporalEvidenceRequirement}
           />
         ) : null}
-        <button
-          type="button"
-          disabled={
-            busy ||
-            !title.trim() ||
-            !category.trim() ||
-            !content.trim() ||
-            (temporal &&
-              (!validFrom ||
-                !validUntil ||
-                scopedTemporalEvidenceRequirement === null ||
-                (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
-          }
-          onClick={() => void inspect()}
-          className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? 'Computing preview…' : 'Compute semantic preview'}
-        </button>
       </fieldset>
+      <button
+        type="button"
+        disabled={
+          resolutionFrozen ||
+          busy ||
+          !title.trim() ||
+          !category.trim() ||
+          !content.trim() ||
+          (temporal &&
+            (!validFrom ||
+              !validUntil ||
+              scopedTemporalEvidenceRequirement === null ||
+              (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
+        }
+        onClick={() => void inspect()}
+        className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {busy ? 'Computing preview…' : 'Compute semantic preview'}
+      </button>
       {error ? (
         <p className="mt-3 text-sm text-rose-700" role="alert">
           {error}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   proposalFind: vi.fn(),
+  proposalList: vi.fn(),
   insightFind: vi.fn(),
   targetFind: vi.fn(),
   messageFind: vi.fn(),
@@ -36,7 +37,7 @@ const transactionClient = {
 
 vi.mock('@pathfinder/db', () => ({
   db: {
-    knowledgeChangeProposal: { findMany: vi.fn() },
+    knowledgeChangeProposal: { findMany: mocks.proposalList },
     $transaction: (callback: (client: typeof transactionClient) => Promise<unknown>) =>
       mocks.transaction(callback, transactionClient),
   },
@@ -880,6 +881,33 @@ describe('admin knowledge proposals', () => {
         input: expect.objectContaining({
           desired,
           draft: expect.objectContaining({ audience: 'PUBLIC' }),
+        }),
+      }),
+    )
+  })
+  it('returns the saved replacement wording and relation without exposing the resolution record', async () => {
+    const desired = {
+      title: 'Gallery access',
+      category: 'ACCESS',
+      content: 'Use the east door.',
+      isEnabled: false,
+    }
+    mocks.proposalList.mockResolvedValueOnce([
+      { id: operationId, producedByConflictResolution: { desired, relation: 'SUPERSEDES' } },
+      { id: 'ordinary', producedByConflictResolution: null },
+    ])
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows).toEqual([
+      { id: operationId, resolutionDraft: { desired, relation: 'SUPERSEDES' } },
+      { id: 'ordinary', resolutionDraft: null },
+    ])
+    expect(mocks.proposalList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: 'venue-1' },
+        select: expect.objectContaining({
+          producedByConflictResolution: { select: { desired: true, relation: true } },
         }),
       }),
     )

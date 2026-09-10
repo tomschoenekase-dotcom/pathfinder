@@ -1,0 +1,556 @@
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createServer, type Server } from 'node:http'
+import { registerHooks } from 'node:module'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+import AxeBuilder from '@axe-core/playwright'
+import { expect, test, type Browser } from '@playwright/test'
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
+import type { TRPCContext } from '../../../../packages/api/src/context'
+
+import {
+  answerAgentQuestionAction,
+  db,
+  prepareSupportKnowledgeProposalAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
+
+const enabled =
+  process.env.RUN_SEMANTIC_CONFLICT_RESOLUTION_BROWSER_INTEGRATION === '1' &&
+  /\/pathfinder_disposable_conflict_browser_[a-f0-9]{12}$/u.test(process.env.DATABASE_URL ?? '')
+const dashboardBaseURL =
+  process.env.SEMANTIC_CONFLICT_RESOLUTION_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
+const tenantId = 'fixture-conflict-tenant'
+const venueId = 'fixture-conflict-venue'
+const adminId = 'fixture-conflict-platform-admin'
+
+type FixtureState = {
+  server: Server
+  endpoint: string
+  token: string
+  proposalId: string
+  entryId: string
+  questionId: string
+  replacementContent: string
+  dropCommittedResolutionResponse: boolean
+  droppedResolutionResponses: number
+  resolutionRequestBodies: string[]
+}
+
+let fixture: FixtureState | null = null
+
+function installSyntheticAuthModule() {
+  const authEntryUrl = pathToFileURL(
+    resolve(__dirname, '../../../../packages/auth/src/index.ts'),
+  ).href
+  const permissionsUrl = pathToFileURL(
+    resolve(__dirname, '../../../../packages/auth/src/permissions.ts'),
+  ).href
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === '@pathfinder/auth' || specifier === authEntryUrl)
+        return { url: 'fixture:pathfinder-auth', shortCircuit: true }
+      return nextResolve(specifier, context)
+    },
+    load(url, context, nextLoad) {
+      if (url !== 'fixture:pathfinder-auth' && url !== authEntryUrl) return nextLoad(url, context)
+      return {
+        format: 'module',
+        shortCircuit: true,
+        source: `
+          export { requireTenantRole, requirePlatformAdmin } from ${JSON.stringify(permissionsUrl)}
+          const unavailable = async () => { throw new Error('Unavailable in connected fixture') }
+          export const createOrganization = unavailable
+          export const currentUser = unavailable
+          export const ensureOrganizationInvitation = unavailable
+          export const inviteOrganizationMember = unavailable
+          export const listPendingOrganizationInvitations = unavailable
+          export const requireAuth = unavailable
+          export const validateExistingOrganizationOwner = unavailable
+          export const resolveSession = async () => null
+        `,
+      }
+    },
+  })
+}
+
+function matchesToken(authorization: string | undefined, expected: string) {
+  const candidate = authorization?.match(/^Bearer ([^\s]+)$/u)?.[1]
+  if (!candidate) return false
+  const left = Buffer.from(candidate)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
+async function startFixtureServer(): Promise<FixtureState> {
+  installSyntheticAuthModule()
+  const { appRouter } = await import('@pathfinder/api')
+  const token = randomUUID()
+  const session = {
+    userId: adminId,
+    activeTenantId: tenantId,
+    role: 'OWNER',
+    isPlatformAdmin: true,
+  } as const
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+  const identityId = `fixture-conflict-agent-${suffix}`
+  const entryId = `fixture-conflict-entry-${suffix}`
+  const canonical = {
+    title: 'Willow gallery hours',
+    category: 'Hours',
+    content: 'The Willow gallery closes at 5 PM.',
+    isEnabled: true,
+  }
+  const conflicting = { ...canonical, content: 'The Willow gallery closes at 7 PM.' }
+  const replacementContent = 'The Willow gallery closes at 6 PM.'
+
+  const setup = await withTenantIsolationBypass(async () => {
+    await db.tenant.create({
+      data: { id: tenantId, name: 'Conflict browser fixture', slug: tenantId },
+    })
+    await db.user.create({ data: { id: adminId, email: `${adminId}@example.test` } })
+    await db.venue.create({
+      data: { id: venueId, tenantId, name: 'Conflict browser venue', slug: venueId },
+    })
+    await db.agentIdentity.create({
+      data: {
+        id: identityId,
+        tenantId,
+        venueId,
+        identityKey: `semantic.conflict.browser.${suffix}`,
+        name: 'Conflict browser content specialist',
+        agentType: 'CONTENT',
+        accessScope: 'VENUE',
+        accessCapabilities: ['content.draft'],
+        autonomyLevel: 'DRAFT',
+        enabled: true,
+        createdBy: adminId,
+      },
+    })
+    await db.venueKnowledgeEntry.create({
+      data: {
+        id: entryId,
+        tenantId,
+        venueId,
+        ...canonical,
+        visibility: 'PUBLIC',
+        lastReviewedAt: new Date(),
+        lastReviewedBy: adminId,
+        humanConfirmedAt: new Date(),
+        humanConfirmedBy: adminId,
+        sourceType: 'SYNTHETIC_FIXTURE',
+        authorship: 'HUMAN_AUTHORED',
+      },
+    })
+    const request = await db.supportRequest.create({
+      data: {
+        tenantId,
+        venueId,
+        category: 'CONTENT_CORRECTION',
+        status: 'IN_REVIEW',
+        subject: 'Conflicting Willow gallery hours',
+        createdByKind: 'OPERATOR',
+        createdById: adminId,
+        updatedByKind: 'OPERATOR',
+        updatedById: adminId,
+      },
+    })
+    await db.supportRequestAuditEvent.create({
+      data: {
+        tenantId,
+        venueId,
+        supportRequestId: request.id,
+        requestVersion: request.version,
+        eventType: 'STATUS_CHANGED',
+        actorKind: 'OPERATOR',
+        actorId: adminId,
+        fromStatus: 'OPEN',
+        toStatus: 'IN_REVIEW',
+      },
+    })
+    const message = await db.supportMessage.create({
+      data: {
+        tenantId,
+        venueId,
+        supportRequestId: request.id,
+        authorKind: 'CLIENT',
+        authorId: adminId,
+        visibility: 'CLIENT_VISIBLE',
+        body: conflicting.content,
+        submissionRequestId: randomUUID(),
+        submissionInputHash: createHash('sha256').update(conflicting.content).digest('hex'),
+        requestVersion: request.version,
+        clientVersion: request.clientVersion,
+      },
+    })
+    return { request, message, identityId, entryId, conflicting }
+  })
+
+  const proposalId = randomUUID()
+  await prepareSupportKnowledgeProposalAction({
+    operationId: proposalId,
+    tenantId,
+    venueId,
+    supportRequestId: setup.request.id,
+    expectedVersion: setup.request.version,
+    evidenceMessageIds: [setup.message.id],
+    targetKnowledgeEntryId: setup.entryId,
+    correctionKind: 'UPDATE_KNOWLEDGE',
+    aiInference: 'The retained support evidence conflicts with reviewed Willow gallery hours.',
+    proposedChange: setup.conflicting.content,
+    reason: 'Require an operator to resolve the exact lower-authority conflict.',
+    confidence: 0.9,
+    actor: {
+      type: 'AGENT',
+      actorId: setup.identityId,
+      role: 'AGENT',
+      agentIdentityId: setup.identityId,
+      agentRunId: `run-${proposalId}`,
+      workerId: `worker-${suffix}`,
+      credentialId: `credential-${suffix}`,
+      capability: 'knowledge:draft',
+      idempotencyKey: proposalId,
+      modelProvider: 'deterministic-fixture',
+      modelName: 'semantic-conflict-browser-v1',
+    },
+  })
+  const caller = appRouter.createCaller({
+    db,
+    headers: new Headers(),
+    session,
+  } satisfies TRPCContext)
+  const pending = await db.knowledgeChangeProposal.findFirstOrThrow({
+    where: { id: proposalId, tenantId, venueId },
+    select: { updatedAt: true },
+  })
+  await caller.admin.reviewKnowledgeProposal({
+    operationId: randomUUID(),
+    tenantId,
+    venueId,
+    proposalId,
+    expectedUpdatedAt: pending.updatedAt.toISOString(),
+    decision: 'APPROVED',
+    reviewNote: 'Evidence reviewed; semantic conflict still requires an explicit resolution.',
+  })
+  const approved = await db.knowledgeChangeProposal.findFirstOrThrow({
+    where: { id: proposalId, tenantId, venueId },
+    select: { updatedAt: true },
+  })
+  const preview = await caller.admin.previewSemanticVenueUpdate({
+    tenantId,
+    venueId,
+    proposalId,
+    expectedUpdatedAt: approved.updatedAt,
+    relation: 'CORRECTS',
+    desired: setup.conflicting,
+  })
+  const asked = await caller.admin.createSemanticConflictQuestion({
+    tenantId,
+    venueId,
+    proposalId,
+    expectedUpdatedAt: approved.updatedAt,
+    expectedPreviewHash: preview.previewHash,
+    relation: 'CORRECTS',
+    desired: setup.conflicting,
+    agentIdentityId: setup.identityId,
+  })
+  const pendingQuestion = await db.agentQuestion.findFirstOrThrow({
+    where: { id: asked.questionId, tenantId, venueId },
+    select: { updatedAt: true },
+  })
+  await answerAgentQuestionAction({
+    tenantId,
+    venueId,
+    questionId: asked.questionId,
+    expectedUpdatedAt: pendingQuestion.updatedAt,
+    outcome: 'ANSWERED',
+    answer: `Use the signed operations sheet and prepare ${replacementContent} for review.`,
+    actor: { actorType: 'HUMAN', actorId: adminId, auditRole: 'PLATFORM_ADMIN' },
+  })
+
+  const state: FixtureState = {
+    server: undefined as never,
+    endpoint: '',
+    token,
+    proposalId,
+    entryId,
+    questionId: asked.questionId,
+    replacementContent,
+    dropCommittedResolutionResponse: true,
+    droppedResolutionResponses: 0,
+    resolutionRequestBodies: [],
+  }
+  const server = createServer(async (request, response) => {
+    try {
+      if (
+        !request.url?.startsWith('/api/trpc/') ||
+        !['GET', 'POST'].includes(request.method ?? '')
+      ) {
+        response.writeHead(404).end()
+        return
+      }
+      const chunks: Buffer[] = []
+      let bytes = 0
+      for await (const chunk of request) {
+        const buffer = Buffer.from(chunk)
+        bytes += buffer.length
+        if (bytes > 1024 * 1024) {
+          response.writeHead(413).end()
+          return
+        }
+        chunks.push(buffer)
+      }
+      const body = Buffer.concat(chunks)
+      if (request.url.includes('admin.resolveSemanticConflict'))
+        state.resolutionRequestBodies.push(body.toString('utf8'))
+      const webRequest = new Request(`http://127.0.0.1${request.url}`, {
+        method: request.method ?? 'GET',
+        headers: new Headers(
+          Object.entries(request.headers).flatMap(([key, value]) =>
+            value === undefined
+              ? []
+              : [[key, Array.isArray(value) ? value.join(', ') : value] as [string, string]],
+          ),
+        ),
+        ...(body.length ? { body } : {}),
+      })
+      const result = await fetchRequestHandler({
+        endpoint: '/api/trpc',
+        req: webRequest,
+        router: appRouter,
+        createContext: (): TRPCContext => ({
+          db,
+          headers: webRequest.headers,
+          session: matchesToken(request.headers.authorization, token)
+            ? session
+            : ({
+                userId: null,
+                activeTenantId: null,
+                role: null,
+                isPlatformAdmin: false,
+              } as const),
+        }),
+      })
+      const responseBody = Buffer.from(await result.arrayBuffer())
+      if (
+        state.dropCommittedResolutionResponse &&
+        request.url.includes('admin.resolveSemanticConflict') &&
+        result.status >= 200 &&
+        result.status < 300
+      ) {
+        state.dropCommittedResolutionResponse = false
+        state.droppedResolutionResponses += 1
+        response.destroy()
+        return
+      }
+      response.writeHead(result.status, Object.fromEntries(result.headers.entries()))
+      response.end(responseBody)
+    } catch {
+      if (!response.headersSent) response.writeHead(500)
+      response.end()
+    }
+  })
+  await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Connected tRPC fixture unavailable')
+  state.server = server
+  state.endpoint = `http://127.0.0.1:${address.port}`
+  return state
+}
+
+async function connectedPage(browser: Browser) {
+  if (!fixture) throw new Error('Connected fixture is unavailable')
+  const context = await browser.newContext({
+    baseURL: dashboardBaseURL,
+    viewport: { width: 1280, height: 900 },
+  })
+  await context.route('**/api/trpc/**', async (route) => {
+    const source = new URL(route.request().url())
+    try {
+      const result = await route.fetch({
+        maxRetries: 0,
+        url: `${fixture!.endpoint}${source.pathname}${source.search}`,
+        headers: { ...route.request().headers(), authorization: `Bearer ${fixture!.token}` },
+      })
+      await route.fulfill({ response: result })
+    } catch {
+      await route.abort('failed')
+    }
+  })
+  const page = await context.newPage()
+  return { context, page }
+}
+
+async function closeServer(server: Server) {
+  await new Promise<void>((resolveClose, reject) =>
+    server.close((error) => (error ? reject(error) : resolveClose())),
+  )
+}
+
+test.describe('connected semantic conflict resolution on disposable PostgreSQL', () => {
+  test.describe.configure({ mode: 'serial' })
+  test.skip(!enabled, 'requires the guarded disposable semantic conflict browser database')
+
+  test.beforeAll(async () => {
+    fixture = await startFixtureServer()
+  })
+
+  test.afterAll(async () => {
+    if (fixture) await closeServer(fixture.server)
+    await db.$disconnect()
+  })
+
+  test('recovers an unknown committed resolution and separately approves its replacement', async ({
+    browser,
+  }, testInfo) => {
+    if (!fixture) throw new Error('Connected fixture is unavailable')
+    const { context, page } = await connectedPage(browser)
+    try {
+      const unauthenticated = await fetch(
+        `${fixture.endpoint}/api/trpc/admin.listKnowledgeProposals?input=${encodeURIComponent(JSON.stringify({ json: { tenantId, venueId } }))}`,
+      )
+      expect(unauthenticated.status).toBe(401)
+      await page.goto(
+        `/dev-fixtures/semantic-conflict-resolution?connected=1&tenantId=${tenantId}&venueId=${venueId}`,
+      )
+      const original = page.locator(`#proposal-${fixture.proposalId}`)
+      await expect(original).toBeVisible()
+      await original.getByRole('button', { name: 'Build semantic change preview' }).click()
+      await original.getByLabel('Visitor-facing title').fill('Willow gallery hours')
+      await original.getByLabel('Category').fill('Hours')
+      await original.getByLabel('Visitor-facing content').fill('The Willow gallery closes at 7 PM.')
+      await original.getByRole('button', { name: 'Compute semantic preview' }).click()
+      await expect(original.getByText(/signed operations sheet/u)).toBeVisible()
+      await original.getByLabel(/Propose replacement/u).check()
+      await original
+        .getByRole('textbox', { name: 'Replacement content', exact: true })
+        .fill(fixture.replacementContent)
+      await original
+        .getByLabel('Resolution note')
+        .fill('Use the signed sheet for a separately reviewed replacement.')
+      await original.getByRole('button', { name: 'Record resolution' }).click()
+      await expect(original.getByRole('button', { name: 'Retry exact resolution' })).toBeVisible()
+      const committedBeforeRetry = await db.semanticConflictResolution.findMany({
+        where: { tenantId, venueId, proposalId: fixture.proposalId },
+        select: { id: true, replacementProposalId: true },
+      })
+      expect(committedBeforeRetry).toHaveLength(1)
+      expect(committedBeforeRetry[0]!.replacementProposalId).not.toBeNull()
+      await original.getByRole('button', { name: 'Retry exact resolution' }).click()
+      await expect(original.getByText('Replacement awaits review')).toBeVisible()
+      await expect(original.getByText('CLOSED AFTER RESOLUTION')).toBeVisible()
+      expect(fixture.droppedResolutionResponses).toBe(1)
+      expect(fixture.resolutionRequestBodies).toHaveLength(2)
+      expect(fixture.resolutionRequestBodies[1]).toBe(fixture.resolutionRequestBodies[0])
+
+      const resolutions = await db.semanticConflictResolution.findMany({
+        where: { tenantId, venueId, proposalId: fixture.proposalId },
+        select: { replacementProposalId: true },
+      })
+      expect(resolutions).toHaveLength(1)
+      const replacementProposalId = resolutions[0]!.replacementProposalId
+      expect(replacementProposalId).toBe(committedBeforeRetry[0]!.replacementProposalId)
+      expect(replacementProposalId).not.toBeNull()
+      const beforeReview = await db.knowledgeChangeProposal.findMany({
+        where: { tenantId, venueId, id: { in: [fixture.proposalId, replacementProposalId!] } },
+        select: { id: true, status: true },
+      })
+      expect(beforeReview).toEqual(
+        expect.arrayContaining([
+          { id: fixture.proposalId, status: 'REJECTED' },
+          { id: replacementProposalId, status: 'PENDING_REVIEW' },
+        ]),
+      )
+      expect(
+        await db.venueKnowledgeEntry.count({
+          where: { tenantId, venueId, content: fixture.replacementContent },
+        }),
+      ).toBe(0)
+
+      await page.getByRole('button', { name: 'Reload proposals' }).click()
+      const replacement = page.locator(`#proposal-${replacementProposalId}`)
+      await expect(replacement).toBeVisible()
+      await replacement
+        .getByLabel('Review note')
+        .fill('Approve the replacement evidence for preview only.')
+      const approve = replacement.getByRole('button', { name: 'Approve evidence' })
+      await approve.click()
+      await expect(approve).toBeEnabled()
+      await page.getByRole('button', { name: 'Reload proposals' }).click()
+      await expect(replacement.getByText('APPROVED', { exact: true })).toBeVisible()
+      await replacement.getByRole('button', { name: 'Build semantic change preview' }).click()
+      await expect(replacement.getByLabel('Change relationship')).toHaveValue('CORRECTS')
+      await expect(replacement.getByLabel('Visitor-facing title')).toHaveValue(
+        'Willow gallery hours',
+      )
+      await expect(replacement.getByLabel('Category')).toHaveValue('Hours')
+      await expect(replacement.getByLabel('Visitor-facing content')).toHaveValue(
+        fixture.replacementContent,
+      )
+      await replacement.getByRole('button', { name: 'Compute semantic preview' }).click()
+      await expect(replacement.getByText('CORRECTION', { exact: true })).toBeVisible()
+
+      const persisted = await db.knowledgeChangeProposal.findFirstOrThrow({
+        where: { id: replacementProposalId!, tenantId, venueId },
+        select: { status: true },
+      })
+      expect(persisted.status).toBe('APPROVED')
+      const canonical = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { id: fixture.entryId, tenantId, venueId },
+        select: { title: true, category: true, content: true, isEnabled: true },
+      })
+      expect(canonical).toEqual({
+        title: 'Willow gallery hours',
+        category: 'Hours',
+        content: 'The Willow gallery closes at 5 PM.',
+        isEnabled: true,
+      })
+      const contentEffects = await Promise.all([
+        db.contentModuleIdentity.count({ where: { tenantId, venueId } }),
+        db.contentModuleRevision.count({ where: { tenantId, venueId } }),
+        db.contentModulePublication.count({ where: { tenantId, venueId } }),
+      ])
+      expect(contentEffects).toEqual([0, 0, 0])
+      await testInfo.attach('durable-resolution-readback', {
+        body: JSON.stringify(
+          {
+            proposalId: fixture.proposalId,
+            replacementProposalId,
+            committedBeforeRetry: committedBeforeRetry[0],
+            resolutionRequests: fixture.resolutionRequestBodies.length,
+            exactRetryBodyHash: createHash('sha256')
+              .update(fixture.resolutionRequestBodies[0]!)
+              .digest('hex'),
+            replacementStatus: persisted.status,
+            contentEffects,
+            canonical,
+            authentication: 'synthetic platform admin; unauthenticated request denied',
+          },
+          null,
+          2,
+        ),
+        contentType: 'application/json',
+      })
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`replacement-approved-preview-${width}.png`),
+          fullPage: true,
+        })
+      }
+
+      expect(
+        await db.venueKnowledgeEntry.count({
+          where: { tenantId, venueId, content: fixture.replacementContent },
+        }),
+      ).toBe(0)
+    } finally {
+      await context.close()
+    }
+  })
+})

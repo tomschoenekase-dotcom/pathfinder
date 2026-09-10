@@ -1,7 +1,12 @@
 'use client'
 
-import { KnowledgeProposalReview } from '../../../components/admin/KnowledgeProposalReview'
-import { TRPCProvider } from '../../../lib/trpc'
+import { useEffect, useState } from 'react'
+
+import {
+  KnowledgeProposalReview,
+  type KnowledgeProposal,
+} from '../../../components/admin/KnowledgeProposalReview'
+import { TRPCProvider, useTRPCClient } from '../../../lib/trpc'
 
 const scope = {
   tenantId: 'fixture-conflict-tenant',
@@ -10,7 +15,70 @@ const scope = {
   proposalUpdatedAt: '2026-09-10T12:00:00.000Z',
 }
 
-function FixtureBody() {
+function ConnectedReview() {
+  const client = useTRPCClient()
+  const [proposals, setProposals] = useState<KnowledgeProposal[]>([])
+  const [reload, setReload] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    void client.admin.listKnowledgeProposals
+      .query(
+        {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          limit: 100,
+        },
+        { signal: controller.signal },
+      )
+      .then((rows) => {
+        if (!controller.signal.aborted)
+          setProposals(
+            rows.map((row) => ({
+              ...row,
+              confidence: Number(row.confidence),
+              evidenceMessageIds: Array.isArray(row.evidenceMessageIds)
+                ? row.evidenceMessageIds.filter(
+                    (value): value is string => typeof value === 'string',
+                  )
+                : [],
+            })),
+          )
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : 'Fixture list failed.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [client, reload])
+  return (
+    <>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => setReload((value) => value + 1)}
+        className="mb-4 min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold"
+      >
+        Reload proposals
+      </button>
+      {loading ? <p role="status">Loading native fixture proposals...</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+      <KnowledgeProposalReview
+        tenantId={scope.tenantId}
+        venueId={scope.venueId}
+        proposals={proposals}
+      />
+    </>
+  )
+}
+
+function FixtureBody({ connected }: { connected: boolean }) {
   return (
     <main
       data-fixture="semantic-conflict-resolution"
@@ -28,29 +96,33 @@ function FixtureBody() {
           </p>
         </header>
         <div className="mt-6">
-          <KnowledgeProposalReview
-            tenantId={scope.tenantId}
-            venueId={scope.venueId}
-            proposals={[
-              {
-                id: scope.proposalId,
-                status: 'APPROVED',
-                observedVisitorClaim: 'A support source reports later Willow gallery hours.',
-                aiInference: 'The proposed time conflicts with reviewed venue guidance.',
-                proposedChange: desired.content,
-                reason: 'An operator must resolve the lower-authority conflict.',
-                confidence: 0.9,
-                evidenceMessageIds: ['fixture-message-hours'],
-                targetKnowledgeEntryId: 'fixture-current-hours',
-                createdAt: '2026-09-10T11:55:00.000Z',
-                updatedAt: scope.proposalUpdatedAt,
-                reviewerId: 'fixture-reviewer',
-                reviewNote: 'Evidence reviewed; semantic conflict remains.',
-                reviewedAt: '2026-09-10T12:00:00.000Z',
-                createdByType: 'AGENT',
-              },
-            ]}
-          />
+          {connected ? (
+            <ConnectedReview />
+          ) : (
+            <KnowledgeProposalReview
+              tenantId={scope.tenantId}
+              venueId={scope.venueId}
+              proposals={[
+                {
+                  id: scope.proposalId,
+                  status: 'APPROVED',
+                  observedVisitorClaim: 'A support source reports later Willow gallery hours.',
+                  aiInference: 'The proposed time conflicts with reviewed venue guidance.',
+                  proposedChange: desired.content,
+                  reason: 'An operator must resolve the lower-authority conflict.',
+                  confidence: 0.9,
+                  evidenceMessageIds: ['fixture-message-hours'],
+                  targetKnowledgeEntryId: 'fixture-current-hours',
+                  createdAt: '2026-09-10T11:55:00.000Z',
+                  updatedAt: scope.proposalUpdatedAt,
+                  reviewerId: 'fixture-reviewer',
+                  reviewNote: 'Evidence reviewed; semantic conflict remains.',
+                  reviewedAt: '2026-09-10T12:00:00.000Z',
+                  createdByType: 'AGENT',
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
     </main>
@@ -64,10 +136,14 @@ const desired = {
   isEnabled: true,
 }
 
-export function SemanticConflictResolutionFixtureClient() {
+export function SemanticConflictResolutionFixtureClient({
+  connected = false,
+}: {
+  connected?: boolean
+}) {
   return (
     <TRPCProvider scopeKey="semantic-conflict-resolution-fixture">
-      <FixtureBody />
+      <FixtureBody connected={connected} />
     </TRPCProvider>
   )
 }

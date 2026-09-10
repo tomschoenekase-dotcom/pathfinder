@@ -9,6 +9,7 @@ import {
 } from '@pathfinder/db'
 
 import { router } from '../../core'
+import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import { adminProcedure } from '../../trpc'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
@@ -38,8 +39,8 @@ export const adminKnowledgeProposalReviewRouter = router({
         .strict(),
     )
     .query(({ input }) =>
-      withTenantIsolationBypass(() =>
-        db.knowledgeChangeProposal.findMany({
+      withTenantIsolationBypass(async () => {
+        const rows = await db.knowledgeChangeProposal.findMany({
           where: {
             tenantId: input.tenantId,
             venueId: input.venueId,
@@ -49,6 +50,7 @@ export const adminKnowledgeProposalReviewRouter = router({
           take: input.limit,
           select: {
             id: true,
+            producedByConflictResolution: { select: { desired: true, relation: true } },
             status: true,
             sessionId: true,
             observedVisitorClaim: true,
@@ -68,8 +70,21 @@ export const adminKnowledgeProposalReviewRouter = router({
             reviewNote: true,
             reviewedAt: true,
           },
-        }),
-      ),
+        })
+        return rows.map(({ producedByConflictResolution, ...proposal }) => ({
+          ...proposal,
+          resolutionDraft: producedByConflictResolution
+            ? {
+                desired: SemanticUpdaterDesiredKnowledge.parse(
+                  producedByConflictResolution.desired,
+                ),
+                relation: z
+                  .enum(['CORRECTS', 'SUPERSEDES'])
+                  .parse(producedByConflictResolution.relation),
+              }
+            : null,
+        }))
+      }),
     ),
   createKnowledgeProposal: adminProcedure
     .input(

@@ -784,4 +784,65 @@ describe('SemanticUpdatePreview', () => {
     expect(mutate).not.toHaveBeenCalled()
     expect(mutateOperational).not.toHaveBeenCalled()
   })
+  it('restores and locks the saved resolution wording without carrying it into another scope', async () => {
+    const desired = {
+      title: 'Gallery access',
+      category: 'ACCESS',
+      content: 'Use the east door.',
+      isEnabled: false,
+    }
+    query.mockResolvedValueOnce({
+      classification: 'CORRECTION',
+      operationCount: 1,
+      authority: 'TRUSTED_PARTNER',
+      confidence: 0.9,
+      blockers: [],
+      questions: [],
+      proposalStatus: 'PENDING_REVIEW',
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+    const props = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      proposalId: '11111111-1111-4111-8111-111111111111',
+      proposalUpdatedAt: '2026-09-10T12:00:00.000Z',
+      hasTarget: true,
+    }
+    const view = render(
+      <SemanticUpdatePreview {...props} resolutionDraft={{ desired, relation: 'SUPERSEDES' }} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    expect((screen.getByLabelText('Visitor-facing title') as HTMLInputElement).value).toBe(
+      desired.title,
+    )
+    expect((screen.getByLabelText('Change relationship') as HTMLSelectElement).value).toBe(
+      'SUPERSEDES',
+    )
+    expect(
+      (screen.getByLabelText('Visitor-facing title').closest('fieldset') as HTMLFieldSetElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByLabelText('Enabled in canonical knowledge') as HTMLInputElement).checked,
+    ).toBe(false)
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    await waitFor(() =>
+      expect(query).toHaveBeenCalledWith(
+        expect.objectContaining({ desired, relation: 'SUPERSEDES' }),
+        expect.anything(),
+      ),
+    )
+    expect(mutate).not.toHaveBeenCalled()
+    view.rerender(<SemanticUpdatePreview {...props} tenantId="tenant-b" />)
+    expect((screen.getByLabelText('Visitor-facing title') as HTMLInputElement).value).toBe('')
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
 })
