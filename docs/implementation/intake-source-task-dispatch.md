@@ -74,3 +74,9 @@ Next inspect the remaining P01 progression requirements against this now-connect
 ## Durable support supersession
 
 `b1995c11` extends the support addition fixture through a second reviewed support proposal targeting the published canonical entry. Native `419eecf43c92` passes: revision2 appends to the same module, old guidance remains visible until publication, original payload history survives, and replaying either publication cannot restore obsolete guidance or duplicate effects (1 module / 2 revisions / 2 publications). 242 migrations / 260 tables / 23 stable source hashes; PostgreSQL stopped. API types/lint and 14 classifier/handoff unit tests pass. See `docs/evidence/support-supersession-native-2026-09-10.json`. Conflict and duplicate durable outcomes are the next bounded proof, not a claim that P08-03 is complete.
+
+## Durable conflict and duplicate outcomes
+
+`2a872344` adds a support-linked native case for reviewed lower-authority conflict and exact duplicate/no-op. Native `be1d5d6fcb18` passes: conflict drafting is denied, concurrent conflict-route calls converge on one pending question and operation with exact callback metadata, duplicate question/draft attempts are denied, and canonical content remains unchanged with no handoff/module/revision/publication effects. 242 migrations / 260 tables / 26 stable source hashes; PostgreSQL stopped. API types/lint and 21 related route tests pass. See `docs/evidence/support-semantic-blockers-native-2026-09-10.json`.
+
+Next use the existing correction and temporal lifecycle artifacts to identify the first missing connected P08 outcome, especially exact conflict-answer resolution or expiry/rollback when prior native sources do not prove it. Do not rerun or rebuild these newly proven classes without changed sources or an unresolved boundary. P08-03 and the broader campaign remain open at their required layers; external reservations and broad handoff deferral remain unchanged.
