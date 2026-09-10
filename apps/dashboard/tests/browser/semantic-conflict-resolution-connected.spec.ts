@@ -13,6 +13,7 @@ import {
   answerAgentQuestionAction,
   db,
   prepareSupportKnowledgeProposalAction,
+  publishUniversalContentAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -29,9 +30,15 @@ type FixtureState = {
   server: Server
   endpoint: string
   token: string
+  identityId: string
   proposalId: string
   entryId: string
   questionId: string
+  additionProposalId: string
+  additionSupportRequestId: string
+  additionSupportMessageId: string
+  additionBodyHash: string
+  additionContent: string
   supportRequestId: string
   supportMessageId: string
   originalSupportBodyHash: string
@@ -42,6 +49,9 @@ type FixtureState = {
   dropCommittedDraftResponse: boolean
   droppedDraftResponses: number
   draftRequestBodies: string[]
+  dropCommittedUniversalDraftResponse: boolean
+  droppedUniversalDraftResponses: number
+  universalDraftRequestBodies: string[]
 }
 
 let fixture: FixtureState | null = null
@@ -190,7 +200,58 @@ async function startFixtureServer(): Promise<FixtureState> {
         clientVersion: request.clientVersion,
       },
     })
-    return { request, message, identityId, entryId, conflicting }
+    const additionRequest = await db.supportRequest.create({
+      data: {
+        tenantId,
+        venueId,
+        category: 'CONTENT_CORRECTION',
+        status: 'IN_REVIEW',
+        subject: 'New quiet room guidance',
+        createdByKind: 'OPERATOR',
+        createdById: adminId,
+        updatedByKind: 'OPERATOR',
+        updatedById: adminId,
+      },
+    })
+    await db.supportRequestAuditEvent.create({
+      data: {
+        tenantId,
+        venueId,
+        supportRequestId: additionRequest.id,
+        requestVersion: additionRequest.version,
+        eventType: 'STATUS_CHANGED',
+        actorKind: 'OPERATOR',
+        actorId: adminId,
+        fromStatus: 'OPEN',
+        toStatus: 'IN_REVIEW',
+      },
+    })
+    const additionContent = 'The Juniper quiet room is beside the north reading terrace.'
+    const additionMessage = await db.supportMessage.create({
+      data: {
+        tenantId,
+        venueId,
+        supportRequestId: additionRequest.id,
+        authorKind: 'CLIENT',
+        authorId: adminId,
+        visibility: 'CLIENT_VISIBLE',
+        body: additionContent,
+        submissionRequestId: randomUUID(),
+        submissionInputHash: createHash('sha256').update(additionContent).digest('hex'),
+        requestVersion: additionRequest.version,
+        clientVersion: additionRequest.clientVersion,
+      },
+    })
+    return {
+      request,
+      message,
+      identityId,
+      entryId,
+      conflicting,
+      additionRequest,
+      additionMessage,
+      additionContent,
+    }
   })
 
   const proposalId = randomUUID()
@@ -275,13 +336,60 @@ async function startFixtureServer(): Promise<FixtureState> {
     actor: { actorType: 'HUMAN', actorId: adminId, auditRole: 'PLATFORM_ADMIN' },
   })
 
+  const additionProposalId = randomUUID()
+  await prepareSupportKnowledgeProposalAction({
+    operationId: additionProposalId,
+    tenantId,
+    venueId,
+    supportRequestId: setup.additionRequest.id,
+    expectedVersion: setup.additionRequest.version,
+    evidenceMessageIds: [setup.additionMessage.id],
+    correctionKind: 'CREATE_KNOWLEDGE',
+    aiInference: 'The retained support evidence describes a new quiet-room fact.',
+    proposedChange: setup.additionContent,
+    reason: 'Prepare the exact support addition for explicit human review.',
+    confidence: 0.92,
+    actor: {
+      type: 'AGENT',
+      actorId: setup.identityId,
+      role: 'AGENT',
+      agentIdentityId: setup.identityId,
+      agentRunId: `run-${additionProposalId}`,
+      workerId: `worker-${suffix}`,
+      credentialId: `credential-${suffix}`,
+      capability: 'knowledge:draft',
+      idempotencyKey: additionProposalId,
+      modelProvider: 'deterministic-fixture',
+      modelName: 'support-authoring-browser-v1',
+    },
+  })
+  const pendingAddition = await db.knowledgeChangeProposal.findFirstOrThrow({
+    where: { id: additionProposalId, tenantId, venueId },
+    select: { updatedAt: true },
+  })
+  await caller.admin.reviewKnowledgeProposal({
+    operationId: randomUUID(),
+    tenantId,
+    venueId,
+    proposalId: additionProposalId,
+    expectedUpdatedAt: pendingAddition.updatedAt.toISOString(),
+    decision: 'APPROVED',
+    reviewNote: 'Support evidence verifies this addition; publication remains separate.',
+  })
+
   const state: FixtureState = {
     server: undefined as never,
     endpoint: '',
     token,
+    identityId: setup.identityId,
     proposalId,
     entryId,
     questionId: asked.questionId,
+    additionProposalId,
+    additionSupportRequestId: setup.additionRequest.id,
+    additionSupportMessageId: setup.additionMessage.id,
+    additionBodyHash: createHash('sha256').update(setup.additionContent).digest('hex'),
+    additionContent: setup.additionContent,
     supportRequestId: setup.request.id,
     supportMessageId: setup.message.id,
     originalSupportBodyHash: createHash('sha256').update(setup.message.body, 'utf8').digest('hex'),
@@ -292,6 +400,9 @@ async function startFixtureServer(): Promise<FixtureState> {
     dropCommittedDraftResponse: true,
     droppedDraftResponses: 0,
     draftRequestBodies: [],
+    dropCommittedUniversalDraftResponse: true,
+    droppedUniversalDraftResponses: 0,
+    universalDraftRequestBodies: [],
   }
   const server = createServer(async (request, response) => {
     try {
@@ -318,6 +429,8 @@ async function startFixtureServer(): Promise<FixtureState> {
         state.resolutionRequestBodies.push(body.toString('utf8'))
       if (request.url.includes('admin.createSupportLegacyKnowledgeAdoptionDraft'))
         state.draftRequestBodies.push(body.toString('utf8'))
+      if (request.url.includes('admin.createSupportSemanticUniversalContentDraft'))
+        state.universalDraftRequestBodies.push(body.toString('utf8'))
       const webRequest = new Request(`http://127.0.0.1${request.url}`, {
         method: request.method ?? 'GET',
         headers: new Headers(
@@ -355,6 +468,17 @@ async function startFixtureServer(): Promise<FixtureState> {
       ) {
         state.dropCommittedResolutionResponse = false
         state.droppedResolutionResponses += 1
+        response.destroy()
+        return
+      }
+      if (
+        state.dropCommittedUniversalDraftResponse &&
+        request.url.includes('admin.createSupportSemanticUniversalContentDraft') &&
+        result.status >= 200 &&
+        result.status < 300
+      ) {
+        state.dropCommittedUniversalDraftResponse = false
+        state.droppedUniversalDraftResponses += 1
         response.destroy()
         return
       }
@@ -549,6 +673,7 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
         ).toBe(true)
         expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
         await page.screenshot({
           path: testInfo.outputPath(`prepared-private-draft-${width}.png`),
           fullPage: true,
@@ -658,6 +783,326 @@ test.describe('connected semantic conflict resolution on disposable PostgreSQL',
         expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
         await page.screenshot({
           path: testInfo.outputPath(`replacement-private-draft-${width}.png`),
+          fullPage: true,
+        })
+      }
+
+      await page.getByRole('button', { name: 'Reload proposals' }).click()
+      const addition = page.locator(`#proposal-${fixture.additionProposalId}`)
+      await expect(addition).toBeVisible()
+      await addition.getByRole('button', { name: 'Build semantic change preview' }).click()
+      await addition.getByLabel('Change relationship').selectOption('NEW_FACT')
+      await addition.getByLabel('Visitor-facing title').fill('Juniper quiet room')
+      await addition.getByLabel('Category').fill('Visitor services')
+      await addition.getByLabel('Visitor-facing content').fill(fixture.additionContent)
+      await addition.getByRole('button', { name: 'Compute semantic preview' }).click()
+      await expect(addition.getByText('ADDITION', { exact: true })).toBeVisible()
+      await addition.getByRole('button', { name: 'Prepare private draft' }).click()
+      await addition.getByRole('combobox', { name: 'Content type' }).selectOption('POLICY')
+      await expect(addition.getByText('Approved wording')).toBeVisible()
+      for (const width of [390, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`universal-addition-prepared-${width}.png`),
+          fullPage: true,
+        })
+      }
+      await addition.getByRole('button', { name: 'Create private draft' }).click()
+      await expect(
+        addition.getByRole('button', { name: 'Retry exact private draft' }),
+      ).toBeVisible()
+      const additionReceiptBeforeRetry =
+        await db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+          where: { proposalId: fixture.additionProposalId, tenantId, venueId },
+          select: { moduleId: true, revisionId: true, classification: true },
+        })
+      expect(additionReceiptBeforeRetry.classification).toBe('ADDITION')
+      expect(
+        await db.contentModuleRevision.count({
+          where: { tenantId, venueId, moduleId: additionReceiptBeforeRetry.moduleId },
+        }),
+      ).toBe(1)
+      expect(fixture.droppedUniversalDraftResponses).toBe(1)
+      expect(fixture.universalDraftRequestBodies).toHaveLength(1)
+      await addition.getByRole('button', { name: 'Retry exact private draft' }).click()
+      await expect(
+        addition.getByText('Private draft ready for separate publication review'),
+      ).toBeVisible()
+      expect(fixture.universalDraftRequestBodies).toHaveLength(2)
+      expect(fixture.universalDraftRequestBodies[1]).toBe(fixture.universalDraftRequestBodies[0])
+      expect(
+        await db.contentModuleEvidence.findMany({
+          where: {
+            tenantId,
+            venueId,
+            revisionId: additionReceiptBeforeRetry.revisionId,
+            sourceId: `support-message:${fixture.additionSupportMessageId}`,
+          },
+          select: { sourceId: true, locator: true, excerptHash: true },
+        }),
+      ).toEqual([
+        {
+          sourceId: `support-message:${fixture.additionSupportMessageId}`,
+          locator: `support-request:${fixture.additionSupportRequestId}`,
+          excerptHash: fixture.additionBodyHash,
+        },
+      ])
+      for (const width of [390, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`universal-addition-created-${width}.png`),
+          fullPage: true,
+        })
+      }
+
+      const additionPublication = await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: additionReceiptBeforeRetry.moduleId,
+        revisionId: additionReceiptBeforeRetry.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor: { type: 'HUMAN', id: adminId, role: 'PLATFORM_ADMIN' },
+      })
+      const nativeTarget = await db.venueKnowledgeEntry.create({
+        data: {
+          id: `native-quiet-room-${randomUUID()}`,
+          tenantId,
+          venueId,
+          title: 'Juniper quiet room',
+          category: 'Visitor services',
+          content: fixture.additionContent,
+          isEnabled: true,
+          visibility: 'PUBLIC',
+          sourceType: 'SYNTHETIC_FIXTURE',
+          authorship: 'HUMAN_AUTHORED',
+          contentModuleId: additionReceiptBeforeRetry.moduleId,
+          contentRevisionId: additionReceiptBeforeRetry.revisionId,
+          contentPublicationId: additionPublication.publicationId,
+        },
+        select: { id: true },
+      })
+      const supersedingContent =
+        'The Juniper quiet room is now beside the south conservation studio.'
+      const supersession = await withTenantIsolationBypass(async () => {
+        const request = await db.supportRequest.create({
+          data: {
+            tenantId,
+            venueId,
+            category: 'CONTENT_CORRECTION',
+            status: 'IN_REVIEW',
+            subject: 'Updated quiet room location',
+            createdByKind: 'OPERATOR',
+            createdById: adminId,
+            updatedByKind: 'OPERATOR',
+            updatedById: adminId,
+          },
+        })
+        await db.supportRequestAuditEvent.create({
+          data: {
+            tenantId,
+            venueId,
+            supportRequestId: request.id,
+            requestVersion: request.version,
+            eventType: 'STATUS_CHANGED',
+            actorKind: 'OPERATOR',
+            actorId: adminId,
+            fromStatus: 'OPEN',
+            toStatus: 'IN_REVIEW',
+          },
+        })
+        const message = await db.supportMessage.create({
+          data: {
+            tenantId,
+            venueId,
+            supportRequestId: request.id,
+            authorKind: 'CLIENT',
+            authorId: adminId,
+            visibility: 'CLIENT_VISIBLE',
+            body: supersedingContent,
+            submissionRequestId: randomUUID(),
+            submissionInputHash: createHash('sha256').update(supersedingContent).digest('hex'),
+            requestVersion: request.version,
+            clientVersion: request.clientVersion,
+          },
+        })
+        return { request, message }
+      })
+      const supersessionProposalId = randomUUID()
+      await prepareSupportKnowledgeProposalAction({
+        operationId: supersessionProposalId,
+        tenantId,
+        venueId,
+        supportRequestId: supersession.request.id,
+        expectedVersion: supersession.request.version,
+        evidenceMessageIds: [supersession.message.id],
+        targetKnowledgeEntryId: nativeTarget.id,
+        correctionKind: 'UPDATE_KNOWLEDGE',
+        aiInference: 'The newer support evidence supersedes the published quiet-room location.',
+        proposedChange: supersedingContent,
+        reason: 'Prepare the exact native supersession for human review.',
+        confidence: 0.93,
+        actor: {
+          type: 'AGENT',
+          actorId: fixture.identityId,
+          role: 'AGENT',
+          agentIdentityId: fixture.identityId,
+          agentRunId: `run-${supersessionProposalId}`,
+          workerId: `worker-${supersessionProposalId}`,
+          credentialId: `credential-${supersessionProposalId}`,
+          capability: 'knowledge:draft',
+          idempotencyKey: supersessionProposalId,
+          modelProvider: 'deterministic-fixture',
+          modelName: 'support-authoring-browser-v1',
+        },
+      })
+      await page.getByRole('button', { name: 'Reload proposals' }).click()
+      const nativeSupersession = page.locator(`#proposal-${supersessionProposalId}`)
+      await nativeSupersession
+        .getByLabel('Review note')
+        .fill('Approve the second support message for a private native supersession.')
+      await nativeSupersession.getByRole('button', { name: 'Approve evidence' }).click()
+      await page.getByRole('button', { name: 'Reload proposals' }).click()
+      await nativeSupersession
+        .getByRole('button', { name: 'Build semantic change preview' })
+        .click()
+      await nativeSupersession.getByLabel('Change relationship').selectOption('SUPERSEDES')
+      await nativeSupersession.getByLabel('Visitor-facing title').fill('Juniper quiet room')
+      await nativeSupersession.getByLabel('Category').fill('Visitor services')
+      await nativeSupersession.getByLabel('Visitor-facing content').fill(supersedingContent)
+      await nativeSupersession.getByRole('button', { name: 'Compute semantic preview' }).click()
+      await expect(nativeSupersession.getByText('SUPERSESSION', { exact: true })).toBeVisible()
+      await nativeSupersession.getByRole('button', { name: 'Prepare private draft' }).click()
+      const fixedKind = nativeSupersession.getByRole('combobox', { name: 'Content type' })
+      await expect(fixedKind).toHaveValue('POLICY')
+      await expect(fixedKind).toBeDisabled()
+      for (const width of [390, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`native-supersession-prepared-${width}.png`),
+          fullPage: true,
+        })
+      }
+      await nativeSupersession.getByRole('button', { name: 'Create private draft' }).click()
+      await expect(
+        nativeSupersession.getByText('Private draft ready for separate publication review'),
+      ).toBeVisible()
+      const nativeReceipt = await db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+        where: { proposalId: supersessionProposalId, tenantId, venueId },
+        select: { moduleId: true, revisionId: true, classification: true },
+      })
+      expect(nativeReceipt).toMatchObject({
+        moduleId: additionReceiptBeforeRetry.moduleId,
+        classification: 'SUPERSESSION',
+      })
+      expect(
+        await db.contentModuleRevision.count({
+          where: { tenantId, venueId, moduleId: additionReceiptBeforeRetry.moduleId },
+        }),
+      ).toBe(2)
+      expect(await db.contentModuleIdentity.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.contentModuleEvidence.findMany({
+          where: {
+            tenantId,
+            venueId,
+            revisionId: nativeReceipt.revisionId,
+            sourceId: `support-message:${supersession.message.id}`,
+          },
+          select: { sourceId: true, locator: true, excerptHash: true },
+        }),
+      ).toEqual([
+        {
+          sourceId: `support-message:${supersession.message.id}`,
+          locator: `support-request:${supersession.request.id}`,
+          excerptHash: createHash('sha256').update(supersedingContent).digest('hex'),
+        },
+      ])
+      await page.reload()
+      const reloadedSupersession = page.locator(`#proposal-${supersessionProposalId}`)
+      await reloadedSupersession
+        .getByRole('button', { name: 'Build semantic change preview' })
+        .click()
+      await reloadedSupersession.getByLabel('Change relationship').selectOption('SUPERSEDES')
+      await reloadedSupersession.getByLabel('Visitor-facing title').fill('Juniper quiet room')
+      await reloadedSupersession.getByLabel('Category').fill('Visitor services')
+      await reloadedSupersession.getByLabel('Visitor-facing content').fill(supersedingContent)
+      await reloadedSupersession.getByRole('button', { name: 'Compute semantic preview' }).click()
+      await reloadedSupersession.getByRole('button', { name: 'Prepare private draft' }).click()
+      await expect(reloadedSupersession.getByText('Existing content revision')).toBeVisible()
+      await expect(
+        reloadedSupersession.getByRole('button', { name: 'Create private draft' }),
+      ).toHaveCount(0)
+      expect(
+        await db.contentModuleRevision.count({
+          where: { tenantId, venueId, moduleId: additionReceiptBeforeRetry.moduleId },
+        }),
+      ).toBe(2)
+      expect(await db.contentModuleIdentity.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.contentModuleRevision.count({
+          where: {
+            id: additionReceiptBeforeRetry.revisionId,
+            tenantId,
+            venueId,
+            moduleId: additionReceiptBeforeRetry.moduleId,
+            version: 1,
+          },
+        }),
+      ).toBe(1)
+      expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(1)
+      await testInfo.attach('support-universal-authoring-readback', {
+        body: JSON.stringify(
+          {
+            additionProposalId: fixture.additionProposalId,
+            additionReceipt: additionReceiptBeforeRetry,
+            additionSupportEvidence: {
+              sourceId: `support-message:${fixture.additionSupportMessageId}`,
+              locator: `support-request:${fixture.additionSupportRequestId}`,
+              excerptHash: fixture.additionBodyHash,
+            },
+            droppedUniversalDraftResponses: fixture.droppedUniversalDraftResponses,
+            exactUniversalRetryBodyHash: createHash('sha256')
+              .update(fixture.universalDraftRequestBodies[0]!)
+              .digest('hex'),
+            supersessionProposalId,
+            supersessionReceipt: nativeReceipt,
+            supersessionSupportEvidence: {
+              sourceId: `support-message:${supersession.message.id}`,
+              locator: `support-request:${supersession.request.id}`,
+              excerptHash: createHash('sha256').update(supersedingContent).digest('hex'),
+            },
+            moduleIdentityCount: 2,
+            moduleRevisionCount: 3,
+            modulePublicationCount: 1,
+            adoptionActivationCount: 0,
+          },
+          null,
+          2,
+        ),
+        contentType: 'application/json',
+      })
+      for (const width of [390, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        ).toBe(true)
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+        await page.screenshot({
+          path: testInfo.outputPath(`native-supersession-created-${width}.png`),
           fullPage: true,
         })
       }

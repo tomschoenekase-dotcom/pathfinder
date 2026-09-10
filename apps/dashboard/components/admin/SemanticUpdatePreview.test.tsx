@@ -38,6 +38,41 @@ describe('SemanticUpdatePreview', () => {
     vi.clearAllMocks()
   })
 
+  it('offers source-bound private drafting for an approved untargeted addition', async () => {
+    query.mockResolvedValue({
+      proposalStatus: 'APPROVED',
+      classification: 'ADDITION',
+      operationCount: 1,
+      authority: 'TRUSTED_PARTNER',
+      confidence: 0.9,
+      blockers: [],
+      questions: [],
+      previewHash: 'a'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-09-10T12:00:00.000Z"
+        hasTarget={false}
+        hasSupportProvenance
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Visitor assistance' },
+    })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Services' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Visitor assistance is available at the welcome desk.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    expect(await screen.findByRole('button', { name: 'Fixture freeze private draft' })).toBeTruthy()
+  })
+
   it('freezes preview controls while the support draft has a retained outcome', async () => {
     query.mockResolvedValue({
       proposalStatus: 'APPROVED',

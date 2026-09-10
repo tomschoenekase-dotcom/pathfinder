@@ -52,7 +52,6 @@ export function SemanticUpdatePreview({
   onResolutionRecorded,
   resolutionDraft,
   hasSupportProvenance = false,
-  hasLegacyTarget = false,
 }: {
   tenantId: string
   venueId: string
@@ -124,6 +123,8 @@ export function SemanticUpdatePreview({
     venueId,
     proposalId,
     new Date(proposalUpdatedAt).toISOString(),
+    hasTarget,
+    resolutionDraft,
   ])
   const preview = previewScope === scope ? previewValue : null
   const currentScope = useRef(scope)
@@ -168,8 +169,16 @@ export function SemanticUpdatePreview({
     setCategory(resolutionDraft?.desired.category ?? '')
     setContent(resolutionDraft?.desired.content ?? '')
     setIsEnabled(resolutionDraft?.desired.isEnabled ?? true)
-    if (resolutionDraft) setTemporal(false)
-  }, [scope])
+    if (resolutionDraft?.relation) setTemporal(false)
+  }, [
+    scope,
+    hasTarget,
+    resolutionDraft?.relation,
+    resolutionDraft?.desired.title,
+    resolutionDraft?.desired.category,
+    resolutionDraft?.desired.content,
+    resolutionDraft?.desired.isEnabled,
+  ])
 
   useEffect(
     () => () => {
@@ -665,12 +674,12 @@ export function SemanticUpdatePreview({
         <>
           <SemanticUpdatePreviewResult preview={preview} />
           {hasSupportProvenance &&
-          hasLegacyTarget &&
           !temporal &&
-          relation !== 'NEW_FACT' &&
           preview.proposalStatus === 'APPROVED' &&
           !preview.venuePackagePatch &&
-          (preview.classification === 'CORRECTION' || preview.classification === 'SUPERSESSION') ? (
+          (preview.classification === 'ADDITION' ||
+            preview.classification === 'CORRECTION' ||
+            preview.classification === 'SUPERSESSION') ? (
             <SupportLegacyAdoptionForm
               key={`${scope}:${previewGeneration}:${preview.previewHash}`}
               tenantId={tenantId}
