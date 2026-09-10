@@ -48,7 +48,7 @@ describe('SemanticUpdatePreview', () => {
       blockers: [],
       questions: [],
       previewHash: 'a'.repeat(64),
-      venuePackagePatch: null,
+      venuePackagePatch: { schemaVersion: 3 },
       operationalUpdateDraft: null,
     })
     render(
@@ -71,6 +71,7 @@ describe('SemanticUpdatePreview', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
     expect(await screen.findByRole('button', { name: 'Fixture freeze private draft' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create reviewable package DRAFT' })).toBeNull()
   })
 
   it('freezes preview controls while the support draft has a retained outcome', async () => {

@@ -127,6 +127,14 @@ export function SemanticUpdatePreview({
     resolutionDraft,
   ])
   const preview = previewScope === scope ? previewValue : null
+  const supportPrivateDraftEligible =
+    hasSupportProvenance &&
+    !temporal &&
+    preview?.proposalStatus === 'APPROVED' &&
+    (preview.classification === 'ADDITION' ||
+      preview.classification === 'CORRECTION' ||
+      preview.classification === 'SUPERSESSION')
+
   const currentScope = useRef(scope)
   currentScope.current = scope
   const selectedTemporalEvidence = temporalEvidenceScope === scope ? temporalEvidence : null
@@ -395,7 +403,12 @@ export function SemanticUpdatePreview({
   }
 
   async function createDraft() {
-    if (!preview?.venuePackagePatch || preview.proposalStatus !== 'APPROVED') return
+    if (
+      !preview?.venuePackagePatch ||
+      preview.proposalStatus !== 'APPROVED' ||
+      supportPrivateDraftEligible
+    )
+      return
     setCreating(true)
     setError(null)
     try {
@@ -673,13 +686,7 @@ export function SemanticUpdatePreview({
       {preview ? (
         <>
           <SemanticUpdatePreviewResult preview={preview} />
-          {hasSupportProvenance &&
-          !temporal &&
-          preview.proposalStatus === 'APPROVED' &&
-          !preview.venuePackagePatch &&
-          (preview.classification === 'ADDITION' ||
-            preview.classification === 'CORRECTION' ||
-            preview.classification === 'SUPERSESSION') ? (
+          {supportPrivateDraftEligible ? (
             <SupportLegacyAdoptionForm
               key={`${scope}:${previewGeneration}:${preview.previewHash}`}
               tenantId={tenantId}
@@ -698,7 +705,9 @@ export function SemanticUpdatePreview({
             />
           ) : null}
 
-          {preview.proposalStatus === 'APPROVED' && preview.venuePackagePatch ? (
+          {preview.proposalStatus === 'APPROVED' &&
+          preview.venuePackagePatch &&
+          !supportPrivateDraftEligible ? (
             <SemanticUpdateDraftAction
               tenantId={tenantId}
               venueId={venueId}
