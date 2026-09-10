@@ -66,7 +66,7 @@ for (const amendment of [false, true]) {
         } else if (procedure === 'intake.getV1Processing')
           json = {
             submissionId: 'v1-submission',
-            revision,
+            revision: JSON.parse(url.searchParams.get('input')!)[String(index)].json.revision,
             members: [
               {
                 memberId: 'member-1',
@@ -99,6 +99,7 @@ for (const amendment of [false, true]) {
         name: amendment ? 'Review an update' : 'Review my materials',
       })
       await expect(prepare).toBeEnabled()
+      if (amendment) await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
       await prepare.click()
       const submit = page.getByRole('button', {
         name: amendment ? 'Submit this update' : 'Submit this version',
@@ -127,10 +128,14 @@ for (const amendment of [false, true]) {
           nodes: nodes.map(({ target }) => target),
         })),
       ).toEqual([])
-      await page.screenshot({
+      await expect(
+        page.getByText(
+          'Processing details could not be refreshed. Your saved submission is unchanged.',
+        ),
+      ).toHaveCount(0)
+      await page.getByRole('region', { name: 'Choose what goes into this version.' }).screenshot({
         path: testInfo.outputPath('uncertain-v1.png'),
         animations: 'disabled',
-        fullPage: true,
       })
       await retry.focus()
       await retry.press('Enter')
