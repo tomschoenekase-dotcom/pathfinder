@@ -194,7 +194,6 @@ export function IntakeSourceRoutingControl({ tenantId, venueId, identities = [] 
   useEffect(() => {
     void readConfiguration()
     // readConfiguration deliberately captures this exact scope generation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, venueId, client])
 
   async function save(event: FormEvent<HTMLFormElement>) {

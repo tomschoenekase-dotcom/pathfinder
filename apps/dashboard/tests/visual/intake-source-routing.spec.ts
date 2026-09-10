@@ -146,7 +146,9 @@ test('operator selects a paged client specialist and reconciles a stale revision
   })
   await page.getByRole('checkbox').uncheck()
   await save.click()
-  await expect(page.getByRole('alert')).toContainText('changed after this page loaded')
+  await expect(
+    page.getByRole('region', { name: 'Source review preparation' }).getByRole('alert'),
+  ).toContainText('changed after this page loaded')
   await expect(save).toBeDisabled()
   await page.screenshot({
     path: testInfo.outputPath('source-routing-conflict.png'),
