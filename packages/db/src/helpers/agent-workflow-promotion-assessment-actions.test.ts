@@ -53,7 +53,7 @@ function comparison(status = 'COMPLETED', missing = false) {
 function fixture(
   options: {
     manifests?: [unknown[], unknown[]]
-    comparisons?: [any, any]
+    comparisons?: [ReturnType<typeof comparison>, ReturnType<typeof comparison>]
     malformed?: boolean
     tampered?: boolean
   } = {},
@@ -84,7 +84,10 @@ function fixture(
       changeDimensions: [],
     }
   })
-  const create = vi.fn(async ({ data }: any) => ({ id: 'assessment-1', ...data }))
+  const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+    id: 'assessment-1',
+    ...data,
+  }))
   const tx = {
     $queryRaw: vi.fn(async () => [] as { id: string }[]),
     agentWorkflowPromotionAssessment: { findFirst: vi.fn(async () => null), create },
@@ -106,7 +109,12 @@ function fixture(
   }
   mocks.compare.mockReset()
   mocks.compare.mockResolvedValueOnce(comparisons[0]).mockResolvedValueOnce(comparisons[1])
-  return { tx, comparisons, validations, client: { $transaction: (callback: any) => callback(tx) } }
+  return {
+    tx,
+    comparisons,
+    validations,
+    client: { $transaction: <T>(callback: (transaction: typeof tx) => Promise<T>) => callback(tx) },
+  }
 }
 
 const request = () => ({
@@ -241,7 +249,9 @@ describe('activation-time promotion evidence revalidation', () => {
       created.assessment as never,
     )
     const drifted = structuredClone(scoped.comparisons[0])
-    drifted.cases[0].candidate.costE8Usd = '999'
+    const candidateResult = drifted.cases[0]?.candidate
+    if (!candidateResult) throw new Error('Expected a complete candidate fixture')
+    candidateResult.costE8Usd = '999'
     mocks.compare.mockResolvedValueOnce(drifted).mockResolvedValueOnce(scoped.comparisons[1])
     await expect(
       revalidateAgentWorkflowPromotionAssessment(scoped.tx as never, {
@@ -261,7 +271,12 @@ describe('activation-time promotion evidence revalidation', () => {
       )
       const assessment = structuredClone(created.assessment)
       if (tamperIdentity) assessment.assessmentHash = '0'.repeat(64)
-      else (assessment.diagnostics as any).development.resolvedFailures = 999
+      else {
+        const diagnostics = assessment.diagnostics as ReturnType<
+          typeof AgentWorkflowPromotionAssessmentDiagnosticsSchema.parse
+        >
+        diagnostics.development.resolvedFailures = 999
+      }
       scoped.tx.agentWorkflowPromotionAssessment.findFirst.mockResolvedValue(assessment as never)
       mocks.compare
         .mockResolvedValueOnce(scoped.comparisons[0])
