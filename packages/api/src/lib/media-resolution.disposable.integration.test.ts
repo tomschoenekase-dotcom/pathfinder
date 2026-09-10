@@ -5,7 +5,7 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { mediaEvidenceLocatorId } from '@pathfinder/contracts/media-entity-resolution'
 
 import { mediaIntakeHash } from './media-intake-snapshot'
-import { MediaResolutionError, saveMediaResolution } from './media-resolution-service'
+import { saveMediaResolution } from './media-resolution-service'
 
 const enabled =
   process.env.RUN_MEDIA_RESOLUTION_DB_INTEGRATION === '1' &&
