@@ -301,6 +301,7 @@ describe('explicit operator resolution preview fence', () => {
     const resolution = {
       id: '22222222-2222-4222-8222-222222222222',
       inputHash: 'a'.repeat(64),
+      createdBy: 'operator-a',
       outcome: 'PROPOSE_REPLACEMENT',
       relation: 'CORRECTS',
       desired,
@@ -311,7 +312,12 @@ describe('explicit operator resolution preview fence', () => {
       questionUpdatedAt: updatedAt,
       question: { status: 'ANSWERED', answer: 'Reviewed answer', answeredAt: updatedAt, updatedAt },
     }
-    const proposal = { ...fixture.proposal, producedByConflictResolution: resolution }
+    const proposal = {
+      ...fixture.proposal,
+      proposedChange: desired.content,
+      createdById: 'operator-a',
+      producedByConflictResolution: resolution,
+    }
     fixture.proposalFindFirst.mockResolvedValue(proposal)
     fixture.entryFindMany.mockResolvedValue([target])
     const input = {
@@ -341,9 +347,22 @@ describe('explicit operator resolution preview fence', () => {
     })
   })
   it('rejects changed desired, relation, canonical truth, authority and answered evidence', async () => {
-    for (const change of ['desired', 'relation', 'target', 'authority', 'answer', 'answer-time']) {
+    for (const change of [
+      'desired',
+      'relation',
+      'target',
+      'authority',
+      'answer',
+      'answer-time',
+      'replacement-target',
+      'replacement-text',
+      'replacement-creator',
+    ]) {
       const f = resolvedFixture()
       const input = { ...f.input }
+      if (change === 'replacement-target') f.proposal.targetKnowledgeEntryId = 'other-target'
+      if (change === 'replacement-text') f.proposal.proposedChange = 'Different reviewed text'
+      if (change === 'replacement-creator') f.proposal.createdById = 'other-creator'
       if (change === 'desired') input.desired = { ...f.desired, content: 'Unreviewed edit' }
       if (change === 'relation') Object.assign(input, { relation: 'SUPERSEDES' })
       if (change === 'target')

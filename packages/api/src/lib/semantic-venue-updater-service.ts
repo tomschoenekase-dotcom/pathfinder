@@ -103,6 +103,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
         select: {
           id: true,
           inputHash: true,
+          createdBy: true,
           outcome: true,
           relation: true,
           desired: true,
@@ -122,6 +123,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       confidence: true,
       evidenceMessageIds: true,
       createdByType: true,
+      createdById: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -205,6 +207,10 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     const question = resolution.question
     if (
       resolution.outcome !== 'PROPOSE_REPLACEMENT' ||
+      proposal.targetKnowledgeEntryId !== resolution.targetKnowledgeEntryId ||
+      proposal.proposedChange !== input.desired.content ||
+      proposal.createdByType !== 'HUMAN' ||
+      proposal.createdById !== resolution.createdBy ||
       resolution.relation !== input.relation ||
       !isDeepStrictEqual(resolution.desired, input.desired) ||
       !target ||
