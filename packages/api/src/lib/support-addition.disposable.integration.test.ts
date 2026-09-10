@@ -13,7 +13,6 @@ import { mergeRouters, router } from '../core'
 import type { TRPCContext } from '../context'
 import { adminKnowledgeProposalsRouter } from '../routers/admin/knowledge-proposals'
 import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
-import { createSemanticUniversalContentDraftService } from './semantic-universal-content-handoff-service'
 import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
 
 const enabled =
@@ -38,6 +37,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     const tenantId = `tenant-support-addition-${suffix}`
     const venueId = `venue-support-addition-${suffix}`
     const adminId = `admin-support-addition-${suffix}`
+    const caller = app.createCaller(context(adminId)).admin
     const operationId = randomUUID()
     const uniqueFact = `The Juniper quiet room is beside gallery ${suffix}.`
     const supersedingFact = `The Juniper quiet room is in the east lobby ${suffix}.`
@@ -226,14 +226,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     expect(pendingPreview.classification).toBe('CONFLICT')
     const draft = {
       audience: 'PUBLIC' as const,
-      evidence: [
-        {
-          sourceId: `support-message:${evidenceMessageId}`,
-          locator: `support-request:${supportRequestId}`,
-          capturedAt: new Date().toISOString(),
-          excerptHash: createHash('sha256').update(uniqueFact).digest('hex'),
-        },
-      ],
+      evidence: [],
       payload: {
         kind: 'POLICY' as const,
         title: desired.title,
@@ -252,14 +245,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       draft,
     }
     await expect(
-      createSemanticUniversalContentDraftService({
-        db,
-        actorId: adminId,
-        input: pendingDraftInput,
-      }),
+      caller.createSupportSemanticUniversalContentDraft(pendingDraftInput),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
 
-    const caller = app.createCaller(context(adminId)).admin
     await caller.reviewKnowledgeProposal({
       operationId: randomUUID(),
       tenantId,
@@ -289,12 +277,24 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       expectedProposalUpdatedAt: approvedProposal.updatedAt.toISOString(),
       expectedPreviewHash: approvedPreview.previewHash,
     }
-    const created = await createSemanticUniversalContentDraftService({
-      db,
-      actorId: adminId,
-      input: approvedDraftInput,
-    })
+    const created = await caller.createSupportSemanticUniversalContentDraft(approvedDraftInput)
     expect(created).toMatchObject({ classification: 'ADDITION', version: 1, replayed: false })
+    expect(
+      await db.contentModuleEvidence.findMany({
+        where: {
+          tenantId,
+          venueId,
+          revisionId: created.revisionId,
+          sourceId: `support-message:${evidenceMessageId}`,
+        },
+        select: { locator: true, excerptHash: true },
+      }),
+    ).toEqual([
+      {
+        locator: `support-request:${supportRequestId}`,
+        excerptHash: createHash('sha256').update(uniqueFact).digest('hex'),
+      },
+    ])
 
     const guestRead = () =>
       retrieveGuestKnowledge({
@@ -328,11 +328,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     expect(published).toMatchObject({ replayed: false })
     expect((await guestRead()).entries.map((entry) => entry.content)).toContain(uniqueFact)
 
-    const draftReplay = await createSemanticUniversalContentDraftService({
-      db,
-      actorId: adminId,
-      input: approvedDraftInput,
-    })
+    const draftReplay = await caller.createSupportSemanticUniversalContentDraft(approvedDraftInput)
     expect(draftReplay).toMatchObject({
       moduleId: created.moduleId,
       revisionId: created.revisionId,
@@ -443,22 +439,12 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       desired: supersedingDesired,
       draft: {
         ...draft,
-        evidence: [
-          {
-            sourceId: `support-message:${supersessionEvidenceMessageId}`,
-            locator: `support-request:${supersessionRequestId}`,
-            capturedAt: new Date().toISOString(),
-            excerptHash: createHash('sha256').update(supersedingFact).digest('hex'),
-          },
-        ],
+        evidence: [],
         payload: { ...draft.payload, rule: supersedingFact },
       },
     }
-    const supersedingRevision = await createSemanticUniversalContentDraftService({
-      db,
-      actorId: adminId,
-      input: supersessionDraftInput,
-    })
+    const supersedingRevision =
+      await caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput)
     expect(supersedingRevision).toMatchObject({
       moduleId: created.moduleId,
       version: 2,
@@ -466,6 +452,23 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       replayed: false,
     })
     expect(supersedingRevision.revisionId).not.toBe(created.revisionId)
+    expect(
+      await db.contentModuleEvidence.findMany({
+        where: {
+          tenantId,
+          venueId,
+          revisionId: supersedingRevision.revisionId,
+          sourceId: `support-message:${supersessionEvidenceMessageId}`,
+        },
+        select: { locator: true, excerptHash: true },
+      }),
+    ).toEqual([
+      {
+        locator: `support-request:${supersessionRequestId}`,
+        excerptHash: createHash('sha256').update(supersedingFact).digest('hex'),
+      },
+    ])
+
     expect((await guestRead()).entries.map((entry) => entry.content)).toContain(uniqueFact)
     expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(supersedingFact)
 
@@ -483,11 +486,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
     expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(uniqueFact)
 
     await expect(
-      createSemanticUniversalContentDraftService({
-        db,
-        actorId: adminId,
-        input: supersessionDraftInput,
-      }),
+      caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput),
     ).resolves.toMatchObject({
       moduleId: created.moduleId,
       revisionId: supersedingRevision.revisionId,

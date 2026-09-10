@@ -4,7 +4,10 @@ import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
 import { CreateLegacyKnowledgeAdoptionDraftInput } from '@pathfinder/contracts/legacy-knowledge-adoption'
-import { CreateSemanticUniversalContentDraftInput } from '@pathfinder/contracts/universal-content-actions'
+import {
+  CreateSemanticUniversalContentDraftInput,
+  type GeneralizedContentPayload,
+} from '@pathfinder/contracts/universal-content-actions'
 
 import { router } from '../../core'
 import { createLegacyKnowledgeAdoptionDraftService } from '../../lib/legacy-knowledge-adoption-service'
@@ -37,6 +40,24 @@ const SemanticOperationalUpdateDesiredKnowledge = SemanticUpdaterDesiredKnowledg
   content: z.string().trim().min(1).max(300),
 })
 
+function matchesApprovedWording(
+  payload: GeneralizedContentPayload,
+  desired: { title: string; content: string },
+) {
+  switch (payload.kind) {
+    case 'POLICY':
+      return payload.title === desired.title && payload.rule === desired.content
+    case 'ITEM':
+    case 'SERVICE':
+    case 'EVENT':
+      return payload.name === desired.title && payload.description === desired.content
+    case 'OPERATIONAL_FACT':
+      return payload.label === desired.title && payload.value === desired.content
+    case 'RELATIONSHIP':
+      return false
+  }
+}
+
 const AdminCreateLegacyKnowledgeAdoptionDraftInput =
   CreateLegacyKnowledgeAdoptionDraftInput.superRefine((input, context) => {
     if (!input.desired.isEnabled) {
@@ -46,21 +67,7 @@ const AdminCreateLegacyKnowledgeAdoptionDraftInput =
         message: 'Disabling legacy guidance requires a separate retirement workflow.',
       })
     }
-    const payload = input.draft.payload
-    const matchesDesired =
-      payload.kind === 'POLICY'
-        ? payload.title === input.desired.title && payload.rule === input.desired.content
-        : payload.kind === 'ITEM'
-          ? payload.name === input.desired.title && payload.description === input.desired.content
-          : payload.kind === 'SERVICE'
-            ? payload.name === input.desired.title && payload.description === input.desired.content
-            : payload.kind === 'EVENT'
-              ? payload.name === input.desired.title &&
-                payload.description === input.desired.content
-              : payload.kind === 'OPERATIONAL_FACT'
-                ? payload.label === input.desired.title && payload.value === input.desired.content
-                : false
-    if (!matchesDesired) {
+    if (!matchesApprovedWording(input.draft.payload, input.desired)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['draft', 'payload'],
@@ -76,6 +83,33 @@ const AdminCreateSupportLegacyKnowledgeAdoptionDraftInput =
         code: z.ZodIssueCode.custom,
         path: ['draft', 'evidence'],
         message: 'Support adoption evidence is resolved from the retained proposal.',
+      })
+    }
+  })
+
+const AdminCreateSupportSemanticUniversalContentDraftInput =
+  CreateSemanticUniversalContentDraftInput.extend({
+    desired: SemanticUpdaterDesiredKnowledge,
+  }).superRefine((input, context) => {
+    if (!input.desired.isEnabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['desired', 'isEnabled'],
+        message: 'Disabling guidance requires a separate retirement workflow.',
+      })
+    }
+    if (!matchesApprovedWording(input.draft.payload, input.desired)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draft', 'payload'],
+        message: 'Draft payload text must exactly match the approved semantic change.',
+      })
+    }
+    if (input.draft.evidence.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draft', 'evidence'],
+        message: 'Support evidence is resolved from the retained proposal.',
       })
     }
   })
@@ -205,6 +239,31 @@ export const adminKnowledgeProposalDraftRouter = router({
         db: ctx.db,
         actorId: ctx.session.userId,
         input,
+      })
+      return {
+        moduleId: result.moduleId,
+        revisionId: result.revisionId,
+        version: result.version,
+        classification: result.classification,
+        draftHash: result.draftHash,
+        replayed: result.replayed,
+        requiresExplicitPublication: true as const,
+        autoPublished: false as const,
+      }
+    }),
+  createSupportSemanticUniversalContentDraft: adminProcedure
+    .input(AdminCreateSupportSemanticUniversalContentDraftInput)
+    .mutation(async ({ ctx, input }) => {
+      const evidence = await resolveSupportProposalContentEvidence({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+      })
+      const result = await createSemanticUniversalContentDraftService({
+        db: ctx.db,
+        actorId: ctx.session.userId,
+        input: { ...input, draft: { ...input.draft, evidence } },
       })
       return {
         moduleId: result.moduleId,
