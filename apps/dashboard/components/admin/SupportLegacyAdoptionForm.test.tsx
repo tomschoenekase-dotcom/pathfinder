@@ -284,4 +284,24 @@ describe('SupportLegacyAdoptionForm', () => {
     expect(mocks.create).not.toHaveBeenCalled()
     expect(mocks.createUniversal).not.toHaveBeenCalled()
   })
+
+  it('treats an existing duplicate review as terminal without claiming fulfillment', async () => {
+    mocks.authoring.mockResolvedValueOnce({
+      state: 'OWN_DUPLICATE_RESOLUTION',
+      resolutionId: 'resolution-1',
+      outcome: 'DUPLICATE_NOOP',
+      targetKnowledgeEntryId: 'entry-1',
+      relation: 'CORRECTS',
+      createdAt: new Date('2026-09-10T12:00:00.000Z'),
+      proposalRevisionCurrent: true,
+      currentFulfillmentVerified: false,
+    })
+    render(<SupportLegacyAdoptionForm {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare private draft' }))
+    expect(await screen.findByText(/already has a duplicate review receipt/)).toBeTruthy()
+    expect(screen.getByText(/does not verify current fulfillment/)).toBeTruthy()
+    expect(screen.queryByLabelText('Content type')).toBeNull()
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(mocks.createUniversal).not.toHaveBeenCalled()
+  })
 })

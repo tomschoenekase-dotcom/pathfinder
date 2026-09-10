@@ -28,6 +28,23 @@ vi.mock('./SupportLegacyAdoptionForm', () => ({
   ),
 }))
 
+vi.mock('./SemanticDuplicateResolutionForm', () => ({
+  SemanticDuplicateResolutionForm: ({
+    relation,
+    onFrozenChange,
+    onResolved,
+  }: {
+    relation: string
+    onFrozenChange: (value: boolean) => void
+    onResolved: () => void
+  }) => (
+    <>
+      <button onClick={() => onFrozenChange(true)}>{`Fixture review duplicate ${relation}`}</button>
+      <button onClick={onResolved}>Fixture finish duplicate</button>
+    </>
+  ),
+}))
+
 import { SemanticUpdatePreview } from './SemanticUpdatePreview'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -36,6 +53,63 @@ describe('SemanticUpdatePreview', () => {
     cleanup()
     vi.useRealTimers()
     vi.clearAllMocks()
+  })
+
+  it('offers explicit duplicate review only for an approved enabled support proposal', async () => {
+    query.mockResolvedValue({
+      proposalStatus: 'APPROVED',
+      classification: 'DUPLICATE_NOOP',
+      operationCount: 0,
+      authority: 'TRUSTED_PARTNER',
+      confidence: 0.99,
+      blockers: [],
+      questions: [],
+      previewHash: 'd'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-09-10T12:00:00.000Z"
+        hasTarget={false}
+        hasSupportProvenance
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Visitor assistance' },
+    })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Services' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Visitor assistance is available at the welcome desk.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    const duplicate = await screen.findByRole('button', {
+      name: 'Fixture review duplicate NEW_FACT',
+    })
+    fireEvent.click(duplicate)
+    expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Fixture freeze private draft' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Fixture finish duplicate' }))
+    expect(screen.getByText('Duplicate review recorded')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Fixture review duplicate NEW_FACT' })).toBeNull()
+    expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByLabelText('Visitor-facing title').closest('fieldset') as HTMLFieldSetElement)
+        .disabled,
+    ).toBe(true)
+    expect(screen.queryByRole('button', { name: /Ask for conflict clarification/ })).toBeNull()
   })
 
   it('offers source-bound private drafting for an approved untargeted addition', async () => {

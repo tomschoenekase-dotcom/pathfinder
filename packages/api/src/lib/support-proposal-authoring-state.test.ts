@@ -45,6 +45,71 @@ async function resolve(db: ReturnType<typeof dbWith>) {
 }
 
 describe('resolveSupportProposalAuthoringState', () => {
+  it('returns an immutable duplicate receipt before any authoring path, without claiming fulfillment', async () => {
+    const receiptCreatedAt = new Date('2026-09-10T11:00:00.000Z')
+    const db = dbWith({
+      knowledgeChangeProposal: {
+        findFirst: vi.fn().mockResolvedValue({
+          status: 'APPROVED',
+          updatedAt: input.expectedUpdatedAt,
+          targetKnowledgeEntryId: 'target-1',
+          duplicateResolution: {
+            id: 'duplicate-resolution-1',
+            proposalUpdatedAt: input.expectedUpdatedAt,
+            targetKnowledgeEntryId: 'target-duplicate',
+            relation: 'CORRECTS',
+            createdAt: receiptCreatedAt,
+          },
+        }),
+      },
+      legacyKnowledgeUniversalContentAdoption: {
+        findFirst: vi.fn().mockResolvedValue({ moduleId: 'must-not-read' }),
+      },
+      knowledgeProposalUniversalContentHandoff: {
+        findFirst: vi.fn().mockResolvedValue({ moduleId: 'must-not-read' }),
+      },
+    })
+
+    await expect(resolve(db)).resolves.toEqual({
+      state: 'OWN_DUPLICATE_RESOLUTION',
+      resolutionId: 'duplicate-resolution-1',
+      outcome: 'DUPLICATE_NOOP',
+      targetKnowledgeEntryId: 'target-duplicate',
+      relation: 'CORRECTS',
+      createdAt: receiptCreatedAt,
+      proposalRevisionCurrent: true,
+      currentFulfillmentVerified: false,
+    })
+    expect(db.legacyKnowledgeUniversalContentAdoption.findFirst).not.toHaveBeenCalled()
+    expect(db.knowledgeProposalUniversalContentHandoff.findFirst).not.toHaveBeenCalled()
+    expect(db.venueKnowledgeEntry.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('keeps a historical duplicate receipt terminal when its proposal revision is stale', async () => {
+    const db = dbWith({
+      knowledgeChangeProposal: {
+        findFirst: vi.fn().mockResolvedValue({
+          status: 'PUBLISHED',
+          updatedAt: input.expectedUpdatedAt,
+          targetKnowledgeEntryId: null,
+          duplicateResolution: {
+            id: 'duplicate-resolution-stale',
+            proposalUpdatedAt: new Date('2026-09-10T11:59:59.000Z'),
+            targetKnowledgeEntryId: 'target-duplicate',
+            relation: 'SUPERSEDES',
+            createdAt: new Date('2026-09-10T11:00:00.000Z'),
+          },
+        }),
+      },
+    })
+
+    await expect(resolve(db)).resolves.toMatchObject({
+      state: 'OWN_DUPLICATE_RESOLUTION',
+      proposalRevisionCurrent: false,
+      currentFulfillmentVerified: false,
+    })
+  })
+
   it('returns an own universal receipt before inspecting target state', async () => {
     const db = dbWith({
       knowledgeProposalUniversalContentHandoff: {

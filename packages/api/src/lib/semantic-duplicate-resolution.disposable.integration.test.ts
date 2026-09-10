@@ -374,6 +374,154 @@ describe.skipIf(!enabled)('semantic duplicate on disposable PostgreSQL', () => {
     const requestAfterCompletion = await db.supportRequest.findFirstOrThrow({
       where: { ...scope, id: requestId },
     })
+    // Direct database boundary: a recorded duplicate cannot later acquire a package outcome.
+    const boundaryPackage = await db.venuePackage.create({
+      data: {
+        ...scope,
+        draftKey: randomUUID(),
+        schemaVersion: 3,
+        payload: {},
+        payloadHash: 'a'.repeat(64),
+        baseDigest: 'b'.repeat(64),
+        validationReport: {},
+        previewPlan: {},
+        createdBy: adminId,
+      },
+    })
+    const handoffData = {
+      ...scope,
+      proposalId,
+      venuePackageId: boundaryPackage.id,
+      previewHash: receipt.previewHash,
+      createdBy: adminId,
+    }
+    await expect(db.knowledgeProposalPackageHandoff.create({ data: handoffData })).rejects.toThrow(
+      /duplicate.*outcome|duplicate.*resolution/i,
+    )
+    expect(
+      await db.knowledgeProposalPackageHandoff.count({ where: { ...scope, proposalId } }),
+    ).toBe(0)
+
+    // A competing outcome insert holds the same proposal lock. A duplicate insert must
+    // observe its committed result after waiting, not the statement's earlier snapshot.
+    for (const isolationLevel of ['ReadCommitted', 'RepeatableRead'] as const) {
+      const racePackage = await db.venuePackage.create({
+        data: {
+          ...scope,
+          draftKey: randomUUID(),
+          schemaVersion: 3,
+          payload: {},
+          payloadHash: 'a'.repeat(64),
+          baseDigest: 'b'.repeat(64),
+          validationReport: {},
+          previewPlan: {},
+          createdBy: adminId,
+        },
+      })
+      const boundaryProposal = await db.knowledgeChangeProposal.create({
+        data: {
+          ...scope,
+          targetKnowledgeEntryId: targetId,
+          proposedChange: desired.content,
+          reason: 'Synthetic direct database outcome-exclusion proof',
+          confidence: 1,
+          status: 'APPROVED',
+          createdByType: 'HUMAN',
+          createdById: adminId,
+          reviewerId: adminId,
+          reviewedAt: new Date(),
+        },
+      })
+      let outcomeLocked!: () => void
+      let releaseOutcome!: () => void
+      const outcomeReady = new Promise<void>((resolve) => {
+        outcomeLocked = resolve
+      })
+      const outcomeRelease = new Promise<void>((resolve) => {
+        releaseOutcome = resolve
+      })
+      const outcomeWriter = db.$transaction(
+        async (tx) => {
+          await tx.knowledgeProposalPackageHandoff.create({
+            data: {
+              ...handoffData,
+              proposalId: boundaryProposal.id,
+              venuePackageId: racePackage.id,
+            },
+          })
+          outcomeLocked()
+          await bounded(outcomeRelease, 'Outcome writer release timed out', 8000)
+        },
+        { timeout: 10000 },
+      )
+      const outcomeSettled = Promise.allSettled([outcomeWriter])
+      let duplicateSettled: Promise<PromiseSettledResult<unknown>[]> | undefined
+      let outcomeCoordinationError: unknown
+      try {
+        await bounded(outcomeReady, 'Outcome writer did not lock the proposal')
+        let identifyDuplicate!: (pid: number) => void
+        const duplicatePid = new Promise<number>((resolve) => {
+          identifyDuplicate = resolve
+        })
+        const duplicateInsert = db.$transaction(
+          async (tx) => {
+            const rows = await tx.$queryRaw<
+              Array<{ pid: number }>
+            >`SELECT pg_backend_pid() AS "pid"`
+            identifyDuplicate(rows[0]?.pid ?? -1)
+            return tx.$executeRaw`
+          INSERT INTO semantic_duplicate_resolutions
+          (id, tenant_id, venue_id, proposal_id, proposal_updated_at, preview_hash,
+           target_knowledge_entry_id, target_snapshot_hash, input_hash, relation,
+           desired, source_evidence, resolution_note, created_by)
+          SELECT ${randomUUID()}::uuid, tenant_id, venue_id, ${boundaryProposal.id}::uuid,
+           ${boundaryProposal.updatedAt}, preview_hash, target_knowledge_entry_id,
+           target_snapshot_hash, input_hash, relation, desired, source_evidence,
+           'Synthetic competing outcome boundary', created_by
+          FROM semantic_duplicate_resolutions WHERE id=${receipt.id}::uuid
+        `
+          },
+          { timeout: 10000, isolationLevel },
+        )
+        duplicateSettled = Promise.allSettled([duplicateInsert])
+        const pid = await bounded(duplicatePid, 'Duplicate insert did not start')
+        expect(pid).toBeGreaterThan(0)
+        const deadline = Date.now() + 3000
+        let waiting = false
+        do {
+          const rows = await db.$queryRaw<Array<{ waiting: boolean }>>`
+          SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=${pid}
+            AND wait_event_type='Lock' AND query LIKE '%INSERT INTO semantic_duplicate_resolutions%') AS waiting
+        `
+          waiting = rows[0]?.waiting ?? false
+          if (!waiting && Date.now() >= deadline)
+            throw new Error('Duplicate insert did not wait on outcome lock')
+          if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10))
+        } while (!waiting)
+      } catch (error) {
+        outcomeCoordinationError = error
+      } finally {
+        releaseOutcome()
+      }
+      const [outcomeResult] = await outcomeSettled
+      const [duplicateResult] = duplicateSettled ? await duplicateSettled : []
+      if (outcomeCoordinationError) throw outcomeCoordinationError
+      expect(outcomeResult?.status).toBe('fulfilled')
+      expect(duplicateResult?.status).toBe('rejected')
+      expect(String(duplicateResult?.status === 'rejected' ? duplicateResult.reason : '')).toMatch(
+        /outcome|handoff|serializ|conflict/i,
+      )
+      expect(
+        await db.semanticDuplicateResolution.count({
+          where: { ...scope, proposalId: boundaryProposal.id },
+        }),
+      ).toBe(0)
+      expect(
+        await db.knowledgeProposalPackageHandoff.count({
+          where: { ...scope, proposalId: boundaryProposal.id },
+        }),
+      ).toBe(1)
+    }
     let writerLocked!: () => void
     let releaseWriter!: () => void
     const locked = new Promise<void>((resolve) => {

@@ -935,6 +935,7 @@ describe('admin knowledge proposals', () => {
         id: operationId,
         supportRequestId: null,
         supportRequestVersion: null,
+        duplicateResolution: null,
         hasSupportProvenance: true,
         hasLegacyTarget: false,
         resolutionDraft: { desired, relation: 'SUPERSEDES' },
@@ -943,6 +944,7 @@ describe('admin knowledge proposals', () => {
         id: 'direct',
         supportRequestId: 'support-direct',
         supportRequestVersion: 3,
+        duplicateResolution: null,
         hasSupportProvenance: true,
         hasLegacyTarget: true,
         resolutionDraft: null,
@@ -951,6 +953,7 @@ describe('admin knowledge proposals', () => {
         id: 'ordinary',
         supportRequestId: null,
         supportRequestVersion: null,
+        duplicateResolution: null,
         hasSupportProvenance: false,
         hasLegacyTarget: false,
         resolutionDraft: null,
@@ -974,8 +977,86 @@ describe('admin knowledge proposals', () => {
               contentPublicationId: true,
             },
           },
+          duplicateResolution: {
+            select: {
+              id: true,
+              proposalUpdatedAt: true,
+              targetKnowledgeEntryId: true,
+              relation: true,
+              createdAt: true,
+            },
+          },
         }),
       }),
     )
+  })
+
+  it('projects a durable duplicate receipt separately from current fulfillment', async () => {
+    const current = new Date('2026-09-10T12:00:00.000Z')
+    mocks.proposalList.mockResolvedValueOnce([
+      {
+        id: 'current-duplicate',
+        status: 'APPROVED',
+        updatedAt: current,
+        duplicateResolution: {
+          id: 'resolution-current',
+          proposalUpdatedAt: current,
+          targetKnowledgeEntryId: 'target-current',
+          relation: 'CORRECTS',
+          createdAt: new Date('2026-09-10T11:00:00.000Z'),
+        },
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+      {
+        id: 'historical-duplicate',
+        status: 'PUBLISHED',
+        updatedAt: current,
+        duplicateResolution: {
+          id: 'resolution-historical',
+          proposalUpdatedAt: new Date('2026-09-10T11:59:59.000Z'),
+          targetKnowledgeEntryId: 'target-historical',
+          relation: 'SUPERSEDES',
+          createdAt: new Date('2026-09-10T11:00:00.000Z'),
+        },
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+      {
+        id: 'no-duplicate',
+        status: 'APPROVED',
+        updatedAt: current,
+        duplicateResolution: null,
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+    ])
+
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows).toMatchObject([
+      {
+        id: 'current-duplicate',
+        duplicateResolution: {
+          resolutionId: 'resolution-current',
+          outcome: 'DUPLICATE_NOOP',
+          targetKnowledgeEntryId: 'target-current',
+          relation: 'CORRECTS',
+          proposalRevisionCurrent: true,
+          currentFulfillmentVerified: false,
+        },
+      },
+      {
+        id: 'historical-duplicate',
+        duplicateResolution: {
+          resolutionId: 'resolution-historical',
+          proposalRevisionCurrent: false,
+          currentFulfillmentVerified: false,
+        },
+      },
+      { id: 'no-duplicate', duplicateResolution: null },
+    ])
+    expect(rows[0]?.duplicateResolution).not.toHaveProperty('proposalUpdatedAt')
   })
 })

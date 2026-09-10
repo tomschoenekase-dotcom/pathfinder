@@ -32,6 +32,15 @@ export type KnowledgeProposal = {
     desired: { title: string; category: string; content: string; isEnabled: boolean }
     relation: 'CORRECTS' | 'SUPERSEDES'
   } | null
+  duplicateResolution?: {
+    resolutionId: string
+    outcome: 'DUPLICATE_NOOP'
+    targetKnowledgeEntryId: string
+    relation: string
+    createdAt: Date | string
+    proposalRevisionCurrent: boolean
+    currentFulfillmentVerified: false
+  } | null
 }
 
 function ProposalActions({
@@ -124,6 +133,7 @@ export function KnowledgeProposalReview({
   venueId: string
   proposals: KnowledgeProposal[]
 }) {
+  const router = useRouter()
   const [closedScopes, setClosedScopes] = useState<Set<string>>(() => new Set())
   const displayedResolutionScopes = new Set(
     proposals.map((proposal) =>
@@ -246,7 +256,21 @@ export function KnowledgeProposalReview({
                     <span className="font-semibold">Review:</span> {proposal.reviewNote}
                   </p>
                 ) : null}
-                {proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
+                {proposal.duplicateResolution ? (
+                  <div className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">Duplicate review recorded</p>
+                    <p className="mt-1 leading-6">
+                      This historical receipt records that the proposal duplicated venue guidance.
+                      It does not verify current fulfillment, change canonical content, or complete
+                      the support request.
+                    </p>
+                    {!proposal.duplicateResolution.proposalRevisionCurrent ? (
+                      <p className="mt-1 text-amber-800">
+                        The proposal has changed since this receipt was recorded.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
                   <SemanticUpdatePreview
                     hasLegacyTarget={proposal.hasLegacyTarget ?? false}
                     hasSupportProvenance={
@@ -269,6 +293,7 @@ export function KnowledgeProposalReview({
                         return next
                       })
                     }}
+                    onDuplicateRecorded={() => router.refresh()}
                   />
                 ) : null}
               </article>

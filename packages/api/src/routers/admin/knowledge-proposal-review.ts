@@ -50,6 +50,15 @@ export const adminKnowledgeProposalReviewRouter = router({
           take: input.limit,
           select: {
             id: true,
+            duplicateResolution: {
+              select: {
+                id: true,
+                proposalUpdatedAt: true,
+                targetKnowledgeEntryId: true,
+                relation: true,
+                createdAt: true,
+              },
+            },
             producedByConflictResolution: {
               select: {
                 desired: true,
@@ -84,32 +93,53 @@ export const adminKnowledgeProposalReviewRouter = router({
             reviewedAt: true,
           },
         })
-        return rows.map(({ producedByConflictResolution, targetKnowledgeEntry, ...proposal }) => {
-          const original = producedByConflictResolution?.proposal
-          const hasSupportProvenance =
-            (proposal.supportRequestId != null && proposal.supportRequestVersion != null) ||
-            (original?.supportRequestId != null && original.supportRequestVersion != null)
-          const hasLegacyTarget =
-            targetKnowledgeEntry != null &&
-            targetKnowledgeEntry.contentModuleId == null &&
-            targetKnowledgeEntry.contentRevisionId == null &&
-            targetKnowledgeEntry.contentPublicationId == null
-          return {
-            ...proposal,
-            hasSupportProvenance,
-            hasLegacyTarget,
-            resolutionDraft: producedByConflictResolution
-              ? {
-                  desired: SemanticUpdaterDesiredKnowledge.parse(
-                    producedByConflictResolution.desired,
-                  ),
-                  relation: z
-                    .enum(['CORRECTS', 'SUPERSEDES'])
-                    .parse(producedByConflictResolution.relation),
-                }
-              : null,
-          }
-        })
+        return rows.map(
+          ({
+            duplicateResolution,
+            producedByConflictResolution,
+            targetKnowledgeEntry,
+            ...proposal
+          }) => {
+            const original = producedByConflictResolution?.proposal
+            const hasSupportProvenance =
+              (proposal.supportRequestId != null && proposal.supportRequestVersion != null) ||
+              (original?.supportRequestId != null && original.supportRequestVersion != null)
+            const hasLegacyTarget =
+              targetKnowledgeEntry != null &&
+              targetKnowledgeEntry.contentModuleId == null &&
+              targetKnowledgeEntry.contentRevisionId == null &&
+              targetKnowledgeEntry.contentPublicationId == null
+            return {
+              ...proposal,
+              duplicateResolution: duplicateResolution
+                ? {
+                    resolutionId: duplicateResolution.id,
+                    outcome: 'DUPLICATE_NOOP' as const,
+                    targetKnowledgeEntryId: duplicateResolution.targetKnowledgeEntryId,
+                    relation: duplicateResolution.relation,
+                    createdAt: duplicateResolution.createdAt,
+                    proposalRevisionCurrent:
+                      proposal.status === 'APPROVED' &&
+                      proposal.updatedAt.getTime() ===
+                        duplicateResolution.proposalUpdatedAt.getTime(),
+                    currentFulfillmentVerified: false as const,
+                  }
+                : null,
+              hasSupportProvenance,
+              hasLegacyTarget,
+              resolutionDraft: producedByConflictResolution
+                ? {
+                    desired: SemanticUpdaterDesiredKnowledge.parse(
+                      producedByConflictResolution.desired,
+                    ),
+                    relation: z
+                      .enum(['CORRECTS', 'SUPERSEDES'])
+                      .parse(producedByConflictResolution.relation),
+                  }
+                : null,
+            }
+          },
+        )
       }),
     ),
   createKnowledgeProposal: adminProcedure

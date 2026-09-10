@@ -14,6 +14,16 @@ type CurrentModuleStatus = {
 }
 
 export type SupportProposalAuthoringState =
+  | {
+      state: 'OWN_DUPLICATE_RESOLUTION'
+      resolutionId: string
+      outcome: 'DUPLICATE_NOOP'
+      targetKnowledgeEntryId: string
+      relation: string
+      createdAt: Date
+      proposalRevisionCurrent: boolean
+      currentFulfillmentVerified: false
+    }
   | ({
       state: 'OWN_UNIVERSAL_RECEIPT'
       moduleId: string
@@ -109,12 +119,39 @@ export async function resolveSupportProposalAuthoringState(params: {
   const { db, input } = params
   const proposal = await db.knowledgeChangeProposal.findFirst({
     where: { id: input.proposalId, tenantId: input.tenantId, venueId: input.venueId },
-    select: { status: true, updatedAt: true, targetKnowledgeEntryId: true },
+    select: {
+      status: true,
+      updatedAt: true,
+      targetKnowledgeEntryId: true,
+      duplicateResolution: {
+        select: {
+          id: true,
+          proposalUpdatedAt: true,
+          targetKnowledgeEntryId: true,
+          relation: true,
+          createdAt: true,
+        },
+      },
+    },
   })
   if (!proposal)
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge proposal not found.' })
   if (proposal.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
     throw new TRPCError({ code: 'CONFLICT', message: 'Knowledge proposal changed.' })
+  if (proposal.duplicateResolution) {
+    return {
+      state: 'OWN_DUPLICATE_RESOLUTION',
+      resolutionId: proposal.duplicateResolution.id,
+      outcome: 'DUPLICATE_NOOP',
+      targetKnowledgeEntryId: proposal.duplicateResolution.targetKnowledgeEntryId,
+      relation: proposal.duplicateResolution.relation,
+      createdAt: proposal.duplicateResolution.createdAt,
+      proposalRevisionCurrent:
+        proposal.status === 'APPROVED' &&
+        proposal.updatedAt.getTime() === proposal.duplicateResolution.proposalUpdatedAt.getTime(),
+      currentFulfillmentVerified: false,
+    }
+  }
 
   const ownAdoption = await db.legacyKnowledgeUniversalContentAdoption.findFirst({
     where: { proposalId: input.proposalId, tenantId: input.tenantId, venueId: input.venueId },

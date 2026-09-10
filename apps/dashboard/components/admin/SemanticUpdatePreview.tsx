@@ -15,6 +15,7 @@ import {
 } from './TemporalEvidenceSelector'
 
 import { SemanticConflictResolutionForm } from './SemanticConflictResolutionForm'
+import { SemanticDuplicateResolutionForm } from './SemanticDuplicateResolutionForm'
 import { SupportLegacyAdoptionForm } from './SupportLegacyAdoptionForm'
 
 const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
@@ -50,6 +51,7 @@ export function SemanticUpdatePreview({
   proposalUpdatedAt,
   hasTarget,
   onResolutionRecorded,
+  onDuplicateRecorded,
   resolutionDraft,
   hasSupportProvenance = false,
 }: {
@@ -61,6 +63,7 @@ export function SemanticUpdatePreview({
   hasSupportProvenance?: boolean
   hasLegacyTarget?: boolean
   onResolutionRecorded?: () => void
+  onDuplicateRecorded?: () => void
   resolutionDraft?: {
     desired: { title: string; category: string; content: string; isEnabled: boolean }
     relation: 'CORRECTS' | 'SUPERSEDES'
@@ -102,7 +105,9 @@ export function SemanticUpdatePreview({
   const [previewGeneration, setPreviewGeneration] = useState(0)
   const [resolutionFrozen, setResolutionFrozen] = useState(false)
   const [adoptionFrozen, setAdoptionFrozen] = useState(false)
-  const actionsFrozen = resolutionFrozen || adoptionFrozen
+  const [duplicateFrozen, setDuplicateFrozen] = useState(false)
+  const [duplicateRecorded, setDuplicateRecorded] = useState(false)
+  const actionsFrozen = resolutionFrozen || adoptionFrozen || duplicateFrozen || duplicateRecorded
   const [resolution, setResolution] = useState<{
     scope: string
     replacementProposalId: string | null
@@ -157,6 +162,8 @@ export function SemanticUpdatePreview({
     setBusy(false)
     setResolutionFrozen(false)
     setAdoptionFrozen(false)
+    setDuplicateFrozen(false)
+    setDuplicateRecorded(false)
     setResolution(null)
     setPreview(null)
     setDraft(null)
@@ -688,7 +695,7 @@ export function SemanticUpdatePreview({
       {preview ? (
         <>
           <SemanticUpdatePreviewResult preview={preview} />
-          {supportPrivateDraftEligible ? (
+          {!duplicateRecorded && supportPrivateDraftEligible ? (
             <SupportLegacyAdoptionForm
               key={`${scope}:${previewGeneration}:${preview.previewHash}`}
               tenantId={tenantId}
@@ -707,7 +714,8 @@ export function SemanticUpdatePreview({
             />
           ) : null}
 
-          {preview.proposalStatus === 'APPROVED' &&
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
           preview.venuePackagePatch &&
           !supportPrivateDraftEligible ? (
             <SemanticUpdateDraftAction
@@ -718,14 +726,53 @@ export function SemanticUpdatePreview({
               onCreate={() => void createDraft()}
             />
           ) : null}
-          {preview.proposalStatus === 'APPROVED' && preview.operationalUpdateDraft ? (
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          preview.operationalUpdateDraft ? (
             <SemanticOperationalUpdateDraftAction
               creating={creating}
               draft={operationalDraft}
               onCreate={() => void createOperationalDraft()}
             />
           ) : null}
-          {preview.proposalStatus === 'APPROVED' &&
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          hasSupportProvenance &&
+          !temporal &&
+          isEnabled &&
+          preview.classification === 'DUPLICATE_NOOP' ? (
+            <SemanticDuplicateResolutionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              previewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              onFrozenChange={setDuplicateFrozen}
+              onRefresh={() => void inspect()}
+              onResolved={() => {
+                if (currentScope.current === scope) {
+                  setDuplicateRecorded(true)
+                  setDuplicateFrozen(false)
+                  onDuplicateRecorded?.()
+                }
+              }}
+            />
+          ) : duplicateRecorded ? (
+            <div className="mt-4 border-t border-pf-light pt-4 text-sm text-pf-deep/70">
+              <p className="font-semibold text-pf-deep">Duplicate review recorded</p>
+              <p className="mt-1">No venue content was changed or approved.</p>
+            </div>
+          ) : null}
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
           !temporal &&
           relation !== 'NEW_FACT' &&
           preview.classification === 'CONFLICT' &&
@@ -767,7 +814,9 @@ export function SemanticUpdatePreview({
                 }
               }}
             />
-          ) : preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
+          ) : !duplicateRecorded &&
+            preview.classification === 'CONFLICT' &&
+            preview.questions.length === 1 ? (
             <SemanticConflictQuestionAction
               creating={creating}
               questionStatus={

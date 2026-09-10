@@ -194,6 +194,13 @@ export function SupportLegacyAdoptionForm(props: Props) {
         setFeedback('This proposal already has a private content revision. Review that revision.')
         return
       }
+      if (authoring.state === 'OWN_DUPLICATE_RESOLUTION') {
+        setFeedback(
+          'This proposal already has a duplicate review receipt. It does not verify current fulfillment or change venue content.',
+        )
+        setBlocked(true)
+        return
+      }
       if (authoring.state === 'OTHER_ADOPTION_DRAFT') {
         setFeedback('Another proposal already has a private adoption draft for this guidance.')
         setBlocked(true)

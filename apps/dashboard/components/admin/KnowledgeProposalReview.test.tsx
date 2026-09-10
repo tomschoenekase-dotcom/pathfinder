@@ -102,4 +102,45 @@ describe('KnowledgeProposalReview', () => {
     expect(screen.getByText('APPROVED')).toBeTruthy()
     expect(screen.queryByText('CLOSED AFTER RESOLUTION')).toBeNull()
   })
+
+  it('shows a durable duplicate receipt without reopening semantic draft actions', () => {
+    render(
+      <KnowledgeProposalReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        proposals={[
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            status: 'APPROVED',
+            observedVisitorClaim: null,
+            aiInference: null,
+            proposedChange: 'Visitor assistance is available at the welcome desk.',
+            reason: 'Reviewed support guidance.',
+            confidence: 0.98,
+            evidenceMessageIds: ['message-1'],
+            targetKnowledgeEntryId: 'entry-1',
+            createdAt: '2026-09-10T11:00:00.000Z',
+            updatedAt: '2026-09-10T12:01:00.000Z',
+            reviewerId: 'reviewer-1',
+            reviewNote: 'Approved evidence.',
+            reviewedAt: '2026-09-10T12:00:00.000Z',
+            duplicateResolution: {
+              resolutionId: 'resolution-1',
+              outcome: 'DUPLICATE_NOOP',
+              targetKnowledgeEntryId: 'entry-1',
+              relation: 'CORRECTS',
+              createdAt: '2026-09-10T12:00:30.000Z',
+              proposalRevisionCurrent: false,
+              currentFulfillmentVerified: false,
+            },
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Duplicate review recorded')).toBeTruthy()
+    expect(screen.getByText(/does not verify current fulfillment/)).toBeTruthy()
+    expect(screen.getByText(/proposal has changed since this receipt/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Complete semantic resolution' })).toBeNull()
+  })
 })
