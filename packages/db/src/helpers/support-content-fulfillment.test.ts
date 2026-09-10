@@ -84,12 +84,18 @@ const currentReceipt = (overrides: Record<string, unknown> = {}) => ({
   id: 'receipt_1',
   proposalId: 'proposal_1',
   moduleId: 'module_1',
+  moduleKind: 'POLICY',
   revisionId: 'revision_1',
+  classification: 'ADDITION',
+  relation: 'NEW_FACT',
+  expectedBaseRevisionId: null,
+  expectedBaseVersion: null,
   module: {
     revisions: [{ id: 'revision_1', version: 1 }],
     publications: [{ id: 'publication_1', revisionId: 'revision_1', action: 'PUBLISH' }],
   },
   revision: {
+    version: 1,
     audience: 'PUBLIC',
     effectiveFrom: null,
     effectiveUntil: null,
@@ -147,7 +153,7 @@ describe('support content fulfillment', () => {
     const db = reader({ knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) } })
     const value = await readSupportContentFulfillment(db as never, { ...scope, asOf })
     expect(value).toMatchObject({
-      contractVersion: 1,
+      contractVersion: 2,
       receipts: [],
       guestRead: { path: 'NOT_APPLICABLE' },
     })
@@ -213,6 +219,111 @@ describe('support content fulfillment', () => {
     ).resolves.toMatchObject({
       receipts: [expect.objectContaining({ receiptKind: 'ADOPTION' })],
     })
+  })
+
+  it('retains a same-request later-version correction chain and proves only its terminal', async () => {
+    const oldReceipt = currentReceipt({
+      id: 'receipt_1',
+      proposalId: 'proposal_1',
+      revisionId: 'revision_1',
+      classification: 'ADDITION',
+      relation: 'NEW_FACT',
+      expectedBaseRevisionId: null,
+      expectedBaseVersion: null,
+      revision: {
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: new Date('2026-09-10T08:00:00.000Z'),
+        effectiveUntil: new Date('2026-09-10T10:00:00.000Z'),
+        operationalFact: { expiresAt: new Date('2026-09-10T09:00:00.000Z') },
+      },
+      module: {
+        revisions: [{ id: 'revision_2', version: 2 }],
+        publications: [{ id: 'publication_2', revisionId: 'revision_2', action: 'PUBLISH' }],
+      },
+    })
+    const currentReceiptValue = currentReceipt({
+      id: 'receipt_2',
+      proposalId: 'proposal_2',
+      revisionId: 'revision_2',
+      revision: {
+        version: 2,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        operationalFact: null,
+      },
+      classification: 'CORRECTION',
+      relation: 'CORRECTS',
+      expectedBaseRevisionId: 'revision_1',
+      expectedBaseVersion: 1,
+      module: {
+        revisions: [{ id: 'revision_2', version: 2 }],
+        publications: [{ id: 'publication_2', revisionId: 'revision_2', action: 'PUBLISH' }],
+      },
+    })
+    const db = reader({
+      knowledgeChangeProposal: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'proposal_1',
+            supportRequestId: 'request_1',
+            supportRequestVersion: 4,
+            status: 'APPROVED',
+            packageHandoff: null,
+            operationalUpdateHandoff: null,
+            producedByConflictResolution: null,
+          },
+          {
+            id: 'proposal_2',
+            supportRequestId: 'request_1',
+            supportRequestVersion: 5,
+            status: 'APPROVED',
+            packageHandoff: null,
+            operationalUpdateHandoff: null,
+            producedByConflictResolution: null,
+          },
+        ]),
+      },
+      knowledgeProposalUniversalContentHandoff: {
+        findMany: vi.fn().mockResolvedValue([oldReceipt, currentReceiptValue]),
+      },
+      venueKnowledgeEntry: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'projection_2',
+          title: 'Hours',
+          category: 'POLICY',
+          content: 'Open daily.',
+          sourceType: 'UNIVERSAL_CONTENT',
+          sourceName: 'POLICY v2',
+          sourceUrl: null,
+        }),
+      },
+    })
+    const value = await readSupportContentFulfillment(db as never, { ...scope, asOf })
+    expect(value.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          receiptId: 'receipt_1',
+          state: 'SUPERSEDED',
+          supersededByReceiptId: 'receipt_2',
+          publicationId: null,
+          effectiveFrom: '2026-09-10T08:00:00.000Z',
+          effectiveUntil: '2026-09-10T10:00:00.000Z',
+          operationalFactExpiresAt: '2026-09-10T09:00:00.000Z',
+        }),
+        expect.objectContaining({
+          receiptId: 'receipt_2',
+          state: 'CURRENT',
+          publicationId: 'publication_2',
+          sourceRequestVersion: 5,
+          effectiveFrom: null,
+          effectiveUntil: null,
+          operationalFactExpiresAt: null,
+        }),
+      ]),
+    )
+    expect(db.venueKnowledgeEntry.findFirst).toHaveBeenCalledOnce()
   })
 
   it('rejects a NATIVE snapshot whose same projection ID has drifted content', async () => {

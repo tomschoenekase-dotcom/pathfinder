@@ -509,12 +509,179 @@ export const SupportCompletionPackageFulfillmentV4 = z
   })
   .strict()
 
+const supportCompletionChainedReceiptShape = {
+  receiptKind: z.enum(['UNIVERSAL', 'ADOPTION']),
+  receiptId: z.string().min(1).max(191),
+  proposalId: z.string().min(1).max(191),
+  sourceProposalId: z.string().min(1).max(191),
+  sourceRequestVersion: z.number().int().positive(),
+  replacementOfProposalId: z.string().min(1).max(191).nullable(),
+  moduleId: z.string().min(1).max(191),
+  moduleKind: z.enum(['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP']),
+  revisionId: z.string().min(1).max(191),
+  revisionVersion: z.number().int().positive(),
+  effectiveFrom: z.string().datetime().nullable(),
+  effectiveUntil: z.string().datetime().nullable(),
+  operationalFactExpiresAt: z.string().datetime().nullable(),
+  classification: z.string().min(1).max(32).nullable(),
+  relation: z.string().min(1).max(32).nullable(),
+  expectedBaseRevisionId: z.string().min(1).max(191).nullable(),
+  expectedBaseVersion: z.number().int().positive().nullable(),
+} as const
+
+export const SupportCompletionContentFulfillmentV2 = z
+  .object({
+    contractVersion: z.literal(2),
+    receipts: z
+      .array(
+        z.discriminatedUnion('state', [
+          z
+            .object({
+              ...supportCompletionChainedReceiptShape,
+              state: z.literal('CURRENT'),
+              supersededByReceiptId: z.null(),
+              publicationId: z.string().min(1).max(191),
+              projectionId: z.string().min(1).max(191),
+              observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+            })
+            .strict(),
+          z
+            .object({
+              ...supportCompletionChainedReceiptShape,
+              state: z.literal('SUPERSEDED'),
+              supersededByReceiptId: z.string().min(1).max(191),
+              publicationId: z.null(),
+              projectionId: z.null(),
+              observedStateHash: z.null(),
+            })
+            .strict(),
+        ]),
+      )
+      .max(100),
+    guestRead: SupportCompletionContentFulfillment.innerType().shape.guestRead,
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['receipts'], message })
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE'))
+      issue('Content receipts require an applicable guest read.')
+    if (
+      value.guestRead.path === 'NATIVE' &&
+      (!value.guestRead.releaseId || !value.guestRead.nativeStateHash)
+    )
+      issue('Native content fulfillment requires exact release and state identity.')
+    if (
+      new Set(value.receipts.map((receipt) => receipt.receiptId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((receipt) => receipt.revisionId)).size !== value.receipts.length
+    )
+      issue('Chained content fulfillment contains duplicate identity.')
+    const groups = new Map<string, typeof value.receipts>()
+    for (const receipt of value.receipts) {
+      if (receipt.state === 'CURRENT') {
+        const at = Date.parse(value.verifiedAt)
+        if (
+          (receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > at) ||
+          (receipt.effectiveUntil !== null && Date.parse(receipt.effectiveUntil) <= at) ||
+          (receipt.operationalFactExpiresAt !== null &&
+            Date.parse(receipt.operationalFactExpiresAt) <= at)
+        )
+          issue('Current content receipt must be effective at verification.')
+      }
+
+      const emptyBase =
+        receipt.expectedBaseRevisionId === null && receipt.expectedBaseVersion === null
+      const appendBase =
+        receipt.expectedBaseRevisionId !== null &&
+        receipt.expectedBaseVersion !== null &&
+        receipt.expectedBaseVersion + 1 === receipt.revisionVersion
+      if (receipt.receiptKind === 'ADOPTION') {
+        if (!emptyBase || receipt.classification !== null || receipt.relation !== null)
+          issue('Adoption evidence must be a root without semantic base fields.')
+      } else {
+        const addition =
+          receipt.classification === 'ADDITION' && receipt.relation === 'NEW_FACT' && emptyBase
+        const correction =
+          receipt.classification === 'CORRECTION' && receipt.relation === 'CORRECTS' && appendBase
+        const supersession =
+          receipt.classification === 'SUPERSESSION' &&
+          receipt.relation === 'SUPERSEDES' &&
+          appendBase
+        if (!addition && !correction && !supersession)
+          issue('Universal receipt semantic relation and exact base are inconsistent.')
+      }
+      const localBase = value.receipts.find(
+        (base) => base.revisionId === receipt.expectedBaseRevisionId,
+      )
+      if (
+        localBase &&
+        (localBase.moduleId !== receipt.moduleId ||
+          localBase.moduleKind !== receipt.moduleKind ||
+          localBase.state !== 'SUPERSEDED' ||
+          localBase.supersededByReceiptId !== receipt.receiptId)
+      )
+        issue('A local base must explicitly link to its same-module successor.')
+      const group = groups.get(receipt.moduleId) ?? []
+      group.push(receipt)
+      groups.set(receipt.moduleId, group)
+      if (receipt.state === 'SUPERSEDED') {
+        const successor = value.receipts.find(
+          (next) =>
+            next.receiptKind === 'UNIVERSAL' && next.receiptId === receipt.supersededByReceiptId,
+        )
+        if (
+          !successor ||
+          successor.moduleId !== receipt.moduleId ||
+          successor.moduleKind !== receipt.moduleKind ||
+          successor.revisionVersion !== receipt.revisionVersion + 1 ||
+          successor.expectedBaseRevisionId !== receipt.revisionId ||
+          successor.expectedBaseVersion !== receipt.revisionVersion
+        )
+          issue('Superseded receipt requires its exact consecutive successor.')
+        if (successor) {
+          const semanticPair =
+            (successor.classification === 'CORRECTION' && successor.relation === 'CORRECTS') ||
+            (successor.classification === 'SUPERSESSION' && successor.relation === 'SUPERSEDES')
+          const orderedSource =
+            successor.sourceRequestVersion > receipt.sourceRequestVersion ||
+            (successor.sourceRequestVersion === receipt.sourceRequestVersion &&
+              successor.replacementOfProposalId === receipt.proposalId &&
+              successor.sourceProposalId === receipt.proposalId)
+          if (!semanticPair || !orderedSource)
+            issue(
+              'Receipt successor requires an approved semantic relation and forward source lineage.',
+            )
+        }
+      }
+    }
+    for (const group of groups.values()) {
+      if (
+        group.filter((receipt) => receipt.state === 'CURRENT').length !== 1 ||
+        new Set(group.map((receipt) => receipt.moduleKind)).size !== 1
+      )
+        issue('Each module must have one current terminal and one kind.')
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV5 = z
+  .object({
+    contractVersion: z.literal(5),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+  })
+  .strict()
+
 export const SupportCompletionPackageFulfillment = z
   .discriminatedUnion('contractVersion', [
     SupportCompletionPackageFulfillmentV1,
     SupportCompletionPackageFulfillmentV2,
     SupportCompletionPackageFulfillmentV3,
     SupportCompletionPackageFulfillmentV4,
+    SupportCompletionPackageFulfillmentV5,
   ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {

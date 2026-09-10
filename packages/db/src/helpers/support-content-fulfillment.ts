@@ -13,23 +13,52 @@ import {
   SupportFulfillmentSourceError,
   type SupportFulfillmentSourceReader,
 } from './support-fulfillment-sources'
+import {
+  resolveSupportContentReceiptChains,
+  SupportContentChainError,
+  type SupportContentChainReceipt,
+} from './support-content-fulfillment-chain'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 
 export type SupportContentFulfillment = {
-  contractVersion: 1
-  receipts: Array<{
-    receiptKind: 'UNIVERSAL' | 'ADOPTION'
-    receiptId: string
-    proposalId: string
-    sourceProposalId: string
-    sourceRequestVersion: number
-    moduleId: string
-    revisionId: string
-    publicationId: string
-    projectionId: string
-    observedStateHash: string
-  }>
+  contractVersion: 2
+  receipts: Array<
+    {
+      receiptKind: 'UNIVERSAL' | 'ADOPTION'
+      receiptId: string
+      proposalId: string
+      sourceProposalId: string
+      sourceRequestVersion: number
+      replacementOfProposalId: string | null
+      moduleId: string
+      moduleKind: 'ITEM' | 'SERVICE' | 'POLICY' | 'EVENT' | 'OPERATIONAL_FACT' | 'RELATIONSHIP'
+      revisionId: string
+      revisionVersion: number
+      effectiveFrom: string | null
+      effectiveUntil: string | null
+      operationalFactExpiresAt: string | null
+      classification: string | null
+      relation: string | null
+      expectedBaseRevisionId: string | null
+      expectedBaseVersion: number | null
+    } & (
+      | {
+          state: 'CURRENT'
+          supersededByReceiptId: null
+          publicationId: string
+          projectionId: string
+          observedStateHash: string
+        }
+      | {
+          state: 'SUPERSEDED'
+          supersededByReceiptId: string
+          publicationId: null
+          projectionId: null
+          observedStateHash: null
+        }
+    )
+  >
   guestRead: {
     path: NativeGuestReadPath | 'NOT_APPLICABLE'
     releaseId: string | null
@@ -80,12 +109,18 @@ type Receipt = {
   id: string
   proposalId: string
   moduleId: string
+  moduleKind: 'ITEM' | 'SERVICE' | 'POLICY' | 'EVENT' | 'OPERATIONAL_FACT' | 'RELATIONSHIP'
   revisionId: string
+  classification: string | null
+  relation: string | null
+  expectedBaseRevisionId: string | null
+  expectedBaseVersion: number | null
   module: {
     revisions: Array<{ id: string; version: number }>
     publications: Array<{ id: string; revisionId: string; action: 'PUBLISH' | 'WITHDRAW' }>
   }
   revision: {
+    version: number
     audience: 'PUBLIC' | 'CLIENT' | 'OPERATOR'
     effectiveFrom: Date | null
     effectiveUntil: Date | null
@@ -155,7 +190,7 @@ export async function readSupportContentFulfillment(
   )
   if (proposalSources.size === 0) {
     const identity = {
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       receipts: [],
       guestRead: { path: 'NOT_APPLICABLE' as const, releaseId: null, nativeStateHash: null },
     }
@@ -171,6 +206,7 @@ export async function readSupportContentFulfillment(
     id: true,
     proposalId: true,
     moduleId: true,
+    moduleKind: true,
     revisionId: true,
     module: {
       select: {
@@ -188,6 +224,7 @@ export async function readSupportContentFulfillment(
     },
     revision: {
       select: {
+        version: true,
         audience: true,
         effectiveFrom: true,
         effectiveUntil: true,
@@ -200,7 +237,13 @@ export async function readSupportContentFulfillment(
       where: { tenantId: input.tenantId, venueId: input.venueId, proposalId: { in: proposalIds } },
       orderBy: { id: 'asc' },
       take: MAX_RECEIPTS + 1,
-      select: receiptSelect,
+      select: {
+        ...receiptSelect,
+        classification: true,
+        relation: true,
+        expectedBaseRevisionId: true,
+        expectedBaseVersion: true,
+      },
     }),
     client.legacyKnowledgeUniversalContentAdoption.findMany({
       where: { tenantId: input.tenantId, venueId: input.venueId, proposalId: { in: proposalIds } },
@@ -218,7 +261,14 @@ export async function readSupportContentFulfillment(
 
   const receipts: Receipt[] = [
     ...universal.map((receipt) => ({ ...receipt, receiptKind: 'UNIVERSAL' as const })),
-    ...adoptions.map((receipt) => ({ ...receipt, receiptKind: 'ADOPTION' as const })),
+    ...adoptions.map((receipt) => ({
+      ...receipt,
+      receiptKind: 'ADOPTION' as const,
+      classification: null,
+      relation: null,
+      expectedBaseRevisionId: null,
+      expectedBaseVersion: null,
+    })),
   ] as Receipt[]
   const receiptProposalIds = new Set(receipts.map(({ proposalId }) => proposalId))
   const verifiedPackageIds = new Set(input.verifiedPackageIds ?? [])
@@ -252,7 +302,7 @@ export async function readSupportContentFulfillment(
   }
   if (receipts.length === 0) {
     const identity = {
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       receipts: [],
       guestRead: { path: 'NOT_APPLICABLE' as const, releaseId: null, nativeStateHash: null },
     }
@@ -263,9 +313,40 @@ export async function readSupportContentFulfillment(
     }
   }
 
+  const sourceByProposal = new Map(sources.map((source) => [source.proposalId, source]))
+  const chainReceipts: SupportContentChainReceipt[] = receipts.map((receipt) => {
+    const source = sourceByProposal.get(receipt.proposalId)
+    if (!source) throw new SupportContentFulfillmentError('Content receipt source is out of scope.')
+    return {
+      receiptId: receipt.id,
+      receiptKind: receipt.receiptKind,
+      proposalId: receipt.proposalId,
+      sourceProposalId: source.sourceProposalId,
+      sourceRequestVersion: source.sourceRequestVersion,
+      replacementOfProposalId: source.replacementOfProposalId,
+      moduleId: receipt.moduleId,
+      moduleKind: receipt.moduleKind,
+      revisionId: receipt.revisionId,
+      revisionVersion: receipt.revision.version,
+      classification: receipt.classification,
+      relation: receipt.relation,
+      expectedBaseRevisionId: receipt.expectedBaseRevisionId,
+      expectedBaseVersion: receipt.expectedBaseVersion,
+    }
+  })
+  const successors = (() => {
+    try {
+      return resolveSupportContentReceiptChains(chainReceipts)
+    } catch (error) {
+      if (error instanceof SupportContentChainError)
+        throw new SupportContentFulfillmentError(error.message)
+      throw error
+    }
+  })()
+  const terminalReceipts = receipts.filter((receipt) => !successors.has(receipt.id))
   const verified = await Promise.all(
-    receipts.map(async (receipt) => {
-      const source = proposalSources.get(receipt.proposalId)
+    terminalReceipts.map(async (receipt) => {
+      const source = sourceByProposal.get(receipt.proposalId)
       if (!source)
         throw new SupportContentFulfillmentError('Content receipt source is out of scope.')
       const publicationId = assertCurrentPublicReceipt(receipt, asOf)
@@ -312,8 +393,44 @@ export async function readSupportContentFulfillment(
     releaseId: snapshot.releaseId,
     nativeStateHash: snapshot.state ? nativeCoreVisibleStateHash(snapshot.state) : null,
   }
-  const fulfilled = verified
-    .map(({ receipt, source, publicationId, projection }) => {
+  const verifiedByReceiptId = new Map(verified.map((item) => [item.receipt.id, item]))
+  const fulfilled: SupportContentFulfillment['receipts'] = receipts
+    .map((receipt) => {
+      const source = sourceByProposal.get(receipt.proposalId)
+      if (!source)
+        throw new SupportContentFulfillmentError('Content receipt source is out of scope.')
+      const successorId = successors.get(receipt.id) ?? null
+      const verifiedReceipt = verifiedByReceiptId.get(receipt.id)
+      if (!verifiedReceipt) {
+        if (!successorId)
+          throw new SupportContentFulfillmentError('Content receipt chain has no current terminal.')
+        return {
+          receiptKind: receipt.receiptKind,
+          receiptId: receipt.id,
+          proposalId: receipt.proposalId,
+          sourceProposalId: source.sourceProposalId,
+          sourceRequestVersion: source.sourceRequestVersion,
+          replacementOfProposalId: source.replacementOfProposalId,
+          moduleId: receipt.moduleId,
+          moduleKind: receipt.moduleKind,
+          revisionId: receipt.revisionId,
+          revisionVersion: receipt.revision.version,
+          effectiveFrom: receipt.revision.effectiveFrom?.toISOString() ?? null,
+          effectiveUntil: receipt.revision.effectiveUntil?.toISOString() ?? null,
+          operationalFactExpiresAt:
+            receipt.revision.operationalFact?.expiresAt?.toISOString() ?? null,
+          classification: receipt.classification,
+          relation: receipt.relation,
+          expectedBaseRevisionId: receipt.expectedBaseRevisionId,
+          expectedBaseVersion: receipt.expectedBaseVersion,
+          state: 'SUPERSEDED' as const,
+          supersededByReceiptId: successorId,
+          publicationId: null,
+          projectionId: null,
+          observedStateHash: null,
+        }
+      }
+      const { publicationId, projection } = verifiedReceipt
       const observed = guestById.get(projection.id)
       const expectedState = {
         id: projection.id,
@@ -343,17 +460,30 @@ export async function readSupportContentFulfillment(
         receiptKind: receipt.receiptKind,
         receiptId: receipt.id,
         proposalId: receipt.proposalId,
-        sourceProposalId: source.id,
-        sourceRequestVersion: source.requestVersion,
+        sourceProposalId: source.sourceProposalId,
+        sourceRequestVersion: source.sourceRequestVersion,
+        replacementOfProposalId: source.replacementOfProposalId,
         moduleId: receipt.moduleId,
+        moduleKind: receipt.moduleKind,
         revisionId: receipt.revisionId,
+        revisionVersion: receipt.revision.version,
+        effectiveFrom: receipt.revision.effectiveFrom?.toISOString() ?? null,
+        effectiveUntil: receipt.revision.effectiveUntil?.toISOString() ?? null,
+        operationalFactExpiresAt:
+          receipt.revision.operationalFact?.expiresAt?.toISOString() ?? null,
+        classification: receipt.classification,
+        relation: receipt.relation,
+        expectedBaseRevisionId: receipt.expectedBaseRevisionId,
+        expectedBaseVersion: receipt.expectedBaseVersion,
+        state: 'CURRENT' as const,
+        supersededByReceiptId: null,
         publicationId,
         projectionId: projection.id,
         observedStateHash: createHash('sha256').update(canonicalJson(observedState)).digest('hex'),
       }
     })
     .sort((left, right) => left.receiptId.localeCompare(right.receiptId))
-  const identity = { contractVersion: 1 as const, receipts: fulfilled, guestRead }
+  const identity = { contractVersion: 2 as const, receipts: fulfilled, guestRead }
   return {
     ...identity,
     verifiedAt: asOf.toISOString(),

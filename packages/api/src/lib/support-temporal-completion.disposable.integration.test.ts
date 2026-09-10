@@ -248,7 +248,7 @@ describe.skipIf(!enabled)('support temporal completion on disposable PostgreSQL'
     )
     const fulfilled = await readSupportPackageFulfillment(db as never, fulfillmentInput)
     expect(fulfilled).toMatchObject({
-      contractVersion: 4,
+      contractVersion: 5,
       temporalFulfillment: {
         receipts: [
           expect.objectContaining({

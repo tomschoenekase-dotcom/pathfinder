@@ -21,6 +21,7 @@ import {
   SupportInformationRequestProposalApprovalSnapshot,
   SupportCompletionApplyParameters,
   SupportCompletionContentFulfillment,
+  SupportCompletionContentFulfillmentV2,
   SupportCompletionTemporalFulfillment,
   SupportCompletionProposalApprovalSnapshot,
   SupportPackageApprovalApplyParameters,
@@ -693,6 +694,123 @@ describe('temporal completion evidence contract', () => {
       SupportCompletionTemporalFulfillment.safeParse({
         ...current,
         receipts: [receipt, { ...receipt, handoffId: 'other' }],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('source-bound supersession receipt contract', () => {
+  const root = {
+    receiptKind: 'UNIVERSAL',
+    receiptId: 'root',
+    proposalId: 'proposal1',
+    sourceProposalId: 'proposal1',
+    sourceRequestVersion: 1,
+    replacementOfProposalId: null,
+    moduleId: 'module',
+    moduleKind: 'POLICY',
+    effectiveFrom: null,
+    effectiveUntil: null,
+    operationalFactExpiresAt: null,
+    revisionId: 'revision1',
+    revisionVersion: 1,
+    classification: 'ADDITION',
+    relation: 'NEW_FACT',
+    expectedBaseRevisionId: null,
+    expectedBaseVersion: null,
+    state: 'SUPERSEDED',
+    supersededByReceiptId: 'next',
+    publicationId: null,
+    projectionId: null,
+    observedStateHash: null,
+  }
+  const next = {
+    ...root,
+    receiptId: 'next',
+    proposalId: 'proposal2',
+    sourceProposalId: 'proposal2',
+    sourceRequestVersion: 2,
+    revisionId: 'revision2',
+    revisionVersion: 2,
+    classification: 'SUPERSESSION',
+    relation: 'SUPERSEDES',
+    expectedBaseRevisionId: 'revision1',
+    expectedBaseVersion: 1,
+    state: 'CURRENT',
+    supersededByReceiptId: null,
+    publicationId: 'publication',
+    projectionId: 'projection',
+    observedStateHash: 'a'.repeat(64),
+  }
+  const evidence = {
+    contractVersion: 2,
+    receipts: [root, next],
+    guestRead: { path: 'LEGACY', releaseId: null, nativeStateHash: null },
+    verifiedAt: '2026-09-10T13:00:00.000Z',
+    digest: 'b'.repeat(64),
+  }
+  it('preserves history with an explicit successor and one current terminal', () => {
+    expect(SupportCompletionContentFulfillmentV2.safeParse(evidence).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [{ ...root, effectiveUntil: '2026-09-10T12:00:00.000Z' }, next],
+      }).success,
+    ).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, effectiveUntil: evidence.verifiedAt }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, operationalFactExpiresAt: evidence.verifiedAt }],
+      }).success,
+    ).toBe(false)
+
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [{ ...root, publicationId: 'old-publication' }, next],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({ ...evidence, receipts: [root] }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, expectedBaseRevisionId: 'unrelated' }],
+      }).success,
+    ).toBe(false)
+  })
+  it('rejects source reversal and accepts equal version only through explicit replacement lineage', () => {
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, sourceRequestVersion: 1 }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [
+          root,
+          {
+            ...next,
+            sourceRequestVersion: 1,
+            replacementOfProposalId: 'proposal1',
+            sourceProposalId: 'proposal1',
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, classification: 'ADDITION', relation: 'NEW_FACT' }],
       }).success,
     ).toBe(false)
   })

@@ -19,7 +19,7 @@ describe('support package fulfillment evidence', () => {
     const first = await readSupportPackageFulfillment(reader as never, scope)
     const second = await readSupportPackageFulfillment(reader as never, scope)
     expect(first).toMatchObject({
-      contractVersion: 4,
+      contractVersion: 5,
       linkedPackageCount: 0,
       packages: [],
       guestObservability: {
@@ -100,7 +100,7 @@ describe('support package fulfillment evidence', () => {
     }
     const fulfillment = await readSupportPackageFulfillment(reader as never, scope)
     expect(fulfillment).toMatchObject({
-      contractVersion: 4,
+      contractVersion: 5,
       linkedPackageCount: 1,
       packages: [
         {
@@ -122,7 +122,7 @@ describe('support package fulfillment evidence', () => {
         ],
       },
     })
-    if (fulfillment.contractVersion !== 4) throw new Error('Expected observable fulfillment')
+    if (fulfillment.contractVersion !== 5) throw new Error('Expected observable fulfillment')
     const laterVerification = {
       ...fulfillment,
       guestObservability: {
@@ -204,9 +204,21 @@ describe('support completion content approval identity', () => {
       } as never,
       scope,
     )
-    if (empty.contractVersion !== 4) throw new Error('Expected current fulfillment')
+    if (empty.contractVersion !== 5) throw new Error('Expected current fulfillment')
     const receipt = {
       receiptKind: 'UNIVERSAL' as const,
+      moduleKind: 'POLICY' as const,
+      effectiveFrom: null,
+      effectiveUntil: null,
+      operationalFactExpiresAt: null,
+      revisionVersion: 1,
+      replacementOfProposalId: null,
+      classification: 'ADDITION',
+      relation: 'NEW_FACT',
+      expectedBaseRevisionId: null,
+      expectedBaseVersion: null,
+      state: 'CURRENT' as const,
+      supersededByReceiptId: null,
       receiptId: 'receipt',
       proposalId: 'proposal',
       sourceProposalId: 'proposal',
@@ -235,6 +247,36 @@ describe('support completion content approval identity', () => {
         temporalFulfillment: value.temporalFulfillment,
       })
     filled.digest = digestOf(filled)
+    const windowed = {
+      ...filled,
+      contentFulfillment: {
+        ...filled.contentFulfillment,
+        receipts: filled.contentFulfillment.receipts.map((receipt) => ({
+          ...receipt,
+          effectiveUntil: '2026-09-10T14:00:00.000Z',
+        })),
+      },
+    }
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(windowed, new Date('2026-09-10T13:59:59.000Z')),
+    ).not.toThrow()
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(windowed, new Date('2026-09-10T14:00:00.000Z')),
+    ).toThrow('Content fulfillment is no longer currently effective')
+    const factExpired = {
+      ...filled,
+      contentFulfillment: {
+        ...filled.contentFulfillment,
+        receipts: filled.contentFulfillment.receipts.map((receipt) => ({
+          ...receipt,
+          operationalFactExpiresAt: '2026-09-10T14:00:00.000Z',
+        })),
+      },
+    }
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(factExpired, new Date('2026-09-10T14:00:00.000Z')),
+    ).toThrow('Content fulfillment is no longer currently effective')
+
     const legacy = {
       contractVersion: 1 as const,
       linkedPackageCount: 0,
@@ -276,7 +318,7 @@ describe('temporal approval identity', () => {
       } as never,
       scope,
     )
-    if (empty.contractVersion !== 4) throw new Error('Expected current fulfillment')
+    if (empty.contractVersion !== 5) throw new Error('Expected current fulfillment')
     const current = {
       ...empty,
       temporalFulfillment: {
@@ -299,7 +341,7 @@ describe('temporal approval identity', () => {
     }
     const digestOf = (value: typeof current) =>
       supportPackageFulfillmentDigest({
-        contractVersion: 4,
+        contractVersion: 5,
         linkedPackageCount: value.linkedPackageCount,
         packages: value.packages,
         guestObservability: value.guestObservability,

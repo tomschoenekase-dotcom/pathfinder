@@ -3,10 +3,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import {
+  appendSupportMessageAction,
   db,
   prepareSupportKnowledgeProposalAction,
   publishUniversalContentAction,
   readSupportPackageFulfillment,
+  sameSupportPackageFulfillment,
   SupportPackageFulfillmentError,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -362,8 +364,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId,
     })
     expect(additionFulfillment).toMatchObject({
-      contractVersion: 4,
+      contractVersion: 5,
       contentFulfillment: {
+        contractVersion: 2,
         receipts: [
           expect.objectContaining({
             receiptKind: 'UNIVERSAL',
@@ -417,6 +420,163 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
         contentPublicationId: true,
       },
     })
+    const laterFact = `The Juniper quiet room moved beside the north gallery ${suffix}.`
+    const laterMessage = await appendSupportMessageAction({
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      requestId: supportRequestId,
+      expectedVersion: supportVersion,
+      visibility: 'CLIENT_VISIBLE',
+      body: laterFact,
+      attachments: [],
+      actor: {
+        actorType: 'HUMAN',
+        participantKind: 'OPERATOR',
+        actorId: adminId,
+        auditRole: 'PLATFORM_ADMIN',
+      },
+    })
+    const chainOperationId = randomUUID()
+    await prepareSupportKnowledgeProposalAction({
+      ...proposalInput,
+      operationId: chainOperationId,
+      expectedVersion: laterMessage.requestVersion,
+      evidenceMessageIds: [laterMessage.message.id],
+      targetKnowledgeEntryId: publishedEntry.id,
+      correctionKind: 'UPDATE_KNOWLEDGE',
+      proposedChange: laterFact,
+      reason: 'Prepare the later evidence as the same-request native successor.',
+      actor: {
+        ...proposalInput.actor,
+        idempotencyKey: chainOperationId,
+        agentRunId: `run-support-chain-${suffix}`,
+      },
+    })
+    const pendingChain = await db.knowledgeChangeProposal.findFirstOrThrow({
+      where: { id: chainOperationId, tenantId, venueId },
+      select: { updatedAt: true },
+    })
+    await caller.reviewKnowledgeProposal({
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      proposalId: chainOperationId,
+      expectedUpdatedAt: pendingChain.updatedAt.toISOString(),
+      decision: 'APPROVED',
+      reviewNote: 'Approve the later same-request evidence for separate publication.',
+    })
+    const approvedChain = await db.knowledgeChangeProposal.findFirstOrThrow({
+      where: { id: chainOperationId, tenantId, venueId },
+      select: { updatedAt: true },
+    })
+    const chainDesired = { ...desired, content: laterFact }
+    const chainPreview = await previewSemanticVenueUpdateFromProposal({
+      db,
+      tenantId,
+      venueId,
+      proposalId: chainOperationId,
+      expectedUpdatedAt: approvedChain.updatedAt,
+      relation: 'SUPERSEDES',
+      desired: chainDesired,
+    })
+    expect(chainPreview).toMatchObject({
+      classification: 'SUPERSESSION',
+      targetKnowledgeEntryId: publishedEntry.id,
+    })
+    const chainDraftInput = {
+      tenantId,
+      venueId,
+      proposalId: chainOperationId,
+      expectedProposalUpdatedAt: approvedChain.updatedAt.toISOString(),
+      expectedPreviewHash: chainPreview.previewHash,
+      relation: 'SUPERSEDES' as const,
+      desired: chainDesired,
+      draft: { ...draft, payload: { ...draft.payload, rule: laterFact } },
+    }
+    const chainRevision = await caller.createSupportSemanticUniversalContentDraft(chainDraftInput)
+    expect(chainRevision).toMatchObject({
+      moduleId: created.moduleId,
+      version: 2,
+      classification: 'SUPERSESSION',
+      replayed: false,
+    })
+    await expect(
+      readSupportPackageFulfillment(db as never, { tenantId, venueId, supportRequestId }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
+    const chainPublication = await publishUniversalContentAction({
+      ...publicationInput,
+      revisionId: chainRevision.revisionId,
+      expectedLatestVersion: 2,
+      requestId: randomUUID(),
+    })
+    const [rootHandoff, chainHandoff] = await Promise.all([
+      db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+        where: { tenantId, venueId, proposalId: operationId },
+        select: { id: true },
+      }),
+      db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+        where: { tenantId, venueId, proposalId: chainOperationId },
+        select: { id: true },
+      }),
+    ])
+    const chainFulfillment = await readSupportPackageFulfillment(db as never, {
+      tenantId,
+      venueId,
+      supportRequestId,
+    })
+    expect(chainFulfillment).toMatchObject({
+      contractVersion: 5,
+      contentFulfillment: { contractVersion: 2 },
+    })
+    if (chainFulfillment.contractVersion !== 5) throw new Error('Expected fulfillment v5')
+    expect(chainFulfillment.contentFulfillment.receipts).toHaveLength(2)
+    expect(
+      chainFulfillment.contentFulfillment.receipts.find(
+        ({ receiptId }) => receiptId === rootHandoff.id,
+      ),
+    ).toMatchObject({
+      proposalId: operationId,
+      sourceProposalId: operationId,
+      sourceRequestVersion: supportVersion,
+      moduleId: created.moduleId,
+      moduleKind: 'POLICY',
+      revisionId: created.revisionId,
+      revisionVersion: 1,
+      replacementOfProposalId: null,
+      classification: 'ADDITION',
+      relation: 'NEW_FACT',
+      expectedBaseRevisionId: null,
+      expectedBaseVersion: null,
+      state: 'SUPERSEDED',
+      supersededByReceiptId: chainHandoff.id,
+      publicationId: null,
+      projectionId: null,
+      observedStateHash: null,
+    })
+    expect(
+      chainFulfillment.contentFulfillment.receipts.find(
+        ({ receiptId }) => receiptId === chainHandoff.id,
+      ),
+    ).toMatchObject({
+      proposalId: chainOperationId,
+      sourceProposalId: chainOperationId,
+      sourceRequestVersion: laterMessage.requestVersion,
+      moduleId: created.moduleId,
+      moduleKind: 'POLICY',
+      revisionId: chainRevision.revisionId,
+      revisionVersion: 2,
+      replacementOfProposalId: null,
+      classification: 'SUPERSESSION',
+      relation: 'SUPERSEDES',
+      expectedBaseRevisionId: created.revisionId,
+      expectedBaseVersion: 1,
+      state: 'CURRENT',
+      supersededByReceiptId: null,
+      publicationId: chainPublication.publicationId,
+      projectionId: publishedEntry.id,
+    })
+    expect(sameSupportPackageFulfillment(additionFulfillment, chainFulfillment)).toBe(false)
     const supersessionOperationId = randomUUID()
     const supersessionProposalInput = {
       operationId: supersessionOperationId,
@@ -505,7 +665,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       await caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput)
     expect(supersedingRevision).toMatchObject({
       moduleId: created.moduleId,
-      version: 2,
+      version: 3,
       classification: 'SUPERSESSION',
       replayed: false,
     })
@@ -534,13 +694,14 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       },
     ])
 
-    expect((await guestRead()).entries.map((entry) => entry.content)).toContain(uniqueFact)
+    expect((await guestRead()).entries.map((entry) => entry.content)).toContain(laterFact)
+    expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(uniqueFact)
     expect((await guestRead()).entries.map((entry) => entry.content)).not.toContain(supersedingFact)
 
     const supersessionPublicationInput = {
       ...publicationInput,
       revisionId: supersedingRevision.revisionId,
-      expectedLatestVersion: 2,
+      expectedLatestVersion: 3,
       requestId: randomUUID(),
     }
     const supersessionPublication = await publishUniversalContentAction(
@@ -555,8 +716,9 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId: supersessionRequestId,
     })
     expect(supersessionFulfillment).toMatchObject({
-      contractVersion: 4,
+      contractVersion: 5,
       contentFulfillment: {
+        contractVersion: 2,
         receipts: [
           expect.objectContaining({
             receiptKind: 'UNIVERSAL',
@@ -566,17 +728,22 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
             moduleId: created.moduleId,
             revisionId: supersedingRevision.revisionId,
             publicationId: supersessionPublication.publicationId,
+            state: 'CURRENT',
+            supersededByReceiptId: null,
           }),
         ],
       },
     })
+    await expect(
+      readSupportPackageFulfillment(db as never, { tenantId, venueId, supportRequestId }),
+    ).rejects.toBeInstanceOf(SupportPackageFulfillmentError)
 
     await expect(
       caller.createSupportSemanticUniversalContentDraft(supersessionDraftInput),
     ).resolves.toMatchObject({
       moduleId: created.moduleId,
       revisionId: supersedingRevision.revisionId,
-      version: 2,
+      version: 3,
       classification: 'SUPERSESSION',
       replayed: true,
     })
@@ -609,7 +776,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
         select: { title: true, content: true, isEnabled: true, contentModuleId: true },
       }),
     ])
-    expect(supersessionCounts.slice(0, 3)).toEqual([1, 2, 2])
+    expect(supersessionCounts.slice(0, 3)).toEqual([1, 3, 3])
     expect(supersessionCounts[3]).toEqual({ version: 1, policy: { rule: uniqueFact } })
     expect(supersessionCounts[4]).toEqual({
       contentRevisionId: supersedingRevision.revisionId,

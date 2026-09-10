@@ -53,17 +53,18 @@ export function supportPackageFulfillmentDigest(
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 1 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>
-    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>,
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 5 }>, 'digest'>,
 ): string {
   const normalized =
     value.contractVersion !== 1
       ? {
           ...value,
-          ...(value.contractVersion === 4
+          ...('temporalFulfillment' in value
             ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
             : {}),
           guestObservability: { ...value.guestObservability, verifiedAt: null },
-          ...(value.contractVersion === 3 || value.contractVersion === 4
+          ...('contentFulfillment' in value
             ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
             : {}),
         }
@@ -164,7 +165,7 @@ export async function readSupportPackageFulfillment(
     throw error
   }
   const identity = {
-    contractVersion: 4 as const,
+    contractVersion: 5 as const,
     linkedPackageCount: packages.length,
     packages,
     guestObservability,
@@ -186,25 +187,25 @@ export function sameSupportPackageFulfillment(
       left.linkedPackageCount === 0 &&
       right.linkedPackageCount === 0 &&
       (!('contentFulfillment' in left) || left.contentFulfillment.receipts.length === 0) &&
-      (left.contractVersion !== 4 || left.temporalFulfillment.receipts.length === 0) &&
+      (!('temporalFulfillment' in left) || left.temporalFulfillment.receipts.length === 0) &&
       (!('contentFulfillment' in right) || right.contentFulfillment.receipts.length === 0) &&
-      (right.contractVersion !== 4 || right.temporalFulfillment.receipts.length === 0)
+      (!('temporalFulfillment' in right) || right.temporalFulfillment.receipts.length === 0)
     )
   }
   const withoutVerificationTime = (
     value: Extract<
       SupportCompletionPackageFulfillmentValue,
       {
-        contractVersion: 2 | 3 | 4
+        contractVersion: 2 | 3 | 4 | 5
       }
     >,
   ) => ({
     ...value,
-    ...(value.contractVersion === 4
+    ...('temporalFulfillment' in value
       ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
       : {}),
     guestObservability: { ...value.guestObservability, verifiedAt: null },
-    ...(value.contractVersion === 3 || value.contractVersion === 4
+    ...('contentFulfillment' in value
       ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
       : {}),
   })
@@ -221,7 +222,22 @@ export function assertSupportFulfillmentEffectiveAt(
 ): void {
   if (!Number.isFinite(now.getTime()))
     throw new SupportPackageFulfillmentError('Invalid completion time.')
-  if (value.contractVersion !== 4) return
+  if (
+    value.contractVersion === 5 &&
+    value.contentFulfillment.receipts.some(
+      (receipt) =>
+        receipt.state === 'CURRENT' &&
+        ((receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > now.getTime()) ||
+          (receipt.effectiveUntil !== null &&
+            Date.parse(receipt.effectiveUntil) <= now.getTime()) ||
+          (receipt.operationalFactExpiresAt !== null &&
+            Date.parse(receipt.operationalFactExpiresAt) <= now.getTime())),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'Content fulfillment is no longer currently effective; refresh completion evidence.',
+    )
+  if (!('temporalFulfillment' in value)) return
   if (
     value.temporalFulfillment.receipts.some(
       (receipt) =>

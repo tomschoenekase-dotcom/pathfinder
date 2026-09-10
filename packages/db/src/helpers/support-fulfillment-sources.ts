@@ -38,6 +38,7 @@ export type SupportFulfillmentSource = {
   proposalId: string
   sourceProposalId: string
   sourceRequestVersion: number
+  replacementOfProposalId: string | null
   status: string
   packageHandoffVenuePackageId: string | null
   operationalUpdateHandoffId: string | null
@@ -126,6 +127,7 @@ export async function readSupportFulfillmentSources(
         proposalId: proposal.id,
         sourceProposalId: source.id,
         sourceRequestVersion: source.requestVersion,
+        replacementOfProposalId: proposal.producedByConflictResolution?.proposalId ?? null,
         status: proposal.status,
         packageHandoffVenuePackageId: proposal.packageHandoff?.venuePackageId ?? null,
         operationalUpdateHandoffId: proposal.operationalUpdateHandoff?.id ?? null,
