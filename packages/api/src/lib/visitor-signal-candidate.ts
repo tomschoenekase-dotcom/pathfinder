@@ -37,6 +37,19 @@ function hasUnnegatedUrgentHazard(text: string): boolean {
   return false
 }
 
+function hasUnnegatedClosureReport(text: string): boolean {
+  const matcher = new RegExp(closureReport.source, 'giu')
+  for (const match of text.matchAll(matcher)) {
+    const prefix = text.slice(Math.max(0, (match.index ?? 0) - 40), match.index)
+    // Negation applies only immediately before this match. A later affirmative
+    // closure in the same feedback must still become an unverified candidate.
+    // "not open" is itself a closure match, so its own "not" is not a negator.
+    if (!/\b(?:no\s+longer|no|not|without|\w+n['\u2019]t)\s+(?:(?:a|an|any)\s+)?$/iu.test(prefix))
+      return true
+  }
+  return false
+}
+
 /**
  * Classifies a single visitor's optional feedback reason into an unverified review candidate.
  * It never changes venue knowledge, operational updates, or visitor-visible content.
@@ -55,7 +68,7 @@ export function classifyVisitorSignalCandidate(
         'Review the current feedback record and its cited public conversation immediately, then follow the venue safety escalation procedure.',
     }
   }
-  if (closureReport.test(text)) {
+  if (hasUnnegatedClosureReport(text)) {
     return {
       kind: 'CLOSURE_REPORT',
       summary: 'A visitor feedback report may describe a closure or unavailable attraction.',

@@ -30,6 +30,24 @@ describe('visitor signal candidate classification', () => {
     expect(classifyVisitorSignalCandidate(undefined)).toBeNull()
   })
 
+  it.each([
+    'The gallery is not closed.',
+    'There is no closure today.',
+    "The gallery isn't closed.",
+    "The route isn't unsafe.",
+    'The gallery is no longer closed.',
+  ])('does not turn an explicitly negated report into a candidate: %s', (reason) => {
+    expect(classifyVisitorSignalCandidate(reason)).toBeNull()
+  })
+
+  it.each([
+    ['The gallery is not open.', 'CLOSURE_REPORT'],
+    ['The gallery is not closed, but the garden is closed.', 'CLOSURE_REPORT'],
+    ['There is no smoke, but there is broken glass.', 'URGENT_HAZARD'],
+  ] as const)('retains affirmative evidence in %s', (reason, kind) => {
+    expect(classifyVisitorSignalCandidate(reason)).toMatchObject({ kind })
+  })
+
   it('hashes the tenant, venue, and turn-or-message identity into a bounded event key', () => {
     const base = {
       tenantId: 'tenant',

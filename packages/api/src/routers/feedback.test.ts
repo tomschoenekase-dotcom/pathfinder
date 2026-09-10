@@ -81,6 +81,36 @@ describe('message feedback router', () => {
     })
   })
 
+  it('retains negated closure feedback without mislabeling it as a closure report', async () => {
+    queryRaw.mockResolvedValue([
+      {
+        tenantId: 'tenant-1',
+        venueId: request.venueId,
+        sessionId: 'session-1',
+        messageId: request.messageId,
+        guestChatTurnId: '11111111-1111-4111-8111-111111111111',
+        userMessageId: 'user-message-1',
+      },
+    ])
+    const reason = 'The greenhouse is not closed.'
+    await expect(caller.feedback.submit({ ...request, reason })).resolves.toEqual({ ok: true })
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: { rating: 'NOT_HELPFUL', reason },
+      }),
+    )
+    expect(createInsights).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            summary: 'A visitor explicitly rated this public answer as not helpful.',
+          }),
+        ],
+      }),
+    )
+    expect(operationalEventUpsert).not.toHaveBeenCalled()
+  })
+
   it('does not create a negative-feedback insight for a helpful rating', async () => {
     queryRaw.mockResolvedValue([
       {
