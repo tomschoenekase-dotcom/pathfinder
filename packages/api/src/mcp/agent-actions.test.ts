@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   askQuestion: vi.fn(),
   delegate: vi.fn(),
   enqueue: vi.fn(),
+  writeSourceQuestion: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -14,6 +15,9 @@ vi.mock('@pathfinder/db', () => ({
 vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: mocks.enqueue }))
 vi.mock('@pathfinder/billing', () => ({ proposeBillingAgentCommand: vi.fn() }))
 vi.mock('@pathfinder/config', () => ({ env: { AGENT_RUNNER_ENABLED: false } }))
+vi.mock('./source-question-writer', () => ({
+  writeSourceClarificationQuestion: mocks.writeSourceQuestion,
+}))
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
 
@@ -28,10 +32,25 @@ const baseInput = {
   question: 'Which source is authoritative?',
   choices: [],
   blocking: true,
+  sourceClarification: undefined,
 }
 
 describe('MCP operator question action', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.writeSourceQuestion.mockResolvedValue({
+      question: {
+        id: 'question-source-1',
+        agentRunId: 'run-1',
+        status: 'PENDING',
+        blocking: true,
+        updatedAt: new Date('2030-01-01T12:00:00.000Z'),
+        expiresAt: null,
+      },
+      replayed: false,
+      consolidated: false,
+    })
+  })
 
   it('converts an explicit ISO expiry to Date and returns its canonical ISO value', async () => {
     const expiresAt = new Date('2030-01-01T18:00:00.000Z')
@@ -82,6 +101,45 @@ describe('MCP operator question action', () => {
 
     expect(mocks.askQuestion.mock.calls[0]?.[0]).not.toHaveProperty('expiresAt')
     expect(result.data).toMatchObject({ expiresAt: null })
+  })
+
+  it('routes source clarification through the authenticated source writer without generic fields', async () => {
+    const actions = createPathfinderMcpAgentActions({} as never, {} as never)
+    const source = {
+      runId: 'intake-run-1',
+      receiptId: '11111111-1111-4111-8111-111111111111',
+      expectedExtractedTextHash: 'a'.repeat(64),
+      fieldPath: 'knowledge.capacity',
+      reason: 'CONTRADICTION' as const,
+      blockerScope: 'FOUNDATIONAL' as const,
+      evidenceExcerpt: 'Capacity is 137.',
+    }
+    const result = await actions.askOperator(
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'untrusted-caller-identity',
+        agentRunId: 'run-1',
+        question: 'Which capacity is authoritative?',
+        sourceClarification: source,
+        operationId: undefined,
+        context: undefined,
+        choices: [],
+        expiresAt: undefined,
+        blocking: true,
+      } as never,
+      context as never,
+    )
+    expect(mocks.askQuestion).not.toHaveBeenCalled()
+    expect(mocks.writeSourceQuestion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentRunId: 'run-1',
+        sourceClarification: source,
+      }),
+      context,
+    )
+    expect(result.data).toMatchObject({ id: 'question-source-1', blocking: true })
   })
 })
 

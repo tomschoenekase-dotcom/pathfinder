@@ -1398,7 +1398,20 @@ export const McpEvaluationRequestInput = McpRequestedScope.extend({
   })
 export type McpEvaluationRequestInput = z.infer<typeof McpEvaluationRequestInput>
 
-export const McpAskOperatorInput = McpRequestedScope.extend({
+export const McpSourceClarification = z
+  .object({
+    runId: z.string().trim().min(1).max(191),
+    receiptId: z.string().uuid(),
+    expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    fieldPath: z.string().trim().min(1).max(500),
+    reason: z.enum(['CONTRADICTION', 'DATE_SENSITIVE', 'LOW_CONFIDENCE', 'MISSING_CONTEXT']),
+    blockerScope: z.enum(['LOCAL', 'FOUNDATIONAL']),
+    evidenceExcerpt: z.string().trim().min(1).max(1000),
+  })
+  .strict()
+
+const McpGenericOperatorQuestion = McpRequestedScope.extend({
+  sourceClarification: z.undefined().optional(),
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
   agentRunId: Identifier.optional(),
@@ -1408,6 +1421,26 @@ export const McpAskOperatorInput = McpRequestedScope.extend({
   expiresAt: z.string().datetime({ offset: true }).optional(),
   blocking: z.boolean().default(true),
 }).strict()
+
+const McpSourceOperatorQuestion = McpRequestedScope.extend({
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  question: z.string().trim().min(1).max(2_000),
+  sourceClarification: McpSourceClarification,
+})
+  .strict()
+  .transform((value) => ({
+    ...value,
+    operationId: undefined,
+    context: undefined,
+    choices: [] as string[],
+    expiresAt: undefined,
+    blocking: value.sourceClarification.blockerScope === 'FOUNDATIONAL',
+  }))
+
+// Source replay identity is derived canonically from exact source/question/run data.
+// Generic operation IDs and lifecycle overrides must not override that identity.
+export const McpAskOperatorInput = z.union([McpGenericOperatorQuestion, McpSourceOperatorQuestion])
 export type McpAskOperatorInput = z.infer<typeof McpAskOperatorInput>
 
 export const McpDelegateSpecialistInput = McpRequestedScope.extend({
@@ -3483,30 +3516,69 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     title: 'Ask the operator',
     description:
       'Raise a durable, venue-scoped clarification in the Agent workspace. It does not approve or execute any action.',
-    inputSchema: strictObject(
-      {
-        ...scopeProperties,
-        operationId: { type: 'string', format: 'uuid' },
-        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
-        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
-        question: { type: 'string', minLength: 1, maxLength: 2000 },
-        context: { type: 'string', minLength: 1, maxLength: 2000 },
-        expiresAt: {
-          type: 'string',
-          format: 'date-time',
-          description:
-            'Optional explicit response cutoff. Omit to keep the question open without automatic expiry.',
+    inputSchema: {
+      ...strictObject(
+        {
+          ...scopeProperties,
+          operationId: { type: 'string', format: 'uuid' },
+          agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+          agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+          question: { type: 'string', minLength: 1, maxLength: 2000 },
+          context: { type: 'string', minLength: 1, maxLength: 2000 },
+          expiresAt: {
+            type: 'string',
+            format: 'date-time',
+            description:
+              'Optional explicit response cutoff. Omit to keep the question open without automatic expiry.',
+          },
+          choices: {
+            type: 'array',
+            maxItems: 8,
+            items: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+          blocking: {
+            type: 'boolean',
+            description:
+              'Generic questions only; source questions derive blocking from blockerScope.',
+          },
+          sourceClarification: strictObject(
+            {
+              runId: { type: 'string', minLength: 1, maxLength: 191 },
+              receiptId: { type: 'string', format: 'uuid' },
+              expectedExtractedTextHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+              fieldPath: { type: 'string', minLength: 1, maxLength: 500 },
+              reason: {
+                type: 'string',
+                enum: ['CONTRADICTION', 'DATE_SENSITIVE', 'LOW_CONFIDENCE', 'MISSING_CONTEXT'],
+              },
+              blockerScope: { type: 'string', enum: ['LOCAL', 'FOUNDATIONAL'] },
+              evidenceExcerpt: { type: 'string', minLength: 1, maxLength: 1000 },
+            },
+            [
+              'runId',
+              'receiptId',
+              'expectedExtractedTextHash',
+              'fieldPath',
+              'reason',
+              'blockerScope',
+              'evidenceExcerpt',
+            ],
+          ),
         },
-        choices: {
-          type: 'array',
-          maxItems: 8,
-          items: { type: 'string', minLength: 1, maxLength: 200 },
-          default: [],
+        [...scopeRequired, 'agentIdentityId', 'question'],
+      ),
+      oneOf: [
+        { required: ['operationId'], not: { required: ['sourceClarification'] } },
+        {
+          required: ['sourceClarification', 'agentRunId'],
+          not: {
+            anyOf: ['operationId', 'context', 'choices', 'expiresAt', 'blocking'].map((key) => ({
+              required: [key],
+            })),
+          },
         },
-        blocking: { type: 'boolean', default: true },
-      },
-      [...scopeRequired, 'operationId', 'agentIdentityId', 'question'],
-    ),
+      ],
+    },
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,

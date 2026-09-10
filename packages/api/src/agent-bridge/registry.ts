@@ -377,7 +377,9 @@ export function createAgentBridgeRegistry(
       if (input.venueId && !context.credential.venueIds.includes(input.venueId))
         throw new Error('Operational tools require exact credential venue scope')
       const questionSource =
-        input.toolName === 'pathfinder.read' && input.arguments.resource === 'question-source'
+        (input.toolName === 'pathfinder.read' && input.arguments.resource === 'question-source') ||
+        (input.toolName === 'pathfinder.ask_operator' &&
+          input.arguments.sourceClarification !== undefined)
       if (
         questionSource &&
         (!input.venueId ||
@@ -388,7 +390,7 @@ export function createAgentBridgeRegistry(
       )
         throw new Error('Question source requires an exact worker execution claim')
       if (!questionSource && input.executionClaim)
-        throw new Error('Execution claim is only supported for question source reads')
+        throw new Error('Execution claim is only supported for question source operations')
       return operational().callTool(
         input.toolName,
         {

@@ -1119,3 +1119,52 @@ describe('PathFinder MCP server-side adapter registry', () => {
     ).rejects.toThrow()
   })
 })
+
+it('requires source grants and exact claim before dispatching source questions', async () => {
+  const domain = actions()
+  const registry = createPathfinderMcpRegistry(domain)
+  const input = {
+    clientId: 'client-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'run-1',
+    question: 'Two buildings?',
+    sourceClarification: {
+      runId: 'intake-1',
+      receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      expectedExtractedTextHash: 'a'.repeat(64),
+      fieldPath: 'greenhouses',
+      reason: 'CONTRADICTION',
+      blockerScope: 'LOCAL',
+      evidenceExcerpt: 'Two greenhouses',
+    },
+  }
+  const executionClaim = {
+    agentRunId: 'run-1',
+    bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    workerId: 'worker-1',
+    executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  }
+  await expect(
+    registry.callTool('pathfinder.ask_operator', input, { credential, executionClaim }),
+  ).rejects.toThrow()
+  const allowed: VerifiedMcpCredentialScope = {
+    ...credential,
+    capabilities: [...credential.capabilities, 'intake-source:read', 'agent-runs:execute'],
+  }
+  await expect(
+    registry.callTool('pathfinder.ask_operator', input, { credential: allowed }),
+  ).rejects.toThrow(/exact worker execution claim/u)
+  await expect(
+    registry.callTool('pathfinder.ask_operator', input, {
+      credential: allowed,
+      executionClaim: { ...executionClaim, agentRunId: 'wrong' },
+    }),
+  ).rejects.toThrow(/exact worker execution claim/u)
+  expect(domain.askOperator).not.toHaveBeenCalled()
+  await registry.callTool('pathfinder.ask_operator', input, { credential: allowed, executionClaim })
+  expect(domain.askOperator).toHaveBeenCalledWith(
+    expect.objectContaining({ sourceClarification: input.sourceClarification, blocking: false }),
+    expect.objectContaining({ executionClaim }),
+  )
+})

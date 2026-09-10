@@ -752,6 +752,12 @@ export function createPathfinderMcpRegistry(
         case 'pathfinder.ask_operator': {
           const input = McpAskOperatorInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          if (input.sourceClarification) {
+            assertMcpScope(context.credential, input, 'intake-source:read', 'venue')
+            assertMcpScope(context.credential, input, 'agent-runs:execute', 'venue')
+            if (!context.executionClaim || context.executionClaim.agentRunId !== input.agentRunId)
+              throw new Error('Source questions require an exact worker execution claim')
+          }
           await options.beforeAction?.(name, input, context)
           result = await actions.askOperator(input, context)
           break

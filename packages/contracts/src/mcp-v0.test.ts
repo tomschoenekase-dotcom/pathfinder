@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMcpScope,
   McpReadInput,
+  McpAskOperatorInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpIntakeV1PackagePreviewInput,
@@ -722,5 +723,80 @@ describe('Torchiko MCP v0 contracts', () => {
     })
     expect(result.structuredContent).toEqual(JSON.parse(result.content[0].text))
     expect(result.resultType).toBe('complete')
+  })
+})
+
+describe('source-bound operator question contract', () => {
+  const source = {
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'agent-run-1',
+    question: 'Are these two distinct greenhouses?',
+    sourceClarification: {
+      runId: 'intake-run-1',
+      receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      expectedExtractedTextHash: 'a'.repeat(64),
+      fieldPath: 'entities.greenhouse',
+      reason: 'CONTRADICTION',
+      blockerScope: 'LOCAL',
+      evidenceExcerpt: 'Two similar greenhouses.',
+    },
+  }
+  it('derives source blocking while keeping the two run identities distinct', () => {
+    expect(McpAskOperatorInput.parse(source)).toMatchObject({
+      agentRunId: 'agent-run-1',
+      blocking: false,
+      operationId: undefined,
+      sourceClarification: { runId: 'intake-run-1' },
+    })
+    expect(
+      McpAskOperatorInput.parse({
+        ...source,
+        sourceClarification: { ...source.sourceClarification, blockerScope: 'FOUNDATIONAL' },
+      }).blocking,
+    ).toBe(true)
+  })
+  it('rejects generic lifecycle/replay overrides and missing worker run', () => {
+    for (const extra of [
+      { operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      { context: 'override' },
+      { blocking: true },
+      { choices: [] },
+      { expiresAt: '2026-09-11T12:00:00Z' },
+      { agentRunId: undefined },
+    ])
+      expect(McpAskOperatorInput.safeParse({ ...source, ...extra }).success).toBe(false)
+  })
+  it('rejects unbounded, forged or unknown source metadata', () => {
+    for (const extra of [
+      { runId: '' },
+      { receiptId: 'not-a-uuid' },
+      { expectedExtractedTextHash: 'wrong' },
+      { fieldPath: 'x'.repeat(501) },
+      { evidenceExcerpt: 'x'.repeat(1001) },
+      { callbackMetadata: { workflow: 'privileged' } },
+    ])
+      expect(
+        McpAskOperatorInput.safeParse({
+          ...source,
+          sourceClarification: { ...source.sourceClarification, ...extra },
+        }).success,
+      ).toBe(false)
+  })
+  it('preserves generic operation IDs and defaults', () => {
+    const generic = {
+      clientId: source.clientId,
+      venueId: source.venueId,
+      agentIdentityId: source.agentIdentityId,
+      question: source.question,
+    }
+    expect(
+      McpAskOperatorInput.parse({
+        ...generic,
+        operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+    ).toMatchObject({ blocking: true, choices: [] })
+    expect(McpAskOperatorInput.safeParse(generic).success).toBe(false)
   })
 })

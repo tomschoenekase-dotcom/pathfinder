@@ -33,6 +33,83 @@ export class FileClarificationError extends Error {
   }
 }
 
+/**
+ * Builds the canonical persisted question shape for an exact retained file extraction.
+ * Both the admin route and the authenticated worker adapter use this so v3/v4 operation
+ * identities and source metadata cannot drift.
+ */
+export function fileExtractionClarificationQuestionPayload(input: {
+  tenantId: string
+  venueId: string
+  runId: string
+  receiptId: string
+  extractedTextHash: string
+  fieldPath: string
+  reason: (typeof FILE_CLARIFICATION_REASONS)[number]
+  blockerScope: (typeof FILE_CLARIFICATION_BLOCKER_SCOPES)[number]
+  question: string
+  evidenceExcerpt: string
+  agentIdentityId: string
+  agentRunId?: string
+}) {
+  const excerptHash = sha256(input.evidenceExcerpt)
+  const runlessOperationIdentity = `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${input.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`
+  const operationId = deterministicUuid(
+    input.agentRunId
+      ? `pathfinder:file-extraction-clarification:v4:${JSON.stringify([
+          input.tenantId,
+          input.venueId,
+          input.runId,
+          input.receiptId,
+          input.extractedTextHash,
+          input.fieldPath,
+          input.reason,
+          input.blockerScope,
+          sha256(input.question),
+          excerptHash,
+          input.agentRunId,
+        ])}`
+      : runlessOperationIdentity,
+  )
+
+  return {
+    operationId,
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    agentIdentityId: input.agentIdentityId,
+    ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    question: input.question,
+    context:
+      input.blockerScope === 'FOUNDATIONAL'
+        ? 'Founder/admin clarification is required for exact retained file evidence. This foundational uncertainty blocks terminal acceptance until answered. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.'
+        : 'Founder/admin clarification is required for exact retained file evidence. This local uncertainty blocks only the affected field/topic; unrelated reviewed proposal work may continue while the ticket remains visible. Its evidence must be excluded until answered, and the answer grants no approval, apply, publication, provider, or venue-contact authority.',
+    questionType: 'LONG_TEXT' as const,
+    category: 'builder-file-clarification',
+    urgency: input.reason === 'DATE_SENSITIVE' ? ('HIGH' as const) : ('NORMAL' as const),
+    evidence: [
+      {
+        kind: 'DOCUMENT_EXCERPT' as const,
+        label: `${input.fieldPath} (${input.reason.replaceAll('_', ' ').toLowerCase()})`,
+        reference: `intake-file-extraction:${input.receiptId}:sha256:${input.extractedTextHash}`,
+        summary: input.evidenceExcerpt,
+      },
+    ],
+    callbackMetadata: {
+      workflow: 'intake-file-extraction-clarification',
+      runId: input.runId,
+      receiptId: input.receiptId,
+      extractedTextHash: input.extractedTextHash,
+      fieldPath: input.fieldPath,
+      reason: input.reason,
+      blockerScope: input.blockerScope,
+      excerptHash,
+      sourceAmendmentRequired: true,
+      ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    },
+    blocking: input.blockerScope === 'FOUNDATIONAL',
+  }
+}
+
 export async function createFileExtractionClarificationQuestion(input: {
   db: TRPCContext['db']
   tenantId: string
@@ -96,64 +173,13 @@ export async function createFileExtractionClarificationQuestion(input: {
       'Choose an enabled in-scope Content identity with draft capability.',
     )
   }
-  const excerptHash = sha256(input.evidenceExcerpt)
-  const runlessOperationIdentity = `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`
-  const operationId = deterministicUuid(
-    input.agentRunId
-      ? `pathfinder:file-extraction-clarification:v4:${JSON.stringify([
-          input.tenantId,
-          input.venueId,
-          input.runId,
-          input.receiptId,
-          receipt.extractedTextHash,
-          input.fieldPath,
-          input.reason,
-          input.blockerScope,
-          sha256(input.question),
-          excerptHash,
-          input.agentRunId,
-        ])}`
-      : runlessOperationIdentity,
-  )
-
   try {
     const result = await askAgentQuestionAction(
-      {
-        operationId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
+      fileExtractionClarificationQuestionPayload({
+        ...input,
+        extractedTextHash: receipt.extractedTextHash,
         agentIdentityId: identity.id,
-        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-        question: input.question,
-        context:
-          input.blockerScope === 'FOUNDATIONAL'
-            ? 'Founder/admin clarification is required for exact retained file evidence. This foundational uncertainty blocks terminal acceptance until answered. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.'
-            : 'Founder/admin clarification is required for exact retained file evidence. This local uncertainty blocks only the affected field/topic; unrelated reviewed proposal work may continue while the ticket remains visible. Its evidence must be excluded until answered, and the answer grants no approval, apply, publication, provider, or venue-contact authority.',
-        questionType: 'LONG_TEXT',
-        category: 'builder-file-clarification',
-        urgency: input.reason === 'DATE_SENSITIVE' ? 'HIGH' : 'NORMAL',
-        evidence: [
-          {
-            kind: 'DOCUMENT_EXCERPT',
-            label: `${input.fieldPath} (${input.reason.replaceAll('_', ' ').toLowerCase()})`,
-            reference: `intake-file-extraction:${input.receiptId}:sha256:${receipt.extractedTextHash}`,
-            summary: input.evidenceExcerpt,
-          },
-        ],
-        callbackMetadata: {
-          workflow: 'intake-file-extraction-clarification',
-          runId: input.runId,
-          receiptId: input.receiptId,
-          extractedTextHash: receipt.extractedTextHash,
-          fieldPath: input.fieldPath,
-          reason: input.reason,
-          blockerScope: input.blockerScope,
-          excerptHash,
-          sourceAmendmentRequired: true,
-          ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-        },
-        blocking: input.blockerScope === 'FOUNDATIONAL',
-      },
+      }),
       input.db,
     )
     return {

@@ -5,6 +5,7 @@ import type { AgentDelegationClient, AgentQuestionClient } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import type { PathfinderMcpDomainActions } from './registry'
+import { writeSourceClarificationQuestion } from './source-question-writer'
 
 /** Adds the first durable agent-to-operator interaction without adding transport or execution. */
 export function createPathfinderMcpAgentActions(
@@ -98,9 +99,52 @@ export function createPathfinderMcpAgentActions(
       }
     },
     async askOperator(input, context) {
+      if (input.sourceClarification) {
+        const result = await writeSourceClarificationQuestion(
+          db,
+          {
+            clientId: input.clientId,
+            venueId: input.venueId!,
+            agentRunId: input.agentRunId!,
+            agentIdentityId: input.agentIdentityId,
+            question: input.question,
+            sourceClarification: input.sourceClarification,
+          },
+          context,
+        )
+        return {
+          kind: 'pathfinder.agent-question',
+          summary: result.replayed
+            ? 'Existing operator question returned.'
+            : result.question.blocking
+              ? 'Agent run is waiting for an operator answer.'
+              : 'Operator question was recorded.',
+          data: {
+            id: result.question.id,
+            questionId: result.question.id,
+            agentRunId: result.question.agentRunId,
+            status: result.question.status,
+            questionStatus: result.question.status,
+            blocking: result.question.blocking,
+            blockerScope: input.sourceClarification.blockerScope,
+            blocksTerminalReview: input.sourceClarification.blockerScope === 'FOUNDATIONAL',
+            replayed: result.replayed,
+            consolidated: result.consolidated,
+            sourceAmendmentRequired: true,
+            executionTriggered: false,
+            approvalGranted: false,
+            canonicalVenueChanged: false,
+            packageDraftCreated: false,
+            publicationTriggered: false,
+            venueContactTriggered: false,
+            updatedAt: result.question.updatedAt.toISOString(),
+            expiresAt: result.question.expiresAt?.toISOString() ?? null,
+          },
+        }
+      }
       const result = await askAgentQuestionAction(
         {
-          operationId: input.operationId,
+          operationId: input.operationId!,
           tenantId: context.credential.tenantId,
           venueId: input.venueId!,
           agentIdentityId: input.agentIdentityId,

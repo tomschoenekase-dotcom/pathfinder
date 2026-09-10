@@ -30,6 +30,7 @@ import { executeIntakeFileExtraction } from './lib/intake-file-extraction-servic
 import { createAgentBridgeRegistry } from './agent-bridge/registry'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './mcp/registry'
 import { readMcpResource } from './mcp/read-actions'
+import { createPathfinderMcpAgentActions } from './mcp/agent-actions'
 
 const enabled =
   process.env.RUN_QUESTION_SOURCE_READER_DB_INTEGRATION === '1' &&
@@ -56,7 +57,8 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     let workerId = ''
     let credential!: Awaited<ReturnType<typeof verifyAgentBridgeCredential>>
     const sourcePrefix = 'Retained review notes. '.repeat(230)
-    const excerpt = 'Greenhouse access remains ambiguous between the east and south entrances.'
+    const excerpt =
+      'The east and south greenhouses look similar; the source does not establish whether they are distinct buildings.'
     const lateCapacity = 'The approved visitor capacity is exactly 137.'
     const extractedText = `${sourcePrefix}\n${excerpt}\n${lateCapacity}\n`
     let intakeRunId = ''
@@ -125,7 +127,12 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
         actor,
         kind: 'MCP',
         label: 'Disposable question-source reader credential',
-        capabilities: ['agent-runs:execute', 'intake-source:read', 'resources:read'],
+        capabilities: [
+          'agent-runs:execute',
+          'intake-source:read',
+          'questions:ask',
+          'resources:read',
+        ],
         expiresAt: new Date(Date.now() + 3_600_000),
       })
       const activated = await activateAgentBridgeCredentialAction({
@@ -150,7 +157,12 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
           label: 'Disposable Content source reader',
           protocolVersion: 'mcp-2026-07-28',
           softwareVersion: 'integration/1',
-          capabilities: ['agent-runs:execute', 'intake-source:read', 'resources:read'],
+          capabilities: [
+            'agent-runs:execute',
+            'intake-source:read',
+            'questions:ask',
+            'resources:read',
+          ],
           agentRoles: ['CONTENT'],
           safeHealth: {},
         },
@@ -373,10 +385,10 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       runId: intakeRunId,
       receiptId,
       expectedExtractedTextHash: extractedTextHash,
-      fieldPath: 'visitor-access.greenhouse',
+      fieldPath: 'entities.greenhouse',
       reason: 'CONTRADICTION' as const,
       blockerScope: 'FOUNDATIONAL' as const,
-      question: 'Which entrance is authoritative for greenhouse access?',
+      question: 'Are the east and south greenhouse references two distinct buildings?',
       evidenceExcerpt: excerpt,
       agentIdentityId: identityId,
       agentRunId: runId,
@@ -426,8 +438,69 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     await expect(runStatus(terminalRunId)).resolves.toEqual({ status: 'COMPLETED' })
     await expect(runStatus(wrongVenueRunId)).resolves.toEqual({ status: 'QUEUED' })
 
+    const operationalRegistry = createPathfinderMcpRegistry(
+      createPathfinderMcpAgentActions(db, {
+        read: (input, context) => readMcpResource(db as never, input, context),
+      } as Omit<PathfinderMcpDomainActions, 'askOperator' | 'delegateSpecialist'>),
+    )
+    const bridge = createAgentBridgeRegistry({ operationalRegistry })
+    const sourceQuestionArgs = {
+      venueId,
+      toolName: 'pathfinder.ask_operator',
+      executionClaim: {
+        agentRunId: runId,
+        bridgeSessionId,
+        workerId,
+        executionLeaseToken: initialClaim.leaseToken,
+      },
+      arguments: {
+        agentIdentityId: identityId,
+        agentRunId: runId,
+        question: input().question,
+        sourceClarification: {
+          runId: intakeRunId,
+          receiptId,
+          expectedExtractedTextHash: extractedTextHash,
+          fieldPath: input().fieldPath,
+          reason: 'CONTRADICTION',
+          blockerScope: 'FOUNDATIONAL',
+          evidenceExcerpt: excerpt,
+        },
+      },
+    }
     const beforeCreated = await questionCount()
-    const created = await createFileExtractionClarificationQuestion(input())
+    await expect(
+      bridge.callOperationalTool(
+        {
+          ...sourceQuestionArgs,
+          executionClaim: {
+            ...sourceQuestionArgs.executionClaim,
+            executionLeaseToken: randomUUID(),
+          },
+        },
+        { credential },
+      ),
+    ).rejects.toThrow()
+    await expect(
+      bridge.callOperationalTool(sourceQuestionArgs, {
+        credential: {
+          ...credential,
+          capabilities: credential.capabilities.filter((grant) => grant !== 'intake-source:read'),
+        },
+      }),
+    ).rejects.toThrow()
+    expect(await questionCount()).toBe(beforeCreated)
+    const sourceQuestionResult = await bridge.callOperationalTool(sourceQuestionArgs, {
+      credential,
+    })
+    const created = sourceQuestionResult.structuredContent!.data as {
+      questionId: string
+      questionStatus: string
+      blockerScope: string
+      blocksTerminalReview: boolean
+    }
+    // FOUNDATIONAL creation relinquishes the first claim; it must not authorize a replay.
+    await expect(bridge.callOperationalTool(sourceQuestionArgs, { credential })).rejects.toThrow()
     expect(created).toMatchObject({
       questionStatus: 'PENDING',
       blockerScope: 'FOUNDATIONAL',
@@ -460,7 +533,7 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     await expect(runStatus(runId)).resolves.toEqual({ status: 'AWAITING_INPUT' })
     await expect(runStatus(siblingRunId)).resolves.toEqual({ status: 'QUEUED' })
 
-    const founderAnswer = 'Use the accessible east greenhouse entrance.'
+    const founderAnswer = 'They are two distinct greenhouse buildings; retain both identities.'
     await expect(
       answerAgentQuestionAction({
         ...scope,
@@ -518,10 +591,6 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       ]),
     )
     // The invocation passes only the question ID and claim, never an in-process source locator.
-    const operationalRegistry = createPathfinderMcpRegistry({
-      read: (input, context) => readMcpResource(db as never, input, context),
-    } as PathfinderMcpDomainActions)
-    const bridge = createAgentBridgeRegistry({ operationalRegistry })
     const executionClaim = {
       agentRunId: runId,
       bridgeSessionId,
@@ -608,6 +677,14 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     ).toBe(0)
     await expect(runStatus(runId)).resolves.toEqual({ status: 'RUNNING' })
 
+    const registeredReplay = await bridge.callOperationalTool(
+      { ...sourceQuestionArgs, executionClaim },
+      { credential },
+    )
+    expect(registeredReplay.structuredContent!.data).toMatchObject({
+      questionId: question.id,
+      replayed: true,
+    })
     const sourceArgs = {
       venueId,
       toolName: 'pathfinder.read',
@@ -675,5 +752,8 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
       createdBy: actorId,
     })
     await expect(bridge.callOperationalTool(sourceArgs, { credential })).rejects.toThrow()
+    await expect(
+      bridge.callOperationalTool({ ...sourceQuestionArgs, executionClaim }, { credential }),
+    ).rejects.toThrow()
   })
 })

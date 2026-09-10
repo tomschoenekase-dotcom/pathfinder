@@ -457,4 +457,38 @@ describe('agent bridge registry', () => {
     ).toThrow(/exact worker execution claim/u)
     expect(mocks.operationalCall).not.toHaveBeenCalled()
   })
+  it('forwards source-question claims and rejects absent or mismatched run claims', async () => {
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    const executionClaim = {
+      agentRunId: 'run-1',
+      bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workerId: 'worker-1',
+      executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    const args = { agentRunId: 'run-1', sourceClarification: { runId: 'intake-run-1' } }
+    await registry.callOperationalTool(
+      { venueId: 'venue-1', toolName: 'pathfinder.ask_operator', arguments: args, executionClaim },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.ask_operator',
+      { ...args, venueId: 'venue-1', clientId: 'tenant-1' },
+      { credential, executionClaim },
+    )
+    for (const claim of [undefined, { ...executionClaim, agentRunId: 'other-run' }]) {
+      expect(() =>
+        registry.callOperationalTool(
+          {
+            venueId: 'venue-1',
+            toolName: 'pathfinder.ask_operator',
+            arguments: args,
+            executionClaim: claim,
+          },
+          { credential },
+        ),
+      ).toThrow(/exact worker execution claim/u)
+    }
+  })
 })
