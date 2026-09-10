@@ -2,6 +2,8 @@
 
 Source checkpoint: `0bd2eb32`, inspected 2026-09-10. This is the implementation contract for the next W01 connection, not an implemented or enabled service.
 
+Current implementation: `21c26ea9` adds the scoped disabled-by-default routing policy, admin configuration/read routes, trusted routing admission and SYSTEM source-task constructor; `83fa875b` retains native proof `59ef61baa53a` (241 migrations, 259 tables, 48 measured source hashes). Automatic extraction outbox/dispatch reconciliation remains unimplemented. Continue with decisions 3-6 below; reuse the completed primitives rather than rebuilding them.
+
 ## Confirmed gap
 
 `apps/workers/src/processors/intake-v1-file-extraction.ts` completes the extraction dispatch after retaining its receipt. `completeIntakeV1FileExtractionDispatch` recovers the exact receipt and marks the extraction terminal. Neither queues a Content AgentRun. Production `sourceAssignment` reaches `createAgentTaskAction` only through the admin task route. Its actor schema is explicitly HUMAN/PLATFORM_ADMIN, its operation is `operator_task`, and its audit/timeline describe operator intent. A system caller must not fabricate that actor.
