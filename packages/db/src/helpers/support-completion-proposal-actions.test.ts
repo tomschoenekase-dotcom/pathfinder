@@ -27,6 +27,7 @@ const input = {
 
 function harness(missingInformation: string[] = []) {
   const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(0),
     approvalRequest: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi

@@ -8,6 +8,11 @@ import {
   resolveNativeGuestReadSnapshotAction,
   type NativeGuestReadPath,
 } from './native-guest-content-read'
+import {
+  readSupportFulfillmentSources,
+  SupportFulfillmentSourceError,
+  type SupportFulfillmentSourceReader,
+} from './support-fulfillment-sources'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 
@@ -36,15 +41,14 @@ export type SupportContentFulfillment = {
 
 export type SupportContentFulfillmentReader = Pick<
   TransactionClient,
-  | 'knowledgeChangeProposal'
-  | 'supportRequestAuditEvent'
   | 'knowledgeProposalUniversalContentHandoff'
   | 'legacyKnowledgeUniversalContentAdoption'
   | 'venueKnowledgeEntry'
   | 'tenantFeatureFlag'
   | 'nativeVenueDeploymentHead'
   | 'nativeVenueDeploymentEvaluationEvidence'
->
+> &
+  SupportFulfillmentSourceReader
 
 const MAX_RECEIPTS = 100
 
@@ -69,44 +73,6 @@ export function supportContentFulfillmentDigest(
   value: Omit<SupportContentFulfillment, 'digest' | 'verifiedAt'>,
 ): string {
   return createHash('sha256').update(canonicalJson(value)).digest('hex')
-}
-
-type SourceProposal = {
-  id: string
-  supportRequestId: string | null
-  supportRequestVersion: number | null
-  status: 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'PUBLISHED' | 'PUBLISH_FAILED'
-  packageHandoff: { venuePackageId: string } | null
-  operationalUpdateHandoff: { id: string } | null
-  producedByConflictResolution: {
-    proposalId: string
-    proposal: {
-      id: string
-      supportRequestId: string | null
-      supportRequestVersion: number | null
-      producedByConflictResolution: { id: string } | null
-    } | null
-  } | null
-}
-
-function sourceForRequest(proposal: SourceProposal, supportRequestId: string) {
-  if (proposal.supportRequestId === supportRequestId && proposal.supportRequestVersion !== null) {
-    if (proposal.producedByConflictResolution)
-      throw new SupportContentFulfillmentError(
-        'Conflict replacement lineage must have one source hop.',
-      )
-    return { id: proposal.id, requestVersion: proposal.supportRequestVersion }
-  }
-  const original = proposal.producedByConflictResolution?.proposal
-  if (original && original.id !== proposal.producedByConflictResolution?.proposalId)
-    throw new SupportContentFulfillmentError('Conflict replacement lineage is inconsistent.')
-  if (original?.producedByConflictResolution)
-    throw new SupportContentFulfillmentError(
-      'Conflict replacement lineage must have one source hop.',
-    )
-  if (original?.supportRequestId === supportRequestId && original.supportRequestVersion !== null)
-    return { id: original.id, requestVersion: original.supportRequestVersion }
-  return null
 }
 
 type Receipt = {
@@ -169,68 +135,24 @@ export async function readSupportContentFulfillment(
     venueId: string
     supportRequestId: string
     verifiedPackageIds?: string[]
+    verifiedTemporalProposalIds?: string[]
     asOf?: Date
   },
 ): Promise<SupportContentFulfillment> {
   const asOf = input.asOf ?? new Date()
   if (!Number.isFinite(asOf.getTime()))
     throw new SupportContentFulfillmentError('Invalid verification time.')
-  const proposals = (await client.knowledgeChangeProposal.findMany({
-    where: {
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      OR: [
-        { supportRequestId: input.supportRequestId },
-        {
-          producedByConflictResolution: {
-            is: {
-              proposal: {
-                is: {
-                  tenantId: input.tenantId,
-                  venueId: input.venueId,
-                  supportRequestId: input.supportRequestId,
-                },
-              },
-            },
-          },
-        },
-      ],
-    },
-    orderBy: { id: 'asc' },
-    take: MAX_RECEIPTS + 1,
-    select: {
-      id: true,
-      supportRequestId: true,
-      supportRequestVersion: true,
-      status: true,
-      packageHandoff: { select: { venuePackageId: true } },
-      operationalUpdateHandoff: { select: { id: true } },
-      producedByConflictResolution: {
-        select: {
-          proposalId: true,
-          proposal: {
-            select: {
-              id: true,
-              supportRequestId: true,
-              supportRequestVersion: true,
-              producedByConflictResolution: { select: { id: true } },
-            },
-          },
-        },
-      },
-    },
-  })) as SourceProposal[]
-  if (proposals.length > MAX_RECEIPTS)
-    throw new SupportContentFulfillmentError('Support content source proposal count exceeds 100.')
-
-  const sources = new Map<string, { id: string; requestVersion: number }>()
-  const proposalSources = new Map<string, { id: string; requestVersion: number }>()
-  for (const proposal of proposals) {
-    const source = sourceForRequest(proposal, input.supportRequestId)
-    if (!source) continue
-    sources.set(source.id, source)
-    proposalSources.set(proposal.id, source)
-  }
+  const sources = await readSupportFulfillmentSources(client, input).catch((error) => {
+    if (error instanceof SupportFulfillmentSourceError)
+      throw new SupportContentFulfillmentError(error.message)
+    throw error
+  })
+  const proposalSources = new Map(
+    sources.map((source) => [
+      source.proposalId,
+      { id: source.sourceProposalId, requestVersion: source.sourceRequestVersion },
+    ]),
+  )
   if (proposalSources.size === 0) {
     const identity = {
       contractVersion: 1 as const,
@@ -242,26 +164,6 @@ export async function readSupportContentFulfillment(
       verifiedAt: asOf.toISOString(),
       digest: supportContentFulfillmentDigest(identity),
     }
-  }
-
-  for (const source of sources.values()) {
-    const frozen = await client.supportRequestAuditEvent.findUnique({
-      where: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        supportRequestId_tenantId_venueId_requestVersion: {
-          supportRequestId: input.supportRequestId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          requestVersion: source.requestVersion,
-        },
-      },
-      select: { id: true },
-    })
-    if (!frozen)
-      throw new SupportContentFulfillmentError(
-        'Exact support request version evidence is unavailable.',
-      )
   }
 
   const proposalIds = [...proposalSources.keys()]
@@ -320,14 +222,20 @@ export async function readSupportContentFulfillment(
   ] as Receipt[]
   const receiptProposalIds = new Set(receipts.map(({ proposalId }) => proposalId))
   const verifiedPackageIds = new Set(input.verifiedPackageIds ?? [])
-  for (const proposal of proposals) {
-    if (!proposalSources.has(proposal.id) || receiptProposalIds.has(proposal.id)) continue
-    if (proposal.status === 'REJECTED') continue
-    if (proposal.operationalUpdateHandoff)
-      throw new SupportContentFulfillmentError(
-        'A source-bound temporal update remains pending verified fulfillment.',
-      )
-    if (proposal.packageHandoff && verifiedPackageIds.has(proposal.packageHandoff.venuePackageId))
+  const verifiedTemporalProposalIds = new Set(input.verifiedTemporalProposalIds ?? [])
+  for (const source of sources) {
+    if (receiptProposalIds.has(source.proposalId)) continue
+    if (source.operationalUpdateHandoffId)
+      if (verifiedTemporalProposalIds.has(source.proposalId)) continue
+      else
+        throw new SupportContentFulfillmentError(
+          'A source-bound temporal update remains pending verified fulfillment.',
+        )
+    if (source.status === 'REJECTED') continue
+    if (
+      source.packageHandoffVenuePackageId &&
+      verifiedPackageIds.has(source.packageHandoffVenuePackageId)
+    )
       continue
     throw new SupportContentFulfillmentError(
       'A source-bound proposal has no verified content or package fulfillment.',

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   readSupportPackageFulfillment,
+  assertSupportFulfillmentEffectiveAt,
   sameSupportPackageFulfillment,
   supportPackageFulfillmentDigest,
 } from './support-package-fulfillment'
@@ -11,13 +12,14 @@ const scope = { tenantId: 'tenant_1', venueId: 'venue_1', supportRequestId: 'req
 describe('support package fulfillment evidence', () => {
   it('represents package-free completion with a deterministic exact digest', async () => {
     const reader = {
+      $executeRaw: vi.fn().mockResolvedValue(0),
       knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     }
     const first = await readSupportPackageFulfillment(reader as never, scope)
     const second = await readSupportPackageFulfillment(reader as never, scope)
     expect(first).toMatchObject({
-      contractVersion: 3,
+      contractVersion: 4,
       linkedPackageCount: 0,
       packages: [],
       guestObservability: {
@@ -26,6 +28,10 @@ describe('support package fulfillment evidence', () => {
         effects: [],
       },
     })
+    expect(reader.$executeRaw.mock.calls[0]?.[1]).toBe(
+      'pathfinder:support-request:tenant_1:request_1',
+    )
+    expect(reader.$executeRaw.mock.calls[1]?.slice(1)).toEqual(['tenant_1', 'venue_1'])
     expect(first.digest).toMatch(/^[a-f0-9]{64}$/)
     expect(sameSupportPackageFulfillment(first, second)).toBe(true)
     expect(reader.supportPackageHandoff.findMany).toHaveBeenCalledWith(
@@ -72,6 +78,7 @@ describe('support package fulfillment evidence', () => {
       },
     }
     const reader = {
+      $executeRaw: vi.fn().mockResolvedValue(0),
       knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([applied]) },
       contentVersion: {
@@ -93,7 +100,7 @@ describe('support package fulfillment evidence', () => {
     }
     const fulfillment = await readSupportPackageFulfillment(reader as never, scope)
     expect(fulfillment).toMatchObject({
-      contractVersion: 3,
+      contractVersion: 4,
       linkedPackageCount: 1,
       packages: [
         {
@@ -115,7 +122,7 @@ describe('support package fulfillment evidence', () => {
         ],
       },
     })
-    if (fulfillment.contractVersion !== 3) throw new Error('Expected observable fulfillment')
+    if (fulfillment.contractVersion !== 4) throw new Error('Expected observable fulfillment')
     const laterVerification = {
       ...fulfillment,
       guestObservability: {
@@ -159,6 +166,7 @@ describe('support package fulfillment evidence', () => {
 
   it('holds an applied legacy package without supported observable apply evidence', async () => {
     const reader = {
+      $executeRaw: vi.fn().mockResolvedValue(0),
       knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       supportPackageHandoff: {
         findMany: vi.fn().mockResolvedValue([
@@ -190,12 +198,13 @@ describe('support completion content approval identity', () => {
   it('does not accept legacy package-free approval for a content receipt and binds content drift', async () => {
     const empty = await readSupportPackageFulfillment(
       {
+        $executeRaw: vi.fn().mockResolvedValue(0),
         supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
         knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
       } as never,
       scope,
     )
-    if (empty.contractVersion !== 3) throw new Error('Expected current fulfillment')
+    if (empty.contractVersion !== 4) throw new Error('Expected current fulfillment')
     const receipt = {
       receiptKind: 'UNIVERSAL' as const,
       receiptId: 'receipt',
@@ -223,6 +232,7 @@ describe('support completion content approval identity', () => {
         packages: value.packages,
         guestObservability: value.guestObservability,
         contentFulfillment: value.contentFulfillment,
+        temporalFulfillment: value.temporalFulfillment,
       })
     filled.digest = digestOf(filled)
     const legacy = {
@@ -253,5 +263,82 @@ describe('support completion content approval identity', () => {
         },
       }),
     ).toBe(filled.digest)
+  })
+})
+
+describe('temporal approval identity', () => {
+  it('binds temporal receipts and preserves verification-time stability without legacy bypass', async () => {
+    const empty = await readSupportPackageFulfillment(
+      {
+        $executeRaw: vi.fn().mockResolvedValue(0),
+        supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
+        knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
+      scope,
+    )
+    if (empty.contractVersion !== 4) throw new Error('Expected current fulfillment')
+    const current = {
+      ...empty,
+      temporalFulfillment: {
+        ...empty.temporalFulfillment,
+        receipts: [
+          {
+            handoffId: 'handoff',
+            proposalId: 'proposal',
+            sourceProposalId: 'source',
+            sourceRequestVersion: 1,
+            operationalUpdateId: 'update',
+            updatedAt: '2026-09-10T12:00:00.000Z',
+            publishedAt: '2026-09-10T12:00:00.000Z',
+            startsAt: '2026-09-10T12:00:00.000Z',
+            expiresAt: '2026-09-10T13:00:00.000Z',
+            observedStateHash: 'a'.repeat(64),
+          },
+        ],
+      },
+    }
+    const digestOf = (value: typeof current) =>
+      supportPackageFulfillmentDigest({
+        contractVersion: 4,
+        linkedPackageCount: value.linkedPackageCount,
+        packages: value.packages,
+        guestObservability: value.guestObservability,
+        contentFulfillment: value.contentFulfillment,
+        temporalFulfillment: value.temporalFulfillment,
+      })
+    current.digest = digestOf(current)
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(current, new Date('2026-09-10T12:59:59.000Z')),
+    ).not.toThrow()
+    expect(() =>
+      assertSupportFulfillmentEffectiveAt(current, new Date('2026-09-10T13:00:00.000Z')),
+    ).toThrow('no longer currently effective')
+
+    const later = {
+      ...current,
+      temporalFulfillment: {
+        ...current.temporalFulfillment,
+        verifiedAt: '2026-09-10T12:40:00.000Z',
+      },
+    }
+    expect(digestOf(later)).toBe(current.digest)
+    expect(sameSupportPackageFulfillment(current, later)).toBe(true)
+    expect(
+      sameSupportPackageFulfillment(
+        { contractVersion: 1, linkedPackageCount: 0, packages: [], digest: 'b'.repeat(64) },
+        current,
+      ),
+    ).toBe(false)
+    const changed = {
+      ...current,
+      temporalFulfillment: {
+        ...current.temporalFulfillment,
+        receipts: [
+          { ...current.temporalFulfillment.receipts[0]!, observedStateHash: 'c'.repeat(64) },
+        ],
+      },
+    }
+    expect(digestOf(changed)).not.toBe(current.digest)
+    expect(sameSupportPackageFulfillment(current, changed)).toBe(false)
   })
 })

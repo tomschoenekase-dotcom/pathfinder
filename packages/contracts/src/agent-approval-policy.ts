@@ -446,11 +446,75 @@ export const SupportCompletionPackageFulfillmentV3 = z
   })
   .strict()
 
+export const SupportCompletionTemporalFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            handoffId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            operationalUpdateId: z.string().min(1).max(191),
+            updatedAt: z.string().datetime(),
+            publishedAt: z.string().datetime(),
+            startsAt: z.string().datetime(),
+            expiresAt: z.string().datetime(),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      new Set(value.receipts.map((receipt) => receipt.handoffId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((receipt) => receipt.operationalUpdateId)).size !==
+        value.receipts.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['receipts'],
+        message: 'Temporal fulfillment contains duplicate evidence.',
+      })
+    }
+    value.receipts.forEach((receipt, index) => {
+      if (
+        !(
+          Date.parse(receipt.startsAt) <= Date.parse(value.verifiedAt) &&
+          Date.parse(value.verifiedAt) < Date.parse(receipt.expiresAt)
+        )
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['receipts', index],
+          message: 'Temporal fulfillment must be currently effective at verification.',
+        })
+      }
+    })
+  })
+
+export const SupportCompletionPackageFulfillmentV4 = z
+  .object({
+    contractVersion: z.literal(4),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillment,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+  })
+  .strict()
+
 export const SupportCompletionPackageFulfillment = z
   .discriminatedUnion('contractVersion', [
     SupportCompletionPackageFulfillmentV1,
     SupportCompletionPackageFulfillmentV2,
     SupportCompletionPackageFulfillmentV3,
+    SupportCompletionPackageFulfillmentV4,
   ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {

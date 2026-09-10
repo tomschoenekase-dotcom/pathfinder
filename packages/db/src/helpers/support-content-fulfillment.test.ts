@@ -182,7 +182,8 @@ describe('support content fulfillment', () => {
   })
 
   it('reads one directly sourced current public published projection', async () => {
-    const value = await readSupportContentFulfillment(reader() as never, { ...scope, asOf })
+    const db = reader()
+    const value = await readSupportContentFulfillment(db as never, { ...scope, asOf })
     expect(value.receipts).toEqual([
       expect.objectContaining({
         receiptKind: 'UNIVERSAL',
@@ -193,6 +194,11 @@ describe('support content fulfillment', () => {
       }),
     ])
     expect(value.guestRead.path).toBe('LEGACY')
+    expect(db.supportRequestAuditEvent.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+      }),
+    )
   })
 
   it('returns adoption receipts with the same current-public projection proof', async () => {

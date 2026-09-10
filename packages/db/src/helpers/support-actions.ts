@@ -1,3 +1,5 @@
+import { lockSupportRequest } from './support-request-lock'
+export { lockSupportRequest } from './support-request-lock'
 import { createHash, randomUUID } from 'node:crypto'
 
 import type {
@@ -24,6 +26,7 @@ import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-e
 import { canTenantActorAccessSupportRequest } from './support-request-access'
 import {
   readSupportPackageFulfillment,
+  assertSupportFulfillmentEffectiveAt,
   sameSupportPackageFulfillment,
   SupportPackageFulfillmentError,
 } from './support-package-fulfillment'
@@ -389,14 +392,6 @@ async function lockSupportOperation(
   operationId: string,
 ) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-operation:${tenantId}:${operationId}`}, 0))`
-}
-
-export async function lockSupportRequest(
-  tx: Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0],
-  tenantId: string,
-  requestId: string,
-) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-request:${tenantId}:${requestId}`}, 0))`
 }
 
 function canonicalJson(value: unknown): string {
@@ -1531,6 +1526,15 @@ async function manualSupportLoopActionOnce(
 
     const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
     const now = new Date()
+    if (completionPackageFulfillment) {
+      try {
+        assertSupportFulfillmentEffectiveAt(completionPackageFulfillment, now)
+      } catch (error) {
+        if (error instanceof SupportPackageFulfillmentError)
+          throw new SupportActionError('CONFLICT', error.message)
+        throw error
+      }
+    }
     const nextVersion = request.version + 1
     const nextClientVersion = request.clientVersion + 1
     const changed = await tx.supportRequest.updateMany({

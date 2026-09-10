@@ -6,6 +6,13 @@ import {
 } from '@pathfinder/contracts'
 
 import { db } from '../client'
+import { lockVenueContentMutation } from './venue-content-lock'
+import { lockSupportRequest } from './support-request-lock'
+import {
+  readSupportTemporalFulfillment,
+  SupportTemporalFulfillmentError,
+  type SupportTemporalFulfillmentReader,
+} from './support-temporal-fulfillment'
 import {
   readSupportContentFulfillment,
   SupportContentFulfillmentError,
@@ -18,9 +25,10 @@ import {
 } from './support-package-observability'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
-type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff'> &
+type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff' | '$executeRaw'> &
   SupportPackageObservabilityReader &
-  SupportContentFulfillmentReader
+  SupportContentFulfillmentReader &
+  SupportTemporalFulfillmentReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -44,14 +52,18 @@ export function supportPackageFulfillmentDigest(
   value:
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 1 }>, 'digest'>
     | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>
-    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>,
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>,
 ): string {
   const normalized =
     value.contractVersion !== 1
       ? {
           ...value,
+          ...(value.contractVersion === 4
+            ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
+            : {}),
           guestObservability: { ...value.guestObservability, verifiedAt: null },
-          ...(value.contractVersion === 3
+          ...(value.contractVersion === 3 || value.contractVersion === 4
             ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
             : {}),
         }
@@ -68,6 +80,9 @@ export async function readSupportPackageFulfillment(
   client: FulfillmentReader,
   input: { tenantId: string; venueId: string; supportRequestId: string },
 ): Promise<SupportCompletionPackageFulfillmentValue> {
+  // Same order for preparation, MCP execution and manual completion: request -> venue -> entities.
+  await lockSupportRequest(client, input.tenantId, input.supportRequestId)
+  await lockVenueContentMutation(client, input)
   const handoffs = await client.supportPackageHandoff.findMany({
     where: {
       tenantId: input.tenantId,
@@ -121,6 +136,7 @@ export async function readSupportPackageFulfillment(
   }))
   let guestObservability
   let contentFulfillment
+  let temporalFulfillment
   try {
     guestObservability = await readSupportPackageGuestObservability({
       client,
@@ -132,24 +148,28 @@ export async function readSupportPackageFulfillment(
         appliedEntities: venuePackage.appliedEntities,
       })),
     })
+    temporalFulfillment = await readSupportTemporalFulfillment(client, input)
     contentFulfillment = await readSupportContentFulfillment(client, {
       ...input,
       verifiedPackageIds: packages.map(({ packageId }) => packageId),
+      verifiedTemporalProposalIds: temporalFulfillment.receipts.map(({ proposalId }) => proposalId),
     })
   } catch (error) {
     if (
       error instanceof SupportPackageObservabilityError ||
-      error instanceof SupportContentFulfillmentError
+      error instanceof SupportContentFulfillmentError ||
+      error instanceof SupportTemporalFulfillmentError
     )
       throw new SupportPackageFulfillmentError(error.message)
     throw error
   }
   const identity = {
-    contractVersion: 3 as const,
+    contractVersion: 4 as const,
     linkedPackageCount: packages.length,
     packages,
     guestObservability,
     contentFulfillment,
+    temporalFulfillment,
   }
   return SupportCompletionPackageFulfillment.parse({
     ...identity,
@@ -165,21 +185,26 @@ export function sameSupportPackageFulfillment(
     return (
       left.linkedPackageCount === 0 &&
       right.linkedPackageCount === 0 &&
-      (left.contractVersion !== 3 || left.contentFulfillment.receipts.length === 0) &&
-      (right.contractVersion !== 3 || right.contentFulfillment.receipts.length === 0)
+      (!('contentFulfillment' in left) || left.contentFulfillment.receipts.length === 0) &&
+      (left.contractVersion !== 4 || left.temporalFulfillment.receipts.length === 0) &&
+      (!('contentFulfillment' in right) || right.contentFulfillment.receipts.length === 0) &&
+      (right.contractVersion !== 4 || right.temporalFulfillment.receipts.length === 0)
     )
   }
   const withoutVerificationTime = (
     value: Extract<
       SupportCompletionPackageFulfillmentValue,
       {
-        contractVersion: 2 | 3
+        contractVersion: 2 | 3 | 4
       }
     >,
   ) => ({
     ...value,
+    ...(value.contractVersion === 4
+      ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
+      : {}),
     guestObservability: { ...value.guestObservability, verifiedAt: null },
-    ...(value.contractVersion === 3
+    ...(value.contractVersion === 3 || value.contractVersion === 4
       ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
       : {}),
   })
@@ -187,4 +212,24 @@ export function sameSupportPackageFulfillment(
     left.digest === right.digest &&
     canonicalJson(withoutVerificationTime(left)) === canonicalJson(withoutVerificationTime(right))
   )
+}
+
+/** Natural expiry is not prevented by locks; recheck immediately before the completion write. */
+export function assertSupportFulfillmentEffectiveAt(
+  value: SupportCompletionPackageFulfillmentValue,
+  now: Date,
+): void {
+  if (!Number.isFinite(now.getTime()))
+    throw new SupportPackageFulfillmentError('Invalid completion time.')
+  if (value.contractVersion !== 4) return
+  if (
+    value.temporalFulfillment.receipts.some(
+      (receipt) =>
+        Date.parse(receipt.startsAt) > now.getTime() ||
+        Date.parse(receipt.expiresAt) <= now.getTime(),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'Temporal fulfillment is no longer currently effective; refresh completion evidence.',
+    )
 }

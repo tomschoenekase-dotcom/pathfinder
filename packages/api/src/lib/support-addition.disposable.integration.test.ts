@@ -362,7 +362,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId,
     })
     expect(additionFulfillment).toMatchObject({
-      contractVersion: 3,
+      contractVersion: 4,
       contentFulfillment: {
         receipts: [
           expect.objectContaining({
@@ -555,7 +555,7 @@ describe.skipIf(!enabled)('support addition on disposable PostgreSQL', () => {
       supportRequestId: supersessionRequestId,
     })
     expect(supersessionFulfillment).toMatchObject({
-      contractVersion: 3,
+      contractVersion: 4,
       contentFulfillment: {
         receipts: [
           expect.objectContaining({

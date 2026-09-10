@@ -21,6 +21,7 @@ import {
   SupportInformationRequestProposalApprovalSnapshot,
   SupportCompletionApplyParameters,
   SupportCompletionContentFulfillment,
+  SupportCompletionTemporalFulfillment,
   SupportCompletionProposalApprovalSnapshot,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
@@ -652,6 +653,46 @@ describe('support completion content receipt contract', () => {
       SupportCompletionContentFulfillment.safeParse({
         ...published,
         guestRead: { ...published.guestRead, path: 'NATIVE' },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('temporal completion evidence contract', () => {
+  const receipt = {
+    handoffId: 'handoff',
+    proposalId: 'proposal',
+    sourceProposalId: 'source',
+    sourceRequestVersion: 1,
+    operationalUpdateId: 'update',
+    updatedAt: '2026-09-10T12:00:00.000Z',
+    publishedAt: '2026-09-10T12:00:00.000Z',
+    startsAt: '2026-09-10T12:00:00.000Z',
+    expiresAt: '2026-09-10T13:00:00.000Z',
+    observedStateHash: 'a'.repeat(64),
+  }
+  const current = {
+    contractVersion: 1,
+    receipts: [receipt],
+    verifiedAt: '2026-09-10T12:30:00.000Z',
+    digest: 'b'.repeat(64),
+  }
+  it('accepts only evidence effective at verification and rejects duplicate updates', () => {
+    expect(SupportCompletionTemporalFulfillment.safeParse(current).success).toBe(true)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({ ...current, verifiedAt: receipt.expiresAt })
+        .success,
+    ).toBe(false)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({
+        ...current,
+        verifiedAt: '2026-09-10T11:59:59.000Z',
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({
+        ...current,
+        receipts: [receipt, { ...receipt, handoffId: 'other' }],
       }).success,
     ).toBe(false)
   })
