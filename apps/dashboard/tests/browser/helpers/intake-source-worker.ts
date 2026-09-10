@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 import {
   activateAgentBridgeCredentialAction,
@@ -231,14 +231,7 @@ export async function runConnectedSourceWorker(
         if (process.env[key]) childEnv[key] = process.env[key]
       const child = spawn(
         process.execPath,
-        [
-          fileURLToPath(
-            new URL(
-              '../../../../../scripts/fixtures/source-question-http-worker.mjs',
-              import.meta.url,
-            ),
-          ),
-        ],
+        [resolve(process.cwd(), '../../scripts/fixtures/source-question-http-worker.mjs')],
         { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
       )
       let stdout = ''
