@@ -792,7 +792,6 @@ describe.skipIf(!enabled)('question-source registered worker admission', () => {
     ).toBe(0)
 
     const amendmentArgs = {
-      sessionId: bridgeSessionId,
       venueId,
       toolName: 'pathfinder.resolve_source_clarification',
       executionClaim,
