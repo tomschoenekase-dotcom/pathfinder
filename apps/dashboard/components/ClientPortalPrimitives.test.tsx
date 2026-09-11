@@ -3,10 +3,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import React from 'react'
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { ClientJourneyRail, PortalPrimaryAction, TorchikoCore } from './ClientPortalPrimitives'
+
+afterEach(cleanup)
 
 describe('client portal primitives', () => {
   it('exposes journey position semantically without relying on marker color', () => {

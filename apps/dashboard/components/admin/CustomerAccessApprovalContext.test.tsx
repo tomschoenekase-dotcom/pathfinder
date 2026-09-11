@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mutate, refresh } = vi.hoisted(() => ({ mutate: vi.fn(), refresh: vi.fn() }))
 
@@ -14,6 +14,8 @@ vi.mock('../../lib/trpc', () => ({
 }))
 
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
+
+afterEach(cleanup)
 
 const updatedAt = new Date('2026-08-25T14:00:00.000Z')
 
