@@ -5,6 +5,13 @@ async function hideFrameworkDevChrome(page: Page) {
   await page.locator('nextjs-portal').evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
 }
 
+async function waitForVisitorChatFixture(page: Page) {
+  await expect(page.locator('[data-fixture="visitor-chat"]')).toHaveAttribute(
+    'data-fixture-client-mounted',
+    'true',
+  )
+}
+
 async function expectViewportIntegrity(page: Page) {
   const dimensions = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
@@ -96,6 +103,7 @@ for (const viewport of [
     await page.goto(
       '/dev-fixtures/visitor-chat?mode=character&state=listening&conversation=long&motion=reduced&network=offline&theme=forest&accent=%23245A4A',
     )
+    await waitForVisitorChatFixture(page)
     await hideFrameworkDevChrome(page)
 
     const log = page.getByRole('log')
@@ -136,6 +144,7 @@ test('a failed turn stays readable without collapsing short-phone conversation s
   await page.goto(
     '/dev-fixtures/visitor-chat?mode=classic&state=error&conversation=long&motion=reduced&theme=forest&accent=%23245A4A',
   )
+  await waitForVisitorChatFixture(page)
   await hideFrameworkDevChrome(page)
 
   const log = page.getByRole('log')
@@ -164,6 +173,7 @@ test('chat theme and accent stay scoped to chat variables', async ({ page }) => 
     await page.goto(
       `/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&theme=${theme}&accent=${encodeURIComponent(accent)}`,
     )
+    await waitForVisitorChatFixture(page)
     await hideFrameworkDevChrome(page)
     const vars = await page.locator('[data-fixture="visitor-chat"] main').evaluate((element) => {
       const styles = getComputedStyle(element)

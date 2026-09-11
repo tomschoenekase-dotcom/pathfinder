@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+
 import type {
   CharacterState,
   PublicCharacterProjection,
@@ -291,10 +293,17 @@ export function VenueChatFixture({
   accent?: string | undefined
   branding?: VisitorFixtureBranding
 }) {
+  const [clientMounted, setClientMounted] = useState(false)
+
+  useEffect(() => {
+    setClientMounted(true)
+  }, [])
+
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
       <div
         data-fixture="visitor-chat"
+        data-fixture-client-mounted={clientMounted}
         data-fixture-mode={mode}
         data-fixture-state={state}
         data-fixture-conversation={conversation}
