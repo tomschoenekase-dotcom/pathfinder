@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GuestPublicErrorCode,
   GuestResponseBlock,
+  GuestResponsePlace,
   GuestStructuredResponse,
   legacyGuestResponseToBlocks,
 } from './guest-response'
@@ -17,6 +18,27 @@ describe('GuestPublicErrorCode', () => {
       'REJECTED',
       'TRANSIENT_FAILURE',
     ])
+  })
+})
+
+describe('GuestResponsePlace media compatibility', () => {
+  it('preserves a historical place card while removing its legacy external photo URL', () => {
+    const parsed = GuestResponsePlace.parse({
+      id: 'p1',
+      name: 'East Gallery',
+      type: 'EXHIBIT',
+      photoUrl: 'https://legacy.example/photo.jpg',
+      shortDescription: 'Ceramics are displayed here.',
+      areaName: null,
+      hours: null,
+      lat: null,
+      lng: null,
+    })
+    expect(parsed).toMatchObject({
+      name: 'East Gallery',
+      shortDescription: 'Ceramics are displayed here.',
+      photoUrl: null,
+    })
   })
 })
 

@@ -78,7 +78,9 @@ import {
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackagePayload } from '../schemas/venue-package'
+import { buildVenuePackagePreview as buildCoreVenuePackagePreview } from '../lib/venue-package-core'
 import {
+  buildVenuePackagePreview as buildRouterVenuePackagePreview,
   createVenuePackageDraftService,
   latestTargetVersions,
   venuePackageRouter,
@@ -182,6 +184,101 @@ describe('bounded latest target version lookup', () => {
       ['PLACE:place_1', 'version_1'],
       ['KNOWLEDGE_ENTRY:knowledge_1', 'version_2'],
     ])
+  })
+})
+
+describe('retained place dependency projection', () => {
+  it.each([
+    ['router preview', buildRouterVenuePackagePreview],
+    ['lifecycle preview', buildCoreVenuePackagePreview],
+  ] as const)('reports scoped location and media links in the %s', async (_name, buildPreview) => {
+    const placeId = 'cplaceabc1234567890123'
+    const locationGroupBy = vi
+      .fn()
+      .mockResolvedValue([{ primaryPlaceId: placeId, _count: { _all: 1 } }])
+    const mediaGroupBy = vi.fn().mockResolvedValue([{ placeId, _count: { _all: 1 } }])
+    const emptyGroupBy = vi.fn().mockResolvedValue([])
+    const dependencyDb = {
+      venue: {
+        findFirst: vi.fn().mockResolvedValue({
+          ...venueState,
+          aiFeaturedPlaceId: null,
+          tonePreset: null,
+          tonePresetVersion: null,
+        }),
+      },
+      place: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: placeId,
+            name: 'Retained place',
+            type: 'room',
+            itemType: null,
+            shortDescription: null,
+            longDescription: null,
+            lat: null,
+            lng: null,
+            tags: [],
+            importanceScore: 0,
+            areaName: null,
+            hours: null,
+            photoUrl: null,
+            isActive: true,
+          },
+        ]),
+      },
+      venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([]) },
+      contentVersion: {
+        groupBy: vi
+          .fn()
+          .mockResolvedValue([{ entityType: 'PLACE', entityId: placeId, _max: { sequence: 1n } }]),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ id: 'version_1', entityType: 'PLACE', entityId: placeId }]),
+      },
+      operationalUpdate: { groupBy: emptyGroupBy },
+      analyticsEvent: { groupBy: emptyGroupBy },
+      dailyRollup: { groupBy: emptyGroupBy },
+      venueLocation: { groupBy: locationGroupBy },
+      venueMediaPlaceLink: { groupBy: mediaGroupBy },
+    } as never
+    const preview = await buildPreview(dependencyDb, 'tenant_1', venueId, {
+      schemaVersion: 3,
+      places: {
+        create: [],
+        update: [],
+        delete: [
+          {
+            itemKey: '00000000-0000-4000-8000-000000000201',
+            id: placeId,
+            provenance: {
+              sourceType: 'INTEGRATION_FIXTURE',
+              sourceName: 'Dependency fixture',
+              sourceUrl: 'https://example.invalid/dependency',
+              contentOrigin: 'HUMAN_AUTHORED',
+            },
+          },
+        ],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+
+    expect(preview.report.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'DELETE_BLOCKED',
+        message: expect.stringContaining('location-anchors (1), media-place-links (1)'),
+      }),
+    )
+    expect(locationGroupBy).toHaveBeenCalledWith({
+      by: ['primaryPlaceId'],
+      where: { tenantId: 'tenant_1', venueId, primaryPlaceId: { in: [placeId] } },
+      _count: { _all: true },
+    })
+    expect(mediaGroupBy).toHaveBeenCalledWith({
+      by: ['placeId'],
+      where: { tenantId: 'tenant_1', venueId, placeId: { in: [placeId] } },
+      _count: { _all: true },
+    })
   })
 })
 

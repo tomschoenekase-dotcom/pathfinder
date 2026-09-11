@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "kind": "closing-local-integration-verification",
+  "measuredAt": "2026-09-08T00:47:23.681708+00:00",
+  "implementationRevision": "10814a519a36c640695ffe4a429033e4d1b276c6",
+  "scriptSuite": {
+    "command": "node --test scripts/*.test.mjs",
+    "passed": 450,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "Populated legacy venue package migration fixture requires an external disposable database."
+  },
+  "typecheck": {
+    "command": "pnpm exec turbo run typecheck --concurrency=2",
+    "successfulTasks": 27,
+    "totalTasks": 27,
+    "note": "Whole-workspace pass after character fixture type fix; dashboard unfiltered typecheck rerun by execution agent after final controller fixes."
+  },
+  "browser": {
+    "command": "pnpm --dir apps/dashboard exec playwright test --config ../../tmp/closing-v1-playwright.config.ts --grep V1 onboarding",
+    "stats": {
+      "startTime": "2026-09-08T00:39:10.474Z",
+      "duration": 112306.614,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "viewports": ["390x844", "820x1180", "1440x900"],
+    "screenshots": 33,
+    "visualReadback": "Root inspected saved receipt states at all three viewports; no horizontal clipping in inspected states. Synthetic onboarding fixture, not visitor creative acceptance."
+  },
+  "componentVerification": {
+    "passed": 108,
+    "source": "Execution agent reported 10 component suites, scoped lint and final unfiltered dashboard typecheck clean."
+  },
+  "cleanup": {
+    "portsChecked": [3000, 3001, 55489],
+    "listeners": [],
+    "checkedAt": "2026-09-08T00:47:23.731540+00:00"
+  },
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\closing-script-suite-final-20260908.log",
+      "sha256": "6dc68e94133b48d39993be60bc03a9f36102a281a9f39cd6d5141c009fdc0159"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\closing-typecheck-final-20260908.log",
+      "sha256": "97c4196f05582c8a35028ee6de8133e669a902d9211af0990946c35ca4a407f0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\closing-v1-browser-run2-20260908.log",
+      "sha256": "f7cdac57e6f8df8be318b28395c713d862cf4f517b0cc06c1b81655a710b8f9a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\report.json",
+      "sha256": "86ff19502fded1690c9b5f63f5320dac9befd22fd58cbdc345e2296e2fbc53af"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-desktop-1440x900\\intake-v1-processing.png",
+      "sha256": "384a5eeb98f60642735b255a7858b9c702ef4294975d06837782369da409c99e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-desktop-1440x900\\intake-v1-receipt.png",
+      "sha256": "384a5eeb98f60642735b255a7858b9c702ef4294975d06837782369da409c99e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-desktop-1440x900\\intake-v1-review.png",
+      "sha256": "fdea6332e966daecc2d53cc511c21676d77a2e1a25e3958864dc34f7bf3d92d5"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844\\intake-v1-amendment-320.png",
+      "sha256": "98253de836b756b873c20ef6bf7b4e97360c641e1bd7daa7c3ed2a12b057793d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844\\intake-v1-amendment-actions-320.png",
+      "sha256": "bf6ef8243abfc9b1205eb6c8e4ade2d6d20ed56f9af3bbca11215d8dcb451736"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844\\intake-v1-processing.png",
+      "sha256": "cb498d9e848e8d112f82d6846d8e290ac5654c6893af5b2ecc125f16bb8f184d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844\\intake-v1-receipt.png",
+      "sha256": "a11b955efc08bf3d6601b6576b7a389849dcc455f26a86c303f2f5c9e91d39f8"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844\\intake-v1-review.png",
+      "sha256": "2f7ae477e65a60fa7e5e0dcc9e19b1606cb6c03c25f54624a52625fe451b773d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-tablet-820x1180\\intake-v1-processing.png",
+      "sha256": "32a2a6d43bb3962dd3b462cf5cecf05b2cb8eeb94cef4ed183bd6f0ce06f6d28"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-tablet-820x1180\\intake-v1-receipt.png",
+      "sha256": "32a2a6d43bb3962dd3b462cf5cecf05b2cb8eeb94cef4ed183bd6f0ce06f6d28"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-tablet-820x1180\\intake-v1-review.png",
+      "sha256": "6b5da549ffbe21c423c28442ebd898d6564a4d69ae7d0ffe209cc29eb614d22c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-desktop-1440x900\\intake-v1-processing.png",
+      "sha256": "dafd9b29419bce8ae3dd05f70c47fd7b104fb995e67e682979abdbcbbb988334"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-desktop-1440x900\\intake-v1-receipt.png",
+      "sha256": "dafd9b29419bce8ae3dd05f70c47fd7b104fb995e67e682979abdbcbbb988334"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-desktop-1440x900\\intake-v1-review.png",
+      "sha256": "696408b189060dfded2ab06fec5e05dd63a5f53cbe8b8f8f9971251372c44c61"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844\\intake-v1-amendment-320.png",
+      "sha256": "b0efccfd2bab89cc1cde2df72861a4a4240157530f9a4973dba8bc9de7c3acba"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844\\intake-v1-amendment-actions-320.png",
+      "sha256": "740223f55f00719c662d1f7711721bde7eb7a3ae0fbbdaa7aef6c54515ddfe20"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844\\intake-v1-processing.png",
+      "sha256": "1f9840373e328270b3ddb0e9debed8ea98596ab3a17ef3ae00713c1e790071c1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844\\intake-v1-receipt.png",
+      "sha256": "1f9840373e328270b3ddb0e9debed8ea98596ab3a17ef3ae00713c1e790071c1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844\\intake-v1-review.png",
+      "sha256": "e8bc50519d6a2cd2897c7145333f634c6c7c2f55a0e598c52726bce06cbde6d2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-tablet-820x1180\\intake-v1-processing.png",
+      "sha256": "3723b8e469f4ad8dce074df69ae72d15475d614cc05c6a483fe12bea58847fca"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-tablet-820x1180\\intake-v1-receipt.png",
+      "sha256": "3723b8e469f4ad8dce074df69ae72d15475d614cc05c6a483fe12bea58847fca"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-tablet-820x1180\\intake-v1-review.png",
+      "sha256": "362b90bc4312c4bcb78dd7870d8bdd8fa3bc4a1cbcdca38d976e2f7163485914"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-desktop-1440x900\\intake-v1-processing.png",
+      "sha256": "dafd9b29419bce8ae3dd05f70c47fd7b104fb995e67e682979abdbcbbb988334"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-desktop-1440x900\\intake-v1-receipt.png",
+      "sha256": "dafd9b29419bce8ae3dd05f70c47fd7b104fb995e67e682979abdbcbbb988334"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-desktop-1440x900\\intake-v1-review.png",
+      "sha256": "696408b189060dfded2ab06fec5e05dd63a5f53cbe8b8f8f9971251372c44c61"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844\\intake-v1-amendment-320.png",
+      "sha256": "b0efccfd2bab89cc1cde2df72861a4a4240157530f9a4973dba8bc9de7c3acba"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844\\intake-v1-amendment-actions-320.png",
+      "sha256": "740223f55f00719c662d1f7711721bde7eb7a3ae0fbbdaa7aef6c54515ddfe20"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844\\intake-v1-processing.png",
+      "sha256": "1f9840373e328270b3ddb0e9debed8ea98596ab3a17ef3ae00713c1e790071c1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844\\intake-v1-receipt.png",
+      "sha256": "1f9840373e328270b3ddb0e9debed8ea98596ab3a17ef3ae00713c1e790071c1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844\\intake-v1-review.png",
+      "sha256": "e8bc50519d6a2cd2897c7145333f634c6c7c2f55a0e598c52726bce06cbde6d2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-tablet-820x1180\\intake-v1-processing.png",
+      "sha256": "090f81a196cbcbe7be6db49421ea210a24ce9d836879480aaf1aba182e9bf051"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-tablet-820x1180\\intake-v1-receipt.png",
+      "sha256": "090f81a196cbcbe7be6db49421ea210a24ce9d836879480aaf1aba182e9bf051"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\closing-v1-browser-20260908\\results\\core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-tablet-820x1180\\intake-v1-review.png",
+      "sha256": "362b90bc4312c4bcb78dd7870d8bdd8fa3bc4a1cbcdca38d976e2f7163485914"
+    }
+  ],
+  "limitations": [
+    "Local checks and synthetic browser transport; no hosted deployment, live provider, physical device, customer send or billing claim.",
+    "Counts belong to separate suites and are not added into a unique-test total.",
+    "One database-dependent script test remains skipped; separate native PostgreSQL evidence proves its own named scopes only.",
+    "The complete 128-task campaign remains unfinished."
+  ]
+}

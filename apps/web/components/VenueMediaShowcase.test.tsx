@@ -43,4 +43,25 @@ describe('VenueMediaShowcase', () => {
     expect(container.innerHTML).toBe('')
     expect(screen.queryByRole('img')).toBeNull()
   })
+
+  it('keeps the primary photo and caption without mounting secondary images in compact arrivals', () => {
+    render(
+      <VenueMediaShowcase
+        venueName="City Museum"
+        compact
+        items={[
+          ...media,
+          {
+            ...media[0]!,
+            derivativeId: '33333333-3333-4333-8333-333333333333',
+            importance: 'SECONDARY',
+            altText: 'Secondary view',
+          },
+        ]}
+      />,
+    )
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+    expect(screen.getByText(media[0]!.caption!)).toBeTruthy()
+    expect(screen.queryByText('Media approved for this venue.')).toBeNull()
+  })
 })

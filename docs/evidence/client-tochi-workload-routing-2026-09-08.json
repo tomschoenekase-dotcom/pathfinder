@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "135f542468d492e0edc940ba15d2271bd7def7ff",
+  "proved": [
+    "Client Tochi resolves effective tenant/venue configuration and routes FAST through the existing central gateway.",
+    "Effective timeout, output, attempts and cumulative ceiling are used; availability and configuration are rechecked at admission.",
+    "Actual routed gateway with a dark provider seam exercises primary503 and configured fallback with one lease dispatch marker; existing safe action projection and failure response remain."
+  ],
+  "checks": {
+    "focusedTestsPassed": 14,
+    "freshNonIncrementalTypes": "passed with direct process exit0",
+    "scopedLint": "passed",
+    "scriptGates": {
+      "passed": 451,
+      "skipped": 1,
+      "failed": 0
+    }
+  },
+  "artifacts": [
+    "artifacts/provider-comparison-client-routing-final-20260908.log",
+    "artifacts/w06-api-types-final-20260908.log",
+    "artifacts/w06-api-lint-final-20260908.log",
+    "artifacts/w06-script-gates-final-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/api/src/routers/client-assistant.ts",
+      "sha256": "fb53c718033259059050ee54cdc419e3cec1414a6c6dcaee3fdab93095656c2e"
+    },
+    {
+      "path": "packages/api/src/routers/client-assistant.test.ts",
+      "sha256": "bbafdc7dcc073c41d33abcd1720eb46a639e4a4d8a93b9e44f4246b84c58c3dc"
+    }
+  ],
+  "limits": [
+    "Provider-dark composition and unit proof; no live provider, tenant configuration change, spending or deployment.",
+    "Configuration is compared at the existing admission boundary; no atomic transaction across provider I/O or rollback of already-dispatched work is claimed.",
+    "Native lease/deferral proof, where retained separately, proves the canonical persistence helper rather than complete worker/provider execution."
+  ]
+}

@@ -1,324 +1,43 @@
-import { db, listFounderOperatingExchanges, withTenantIsolationBypass } from '@pathfinder/db'
+import { withTenantIsolationBypass } from '@pathfinder/db'
 import { deriveFounderBriefing } from './attention-briefing'
 import { deriveAgentTrustEvidence } from './attention-agent-evidence'
-import { readAgentEvidenceRows } from './attention-agent-evidence-query'
 import { projectAttentionJobs } from './attention-job-recovery'
-import { readFounderBriefingReview } from './attention-review-actions'
-import {
-  ACTIVE_SUPPORT_REQUEST_STATUSES,
-  after,
-  afterCondition,
-  page,
-  type AttentionConsoleInput,
-} from './attention-pagination'
-import { listAttentionWorkers } from './attention-worker-health'
-import { readFounderUnitEconomics } from './unit-economics'
-import { customerAccessApprovalSelect } from './customer-access-approval-select'
+import { page, type AttentionConsoleInput } from './attention-pagination'
 import { readFounderAbsenceReadinessWithHistory } from './attention-founder-absence-query'
+import { mergePriorityQuestions } from './attention-priority-questions'
+import { mergePriorityEvents } from './attention-priority-events'
+import { readAttentionConsoleRows } from './attention-console-read-rows'
+
+export { mergePriorityQuestions } from './attention-priority-questions'
+
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
     const take = query.limit + 1
-    const [
+    const {
       jobs,
       evaluations,
       approvals,
       support,
       agents,
       questions,
+      priorityQuestions,
       workingAgents,
       blockedAgents,
       completedAgents,
       outcomes,
       agentEvidenceRows,
       events,
+      criticalEvents,
+      errorEvents,
       platformEvents,
+      criticalPlatformEvents,
+      errorPlatformEvents,
       workers,
       reviewState,
       unitEconomics,
       founderConversation,
-    ] = await Promise.all([
-      db.jobRecord.findMany({
-        where: { status: 'FAILED', ...after(query.jobsCursor) },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          queue: true,
-          jobName: true,
-          bullJobId: true,
-          status: true,
-          attemptNumber: true,
-          maxAttempts: true,
-          failureDisposition: true,
-          terminalAt: true,
-          createdAt: true,
-        },
-      }),
-      db.evalRun.findMany({
-        where: {
-          AND: [
-            {
-              OR: [
-                { status: { in: ['FAILED', 'STAGED', 'RETRY_SCHEDULED'] } },
-                {
-                  status: 'RUNNING',
-                  executionLeaseExpiresAt: { lte: now },
-                },
-              ],
-            },
-            ...(afterCondition(query.evaluationsCursor)
-              ? [afterCondition(query.evaluationsCursor)!]
-              : []),
-          ],
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          status: true,
-          attemptNumber: true,
-          maxAttempts: true,
-          executionLeaseExpiresAt: true,
-          lastErrorCode: true,
-          createdAt: true,
-        },
-      }),
-      db.approvalRequest.findMany({
-        where: { decision: { is: null }, ...after(query.approvalsCursor) },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          proposedAction: true,
-          riskCategory: true,
-          expiresAt: true,
-          createdAt: true,
-          agentIdentity: { select: { name: true } },
-          customerAccessRequest: {
-            select: customerAccessApprovalSelect,
-          },
-          founderDirectiveTask: {
-            select: {
-              id: true,
-              status: true,
-              proposedPrompt: true,
-              rationale: true,
-              constraints: true,
-              founderOperatingExchange: { select: { prompt: true } },
-            },
-          },
-        },
-      }),
-      db.supportRequest.findMany({
-        where: {
-          status: { in: [...ACTIVE_SUPPORT_REQUEST_STATUSES] },
-          ...after(query.supportCursor),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          category: true,
-          status: true,
-          subject: true,
-          version: true,
-          updatedAt: true,
-          createdAt: true,
-          onboardingQuestionLink: {
-            select: { id: true, agentQuestionId: true },
-          },
-        },
-      }),
-      db.agentRun.findMany({
-        where: after(query.agentsCursor),
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          agentIdentityId: true,
-          tenantId: true,
-          venueId: true,
-          runType: true,
-          requestedOperation: true,
-          status: true,
-          startedAt: true,
-          completedAt: true,
-          createdAt: true,
-          agentIdentity: { select: { id: true, name: true } },
-        },
-      }),
-      db.agentQuestion.findMany({
-        where: { status: 'PENDING', ...after(query.questionsCursor) },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          agentRunId: true,
-          question: true,
-          context: true,
-          questionType: true,
-          category: true,
-          urgency: true,
-          choices: true,
-          dueAt: true,
-          evidence: true,
-          proposedAnswer: true,
-          blocking: true,
-          createdAt: true,
-          updatedAt: true,
-          agentIdentity: { select: { name: true } },
-          agentRun: { select: { id: true, status: true, requestedOperation: true } },
-        },
-      }),
-      db.agentRun.findMany({
-        where: {
-          status: { in: ['QUEUED', 'RUNNING'] },
-          ...after(query.workingAgentsCursor),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          runType: true,
-          requestedOperation: true,
-          status: true,
-          startedAt: true,
-          createdAt: true,
-          agentIdentity: { select: { name: true } },
-        },
-      }),
-      db.agentRun.findMany({
-        where: {
-          status: { in: ['AWAITING_INPUT', 'AWAITING_APPROVAL', 'FAILED'] },
-          ...after(query.blockedAgentsCursor),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          runType: true,
-          requestedOperation: true,
-          status: true,
-          errorCode: true,
-          createdAt: true,
-          agentIdentity: { select: { name: true } },
-        },
-      }),
-      db.agentRun.findMany({
-        where: { status: 'COMPLETED', ...after(query.completedAgentsCursor) },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          agentIdentityId: true,
-          tenantId: true,
-          venueId: true,
-          runType: true,
-          requestedOperation: true,
-          status: true,
-          completedAt: true,
-          createdAt: true,
-          agentIdentity: { select: { id: true, name: true } },
-          _count: { select: { outcomeObservations: true } },
-        },
-      }),
-      db.agentOutcomeObservation.findMany({
-        where: after(query.outcomesCursor),
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          agentRunId: true,
-          agentIdentityId: true,
-          signalKind: true,
-          verdict: true,
-          summary: true,
-          relatedAgentActionId: true,
-          policyCode: true,
-          severity: true,
-          predictionRef: true,
-          predictedConfidenceBps: true,
-          actualCorrect: true,
-          taskClass: true,
-          modelProvider: true,
-          modelName: true,
-          createdAt: true,
-          agentIdentity: { select: { id: true, name: true } },
-        },
-      }),
-      readAgentEvidenceRows(db, take),
-      db.operationalEvent.findMany({
-        where: {
-          state: { in: ['OPEN', 'ACKNOWLEDGED'] },
-          ...after(query.eventsCursor),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          eventType: true,
-          sourceSubsystem: true,
-          severity: true,
-          title: true,
-          summary: true,
-          actionRequired: true,
-          linkedObjectType: true,
-          linkedObjectId: true,
-          recommendedAction: true,
-          state: true,
-          occurrenceCount: true,
-          lastOccurredAt: true,
-          createdAt: true,
-        },
-      }),
-      db.platformOperationalEvent.findMany({
-        where: {
-          state: { in: ['OPEN', 'ACKNOWLEDGED'] },
-          ...after(query.platformEventsCursor),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take,
-        select: {
-          id: true,
-          eventType: true,
-          sourceSubsystem: true,
-          severity: true,
-          title: true,
-          summary: true,
-          actionRequired: true,
-          linkedObjectType: true,
-          linkedObjectId: true,
-          recommendedAction: true,
-          state: true,
-          occurrenceCount: true,
-          lastOccurredAt: true,
-          createdAt: true,
-        },
-      }),
-      listAttentionWorkers(now),
-      readFounderBriefingReview(operatorUserId),
-      readFounderUnitEconomics(now),
-      listFounderOperatingExchanges(20),
-    ])
-
+    } = await readAttentionConsoleRows(operatorUserId, query, now, take)
     const result = {
       generatedAt: now,
       jobs: projectAttentionJobs(jobs, query.limit),
@@ -341,13 +60,17 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       },
       support: page(support, query.limit),
       agents: page(agents, query.limit),
-      questions: page(questions, query.limit),
+      questions: mergePriorityQuestions(questions, priorityQuestions, query.limit),
       workingAgents: page(workingAgents, query.limit),
       blockedAgents: page(blockedAgents, query.limit),
       completedAgents: page(completedAgents, query.limit),
       outcomes: page(outcomes, query.limit),
-      events: page(events, query.limit),
-      platformEvents: page(platformEvents, query.limit),
+      events: mergePriorityEvents(events, [...criticalEvents, ...errorEvents], query.limit),
+      platformEvents: mergePriorityEvents(
+        platformEvents,
+        [...criticalPlatformEvents, ...errorPlatformEvents],
+        query.limit,
+      ),
       workers,
       unitEconomics,
       founderConversation,

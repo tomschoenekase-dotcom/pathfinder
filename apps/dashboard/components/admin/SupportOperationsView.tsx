@@ -13,6 +13,10 @@ import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 import { SupportAgentRunLineagePanel, type SupportRunLineage } from './SupportAgentRunLineagePanel'
 import { SupportKnowledgeProposalForm } from './SupportKnowledgeProposalForm'
+import {
+  SupportCompletionOutcome,
+  type SupportCompletionOutcomeValue,
+} from '../SupportCompletionOutcome'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
@@ -34,6 +38,7 @@ type Message = {
   body: string
   requestVersion: number | null
   createdAt: Date
+  completionOutcome?: SupportCompletionOutcomeValue | null
   attachments: { id: string; filename: string; mediaType: string; byteSize: string }[]
 }
 type Audit = {
@@ -402,6 +407,12 @@ export function SupportOperationsView({
                           {message.authorKind} · {message.createdAt.toLocaleString()}
                         </span>
                       </div>
+                      {message.completionOutcome ? (
+                        <SupportCompletionOutcome
+                          outcome={message.completionOutcome}
+                          className="mt-3 text-pf-deep/75"
+                        />
+                      ) : null}
                       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-pf-deep">
                         {message.body}
                       </p>

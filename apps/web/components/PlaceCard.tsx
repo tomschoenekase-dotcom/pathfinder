@@ -10,6 +10,12 @@ type PlaceCardProps = {
   name: string
   type: string
   photoUrl: string | null
+  photoAttribution?: {
+    altText: string
+    caption: string | null
+    sourceName: string
+    sourceUrl: string | null
+  } | null
   shortDescription: string | null
   areaName: string | null
   hours: string | null
@@ -34,6 +40,7 @@ export function PlaceCard({
   name,
   type,
   photoUrl,
+  photoAttribution,
   shortDescription,
   areaName,
   hours,
@@ -78,12 +85,11 @@ export function PlaceCard({
     >
       {photoUrl ? (
         <div className="h-36 w-full overflow-hidden bg-[var(--chat-bg)]">
-          {/* Deliberately bypass Next's optimizer: live-location cards admit bounded arbitrary HTTPS
-              venue URLs, and proxying those through the server would widen the remote-fetch boundary. */}
+          {/* Controlled, same-origin venue media delivery rechecks current review eligibility. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={photoUrl}
-            alt={name}
+            alt={photoAttribution?.altText ?? name}
             loading="lazy"
             referrerPolicy="no-referrer"
             className="h-full w-full object-cover"
@@ -98,6 +104,24 @@ export function PlaceCard({
           )}
         </div>
       )}
+
+      {photoUrl && photoAttribution ? (
+        <p className="break-words px-4 pt-2 text-xs text-[var(--chat-text-muted)]">
+          {photoAttribution.caption ? `${photoAttribution.caption} · ` : null}
+          {photoAttribution.sourceUrl ? (
+            <a
+              href={photoAttribution.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              {photoAttribution.sourceName}
+            </a>
+          ) : (
+            photoAttribution.sourceName
+          )}
+        </p>
+      ) : null}
 
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">

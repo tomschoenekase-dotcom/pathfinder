@@ -1,0 +1,158 @@
+{
+  "date": "2026-09-10",
+  "requirements": ["V2-P08-03"],
+  "candidateCommit": "b1995c11",
+  "native": {
+    "database": "pathfinder_disposable_support_addition_419eecf43c92",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-supersession-419eecf43c92",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "publishes a reviewed support addition once and retrieves the new fact",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/db/prisma/migrations/20260907021000_add_universal_content_search_projection/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260907021000_add_universal_content_search_projection__migration.sql",
+        "sha256": "d92b2c03ab00c2221c75690f0bf8825db8a52b824ecd5d0acc3a36057b27ff60"
+      },
+      {
+        "source": "packages/db/src/helpers/venue-content-lock.ts",
+        "retained": "measured-packages__db__src__helpers__venue-content-lock.ts",
+        "sha256": "ff85474fdba4a51fcf3cdb0e270f6322c5bdf714bdc3814bfb86fb381d441ab9"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-review.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-review.ts",
+        "sha256": "abc8c6110e860a7f3d19545a40ff559b17e41ef5b4c9ee577b9294e717507f93"
+      },
+      {
+        "source": "packages/api/src/trpc.ts",
+        "retained": "measured-packages__api__src__trpc.ts",
+        "sha256": "854e3f6c21ca21884d25f9e87d8f3465f8345bc38b384ec533f20d0e4d440da7"
+      },
+      {
+        "source": "packages/api/src/core.ts",
+        "retained": "measured-packages__api__src__core.ts",
+        "sha256": "dbfb5b286419b401b43aa15bcfc725721bda98a6cf2c8169ac5a3713cdbb728b"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-events.ts",
+        "retained": "measured-packages__db__src__helpers__operational-events.ts",
+        "sha256": "ddeaee7b969ccc3ec8486e44fb97089769ef01cd54edac7c38057238253c89c9"
+      },
+      {
+        "source": "packages/api/src/lib/support-addition.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__lib__support-addition.disposable.integration.test.ts",
+        "sha256": "9b87d6c968c6029f21e3e37f5622101df3ed392e4d95ce7c98d533314eb45ab6"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "d3cbdc317fe8332f510511d609a25167ccbc8100fcdc788478c910720b8ba5ec"
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "retained": "measured-packages__db__src__client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237"
+      },
+      {
+        "source": "packages/db/src/middleware/tenant-isolation.ts",
+        "retained": "measured-packages__db__src__middleware__tenant-isolation.ts",
+        "sha256": "5529f95b22be7e3496fd1fe72f1ec087989ba700dbd9ce511ad68e159aaac6b2"
+      },
+      {
+        "source": "packages/db/src/tenanted-tables.ts",
+        "retained": "measured-packages__db__src__tenanted-tables.ts",
+        "sha256": "a30075479fa0fbdd383cec3b14a63bf9dd88febb8cc178b9f7aaa0f813a5d9bb"
+      },
+      {
+        "source": "packages/db/src/helpers/support-knowledge-proposal-actions.ts",
+        "retained": "measured-packages__db__src__helpers__support-knowledge-proposal-actions.ts",
+        "sha256": "134d85d1480492624a0d927fa654426a42c86b2252a153e124c14f48cc454d88"
+      },
+      {
+        "source": "packages/db/src/helpers/support-actions.ts",
+        "retained": "measured-packages__db__src__helpers__support-actions.ts",
+        "sha256": "179b66ba599586548c11017f7e27d83eea555255e0e7476c676514e1c2353b4d"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-actions.ts",
+        "sha256": "76c426a4361bc3f1e79682679eaeec49ba4bf54f1ab48ccd9ada0cef441192fd"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-publication-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-publication-actions.ts",
+        "sha256": "4b20c27a5f798a20668563978227eb0ad4576574ee6ccd21a3e3c1a6d8e5a8fb"
+      },
+      {
+        "source": "packages/db/src/helpers/audit.ts",
+        "retained": "measured-packages__db__src__helpers__audit.ts",
+        "sha256": "a9033dc1bcc66238ebe6b5089e3cbfd0f3879f5f349cde932bebde9e549793c5"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater.ts",
+        "sha256": "fa3b0befdd7b2301826f2bdf2ffaa06c62005374b6ac099d6ef2abda1b140caf"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater-service.ts",
+        "sha256": "753c4aba7b82e4e18ac92a2e84794c5b6799038c8e63c39df4764c2252766db4"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-universal-content-handoff.ts",
+        "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff.ts",
+        "sha256": "505ff6b65bc3821b7fc0de65f2c4010258347874931666e821cf3538bb5639e3"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-universal-content-handoff-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff-service.ts",
+        "sha256": "5f747ae623d998330bcba4c04df0a8c1e7cbc5c6fe98952276bb621a83eccec7"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
+        "retained": "measured-packages__api__src__lib__knowledge-proposal-temporal-evidence.ts",
+        "sha256": "4586cab108d7f12ef6b10d3936b3ead8dec765123b30f8bc28e8a0053813009b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-packages__api__src__lib__guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/contracts/src/universal-content-actions.ts",
+        "retained": "measured-packages__contracts__src__universal-content-actions.ts",
+        "sha256": "ad91c8b4855d0e4d105e83f99aeba51f93a0b576d514cd411df246168a922c5b"
+      }
+    ],
+    "runnerSha256": "aa9b097c779bb9e3a9e7928a87eca0bf9a9d1492cb498e1aa96f863ae8d3c3f8",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "sourceHashesStable": true
+  },
+  "assertions": [
+    "Support-linked addition and supersession each use actual human review, semantic draft and explicit publication.",
+    "Supersession appends revision2 to same module; guest sees old fact until explicit publication.",
+    "Revision1 typed payload retained; unrelated sibling unchanged.",
+    "Draft and publication retries keep1module2revisions2publications. Replaying original publication cannot resurrect obsolete guidance."
+  ],
+  "checks": {
+    "apiTypecheck": "passed",
+    "changedSourceLint": "passed",
+    "classifierAndHandoffUnitTests": 14
+  },
+  "limits": [
+    "Synthetic support records and human admin session; no registered worker/provider/device/customer delivery proof.",
+    "Only integrated ADDITION and SUPERSESSION; conflict/duplicate durable cases next. Correction/temporal proof retains earlier source/revision limits.",
+    "No claim of full six-class matrix,128requirements,32QA,A/B/C or release completion."
+  ]
+}

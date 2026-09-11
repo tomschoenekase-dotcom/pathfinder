@@ -30,14 +30,24 @@ export function eventDecisionContext(event: EventContext, urgent: boolean): Foun
 export function questionDecisionContext(question: {
   createdAt: Date
   dueAt?: Date | null
+  expiresAt?: Date | null
+  blocking: boolean
 }): FounderDecisionContext {
   return {
-    attentionReason: 'A blocking question is waiting for founder judgment.',
-    consequence: 'The linked agent run cannot proceed past this question.',
+    attentionReason: question.blocking
+      ? 'A blocking question is waiting for founder judgment.'
+      : 'An urgent question is waiting for founder judgment.',
+    consequence: question.blocking
+      ? 'The linked agent run cannot proceed past this question.'
+      : 'This question needs attention; it does not block other agent work.',
     observedAt: question.createdAt,
-    deadline: question.dueAt ? { at: question.dueAt, kind: 'DUE' } : null,
+    deadline: question.expiresAt
+      ? { at: question.expiresAt, kind: 'EXPIRES' }
+      : question.dueAt
+        ? { at: question.dueAt, kind: 'DUE' }
+        : null,
     occurrenceCount: 1,
-    founderResponseRequiredToProceed: true,
+    founderResponseRequiredToProceed: question.blocking,
   }
 }
 

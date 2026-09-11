@@ -1,11 +1,16 @@
+import { SemanticDuplicateResolutionInput } from '../../lib/semantic-duplicate-resolution-contract'
+import { resolveSemanticDuplicateService } from '../../lib/semantic-duplicate-resolution-service'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
+import { adminKnowledgeProposalContentDraftRouter } from './knowledge-proposal-content-drafts'
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
+import { resolveSupportProposalAuthoringState } from '../../lib/support-proposal-authoring-state'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
   previewSemanticVenueUpdateFromProposal,
@@ -95,7 +100,24 @@ function exactOperationalDraftFromHandoff(
   return update
 }
 
-export const adminKnowledgeProposalDraftRouter = router({
+const adminKnowledgeProposalVenueDraftRouter = router({
+  resolveSupportSemanticDuplicate: adminProcedure
+    .input(SemanticDuplicateResolutionInput)
+    .mutation(({ ctx, input }) =>
+      resolveSemanticDuplicateService({ db: ctx.db, actorId: ctx.session.userId, input }),
+    ),
+  getSupportProposalAuthoringState: adminProcedure
+    .input(
+      z
+        .object({
+          ...scope,
+          proposalId: z.string().uuid(),
+          expectedUpdatedAt: z.date(),
+        })
+        .strict(),
+    )
+    .query(({ ctx, input }) => resolveSupportProposalAuthoringState({ db: ctx.db, input })),
+
   createSemanticOperationalUpdateDraft: adminProcedure
     .input(
       z
@@ -106,6 +128,7 @@ export const adminKnowledgeProposalDraftRouter = router({
           expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
           relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
           desired: SemanticOperationalUpdateDesiredKnowledge,
+          temporalEvidence: KnowledgeProposalTemporalEvidenceReference.optional(),
           validFrom: z.string().datetime(),
           validUntil: z.string().datetime(),
           operationalUpdateType: z.enum([
@@ -129,6 +152,7 @@ export const adminKnowledgeProposalDraftRouter = router({
         expectedUpdatedAt: input.expectedUpdatedAt,
         relation: input.relation,
         desired: input.desired,
+        temporalEvidence: input.temporalEvidence,
         validFrom: input.validFrom,
         validUntil: input.validUntil,
         operationalUpdateType: input.operationalUpdateType,
@@ -324,3 +348,8 @@ export const adminKnowledgeProposalDraftRouter = router({
       }
     }),
 })
+
+export const adminKnowledgeProposalDraftRouter = mergeRouters(
+  adminKnowledgeProposalVenueDraftRouter,
+  adminKnowledgeProposalContentDraftRouter,
+)

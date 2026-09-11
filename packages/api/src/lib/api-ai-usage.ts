@@ -46,6 +46,7 @@ export function createApiAiUsageRecorder(params: {
           provider: usage.provider,
           model: usage.model,
           pricingVersion: usage.pricingVersion,
+          usageObservationStatus: usage.usageObservationStatus ?? null,
           inputTokens: usage.usage.inputTokens,
           outputTokens: usage.usage.outputTokens,
           cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
@@ -115,18 +116,21 @@ export function createApiAiUsageRecorder(params: {
         reservation: requireReservation(ref),
         settledUnits: actualUnits,
       })
+      reservations.delete(ref.id)
     },
     settleAmbiguous: async (ref) => {
       await settleAiCostAttemptAmbiguous({
         db: params.db,
         reservation: requireReservation(ref),
       })
+      reservations.delete(ref.id)
     },
     releaseUndispatched: async (ref) => {
       await releaseUndispatchedAiCostAttempt({
         db: params.db,
         reservation: requireReservation(ref),
       })
+      reservations.delete(ref.id)
     },
   }
 

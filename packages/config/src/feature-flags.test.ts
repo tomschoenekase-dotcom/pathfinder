@@ -38,6 +38,57 @@ describe('Packet 2 dark-launch boundaries', () => {
   })
 })
 
+describe('V1 website research worker boundary', () => {
+  it('uses the centralized exact default-off worker capability', () => {
+    expect(FEATURE_FLAGS.intakeV1WebsiteResearchWorker).toEqual({
+      environmentVariable: 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('intakeV1WebsiteResearchWorker', {})).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1WebsiteResearchWorker', {
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'TRUE',
+      }),
+    ).toBe(false)
+    expect(FEATURE_FLAGS.intakeV1FileExtractionWorker).toEqual({
+      environmentVariable: 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('intakeV1FileExtractionWorker', {})).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1FileExtractionWorker', {
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'TRUE',
+      }),
+    ).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1FileExtractionWorker', {
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'true',
+      }),
+    ).toBe(true)
+    expect(
+      isFeatureEnabled('intakeV1WebsiteResearchWorker', {
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'true',
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('guest general-web fallback boundary', () => {
+  it('is an exact default-off server capability', () => {
+    expect(FEATURE_FLAGS.guestGeneralWebFallback).toEqual({
+      environmentVariable: 'GUEST_GENERAL_WEB_FALLBACK_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('guestGeneralWebFallback', {})).toBe(false)
+    expect(
+      isFeatureEnabled('guestGeneralWebFallback', { GUEST_GENERAL_WEB_FALLBACK_ENABLED: 'TRUE' }),
+    ).toBe(false)
+    expect(
+      isFeatureEnabled('guestGeneralWebFallback', { GUEST_GENERAL_WEB_FALLBACK_ENABLED: 'true' }),
+    ).toBe(true)
+  })
+})
+
 describe('Tochi and Character Mode rollout boundaries', () => {
   it('keeps every new product surface behind an exact default-off kill switch', () => {
     expect(FEATURE_FLAGS.clientTochi).toEqual({

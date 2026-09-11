@@ -1,0 +1,133 @@
+{
+  "recordedAt": "2026-09-08T06:29:23.180998+00:00",
+  "baseHead": "4044e2b30a8e568d1b43e6ce3691ee22f9b7dfb0",
+  "scope": "Retire shared TorchikoCore flame-ended SVG and animation; temporary plain Torchiko text; preserve compatibility state/size hooks. Correct live Today status-divider overlap. No final Tochi/wordmark design.",
+  "proof": {
+    "focusedTestsBeforeFinalSpacing": 32,
+    "focusedTestsAfterFinalSpacing": 23,
+    "dashboardTypecheck": "passed",
+    "scopedLint": "passed",
+    "browserCases": 4,
+    "viewports": [320, 820, 1024, 1440],
+    "surfaces": ["Today", "remote onboarding", "actual app loading", "actual app error"],
+    "assertions": [
+      "No core SVG",
+      "decorative placeholder text",
+      "no horizontal overflow",
+      "zero Axe violations",
+      "error retry focus",
+      "reduced motion",
+      "Today wordmark bottom above status footer top"
+    ],
+    "screenshots": [
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/error-desktop-1440-desktop-chromium.png",
+        "sha256": "4041d45c940e4ec484926e88640ee439b50b3c4b3ff58c78660c3921a7b44a0e"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/error-laptop-1024-desktop-chromium.png",
+        "sha256": "01e908cfc39a581622c0fc131866f7f4359ee035ff489d009e1cde648f657561"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/error-phone-320-desktop-chromium.png",
+        "sha256": "c71620f29381d288afba0cfeb677b4775d80dc13ac4c1819db833748a316612a"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/error-tablet-820-desktop-chromium.png",
+        "sha256": "fd64e5d4e38bbe175f97314b4d39c7c32694d71edd36ed4b54cead74866bd6cd"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/loading-desktop-1440-desktop-chromium.png",
+        "sha256": "5aba6bb2640fedcd14d74f55f05a46e1f48bcdd43b8645b5335967eb84d57d29"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/loading-laptop-1024-desktop-chromium.png",
+        "sha256": "5afda6a738c434a37d7f360f3032d53be2a1761aec73b6a124298402303733e0"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/loading-phone-320-desktop-chromium.png",
+        "sha256": "929b08bec80b5904d92cb07a8fa7640d2bb8afd175ec6192884932bcbb143c37"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/loading-tablet-820-desktop-chromium.png",
+        "sha256": "a2344938f178fa49234d81992b52c2f6ac24e79c0d5d7e2938459de37b65dcdb"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/onboarding-desktop-1440-desktop-chromium.png",
+        "sha256": "04260a5a357eb144259321977a3ebd64d2196ae8db3e9f0eb655dc294e9d3eb1"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/onboarding-laptop-1024-desktop-chromium.png",
+        "sha256": "060ad36223b9427eb4a0f9ada667f01629c28121f6d67997cfe597509ead53af"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/onboarding-phone-320-desktop-chromium.png",
+        "sha256": "7316e1b8f800fb7a7a4007240055188572764b3acf9b52dc5d3aac428db3f977"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/onboarding-tablet-820-desktop-chromium.png",
+        "sha256": "666c81f3f8a2ff21a45f08c18b99382f5e2337876cdb6b089a2e100c8b7544f0"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/today-desktop-1440-desktop-chromium.png",
+        "sha256": "c8cf0aefe887947f5718c8e41e8a4c62aa3f517b16d5dfbc8871d4a63b59ccd3"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/today-laptop-1024-desktop-chromium.png",
+        "sha256": "e76d0c02dcd79bb470f184e1403f2e7b73667f80fbb14cde5133e997b92ea05b"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/today-phone-320-desktop-chromium.png",
+        "sha256": "0fc47e7cedcef0624d36819af1eb7ec2ab38e2caa2199696b43381d5538f97e8"
+      },
+      {
+        "path": "apps/dashboard/artifacts/neutral-brand-fallback/today-tablet-820-desktop-chromium.png",
+        "sha256": "e38c0bca8264a7e18dc94828af129ea24c9f7b75159edd5f345d25ffe30a3143"
+      }
+    ]
+  },
+  "review": {
+    "rootInspected": ["Today at all four widths", "loading320/1440", "onboarding320"],
+    "critique": "Existing portal typography and dividers preserved. Removed decorative strands/glow/flame rather than introducing new artwork; plain temporary text and legible status spacing. No new generic SaaS composition.",
+    "limits": [
+      "Development fixture/component rendering with synthetic props, not authenticated client-route proof.",
+      "Remote-onboarding background draft requests logged expected missing-service environment errors; only initial visual surface is established.",
+      "Emulated Chromium viewports; no physical-device or deployment claim."
+    ],
+    "teardown": "Worker stopped owned Next; port3001 empty. Generated next-env.d.ts and tsconfig.json diff matches HEAD."
+  },
+  "sources": [
+    {
+      "source": "apps/dashboard/components/TorchikoCore.tsx",
+      "sha256NormalizedLF": "ba802dda5b63fb91423a2dab5314db4b32f859d7eda85eb7e58e5b4f73fb237f"
+    },
+    {
+      "source": "apps/dashboard/components/TorchikoClientPrimitives.module.css",
+      "sha256NormalizedLF": "32142c770bea3e7966c261304a551f85aa6efb89a213ed2e3c365a2d961df667"
+    },
+    {
+      "source": "apps/dashboard/components/ClientPortalPrimitives.test.tsx",
+      "sha256NormalizedLF": "482c82b580f24cb3ae6ea9eca8d37cab8314a1a751ca0eff53175e15e3110ec1"
+    },
+    {
+      "source": "apps/dashboard/components/DashboardOverview.tsx",
+      "sha256NormalizedLF": "9b34358776b74fc30caf1bc254f1da6c9cf9695209d9e7f46b66d51676ca59d9"
+    },
+    {
+      "source": "apps/dashboard/tests/browser/neutral-brand-fallback.spec.ts",
+      "sha256NormalizedLF": "f1278c2e22a85ee352487078b44b107257f1d3d1eddc56b99e9b7ed6e9d32e13"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/neutral-brand-fallback/page.tsx",
+      "sha256NormalizedLF": "0613a26912de3e69f8af21bcb91e3e3b8ea6f0c500f3fe6029cc981befe788ea"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/neutral-brand-fallback/NeutralBrandErrorFixture.tsx",
+      "sha256NormalizedLF": "30df0fe464e9614a104f9387102e9fe7a07c7d863a57ec83c5f37a3fe8d2c2db"
+    },
+    {
+      "source": "docs/TOCHI-CHARACTER-SYSTEM.md",
+      "sha256NormalizedLF": "fd1a1aadd5ad2d47e99fc4533fcd8de4bd01fa1197fae0623b333515906e2a05"
+    }
+  ]
+}

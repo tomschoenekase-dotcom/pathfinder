@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:42:39.877693+00:00",
+  "baseProductRevision": "cc98f9e9e472bf430e64036662a9ff87ae3f59d8",
+  "proofs": [
+    {
+      "result": {
+        "database": "pathfinder_disposable_agent_improvement_4e95d44ddd4f",
+        "port": "55489",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-workflow-handoff-4e95d44ddd4f",
+        "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+        "migrationsPassed": true,
+        "testPassed": true,
+        "stopped": true
+      },
+      "tests": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "measuredSources": [
+        {
+          "path": "packages/db/src/helpers/agent-improvement-proposal-disposable.integration.test.ts",
+          "sha256": "ba9d3420906ae43a68a31b5d8bf1eadd785ee13d8d4d01ccbe3912db9c69f5c7",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+          "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+          "sha256": "3fed33b128a70f8feac3ab318e95640c27c94cd1c9d8ea35911a62c980b54018",
+          "matchesRetainedBytes": true
+        }
+      ]
+    },
+    {
+      "result": {
+        "database": "pathfinder_disposable_agent_run_cancellation_4d506801a4f7",
+        "port": "55489",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-run-cancellation-4d506801a4f7",
+        "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+        "migrationsPassed": true,
+        "testPassed": true,
+        "stopped": true
+      },
+      "tests": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "measuredSources": [
+        {
+          "path": "packages/db/src/helpers/agent-run-cancellation-claim.disposable.integration.test.ts",
+          "sha256": "0d27631f14ef1e349e678d0492e105675fcfeb74ae1984f5e4669f78b59928da",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+          "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+          "sha256": "3fed33b128a70f8feac3ab318e95640c27c94cd1c9d8ea35911a62c980b54018",
+          "matchesRetainedBytes": true
+        }
+      ]
+    },
+    {
+      "result": {
+        "database": "pathfinder_disposable_agent_bridge_da4615eb9221",
+        "port": "55489",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-bridge-fresh-process-da4615eb9221",
+        "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+        "migrationsPassed": true,
+        "testPassed": true,
+        "stopped": true
+      },
+      "tests": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "measuredSources": [
+        {
+          "path": "apps/workers/src/lib/agent-bridge-fresh-process.disposable.integration.test.ts",
+          "sha256": "38a06734f631cc0250e6fe0866ddfab8f8a9f8ec0200d9bb41090755ccae4a50",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "apps/workers/src/lib/agent-bridge-fresh-process.fixture.ts",
+          "sha256": "a7c13b3bc68010808620dfedb64ea082f4dd912f428d0b0ac5ad6d91a2a41851",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+          "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+          "matchesRetainedBytes": true
+        }
+      ]
+    }
+  ],
+  "focusedTestsPassed": 31,
+  "dbTypecheck": "passed",
+  "scopedLint": "passed",
+  "implemented": [
+    "Selected workflow instructions, version/content/binding hashes and required capabilities are included in the bridge prompt.",
+    "Complete workflow and persisted context budgets are checked inside the claim transaction before consuming an attempt; no silent slicing of selected instructions.",
+    "Cancellation commits before NOT_CLAIMABLE is raised, with exact status/attempt/timestamp CAS and preservation of terminal outcomes.",
+    "Bridge discovery excludes cancellation-requested candidates before its bounded window."
+  ],
+  "nativeControls": [
+    "Removing a required worker capability rejects claim with queued state, attempt zero and no owner/lease; restoring it permits exact workflow handoff.",
+    "Cancellation survives the thrown caller error even with a one-character prompt budget and consumes no attempt.",
+    "Actual bridge claim selects ready work behind 26 older cancellation-requested rows.",
+    "Actual exited-process/fresh-process HTTP recovery still consumes the retained blocking answer and rejects stale completion."
+  ],
+  "limits": [
+    "All PostgreSQL databases are disposable loopback instances with synthetic scoped credentials. No live model, production worker, provider or external action.",
+    "Twenty-six cancellation-requested fixture rows are excluded from discovery and intentionally remain queued; this is not a queue-cleanup or bulk-finalization claim.",
+    "Fresh-process adapter is deterministic; no OS reboot or broader harness acceptance claim."
+  ],
+  "retainedFailedRuns": {
+    "workflow-handoff-50dd230b5b47": "Fixture compared raw multiline workflow text to JSON-escaped prompt; corrected to exact parsed workflow payload equality."
+  }
+}

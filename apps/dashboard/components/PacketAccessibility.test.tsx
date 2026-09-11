@@ -14,6 +14,7 @@ let pathname = '/admin'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn() }),
 }))
 vi.mock('../lib/trpc', () => ({
@@ -42,6 +43,9 @@ vi.mock('@clerk/nextjs', () => ({
   SignOutButton: ({ children }: { children: React.ReactNode }) => children,
   useOrganization: () => ({ organization: { name: 'Museum Group' } }),
   useUser: () => ({ user: { publicMetadata: {} } }),
+}))
+vi.mock('./IntakeV1SubmissionWorkspace', () => ({
+  IntakeV1SubmissionWorkspace: () => <div>Website or staff contribution form</div>,
 }))
 
 import { resolveClientPortalLifecycle } from '@pathfinder/contracts/client-portal-lifecycle'
@@ -163,8 +167,9 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
     }
     const { container } = render(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
-          venue: { id: 'venue-1', name: 'East Museum' },
+          venue: { id: 'venue-1', name: 'East Museum', category: null },
           lifecycle,
           projection: resolveRemoteOnboardingProjection({
             lifecycle,

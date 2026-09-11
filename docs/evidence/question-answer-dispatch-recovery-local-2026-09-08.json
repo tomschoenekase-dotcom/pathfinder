@@ -1,0 +1,110 @@
+{
+  "recordedAt": "2026-09-08T07:23:29.925083+00:00",
+  "baseHead": "a5b350e8b50703a4b74690ef9f58867969438826",
+  "scope": "P04-02 and client onboarding: distinguish durable answers/replies from worker queue acknowledgement; exact frozen founder wake-up retry.",
+  "defects": [
+    "Founder form threw on legitimate executionTriggered=true even though actual route returns it for a successful enqueue.",
+    "Founder and client routes previously threw queue errors after canonical persistence committed, making saved responses appear unconfirmed."
+  ],
+  "behavior": [
+    "Only enqueue failures after canonical actions are absorbed. Persistence/authorization/linked-resume failures still reject.",
+    "Additive dispatchStatus distinguishes NOT_NEEDED, DISABLED, ENQUEUED and UNCONFIRMED; executionTriggered retained as queue acknowledgement only.",
+    "Exact canonical replay rechecks run eligibility and preserves deterministic queue job key. Client projection excludes internal run/question IDs; warnings omit response body and thrown error.",
+    "Founder form freezes full payload after UNCONFIRMED, retains recorded-answer truth across retry failure, and fences stale async success/error/finally with scope generation including A-to-B-to-A. Scope/revision changes clear stale response state."
+  ],
+  "verification": {
+    "integratedApiRegression": {
+      "passed": 44,
+      "failed": 0,
+      "files": 6
+    },
+    "canonicalAgentQuestionTests": 13,
+    "componentTests": 8,
+    "browser": {
+      "passed": 1,
+      "failed": 0,
+      "viewports": [320, 820, 1024, 1440],
+      "axeViolations": 0,
+      "runtimeErrors": 0,
+      "exactRetryPayload": true,
+      "keyboardRetry": true
+    },
+    "types": "Final API and dashboard checks passed",
+    "lint": "Owned source checks passed; package-wide lint encountered preexisting unused MediaResolutionError import in media-resolution.disposable.integration.test.ts, outside this slice.",
+    "readback": "Root inspected all5 screenshots and browser last-run passed/no failedTests; services stopped."
+  },
+  "sourceHashes": [
+    {
+      "source": "packages/api/src/routers/admin/agent-questions.ts",
+      "sha256NormalizedLF": "d760d64eec7a9846788ca28ddab68e43b8baae6d1a210ec4fd455a76d0b1077b"
+    },
+    {
+      "source": "packages/api/src/routers/admin/agent-question-dispatch.test.ts",
+      "sha256NormalizedLF": "3555f4c46c8d634332374dd7756f365745b3d9b9a55250a7d218d44dfc76c5bf"
+    },
+    {
+      "source": "packages/api/src/routers/support.ts",
+      "sha256NormalizedLF": "90af7c7397bce334f9fe55ca24d4960b8edb4dd8b9d2d6710f7922f7718c0aca"
+    },
+    {
+      "source": "packages/api/src/routers/support-onboarding-resume.test.ts",
+      "sha256NormalizedLF": "51efc460a595ed87e8445e4a24764eb0d87a2a24c1f0e021f8502d1dedf3e672"
+    },
+    {
+      "source": "apps/dashboard/components/admin/AgentQuestionAnswerForm.tsx",
+      "sha256NormalizedLF": "b99fbbd4798d42298efdb96e6825cbd734657dcf19496d76804cb3ac1575c687"
+    },
+    {
+      "source": "apps/dashboard/components/admin/AgentQuestionAnswerForm.test.tsx",
+      "sha256NormalizedLF": "943d0a7ec4baeb0e422afa02a669eeba3aaa02a768197a6a3c46734f894a0a62"
+    },
+    {
+      "source": "apps/dashboard/tests/visual/founder-question-answer-recovery.spec.ts",
+      "sha256NormalizedLF": "140622b794433958a6446c15d3daa938be7a7cc001d15bd811dbaa39da632347"
+    },
+    {
+      "source": "packages/db/src/helpers/agent-question-actions.ts",
+      "sha256NormalizedLF": "d76a4bd8e0af4f8aaefa6ef76fe22e2e3624189833e628235fac9b67383ff428"
+    },
+    {
+      "source": "packages/jobs/src/enqueue.ts",
+      "sha256NormalizedLF": "915e6fa27824ac649135f562927c6bcb7a2c68b68f1f11abbb7123f24908535d"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-unconfirmed-320.png",
+      "sha256": "cf6ea075e2ba61fbaddabc05c74176ec8a4c747eec4b15084008ab93ba84345a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-320.png",
+      "sha256": "f5f84a0729d24747e88a733dbd7e5cc8e600af9cdb87a47e2d01a3da6587551c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-820.png",
+      "sha256": "4bb947c41d3abf4de3777664cc3587ee58c76100785eabff9101ff58101f1b3e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1024.png",
+      "sha256": "586ef1a9a1b49695d1b101bd786a9818c8686df918d1c1dd47404a3ddc603512"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1440.png",
+      "sha256": "e893f08bd03983eee277a6c167e7d5724e59f857fa396a2f29ab3a4f908fafe1"
+    }
+  ],
+  "limitations": [
+    "Browser uses actual production components with mocked answer transport; router tests use mocked canonical actions/queue. Prior canonical native answer/resume proofs remain separate.",
+    "No live Redis worker, actual resumed model execution, provider, approval, publication or customer-send claim.",
+    "Question type-specific controls, general discussion threads, expiry/bundling and full founder workload acceptance remain separate P04 requirements."
+  ],
+  "visualCritique": "Existing founder form/evidence layout retained; adds only recovery feedback and a keyboard-accessible retry button. Desktop remains primary; basic phone usability checked.",
+  "artifactRetention": {
+    "correctedAt": "2026-09-08T08:01:51.143590+00:00",
+    "reason": "Shared Playwright output is cleared by later runs; regenerated proofs use this dedicated artifact directory.",
+    "rerun": "2/2 founder types and answer recovery browser checks passed on the current form.",
+    "exactOriginalScreenshotHashesVerified": true,
+    "sourceHead": "76b5e8c29a966c0bbf0c5f842fc22f2e759de045",
+    "outputDirectory": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored"
+  }
+}

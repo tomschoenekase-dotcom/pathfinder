@@ -42,6 +42,8 @@ import {
   enqueueEmbedPlace,
   enqueueMediaIngestion,
   enqueueGenerationDispatchKick,
+  enqueueIntakeV1FileExtraction,
+  enqueueIntakeV1SourceProcessing,
   enqueueIntakeUploadVerification,
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
@@ -89,6 +91,73 @@ describe('job enqueues', () => {
       { tenantId: 'tenant_1', runId: 'run_1' },
       expect.objectContaining({ jobId: 'agent-run-run_1', attempts: 3 }),
     )
+  })
+
+  it('redrives a retained failed agent run job', async () => {
+    const retained = {
+      getState: vi.fn(async () => 'failed'),
+      retry: vi.fn(async () => undefined),
+    }
+    mocks.getJob.mockResolvedValue(retained)
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: true })
+
+    expect(mocks.getJob).toHaveBeenCalledWith('agent-run-run_1')
+    expect(retained.retry).toHaveBeenCalledWith('failed')
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.loggerInfo).toHaveBeenCalledWith({
+      action: 'jobs.agent-run.redriven',
+      tenantId: 'tenant_1',
+      runId: 'run_1',
+    })
+  })
+
+  it.each(['waiting', 'active', 'delayed', 'prioritized'])(
+    'accepts a retained %s agent run job without adding a duplicate',
+    async (state) => {
+      mocks.getJob.mockResolvedValue({ getState: vi.fn(async () => state) })
+
+      await expect(
+        enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+      ).resolves.toEqual({ enqueued: true })
+
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
+
+  it('accepts a concurrent agent run redrive only after confirming queued state', async () => {
+    const retained = {
+      getState: vi.fn(async () => 'failed'),
+      retry: vi.fn(async () => {
+        throw new Error('job is no longer failed')
+      }),
+    }
+    mocks.getJob
+      .mockResolvedValueOnce(retained)
+      .mockResolvedValueOnce({ getState: vi.fn(async () => 'waiting') })
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: true })
+    expect(mocks.getJob).toHaveBeenCalledTimes(2)
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
+  it('preserves completed agent task replay without assuming durable run state', async () => {
+    mocks.getJob.mockResolvedValue({ getState: vi.fn(async () => 'completed') })
+
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: false })
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.loggerInfo).toHaveBeenCalledWith({
+      action: 'jobs.agent-run.reconciliation-needed',
+      tenantId: 'tenant_1',
+      runId: 'run_1',
+      queueState: 'completed',
+    })
   })
 
   afterEach(async () => {
@@ -252,6 +321,72 @@ describe('job enqueues', () => {
       expect(mocks.loggerInfo).not.toHaveBeenCalled()
     },
   )
+
+  it.each(['', '   ', 'x'.repeat(201)])(
+    'rejects an invalid V1 source processing identity before touching a queue',
+    async (dispatchId) => {
+      await expect(enqueueIntakeV1SourceProcessing(dispatchId)).rejects.toThrow(
+        'Intake V1 source processing dispatch ID must be a nonempty opaque identifier',
+      )
+      expect(mocks.queue).not.toHaveBeenCalled()
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
+
+  it('enqueues opaque V1 source processing with stable bounded retries', async () => {
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_A)
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_A)
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_B)
+
+    const [first, replay, distinct] = mocks.add.mock.calls
+    expect(replay![2].jobId).toBe(first![2].jobId)
+    expect(distinct![2].jobId).not.toBe(first![2].jobId)
+    expect(first).toEqual([
+      'intake-v1-source-processing-process',
+      { dispatchId: DISPATCH_ID_A },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: expect.stringMatching(/^intake-v1-source-processing-[a-f0-9]{64}$/u),
+      },
+    ])
+    expect(first![2].jobId).not.toContain(DISPATCH_ID_A)
+  })
+
+  it.each(['', '   ', 'x'.repeat(201)])(
+    'rejects an invalid V1 file extraction identity before touching a queue',
+    async (dispatchId) => {
+      await expect(enqueueIntakeV1FileExtraction(dispatchId)).rejects.toThrow(
+        'Intake V1 file extraction dispatch ID must be a nonempty opaque identifier',
+      )
+      expect(mocks.queue).not.toHaveBeenCalled()
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
+
+  it('enqueues opaque V1 file extraction with stable bounded retries', async () => {
+    await enqueueIntakeV1FileExtraction(DISPATCH_ID_A)
+    await enqueueIntakeV1FileExtraction(DISPATCH_ID_A)
+    await enqueueIntakeV1FileExtraction(DISPATCH_ID_B)
+
+    const [first, replay, distinct] = mocks.add.mock.calls
+    expect(replay![2].jobId).toBe(first![2].jobId)
+    expect(distinct![2].jobId).not.toBe(first![2].jobId)
+    expect(first).toEqual([
+      'intake-v1-file-extraction-process',
+      { dispatchId: DISPATCH_ID_A },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: expect.stringMatching(/^intake-v1-file-extraction-[a-f0-9]{64}$/u),
+      },
+    ])
+    expect(first![2].jobId).not.toContain(DISPATCH_ID_A)
+  })
 
   it('derives stable, target-separated opaque dispatch job IDs', async () => {
     await enqueueGenerationDispatchKick(DISPATCH_ID_A)

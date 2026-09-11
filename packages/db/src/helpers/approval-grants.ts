@@ -39,6 +39,7 @@ export type ApprovalGrantHumanActor = {
 }
 
 type ApprovalGrantClient = Pick<typeof db, '$transaction'>
+type ApprovalGrantTransaction = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 
 type GrantMode = 'ONE_SHOT' | 'BOUNDED' | 'TEMPORARY' | 'POLICY_BACKED'
 
@@ -544,10 +545,7 @@ function sameGrantIssue(
   )
 }
 
-export async function issueApprovalGrantAction(
-  input: IssueInput,
-  client: ApprovalGrantClient = db,
-) {
+function prepareApprovalGrantIssue(input: IssueInput) {
   assertHuman(input.actor)
   modeRules(input)
   const parsedOperationId = grantOperationId.safeParse(input.operationId)
@@ -603,201 +601,231 @@ export async function issueApprovalGrantAction(
     input.parameters === undefined ? null : approvalParameterHash(input.parameters)
   const normalized = { parameterHash, constraints, issueReason, outcomeObservationIds }
 
-  const attempt = () =>
-    client.$transaction(async (rawTx) => {
-      const tx = rawTx as unknown as typeof db
-      const replay = await tx.approvalGrant.findFirst({
-        where: { tenantId: input.tenantId, operationId },
-        select: grantSelect,
-      })
-      if (replay) {
-        if (!sameGrantIssue(replay, input, normalized)) {
-          throw new ApprovalGrantActionError(
-            'CONFLICT',
-            'Approval-grant operation ID was already used for different authority',
-          )
-        }
-        return { ...replay, replayed: true as const }
-      }
-      if (policyKey) {
-        const activePolicy = await tx.approvalGrant.findFirst({
-          where: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            agentIdentityId: input.agentIdentityId,
-            actionName: input.actionName,
-            policyKey,
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          select: { id: true },
-        })
-        if (activePolicy) {
-          throw new ApprovalGrantActionError(
-            'CONFLICT',
-            'An active policy grant already uses this policy key in the same scope',
-          )
-        }
-      }
-      if (input.approvalDecisionId) {
-        const decision = await tx.approvalDecision.findFirst({
-          where: {
-            id: input.approvalDecisionId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            decision: 'APPROVED',
-          },
-          select: {
-            id: true,
-            grant: { select: { id: true } },
-            approvalRequest: { select: { proposedAction: true, agentIdentityId: true } },
-          },
-        })
-        if (!decision) {
-          throw new ApprovalGrantActionError('NOT_FOUND', 'Approved decision not found in scope')
-        }
-        if (decision.grant) {
-          throw new ApprovalGrantActionError('CONFLICT', 'Approval decision already has a grant')
-        }
-        if (
-          decision.approvalRequest.proposedAction !== input.actionName ||
-          decision.approvalRequest.agentIdentityId !== input.agentIdentityId
-        ) {
-          throw new ApprovalGrantActionError(
-            'FORBIDDEN',
-            'Approval decision does not authorize this action and agent',
-          )
-        }
-      }
+  return {
+    operationId,
+    issueReason,
+    policyKey,
+    outcomeObservationIds,
+    constraints,
+    notBefore,
+    parameterHash,
+    normalized,
+  }
+}
 
-      const identity = await tx.agentIdentity.findFirst({
-        where: {
-          id: input.agentIdentityId,
-          tenantId: input.tenantId,
-          enabled: true,
-          OR: [{ venueId: null }, { venueId: input.venueId }],
-          accessCapabilities: { has: input.capability },
-        },
-        select: { id: true },
-      })
-      if (!identity) {
-        throw new ApprovalGrantActionError(
-          'FORBIDDEN',
-          'Enabled agent identity does not hold the granted capability',
-        )
-      }
-
-      let authorityEvidence: Array<{
-        id: string
-        agentRunId: string
-        signalKind: string
-        verdict: string
-        taskClass: string
-        modelProvider: string | null
-        modelName: string | null
-        createdAt: Date
-      }> = []
-      if (input.mode === 'POLICY_BACKED') {
-        authorityEvidence = await tx.agentOutcomeObservation.findMany({
-          where: {
-            id: { in: outcomeObservationIds },
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            agentIdentityId: input.agentIdentityId,
-          },
-          select: {
-            id: true,
-            agentRunId: true,
-            signalKind: true,
-            verdict: true,
-            taskClass: true,
-            modelProvider: true,
-            modelName: true,
-            createdAt: true,
-          },
-        })
-        if (authorityEvidence.length !== outcomeObservationIds.length) {
-          throw new ApprovalGrantActionError(
-            'FORBIDDEN',
-            'Selected outcome evidence was not found in this agent and venue scope',
-          )
-        }
-      }
-
-      const grant = await tx.approvalGrant.create({
-        data: {
-          operationId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          approvalDecisionId: input.approvalDecisionId ?? null,
-          policyKey,
-          agentIdentityId: input.agentIdentityId,
-          actionName: input.actionName,
-          capability: input.capability,
-          mode: input.mode,
-          scope: input.scope,
-          parameterHash,
-          constraints,
-          issueReason,
-          maxUses: input.mode === 'ONE_SHOT' ? 1 : (input.maxUses ?? null),
-          notBefore,
-          expiresAt: input.expiresAt ?? null,
-          createdByType: 'HUMAN',
-          createdById: input.actor.id,
-        },
-        select: grantSelect,
-      })
-      if (outcomeObservationIds.length) {
-        await tx.approvalGrantEvidence.createMany({
-          data: outcomeObservationIds.map((outcomeObservationId) => ({
-            tenantId: input.tenantId,
-            approvalGrantId: grant.id,
-            outcomeObservationId,
-          })),
-        })
-      }
-      await writeAuditLogStrict(
-        {
-          tenantId: input.tenantId,
-          actorId: input.actor.id,
-          actorRole: input.actor.role,
-          actorType: 'HUMAN',
-          action: 'approval-grant.issued',
-          targetType: 'ApprovalGrant',
-          targetId: grant.id,
-          afterState: {
-            venueId: grant.venueId,
-            agentIdentityId: grant.agentIdentityId,
-            actionName: grant.actionName,
-            capability: grant.capability,
-            mode: grant.mode,
-            maxUses: grant.maxUses,
-            notBefore: grant.notBefore.toISOString(),
-            expiresAt: grant.expiresAt?.toISOString() ?? null,
-            parameterHash: grant.parameterHash,
-            constraints: grant.constraints,
-            issueReason: grant.issueReason,
-            operationId: grant.operationId,
-            authorityEvidence: authorityEvidence.map((observation) => ({
-              outcomeObservationId: observation.id,
-              agentRunId: observation.agentRunId,
-              signalKind: observation.signalKind,
-              verdict: observation.verdict,
-              taskClass: observation.taskClass,
-              modelProvider: observation.modelProvider,
-              modelName: observation.modelName,
-              createdAt: observation.createdAt.toISOString(),
-            })),
-          },
-        },
-        tx,
+export async function issueApprovalGrantInTransaction(
+  tx: ApprovalGrantTransaction,
+  input: IssueInput,
+) {
+  const {
+    operationId,
+    issueReason,
+    policyKey,
+    outcomeObservationIds,
+    constraints,
+    notBefore,
+    parameterHash,
+    normalized,
+  } = prepareApprovalGrantIssue(input)
+  const replay = await tx.approvalGrant.findFirst({
+    where: { tenantId: input.tenantId, operationId },
+    select: grantSelect,
+  })
+  if (replay) {
+    if (!sameGrantIssue(replay, input, normalized)) {
+      throw new ApprovalGrantActionError(
+        'CONFLICT',
+        'Approval-grant operation ID was already used for different authority',
       )
-      const persistedGrant = await tx.approvalGrant.findFirstOrThrow({
-        where: { id: grant.id, tenantId: input.tenantId },
-        select: grantSelect,
-      })
-      return { ...persistedGrant, replayed: false as const }
+    }
+    return { ...replay, replayed: true as const }
+  }
+  if (policyKey) {
+    const activePolicy = await tx.approvalGrant.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentIdentityId: input.agentIdentityId,
+        actionName: input.actionName,
+        policyKey,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      select: { id: true },
     })
+    if (activePolicy) {
+      throw new ApprovalGrantActionError(
+        'CONFLICT',
+        'An active policy grant already uses this policy key in the same scope',
+      )
+    }
+  }
+  if (input.approvalDecisionId) {
+    const decision = await tx.approvalDecision.findFirst({
+      where: {
+        id: input.approvalDecisionId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        decision: 'APPROVED',
+      },
+      select: {
+        id: true,
+        grant: { select: { id: true } },
+        approvalRequest: { select: { proposedAction: true, agentIdentityId: true } },
+      },
+    })
+    if (!decision) {
+      throw new ApprovalGrantActionError('NOT_FOUND', 'Approved decision not found in scope')
+    }
+    if (decision.grant) {
+      throw new ApprovalGrantActionError('CONFLICT', 'Approval decision already has a grant')
+    }
+    if (
+      decision.approvalRequest.proposedAction !== input.actionName ||
+      decision.approvalRequest.agentIdentityId !== input.agentIdentityId
+    ) {
+      throw new ApprovalGrantActionError(
+        'FORBIDDEN',
+        'Approval decision does not authorize this action and agent',
+      )
+    }
+  }
+
+  const identity = await tx.agentIdentity.findFirst({
+    where: {
+      id: input.agentIdentityId,
+      tenantId: input.tenantId,
+      enabled: true,
+      OR: [{ venueId: null }, { venueId: input.venueId }],
+      accessCapabilities: { has: input.capability },
+    },
+    select: { id: true },
+  })
+  if (!identity) {
+    throw new ApprovalGrantActionError(
+      'FORBIDDEN',
+      'Enabled agent identity does not hold the granted capability',
+    )
+  }
+
+  let authorityEvidence: Array<{
+    id: string
+    agentRunId: string
+    signalKind: string
+    verdict: string
+    taskClass: string
+    modelProvider: string | null
+    modelName: string | null
+    createdAt: Date
+  }> = []
+  if (input.mode === 'POLICY_BACKED') {
+    authorityEvidence = await tx.agentOutcomeObservation.findMany({
+      where: {
+        id: { in: outcomeObservationIds },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentIdentityId: input.agentIdentityId,
+      },
+      select: {
+        id: true,
+        agentRunId: true,
+        signalKind: true,
+        verdict: true,
+        taskClass: true,
+        modelProvider: true,
+        modelName: true,
+        createdAt: true,
+      },
+    })
+    if (authorityEvidence.length !== outcomeObservationIds.length) {
+      throw new ApprovalGrantActionError(
+        'FORBIDDEN',
+        'Selected outcome evidence was not found in this agent and venue scope',
+      )
+    }
+  }
+
+  const grant = await tx.approvalGrant.create({
+    data: {
+      operationId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      approvalDecisionId: input.approvalDecisionId ?? null,
+      policyKey,
+      agentIdentityId: input.agentIdentityId,
+      actionName: input.actionName,
+      capability: input.capability,
+      mode: input.mode,
+      scope: input.scope,
+      parameterHash,
+      constraints,
+      issueReason,
+      maxUses: input.mode === 'ONE_SHOT' ? 1 : (input.maxUses ?? null),
+      notBefore,
+      expiresAt: input.expiresAt ?? null,
+      createdByType: 'HUMAN',
+      createdById: input.actor.id,
+    },
+    select: grantSelect,
+  })
+  if (outcomeObservationIds.length) {
+    await tx.approvalGrantEvidence.createMany({
+      data: outcomeObservationIds.map((outcomeObservationId) => ({
+        tenantId: input.tenantId,
+        approvalGrantId: grant.id,
+        outcomeObservationId,
+      })),
+    })
+  }
+  await writeAuditLogStrict(
+    {
+      tenantId: input.tenantId,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+      actorType: 'HUMAN',
+      action: 'approval-grant.issued',
+      targetType: 'ApprovalGrant',
+      targetId: grant.id,
+      afterState: {
+        venueId: grant.venueId,
+        agentIdentityId: grant.agentIdentityId,
+        actionName: grant.actionName,
+        capability: grant.capability,
+        mode: grant.mode,
+        maxUses: grant.maxUses,
+        notBefore: grant.notBefore.toISOString(),
+        expiresAt: grant.expiresAt?.toISOString() ?? null,
+        parameterHash: grant.parameterHash,
+        constraints: grant.constraints,
+        issueReason: grant.issueReason,
+        operationId: grant.operationId,
+        authorityEvidence: authorityEvidence.map((observation) => ({
+          outcomeObservationId: observation.id,
+          agentRunId: observation.agentRunId,
+          signalKind: observation.signalKind,
+          verdict: observation.verdict,
+          taskClass: observation.taskClass,
+          modelProvider: observation.modelProvider,
+          modelName: observation.modelName,
+          createdAt: observation.createdAt.toISOString(),
+        })),
+      },
+    },
+    tx,
+  )
+  const persistedGrant = await tx.approvalGrant.findFirstOrThrow({
+    where: { id: grant.id, tenantId: input.tenantId },
+    select: grantSelect,
+  })
+  return { ...persistedGrant, replayed: false as const }
+}
+
+export async function issueApprovalGrantAction(
+  input: IssueInput,
+  client: ApprovalGrantClient = db,
+) {
+  const { operationId, normalized } = prepareApprovalGrantIssue(input)
+  const attempt = () => client.$transaction((tx) => issueApprovalGrantInTransaction(tx, input))
 
   try {
     return await attempt()
@@ -833,6 +861,182 @@ export async function issueApprovalGrantAction(
  * exact parameter hash fail closed until their action registers a reviewed
  * constraint evaluator; callers cannot self-assert that arbitrary parameters fit.
  */
+export async function consumeApprovalGrantInTransaction(
+  tx: ApprovalGrantTransaction,
+  input: {
+    tenantId: string
+    venueId: string
+    approvalGrantId: string
+    operationId: string
+    actionName: string
+    capability: string
+    parameters: unknown
+    actor: MachineActorContext
+    now?: Date
+    resultReference?: string
+  },
+) {
+  const parsedOperationId = z.string().uuid().parse(input.operationId)
+  const parameterHash = approvalParameterHash(input.parameters)
+  // Serialize both consumption and exact replay on the scoped authority row.
+  // Time must be sampled after a lock wait, never before a blocked update.
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM approval_grants
+     WHERE id=${input.approvalGrantId} AND tenant_id=${input.tenantId}
+       AND venue_id=${input.venueId} AND agent_identity_id=${input.actor.agentIdentityId}
+       AND action_name=${input.actionName} AND capability=${input.capability}
+     FOR UPDATE
+  `
+  if (locked.length !== 1)
+    throw new ApprovalGrantActionError('NOT_FOUND', 'Approval grant not found in scope')
+  const replay = await tx.approvalGrantConsumption.findFirst({
+    where: { tenantId: input.tenantId, operationId: parsedOperationId },
+    select: {
+      id: true,
+      approvalGrantId: true,
+      agentIdentityId: true,
+      agentRunId: true,
+      workerId: true,
+      credentialId: true,
+      actionName: true,
+      capability: true,
+      parameterHash: true,
+      resultReference: true,
+      consumedAt: true,
+    },
+  })
+  if (replay) {
+    if (
+      replay.approvalGrantId !== input.approvalGrantId ||
+      replay.agentIdentityId !== input.actor.agentIdentityId ||
+      replay.agentRunId !== input.actor.agentRunId ||
+      replay.workerId !== input.actor.workerId ||
+      replay.credentialId !== input.actor.credentialId ||
+      replay.actionName !== input.actionName ||
+      replay.capability !== input.capability ||
+      replay.parameterHash !== parameterHash
+    ) {
+      throw new ApprovalGrantActionError(
+        'CONFLICT',
+        'Operation ID was already used for different approval evidence',
+      )
+    }
+    return { consumption: replay, replayed: true as const }
+  }
+
+  const clock = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`
+  const now = clock[0]?.now
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime()))
+    throw new ApprovalGrantActionError('CONFLICT', 'Approval grant database clock is unavailable')
+  // Legacy callers may supply `now`; it never overrides authority time.
+  const grant = await tx.approvalGrant.findFirst({
+    where: {
+      id: input.approvalGrantId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentIdentityId: input.actor.agentIdentityId,
+      actionName: input.actionName,
+      capability: input.capability,
+    },
+    select: {
+      id: true,
+      mode: true,
+      constraints: true,
+      parameterHash: true,
+      useCount: true,
+      maxUses: true,
+      notBefore: true,
+      expiresAt: true,
+      revokedAt: true,
+    },
+  })
+  if (!grant) throw new ApprovalGrantActionError('NOT_FOUND', 'Approval grant not found in scope')
+  if (grant.revokedAt) throw new ApprovalGrantActionError('REVOKED', 'Approval grant is revoked')
+  if (grant.notBefore > now) {
+    throw new ApprovalGrantActionError('FORBIDDEN', 'Approval grant is not active yet')
+  }
+  if (grant.expiresAt && grant.expiresAt <= now) {
+    throw new ApprovalGrantActionError('EXPIRED', 'Approval grant has expired')
+  }
+  if (grant.maxUses !== null && grant.useCount >= grant.maxUses) {
+    throw new ApprovalGrantActionError('EXHAUSTED', 'Approval grant has no remaining uses')
+  }
+  if (grant.parameterHash === null) {
+    assertPolicyParameters(input, grant.constraints)
+  } else if (grant.parameterHash !== parameterHash) {
+    throw new ApprovalGrantActionError(
+      'PARAMETER_MISMATCH',
+      'Action parameters do not match the approved parameters',
+    )
+  }
+
+  const updated = await tx.approvalGrant.updateMany({
+    where: {
+      id: grant.id,
+      tenantId: input.tenantId,
+      useCount: grant.useCount,
+      revokedAt: null,
+      notBefore: { lte: now },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
+    data: { useCount: { increment: 1 } },
+  })
+  if (updated.count !== 1) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Approval grant changed while it was being consumed',
+    )
+  }
+  const consumption = await tx.approvalGrantConsumption.create({
+    data: {
+      operationId: parsedOperationId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      approvalGrantId: grant.id,
+      agentIdentityId: input.actor.agentIdentityId,
+      agentRunId: input.actor.agentRunId,
+      workerId: input.actor.workerId,
+      credentialId: input.actor.credentialId,
+      actionName: input.actionName,
+      capability: input.capability,
+      parameterHash,
+      resultReference: input.resultReference ?? null,
+      consumedAt: now,
+    },
+    select: {
+      id: true,
+      approvalGrantId: true,
+      agentIdentityId: true,
+      agentRunId: true,
+      workerId: true,
+      credentialId: true,
+      actionName: true,
+      capability: true,
+      parameterHash: true,
+      resultReference: true,
+      consumedAt: true,
+    },
+  })
+  await writeAuditLogStrict(
+    {
+      tenantId: input.tenantId,
+      actor: { ...input.actor, approvalGrantId: grant.id, idempotencyKey: parsedOperationId },
+      action: 'approval-grant.consumed',
+      targetType: 'ApprovalGrant',
+      targetId: grant.id,
+      afterState: {
+        consumptionId: consumption.id,
+        actionName: input.actionName,
+        capability: input.capability,
+        parameterHash,
+        useCount: grant.useCount + 1,
+      },
+    },
+    tx,
+  )
+  return { consumption, replayed: false as const }
+}
+
 export async function consumeApprovalGrantAction(
   input: {
     tenantId: string
@@ -848,153 +1052,7 @@ export async function consumeApprovalGrantAction(
   },
   client: ApprovalGrantClient = db,
 ) {
-  const parsedOperationId = z.string().uuid().parse(input.operationId)
-  const now = input.now ?? new Date()
-  const parameterHash = approvalParameterHash(input.parameters)
-  return client.$transaction(async (rawTx) => {
-    const tx = rawTx as unknown as typeof db
-    const replay = await tx.approvalGrantConsumption.findFirst({
-      where: { tenantId: input.tenantId, operationId: parsedOperationId },
-      select: {
-        id: true,
-        approvalGrantId: true,
-        agentIdentityId: true,
-        agentRunId: true,
-        workerId: true,
-        credentialId: true,
-        actionName: true,
-        capability: true,
-        parameterHash: true,
-        resultReference: true,
-        consumedAt: true,
-      },
-    })
-    if (replay) {
-      if (
-        replay.approvalGrantId !== input.approvalGrantId ||
-        replay.agentIdentityId !== input.actor.agentIdentityId ||
-        replay.agentRunId !== input.actor.agentRunId ||
-        replay.workerId !== input.actor.workerId ||
-        replay.credentialId !== input.actor.credentialId ||
-        replay.actionName !== input.actionName ||
-        replay.capability !== input.capability ||
-        replay.parameterHash !== parameterHash
-      ) {
-        throw new ApprovalGrantActionError(
-          'CONFLICT',
-          'Operation ID was already used for different approval evidence',
-        )
-      }
-      return { consumption: replay, replayed: true as const }
-    }
-
-    const grant = await tx.approvalGrant.findFirst({
-      where: {
-        id: input.approvalGrantId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        agentIdentityId: input.actor.agentIdentityId,
-        actionName: input.actionName,
-        capability: input.capability,
-      },
-      select: {
-        id: true,
-        mode: true,
-        constraints: true,
-        parameterHash: true,
-        useCount: true,
-        maxUses: true,
-        notBefore: true,
-        expiresAt: true,
-        revokedAt: true,
-      },
-    })
-    if (!grant) throw new ApprovalGrantActionError('NOT_FOUND', 'Approval grant not found in scope')
-    if (grant.revokedAt) throw new ApprovalGrantActionError('REVOKED', 'Approval grant is revoked')
-    if (grant.notBefore > now) {
-      throw new ApprovalGrantActionError('FORBIDDEN', 'Approval grant is not active yet')
-    }
-    if (grant.expiresAt && grant.expiresAt <= now) {
-      throw new ApprovalGrantActionError('EXPIRED', 'Approval grant has expired')
-    }
-    if (grant.maxUses !== null && grant.useCount >= grant.maxUses) {
-      throw new ApprovalGrantActionError('EXHAUSTED', 'Approval grant has no remaining uses')
-    }
-    if (grant.parameterHash === null) {
-      assertPolicyParameters(input, grant.constraints)
-    } else if (grant.parameterHash !== parameterHash) {
-      throw new ApprovalGrantActionError(
-        'PARAMETER_MISMATCH',
-        'Action parameters do not match the approved parameters',
-      )
-    }
-
-    const updated = await tx.approvalGrant.updateMany({
-      where: {
-        id: grant.id,
-        tenantId: input.tenantId,
-        useCount: grant.useCount,
-        revokedAt: null,
-        notBefore: { lte: now },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
-      data: { useCount: { increment: 1 } },
-    })
-    if (updated.count !== 1) {
-      throw new ApprovalGrantActionError(
-        'CONFLICT',
-        'Approval grant changed while it was being consumed',
-      )
-    }
-    const consumption = await tx.approvalGrantConsumption.create({
-      data: {
-        operationId: parsedOperationId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        approvalGrantId: grant.id,
-        agentIdentityId: input.actor.agentIdentityId,
-        agentRunId: input.actor.agentRunId,
-        workerId: input.actor.workerId,
-        credentialId: input.actor.credentialId,
-        actionName: input.actionName,
-        capability: input.capability,
-        parameterHash,
-        resultReference: input.resultReference ?? null,
-        consumedAt: now,
-      },
-      select: {
-        id: true,
-        approvalGrantId: true,
-        agentIdentityId: true,
-        agentRunId: true,
-        workerId: true,
-        credentialId: true,
-        actionName: true,
-        capability: true,
-        parameterHash: true,
-        resultReference: true,
-        consumedAt: true,
-      },
-    })
-    await writeAuditLogStrict(
-      {
-        tenantId: input.tenantId,
-        actor: { ...input.actor, approvalGrantId: grant.id, idempotencyKey: parsedOperationId },
-        action: 'approval-grant.consumed',
-        targetType: 'ApprovalGrant',
-        targetId: grant.id,
-        afterState: {
-          consumptionId: consumption.id,
-          actionName: input.actionName,
-          capability: input.capability,
-          parameterHash,
-          useCount: grant.useCount + 1,
-        },
-      },
-      tx,
-    )
-    return { consumption, replayed: false as const }
-  })
+  return client.$transaction((tx) => consumeApprovalGrantInTransaction(tx, input))
 }
 
 export async function revokeApprovalGrantAction(

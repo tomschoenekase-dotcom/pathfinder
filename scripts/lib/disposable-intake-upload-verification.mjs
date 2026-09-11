@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|aiusage|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption|mediaresolution|mediarelation|mediatemporal|wfactivation|prospectoutreach)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|ai_usage_observation|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption|media_resolution|media_relation_application|media_temporal|workflow_activation|prospect_outreach)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -753,6 +753,8 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
         'same-corpus-before-after-evaluation',
         'declared-change-only-comparability',
         'no-automatic-promotion',
+        'dedicated-workflow-activation-approval',
+        'activation-current-evaluation-revalidation',
       ],
       integration: {
         packageDirectory: 'packages/db',
@@ -768,6 +770,38 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
           OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
           STRIPE_MODE: 'test',
           STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableAgentWorkflowActivationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'wfactivation',
+      databasePrefix: 'pathfinder_disposable_workflow_activation_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_WORKFLOW_ACTIVATION_SHAKEDOWN',
+      lifecycleEvent: 'test:agent-workflow-activation:disposable',
+      successAction: 'agent-workflow.activation.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'provider-dark',
+        'bounded-concurrent-selection',
+        'immutable-binding',
+        'complete-artifact-claim',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/agent-workflow-activation-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_AGENT_WORKFLOW_ACTIVATION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
         },
       },
     },
@@ -802,6 +836,41 @@ export async function runDisposableOperatingCostShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_OPERATING_COST_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableAiUsageObservationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'aiusage',
+      databasePrefix: 'pathfinder_disposable_ai_usage_observation_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_AI_USAGE_OBSERVATION_SHAKEDOWN',
+      lifecycleEvent: 'test:ai-usage-observation:disposable',
+      successAction: 'ai-usage-observation.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'mixed-observed-unknown-undispatched-legacy-rollup',
+        'invalid-status-rejected',
+        'provider-dark',
+      ],
+      integration: {
+        packageDirectory: 'apps/workers',
+        testFile: 'src/processors/ai-usage-observation.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_AI_USAGE_OBSERVATION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
@@ -1334,6 +1403,11 @@ export async function runDisposableSupportCompletionShakedown(options = {}) {
         'one-client-visible-in-app-message',
         'completed-transition',
         'idempotent-replay-without-duplicate-contact',
+        'concurrent-same-operation-client-followup-converges',
+        'completed-thread-reopens-on-client-followup',
+        'late-retry-distinguishes-operation-version-from-current-projection',
+        'private-diagnostic-note-excluded-from-client-visible-timeline',
+        'stale-new-operation-rejected',
         'parameter-drift-rejected',
         'no-external-delivery',
         'no-participant-change',
@@ -1424,6 +1498,49 @@ export async function runDisposableSupportPackageDraftShakedown(options = {}) {
   })
 }
 
+export async function runDisposableSupportCompletionObservabilityShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'suppdone',
+      databasePrefix: 'pathfinder_disposable_support_completion_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_SUPPORT_COMPLETION_OBSERVABILITY_SHAKEDOWN',
+      lifecycleEvent: 'test:support-completion-observability:disposable',
+      successAction: 'support-completion-observability.disposable-shakedown.passed',
+      proofScope: [
+        'canonical-v3-package-application-evidence',
+        'exact-current-legacy-guest-visible-projection',
+        'canonical-active-native-release-and-evaluation-evidence',
+        'production-native-chat-prompt-contains-applied-content',
+        'provider-dark-no-live-model-call',
+        'completion-proposal-freezes-native-release-observability-receipt',
+        'later-native-release-and-legacy-drift-block-completion',
+        'failed-completion-preserves-in-review-status',
+        'reverted-native-head-and-restored-legacy-parity-allow-completion',
+        'completion-replay-does-not-duplicate-client-contact',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/support-package-draft-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_SUPPORT_COMPLETION_OBSERVABILITY_DB_INTEGRATION: '1',
+          NATIVE_GUEST_CONTENT_READ_ENABLED: 'true',
+          RAILWAY_ENVIRONMENT: 'staging',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
 export async function runDisposableSemanticVenueUpdateShakedown(options = {}) {
   return runDisposableServiceShakedown({
     ...options,
@@ -1463,6 +1580,119 @@ export async function runDisposableSemanticVenueUpdateShakedown(options = {}) {
           OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
           STRIPE_MODE: 'test',
           STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableLegacyKnowledgeAdoptionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'legacyadoption',
+      databasePrefix: 'pathfinder_disposable_legacy_knowledge_adoption_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_LEGACY_ADOPTION_SHAKEDOWN',
+      lifecycleEvent: 'test:legacy-knowledge-adoption:disposable',
+      successAction: 'legacy-knowledge-adoption.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'exact-approved-proposal-and-legacy-source-snapshot',
+        'concurrent-draft-idempotency',
+        'legacy-source-immutable-after-adoption',
+        'legacy-authoritative-before-explicit-publication',
+        'atomic-native-activation-on-explicit-publication',
+        'withdrawal-does-not-resurrect-legacy',
+      ],
+      failureScope: [
+        'no-live-provider',
+        'no-implicit-publication',
+        'activation-and-source-history-append-only',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/lib/legacy-knowledge-adoption.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_LEGACY_KNOWLEDGE_ADOPTION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableMediaResolutionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'mediaresolution',
+      databasePrefix: 'pathfinder_disposable_media_resolution_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_MEDIA_RESOLUTION_SHAKEDOWN',
+      lifecycleEvent: 'test:media-resolution:disposable',
+      successAction: 'media-resolution.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'actual-media-project-assets-and-observations',
+        'concurrent-initialization-replay',
+        'merge-and-revert-source-lineage',
+        'relation-proposal-review-revert-and-replay',
+        'relation-endpoint-collapse-and-restoration',
+        'scope-generation-evidence-and-revision-fences',
+        'immutable-replay-after-project-change',
+        'no-canonical-location-content-or-publication-writes',
+      ],
+      failureScope: ['provider-dark', 'no-publication-authority'],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/lib/media-resolution.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_MEDIA_RESOLUTION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableMediaRelationApplicationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'mediarelation',
+      databasePrefix: 'pathfinder_disposable_media_relation_application_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_MEDIA_RELATION_APPLICATION_SHAKEDOWN',
+      lifecycleEvent: 'test:media-relation-application:disposable',
+      successAction: 'media-relation-application.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'actual-reviewed-relation-and-frozen-source-evidence',
+        'concurrent-exact-application-replay',
+        'inactive-canonical-connection-only',
+        'separate-reviewed-activation-and-public-route',
+        'source-review-reversal-suspends-active-public-route',
+        'scope-review-evidence-and-anchor-cas-fences',
+        'immutable-replay-after-activation-and-ledger-advance',
+        'no-content-or-publication-writes',
+      ],
+      failureScope: ['provider-dark', 'no-automatic-activation'],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/lib/media-relation-application.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_MEDIA_RELATION_APPLICATION_SERVICE_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
         },
       },
     },
@@ -1538,6 +1768,11 @@ export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
         'policy-consumption-machine-lineage',
         'parameter-boundary-rejection',
         'one-shot-approval-compatibility',
+        'selected-workflow-caller-lease-three-supported-effects',
+        'missing-and-stale-workflow-lease-no-consumption',
+        'capacity-skipped-no-workflow-legacy-compatibility',
+        'workflow-required-capability-loss-no-consumption',
+        'already-verified-revoked-credential-no-consumption',
         'no-publication-or-customer-contact',
       ],
       integration: {

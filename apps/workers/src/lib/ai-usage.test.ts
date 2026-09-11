@@ -69,6 +69,7 @@ describe('createWorkerAiUsageSink', () => {
         surface: 'worker',
         totalTokens: 37,
         success: true,
+        usageObservationStatus: null,
       }),
     })
   })

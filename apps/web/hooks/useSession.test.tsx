@@ -146,4 +146,114 @@ describe('useSession', () => {
     expect(session.result.current.anonymousToken).not.toBe(firstToken)
     await waitFor(() => expect(session.result.current.anonymousToken).toBe(secondToken))
   })
+
+  it('clears exposed state and fences captured callbacks when the experience scope changes', async () => {
+    const publicToken = '00000000-0000-4000-8000-000000000015'
+    const secondLayerToken = '00000000-0000-4000-8000-000000000016'
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(publicToken)
+      .mockReturnValueOnce(secondLayerToken)
+
+    const capturedRenders: Array<{ anonymousToken: string; sessionId: string | null }> = []
+    const session = renderHook(
+      ({ scope }) => {
+        const output = useSession('venue_1', scope)
+        capturedRenders.push(output)
+        return output
+      },
+      {
+        initialProps: { scope: 'public' },
+      },
+    )
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(publicToken))
+    const staleScopeCallback = session.result.current.setSessionId
+
+    act(() => staleScopeCallback('public-session'))
+    expect(session.result.current.sessionId).toBe('public-session')
+
+    const rendersBeforeScopeSwitch = capturedRenders.length
+    session.rerender({ scope: 'second-layer' })
+    const switchedRenders = capturedRenders.slice(rendersBeforeScopeSwitch)
+    expect(switchedRenders[0]).toMatchObject({ anonymousToken: '', sessionId: null })
+    expect(
+      switchedRenders.every(
+        (output) => output.anonymousToken !== publicToken && output.sessionId !== 'public-session',
+      ),
+    ).toBe(true)
+
+    act(() => staleScopeCallback('stale-session'))
+    expect(session.result.current.sessionId).toBeNull()
+
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(secondLayerToken))
+    act(() => session.result.current.setSessionId('second-layer-session'))
+    expect(session.result.current.sessionId).toBe('second-layer-session')
+    expect(window.sessionStorage.getItem('pathfinder_session_venue_1')).toBe(publicToken)
+    expect(window.sessionStorage.getItem('pathfinder_session_venue_1_second-layer')).toBe(
+      secondLayerToken,
+    )
+  })
+
+  it('fences a setSessionId callback captured before starting a new conversation', async () => {
+    const firstToken = '00000000-0000-4000-8000-000000000017'
+    const secondToken = '00000000-0000-4000-8000-000000000018'
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(firstToken)
+      .mockReturnValueOnce(secondToken)
+
+    const session = renderHook(() => useSession('venue_1'))
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(firstToken))
+    const staleResetCallback = session.result.current.setSessionId
+
+    act(() => {
+      expect(session.result.current.startNewConversation()).toBe(true)
+    })
+    expect(session.result.current.anonymousToken).toBe(secondToken)
+    expect(session.result.current.sessionId).toBeNull()
+
+    act(() => staleResetCallback('stale-session'))
+    expect(session.result.current.sessionId).toBeNull()
+    act(() => session.result.current.setSessionId('new-session'))
+    expect(session.result.current.sessionId).toBe('new-session')
+  })
+
+  it('fences a stale reset callback before it can generate or store an old-scope token', async () => {
+    const publicToken = '00000000-0000-4000-8000-000000000019'
+    const secondLayerToken = '00000000-0000-4000-8000-000000000020'
+    const staleResetToken = '00000000-0000-4000-8000-000000000021'
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(publicToken)
+      .mockReturnValueOnce(secondLayerToken)
+      .mockReturnValueOnce(staleResetToken)
+
+    const session = renderHook(({ scope }) => useSession('venue_1', scope), {
+      initialProps: { scope: 'public' },
+    })
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(publicToken))
+    const staleReset = session.result.current.startNewConversation
+
+    session.rerender({ scope: 'second-layer' })
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(secondLayerToken))
+
+    act(() => expect(staleReset()).toBe(false))
+    expect(window.sessionStorage.getItem('pathfinder_session_venue_1')).toBe(publicToken)
+    expect(window.sessionStorage.getItem('pathfinder_session_venue_1_second-layer')).toBe(
+      secondLayerToken,
+    )
+    expect(session.result.current.anonymousToken).toBe(secondLayerToken)
+  })
+
+  it('preserves the active session when reset identity generation fails', async () => {
+    const token = '00000000-0000-4000-8000-000000000022'
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(token)
+
+    const session = renderHook(() => useSession('venue_1'))
+    await waitFor(() => expect(session.result.current.anonymousToken).toBe(token))
+    act(() => session.result.current.setSessionId('active-session'))
+
+    vi.stubGlobal('crypto', {})
+    act(() => expect(session.result.current.startNewConversation()).toBe(false))
+    expect(session.result.current.anonymousToken).toBe(token)
+    expect(session.result.current.sessionId).toBe('active-session')
+    expect(session.result.current.identityUnavailable).toBe(true)
+  })
 })

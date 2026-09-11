@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { agentWorkflowManifestHash, agentWorkflowTextHash } from '@pathfinder/db'
 
 const {
   consumeApproval,
@@ -22,6 +23,7 @@ const {
   readSupportFulfillment,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
+  registerAgentWorkflowVersion,
   publishEvent,
   assertVenueAi,
   requestReportDraft,
@@ -30,6 +32,14 @@ const {
   approvePackage,
   preparePackageApplication,
   applyPackage,
+  createSemanticDraft,
+  createLegacyAdoptionDraft,
+  buildIntakeV1Candidate,
+  prepareIntakeV1Proposal,
+  readIntakeV1ProposalReplay,
+  createIntakeV1Draft,
+  consumeGrantInTransaction,
+  assertWorkflowLease,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -52,6 +62,7 @@ const {
   readSupportFulfillment: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
+  registerAgentWorkflowVersion: vi.fn(),
   publishEvent: vi.fn(),
   assertVenueAi: vi.fn(),
   requestReportDraft: vi.fn(),
@@ -60,6 +71,14 @@ const {
   approvePackage: vi.fn(),
   preparePackageApplication: vi.fn(),
   applyPackage: vi.fn(),
+  createSemanticDraft: vi.fn(),
+  createLegacyAdoptionDraft: vi.fn(),
+  buildIntakeV1Candidate: vi.fn(),
+  prepareIntakeV1Proposal: vi.fn(),
+  readIntakeV1ProposalReplay: vi.fn(),
+  createIntakeV1Draft: vi.fn(),
+  consumeGrantInTransaction: vi.fn(),
+  assertWorkflowLease: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -85,7 +104,13 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   readSupportPackageFulfillment: readSupportFulfillment,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
+  registerAgentWorkflowVersion,
   publishOperationalEvent: publishEvent,
+  prepareIntakeV1PackageDraftProposalAction: prepareIntakeV1Proposal,
+  readIntakeV1PackageDraftProposalReplay: readIntakeV1ProposalReplay,
+  consumeApprovalGrantInTransaction: consumeGrantInTransaction,
+  assertEligibleWorkflowRunLease: vi.fn(),
+  assertIntakeV1PackageMachineAuthority: assertWorkflowLease,
   assertVenueAiAvailable: assertVenueAi,
 }))
 
@@ -106,6 +131,19 @@ vi.mock('../lib/venue-package-core', () => ({
   applyVenuePackageLifecycle: applyPackage,
 }))
 
+vi.mock('../lib/semantic-universal-content-handoff-service', () => ({
+  createSemanticUniversalContentDraftService: createSemanticDraft,
+}))
+vi.mock('../lib/legacy-knowledge-adoption-service', () => ({
+  createLegacyKnowledgeAdoptionDraftService: createLegacyAdoptionDraft,
+}))
+vi.mock('../lib/intake-v1-package-candidate', () => ({
+  buildIntakeV1PackageCandidate: buildIntakeV1Candidate,
+}))
+vi.mock('../lib/intake-v1-package-draft', () => ({
+  createIntakeV1PackageDraft: createIntakeV1Draft,
+}))
+
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/jobs')>()),
   enqueueGenerationDispatchKick: enqueueReportKick,
@@ -124,6 +162,320 @@ const credential = {
 } satisfies VerifiedMcpCredentialScope
 
 describe('safe operational MCP composition', () => {
+  it('returns a bounded exact V1 candidate without creating a package or publication', async () => {
+    buildIntakeV1Candidate.mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revisionId: 'revision-1',
+      revision: 2,
+      manifestHash: 'a'.repeat(64),
+      selectedMemberIds: ['member-1'],
+      remainingMemberIds: [],
+      selectionHash: 'b'.repeat(64),
+      ready: false,
+      payload: null,
+      payloadHash: null,
+      candidateHash: null,
+      members: [],
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+    const result = await createSafeOperationalMcpRegistry({} as never).callTool(
+      'pathfinder.preview_intake_v1_package_draft',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 2,
+        selectedMemberIds: ['member-1'],
+      },
+      { credential: { ...credential, capabilities: ['packages:read'] } },
+    )
+    expect(buildIntakeV1Candidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 2,
+        selectedMemberIds: ['member-1'],
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.intake-v1-package-preview',
+      data: { ready: false, autoApprove: false, autoApply: false, published: false },
+    })
+  })
+
+  it('derives the V1 proposal candidate server-side and records only review authority', async () => {
+    readIntakeV1ProposalReplay.mockResolvedValueOnce(null)
+    const candidate = {
+      submissionId: 'submission-1',
+      revisionId: 'revision-1',
+      revision: 1,
+      manifestHash: 'a'.repeat(64),
+      selectedMemberIds: ['member-1'],
+      remainingMemberIds: [],
+      selectionHash: 'b'.repeat(64),
+      ready: true,
+      payload: {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      payloadHash: 'c'.repeat(64),
+      candidateHash: 'd'.repeat(64),
+      members: [],
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    }
+    buildIntakeV1Candidate.mockResolvedValueOnce(candidate)
+    prepareIntakeV1Proposal.mockResolvedValueOnce({
+      approvalRequest: { id: 'approval-1' },
+      replayed: false,
+    })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id',
+          workerKey: 'worker-1',
+          modelProvider: null,
+          modelName: null,
+        }),
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.propose_intake_v1_package_draft',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        executionLeaseToken: '22222222-2222-4222-8222-222222222222',
+        submissionId: 'submission-1',
+        revision: 1,
+        selectedMemberIds: ['member-1'],
+        expectedManifestHash: candidate.manifestHash,
+        expectedCandidateHash: candidate.candidateHash,
+        expectedPayloadHash: candidate.payloadHash,
+        expectedSelectionHash: candidate.selectionHash,
+        partialAcknowledged: false,
+        draftOperationId: '33333333-3333-4333-8333-333333333333',
+        reason: 'Review exact V1 package.',
+      },
+      { credential: { ...credential, capabilities: ['packages:draft'] } },
+    )
+    expect(prepareIntakeV1Proposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateHash: candidate.candidateHash,
+        payloadHash: candidate.payloadHash,
+        selectedMemberIds: ['member-1'],
+      }),
+      database,
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      packageDraftCreated: false,
+      published: false,
+    })
+  })
+
+  it('creates one approved V1 draft through transaction-bound machine authority', async () => {
+    const recheckTime = vi.fn().mockResolvedValue(new Date())
+    assertWorkflowLease.mockResolvedValue({ recheckTime })
+    const future = new Date(Date.now() + 60_000)
+    const tx = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          executionLeaseExpiresAt: future,
+          cancelRequestedAt: null,
+        }),
+      },
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 'identity' }])
+        .mockResolvedValueOnce([
+          { id: 'worker-id', leaseExpiresAt: future, credentialScopeKey: 'scope-1' },
+        ])
+        .mockResolvedValueOnce([{ id: 'credential-1', expiresAt: future, scopeKey: 'scope-1' }])
+        .mockResolvedValueOnce([{ now: new Date() }])
+        .mockResolvedValueOnce([{ now: new Date() }]),
+    }
+    createIntakeV1Draft.mockImplementationOnce(async (request) => {
+      await request.authorizeFinalization({
+        tx,
+        packageId: 'package-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        createdBy: 'agent-1',
+        status: 'DRAFT',
+        replayed: false,
+        preview: { report: { semanticDuplicateScan: { status: 'COMPLETE' } } },
+      })
+      return {
+        value: { id: 'package-1', status: 'DRAFT' },
+        attachment: { handoff: { id: 'handoff-1' }, replayed: false },
+      }
+    })
+    consumeGrantInTransaction.mockResolvedValueOnce({
+      consumption: { resultReference: 'created' },
+      replayed: false,
+    })
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id',
+          workerKey: 'worker-1',
+          modelProvider: null,
+          modelName: null,
+        }),
+      },
+    }
+    const exact = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      executionLeaseToken: '22222222-2222-4222-8222-222222222222',
+      submissionId: 'submission-1',
+      revision: 1,
+      selectedMemberIds: ['member-1'],
+      expectedManifestHash: 'a'.repeat(64),
+      expectedCandidateHash: 'b'.repeat(64),
+      expectedPayloadHash: 'c'.repeat(64),
+      expectedSelectionHash: 'd'.repeat(64),
+      partialAcknowledged: false,
+      draftOperationId: '33333333-3333-4333-8333-333333333333',
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.apply_intake_v1_package_draft',
+      exact,
+      {
+        credential: { ...credential, capabilities: ['packages:draft'] },
+        approvalGrantId: 'grant-1',
+      },
+    )
+    expect(assertWorkflowLease).toHaveBeenCalled()
+    expect(recheckTime).toHaveBeenCalledOnce()
+    expect(consumeGrantInTransaction).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        operationId: exact.operationId,
+        actionName: 'pathfinder.apply_intake_v1_package_draft',
+        resultReference: `VenuePackage:package-1:IntakeV1Handoff:${exact.draftOperationId}:DRAFT`,
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      packageId: 'package-1',
+      handoffId: 'handoff-1',
+      status: 'DRAFT',
+      published: false,
+    })
+    tx.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce([{ id: 'identity' }])
+      .mockResolvedValueOnce([
+        { id: 'worker-id', leaseExpiresAt: future, credentialScopeKey: 'scope-1' },
+      ])
+      .mockResolvedValueOnce([{ id: 'credential-1', expiresAt: future, scopeKey: 'scope-1' }])
+      .mockResolvedValueOnce([{ now: new Date() }])
+      .mockResolvedValueOnce([{ now: new Date(future.getTime() + 1) }])
+    createIntakeV1Draft.mockImplementationOnce(async (request) => {
+      await request.authorizeFinalization({
+        tx,
+        packageId: 'package-2',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        createdBy: 'agent-1',
+        status: 'DRAFT',
+        replayed: false,
+        preview: { report: { semanticDuplicateScan: { status: 'COMPLETE' } } },
+      })
+    })
+    assertWorkflowLease.mockResolvedValueOnce({
+      recheckTime: vi
+        .fn()
+        .mockRejectedValue(new Error('V1 package machine authority expired before the effect.')),
+    })
+    await expect(
+      createSafeOperationalMcpRegistry(database as never).callTool(
+        'pathfinder.apply_intake_v1_package_draft',
+        {
+          ...exact,
+          operationId: '44444444-4444-4444-8444-444444444444',
+          draftOperationId: '55555555-5555-4555-8555-555555555555',
+        },
+        {
+          credential: { ...credential, capabilities: ['packages:draft'] },
+          approvalGrantId: 'grant-1',
+        },
+      ),
+    ).rejects.toThrow('expired before the effect')
+    expect(consumeGrantInTransaction).toHaveBeenCalledTimes(2)
+  })
+  it('reads scoped registered bodies with current capability compatibility and no activation', async () => {
+    const manifest = {
+      schemaVersion: 1,
+      registryKey: 'grounded-review',
+      version: 1,
+      kind: 'WORKFLOW',
+      description: 'Review evidence.',
+      examples: [],
+      testedCases: ['Missing evidence'],
+      requiredTools: [{ capability: 'packages:apply', reason: 'Apply reviewed package.' }],
+      rollback: null,
+      license: null,
+    }
+    const findFirst = vi.fn().mockResolvedValue({
+      registryKey: 'grounded-review',
+      version: 1,
+      kind: 'WORKFLOW',
+      status: 'REGISTERED_UNACTIVATED',
+      manifest,
+      manifestHash: agentWorkflowManifestHash(manifest),
+      portableText: 'Review before applying.',
+      contentHash: agentWorkflowTextHash('Review before applying.'),
+      requiredToolCapabilities: ['packages:apply'],
+    })
+    const registry = createSafeOperationalMcpRegistry({
+      agentWorkflowVersion: { findFirst },
+    } as never)
+    const result = await registry.callTool(
+      'torchiko.agent_workflows.get_compatible_versions',
+      {
+        clientId: credential.clientId,
+        venueId: 'venue-1',
+        registryKeys: ['grounded-review'],
+      },
+      { credential: { ...credential, capabilities: ['resources:read'] } },
+    )
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: credential.tenantId,
+          venueId: 'venue-1',
+          registryKey: 'grounded-review',
+        },
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      activationGranted: false,
+      executionGranted: false,
+      versions: [
+        {
+          compatibility: 'MISSING_TOOLS',
+          missingCapabilities: ['packages:apply'],
+          version: { portableText: 'Review before applying.', status: 'REGISTERED_UNACTIVATED' },
+        },
+      ],
+    })
+  })
   beforeEach(() => {
     vi.resetAllMocks()
     readSupportFulfillment.mockResolvedValue({
@@ -158,6 +510,124 @@ describe('safe operational MCP composition', () => {
     })
   })
 
+  it('runs the approved semantic typed-draft handoff with agent attribution and no publication', async () => {
+    createSemanticDraft.mockResolvedValue({
+      moduleId: 'module-1',
+      revisionId: 'revision-1',
+      version: 2,
+      classification: 'CORRECTION',
+      draftHash: 'd'.repeat(64),
+      replayed: false,
+    })
+    const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentWorker: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ id: 'worker-id-1', modelProvider: 'test', modelName: 'fixture' }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    } as never
+    const registry = createSafeOperationalMcpRegistry(database)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      proposalId: '22222222-2222-4222-8222-222222222222',
+      expectedProposalUpdatedAt: '2026-09-07T12:00:00.000Z',
+      expectedPreviewHash: 'a'.repeat(64),
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Capacity',
+        category: 'admission',
+        content: 'Capacity is 137.',
+        isEnabled: true,
+      },
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: { kind: 'POLICY', title: 'Capacity', rule: 'Capacity is 137.', appliesTo: [] },
+      },
+    }
+    const result = await registry.callTool('torchiko.knowledge.create_typed_draft', input, {
+      credential: { ...credential, capabilities: ['knowledge:draft'] },
+    })
+    expect(createSemanticDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'agent-1',
+        agentActor: expect.objectContaining({ agentRunId: 'run-1', credentialId: 'credential-1' }),
+        input: expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      data: { requiresExplicitPublication: true, autoPublished: false },
+    })
+  })
+
+  it('creates a scoped legacy adoption draft without publication authority', async () => {
+    createLegacyAdoptionDraft.mockResolvedValue({
+      moduleId: 'module-1',
+      revisionId: 'revision-1',
+      version: 1,
+      legacySnapshotHash: 'c'.repeat(64),
+      draftHash: 'd'.repeat(64),
+      replayed: false,
+    })
+    const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentWorker: { findFirst: vi.fn().mockResolvedValue({ id: 'worker-id-1' }) },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    } as never
+    const input = {
+      clientId: 'tenant-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      proposalId: '22222222-2222-4222-8222-222222222222',
+      legacyKnowledgeEntryId: 'legacy-1',
+      expectedProposalUpdatedAt: '2026-09-07T12:00:00.000Z',
+      expectedPreviewHash: 'a'.repeat(64),
+      expectedLegacyUpdatedAt: '2026-09-07T11:00:00.000Z',
+      expectedLegacySnapshotHash: 'c'.repeat(64),
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Capacity',
+        category: 'POLICY',
+        content: 'Capacity is 137.',
+        isEnabled: true,
+      },
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: { kind: 'POLICY', title: 'Capacity', rule: 'Capacity was 120.', appliesTo: [] },
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database).callTool(
+      'torchiko.knowledge.adopt_legacy_draft',
+      input,
+      { credential: { ...credential, capabilities: ['knowledge:draft'] } },
+    )
+    expect(createLegacyAdoptionDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({ type: 'AGENT', id: 'agent-1' }),
+        input: expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      data: {
+        legacyStillAuthoritative: true,
+        requiresExplicitPublication: true,
+        autoPublished: false,
+      },
+    })
+  })
+
   it('prepares an invitation approval item through canonical machine attribution without provider effects', async () => {
     prepareCustomerAccess.mockResolvedValue({
       request: {
@@ -170,6 +640,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -241,6 +712,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -315,6 +787,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -403,6 +876,7 @@ describe('safe operational MCP composition', () => {
       supportRequest: { findFirst: vi.fn() },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: {
         findFirst: vi.fn().mockResolvedValue({ id: 'grant-1', maxUses: 1, useCount: 0 }),
       },
@@ -487,6 +961,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -544,22 +1019,43 @@ describe('safe operational MCP composition', () => {
   })
 
   it('consumes exact one-shot authority with the canonical in-app support action', async () => {
-    consumeApproval.mockResolvedValue({
-      consumption: { id: 'consumption-1', resultReference: null },
-      replayed: false,
-    })
-    requestSupportInformation.mockResolvedValue({
-      message: { id: 'message-1' },
-      status: 'WAITING_FOR_CLIENT',
-      missingInformation: ['Current exhibit label photograph'],
-      requestVersion: 4,
-      clientVersion: 9,
-      replayed: false,
-    })
+    consumeApproval
+      .mockResolvedValueOnce({
+        consumption: { id: 'consumption-1', resultReference: null },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        consumption: {
+          id: 'consumption-1',
+          resultReference:
+            'SupportMessage:message-1:SupportRequest:support-1:v4:WAITING_FOR_CLIENT',
+        },
+        replayed: true,
+      })
+    requestSupportInformation
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'WAITING_FOR_CLIENT',
+        missingInformation: ['Current exhibit label photograph'],
+        requestVersion: 4,
+        clientVersion: 9,
+        operationVersion: { requestVersion: 4, clientVersion: 9 },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 6,
+        clientVersion: 10,
+        operationVersion: { requestVersion: 4, clientVersion: 9 },
+        replayed: true,
+      })
     const tx = {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -576,23 +1072,24 @@ describe('safe operational MCP composition', () => {
       ...credential,
       capabilities: ['support:request-information'],
     } satisfies VerifiedMcpCredentialScope
-    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
-      'pathfinder.apply_support_information_request',
-      {
-        clientId: 'tenant-1',
-        venueId: 'venue-1',
-        operationId: '47444444-4444-4444-8444-444444444444',
-        agentIdentityId: 'agent-1',
-        agentRunId: 'run-1',
-        workerKey: 'worker-1',
-        requestId: 'support-1',
-        expectedVersion: 3,
-        fromStatus: 'IN_REVIEW',
-        body: 'Please provide the current exhibit label photograph.',
-        missingInformation: ['Current exhibit label photograph'],
-      },
-      { credential: supportCredential, approvalGrantId: 'grant-1' },
-    )
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '47444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 3,
+      fromStatus: 'IN_REVIEW' as const,
+      body: 'Please provide the current exhibit label photograph.',
+      missingInformation: ['Current exhibit label photograph'],
+    }
+    const result = await registry.callTool('pathfinder.apply_support_information_request', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
     expect(consumeApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         actionName: 'pathfinder.apply_support_information_request',
@@ -635,6 +1132,21 @@ describe('safe operational MCP composition', () => {
         packageLifecycleChanged: false,
       },
     })
+    const replay = await registry.callTool('pathfinder.apply_support_information_request', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
+    expect(replay.structuredContent).toMatchObject({
+      kind: 'torchiko.support-information-request-applied',
+      data: {
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 6,
+        clientVersion: 10,
+        replayed: true,
+      },
+    })
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledTimes(1)
   })
 
   it('prepares an exact support completion without contact or state change', async () => {
@@ -650,6 +1162,7 @@ describe('safe operational MCP composition', () => {
           fromStatus: 'IN_REVIEW',
           toStatus: 'COMPLETED',
           body: 'Your requested venue update is complete.',
+          completionOutcome: 'RESOLVED',
           missingInformationCount: 0,
           packageFulfillment: {
             contractVersion: 1,
@@ -670,6 +1183,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -723,22 +1237,72 @@ describe('safe operational MCP composition', () => {
   })
 
   it('consumes exact one-shot authority with the canonical support completion action', async () => {
-    consumeApproval.mockResolvedValue({
-      consumption: { id: 'consumption-1', resultReference: null },
-      replayed: false,
-    })
-    completeSupport.mockResolvedValue({
-      message: { id: 'message-1' },
-      status: 'COMPLETED',
-      missingInformation: [],
-      requestVersion: 5,
-      clientVersion: 10,
-      replayed: false,
-    })
+    const reviewedScope = {
+      contractVersion: 2,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      requestId: 'support-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      toStatus: 'COMPLETED' as const,
+      body: 'Your requested venue update is complete.',
+      missingInformationCount: 0,
+      packageFulfillment: {
+        contractVersion: 1,
+        linkedPackageCount: 0,
+        packages: [],
+        digest: 'b'.repeat(64),
+      },
+      completionOutcome: 'RESOLVED' as const,
+      allLinkedPackagesApplied: true,
+      supportRequestChanged: false,
+      clientActivityChanged: false,
+      clientVisibleMessageCreated: false,
+      customerContacted: false,
+      externalDeliveryTriggered: false,
+      executionAuthorized: false,
+    }
+    consumeApproval
+      .mockResolvedValueOnce({
+        consumption: { id: 'consumption-1', resultReference: null },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        consumption: {
+          id: 'consumption-1',
+          resultReference: 'SupportMessage:message-1:SupportRequest:support-1:v5:COMPLETED',
+        },
+        replayed: true,
+      })
+    completeSupport
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'COMPLETED',
+        missingInformation: [],
+        requestVersion: 5,
+        clientVersion: 10,
+        operationVersion: { requestVersion: 5, clientVersion: 10 },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 7,
+        clientVersion: 11,
+        operationVersion: { requestVersion: 5, clientVersion: 10 },
+        replayed: true,
+      })
     const tx = {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
+      approvalGrant: {
+        findFirst: vi.fn().mockResolvedValue({
+          approvalDecision: { approvalRequest: { scopeSnapshot: reviewedScope } },
+        }),
+      },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -755,36 +1319,42 @@ describe('safe operational MCP composition', () => {
       ...credential,
       capabilities: ['support:complete'],
     } satisfies VerifiedMcpCredentialScope
-    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
-      'pathfinder.apply_support_completion',
-      {
-        clientId: 'tenant-1',
-        venueId: 'venue-1',
-        operationId: '49444444-4444-4444-8444-444444444444',
-        agentIdentityId: 'agent-1',
-        agentRunId: 'run-1',
-        workerKey: 'worker-1',
-        requestId: 'support-1',
-        expectedVersion: 4,
-        fromStatus: 'IN_REVIEW',
-        body: 'Your requested venue update is complete.',
-      },
-      { credential: supportCredential, approvalGrantId: 'grant-1' },
-    )
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '49444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      body: 'Your requested venue update is complete.',
+    }
+    const result = await registry.callTool('pathfinder.apply_support_completion', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
     expect(consumeApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         actionName: 'pathfinder.apply_support_completion',
         capability: 'support:complete',
+        actor: expect.objectContaining({ actorId: 'agent-1', agentRunId: 'run-1' }),
         parameters: expect.objectContaining({
           fromStatus: 'IN_REVIEW',
           toStatus: 'COMPLETED',
           body: 'Your requested venue update is complete.',
+          packageFulfillment: reviewedScope.packageFulfillment,
+          completionOutcome: 'RESOLVED',
         }),
       }),
       expect.anything(),
     )
     expect(completeSupport).toHaveBeenCalledWith(
       expect.objectContaining({
+        expectedCompletionOutcome: 'RESOLVED',
+        expectedFulfillmentDigest: 'b'.repeat(64),
         actor: expect.objectContaining({
           approvalGrantId: 'grant-1',
           capability: 'support:complete',
@@ -812,6 +1382,57 @@ describe('safe operational MCP composition', () => {
         packageLifecycleChanged: false,
       },
     })
+    const replay = await registry.callTool('pathfinder.apply_support_completion', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
+    expect(replay.structuredContent).toMatchObject({
+      kind: 'torchiko.support-completion-applied',
+      data: {
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 7,
+        clientVersion: 11,
+        replayed: true,
+      },
+    })
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledTimes(1)
+
+    consumeApproval.mockResolvedValueOnce({
+      consumption: { id: 'consumption-legacy', resultReference: null },
+      replayed: false,
+    })
+    completeSupport.mockResolvedValueOnce({
+      message: { id: 'message-legacy' },
+      status: 'COMPLETED',
+      missingInformation: [],
+      requestVersion: 5,
+      clientVersion: 10,
+      operationVersion: { requestVersion: 5, clientVersion: 10 },
+      replayed: false,
+    })
+    const { completionOutcome: _reviewedOutcome, ...historicalScope } = reviewedScope
+    expect(_reviewedOutcome).toBe('RESOLVED')
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      approvalDecision: { approvalRequest: { scopeSnapshot: historicalScope } },
+    })
+    await registry.callTool(
+      'pathfinder.apply_support_completion',
+      { ...input, operationId: '4a444444-4444-4444-8444-444444444444' },
+      { credential: supportCredential, approvalGrantId: 'grant-1' },
+    )
+    expect(consumeApproval).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        parameters: expect.not.objectContaining({ completionOutcome: expect.anything() }),
+      }),
+      expect.anything(),
+    )
+    expect(completeSupport).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ expectedCompletionOutcome: expect.anything() }),
+      expect.anything(),
+    )
+
+    expect(readSupportFulfillment).not.toHaveBeenCalled()
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {
@@ -822,6 +1443,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -855,6 +1477,11 @@ describe('safe operational MCP composition', () => {
         hypothesis: 'Retrieval misses are causing unsupported recommendations.',
         proposedChange: 'Require current-source retrieval before each recommendation.',
         validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+        generalization: {
+          rationale: 'A distinct successful case bounds the proposed retrieval rule.',
+          counterexampleObservationIds: ['outcome-2'],
+          exclusions: ['Exclude answers already grounded in current approved content.'],
+        },
       },
       { credential: improvementCredential },
     )
@@ -864,6 +1491,11 @@ describe('safe operational MCP composition', () => {
         tenantId: 'tenant-1',
         venueId: 'venue-1',
         agentIdentityId: 'target-agent-1',
+        generalization: {
+          rationale: 'A distinct successful case bounds the proposed retrieval rule.',
+          counterexampleObservationIds: ['outcome-2'],
+          exclusions: ['Exclude answers already grounded in current approved content.'],
+        },
         actor: expect.objectContaining({
           agentIdentityId: 'review-agent-1',
           capability: 'agent-improvements:propose',
@@ -899,6 +1531,7 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -945,6 +1578,7 @@ describe('safe operational MCP composition', () => {
         }),
       }),
       database,
+      expect.any(Set),
     )
     expect(result.structuredContent).toMatchObject({
       kind: 'torchiko.agent-improvement-validation',
@@ -956,6 +1590,88 @@ describe('safe operational MCP composition', () => {
       },
     })
   })
+
+  it.each([false, true])(
+    'registers portable workflow text through scoped machine authority without activation (retired tool=%s)',
+    async (retiredTool) => {
+      registerAgentWorkflowVersion.mockResolvedValue({
+        version: {
+          id: 'version-1',
+          registryKey: 'grounded-review',
+          version: 1,
+          contentHash: 'a'.repeat(64),
+          requiredToolCapabilities: ['resources:read'],
+        },
+        replayed: retiredTool,
+        provenanceVerification: 'DECLARED_NOT_VERIFIED',
+      })
+      const database = {
+        agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+        agentWorker: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'worker-id-1',
+            modelProvider: 'openai',
+            modelName: 'gpt-test',
+          }),
+        },
+      }
+      const registry = createSafeOperationalMcpRegistry(database as never)
+      const machineCredential = {
+        ...credential,
+        capabilities: retiredTool
+          ? ['agent-improvements:propose']
+          : ['agent-improvements:propose', 'resources:read'],
+      } satisfies VerifiedMcpCredentialScope
+      const result = await registry.callTool(
+        'torchiko.agent_workflows.register_version',
+        {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          operationId: '77777777-7777-4777-8777-777777777777',
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          manifest: {
+            schemaVersion: 1,
+            registryKey: 'grounded-review',
+            version: 1,
+            kind: 'WORKFLOW',
+            description: 'Review against retained evidence.',
+            examples: [],
+            requiredTools: [{ capability: 'resources:read', reason: 'Read evidence.' }],
+            testedCases: ['Reject missing evidence.'],
+            rollback: null,
+            license: null,
+          },
+          portableText: '# Grounded review',
+          provenance: {
+            sourceType: 'HUMAN_AUTHORED',
+            sourceReferences: ['review:1'],
+            capturedAt: null,
+          },
+        },
+        { credential: machineCredential },
+      )
+      expect(registerAgentWorkflowVersion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor: expect.objectContaining({
+            capability: 'agent-improvements:propose',
+            workerId: 'worker-id-1',
+          }),
+        }),
+        new Set(machineCredential.capabilities),
+        database,
+      )
+      expect(result.structuredContent).toMatchObject({
+        data: {
+          workflowVersionId: 'version-1',
+          compatibility: retiredTool ? 'MISSING_TOOLS' : 'COMPATIBLE',
+          activationGranted: false,
+          provenanceVerification: 'DECLARED_NOT_VERIFIED',
+        },
+      })
+    },
+  )
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {
     const update = {
@@ -974,10 +1690,12 @@ describe('safe operational MCP composition', () => {
       preview: { lifecycle: 'DRAFT', guestVisibleNow: false },
     })
     const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       operationalUpdate: { findFirst: vi.fn() },
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: {
         findFirst: vi.fn().mockResolvedValue({ id: 'grant-1', maxUses: 1, useCount: 0 }),
       },
@@ -1065,6 +1783,84 @@ describe('safe operational MCP composition', () => {
     )
   })
 
+  it.each([
+    [
+      'pathfinder.create_update_draft',
+      'updates:draft',
+      {
+        title: 'Opening change',
+        body: 'Review the current hours.',
+        startsAt: '2026-09-07T10:00:00Z',
+        expiresAt: '2026-09-08T10:00:00Z',
+      },
+    ],
+    [
+      'pathfinder.create_support_draft',
+      'support:draft',
+      {
+        subject: 'Review visitor answer',
+        body: 'Internal review.',
+        category: 'GENERAL',
+      },
+    ],
+    [
+      'pathfinder.add_support_internal_note',
+      'support:note',
+      {
+        requestId: 'request-1',
+        expectedVersion: 1,
+        body: 'Internal review.',
+      },
+    ],
+  ])(
+    'requires workflow caller lease inside the %s effect transaction before consuming approval',
+    async (name, capability, fields) => {
+      const tx = {
+        agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue({ id: 'binding-1' }) },
+      }
+      const database = {
+        approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+        agentWorker: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'worker-id-1', workerKey: 'worker-1' }),
+        },
+        agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+        $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+      }
+      await expect(
+        createSafeOperationalMcpRegistry(database as never).callTool(
+          name as string,
+          {
+            clientId: 'tenant-1',
+            venueId: 'venue-1',
+            operationId: '1c5f9673-d43d-4e40-a01d-cf188431ab81',
+            agentIdentityId: 'agent-1',
+            agentRunId: 'run-1',
+            workerKey: 'worker-1',
+            ...(fields as object),
+          },
+          {
+            credential: { ...credential, capabilities: [capability] } as VerifiedMcpCredentialScope,
+            approvalGrantId: 'grant-1',
+          },
+        ),
+      ).rejects.toThrow('caller execution lease')
+      expect(database.$transaction).toHaveBeenCalledOnce()
+      expect(tx.agentWorkflowRunBinding.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentRunId: 'run-1',
+          outcome: { in: ['SELECTED', 'CANARY_SKIPPED_PRIOR_VERSION'] },
+        },
+        select: { id: true },
+      })
+      expect(consumeApproval).not.toHaveBeenCalled()
+      expect(createUpdate).not.toHaveBeenCalled()
+      expect(createSupport).not.toHaveBeenCalled()
+      expect(appendSupportMessage).not.toHaveBeenCalled()
+    },
+  )
+
   it('creates only an internal support draft through exact machine and grant scope', async () => {
     consumeApproval.mockResolvedValue({
       replayed: false,
@@ -1076,9 +1872,11 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-support' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1173,6 +1971,7 @@ describe('safe operational MCP composition', () => {
       supportRequest: { findFirst: vi.fn() },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-open' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1253,8 +2052,12 @@ describe('safe operational MCP composition', () => {
       clientVersion: 1,
       replayed: false,
     })
-    const tx = { approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) } }
+    const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+    }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-note' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1362,6 +2165,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-intake' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1458,6 +2262,7 @@ describe('safe operational MCP composition', () => {
       return result
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-report' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1569,6 +2374,7 @@ describe('safe operational MCP composition', () => {
 
   it('returns bounded evaluator-attributed answer evidence without adding release authority', async () => {
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       guestAnswerAttribution: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -1667,6 +2473,7 @@ describe('safe operational MCP composition', () => {
       },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       guestAnswerAttribution: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -1723,6 +2530,7 @@ describe('safe operational MCP composition', () => {
   it('returns explicit bounded incident-control health without reasons, actors, or recovery authority', async () => {
     const now = new Date('2030-01-01T12:00:00.000Z')
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       correspondenceProviderAccount: { findMany: vi.fn().mockResolvedValue([]) },
       billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },
       agentWorker: { findMany: vi.fn().mockResolvedValue([]) },
@@ -1810,6 +2618,7 @@ describe('safe operational MCP composition', () => {
 
   it('returns a coherent report lifecycle without content, raw sources, provider errors, or publication authority', async () => {
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       weeklyReport: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'report-1',
@@ -1928,6 +2737,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({})
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2002,6 +2812,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({})
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2108,6 +2919,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2250,6 +3062,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',

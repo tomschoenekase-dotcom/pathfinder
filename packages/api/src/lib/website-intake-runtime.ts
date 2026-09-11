@@ -2,6 +2,10 @@ import { lookup } from 'node:dns/promises'
 import { request as httpRequest, type IncomingHttpHeaders, type RequestOptions } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
+import { defaultTreeAdapter, html, Parser, type DefaultTreeAdapterMap } from 'parse5'
+
+import { extractPdfDocumentText } from './pdf-text-extraction'
+
 import {
   WebsiteIntakePolicyError,
   type ExtractedWebsiteFact,
@@ -161,6 +165,284 @@ function decodeHtml(value: string) {
     .trim()
 }
 
+const NON_CONTENT_ELEMENTS = new Set(['script', 'style', 'template', 'noscript', 'head'])
+const BLOCK_ELEMENTS = new Set([
+  'address',
+  'article',
+  'aside',
+  'blockquote',
+  'br',
+  'dd',
+  'details',
+  'dialog',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'hgroup',
+  'hr',
+  'li',
+  'main',
+  'nav',
+  'ol',
+  'p',
+  'pre',
+  'section',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+])
+
+type HtmlNode = DefaultTreeAdapterMap['node']
+type HtmlElement = DefaultTreeAdapterMap['element']
+
+function elementIsHidden(element: HtmlElement) {
+  return element.attrs.some(
+    ({ name, value }) =>
+      name.toLowerCase() === 'hidden' ||
+      (name.toLowerCase() === 'aria-hidden' && value.trim().toLowerCase() === 'true'),
+  )
+}
+
+function assertHtmlComplexity(body: string) {
+  // Bound markup before synchronous parsing and metadata scans.
+  // Counting every opening bracket is intentionally conservative, including
+  // brackets in attributes/scripts; rejected input is never silently truncated.
+  let markupStarts = 0
+  for (let offset = body.indexOf('<'); offset !== -1; offset = body.indexOf('<', offset + 1)) {
+    markupStarts += 1
+    if (markupStarts > 50_000) {
+      throw new WebsiteIntakePolicyError('Website markup exceeded its extraction complexity limit')
+    }
+  }
+
+  // parse5 checks each attribute against earlier attributes, so even one tag
+  // can cause quadratic work. Bound complete start/end-tag syntax to 4,096
+  // UTF-16 code units, including quoted values and the closing bracket.
+  // This is a conservative policy scan, not an HTML tokenizer: tag-like text
+  // in comments/rawtext is checked too. Literal nested '<' is refused (use
+  // &lt; in attributes), preventing ambiguous syntax from hiding a later tag.
+  // Long SVG/data attributes or some valid comment/rawtext can be refused;
+  // content is never truncated or rewritten. Every character is visited once.
+  let tagStart = -1
+  let state:
+    | 'tag-name'
+    | 'before-attribute'
+    | 'attribute-name'
+    | 'after-attribute'
+    | 'before-value'
+    | 'quoted-value'
+    | 'unquoted-value'
+    | 'after-quoted-value'
+    | 'self-closing' = 'tag-name'
+  let quote = ''
+  for (let offset = 0; offset < body.length; offset += 1) {
+    const char = body[offset]!
+    if (tagStart < 0) {
+      if (char !== '<') continue
+      const closing = body[offset + 1] === '/'
+      const first = body.charCodeAt(offset + (closing ? 2 : 1))
+      if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122))) continue
+      tagStart = offset
+      state = 'tag-name'
+      if (closing) offset += 1
+      continue
+    }
+    if (offset - tagStart + 1 > 4_096 || char === '<') {
+      throw new WebsiteIntakePolicyError('Website markup exceeded its extraction complexity limit')
+    }
+    if (state === 'quoted-value') {
+      if (char === quote) state = 'after-quoted-value'
+      continue
+    }
+    if (char === '>') {
+      tagStart = -1
+      continue
+    }
+    const whitespace =
+      char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '\f'
+    switch (state) {
+      case 'tag-name':
+        if (char === '/') state = 'self-closing'
+        else if (whitespace) state = 'before-attribute'
+        break
+      case 'before-attribute':
+      case 'self-closing':
+        if (char === '/') state = 'self-closing'
+        else state = whitespace ? 'before-attribute' : 'attribute-name'
+        break
+      case 'attribute-name':
+        if (char === '=') state = 'before-value'
+        else if (char === '/') state = 'self-closing'
+        else if (whitespace) state = 'after-attribute'
+        break
+      case 'after-attribute':
+        if (char === '=') state = 'before-value'
+        else if (char === '/') state = 'self-closing'
+        else if (!whitespace) state = 'attribute-name'
+        break
+      case 'before-value':
+        if (whitespace) break
+        if (char === '"' || char === "'") {
+          quote = char
+          state = 'quoted-value'
+        } else state = 'unquoted-value'
+        break
+      case 'unquoted-value':
+        if (whitespace) state = 'before-attribute'
+        break
+      case 'after-quoted-value':
+        state = char === '/' ? 'self-closing' : whitespace ? 'before-attribute' : 'attribute-name'
+        break
+    }
+  }
+}
+
+function parseReadableHtml(body: string) {
+  // parse5 7.3 scans the open stack for a P before every nested block start.
+  // Preserve its tree construction, but skip that scan when P is provably absent.
+  // This depends on parse5's exported Parser/stack API: keep the parity and work
+  // regressions when updating parse5. Never bypass the namespace-work budget.
+  const openParagraphs = new Set<HtmlElement>()
+  let membershipIsExact = true
+  let namespaceReads = 0
+  const parser = new Parser<DefaultTreeAdapterMap>({
+    treeAdapter: {
+      ...defaultTreeAdapter,
+      getNamespaceURI(element) {
+        // Bound namespace reads in the original, potentially quadratic,
+        // scope/adoption algorithms. This is not a tokenizer-wide CPU budget.
+        if (++namespaceReads > 1_000_000) {
+          throw new WebsiteIntakePolicyError(
+            'Website markup exceeded its extraction complexity limit',
+          )
+        }
+        return defaultTreeAdapter.getNamespaceURI(element)
+      },
+      onItemPush(element) {
+        if (element.tagName === 'p' && element.namespaceURI === html.NS.HTML) {
+          openParagraphs.add(element)
+        }
+      },
+      onItemPop(element) {
+        openParagraphs.delete(element)
+      },
+    },
+  })
+  const stack = parser.openElements
+  if (
+    !Array.isArray(stack?.items) ||
+    !Array.isArray(stack.tagIDs) ||
+    typeof stack.hasInButtonScope !== 'function' ||
+    typeof stack.replace !== 'function' ||
+    typeof stack.insertAfter !== 'function'
+  ) {
+    throw new WebsiteIntakePolicyError('Website HTML parser compatibility check failed')
+  }
+  // Non-LIFO formatting reconstruction has different hook semantics. Once it
+  // occurs, trust the original scope algorithm for the rest of this document.
+  const replace = stack.replace.bind(stack)
+  stack.replace = (previous, replacement) => {
+    membershipIsExact = false
+    replace(previous, replacement)
+  }
+  const insertAfter = stack.insertAfter.bind(stack)
+  stack.insertAfter = (reference, element, tagId) => {
+    membershipIsExact = false
+    insertAfter(reference, element, tagId)
+  }
+  const hasInButtonScope = stack.hasInButtonScope.bind(stack)
+  stack.hasInButtonScope = (tagId) => {
+    const root = stack.items[0]
+    if (
+      membershipIsExact &&
+      openParagraphs.size === 0 &&
+      tagId === html.TAG_ID.P &&
+      root &&
+      'tagName' in root &&
+      root.tagName === 'html' &&
+      root.namespaceURI === html.NS.HTML
+    ) {
+      return false
+    }
+    return hasInButtonScope(tagId)
+  }
+  parser.tokenizer.write(body, true)
+  return parser.document
+}
+
+function readableHtmlBody(body: string) {
+  const document = parseReadableHtml(body)
+  let bodyElement: HtmlElement | undefined
+  const search: HtmlNode[] = [document]
+  while (search.length) {
+    const node = search.pop()
+    if (!node) continue
+    if ('tagName' in node && node.tagName === 'body') {
+      bodyElement = node
+      break
+    }
+    if ('childNodes' in node) search.push(...node.childNodes)
+  }
+  if (!bodyElement) return ''
+
+  const output: string[] = []
+  const stack: Array<{ node: HtmlNode; exiting: boolean }> = [{ node: bodyElement, exiting: false }]
+  while (stack.length) {
+    const entry = stack.pop()
+    if (!entry) continue
+    const { node, exiting } = entry
+    if ('tagName' in node) {
+      const tagName = node.tagName.toLowerCase()
+      if (NON_CONTENT_ELEMENTS.has(tagName) || elementIsHidden(node)) continue
+      if (BLOCK_ELEMENTS.has(tagName)) output.push('\n')
+      if (!exiting && tagName !== 'br' && tagName !== 'hr') {
+        stack.push({ node, exiting: true })
+        for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
+          const child = node.childNodes[index]
+          if (child) stack.push({ node: child, exiting: false })
+        }
+      }
+      continue
+    }
+    if ('value' in node) output.push(node.value)
+  }
+
+  return output
+    .join('')
+    .normalize('NFC')
+    .replace(/[\t\f\v ]+/gu, ' ')
+    .replace(/ *\r?\n */gu, '\n')
+    .replace(/\n{2,}/gu, '\n')
+    .trim()
+}
+
+function readablePlainText(body: string) {
+  return body
+    .normalize('NFC')
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[\t\f\v ]+/gu, ' ')
+    .replace(/ *\n */gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim()
+}
+
 function stringValue(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) return value.trim()
   if (Array.isArray(value)) {
@@ -210,7 +492,16 @@ function jsonLdFacts(document: unknown): ExtractedWebsiteFact[] {
   return facts
 }
 
-export function extractWebsitePage(input: { url: string; body: string }) {
+export function extractWebsitePage(input: { url: string; body: string; contentType?: string }) {
+  if (/^text\/plain(?:\s*;|\s*$)/iu.test(input.contentType ?? '')) {
+    return {
+      links: [],
+      facts: [],
+      readableText: readablePlainText(input.body),
+      extractionProfile: 'plain-text-v1' as const,
+    }
+  }
+  assertHtmlComplexity(input.body)
   const links = [...input.body.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/giu)]
     .map((match) => match[1])
     .filter((value): value is string => Boolean(value))
@@ -252,6 +543,8 @@ export function extractWebsitePage(input: { url: string; body: string }) {
         facts.slice(0, 500).map((fact) => [`${fact.fieldPath}:${fact.value}`, fact]),
       ).values(),
     ],
+    readableText: readableHtmlBody(input.body),
+    extractionProfile: 'static-html-v1' as const,
   }
 }
 
@@ -287,15 +580,6 @@ export function createWebsiteIntakeRuntimeDependencies(options: {
     fetchPage: async (request) => {
       const response = await pinnedFetch(request, options.userAgent)
       if (response.status >= 200 && response.status < 300) {
-        const contentType = response.headers['content-type']?.toLowerCase() ?? ''
-        if (
-          contentType &&
-          !contentType.includes('text/html') &&
-          !contentType.includes('application/xhtml+xml') &&
-          !contentType.includes('text/plain')
-        ) {
-          throw new WebsiteIntakePolicyError('Website returned a non-text page')
-        }
         if (byteLength(response.body) > request.maxBytes) {
           throw new WebsiteIntakePolicyError('Website response exceeded its byte limit')
         }
@@ -303,5 +587,17 @@ export function createWebsiteIntakeRuntimeDependencies(options: {
       return response
     },
     extractPage: async (input) => extractWebsitePage(input),
+    extractPdfPage: async ({ bytes, timeoutMs, signal }) => {
+      const result = await extractPdfDocumentText(bytes, {
+        timeoutMs,
+        ...(signal ? { signal } : {}),
+      })
+      if (result.outcome === 'FAILED') return result
+      return {
+        outcome: 'SUCCEEDED',
+        readableText: result.text,
+        pdfPageCount: result.pageCount,
+      }
+    },
   }
 }

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-connected-crm-v1-held-delivery",
+  "measuredAt": "2026-09-08T01:47:47.439479+00:00",
+  "baseProductRevision": "9b8255f0ab0da9b77bc102eee4354c9856bae8b5",
+  "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_delivery_d2806744ca0f",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "measurement": {
+    "proof": "intake-v1-connected-crm-held-delivery-preparation-v2",
+    "synthetic": true,
+    "operationCount": 8,
+    "operationCountScope": "timed customer delivery subset; CRM setup and review are excluded",
+    "operationDurationsMs": {
+      "collect": 49.4,
+      "freeze-v1": 27.56,
+      "preview-candidate": 17.31,
+      "create-draft-handoff": 68.91,
+      "review-preview": 15.23,
+      "prepare-evaluation": 34.02,
+      "read-portal": 25.33,
+      "read-billing": 5.56
+    },
+    "prospectOrganizationId": "cmts0e11m00028t1czvxqxduz",
+    "prospectVenueId": "cmts0e11t00048t1cav3fkf3q",
+    "onboardingDeliveryAttemptId": "b53723bc-f5fa-435d-a8f3-020ea9b90bfe",
+    "prospectLocationConversionId": "cmts0e179000z8t1cw7dq6nko",
+    "lineageLimit": "Local seeded owner; no identity-provider invitation or client-create API execution.",
+    "publication": "HELD",
+    "qrReadiness": "HELD_UNTIL_ACTIVE",
+    "invitationDraft": "RETAINED_PROVIDER_DARK",
+    "billingReadiness": "NOT_CONFIGURED"
+  },
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-evaluation-onboarding-actions.ts",
+      "sha256": "d029328aa900ed3792a461199d79003eba826f56396a0afbc3e7a638bb2670bd"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-intake-v1-delivery-journey-disposable.integration.test.ts",
+      "sha256": "c786279026230e10df4c17c14f9b5931b777424ef88d51c988238af25de397cd"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-intake-v1-package-draft.ts",
+      "sha256": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-migration.sql",
+      "sha256": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-portal.ts",
+      "sha256": "e72e874a240672d496e579d9a65c11fe9f21b1e02ebbb103f40f0d1ce484fcdc"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-prospect-actions.ts",
+      "sha256": "081d8802a5d281c41c868f3924f34514bf2ea95bd1fef4a3c7ba249bc00fecd6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-prospect-crm-delivery-read.ts",
+      "sha256": "372d4d265c52f01252ab1435cc20e73fd807e43b4680df87f6f837e28c2d8b7a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-prospect-inbound-reply-review-actions.ts",
+      "sha256": "ef741bc4c7a1b34896ff55844cef580eb09436e55059381baf6b808e276ae626"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-prospect-onboarding-delivery-attempt.ts",
+      "sha256": "8afa29453c0ea1923becb41c4315baaa68ef2734c80d1c2aaaddc5838d10175d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\measured-reviewable-package-evaluation.ts",
+      "sha256": "3826c0d1d30541a5a04765a55cbdebfbd5f317335365782e514e54d26aaf904c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\migrations.log",
+      "sha256": "2899a2f80708b53c58feee8ca5cf4cb33aa0e2cf83dfe468093c0dc7adb60a32"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\result.json",
+      "sha256": "d28188e479b68d81fb583f7aee90c88b2ba679e112a04b245e678db1b3d8e9cd"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\vitest.json",
+      "sha256": "24468301cd54c319024aac1671a8a248ac0a277cb8b5ffd412015a76e8244a8f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-delivery-d2806744ca0f\\vitest.log",
+      "sha256": "b2b7c629d77403ef360bc7c9a34332089f219d3ad68cfdde970ab70d1bbbe920"
+    }
+  ],
+  "assertions": [
+    "Concurrent exact positive-interest operation replay creates one immutable invitation draft.",
+    "Reclassification to NOT_INTERESTED shows current-review HELD without rewriting original draft; restored positive interest reuses the same identity.",
+    "Sibling venue has a distinct draft and mismatched message/venue read is rejected.",
+    "Canonical prospect conversion is replayable and connects only the intended venue to the V1 package and held portal handoff.",
+    "Zero send outbox, outbound email, customer-access request and applied package records."
+  ],
+  "limitations": [
+    "Synthetic local owner and membership seed; identity-provider account creation, access invitation and client-create API are not exercised.",
+    "Canonical location conversion links the CRM venue to the product venue; this does not create a schema relationship from invitation draft to package.",
+    "Deterministic embedding, analytics and job adapters; no live provider, customer, money, deployment, QR scan or publication effects.",
+    "Eight operation timings cover a named delivery subset, not full actor workload or hosted performance."
+  ]
+}

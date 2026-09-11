@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   CHAT_FONT_OPTIONS,
@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 
 type Venue = {
   id: string
@@ -21,11 +22,82 @@ type Venue = {
   chatFont?: string | null
   chatLogoUrl?: string | null
   chatBannerUrl?: string | null
+  chatLogoDerivativeId?: string | null
+  chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: string | Date
 }
 
 type ChatDesignFormProps = {
   venues: Venue[]
+  brandingAssetsByVenue?: Record<string, BrandingAssetPage>
+  canEdit?: boolean
+  initialVenueId?: string
+  updateDesign?: (input: {
+    venueId: string
+    expectedUpdatedAt: Date
+    chatTheme: (typeof CHAT_THEME_PRESETS)[number]['value'] | 'dark'
+    chatAccentColor: string | null
+    chatFont: ChatFontValue
+    chatLogoUrl?: string | null
+    chatBannerUrl?: string | null
+    chatLogoDerivativeId?: string | null
+    chatBannerDerivativeId?: string | null
+    chatLogoDerivativeReceipt?: BrandingDerivativeReceipt | null
+    chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null
+    chatShowPhotos: boolean
+    chatShowLinks: boolean
+  }) => Promise<SavedChatDesign>
+}
+
+type BrandingAsset = {
+  derivativeId: string
+  assetId: string
+  altText: string
+  caption: string | null
+  deliveryPath: string
+  sourceObjectGeneration?: string
+  sha256?: string | null
+  approvedReviewSequence?: number
+}
+
+type BrandingAssetPage = {
+  items: readonly BrandingAsset[]
+  nextCursor: string | null
+}
+
+type BrandingDerivativeReceipt = {
+  assetId: string
+  derivativeId: string
+  sourceObjectGeneration: string
+  sha256: string
+  approvedReviewSequence: number
+}
+
+function toReceipt(asset: BrandingAsset | undefined): BrandingDerivativeReceipt | null {
+  if (!asset) return null
+  if (!asset.sourceObjectGeneration || !asset.sha256 || !asset.approvedReviewSequence) return null
+  return {
+    assetId: asset.assetId,
+    derivativeId: asset.derivativeId,
+    sourceObjectGeneration: asset.sourceObjectGeneration,
+    sha256: asset.sha256,
+    approvedReviewSequence: asset.approvedReviewSequence,
+  }
+}
+
+type SavedChatDesign = {
+  chatTheme?: string | null
+  chatAccentColor?: string | null
+  chatFont?: string | null
+  hasLogo?: boolean
+  hasBanner?: boolean
+  chatLogoDerivativeId?: string | null
+  chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
+  updatedAt: Date
 }
 
 type LightThemeValue = (typeof CHAT_THEME_PRESETS)[number]['value']
@@ -55,38 +127,86 @@ function designStateForVenue(venue: Venue | undefined) {
     darkMode,
     chatAccentColor: venue?.chatAccentColor ?? '',
     chatFont: isFontValue(venue?.chatFont) ? venue.chatFont : ('jakarta' as const),
+    chatLogoUrl: venue?.chatLogoUrl ?? null,
+    chatBannerUrl: venue?.chatBannerUrl ?? null,
+    chatLogoDerivativeId: venue?.chatLogoDerivativeId ?? null,
+    chatBannerDerivativeId: venue?.chatBannerDerivativeId ?? null,
+    chatShowPhotos: venue?.chatShowPhotos ?? false,
+    chatShowLinks: venue?.chatShowLinks ?? false,
   }
 }
 
-export function ChatDesignForm({ venues }: ChatDesignFormProps) {
+export function ChatDesignForm({
+  venues,
+  brandingAssetsByVenue = {},
+  canEdit = true,
+  initialVenueId,
+  updateDesign,
+}: ChatDesignFormProps) {
   const client = useTRPCClient()
+  const queryScope = useRef(new AbortController())
   const revisions = useRef(
     new Map(venues.map((candidate) => [candidate.id, new Date(candidate.updatedAt)])),
   )
+  const savedDesigns = useRef(
+    new Map(venues.map((candidate) => [candidate.id, designStateForVenue(candidate)])),
+  )
 
-  const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id ?? '')
+  const [selectedVenueId, setSelectedVenueId] = useState(
+    initialVenueId && venues.some((candidate) => candidate.id === initialVenueId)
+      ? initialVenueId
+      : (venues[0]?.id ?? ''),
+  )
   const venue = venues.find((candidate) => candidate.id === selectedVenueId)
+  const [brandingPages, setBrandingPages] = useState(brandingAssetsByVenue)
+  const brandingPage = brandingPages[selectedVenueId] ?? { items: [], nextCursor: null }
+  const brandingAssets = brandingPage.items
   const initialDesign = designStateForVenue(venue)
   const [chatTheme, setChatTheme] = useState<LightThemeValue>(initialDesign.chatTheme)
   const [darkMode, setDarkMode] = useState(initialDesign.darkMode)
   const [chatAccentColor, setChatAccentColor] = useState(initialDesign.chatAccentColor)
   const [chatFont, setChatFont] = useState<ChatFontValue>(initialDesign.chatFont)
+  const [chatLogoUrl, setChatLogoUrl] = useState(initialDesign.chatLogoUrl)
+  const [chatBannerUrl, setChatBannerUrl] = useState(initialDesign.chatBannerUrl)
+  const [chatLogoDerivativeId, setChatLogoDerivativeId] = useState(
+    initialDesign.chatLogoDerivativeId ?? null,
+  )
+  const [chatBannerDerivativeId, setChatBannerDerivativeId] = useState(
+    initialDesign.chatBannerDerivativeId ?? null,
+  )
+  const [chatShowPhotos, setChatShowPhotos] = useState(initialDesign.chatShowPhotos)
+  const [chatShowLinks, setChatShowLinks] = useState(initialDesign.chatShowLinks)
   const [savedDesign, setSavedDesign] = useState(initialDesign)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [isLoadingAssets, setIsLoadingAssets] = useState(false)
+  useEffect(() => {
+    if (queryScope.current.signal.aborted) queryScope.current = new AbortController()
+    const controller = queryScope.current
+    setIsLoadingAssets(false)
+    setAssetLoadError(null)
+    return () => controller.abort()
+  }, [client, selectedVenueId])
+  const [assetLoadError, setAssetLoadError] = useState<string | null>(null)
   const mutationInFlight = useRef(false)
 
   const normalizedAccent = chatAccentColor.trim()
   const invalidAccent = normalizedAccent !== '' && !isHexColor(normalizedAccent)
   const accentOverride = isHexColor(normalizedAccent) ? normalizedAccent : null
-  const effectiveTheme = darkMode ? 'dark' : chatTheme
+  const effectiveTheme: LightThemeValue | 'dark' = darkMode ? 'dark' : chatTheme
   const palettePreview = getChatPalette(effectiveTheme, accentOverride)
   const isDirty =
     chatTheme !== savedDesign.chatTheme ||
     darkMode !== savedDesign.darkMode ||
     chatAccentColor !== savedDesign.chatAccentColor ||
-    chatFont !== savedDesign.chatFont
+    chatFont !== savedDesign.chatFont ||
+    chatLogoUrl !== savedDesign.chatLogoUrl ||
+    chatBannerUrl !== savedDesign.chatBannerUrl ||
+    chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null) ||
+    chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null) ||
+    chatShowPhotos !== savedDesign.chatShowPhotos ||
+    chatShowLinks !== savedDesign.chatShowLinks
 
   function markDirty() {
     setSaveError(null)
@@ -114,19 +234,87 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
       return
     }
 
-    const next = designStateForVenue(nextVenue)
+    const next = savedDesigns.current.get(nextVenue.id) ?? designStateForVenue(nextVenue)
     setSelectedVenueId(nextVenue.id)
     setChatTheme(next.chatTheme)
     setDarkMode(next.darkMode)
     setChatAccentColor(next.chatAccentColor)
     setChatFont(next.chatFont)
+    setChatLogoUrl(next.chatLogoUrl)
+    setChatBannerUrl(next.chatBannerUrl)
+    setChatLogoDerivativeId(next.chatLogoDerivativeId ?? null)
+    setChatBannerDerivativeId(next.chatBannerDerivativeId ?? null)
+    setChatShowPhotos(next.chatShowPhotos)
+    setChatShowLinks(next.chatShowLinks)
     setSavedDesign(next)
     setSaveError(null)
     setSaved(false)
+    setAssetLoadError(null)
+  }
+
+  async function loadMoreAssets() {
+    if (!venue?.id || !brandingPage.nextCursor || isLoadingAssets) return
+    const cursor = brandingPage.nextCursor
+    const controller = queryScope.current
+    const initiatingClient = client
+    const initiatingVenueId = venue.id
+    setIsLoadingAssets(true)
+    setAssetLoadError(null)
+    try {
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.venue.listApprovedBrandingAssets.query(
+            {
+              venueId: venue.id,
+              cursor,
+            },
+            { signal },
+          ),
+      })
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        venue.id !== initiatingVenueId
+      )
+        return
+      setBrandingPages((current) => {
+        const page = current[venue.id] ?? { items: [], nextCursor: null }
+        const seen = new Set(page.items.map((asset) => asset.derivativeId))
+        return {
+          ...current,
+          [venue.id]: {
+            items: [...page.items, ...next.items.filter((asset) => !seen.has(asset.derivativeId))],
+            nextCursor: next.nextCursor,
+          },
+        }
+      })
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        venue.id !== initiatingVenueId
+      )
+        return
+      setAssetLoadError(
+        error instanceof Error ? error.message : 'More reviewed assets could not be loaded.',
+      )
+    } finally {
+      if (
+        !controller.signal.aborted &&
+        queryScope.current === controller &&
+        client === initiatingClient &&
+        venue.id === initiatingVenueId
+      )
+        setIsLoadingAssets(false)
+    }
   }
 
   async function handleSave() {
-    if (!venue?.id || mutationInFlight.current) return
+    if (!canEdit || !venue?.id || mutationInFlight.current) return
     if (invalidAccent) {
       setSaved(false)
       setSaveError('Enter a six-digit hex colour such as #3A7BD5, or leave it blank.')
@@ -139,17 +327,70 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     setIsSaving(true)
 
     try {
-      const saved = await client.venue.updateChatDesign.mutate({
+      const selectedLogoReceipt = toReceipt(
+        brandingAssets.find((asset) => asset.derivativeId === chatLogoDerivativeId)!,
+      )
+      const selectedBannerReceipt = toReceipt(
+        brandingAssets.find((asset) => asset.derivativeId === chatBannerDerivativeId)!,
+      )
+      const saveInput = {
         venueId: venue.id,
         expectedUpdatedAt: revisions.current.get(venue.id) ?? new Date(venue.updatedAt),
         chatTheme: effectiveTheme,
         chatAccentColor: accentOverride,
         chatFont,
-      })
+        chatShowPhotos,
+        chatShowLinks,
+        ...(venue.chatLogoUrl !== undefined ? { chatLogoUrl } : {}),
+        ...(venue.chatBannerUrl !== undefined ? { chatBannerUrl } : {}),
+        ...(venue.chatLogoDerivativeId !== undefined &&
+        chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null)
+          ? { chatLogoDerivativeId, chatLogoDerivativeReceipt: selectedLogoReceipt }
+          : {}),
+        ...(venue.chatBannerDerivativeId !== undefined &&
+        chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null)
+          ? { chatBannerDerivativeId, chatBannerDerivativeReceipt: selectedBannerReceipt }
+          : {}),
+      }
+      const saved = updateDesign
+        ? await updateDesign(saveInput)
+        : ((await client.venue.updateChatDesign.mutate(saveInput)) as SavedChatDesign)
       revisions.current.set(venue.id, saved.updatedAt)
-      const savedAccentColor = accentOverride ?? ''
+      const savedTheme =
+        saved.chatTheme === 'dark'
+          ? chatTheme
+          : isLightThemeValue(saved.chatTheme)
+            ? saved.chatTheme
+            : chatTheme
+      const savedDarkMode = saved.chatTheme ? saved.chatTheme === 'dark' : darkMode
+      const savedAccentColor = saved.chatAccentColor ?? accentOverride ?? ''
+      const savedFont = isFontValue(saved.chatFont) ? saved.chatFont : chatFont
+      const savedLogoUrl = saved.hasLogo === false ? null : chatLogoUrl
+      const savedBannerUrl = saved.hasBanner === false ? null : chatBannerUrl
+      setChatTheme(savedTheme)
+      setDarkMode(savedDarkMode)
       setChatAccentColor(savedAccentColor)
-      setSavedDesign({ chatTheme, darkMode, chatAccentColor: savedAccentColor, chatFont })
+      setChatFont(savedFont)
+      setChatLogoUrl(savedLogoUrl)
+      setChatBannerUrl(savedBannerUrl)
+      const savedShowPhotos = saved.chatShowPhotos ?? chatShowPhotos
+      const savedShowLinks = saved.chatShowLinks ?? chatShowLinks
+      setChatShowPhotos(savedShowPhotos)
+      setChatShowLinks(savedShowLinks)
+      const canonicalDesign = {
+        chatTheme: savedTheme,
+        darkMode: savedDarkMode,
+        chatAccentColor: savedAccentColor,
+        chatFont: savedFont,
+        chatLogoUrl: savedLogoUrl,
+        chatBannerUrl: savedBannerUrl,
+        chatLogoDerivativeId: saved.chatLogoDerivativeId ?? chatLogoDerivativeId,
+        chatBannerDerivativeId: saved.chatBannerDerivativeId ?? chatBannerDerivativeId,
+        chatShowPhotos: savedShowPhotos,
+        chatShowLinks: savedShowLinks,
+      }
+      savedDesigns.current.set(venue.id, canonicalDesign)
+      setSavedDesign(canonicalDesign)
       setSaved(true)
     } catch (err: unknown) {
       const message =
@@ -162,7 +403,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
   }
 
   if (venues.length === 0) {
-    return <p className="text-sm text-pf-deep/50">No venues found. Create a venue first.</p>
+    return <p className="text-sm text-pf-deep/70">No venues found. Create a venue first.</p>
   }
 
   return (
@@ -186,9 +427,101 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         </select>
       </div>
 
+      <div className="rounded-2xl border border-pf-light bg-pf-white p-4">
+        <p className="text-sm font-semibold text-pf-deep">Reviewed branding assets</p>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
+          Only assets already reviewed for this venue can be retained. This editor cannot upload or
+          accept arbitrary URLs.
+        </p>
+        {chatLogoUrl ? (
+          <label className="mt-3 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={Boolean(chatLogoUrl)}
+              disabled={!canEdit || isSaving}
+              onChange={(event) => {
+                markDirty()
+                if (!event.target.checked) setChatLogoUrl(null)
+              }}
+            />
+            Keep current reviewed logo
+          </label>
+        ) : null}
+        {chatBannerUrl ? (
+          <label className="mt-2 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={Boolean(chatBannerUrl)}
+              disabled={!canEdit || isSaving}
+              onChange={(event) => {
+                markDirty()
+                if (!event.target.checked) setChatBannerUrl(null)
+              }}
+            />
+            Keep current reviewed banner
+          </label>
+        ) : null}
+        {!chatLogoUrl && !chatBannerUrl ? (
+          <p className="mt-3 text-sm text-pf-deep/65">No reviewed branding assets are attached.</p>
+        ) : null}
+        {brandingAssets.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {(['logo', 'banner'] as const).map((role) => {
+              const selected = role === 'logo' ? chatLogoDerivativeId : chatBannerDerivativeId
+              return (
+                <label
+                  key={role}
+                  className="block text-xs font-semibold uppercase tracking-wide text-pf-deep/70"
+                >
+                  {role} asset
+                  <select
+                    className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-pf-white px-3 text-sm font-normal normal-case tracking-normal text-pf-deep"
+                    value={selected ?? ''}
+                    disabled={!canEdit || isSaving}
+                    onChange={(event) => {
+                      markDirty()
+                      const value = event.target.value || null
+                      if (role === 'logo') {
+                        setChatLogoDerivativeId(value)
+                        setChatLogoUrl(null)
+                      } else {
+                        setChatBannerDerivativeId(value)
+                        setChatBannerUrl(null)
+                      }
+                    }}
+                  >
+                    <option value="">No reviewed asset</option>
+                    {brandingAssets.map((asset) => (
+                      <option key={asset.derivativeId} value={asset.derivativeId}>
+                        {asset.altText}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })}
+          </div>
+        ) : null}
+        {brandingPage.nextCursor ? (
+          <button
+            type="button"
+            disabled={!canEdit || isSaving || isLoadingAssets}
+            onClick={loadMoreAssets}
+            className="mt-4 min-h-11 rounded-xl border border-pf-light bg-pf-white px-4 text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent disabled:opacity-50"
+          >
+            {isLoadingAssets ? 'Loading reviewed assets…' : 'Load more reviewed assets'}
+          </button>
+        ) : null}
+        {assetLoadError ? (
+          <p className="mt-2 text-sm text-rose-700" role="alert">
+            {assetLoadError}
+          </p>
+        ) : null}
+      </div>
+
       <div>
         <p className="text-sm font-semibold text-pf-deep">Colour theme</p>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
           Choose a preset for light mode. The custom colour below overrides its accent.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -197,7 +530,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               key={theme.value}
               type="button"
               aria-pressed={chatTheme === theme.value}
-              disabled={isSaving || darkMode}
+              disabled={!canEdit || isSaving || darkMode}
               onClick={() => {
                 markDirty()
                 setChatTheme(theme.value)
@@ -221,7 +554,42 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4 rounded-2xl border border-pf-light bg-pf-white p-4">
+      <fieldset className="border-y border-pf-light py-5" disabled={!canEdit || isSaving}>
+        <legend className="text-sm font-semibold text-pf-deep">Place card references</legend>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
+          Photos appear only for a place mentioned in the answer and only while its review remains
+          valid.
+        </p>
+        <label className="mt-3 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+          <input
+            type="checkbox"
+            checked={chatShowPhotos}
+            onChange={(event) => {
+              markDirty()
+              setChatShowPhotos(event.target.checked)
+              if (!event.target.checked) setChatShowLinks(false)
+            }}
+          />
+          Show reviewed photos for places mentioned in an answer
+        </label>
+        <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+          <input
+            type="checkbox"
+            checked={chatShowLinks}
+            disabled={!canEdit || isSaving || !chatShowPhotos}
+            onChange={(event) => {
+              markDirty()
+              setChatShowLinks(event.target.checked)
+            }}
+          />
+          Link photo credits to their source
+        </label>
+        <p className="text-xs leading-5 text-pf-deep/70">
+          Photo credits remain visible as text when source links are off.
+        </p>
+      </fieldset>
+
+      <div className="flex items-start justify-between gap-4 rounded-2xl border border-pf-light bg-pf-white p-4">
         <div className="flex items-center gap-3">
           <div
             className="h-10 w-10 flex-shrink-0 rounded-full border border-pf-light"
@@ -233,9 +601,9 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               style={{ backgroundColor: palettePreview.accent }}
             />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-pf-deep">Dark mode (Neon)</p>
-            <p className="mt-0.5 text-xs leading-5 text-pf-deep/50">
+            <p className="mt-0.5 text-xs leading-5 text-pf-deep/70">
               Replaces the light preset with a glowing dark palette derived from your accent colour.
               Turn dark mode off before choosing a light preset.
             </p>
@@ -246,10 +614,10 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
           role="switch"
           aria-label="Use dark mode"
           aria-checked={darkMode}
-          disabled={isSaving}
+          disabled={!canEdit || isSaving}
           onClick={toggleDarkMode}
           className={[
-            'relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition',
+            'relative mt-1 inline-flex h-11 w-12 flex-shrink-0 items-center rounded-full transition',
             darkMode ? 'bg-pf-primary' : 'bg-pf-light',
             'disabled:cursor-not-allowed disabled:opacity-50',
           ].join(' ')}
@@ -267,7 +635,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         <label className="block text-sm font-semibold text-pf-deep" htmlFor="accent-color">
           Custom accent colour
         </label>
-        <p id="accent-color-help" className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p id="accent-color-help" className="mt-1 text-xs leading-5 text-pf-deep/70">
           Hex value e.g. <code>#3A7BD5</code>. Overrides the theme accent, and is the colour Dark
           mode derives its neon palette from. Leave blank to use the theme colour.
         </p>
@@ -278,7 +646,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
             placeholder="#3A7BD5"
             value={chatAccentColor}
             maxLength={7}
-            disabled={isSaving}
+            disabled={!canEdit || isSaving}
             aria-invalid={invalidAccent}
             aria-describedby={
               invalidAccent && saveError
@@ -294,6 +662,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
           <div
             className="h-10 w-10 flex-shrink-0 rounded-full border border-pf-light"
             style={{ backgroundColor: palettePreview.accent }}
+            role="img"
             aria-label="Colour preview"
           />
         </div>
@@ -301,7 +670,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
 
       <div>
         <p className="text-sm font-semibold text-pf-deep">Font</p>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
           Choose the typeface used throughout the guest chat.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -310,7 +679,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               key={font.value}
               type="button"
               aria-pressed={chatFont === font.value}
-              disabled={isSaving}
+              disabled={!canEdit || isSaving}
               onClick={() => {
                 markDirty()
                 setChatFont(font.value)
@@ -349,15 +718,44 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         </p>
       ) : null}
 
-      <button
-        type="button"
-        aria-live="polite"
-        disabled={isSaving || !venue?.id}
-        onClick={handleSave}
-        className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isSaving ? 'Saving...' : 'Save design'}
-      </button>
+      {canEdit ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            aria-live="polite"
+            disabled={isSaving || !venue?.id}
+            onClick={handleSave}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : 'Save design'}
+          </button>
+          <button
+            type="button"
+            disabled={isSaving || !isDirty}
+            onClick={() => {
+              setChatTheme(savedDesign.chatTheme)
+              setDarkMode(savedDesign.darkMode)
+              setChatAccentColor(savedDesign.chatAccentColor)
+              setChatFont(savedDesign.chatFont)
+              setChatLogoUrl(savedDesign.chatLogoUrl)
+              setChatBannerUrl(savedDesign.chatBannerUrl)
+              setChatLogoDerivativeId(savedDesign.chatLogoDerivativeId ?? null)
+              setChatBannerDerivativeId(savedDesign.chatBannerDerivativeId ?? null)
+              setChatShowPhotos(savedDesign.chatShowPhotos)
+              setChatShowLinks(savedDesign.chatShowLinks)
+              setSaveError(null)
+              setSaved(false)
+            }}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-semibold text-pf-deep transition hover:border-pf-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Reset changes
+          </button>
+        </div>
+      ) : (
+        <p className="rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep/70">
+          Your role can view visitor branding, but only venue managers and owners can edit it.
+        </p>
+      )}
     </div>
   )
 }

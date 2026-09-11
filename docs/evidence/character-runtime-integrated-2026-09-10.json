@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-10",
+  "candidate": "e34c2b4aea765d639498c13df020b2a553696547",
+  "returnedCommit": "fede45c5ffc44b198b3e18fa479445585f281587",
+  "base": "14be680d5171e2a84dfb2b892167c265f98aac0b",
+  "archiveSha256Verified": "3a0dabb9d48fc86e7e766c9e46d43026444939869d417b6388e9fb6365780198",
+  "patchSha256": "31478f0d46ea15b0548212a5f7300f3c7ff81cfee69fb2c9effeae914452fe80",
+  "reportSha256": "2cb787e484c7773ef2895b0e0468f87dd2347edfab1c30ee1ac7d99c1f69c073",
+  "changedFiles": [
+    "apps/dashboard/app/dev-fixtures/character-family-rigs/CharacterFamilyRigGrid.tsx",
+    "apps/dashboard/app/dev-fixtures/character-family-rigs/page.tsx",
+    "apps/dashboard/tests/visual/character-family-rigs.spec.ts",
+    "apps/web/components/FamilyRigRenderer.runtime.test.tsx",
+    "apps/web/components/VenueCharacterStage.test.tsx",
+    "apps/web/components/VenueCharacterStage.tsx",
+    "docs/evidence/external-astra/character-runtime/RESULT.md",
+    "packages/ui/src/character/FamilyRigRenderer.test.tsx",
+    "packages/ui/src/character/FamilyRigRenderer.tsx"
+  ],
+  "exactReturnedFileBytesMatchIntegratedGit": true,
+  "independentReview": {
+    "agent": "/root/character_return_review",
+    "result": "no actionable correctness issues",
+    "scope": "production lifecycle/failure fencing, tests and dependency compatibility"
+  },
+  "integratedChecks": {
+    "uiTests": {
+      "passed": 7,
+      "failed": 0
+    },
+    "webTests": {
+      "passed": 19,
+      "failed": 0
+    },
+    "uiTypecheck": "PASS",
+    "webTypecheck": "PASS",
+    "webTypecheckLog": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/character-integrated-web-typecheck-20260910.log",
+    "ownedUiWebDashboardLint": "PASS"
+  },
+  "visualEvidence": {
+    "sourceCommit": "fede45c5ffc44b198b3e18fa479445585f281587",
+    "manifest": "C:\\Users\\tomsc\\Downloads\\AwesomeVault\\95 AI Staging\\Torchiko Character Runtime 2026-09-09\\worktree\\artifacts\\ui-proof\\character-runtime-20260909-2306\\FINALIZATION.json",
+    "browserTests": 4,
+    "screenshots": 28,
+    "viewports": [320, 820, 1024, 1440],
+    "rootInspectedScreenshots": 4,
+    "freshIntegratedBrowserRun": false,
+    "limits": "Retained external local neutral-character fixtures; exact changed source matches. No final art, production fonts, hosted provider or physical-device acceptance."
+  },
+  "historicalTypecheck": "External package-wide web typecheck failed at its old base; current integrated web typecheck passes. Do not carry historical failure as current reproduction.",
+  "scope": "Character fallback/stale callback resilience only; campaign and launch acceptance remain incomplete."
+}

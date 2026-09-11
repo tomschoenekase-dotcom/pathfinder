@@ -1,14 +1,17 @@
+import type { ComponentProps } from 'react'
+
 import { FounderQuestionTriageBoard } from '../../../components/admin/FounderQuestionTriageBoard'
 import { TRPCProvider } from '../../../lib/trpc'
 
 export const metadata = { title: 'Founder question triage fixture' }
 
-const questions = {
+const questions: ComponentProps<typeof FounderQuestionTriageBoard>['questions'] = {
   items: [
     {
       id: 'fixture-foundational-identity',
       tenantId: 'fixture-tenant',
       venueId: 'fixture-venue',
+      venue: { name: 'North Campus fixture' },
       agentRunId: 'fixture-run-identity',
       question: 'Which building does the uploaded handbook describe?',
       context:
@@ -18,6 +21,7 @@ const questions = {
       urgency: 'HIGH',
       choices: ['North Campus', 'South Campus'],
       dueAt: new Date('2026-08-30T17:00:00.000Z'),
+      expiresAt: null,
       evidence: [
         {
           label: 'Handbook cover',
@@ -75,6 +79,7 @@ const questions = {
       id: 'fixture-local-hours',
       tenantId: 'fixture-tenant',
       venueId: 'fixture-venue',
+      venue: { name: 'North Campus fixture' },
       agentRunId: 'fixture-run-hours',
       question: 'Are the holiday café hours still current?',
       context:
@@ -84,6 +89,7 @@ const questions = {
       urgency: 'NORMAL',
       choices: ['Yes', 'No'],
       dueAt: null,
+      expiresAt: null,
       evidence: [
         {
           label: 'Holiday notice excerpt',
@@ -107,6 +113,7 @@ const questions = {
       id: 'fixture-local-alias',
       tenantId: 'fixture-tenant',
       venueId: 'fixture-venue',
+      venue: { name: 'North Campus fixture' },
       agentRunId: 'fixture-run-alias',
       question: 'Should “River Room” be retained as a public alias?',
       context:
@@ -116,6 +123,7 @@ const questions = {
       urgency: 'LOW',
       choices: ['Retain alias', 'Do not retain'],
       dueAt: null,
+      expiresAt: null,
       evidence: [],
       proposedAnswer: { interpretation: 'Retain as a historical alias' },
       blocking: false,
@@ -156,7 +164,8 @@ export default function FounderQuestionTriageFixture() {
             </span>
           </div>
           <FounderQuestionTriageBoard
-            questions={questions as never}
+            actorId="fixture-founder-admin"
+            questions={questions}
             generatedAt={new Date('2026-08-29T12:00:00.000Z')}
           />
         </section>

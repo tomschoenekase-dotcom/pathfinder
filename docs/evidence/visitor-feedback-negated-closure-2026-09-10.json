@@ -1,0 +1,32 @@
+{
+  "implementationCommit": "67cd814c4be76c873c92a26d54114b30e9e9fdf6",
+  "requirement": "W02 / V2-P08-05",
+  "confirmedBeforeFix": "Four explicit negated closure cases failed: not closed, no closure, contraction, no longer closed.",
+  "behavior": "Per-match immediate negation suppresses false closure candidates; not open and separate affirmative closure remain. Original feedback and generic negative-feedback insight retained.",
+  "verification": {
+    "focusedTests": 25,
+    "apiTypes": "PASS",
+    "configuredOwnedLint": "PASS",
+    "independentReview": "No actionable issues in bounded scope",
+    "committedContentMatchesWorkingTreeIgnoringEol": true
+  },
+  "sourceManifest": [
+    {
+      "source": "packages/api/src/lib/visitor-signal-candidate.ts",
+      "sha256": "21a19e8e6b04a8a7df075f04f83b31372cca0d5aeef547c53993e7031be429f9"
+    },
+    {
+      "source": "packages/api/src/lib/visitor-signal-candidate.test.ts",
+      "sha256": "e80bb9356550831560d1d658a6dfed82d68c2571b09fb5230f0dc15ea5ebd90b"
+    },
+    {
+      "source": "packages/api/src/routers/feedback.test.ts",
+      "sha256": "1692efcca1b19bc78b65bb4d016d26d76e6d9b09bcc768f83721798e62d33a04"
+    }
+  ],
+  "limits": [
+    "Pure classification and router contract proof, no new persistence/schema/authorization change or native test required.",
+    "Hazard classifier unchanged. Immediate-prefix English heuristic is not complete negation, multilingual, corroboration or hazard recognition proof.",
+    "No automatic venue closure, canonical overwrite, external notification or current field reproduction. Original P08-05 remaining acceptance persists."
+  ]
+}

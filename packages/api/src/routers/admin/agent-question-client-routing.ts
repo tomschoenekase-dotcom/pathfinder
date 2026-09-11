@@ -88,7 +88,12 @@ export const adminAgentQuestionClientRoutingRouter = router({
         } catch (error) {
           if (error instanceof OnboardingQuestionActionError)
             throw new TRPCError({
-              code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+              code:
+                error.code === 'EXPIRED'
+                  ? 'PRECONDITION_FAILED'
+                  : error.code === 'INVALID_INPUT'
+                    ? 'BAD_REQUEST'
+                    : error.code,
               message: error.message,
             })
           throw error

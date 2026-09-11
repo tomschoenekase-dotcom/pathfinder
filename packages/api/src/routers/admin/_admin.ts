@@ -1,4 +1,6 @@
 import { mergeRouters } from '../../core'
+import { adminConversationLearningRouter } from './conversation-learning'
+import { adminCharacterCandidateReviewsRouter } from './character-candidate-reviews'
 
 import { adminAnswerAnalysisRouter } from './answer-analysis'
 import { adminAttentionConsoleRouter } from './attention-console-router'
@@ -56,6 +58,7 @@ import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
 import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
 import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
+import { adminVisitorFeedbackHazardEvidenceRouter } from './visitor-feedback-hazard-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminLocationAuthoringRouter } from './location-authoring'
 import { adminLocationAvailabilityRouter } from './location-availability'
@@ -76,8 +79,11 @@ import { adminRetentionDispositionPreviewRouter } from './retention-disposition-
 import { adminPublicInterestRouter } from './public-interest'
 import { adminReleaseEvidenceRouter } from './release-evidence'
 import { adminIntakeMediaAssetRouter } from './venue-media'
+import { adminCharacterFactoryRouter } from './character-factory'
 
 export const adminRouter = mergeRouters(
+  adminConversationLearningRouter,
+  adminCharacterCandidateReviewsRouter,
   adminOverviewRouter,
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,
@@ -153,5 +159,7 @@ export const adminRouter = mergeRouters(
   adminTochiRolloutRouter,
   adminTerminalRedrivePreviewRouter,
   adminOperationalEvidenceRouter,
+  adminVisitorFeedbackHazardEvidenceRouter,
   adminCustomerAccessExecutionRouter,
+  adminCharacterFactoryRouter,
 )

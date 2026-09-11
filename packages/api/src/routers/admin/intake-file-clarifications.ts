@@ -27,12 +27,18 @@ export const adminIntakeFileClarificationsRouter = router({
           question: z.string().trim().min(1).max(2_000),
           evidenceExcerpt: z.string().trim().min(1).max(1_000),
           agentIdentityId: z.string().trim().min(1).max(191),
+          agentRunId: z.string().trim().min(1).max(191).optional(),
         })
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await createFileExtractionClarificationQuestion({ db: ctx.db, ...input })
+        const { agentRunId, ...clarificationInput } = input
+        return await createFileExtractionClarificationQuestion({
+          db: ctx.db,
+          ...clarificationInput,
+          ...(agentRunId ? { agentRunId } : {}),
+        })
       } catch (error) {
         if (error instanceof FileClarificationError) {
           throw new TRPCError({

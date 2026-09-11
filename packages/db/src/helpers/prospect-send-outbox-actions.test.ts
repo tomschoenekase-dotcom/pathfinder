@@ -21,6 +21,76 @@ describe('prospect provider event folding', () => {
 })
 
 describe('prospect last-mile delivery authority', () => {
+  it.each([null, { id: 'reply-1' }])(
+    'refuses dispatch and terminal mutation when the lease expires during reply lookup (%j)',
+    async (reply) => {
+      vi.useFakeTimers()
+      const startedAt = new Date('2026-08-22T16:00:00.000Z')
+      const expiresAt = new Date(startedAt.valueOf() + 1_000)
+      vi.setSystemTime(startedAt)
+      const email = 'recipient@example.test'
+      const tx = {
+        prospectDeliveryControl: {
+          findUnique: vi.fn().mockResolvedValue({ deliveryEnabled: true, internalOnly: false }),
+        },
+        prospectSendOutbox: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'outbox-1',
+            status: 'CLAIMED',
+            claimOwner: 'worker-1',
+            claimExpiresAt: expiresAt,
+            attemptCount: 1,
+            providerAccount: {
+              provider: 'GMAIL',
+              capabilities: ['SEND'],
+              deliveryEnabled: true,
+              pausedAt: null,
+              connectionStatus: 'CONNECTED',
+            },
+            sendItem: {
+              id: 'item-1',
+              createdAt: startedAt,
+              recipientEmailSnapshot: email,
+              recipientIdentityHash: createHash('sha256').update(email).digest('hex'),
+              member: {
+                id: 'member-1',
+                organizationId: 'org-1',
+                contactId: 'contact-1',
+                status: 'QUEUED',
+                contact: {
+                  normalizedEmail: email,
+                  emailReadiness: 'VALID',
+                  permissionState: 'UNKNOWN',
+                },
+              },
+              batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+            },
+          }),
+          updateMany: vi.fn(),
+        },
+        prospectSendItem: { update: vi.fn() },
+        prospectEmailMessage: {
+          findFirst: vi.fn().mockImplementation(async () => {
+            vi.setSystemTime(expiresAt)
+            return reply
+          }),
+        },
+      }
+      try {
+        await expect(
+          revalidateProspectSendOutboxClaimAction({ outboxId: 'outbox-1', workerId: 'worker-1' }, {
+            $transaction: vi.fn((work) => work(tx)),
+          } as never),
+        ).resolves.toBe(false)
+        expect(tx.prospectEmailMessage.findFirst).toHaveBeenCalledOnce()
+        expect(tx.prospectSendOutbox.updateMany).not.toHaveBeenCalled()
+        expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
+
   it('cancels a claimed operation when the emergency stop changed after claim', async () => {
     const tx = {
       prospectDeliveryControl: {
@@ -42,8 +112,10 @@ describe('prospect last-mile delivery authority', () => {
           sendItem: { id: 'item-1', batch: { campaign: { pausedAt: null, status: 'ACTIVE' } } },
         }),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       prospectSendItem: { update: vi.fn() },
+      prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
     }
     const client = { $transaction: vi.fn((work) => work(tx)) }
     await expect(
@@ -56,7 +128,7 @@ describe('prospect last-mile delivery authority', () => {
         client as never,
       ),
     ).resolves.toBe(false)
-    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'CANCELLED',
@@ -77,6 +149,7 @@ describe('prospect last-mile delivery authority', () => {
           claimExpiresAt: new Date('2026-08-22T16:05:00.000Z'),
         }),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       prospectSendItem: { update: vi.fn() },
     }
@@ -91,7 +164,7 @@ describe('prospect last-mile delivery authority', () => {
         client as never,
       ),
     ).resolves.toBe(false)
-    expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
+    expect(tx.prospectSendOutbox.updateMany).not.toHaveBeenCalled()
   })
 
   it('cancels a claimed operation when the internal allowlist tightened after release', async () => {
@@ -123,6 +196,7 @@ describe('prospect last-mile delivery authority', () => {
           },
         }),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       prospectSendItem: { update: vi.fn() },
     }
@@ -138,7 +212,7 @@ describe('prospect last-mile delivery authority', () => {
         client as never,
       ),
     ).resolves.toBe(false)
-    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'CANCELLED',
@@ -190,8 +264,10 @@ describe('prospect last-mile delivery authority', () => {
           },
         }),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       prospectSendItem: { update: vi.fn() },
+      prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
     }
     const client = { $transaction: vi.fn((work) => work(tx)) }
 
@@ -205,7 +281,7 @@ describe('prospect last-mile delivery authority', () => {
         client as never,
       ),
     ).resolves.toBe(true)
-    expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
+    expect(tx.prospectSendOutbox.updateMany).not.toHaveBeenCalled()
   })
 
   it('suppresses a claimed operation when the contact opts out before the provider call', async () => {
@@ -250,6 +326,7 @@ describe('prospect last-mile delivery authority', () => {
           },
         }),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       prospectSendItem: { update: vi.fn() },
     }
@@ -265,7 +342,7 @@ describe('prospect last-mile delivery authority', () => {
         client as never,
       ),
     ).resolves.toBe(false)
-    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'SUPPRESSED',
@@ -408,6 +485,302 @@ describe('prospect send claim rate reservation', () => {
         }),
       }),
     )
+  })
+})
+
+describe('prospect reply stop boundary', () => {
+  const now = new Date('2026-08-22T16:00:00.000Z')
+  const createdAt = new Date('2026-08-22T15:00:00.000Z')
+  const recipient = 'prospect@example.test'
+  const operation = (memberStatus = 'QUEUED', attemptCount = 1) => ({
+    id: 'outbox-1',
+    attemptCount,
+    status: 'CLAIMED',
+    claimOwner: 'worker-1',
+    claimExpiresAt: new Date('2026-08-22T16:05:00.000Z'),
+    providerAccount: {
+      provider: 'GMAIL',
+      capabilities: ['SEND'],
+      deliveryEnabled: true,
+      pausedAt: null,
+      connectionStatus: 'CONNECTED',
+    },
+    sendItem: {
+      id: 'item-1',
+      createdAt,
+      recipientEmailSnapshot: recipient,
+      recipientIdentityHash: createHash('sha256').update(recipient).digest('hex'),
+      member: {
+        id: 'member-1',
+        organizationId: 'organization-1',
+        contactId: 'contact-1' as string | null,
+        status: memberStatus,
+        contact: {
+          normalizedEmail: recipient,
+          archivedAt: null,
+          doNotContact: false,
+          emailReadiness: 'VALID',
+          permissionState: 'UNKNOWN',
+          suppressedAt: null,
+          unsubscribedAt: null,
+        },
+      },
+      batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+    },
+  })
+
+  function clientFor(current = operation(), reply: { id: string } | null = null) {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      prospectDeliveryControl: {
+        findUnique: vi.fn().mockResolvedValue({
+          deliveryEnabled: true,
+          internalOnly: false,
+          internalAllowlist: [],
+        }),
+      },
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue(current),
+        update: vi.fn(),
+        updateMany,
+      },
+      prospectSendItem: { update: vi.fn() },
+      prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(reply) },
+    }
+    return { tx, updateMany, client: { $transaction: vi.fn((work) => work(tx)) } }
+  }
+
+  it('cancels a direct REPLIED member before provider revalidation', async () => {
+    const { client, tx } = clientFor(operation('REPLIED'))
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: 'CLAIMED' }) }),
+    )
+    expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastErrorCode: 'REPLY_RECEIVED_BEFORE_PROVIDER' }),
+      }),
+    )
+    expect(tx.prospectEmailMessage.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('queries exact organization/contact/from scope and createdAt boundary', async () => {
+    const { client, tx } = clientFor()
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(true)
+    expect(tx.prospectEmailMessage.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        organizationId: 'organization-1',
+        direction: 'INBOUND',
+        createdAt: { gte: createdAt },
+        OR: expect.arrayContaining([
+          expect.objectContaining({ contactId: 'contact-1' }),
+          expect.objectContaining({
+            fromAddress: { equals: recipient, mode: 'insensitive' },
+          }),
+        ]),
+      }),
+      select: { id: true },
+    })
+  })
+
+  it('cancels when the bounded canonical inbound lookup finds a reply', async () => {
+    const { client, tx } = clientFor(undefined, { id: 'reply-1' })
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
+    )
+  })
+
+  it('does not mutate the item when the claimed lease was stolen before CAS cancellation', async () => {
+    const { client, tx, updateMany } = clientFor(undefined, { id: 'reply-1' })
+    updateMany.mockResolvedValueOnce({ count: 0 })
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
+  })
+
+  it.each([2, 3])('preserves uncertain prior delivery on attempt %i', async (attemptCount) => {
+    const { client, tx } = clientFor(operation('REPLIED', attemptCount))
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'AMBIGUOUS',
+          ambiguousSince: now,
+          lastErrorCode: 'REPLY_RECEIVED_AFTER_PRIOR_ATTEMPT',
+        }),
+      }),
+    )
+    expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'AMBIGUOUS' }) }),
+    )
+  })
+
+  it.each([1, 2])(
+    'stops a replied campaign member at claim attempt %i with honest delivery state',
+    async (attemptCount) => {
+      const claimed = operation('REPLIED', attemptCount)
+      const full = {
+        ...claimed,
+        operationId: '00000000-0000-4000-8000-000000000001',
+        providerAccountId: 'mailbox-1',
+        availableAt: createdAt,
+        providerAccount: {
+          ...claimed.providerAccount,
+          dailySendCap: 100,
+          perDomainDailyCap: 100,
+          minimumDelaySeconds: 0,
+          jitterSeconds: 0,
+        },
+        sendItem: {
+          ...claimed.sendItem,
+          batchId: 'batch-1',
+          batch: {
+            ...claimed.sendItem.batch,
+            campaignId: 'campaign-1',
+            campaign: { ...claimed.sendItem.batch.campaign, dailySendCap: 100 },
+          },
+        },
+      }
+      const { tx } = clientFor(full)
+      tx.prospectSendOutbox.findUnique
+        .mockResolvedValueOnce({
+          ...full,
+          status: 'RETRYABLE',
+          claimOwner: null,
+          claimExpiresAt: null,
+          attemptCount: attemptCount - 1,
+        })
+        .mockResolvedValueOnce(full)
+      const client = {
+        $transaction: vi.fn((work) =>
+          work({
+            ...tx,
+            $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+            prospectSendOutbox: {
+              ...tx.prospectSendOutbox,
+              count: vi.fn().mockResolvedValue(0),
+              findFirst: vi.fn().mockResolvedValue(null),
+            },
+          }),
+        ),
+        prospectSendBatch: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'batch-1' }),
+          update: vi.fn(),
+        },
+        prospectSendItem: {
+          count: vi
+            .fn()
+            .mockResolvedValueOnce(0)
+            .mockResolvedValueOnce(attemptCount > 1 ? 1 : 0)
+            .mockResolvedValueOnce(attemptCount > 1 ? 0 : 1),
+        },
+      }
+      await expect(
+        claimProspectSendOutboxAction(
+          { outboxId: full.id, workerId: 'worker-1', now },
+          client as never,
+        ),
+      ).resolves.toBeNull()
+      const expectedStatus = attemptCount > 1 ? 'AMBIGUOUS' : 'CANCELLED'
+      expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: expectedStatus }) }),
+      )
+      expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: expectedStatus }) }),
+      )
+      expect(client.prospectSendBatch.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: attemptCount > 1 ? 'ATTENTION_REQUIRED' : 'PARTIAL',
+          }),
+        }),
+      )
+    },
+  )
+
+  it.each(['delivery', 'contact', 'reply'] as const)(
+    'does not overwrite a replacement lease on %s stop',
+    async (stop) => {
+      const current = operation()
+      if (stop === 'contact') current.sendItem.member.contact.doNotContact = true
+      const { client, tx, updateMany } = clientFor(
+        current,
+        stop === 'reply' ? { id: 'reply-1' } : null,
+      )
+      if (stop === 'delivery')
+        tx.prospectDeliveryControl.findUnique.mockResolvedValue({ deliveryEnabled: false })
+      updateMany.mockResolvedValue({ count: 0 })
+      await expect(
+        revalidateProspectSendOutboxClaimAction(
+          { outboxId: current.id, workerId: 'worker-1', now },
+          client as never,
+        ),
+      ).resolves.toBe(false)
+      expect(updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: current.id,
+            status: 'CLAIMED',
+            claimOwner: 'worker-1',
+            claimExpiresAt: { equals: current.claimExpiresAt, gt: now },
+          },
+        }),
+      )
+      expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not use a missing contact ID as shared reply identity', async () => {
+    const current = operation()
+    const { client, tx } = clientFor({
+      ...current,
+      sendItem: { ...current.sendItem, member: { ...current.sendItem.member, contactId: null } },
+    })
+    await revalidateProspectSendOutboxClaimAction(
+      { outboxId: current.id, workerId: 'worker-1', now },
+      client as never,
+    )
+    const where = tx.prospectEmailMessage.findFirst.mock.calls[0]?.[0].where
+    expect(where.organizationId).toBe('organization-1')
+    expect(where.OR).toHaveLength(2)
+    expect(where.OR.some((clause: object) => 'contactId' in clause)).toBe(false)
+  })
+
+  it('fails closed if canonical reply lookup fails', async () => {
+    const { client, tx } = clientFor()
+    tx.prospectEmailMessage.findFirst.mockRejectedValue(new Error('database unavailable'))
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).rejects.toThrow('database unavailable')
+    expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
   })
 })
 

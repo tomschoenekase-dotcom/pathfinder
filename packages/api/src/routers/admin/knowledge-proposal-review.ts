@@ -8,8 +8,11 @@ import {
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
+import { adminKnowledgeProposalReadsRouter } from './knowledge-proposal-reads'
 import { adminProcedure } from '../../trpc'
+import { SemanticReviewedDeclineInput } from '../../lib/semantic-reviewed-decline-contract'
+import { createSemanticReviewedDeclineService } from '../../lib/semantic-reviewed-decline-service'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
@@ -17,57 +20,15 @@ function isUniqueConflict(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-export const adminKnowledgeProposalReviewRouter = router({
-  listKnowledgeProposals: adminProcedure
-    .input(
-      z
-        .object({
-          ...scope,
-          status: z
-            .enum([
-              'DRAFT',
-              'PENDING_REVIEW',
-              'APPROVED',
-              'REJECTED',
-              'PUBLISHED',
-              'PUBLISH_FAILED',
-            ])
-            .optional(),
-          limit: z.number().int().min(1).max(100).default(50),
-        })
-        .strict(),
-    )
-    .query(({ input }) =>
+const adminKnowledgeProposalReviewActionsRouter = router({
+  recordSupportReviewedDecline: adminProcedure
+    .input(SemanticReviewedDeclineInput)
+    .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(() =>
-        db.knowledgeChangeProposal.findMany({
-          where: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            ...(input.status ? { status: input.status } : {}),
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: input.limit,
-          select: {
-            id: true,
-            status: true,
-            sessionId: true,
-            observedVisitorClaim: true,
-            aiInference: true,
-            proposedChange: true,
-            reason: true,
-            confidence: true,
-            evidenceMessageIds: true,
-            targetKnowledgeEntryId: true,
-            conversationInsightId: true,
-            supportRequestId: true,
-            supportRequestVersion: true,
-            createdByType: true,
-            createdAt: true,
-            updatedAt: true,
-            reviewerId: true,
-            reviewNote: true,
-            reviewedAt: true,
-          },
+        createSemanticReviewedDeclineService({
+          db,
+          actorId: ctx.session.userId,
+          input,
         }),
       ),
     ),
@@ -131,8 +92,9 @@ export const adminKnowledgeProposalReviewRouter = router({
                 })
               return { id: existing.id, status: existing.status, replayed: true }
             }
+            let insight: { id: string; sessionId: string } | null = null
             if (input.conversationInsightId) {
-              const insight = await tx.conversationInsight.findFirst({
+              insight = await tx.conversationInsight.findFirst({
                 where: {
                   id: input.conversationInsightId,
                   tenantId: input.tenantId,
@@ -145,11 +107,13 @@ export const adminKnowledgeProposalReviewRouter = router({
                   code: 'NOT_FOUND',
                   message: 'Conversation insight not found.',
                 })
+            }
+            if (insight) {
               const active = await tx.knowledgeChangeProposal.findFirst({
                 where: {
                   tenantId: input.tenantId,
                   venueId: input.venueId,
-                  conversationInsightId: input.conversationInsightId,
+                  conversationInsightId: insight.id,
                   status: { in: ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'PUBLISHED'] },
                 },
                 select: { id: true },
@@ -172,16 +136,26 @@ export const adminKnowledgeProposalReviewRouter = router({
               if (!target)
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge entry not found.' })
             }
-            const insight = input.conversationInsightId
-              ? await tx.conversationInsight.findFirst({
-                  where: {
-                    id: input.conversationInsightId,
-                    tenantId: input.tenantId,
-                    venueId: input.venueId,
-                  },
-                  select: { sessionId: true },
+            const requestedEvidenceIds = [...new Set(input.evidenceMessageIds)]
+            if (requestedEvidenceIds.length > 0) {
+              const evidence = await tx.message.findMany({
+                where: {
+                  id: { in: requestedEvidenceIds },
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  ...(insight ? { sessionId: insight.sessionId } : {}),
+                },
+                select: { id: true },
+              })
+              if (
+                evidence.length !== requestedEvidenceIds.length ||
+                new Set(evidence.map((message) => message.id)).size !== requestedEvidenceIds.length
+              )
+                throw new TRPCError({
+                  code: 'NOT_FOUND',
+                  message: 'Every evidence message must belong to the scoped conversation.',
                 })
-              : null
+            }
             const created = await tx.knowledgeChangeProposal.create({
               data: {
                 id,
@@ -320,3 +294,8 @@ export const adminKnowledgeProposalReviewRouter = router({
       ),
     ),
 })
+
+export const adminKnowledgeProposalReviewRouter = mergeRouters(
+  adminKnowledgeProposalReviewActionsRouter,
+  adminKnowledgeProposalReadsRouter,
+)

@@ -32,7 +32,7 @@
     "autoprefixer": "10.4.21",
     "hash-wasm": "^4.12.0",
     "lucide-react": "^0.511.0",
-    "next": "15.5.21",
+    "next": "15.5.24",
     "postcss": "8.5.23",
     "qrcode.react": "^4.2.0",
     "react": "19.1.4",
@@ -52,6 +52,6 @@
     "axe-core": "4.11.2",
     "jsqr": "1.4.0",
     "jsdom": "^26.1.0",
-    "sharp": "0.35.3"
+    "sharp": "0.35.4"
   }
 }

@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T06:09:24.710977+00:00",
+  "baseProductRevision": "def168852b8695a6ca71581498548722989fb6d1",
+  "problem": "Client QR route redirected to Today and the simple portal had no QR entry, despite an admin/fixture QR component. Support and visitor settings links also lost the selected venue.",
+  "implemented": [
+    "Authenticated server route selects exact tenant venue and lifecycle; only READY/LIVE and a valid public origin permit QR data. Missing/foreign venue or lifecycle fails closed before item access.",
+    "Only active PUBLIC place id/name/updatedAt are passed into shared client QR component; private descriptions and second-layer/retired items are excluded.",
+    "Today supplies an encoded selected-venue QR link; support fallback, help and visitor settings links preserve that venue.",
+    "Client mode removes internal-only copy; shared print button and QR metadata contrast/focus improved."
+  ],
+  "verification": {
+    "workerReported": {
+      "unitComponent": {
+        "passed": 37,
+        "files": {
+          "clientRoute": 11,
+          "overview": 14,
+          "qr": 3,
+          "legacyRoutes": 9
+        }
+      },
+      "browser": {
+        "passed": 4,
+        "failed": 0,
+        "project": "desktop-chromium",
+        "viewports": [320, 820, 1024, 1440]
+      },
+      "typecheck": "dashboard passed",
+      "lint": "9 scoped source/test files passed",
+      "server": "Playwright-managed fixture server stopped; port3001 listener absent"
+    },
+    "rootObserved": {
+      "apiBoundaryTests": {
+        "passed": 113,
+        "files": {
+          "place": 18,
+          "portal": 8,
+          "venue": 87
+        }
+      },
+      "sourceReview": "Reviewed route, shared component, home links, fixture, tests and canonical read/URL boundaries; no new auth bypass or backend mutation.",
+      "visuallyInspected": ["QR at320/820/1024/1440", "Today at320/1440"],
+      "diffCheck": "passed"
+    },
+    "browserControls": [
+      "Today QR href and keyboard focus; horizontal overflow and Axe scoped to new Today QR section.",
+      "Client QR mode, no internal-mode label, exact copied URL via clipboard spy, copy success feedback, explicit print invocation via spy.",
+      "QR page Axe zero violations and no horizontal overflow; reduced-motion emulation throughout."
+    ],
+    "visualThesis": "Retain the existing restrained portal dividers and one direct QR action; printable QR cards remain individual physical handoff units.",
+    "aiGeneratedCritique": "New Today section uses existing typography and separators without another decorative card/hero. QR cards have a specific printing purpose; the existing unrelated hero artwork was not changed."
+  },
+  "measuredSources": [
+    {
+      "path": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.tsx",
+      "normalizedLfSha256": "3c21d3405447ab00bf3d738805ed0daf2a1b06d7532fd031966b26b151499e4a"
+    },
+    {
+      "path": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.test.tsx",
+      "normalizedLfSha256": "52477f056df7efa57440dbb8f3d77fa4227a79d1c8f6514f9c46c92c9c6a8460"
+    },
+    {
+      "path": "apps/dashboard/app/(app)/legacy-route-boundary.test.ts",
+      "normalizedLfSha256": "3d5f13d4acd59d79951f04c0d170097abc3f963330f67322838cd5cf9dfa6d08"
+    },
+    {
+      "path": "apps/dashboard/app/dev-fixtures/qr-kit/page.tsx",
+      "normalizedLfSha256": "6a0940e0e114090212a906cb9914ac10fe58afb5f279d4a70070a411ace56d37"
+    },
+    {
+      "path": "apps/dashboard/components/DashboardOverview.tsx",
+      "normalizedLfSha256": "3ac0f77f29c59390cfd1b7f4f57dd1ecf852a68fe6816fc2b6b066b21aec2060"
+    },
+    {
+      "path": "apps/dashboard/components/DashboardOverview.test.tsx",
+      "normalizedLfSha256": "0eac26ce1d9394a6cc1464687cd8f6d4ea553115845d16e38a548e07d07938f1"
+    },
+    {
+      "path": "apps/dashboard/components/VenueQrKit.tsx",
+      "normalizedLfSha256": "1f99a56d727cbd39d90f7dcda85ec0647ec79095f75d1ad865d9209e54488815"
+    },
+    {
+      "path": "apps/dashboard/components/VenueQrKit.test.tsx",
+      "normalizedLfSha256": "31bda54d6e9653d96d98bfca8b988964bd969c202f4070804a4f7eb0be7da1ef"
+    },
+    {
+      "path": "apps/dashboard/tests/browser/client-qr-journey.spec.ts",
+      "normalizedLfSha256": "e1c9ace8105fb9623ff084a5080649e7a752d8a6fe37bec117fa5c6abef6358e"
+    },
+    {
+      "path": "apps/dashboard/lib/server-caller.ts",
+      "normalizedLfSha256": "15939af41d4b309107080da7883cd5ffe7b3ee64fb17cad2c391d47e4450f9c5"
+    },
+    {
+      "path": "apps/dashboard/lib/guest-chat-url.ts",
+      "normalizedLfSha256": "d9a2951a0676e4f8a9f0f57fc2771fe3c90640ca6e563931c761aa47047a4727"
+    },
+    {
+      "path": "packages/api/src/routers/venue.ts",
+      "normalizedLfSha256": "56805e208095d194829cc46db3bc2e8c9930d732206d9c8e378632be62a76971"
+    },
+    {
+      "path": "packages/api/src/routers/place.ts",
+      "normalizedLfSha256": "0ce74576e493fb7313476ecc54010f03530094bfc4221c9e11c9df36b1681929"
+    },
+    {
+      "path": "packages/api/src/routers/portal.ts",
+      "normalizedLfSha256": "89cb96bbef4df6c23f048f85ec462e08bec810cb5da8f50d0020d0d29bba3672"
+    }
+  ],
+  "sourceHashNormalization": "SHA256 after replacing CRLF with LF.",
+  "screenshots": [
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-desktop-desktop-chromium.png",
+      "sha256": "d8f0c7aeb9b03792718ca41282bf7b7d2c6f7bd14d758e250ad0ab428ef63074",
+      "bytes": 68029
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-home-desktop-desktop-chromium.png",
+      "sha256": "5875a375a3535dd81ac9c3aa811c971a90ba0f310c87b17f26518306b56880e2",
+      "bytes": 182751
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-home-laptop-1024-desktop-chromium.png",
+      "sha256": "227cc76a875599f2dd928c4ec2f33f4a66f1dddcb52bf2b2f307dd6ade40da91",
+      "bytes": 169867
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-home-phone-320-desktop-chromium.png",
+      "sha256": "d20ddff7dfd9c48d441b280609560c3935f7d93fe32f6d432b7319008a44d0bf",
+      "bytes": 148663
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-home-tablet-820-desktop-chromium.png",
+      "sha256": "cd8476c48dd03761e182dc6cb99bc70bb6e6d886f1bef0d4734241b6fe0ce1bd",
+      "bytes": 158263
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-laptop-1024-desktop-chromium.png",
+      "sha256": "d59b80bdf985b8b279b993c229f760fb113f894466c0dd9f8264de227f707fe3",
+      "bytes": 79327
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-phone-320-desktop-chromium.png",
+      "sha256": "3b99c1092669bd9be0baa6d009bacea783e987deaeefb17f42516e9339263f73",
+      "bytes": 78494
+    },
+    {
+      "path": "apps/dashboard/artifacts/client-qr-final-proof/client-qr-tablet-820-desktop-chromium.png",
+      "sha256": "f865d0292f2096a969d8ce019ee92cfe2f4b4083c15d1ae123944854947ceb53",
+      "bytes": 76310
+    }
+  ],
+  "limits": [
+    "Browser mounts production components through development fixtures; it checks the Today link then navigates separately to the client QR fixture. It does not demonstrate authenticated Clerk/client-route transport.",
+    "Route unit tests use synthetic caller results; unchanged API boundary tests use their existing doubles. No live or disposable DB browser proof is claimed here.",
+    "Clipboard and print functions are controlled browser spies. No OS clipboard permission, print layout, physical paper/phone scan or QR launch activation is claimed.",
+    "Axe for Today is scoped to the newly added section, not a claim that all existing home content passes a full-page audit.",
+    "No deployment, publication, external provider, customer delivery, or final mascot approval."
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "baseRevision": "1af39dcb3205aef3c201ab2a7dd0f5b3e112158b",
+  "requirements": ["FM09", "V2-P08-03", "V2-P08-05"],
+  "classification": "partially solved",
+  "implemented": "Conversation-insight-linked dated proposals require an exact separately retained media temporal review reference. Current reviewed source agreement is checked throughout the interval against knowledge target identity, text, dates, scope, reviewer and hashes; preview and transactional finalizer bind the same evidence to the existing inactive OperationalUpdate DRAFT and audit.",
+  "authority": {
+    "basis": "REVIEW_ASSERTED",
+    "verified": false,
+    "previewAuthority": "UNVERIFIED",
+    "autoSchedule": false,
+    "autoPublish": false
+  },
+  "native": {
+    "proofPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43",
+    "result": {
+      "database": "pathfinder_disposable_native_guest_read_aad278ca0c43",
+      "port": "55491",
+      "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43",
+      "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+      "migrationsPassed": true,
+      "testPassed": true,
+      "stopped": true,
+      "migrations": 238,
+      "tables": 258
+    },
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "checks": [
+      "Existing canonical completed synthetic provider-dark turns, source-linked candidate and human proposal approval retained.",
+      "Two distinct synthetic source asset SHA values persisted in an actual immutable review receipt.",
+      "Missing receipt, changed expected hash, wrong actual receipt venue, wrong proposal venue, unknown claim and expired preview rejected.",
+      "Exact inactive DRAFT text/start/end; canonical route replay retains one handoff.",
+      "Finalizer positive control reads newly written row inside its transaction; Date-only fault injection expires evidence; named expiry rejection and zero extra operational row, handoff, audit or content-version effect after rollback.",
+      "Audit retains exact receipt/snapshot/claim hash with authorityVerified=false."
+    ],
+    "sourceIdentities": [
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-learning.disposable.integration.test.ts",
+        "retained": "measured-knowledge-proposal-learning.disposable.integration.test.ts",
+        "sha256": "54705f0e515831598e23827af4d1442b83720c53d32c869856a9875b8b6bb05a"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-review.ts",
+        "retained": "measured-knowledge-proposal-review.ts",
+        "sha256": "abc8c6110e860a7f3d19545a40ff559b17e41ef5b4c9ee577b9294e717507f93"
+      },
+      {
+        "source": "packages/db/src/helpers/conversation-learning-actions.ts",
+        "retained": "measured-conversation-learning-actions.ts",
+        "sha256": "d46cdfbc66df405b636549e09f2ea1beee5743d2689ba8ee459a4ed4bad6c4a4"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
+        "retained": "measured-knowledge-proposal-temporal-evidence.ts",
+        "sha256": "4586cab108d7f12ef6b10d3936b3ead8dec765123b30f8bc28e8a0053813009b"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.ts",
+        "retained": "measured-semantic-venue-updater-service.ts",
+        "sha256": "753c4aba7b82e4e18ac92a2e84794c5b6799038c8e63c39df4764c2252766db4"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater.ts",
+        "retained": "measured-semantic-venue-updater.ts",
+        "sha256": "fa3b0befdd7b2301826f2bdf2ffaa06c62005374b6ac099d6ef2abda1b140caf"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-operational-update-finalizer.ts",
+        "retained": "measured-semantic-operational-update-finalizer.ts",
+        "sha256": "a64b9825cf917a10b5e34e3c803074156dc9c1664653fac20c7897474adc3ff4"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
+        "retained": "measured-knowledge-proposal-drafts.ts",
+        "sha256": "7de7d0e508c67fc4965d805a2103737b8c96dfeb2edb4c2584ef897def6ed43b"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "retained": "measured-knowledge-proposal-preview.ts",
+        "sha256": "5204f1fb9345825df8f4fe6a79b3e71629a1b7210e956cc3472ee847c89c5fd9"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-operational-draft.ts",
+        "retained": "measured-media-temporal-operational-draft.ts",
+        "sha256": "22c4783ea690ad437a0192ec0dba390d565b094b6a90c7c8b97b2b90141ec9e1"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-reconciliation.ts",
+        "retained": "measured-media-temporal-reconciliation.ts",
+        "sha256": "bc1044385677f9a6f3f2db6d1d0d4f95818f05aa4fc9bf4ef0e96a765c021ee3"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-receipt.ts",
+        "retained": "measured-media-temporal-review-receipt.ts",
+        "sha256": "e3fdfed7c2c450109cfbb2f47225ce98663f95d8ba8145146349c9beb636ca19"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-service.ts",
+        "retained": "measured-media-temporal-review-service.ts",
+        "sha256": "16e94a3d8c817334067d9b3ed7bcdb913fecd28c7889522c6455f60705874df0"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-capture.ts",
+        "retained": "measured-media-temporal-review-capture.ts",
+        "sha256": "d47834676f3d6b026bed1f6211f1917fe03566a3fb498d5c1bcbeca38287a077"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-update-actions.ts",
+        "retained": "measured-operational-update-actions.ts",
+        "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e"
+      }
+    ],
+    "artifactIdentities": [
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43\\result.json",
+        "sha256": "a7591e2564f30aac147c1c3bba904c564ddf11a467bab717b06191297ec24654"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43\\vitest.json",
+        "sha256": "03aaedf173820fe3d70f202edf0f9407f0b0d5227ef9ed7cd5f6a873176c85f8"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43\\database-readback.log",
+        "sha256": "f97c7677c8263912344607a935f9f74fa3a49fd3fc1853af1f594fbbbe9e329b"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-evidence-aad278ca0c43\\source-identities.json",
+        "sha256": "d7d955f927466e702815d826797e28ce16c0fae28db1c7cd9b35fbb14d51114b"
+      }
+    ],
+    "runner": {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-native-knowledge-proposal-temporal-evidence-proof-port55491.mjs",
+      "sha256": "dcffcc2924ee85f024a76770c63b46608189316995f9266943bf45e3cf65848c"
+    },
+    "priorAttempt": {
+      "id": "b3d98ab6f367",
+      "result": "failed and stopped",
+      "reason": "New fixture readbacks lacked tenant scope. Added exact tenant/venue to fixture queries; production isolation guard unchanged."
+    }
+  },
+  "unitProof": {
+    "passed": 54,
+    "failed": 0,
+    "apiTypesExitCode": 0,
+    "configuredLintExitCode": 0,
+    "sourceIdentities": [
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.test.ts",
+        "sha256": "7961b5c47d553603b7dc3ae6312f1bfb72b0c94c2a1080ecf25fa99b901881a6"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-temporal-evidence.test.ts",
+        "sha256": "72d769fa44543a2d17009e7fbb92ec41d88d6169590b3e7200ddf08126e5f33e"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-operational-update-finalizer.test.ts",
+        "sha256": "2354cd0a1d7403bd3c00103c15ff2e064eebd9c973d6c488399100540baca6ea"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.test.ts",
+        "sha256": "32ff7da3774b4a95118724d57b852bbd4fce0ad448d0ba47834bd6031a8f4470"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposals.test.ts",
+        "sha256": "593f85034d9e12f8476d376f50e58c2b68ed9dbe79b3efe6a2e6e134079a35d5"
+      },
+      {
+        "source": "packages/contracts/src/media-temporal-claims.ts",
+        "sha256": "a3fe50565de3e7b9e636e3943d24122a0d61db37d25f29fd0afda12e0e9f1f98"
+      },
+      {
+        "source": "packages/contracts/src/media-evidence.ts",
+        "sha256": "19070b32062df09eb0fcbf6cc69d6d6150c6dfcd203b460628c4a0f10fec2baa"
+      }
+    ]
+  },
+  "sourceGates": {
+    "aiProvider": "5159 source files; 0 temporary worker exceptions",
+    "tenantBypass": "435 calls across 147 approved files"
+  },
+  "logs": [
+    {
+      "path": "artifacts/fm09-temporal-combined-unit-final-20260908.log",
+      "sha256": "42224b1ad2971c3151c47d3bbc2290bf285645a1fa2f8e66d3ceed9d803326c0"
+    },
+    {
+      "path": "artifacts/fm09-temporal-api-types-verified-20260908.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/fm09-temporal-all-lint-final-20260908.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/fm09-temporal-native-test-lint-20260908.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/fm09-ai-boundary-20260908.log",
+      "sha256": "81f1347bbcd80bfae9493385ea52903a296a04024f988e589e46b44b42eefc29"
+    },
+    {
+      "path": "artifacts/fm09-tenant-boundary-20260908.log",
+      "sha256": "50e41bbc6e792f81f15ba86450505c4c04352d4a4845c4be00b300d8b8581c44"
+    }
+  ],
+  "limits": [
+    "No UI receipt selector yet: current semantic preview form cannot supply this new typed reference. Continue the existing review UI connection.",
+    "Distinct retained bytes are not proof of independent witnesses, official provenance, current museum truth or provider extraction quality. Receipts and sources in native proof are synthetic metadata/observations.",
+    "Knowledge item binding only; place-bound evidence is rejected. This creates no place closure or publication authority.",
+    "Immutable receipt is bound by existing handoff preview hash and transactional audit; no new corroboration relation or canonical writer.",
+    "No live/provider/device/field/customer/release acceptance claim. All 128 requirements, 32 QA cases and A/B/C remain required at their own proof layers. External reservations unchanged."
+  ]
+}

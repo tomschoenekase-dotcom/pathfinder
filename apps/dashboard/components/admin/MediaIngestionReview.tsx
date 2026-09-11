@@ -4,10 +4,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
-import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import { VenuePackagePayloadV1 } from '@pathfinder/contracts/venue-package'
+import { MediaVideoMethodSchema, mediaVideoMethodLabel } from '@pathfinder/contracts/media-evidence'
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+import { MediaIntakeHandoffPanel } from './MediaIntakeHandoffPanel'
+import { MediaIdentityReviewPanel } from './MediaIdentityReviewPanel'
 
 type MediaProject = inferRouterOutputs<AppRouter>['mediaIngestion']['get']
 type MediaAsset = MediaProject['assets'][number]
@@ -23,7 +26,7 @@ type Finding = {
   sourceId: string
   filename: string
   mediaType: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
-  videoAnalysisMethod?: 'GOOGLE_COMPLETE_VIDEO' | 'SAMPLED_VIDEO' | 'SAMPLED_VIDEO_FALLBACK'
+  videoAnalysisMethod?: ReturnType<typeof MediaVideoMethodSchema.parse>
   summary: string
   uncertainties: string[]
   review?: FindingReview
@@ -68,13 +71,8 @@ function normalizeFindings(value: unknown): Finding[] {
     ) {
       return []
     }
-    const videoAnalysisMethod = [
-      'GOOGLE_COMPLETE_VIDEO',
-      'SAMPLED_VIDEO',
-      'SAMPLED_VIDEO_FALLBACK',
-    ].includes(String(finding.videoAnalysisMethod))
-      ? (finding.videoAnalysisMethod as Finding['videoAnalysisMethod'])
-      : undefined
+    const method = MediaVideoMethodSchema.safeParse(finding.videoAnalysisMethod)
+    const videoAnalysisMethod = method.success ? method.data : undefined
     const rawReview = finding.review
     let review: FindingReview | undefined
     if (rawReview && typeof rawReview === 'object') {
@@ -164,6 +162,8 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
   const [draftText, setDraftText] = useState(() =>
     JSON.stringify(initialProject.draftJson ?? {}, null, 2),
   )
+  const [savedDraftText, setSavedDraftText] = useState(draftText)
+  const [savedQuestions, setSavedQuestions] = useState(() => JSON.stringify(questions))
   const [busy, setBusy] = useState(false)
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [loadingFindings, setLoadingFindings] = useState(false)
@@ -205,6 +205,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     saveInFlightRef.current = true
     setBusy(true)
     setMessage(null)
+    const submittedDraftText = draftText
     try {
       const result = await client.mediaIngestion.saveReview.mutate({
         tenantId: initialProject.tenantId,
@@ -218,6 +219,8 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
       })
       if (!mountedRef.current) return
       setUpdatedAt(result.updatedAt)
+      setSavedDraftText(submittedDraftText)
+      setSavedQuestions(JSON.stringify(normalizeQuestions(result.questions)))
       const reviewsBySource = new Map(
         result.findingReviews.map((finding) => [finding.sourceId, finding.review]),
       )
@@ -355,6 +358,13 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     URL.revokeObjectURL(url)
   }
 
+  const hasUnsavedReviewChanges =
+    busy ||
+    Boolean(parseError) ||
+    draftText !== savedDraftText ||
+    JSON.stringify(questions) !== savedQuestions ||
+    pendingFindingCorrections.length > 0
+
   return (
     <div className="space-y-8">
       <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
@@ -418,11 +428,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
                       </p>
                       {finding.videoAnalysisMethod ? (
                         <p className="mt-1 text-xs text-pf-deep/55">
-                          {finding.videoAnalysisMethod === 'GOOGLE_COMPLETE_VIDEO'
-                            ? 'Google complete-video analysis'
-                            : finding.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
-                              ? 'Sampled analysis after Google fallback'
-                              : 'Sampled video analysis'}
+                          {mediaVideoMethodLabel(finding.videoAnalysisMethod)}
                         </p>
                       ) : null}
                     </div>
@@ -566,6 +572,27 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
           {busy ? 'Saving…' : 'Save review'}
         </button>
       </div>
+      {initialProject.reviewGeneration ? (
+        <MediaIdentityReviewPanel
+          scope={{
+            tenantId: initialProject.tenantId,
+            venueId: initialProject.venueId,
+            projectId: initialProject.id,
+            sourceGeneration: initialProject.reviewGeneration,
+          }}
+          expectedUpdatedAt={updatedAt.toISOString()}
+          blocked={hasUnsavedReviewChanges}
+        />
+      ) : null}
+      <MediaIntakeHandoffPanel
+        key={`${initialProject.id}:${updatedAt.toISOString()}`}
+        scope={{
+          tenantId: initialProject.tenantId,
+          venueId: initialProject.venueId,
+          projectId: initialProject.id,
+        }}
+        blocked={hasUnsavedReviewChanges}
+      />
     </div>
   )
 }

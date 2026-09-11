@@ -20,6 +20,7 @@ const FIXTURE_STATES = [
   'attention',
   'check-recovery',
   'questions',
+  'questions-many',
   'ready',
 ] as const
 type FixtureState = (typeof FIXTURE_STATES)[number]
@@ -227,9 +228,53 @@ function scenario(state: FixtureState): {
               'Is that entrance available during every public hour?',
             ],
             additionalPromptCount: 0,
+            context: {
+              version: 1,
+              why: 'The current visitor information does not identify one confirmed step-free route.',
+              whatWasFound:
+                'The website mentions an accessible entrance at https://museum.example/visit/accessibility/step-free-arrival/east-entrance/current-public-hours-and-entry-instructions, but the visitor guide does not name it.',
+              effect: 'Your answer helps Torchiko give visitors one clear arrival route.',
+            },
           },
         ],
         additionalQuestionCount: 0,
+      },
+      preview: { state: 'UNAVAILABLE', packageId: null },
+      qa: EMPTY_QA,
+      release: { hasReviewedArtifact: false, released: false },
+      uploads: sharedUploads,
+      materialTypes: { DOCUMENT: 1, PHOTO: 1, STAFF_INTERVIEW: 1 },
+    },
+    'questions-many': {
+      lifecycle: lifecycleEvidence({ reviewSourceCount: 1, intakeProposalCount: 2 }),
+      materials: { ...EMPTY_MATERIALS, processed: 3 },
+      review: { proposedSources: 2, draftPackages: 0 },
+      questions: {
+        open: 28,
+        items: [
+          {
+            requestId: 'fixture-accessible-entrance',
+            subject: 'Accessible entrance details',
+            prompts: [
+              'Which entrance provides the step-free route?',
+              'Is that entrance available during every public hour?',
+            ],
+            additionalPromptCount: 0,
+          },
+          {
+            requestId: 'fixture-gallery-hours',
+            subject: 'Gallery hours',
+            prompts: ['Which galleries have different closing times?'],
+            additionalPromptCount: 0,
+          },
+          {
+            requestId: 'fixture-restrooms',
+            subject: 'Accessible restrooms',
+            prompts: ['Where is the nearest accessible restroom?'],
+            additionalPromptCount: 0,
+          },
+        ],
+        additionalQuestionCount: 25,
       },
       preview: { state: 'UNAVAILABLE', packageId: null },
       qa: EMPTY_QA,
@@ -274,7 +319,11 @@ function scenario(state: FixtureState): {
 
   return {
     data: {
-      venue: { id: 'fixture-great-lakes-museum', name: 'Great Lakes Discovery Museum' },
+      venue: {
+        id: 'fixture-great-lakes-museum',
+        name: 'Great Lakes Discovery Museum',
+        category: 'Museum',
+      },
       lifecycle,
       projection,
       materials: fixture.materials,
@@ -296,17 +345,53 @@ function scenario(state: FixtureState): {
 export default async function RemoteOnboardingVisualFixture({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string | string[] }>
+  searchParams: Promise<{ state?: string | string[]; v1?: string; venueId?: string | string[] }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const state = fixtureState((await searchParams).state)
+  const query = await searchParams
+  const state = fixtureState(query.state)
   const fixture = scenario(state)
+  const venueOverride = query.venueId
+  if (
+    venueOverride !== undefined &&
+    (typeof venueOverride !== 'string' || !/^c[a-z0-9]{24}$/.test(venueOverride))
+  )
+    notFound()
+  const data =
+    venueOverride === undefined
+      ? fixture.data
+      : { ...fixture.data, venue: { ...fixture.data.venue, id: venueOverride } }
 
   return (
     <div data-fixture="remote-onboarding" data-fixture-state={state}>
-      <TRPCProvider scopeKey={`fixture:onboarding:${state}`}>
-        <RemoteOnboardingJourney data={fixture.data} uploads={fixture.uploads} />
+      <TRPCProvider scopeKey={`fixture:onboarding:${state}:${data.venue.id}`}>
+        <RemoteOnboardingJourney
+          ownerId="fixture-remote-onboarding-owner"
+          data={data}
+          uploads={fixture.uploads}
+          proposals={
+            query.v1 === '1'
+              ? [
+                  {
+                    id: 'v1-source',
+                    sourceKind: 'STRUCTURED_BOOTSTRAP',
+                    status: 'AWAITING_REVIEW',
+                    displayName: 'Visitor access and arrival information',
+                    websiteUri: null,
+                    interviewRole: null,
+                    structuredBootstrap: {
+                      kind: 'OPTIONAL_NOTES',
+                      notes: 'The accessible entrance is on the east side.',
+                    },
+                    createdAt: new Date('2026-09-07T12:00:00.000Z'),
+                    _count: { evidence: 1, events: 1 },
+                    packageHandoff: null,
+                  },
+                ]
+              : []
+          }
+        />
       </TRPCProvider>
     </div>
   )

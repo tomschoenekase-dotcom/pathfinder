@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { env } from '@pathfinder/config'
+import { logger } from '@pathfinder/config/logger'
 
 import {
   AgentQuestionActionError,
@@ -18,62 +19,10 @@ import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
-import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-operations-shared'
 import { adminAgentQuestionClientRoutingRouter } from './agent-question-client-routing'
+import { adminAgentQuestionHistoryRouter } from './agent-question-history'
 
 const adminAgentQuestionCoreRouter = router({
-  listAgentQuestions: adminProcedure
-    .input(
-      tenantScopeInput.merge(pageInput).extend({
-        status: z
-          .enum(['PENDING', 'ANSWERED', 'DISMISSED', 'EXPIRED', 'CANCELLED', 'ALL'])
-          .default('PENDING'),
-        agentIdentityId: z.string().min(1).optional(),
-        agentRunId: z.string().min(1).optional(),
-      }),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const rows = await db.agentQuestion.findMany({
-          where: {
-            tenantId: input.tenantId,
-            ...(input.venueId ? { venueId: input.venueId } : {}),
-            ...(input.status === 'ALL' ? {} : { status: input.status }),
-            ...(input.agentIdentityId ? { agentIdentityId: input.agentIdentityId } : {}),
-            ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-            ...createdBefore(input.cursor),
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-          select: {
-            id: true,
-            tenantId: true,
-            venueId: true,
-            agentIdentityId: true,
-            agentRunId: true,
-            question: true,
-            context: true,
-            questionType: true,
-            category: true,
-            urgency: true,
-            choices: true,
-            dueAt: true,
-            evidence: true,
-            proposedAnswer: true,
-            callbackMetadata: true,
-            blocking: true,
-            status: true,
-            answer: true,
-            answeredAt: true,
-            createdAt: true,
-            updatedAt: true,
-            agentIdentity: { select: { id: true, name: true } },
-          },
-        })
-        return pageResult(rows, input.limit)
-      }),
-    ),
-
   answerAgentQuestion: adminProcedure
     .input(
       z.object({
@@ -104,21 +53,41 @@ const adminAgentQuestionCoreRouter = router({
             },
             db,
           )
-          const dispatch =
-            response.runEligibleToResume && response.agentRunId
-              ? await enqueueAgentRun(
+          let dispatchStatus: 'NOT_NEEDED' | 'DISABLED' | 'ENQUEUED' | 'UNCONFIRMED' = 'NOT_NEEDED'
+          if (response.runEligibleToResume && response.agentRunId) {
+            dispatchStatus = 'DISABLED'
+            if (env.AGENT_RUNNER_ENABLED) {
+              try {
+                const dispatch = await enqueueAgentRun(
                   { tenantId: input.tenantId, runId: response.agentRunId },
-                  {
-                    enabled: env.AGENT_RUNNER_ENABLED,
-                    dispatchKey: `answer-${response.questionId}`,
-                  },
+                  { enabled: true, dispatchKey: `answer-${response.questionId}` },
                 )
-              : { enqueued: false }
-          return { ...response, executionTriggered: dispatch.enqueued }
+                dispatchStatus = dispatch.enqueued ? 'ENQUEUED' : 'UNCONFIRMED'
+              } catch {
+                // The answer transaction has already committed. A lost queue acknowledgement
+                // must not turn that durable response into an apparent persistence failure.
+                // Exact answer replay rechecks run eligibility and uses the same queue job ID.
+                dispatchStatus = 'UNCONFIRMED'
+                logger.warn({
+                  action: 'admin.agent-question.resume-dispatch.unconfirmed',
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  questionId: response.questionId,
+                  agentRunId: response.agentRunId,
+                })
+              }
+            }
+          }
+          return { ...response, executionTriggered: dispatchStatus === 'ENQUEUED', dispatchStatus }
         } catch (error) {
           if (error instanceof AgentQuestionActionError) {
             throw new TRPCError({
-              code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+              code:
+                error.code === 'EXPIRED'
+                  ? 'PRECONDITION_FAILED'
+                  : error.code === 'INVALID_INPUT'
+                    ? 'BAD_REQUEST'
+                    : error.code,
               message: error.message,
             })
           }
@@ -382,5 +351,6 @@ const adminAgentQuestionCoreRouter = router({
 
 export const adminAgentQuestionsRouter = mergeRouters(
   adminAgentQuestionCoreRouter,
+  adminAgentQuestionHistoryRouter,
   adminAgentQuestionClientRoutingRouter,
 )

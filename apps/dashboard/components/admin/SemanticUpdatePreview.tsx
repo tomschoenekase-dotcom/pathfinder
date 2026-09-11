@@ -1,13 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+import {
+  TemporalEvidenceSelector,
+  type TemporalEvidenceItem,
+  type TemporalEvidenceReference,
+} from './TemporalEvidenceSelector'
+
+import { SemanticConflictResolutionForm } from './SemanticConflictResolutionForm'
+import { SemanticDuplicateResolutionForm } from './SemanticDuplicateResolutionForm'
+import { SupportLegacyAdoptionForm } from './SupportLegacyAdoptionForm'
 
 const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
 
@@ -41,25 +50,46 @@ export function SemanticUpdatePreview({
   proposalId,
   proposalUpdatedAt,
   hasTarget,
+  onResolutionRecorded,
+  onDuplicateRecorded,
+  resolutionDraft,
+  hasSupportProvenance = false,
 }: {
   tenantId: string
   venueId: string
   proposalId: string
   proposalUpdatedAt: Date | string
   hasTarget: boolean
+  hasSupportProvenance?: boolean
+  hasLegacyTarget?: boolean
+  onResolutionRecorded?: () => void
+  onDuplicateRecorded?: () => void
+  resolutionDraft?: {
+    desired: { title: string; category: string; content: string; isEnabled: boolean }
+    relation: 'CORRECTS' | 'SUPERSEDES'
+  } | null
 }) {
   const client = useTRPCClient()
   const [open, setOpen] = useState(false)
   const [relation, setRelation] = useState<'NEW_FACT' | 'CORRECTS' | 'SUPERSEDES'>(
-    hasTarget ? 'CORRECTS' : 'NEW_FACT',
+    resolutionDraft?.relation ?? (hasTarget ? 'CORRECTS' : 'NEW_FACT'),
   )
-  const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('')
-  const [content, setContent] = useState('')
-  const [isEnabled, setIsEnabled] = useState(true)
+  const [title, setTitle] = useState(resolutionDraft?.desired.title ?? '')
+  const [category, setCategory] = useState(resolutionDraft?.desired.category ?? '')
+  const [content, setContent] = useState(resolutionDraft?.desired.content ?? '')
+  const [isEnabled, setIsEnabled] = useState(resolutionDraft?.desired.isEnabled ?? true)
   const [temporal, setTemporal] = useState(false)
   const [validFrom, setValidFrom] = useState('')
   const [validUntil, setValidUntil] = useState('')
+  const [validFromExact, setValidFromExact] = useState<string | null>(null)
+  const [validUntilExact, setValidUntilExact] = useState<string | null>(null)
+  const [temporalEvidence, setTemporalEvidence] = useState<TemporalEvidenceReference | null>(null)
+  const [temporalEvidenceKey, setTemporalEvidenceKey] = useState<string | null>(null)
+  const [temporalEvidenceScope, setTemporalEvidenceScope] = useState<string | null>(null)
+  const [requiresTemporalEvidence, setRequiresTemporalEvidence] = useState<boolean | null>(false)
+  const [temporalEvidenceRequirementScope, setTemporalEvidenceRequirementScope] = useState<
+    string | null
+  >(null)
   const [operationalUpdateType, setOperationalUpdateType] = useState<
     | 'GENERAL_NOTICE'
     | 'TEMPORARY_CLOSURE'
@@ -70,7 +100,19 @@ export function SemanticUpdatePreview({
     | 'SOLD_OUT_ACTIVITY'
     | 'TEMPORARY_VENDOR_LOCATION'
   >('GENERAL_NOTICE')
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [previewValue, setPreview] = useState<Preview | null>(null)
+  const [previewScope, setPreviewScope] = useState<string | null>(null)
+  const [previewGeneration, setPreviewGeneration] = useState(0)
+  const [resolutionFrozen, setResolutionFrozen] = useState(false)
+  const [adoptionFrozen, setAdoptionFrozen] = useState(false)
+  const [duplicateFrozen, setDuplicateFrozen] = useState(false)
+  const [duplicateRecorded, setDuplicateRecorded] = useState(false)
+  const actionsFrozen = resolutionFrozen || adoptionFrozen || duplicateFrozen || duplicateRecorded
+  const [resolution, setResolution] = useState<{
+    scope: string
+    replacementProposalId: string | null
+    outcome: string
+  } | null>(null)
   const [draft, setDraft] = useState<SemanticDraft | null>(null)
   const [operationalDraft, setOperationalDraft] = useState<SemanticOperationalDraft | null>(null)
   const [conflictQuestion, setConflictQuestion] = useState<SemanticConflictQuestion | null>(null)
@@ -81,9 +123,36 @@ export function SemanticUpdatePreview({
   const requestSequence = useRef(0)
   const previewRunning = useRef(false)
   const activeRequest = useRef<AbortController | null>(null)
-  const scope = `${tenantId}:${venueId}:${proposalId}:${new Date(proposalUpdatedAt).toISOString()}`
+  const scope = JSON.stringify([
+    tenantId,
+    venueId,
+    proposalId,
+    new Date(proposalUpdatedAt).toISOString(),
+    hasTarget,
+    resolutionDraft,
+  ])
+  const preview = previewScope === scope ? previewValue : null
+  const supportPrivateDraftEligible =
+    hasSupportProvenance &&
+    !temporal &&
+    preview?.proposalStatus === 'APPROVED' &&
+    (preview.classification === 'ADDITION' ||
+      preview.classification === 'CORRECTION' ||
+      preview.classification === 'SUPERSESSION')
+
   const currentScope = useRef(scope)
   currentScope.current = scope
+  const selectedTemporalEvidence = temporalEvidenceScope === scope ? temporalEvidence : null
+  const selectedTemporalEvidenceKey = temporalEvidenceScope === scope ? temporalEvidenceKey : null
+  const scopedTemporalEvidenceRequirement =
+    temporalEvidenceRequirementScope === scope ? requiresTemporalEvidence : null
+  const handleTemporalEvidenceRequirement = useCallback(
+    (required: boolean | null) => {
+      setRequiresTemporalEvidence(required)
+      setTemporalEvidenceRequirementScope(scope)
+    },
+    [scope],
+  )
 
   useEffect(() => {
     requestSequence.current += 1
@@ -91,13 +160,40 @@ export function SemanticUpdatePreview({
     activeRequest.current = null
     previewRunning.current = false
     setBusy(false)
+    setResolutionFrozen(false)
+    setAdoptionFrozen(false)
+    setDuplicateFrozen(false)
+    setDuplicateRecorded(false)
+    setResolution(null)
     setPreview(null)
     setDraft(null)
     setOperationalDraft(null)
     setConflictQuestion(null)
     setQuestionAgentIdentityId('')
+    setCreating(false)
+    setTemporalEvidence(null)
+    setTemporalEvidenceKey(null)
+    setTemporalEvidenceScope(null)
+    setValidFromExact(null)
+    setValidUntilExact(null)
+    setRequiresTemporalEvidence(null)
+    setTemporalEvidenceRequirementScope(null)
     setError(null)
-  }, [scope])
+    setRelation(resolutionDraft?.relation ?? (hasTarget ? 'CORRECTS' : 'NEW_FACT'))
+    setTitle(resolutionDraft?.desired.title ?? '')
+    setCategory(resolutionDraft?.desired.category ?? '')
+    setContent(resolutionDraft?.desired.content ?? '')
+    setIsEnabled(resolutionDraft?.desired.isEnabled ?? true)
+    if (resolutionDraft?.relation) setTemporal(false)
+  }, [
+    scope,
+    hasTarget,
+    resolutionDraft?.relation,
+    resolutionDraft?.desired.title,
+    resolutionDraft?.desired.category,
+    resolutionDraft?.desired.content,
+    resolutionDraft?.desired.isEnabled,
+  ])
 
   useEffect(
     () => () => {
@@ -108,7 +204,7 @@ export function SemanticUpdatePreview({
     [],
   )
 
-  function invalidatePreview() {
+  function invalidatePreview(clearTemporalEvidence = false) {
     requestSequence.current += 1
     activeRequest.current?.abort()
     activeRequest.current = null
@@ -119,7 +215,43 @@ export function SemanticUpdatePreview({
     setOperationalDraft(null)
     setConflictQuestion(null)
     setQuestionAgentIdentityId('')
+    if (clearTemporalEvidence) {
+      setTemporalEvidence(null)
+      setTemporalEvidenceKey(null)
+      setTemporalEvidenceScope(null)
+      setValidFromExact(null)
+      setValidUntilExact(null)
+    }
     setError(null)
+  }
+
+  function inputDateTime(value: string) {
+    const date = new Date(value)
+    const offset = date.getTimezoneOffset()
+    return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, -1)
+  }
+
+  function exactOrEnteredDate(exact: string | null, entered: string) {
+    return exact ?? new Date(entered).toISOString()
+  }
+
+  function selectTemporalEvidence(item: TemporalEvidenceItem) {
+    invalidatePreview()
+    setTemporalEvidence(item.reference)
+    setTemporalEvidenceKey(item.key)
+    setTemporalEvidenceScope(scope)
+    setTitle(item.desired.title)
+    setCategory(item.desired.category)
+    setContent(item.desired.content)
+    setIsEnabled(item.desired.isEnabled)
+    setValidFrom(inputDateTime(item.validFrom))
+    setValidUntil(inputDateTime(item.validUntil))
+    setValidFromExact(item.validFrom)
+    setValidUntilExact(item.validUntil)
+  }
+
+  function clearBoundTemporalEvidence() {
+    invalidatePreview(true)
   }
 
   async function inspect() {
@@ -152,9 +284,12 @@ export function SemanticUpdatePreview({
               },
               ...(temporal
                 ? {
-                    validFrom: new Date(validFrom).toISOString(),
-                    validUntil: new Date(validUntil).toISOString(),
+                    validFrom: exactOrEnteredDate(validFromExact, validFrom),
+                    validUntil: exactOrEnteredDate(validUntilExact, validUntil),
                     operationalUpdateType,
+                    ...(selectedTemporalEvidence
+                      ? { temporalEvidence: selectedTemporalEvidence }
+                      : {}),
                   }
                 : {}),
             },
@@ -162,6 +297,8 @@ export function SemanticUpdatePreview({
           ),
       })
       if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setPreviewGeneration((value) => value + 1)
+        setPreviewScope(startedScope)
         setPreview(next)
         setDraft(null)
         setOperationalDraft(null)
@@ -170,10 +307,16 @@ export function SemanticUpdatePreview({
           next.conflictQuestion?.agentIdentityId ?? next.questionAgentIdentities?.[0]?.id ?? '',
         )
       }
-    } catch {
+    } catch (cause) {
       if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
         setPreview(null)
-        setError('Semantic preview could not be loaded in time. Retry the unchanged proposal.')
+        setError(
+          cause instanceof Error && cause.message
+            ? cause.message === 'DEADLINE_EXCEEDED'
+              ? 'Semantic preview could not be loaded. Retry the unchanged proposal.'
+              : cause.message
+            : 'Semantic preview could not be loaded. Retry the unchanged proposal.',
+        )
       }
     } finally {
       if (activeRequest.current === controller) activeRequest.current = null
@@ -210,8 +353,8 @@ export function SemanticUpdatePreview({
         },
         ...(temporal
           ? {
-              validFrom: new Date(validFrom).toISOString(),
-              validUntil: new Date(validUntil).toISOString(),
+              validFrom: exactOrEnteredDate(validFromExact, validFrom),
+              validUntil: exactOrEnteredDate(validUntilExact, validUntil),
               operationalUpdateType,
             }
           : {}),
@@ -227,6 +370,8 @@ export function SemanticUpdatePreview({
 
   async function createOperationalDraft() {
     if (!preview?.operationalUpdateDraft || preview.proposalStatus !== 'APPROVED') return
+    const startedScope = scope
+    const startedSequence = requestSequence.current
     setCreating(true)
     setError(null)
     try {
@@ -243,22 +388,34 @@ export function SemanticUpdatePreview({
           content: content.trim(),
           isEnabled,
         },
-        validFrom: new Date(validFrom).toISOString(),
-        validUntil: new Date(validUntil).toISOString(),
+        validFrom: exactOrEnteredDate(validFromExact, validFrom),
+        validUntil: exactOrEnteredDate(validUntilExact, validUntil),
         operationalUpdateType,
+        ...(selectedTemporalEvidence ? { temporalEvidence: selectedTemporalEvidence } : {}),
       })
-      setOperationalDraft(created)
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setOperationalDraft(created)
+      }
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : 'Operational update DRAFT could not be created.',
-      )
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setError(
+          cause instanceof Error ? cause.message : 'Operational update DRAFT could not be created.',
+        )
+      }
     } finally {
-      setCreating(false)
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setCreating(false)
+      }
     }
   }
 
   async function createDraft() {
-    if (!preview?.venuePackagePatch || preview.proposalStatus !== 'APPROVED') return
+    if (
+      !preview?.venuePackagePatch ||
+      preview.proposalStatus !== 'APPROVED' ||
+      supportPrivateDraftEligible
+    )
+      return
     setCreating(true)
     setError(null)
     try {
@@ -284,6 +441,40 @@ export function SemanticUpdatePreview({
     }
   }
 
+  if (resolution?.scope === scope) {
+    const reviewPath = `/admin/clients/${encodeURIComponent(tenantId)}/venues/${encodeURIComponent(venueId)}/knowledge-proposals`
+    return (
+      <section
+        className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+        role="group"
+        aria-label="Conflict resolution recorded"
+      >
+        <p role="status" className="font-semibold text-slate-950">
+          {resolution.outcome === 'KEEP_CANONICAL'
+            ? 'Current knowledge kept'
+            : 'Replacement awaits review'}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          {resolution.outcome === 'KEEP_CANONICAL'
+            ? 'The conflicting proposal is closed. Visitor-facing knowledge is unchanged.'
+            : 'The replacement needs separate approval before a draft can be created. Visitor-facing knowledge is unchanged.'}
+        </p>
+        <a
+          className="mt-3 inline-flex min-h-11 items-center font-semibold text-violet-900 underline"
+          href={
+            resolution.replacementProposalId
+              ? `${reviewPath}?review=${encodeURIComponent(resolution.replacementProposalId)}#proposal-${encodeURIComponent(resolution.replacementProposalId)}`
+              : reviewPath
+          }
+        >
+          {resolution.replacementProposalId
+            ? 'Review replacement proposal'
+            : 'Return to proposal review'}
+        </a>
+      </section>
+    )
+  }
+
   if (!open) {
     return (
       <button
@@ -299,6 +490,7 @@ export function SemanticUpdatePreview({
   return (
     <section
       className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-4"
+      role="group"
       aria-label="Semantic change preview"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -306,12 +498,13 @@ export function SemanticUpdatePreview({
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
             Venue Updater
           </p>
-          <h2 className="mt-1 font-semibold text-slate-950">Smallest coherent patch</h2>
+          <h2 className="mt-1 font-semibold text-slate-950">Review proposed update</h2>
         </div>
         <button
           type="button"
+          disabled={actionsFrozen}
           onClick={() => {
-            invalidatePreview()
+            invalidatePreview(true)
             setOpen(false)
           }}
           className="min-h-11 rounded-lg px-3 text-sm font-medium text-slate-600"
@@ -320,144 +513,174 @@ export function SemanticUpdatePreview({
         </button>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate-600">
-        Normalize the intended visitor-facing fact. This only computes a review preview; it cannot
-        approve, apply, or publish anything.
+        Review the wording and dates before creating a draft. Previewing does not publish an update.
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-medium text-slate-800">
-          Change relationship
-          <select
-            value={relation}
-            onChange={(event) => {
-              setRelation(event.target.value as typeof relation)
-              invalidatePreview()
-            }}
-            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-          >
-            <option value="NEW_FACT">Addition</option>
-            <option value="CORRECTS">Correction</option>
-            <option value="SUPERSEDES">Supersession</option>
-          </select>
-        </label>
-        <label className="text-sm font-medium text-slate-800">
-          Category
+      {resolutionDraft ? (
+        <p className="mt-3 text-sm leading-6 text-slate-700">
+          This wording is fixed by the recorded resolution. Approval is a separate step.
+        </p>
+      ) : null}
+      <fieldset disabled={actionsFrozen || Boolean(resolutionDraft)} className="min-w-0">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-medium text-slate-800">
+            Change relationship
+            <select
+              value={relation}
+              onChange={(event) => {
+                setRelation(event.target.value as typeof relation)
+                clearBoundTemporalEvidence()
+              }}
+              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+            >
+              <option value="NEW_FACT">Addition</option>
+              <option value="CORRECTS">Correction</option>
+              <option value="SUPERSEDES">Supersession</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-800">
+            Category
+            <input
+              required
+              maxLength={100}
+              value={category}
+              onChange={(event) => {
+                setCategory(event.target.value)
+                clearBoundTemporalEvidence()
+              }}
+              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+            />
+          </label>
+        </div>
+        <label className="mt-3 block text-sm font-medium text-slate-800">
+          Visitor-facing title
           <input
             required
-            maxLength={100}
-            value={category}
+            maxLength={temporal ? 60 : 200}
+            value={title}
             onChange={(event) => {
-              setCategory(event.target.value)
-              invalidatePreview()
+              setTitle(event.target.value)
+              clearBoundTemporalEvidence()
             }}
             className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
           />
         </label>
-      </div>
-      <label className="mt-3 block text-sm font-medium text-slate-800">
-        Visitor-facing title
-        <input
-          required
-          maxLength={temporal ? 60 : 200}
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value)
-            invalidatePreview()
-          }}
-          className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-        />
-      </label>
-      <label className="mt-3 block text-sm font-medium text-slate-800">
-        Visitor-facing content
-        <textarea
-          required
-          rows={4}
-          maxLength={temporal ? 300 : 5000}
-          value={content}
-          onChange={(event) => {
-            setContent(event.target.value)
-            invalidatePreview()
-          }}
-          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
-        />
-      </label>
-      <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-        <input
-          type="checkbox"
-          checked={isEnabled}
-          onChange={(event) => {
-            setIsEnabled(event.target.checked)
-            invalidatePreview()
-          }}
-        />
-        Enabled in canonical knowledge
-      </label>
-      <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-        <input
-          type="checkbox"
-          checked={temporal}
-          onChange={(event) => {
-            setTemporal(event.target.checked)
-            invalidatePreview()
-          }}
-        />
-        Time-bounded operational fact
-      </label>
-      {temporal ? (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm font-medium text-slate-800">
-            Starts at
+        <label className="mt-3 block text-sm font-medium text-slate-800">
+          Visitor-facing content
+          <textarea
+            required
+            rows={4}
+            maxLength={temporal ? 300 : 5000}
+            value={content}
+            onChange={(event) => {
+              setContent(event.target.value)
+              clearBoundTemporalEvidence()
+            }}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
+          />
+        </label>
+        {!temporal ? (
+          <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
             <input
-              type="datetime-local"
-              value={validFrom}
+              type="checkbox"
+              checked={isEnabled}
               onChange={(event) => {
-                setValidFrom(event.target.value)
-                invalidatePreview()
+                setIsEnabled(event.target.checked)
+                clearBoundTemporalEvidence()
               }}
-              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
             />
+            Enabled in canonical knowledge
           </label>
-          <label className="text-sm font-medium text-slate-800">
-            Expires at
-            <input
-              type="datetime-local"
-              value={validUntil}
-              onChange={(event) => {
-                setValidUntil(event.target.value)
-                invalidatePreview()
-              }}
-              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-800 sm:col-span-2">
-            Operational update type
-            <select
-              value={operationalUpdateType}
-              onChange={(event) => {
-                setOperationalUpdateType(event.target.value as typeof operationalUpdateType)
-                invalidatePreview()
-              }}
-              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
-            >
-              <option value="GENERAL_NOTICE">General notice</option>
-              <option value="TEMPORARY_CLOSURE">Temporary closure</option>
-              <option value="UNAVAILABLE_EXHIBIT">Unavailable exhibit</option>
-              <option value="CHANGED_HOURS">Changed hours</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="SPECIAL_EVENT">Special event</option>
-              <option value="SOLD_OUT_ACTIVITY">Sold-out activity</option>
-              <option value="TEMPORARY_VENDOR_LOCATION">Temporary vendor location</option>
-            </select>
-          </label>
-        </div>
-      ) : null}
+        ) : null}
+        <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={temporal}
+            onChange={(event) => {
+              setTemporal(event.target.checked)
+              setRequiresTemporalEvidence(event.target.checked ? null : false)
+              setTemporalEvidenceRequirementScope(event.target.checked ? null : scope)
+              clearBoundTemporalEvidence()
+            }}
+          />
+          Time-bounded operational fact
+        </label>
+        {temporal ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium text-slate-800">
+              Starts at
+              <input
+                type="datetime-local"
+                step="any"
+                value={validFrom}
+                onChange={(event) => {
+                  setValidFrom(event.target.value)
+                  clearBoundTemporalEvidence()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-800">
+              Expires at
+              <input
+                type="datetime-local"
+                step="any"
+                value={validUntil}
+                onChange={(event) => {
+                  setValidUntil(event.target.value)
+                  clearBoundTemporalEvidence()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-800 sm:col-span-2">
+              Operational update type
+              <select
+                value={operationalUpdateType}
+                onChange={(event) => {
+                  setOperationalUpdateType(event.target.value as typeof operationalUpdateType)
+                  invalidatePreview()
+                }}
+                className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+              >
+                <option value="GENERAL_NOTICE">General notice</option>
+                <option value="TEMPORARY_CLOSURE">Temporary closure</option>
+                <option value="UNAVAILABLE_EXHIBIT">Unavailable exhibit</option>
+                <option value="CHANGED_HOURS">Changed hours</option>
+                <option value="MAINTENANCE">Maintenance</option>
+                <option value="SPECIAL_EVENT">Special event</option>
+                <option value="SOLD_OUT_ACTIVITY">Sold-out activity</option>
+                <option value="TEMPORARY_VENDOR_LOCATION">Temporary vendor location</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
+        {temporal ? (
+          <TemporalEvidenceSelector
+            key={scope}
+            tenantId={tenantId}
+            venueId={venueId}
+            proposalId={proposalId}
+            proposalUpdatedAt={proposalUpdatedAt}
+            selectedKey={selectedTemporalEvidenceKey}
+            onSelect={selectTemporalEvidence}
+            onClearSelection={clearBoundTemporalEvidence}
+            onRequirementChange={handleTemporalEvidenceRequirement}
+          />
+        ) : null}
+      </fieldset>
       <button
         type="button"
         disabled={
+          actionsFrozen ||
           busy ||
           !title.trim() ||
           !category.trim() ||
           !content.trim() ||
-          (temporal && (!validFrom || !validUntil))
+          (temporal &&
+            (!validFrom ||
+              !validUntil ||
+              scopedTemporalEvidenceRequirement === null ||
+              (scopedTemporalEvidenceRequirement && !selectedTemporalEvidence)))
         }
         onClick={() => void inspect()}
         className="mt-3 min-h-11 rounded-lg bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
@@ -472,7 +695,29 @@ export function SemanticUpdatePreview({
       {preview ? (
         <>
           <SemanticUpdatePreviewResult preview={preview} />
-          {preview.proposalStatus === 'APPROVED' && preview.venuePackagePatch ? (
+          {!duplicateRecorded && supportPrivateDraftEligible ? (
+            <SupportLegacyAdoptionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              expectedPreviewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              onFrozenChange={setAdoptionFrozen}
+            />
+          ) : null}
+
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          preview.venuePackagePatch &&
+          !supportPrivateDraftEligible ? (
             <SemanticUpdateDraftAction
               tenantId={tenantId}
               venueId={venueId}
@@ -481,14 +726,97 @@ export function SemanticUpdatePreview({
               onCreate={() => void createDraft()}
             />
           ) : null}
-          {preview.proposalStatus === 'APPROVED' && preview.operationalUpdateDraft ? (
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          preview.operationalUpdateDraft ? (
             <SemanticOperationalUpdateDraftAction
               creating={creating}
               draft={operationalDraft}
               onCreate={() => void createOperationalDraft()}
             />
           ) : null}
-          {preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          hasSupportProvenance &&
+          !temporal &&
+          isEnabled &&
+          preview.classification === 'DUPLICATE_NOOP' ? (
+            <SemanticDuplicateResolutionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              previewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              onFrozenChange={setDuplicateFrozen}
+              onRefresh={() => void inspect()}
+              onResolved={() => {
+                if (currentScope.current === scope) {
+                  setDuplicateRecorded(true)
+                  setDuplicateFrozen(false)
+                  onDuplicateRecorded?.()
+                }
+              }}
+            />
+          ) : duplicateRecorded ? (
+            <div className="mt-4 border-t border-pf-light pt-4 text-sm text-pf-deep/70">
+              <p className="font-semibold text-pf-deep">Duplicate review recorded</p>
+              <p className="mt-1">No venue content was changed or approved.</p>
+            </div>
+          ) : null}
+          {!duplicateRecorded &&
+          preview.proposalStatus === 'APPROVED' &&
+          !temporal &&
+          relation !== 'NEW_FACT' &&
+          preview.classification === 'CONFLICT' &&
+          preview.blockers.length === 1 &&
+          preview.blockers[0]?.code === 'LOWER_AUTHORITY_CONFLICT' &&
+          preview.questions.length === 1 &&
+          preview.questions[0]?.blockerCodes.length === 1 &&
+          preview.questions[0]?.blockerCodes[0] === 'LOWER_AUTHORITY_CONFLICT' &&
+          preview.conflictQuestion?.status === 'ANSWERED' &&
+          preview.conflictQuestion.answer !== null &&
+          preview.conflictQuestion.answeredAt &&
+          preview.conflictQuestion.answerHash ? (
+            <SemanticConflictResolutionForm
+              key={`${scope}:${previewGeneration}:${preview.previewHash}:${preview.conflictQuestion.updatedAt}:${preview.conflictQuestion.answerHash}`}
+              tenantId={tenantId}
+              venueId={venueId}
+              proposalId={proposalId}
+              proposalUpdatedAt={proposalUpdatedAt}
+              previewHash={preview.previewHash}
+              relation={relation}
+              desired={{
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              }}
+              question={{
+                ...preview.conflictQuestion,
+                answer: preview.conflictQuestion.answer,
+                answeredAt: preview.conflictQuestion.answeredAt,
+                answerHash: preview.conflictQuestion.answerHash,
+              }}
+              onFrozenChange={setResolutionFrozen}
+              onRefresh={() => void inspect()}
+              onResolved={(result) => {
+                if (currentScope.current === scope) {
+                  setResolution({ ...result, scope })
+                  onResolutionRecorded?.()
+                }
+              }}
+            />
+          ) : !duplicateRecorded &&
+            preview.classification === 'CONFLICT' &&
+            preview.questions.length === 1 ? (
             <SemanticConflictQuestionAction
               creating={creating}
               questionStatus={

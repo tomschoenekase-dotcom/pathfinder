@@ -23,6 +23,7 @@
     "@pathfinder/ai": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
+    "@pathfinder/character-factory": "workspace:*",
     "@prisma/client": "^6.7.0",
     "hash-wasm": "^4.12.0",
     "zod": "^3.0.0"

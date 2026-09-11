@@ -26,6 +26,19 @@ Company Knowledge records carry access scope, authority, promotion state, revisi
 
 Search combines exact scope/type/authority/date filters with lexical relevance, optional embeddings, recency, and current authority. `knowledge.search` returns snippets and provenance; `knowledge.get` returns one exact governed item. Superseded items are excluded by default but remain queryable for historical work.
 
+The first page combines bounded exact-phrase (20), all-term (80), and broad term-match (up to 80)
+lanes so an older precise fact is not displaced by newer records that merely contain the same terms.
+Hybrid search ranks one permission-filtered window of up to 500 candidate IDs at a time, loads at most
+50 semantic details, and returns an opaque continuation when more authorized candidates remain. The
+cursor is checksum-protected and bound to the normalized query, filters, access context, sorted roles,
+and embedding. Each continuation rechecks its anchor and reapplies authorization before ranking or
+loading details. Ranking is per window, so no page claims to contain the globally nearest result until
+every window is exhausted. Concurrent record updates or deletion can shift or invalidate a
+best-effort cursor; workflows requiring a frozen corpus must persist an immutable candidate set. The
+checksum detects corruption and query drift, but it is not an authenticated capability: callers can
+choose a position, while the repeated authorization predicates prevent that position from broadening
+access.
+
 ### Multi-venue applicability
 
 Venue-context retrieval inherits governed Company Knowledge without duplicating its content:

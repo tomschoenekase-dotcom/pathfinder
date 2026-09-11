@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseHead": "5dac6673e593f101a94a9d6072d9f6c830dae76c",
+  "slice": "W04 approved editorial captions in voice grounding with same-query public place guard",
+  "status": "passed-local-boundaries",
+  "implementation": [
+    "Existing public voice token/venue scope resolves server-owned photo/link policy and venue slug; no public-input authority added.",
+    "Existing approved-media selector enforces current tenant+venue+PUBLIC+active place relation both in qualification and selected links. Existing public photo response shape unchanged.",
+    "Voice appends at most three unique derivative/review caption sources for already included native-authorized/public places within existing12000-character cap; retains source credit and excludes media/source URLs and raw bytes.",
+    "Optional media read failure preserves core grounding; current-location inference and route tool behavior unchanged.",
+    "Static exact SQL signature updated for same scoped query adding policy columns; missed third bounded rejected-candidate read from4be0a722 added to exact bypass inventory after scope review."
+  ],
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-approved-media-grounding-fdb59fd0dafc",
+  "proofResultSha256": "6bbab62a328a367ebbd7742e6d721d5030b6b5f772a9ab80d6ebb19a55c5bc5b",
+  "native": {
+    "database": "pathfinder_disposable_native_guest_read_media_fdb59fd0dafc",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-approved-media-grounding-fdb59fd0dafc",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "keeps one scoped visitor journey current across correction, route reachability, and media withdrawal",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "retained": "measured-native-guest-read.disposable.integration.test.ts",
+        "sha256": "a19e3a7e4b17c1757146ce30aca5e15ff391486448cb5464ca9069f8131d5b9f"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "retained": "measured-guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.test.ts",
+        "retained": "measured-guest-place-media.test.ts",
+        "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-voice-grounding-context.ts",
+        "sha256": "d0177ce12736d401c16cb83d3fb84342383b073c558ea92e881e754401eb3a30"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "retained": "measured-voice-grounding-context.test.ts",
+        "sha256": "37c958746a38857772ca4f1cf1bf64eec36e8e6625f4af5184c91456cca88527"
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-voice.ts",
+        "sha256": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756"
+      },
+      {
+        "source": "packages/api/src/routers/voice.test.ts",
+        "retained": "measured-voice.test.ts",
+        "sha256": "ddb9eeb1cd32326194decefb1482675ab522ded429854eaea584125c4fa852db"
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "retained": "measured-chat.ts",
+        "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c"
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "retained": "measured-semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+      }
+    ],
+    "runnerSha256": "2744664cef07482722d7ec07c96de8b5a9f9b79677c9c82beb98b046ca0dd48e",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 3
+    },
+    "sourceHashesStable": true
+  },
+  "ownedSourceHashes": [
+    {
+      "source": "packages/api/src/lib/guest-place-media.ts",
+      "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+    },
+    {
+      "source": "packages/api/src/lib/guest-place-media.test.ts",
+      "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+    },
+    {
+      "source": "packages/api/src/lib/voice-grounding-context.ts",
+      "sha256": "d0177ce12736d401c16cb83d3fb84342383b073c558ea92e881e754401eb3a30"
+    },
+    {
+      "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+      "sha256": "37c958746a38857772ca4f1cf1bf64eec36e8e6625f4af5184c91456cca88527"
+    },
+    {
+      "source": "packages/api/src/routers/voice.ts",
+      "sha256": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756"
+    },
+    {
+      "source": "packages/api/src/routers/voice.test.ts",
+      "sha256": "ddb9eeb1cd32326194decefb1482675ab522ded429854eaea584125c4fa852db"
+    },
+    {
+      "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+      "sha256": "a19e3a7e4b17c1757146ce30aca5e15ff391486448cb5464ca9069f8131d5b9f"
+    },
+    {
+      "source": "scripts/verify-raw-sql-boundary.mjs",
+      "sha256": "44d89a637e03e5eecaf3fde0abb235f18a3b181a58df338ccb7e67322d693a45"
+    },
+    {
+      "source": "scripts/verify-tenant-bypass-boundary.mjs",
+      "sha256": "2b897e6ad4819df03edebadf2900cda69d81da52de9088d92cfeda37751ae55c"
+    }
+  ],
+  "checks": {
+    "voice-media-focused-final-20260908.json": {
+      "numTotalTests": 41,
+      "numPassedTests": 41,
+      "numFailedTests": 0,
+      "numPendingTests": 0
+    },
+    "voice-media-related-selectors-20260908.json": {
+      "numTotalTests": 153,
+      "numPassedTests": 153,
+      "numFailedTests": 0,
+      "numPendingTests": 0
+    }
+  },
+  "otherChecks": {
+    "apiNonincrementalTypes": "root session25761 exit0, artifacts/voice-media-api-types-20260908.log; followed only by source-credit strings/test assertions",
+    "configuredScopedLint": "exit0 artifacts/voice-media-scoped-lint-20260908.log",
+    "rawSql": "exit0 artifacts/voice-media-raw-sql-final-20260908.log",
+    "tenantBypass": "exit0 artifacts/voice-media-tenant-bypass-final-20260908.log"
+  },
+  "nativeAssertions": [
+    "Approved reviewed caption and source credit included with exact derivative/review source ID.",
+    "Server photo-off policy excludes optional media.",
+    "Place visibility changes PUBLIC to SECOND_LAYER after place read and before actual derivative query; caption and source ID excluded.",
+    "Current withdrawal excludes media on next voice read.",
+    "Existing route/media/temporal/sibling controls in selected combined test still pass."
+  ],
+  "preliminaryRuns": [
+    {
+      "id": "62453532744f",
+      "result": "stopped before tests: generated database name exceeded PostgreSQL63-byte limit; shortened runner name"
+    },
+    {
+      "id": "89b090987a53",
+      "result": "selected native case passed before final source-credit addition; stopped"
+    }
+  ],
+  "limitations": [
+    "One named combined native case executed; two other cases in the same file intentionally skipped. Not three native passes.",
+    "Native case uses actual disposable PostgreSQL238migrations258tables and explicit fixture isolation bypass; proves scoped queries, not tenant-middleware invocation.",
+    "Synthetic metadata/derivative readiness only; no image-byte serving, media extraction/provider quality, speech playback/device, visitor release or live observation.",
+    "Later separate holdout corpus still omits mediaPolicy and retains its own media coverage limitation; this new combined-case proof does not upgrade that historical corpus.",
+    "Current operational-state/context safeguards remain; accessible route grounding in voice not added.",
+    "No frontend changed, no deployment, no whole128/32QA/A-B-C completion claim."
+  ]
+}

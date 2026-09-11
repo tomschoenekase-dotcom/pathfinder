@@ -1,19 +1,22 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
-import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
+import {
+  assertStagingMigrationAdmission,
+  assertStagingReleaseIdentity,
+} from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-207-20260901',
+  approval: 'torchiko-staging-lineage-to-247-20260910',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 207,
+  migrationCount: 247,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -46,6 +49,61 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompletePublicTableCount: 227,
   replyReviewPredecessorCount: 205,
   replyReviewPredecessorPublicTableCount: 231,
+  campaignPredecessorCount: 207,
+  campaignPredecessorPublicTableCount: 232,
+  campaignPredecessorFinalMigration: '20260901020000_support_tenant_wide_ai_accounting',
+  legacyAdoptionPredecessorCount: 214,
+  legacyAdoptionPredecessorPublicTableCount: 238,
+  legacyAdoptionPredecessorFinalMigration: '20260907021400_add_legacy_knowledge_adoption',
+  mediaResolutionPredecessorCount: 215,
+  mediaResolutionPredecessorPublicTableCount: 239,
+  mediaResolutionPredecessorFinalMigration: '20260907021500_add_media_entity_resolution_revisions',
+  mediaRelationPredecessorCount: 216,
+  mediaRelationPredecessorPublicTableCount: 240,
+  mediaRelationPredecessorFinalMigration: '20260907021600_add_media_relation_applications',
+  prospectOnboardingPredecessorCount: 218,
+  prospectOnboardingPredecessorPublicTableCount: 243,
+  prospectOnboardingPredecessorFinalMigration:
+    '20260907021800_add_prospect_onboarding_delivery_attempts',
+  governedMediaPredecessorCount: 219,
+  governedMediaPredecessorPublicTableCount: 243,
+  governedMediaPredecessorFinalMigration:
+    '20260907021900_add_governed_guest_place_media_preferences',
+  workflowRegistryPredecessorCount: 220,
+  workflowRegistryPredecessorPublicTableCount: 244,
+  workflowRegistryPredecessorFinalMigration: '20260907022000_add_agent_workflow_versions',
+  usageObservationPredecessorCount: 221,
+  usageObservationPredecessorPublicTableCount: 244,
+  usageObservationPredecessorFinalMigration: '20260907022100_add_ai_usage_observation_status',
+  promotionAssessmentPredecessorCount: 222,
+  promotionAssessmentPredecessorPublicTableCount: 245,
+  promotionAssessmentPredecessorFinalMigration:
+    '20260907022200_add_agent_workflow_promotion_assessments',
+  intakeProcessingPredecessorCount: 225,
+  intakeProcessingPredecessorPublicTableCount: 252,
+  intakeProcessingPredecessorFinalMigration: '20260907022500_add_intake_v1_processing_dispatches',
+  intakePackagePredecessorCount: 226,
+  intakePackagePredecessorPublicTableCount: 253,
+  intakePackagePredecessorFinalMigration: '20260907022600_add_intake_v1_package_handoffs',
+  sourceMappingPredecessorCount: 227,
+  sourceMappingPredecessorPublicTableCount: 254,
+  sourceMappingPredecessorFinalMigration: '20260907022700_add_intake_source_mapping_reviews',
+  workerLifecyclePredecessorCount: 229,
+  workerLifecyclePredecessorPublicTableCount: 254,
+  workerLifecyclePredecessorFinalMigration: '20260908031000_release_answered_agent_execution_owner',
+  websiteDiscoveryPredecessorCount: 231,
+  websiteDiscoveryPredecessorPublicTableCount: 254,
+  websiteDiscoveryPredecessorFinalMigration: '20260908080000_add_website_source_discovery',
+  questionProvenancePredecessorCount: 230,
+  questionProvenancePredecessorPublicTableCount: 254,
+  questionProvenancePredecessorFinalMigration:
+    '20260908044000_add_agent_outcome_question_provenance',
+  intakeSubmissionPredecessorCount: 224,
+  intakeSubmissionPredecessorPublicTableCount: 251,
+  intakeSubmissionPredecessorFinalMigration: '20260907022400_add_intake_v1_submissions',
+  workflowActivationPredecessorCount: 223,
+  workflowActivationPredecessorPublicTableCount: 248,
+  workflowActivationPredecessorFinalMigration: '20260907022300_add_agent_workflow_activations',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -65,10 +123,33 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260901020000_support_tenant_wide_ai_accounting',
-  manifestHash: '3c4a0f73e9bc5c40a5b1c32cd7b86a4446c1442269d9df87385dbba0dd23b21a',
-  // The reviewed 66-migration suffix after B.5 adds 39 public tables.
-  finalPublicTableCount: 232,
+  discussionPredecessorCount: 232,
+  discussionPredecessorPublicTableCount: 255,
+  discussionPredecessorFinalMigration: '20260908120000_add_agent_question_discussion',
+  expiryPredecessorCount: 233,
+  expiryPredecessorPublicTableCount: 255,
+  expiryPredecessorFinalMigration: '20260908130000_add_agent_question_expiry',
+  expiryPredecessorManifestHash: '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
+  websitePdfPredecessorCount: 234,
+  websitePdfPredecessorPublicTableCount: 255,
+  websitePdfPredecessorFinalMigration: '20260908140000_add_website_pdf_collection_policy',
+  websitePdfPredecessorManifestHash:
+    'fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab',
+  fileExtractionPredecessorCount: 235,
+  fileExtractionPredecessorPublicTableCount: 255,
+  fileExtractionPredecessorFinalMigration:
+    '20260908150000_add_intake_v1_file_extraction_dispatches',
+  fileExtractionPredecessorManifestHash:
+    '968270ab6d65dd64e9b3027e3c6d6b906d4805d7312190eecaa3b269cc34d0e5',
+  agentQuestionOperationsPredecessorCount: 236,
+  agentQuestionOperationsPredecessorPublicTableCount: 256,
+  agentQuestionOperationsPredecessorFinalMigration: '20260908160000_add_agent_question_operations',
+  agentQuestionOperationsPredecessorManifestHash:
+    'f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9',
+  finalMigration: '20260910140000_add_semantic_reviewed_decline',
+  manifestHash: 'accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c',
+  // Exact 247 candidate boundary; retained relational proof is recorded separately.
+  finalPublicTableCount: 264,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -108,7 +189,7 @@ function validatedUrl(raw, label) {
   return parsed
 }
 
-export function assertApprovedTarget(environment) {
+export function assertApprovedTarget(environment, { requireMigrationApproval = true } = {}) {
   if (environment.RAILWAY_ENVIRONMENT !== 'staging') fail('environment label is not staging')
   if (environment.RAILWAY_ENVIRONMENT_ID !== EXPECTED.environmentId) {
     fail('Railway environment identity mismatch')
@@ -119,7 +200,10 @@ export function assertApprovedTarget(environment) {
   if (environment.DATABASE_RESOURCE_ID !== EXPECTED.databaseResourceId) {
     fail('database resource identity mismatch')
   }
-  if (environment.PATHFINDER_STAGING_MIGRATION_APPROVAL !== EXPECTED.approval) {
+  if (
+    requireMigrationApproval &&
+    environment.PATHFINDER_STAGING_MIGRATION_APPROVAL !== EXPECTED.approval
+  ) {
     fail('exact migration approval token is missing')
   }
 
@@ -128,6 +212,69 @@ export function assertApprovedTarget(environment) {
   if (pooled.hostname !== direct.hostname || pooled.port !== direct.port) {
     fail('pooled and direct URLs do not identify the same staging host')
   }
+}
+
+/** A read-only current-schema check is distinct from authority to change the schema. */
+export function assertStagingSchemaReadAdmission(environment) {
+  assertApprovedTarget(environment, { requireMigrationApproval: false })
+  return { releaseSha: assertStagingReleaseIdentity(environment) }
+}
+
+export function admitPendingStagingMigrations(environment, initialState) {
+  assertStagingSchemaReadAdmission(environment)
+  if (initialState === 'complete') return null
+  assertApprovedTarget(environment)
+  return assertStagingMigrationAdmission(environment)
+}
+
+export function readStagingApplicationPolicy(environment) {
+  const configuredHold = environment.PATHFINDER_STAGING_MIGRATION_ONLY_HOLD
+  const hold = configuredHold === undefined ? '0' : configuredHold
+  if (hold !== '0' && hold !== '1') fail('migration-only hold must be exactly 0 or 1')
+  return Object.freeze({
+    hold: hold === '1',
+    migrationOptIn: environment.PATHFINDER_ALLOW_STAGING_MIGRATIONS,
+  })
+}
+
+export function assertStagingApplicationPolicy(policy, { state, dataPolicy }) {
+  if (state === 'complete') {
+    if (!policy.hold && policy.migrationOptIn !== '0') {
+      fail('code-only application startup requires migration opt-in explicitly closed')
+    }
+  } else if (dataPolicy === 'preserve-existing' && !policy.hold) {
+    fail('pending preserved-data migration requires migration-only hold')
+  }
+}
+
+class StagingApplicationHeld extends Error {
+  constructor() {
+    super('Migration verified; application held')
+    this.name = 'StagingApplicationHeld'
+  }
+}
+
+/** The common completion boundary also covers the already-complete early return.
+ * Verification or disconnect failures propagate unchanged and cannot claim verified hold.
+ */
+export async function withStagingApplicationHold(policy, verify) {
+  const result = await verify()
+  if (policy.hold) throw new StagingApplicationHeld()
+  return result
+}
+
+export function stagingPredeployExitClassification(error) {
+  return error instanceof StagingApplicationHeld
+    ? {
+        action: 'staging-migration.application-held',
+        errorCode: 'migration-verified-application-held',
+        exitCode: 2,
+      }
+    : {
+        action: 'staging-migration.failed',
+        errorCode: 'staging-migration-failed',
+        exitCode: 1,
+      }
 }
 
 export async function readMigrationManifest(prismaDirectory) {
@@ -156,16 +303,55 @@ export async function readMigrationManifest(prismaDirectory) {
     )
     rows.push(`${name} ${checksum}`)
   }
-  const hash = createHash('sha256')
+  const hash = manifestHash(rows)
+  return { names, checksums, ledgerChecksums, crlfLedgerChecksums, hash }
+}
+
+function manifestHash(rows) {
+  return createHash('sha256')
     .update(`${rows.join('\n')}\n`)
     .digest('hex')
-  return { names, checksums, ledgerChecksums, crlfLedgerChecksums, hash }
 }
 
 export function assertFrozenManifest(manifest) {
   if (manifest.names.length !== EXPECTED.migrationCount) fail('migration count changed')
   if (manifest.names[0] !== EXPECTED.firstMigration) fail('first migration changed')
   if (manifest.names.at(-1) !== EXPECTED.finalMigration) fail('final migration changed')
+  const expiryPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.expiryPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (expiryPredecessorHash !== EXPECTED.expiryPredecessorManifestHash) {
+    fail('expiry predecessor manifest checksum changed')
+  }
+  const websitePdfPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.websitePdfPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (websitePdfPredecessorHash !== EXPECTED.websitePdfPredecessorManifestHash) {
+    fail('website PDF predecessor manifest checksum changed')
+  }
+  const fileExtractionPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.fileExtractionPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (fileExtractionPredecessorHash !== EXPECTED.fileExtractionPredecessorManifestHash) {
+    fail('file extraction predecessor manifest checksum changed')
+  }
+  const agentQuestionOperationsPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.agentQuestionOperationsPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    agentQuestionOperationsPredecessorHash !==
+    EXPECTED.agentQuestionOperationsPredecessorManifestHash
+  ) {
+    fail('agent question operations predecessor manifest checksum changed')
+  }
   if (manifest.names[EXPECTED.baselineCount - 1] !== EXPECTED.baselineLastMigration) {
     fail('verified baseline boundary changed')
   }
@@ -240,6 +426,91 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.hostedReleaseCount - 1] !== EXPECTED.hostedReleaseFinalMigration) {
     fail('hosted release boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.campaignPredecessorCount - 1] !==
+    EXPECTED.campaignPredecessorFinalMigration
+  ) {
+    fail('campaign predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.legacyAdoptionPredecessorCount - 1] !==
+    EXPECTED.legacyAdoptionPredecessorFinalMigration
+  ) {
+    fail('legacy adoption predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.mediaResolutionPredecessorCount - 1] !==
+    EXPECTED.mediaResolutionPredecessorFinalMigration
+  ) {
+    fail('media resolution predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.mediaRelationPredecessorCount - 1] !==
+    EXPECTED.mediaRelationPredecessorFinalMigration
+  ) {
+    fail('media relation predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.prospectOnboardingPredecessorCount - 1] !==
+    EXPECTED.prospectOnboardingPredecessorFinalMigration
+  ) {
+    fail('prospect onboarding predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.governedMediaPredecessorCount - 1] !==
+    EXPECTED.governedMediaPredecessorFinalMigration
+  ) {
+    fail('governed media predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.workflowRegistryPredecessorCount - 1] !==
+    EXPECTED.workflowRegistryPredecessorFinalMigration
+  ) {
+    fail('workflow registry predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.usageObservationPredecessorCount - 1] !==
+    EXPECTED.usageObservationPredecessorFinalMigration
+  ) {
+    fail('usage observation predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.sourceMappingPredecessorCount - 1] !==
+    EXPECTED.sourceMappingPredecessorFinalMigration
+  ) {
+    fail('source mapping predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.workerLifecyclePredecessorCount - 1] !==
+    EXPECTED.workerLifecyclePredecessorFinalMigration
+  ) {
+    fail('worker lifecycle predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.questionProvenancePredecessorCount - 1] !==
+    EXPECTED.questionProvenancePredecessorFinalMigration
+  )
+    fail('question provenance predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.websiteDiscoveryPredecessorCount - 1] !==
+    EXPECTED.websiteDiscoveryPredecessorFinalMigration
+  )
+    fail('website discovery predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.websitePdfPredecessorCount - 1] !==
+    EXPECTED.websitePdfPredecessorFinalMigration
+  )
+    fail('website PDF predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.fileExtractionPredecessorCount - 1] !==
+    EXPECTED.fileExtractionPredecessorFinalMigration
+  )
+    fail('file extraction predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.agentQuestionOperationsPredecessorCount - 1] !==
+    EXPECTED.agentQuestionOperationsPredecessorFinalMigration
+  )
+    fail('agent question operations predecessor migration changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -261,6 +532,28 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.founderAbsenceCompleteCount &&
     rows.length !== EXPECTED.replyReviewPredecessorCount &&
     rows.length !== EXPECTED.hostedReleaseCount &&
+    rows.length !== EXPECTED.campaignPredecessorCount &&
+    rows.length !== EXPECTED.legacyAdoptionPredecessorCount &&
+    rows.length !== EXPECTED.mediaResolutionPredecessorCount &&
+    rows.length !== EXPECTED.mediaRelationPredecessorCount &&
+    rows.length !== EXPECTED.prospectOnboardingPredecessorCount &&
+    rows.length !== EXPECTED.governedMediaPredecessorCount &&
+    rows.length !== EXPECTED.workflowRegistryPredecessorCount &&
+    rows.length !== EXPECTED.usageObservationPredecessorCount &&
+    rows.length !== EXPECTED.promotionAssessmentPredecessorCount &&
+    rows.length !== EXPECTED.workflowActivationPredecessorCount &&
+    rows.length !== EXPECTED.intakeProcessingPredecessorCount &&
+    rows.length !== EXPECTED.intakePackagePredecessorCount &&
+    rows.length !== EXPECTED.intakeSubmissionPredecessorCount &&
+    rows.length !== EXPECTED.sourceMappingPredecessorCount &&
+    rows.length !== EXPECTED.workerLifecyclePredecessorCount &&
+    rows.length !== EXPECTED.websiteDiscoveryPredecessorCount &&
+    rows.length !== EXPECTED.questionProvenancePredecessorCount &&
+    rows.length !== EXPECTED.discussionPredecessorCount &&
+    rows.length !== EXPECTED.expiryPredecessorCount &&
+    rows.length !== EXPECTED.websitePdfPredecessorCount &&
+    rows.length !== EXPECTED.fileExtractionPredecessorCount &&
+    rows.length !== EXPECTED.agentQuestionOperationsPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -308,6 +601,40 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.founderAbsenceCompleteCount) return 'founder-absence-complete'
   if (rows.length === EXPECTED.replyReviewPredecessorCount) return 'reply-review-predecessor'
   if (rows.length === EXPECTED.hostedReleaseCount) return 'hosted-release'
+  if (rows.length === EXPECTED.campaignPredecessorCount) return 'campaign-predecessor'
+  if (rows.length === EXPECTED.legacyAdoptionPredecessorCount) return 'legacy-adoption-predecessor'
+  if (rows.length === EXPECTED.mediaResolutionPredecessorCount)
+    return 'media-resolution-predecessor'
+  if (rows.length === EXPECTED.mediaRelationPredecessorCount) return 'media-relation-predecessor'
+  if (rows.length === EXPECTED.prospectOnboardingPredecessorCount)
+    return 'prospect-onboarding-predecessor'
+  if (rows.length === EXPECTED.governedMediaPredecessorCount) return 'governed-media-predecessor'
+  if (rows.length === EXPECTED.workflowRegistryPredecessorCount)
+    return 'workflow-registry-predecessor'
+  if (rows.length === EXPECTED.usageObservationPredecessorCount)
+    return 'usage-observation-predecessor'
+  if (rows.length === EXPECTED.promotionAssessmentPredecessorCount)
+    return 'promotion-assessment-predecessor'
+  if (rows.length === EXPECTED.workflowActivationPredecessorCount)
+    return 'workflow-activation-predecessor'
+  if (rows.length === EXPECTED.intakeProcessingPredecessorCount)
+    return 'intake-processing-predecessor'
+  if (rows.length === EXPECTED.intakePackagePredecessorCount) return 'intake-package-predecessor'
+  if (rows.length === EXPECTED.intakeSubmissionPredecessorCount)
+    return 'intake-submission-predecessor'
+  if (rows.length === EXPECTED.sourceMappingPredecessorCount) return 'source-mapping-predecessor'
+  if (rows.length === EXPECTED.workerLifecyclePredecessorCount)
+    return 'worker-lifecycle-predecessor'
+  if (rows.length === EXPECTED.websiteDiscoveryPredecessorCount)
+    return 'website-discovery-predecessor'
+  if (rows.length === EXPECTED.questionProvenancePredecessorCount)
+    return 'question-provenance-predecessor'
+  if (rows.length === EXPECTED.discussionPredecessorCount) return 'discussion-predecessor'
+  if (rows.length === EXPECTED.expiryPredecessorCount) return 'expiry-predecessor'
+  if (rows.length === EXPECTED.websitePdfPredecessorCount) return 'website-pdf-predecessor'
+  if (rows.length === EXPECTED.fileExtractionPredecessorCount) return 'file-extraction-predecessor'
+  if (rows.length === EXPECTED.agentQuestionOperationsPredecessorCount)
+    return 'agent-question-operations-predecessor'
   return 'complete'
 }
 
@@ -404,7 +731,61 @@ async function assertPostMigrationIntegrity(database, manifest) {
   if (unvalidatedConstraints !== 0) fail('unvalidated public constraints remain')
 }
 
-function runPrismaDeploy(cli, schema, environment) {
+function withMigrationApplicationName(raw, marker) {
+  try {
+    if (typeof raw !== 'string' || raw.trim() !== raw || /[\u0000-\u0020\u007f]/u.test(raw)) {
+      throw new Error('invalid URL input')
+    }
+    const parsed = new URL(raw)
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+      throw new Error('invalid URL protocol')
+    }
+    // Only rewrite the named query pairs. URLSearchParams.set would also
+    // normalize unrelated credential/options encoding in the serialized URL.
+    const fragmentAt = raw.indexOf('#')
+    const beforeFragment = fragmentAt < 0 ? raw : raw.slice(0, fragmentAt)
+    const fragment = fragmentAt < 0 ? '' : raw.slice(fragmentAt)
+    const queryAt = beforeFragment.indexOf('?')
+    const prefix = queryAt < 0 ? beforeFragment : beforeFragment.slice(0, queryAt)
+    const query = queryAt < 0 ? '' : beforeFragment.slice(queryAt + 1)
+    const otherPairs = (query ? query.split('&') : []).filter((pair) => {
+      const key = pair.split('=', 1)[0]
+      return decodeURIComponent(key.replace(/\+/gu, ' ')) !== 'application_name'
+    })
+    otherPairs.push(`application_name=${encodeURIComponent(marker)}`)
+    return `${prefix}?${otherPairs.join('&')}${fragment}`
+  } catch {
+    // Do not propagate URL parser errors or their credential-bearing input.
+    throw new Error('Migration child connection URL is invalid')
+  }
+}
+
+/** Main has already admitted target, release, lineage, and backup authority.
+ * This pure child-only transform is also exercised with guarded local fixtures.
+ */
+export function createMigrationChildEnvironment(
+  environment,
+  releaseSha,
+  nonce = randomBytes(8).toString('hex'),
+) {
+  if (!/^[a-f0-9]{40}$/u.test(releaseSha ?? '') || !/^[a-f0-9]{16}$/u.test(nonce ?? '')) {
+    throw new Error('Migration child release identity or nonce is invalid')
+  }
+  const applicationName = `tkm:${releaseSha}:${nonce}`
+  return {
+    applicationName,
+    environment: {
+      ...environment,
+      DATABASE_URL: withMigrationApplicationName(environment.DATABASE_URL, applicationName),
+      DIRECT_DATABASE_URL: withMigrationApplicationName(
+        environment.DIRECT_DATABASE_URL,
+        applicationName,
+      ),
+    },
+  }
+}
+
+export function runPrismaDeploy(cli, schema, environment) {
   return new Promise((resolve, reject) => {
     const child = spawn(cli, ['migrate', 'deploy', '--schema', schema], {
       env: environment,
@@ -420,8 +801,8 @@ function runPrismaDeploy(cli, schema, environment) {
 }
 
 async function main() {
-  const admission = assertStagingMigrationAdmission(process.env)
-  assertApprovedTarget(process.env)
+  const { releaseSha } = assertStagingSchemaReadAdmission(process.env)
+  const applicationPolicy = readStagingApplicationPolicy(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
@@ -429,82 +810,118 @@ async function main() {
   assertFrozenManifest(manifest)
   console.log(`staging-migration: frozen ${EXPECTED.migrationCount}-file manifest accepted`)
 
-  const { PrismaClient } = await import('@prisma/client')
-  const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
-  try {
-    const initialLedger = await ledgerRows(database)
-    const initialState = ledgerState(initialLedger, manifest)
-    assertBackupEvidenceMatchesLedger(admission, initialLedger)
-    await assertVerifiedBaselineSchema(database, initialLedger)
-    console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
-    if (initialState === 'complete') {
-      await assertPostMigrationIntegrity(database, manifest)
-      console.log(
-        `staging-migration: already complete (${EXPECTED.migrationCount}/${EXPECTED.migrationCount}); integrity checks passed`,
-      )
-      return
-    }
+  return withStagingApplicationHold(applicationPolicy, async () => {
+    const { PrismaClient } = await import('@prisma/client')
+    const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
+    try {
+      const initialLedger = await ledgerRows(database)
+      const initialState = ledgerState(initialLedger, manifest)
+      await assertVerifiedBaselineSchema(database, initialLedger)
+      console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
+      if (initialState === 'complete') {
+        assertStagingApplicationPolicy(applicationPolicy, { state: initialState })
+        await assertPostMigrationIntegrity(database, manifest)
+        console.log(
+          `staging-migration: already complete (${EXPECTED.migrationCount}/${EXPECTED.migrationCount}); integrity checks passed`,
+        )
+        return
+      }
 
-    const beforeCounts = await publicTableCounts(database)
-    const expectedInitialTableCount =
-      initialState === 'baseline'
-        ? EXPECTED.baselinePublicTableCount
-        : initialState === 'prior-complete'
-          ? EXPECTED.priorCompletePublicTableCount
-          : initialState === 'capability-baseline'
-            ? EXPECTED.capabilityBaselinePublicTableCount
-            : initialState === 'pre-billing'
-              ? EXPECTED.preBillingPublicTableCount
-              : initialState === 'billing-foundation'
-                ? EXPECTED.billingFoundationPublicTableCount
-                : initialState === 'previous-release'
-                  ? EXPECTED.previousReleasePublicTableCount
-                  : initialState === 'b5-complete'
-                    ? EXPECTED.b5CompletePublicTableCount
-                    : initialState === 'current-staging'
-                      ? EXPECTED.currentStagingPublicTableCount
-                      : initialState === 'hosted-predecessor'
-                        ? EXPECTED.hostedPredecessorPublicTableCount
-                        : initialState === 'venue-media-predecessor'
-                          ? EXPECTED.venueMediaPredecessorPublicTableCount
-                          : initialState === 'performance-predecessor'
-                            ? EXPECTED.performancePredecessorPublicTableCount
-                            : initialState === 'founder-absence-predecessor'
-                              ? EXPECTED.founderAbsencePredecessorPublicTableCount
-                              : initialState === 'founder-absence-complete'
-                                ? EXPECTED.founderAbsenceCompletePublicTableCount
-                                : initialState === 'reply-review-predecessor'
-                                  ? EXPECTED.replyReviewPredecessorPublicTableCount
-                                  : initialState === 'hosted-release'
-                                    ? EXPECTED.hostedReleasePublicTableCount
-                                    : EXPECTED.stagingBaselinePublicTableCount
-    if (beforeCounts.size !== expectedInitialTableCount) {
-      fail(`unexpected initial public table count ${beforeCounts.size}`)
+      const admission = admitPendingStagingMigrations(process.env, initialState)
+      assertStagingApplicationPolicy(applicationPolicy, {
+        state: initialState,
+        dataPolicy: admission.dataPolicy,
+      })
+      assertBackupEvidenceMatchesLedger(admission, initialLedger)
+
+      const beforeCounts = await publicTableCounts(database)
+      const expectedInitialTableCount = expectedPublicTableCount(initialState)
+      if (beforeCounts.size !== expectedInitialTableCount) {
+        fail(`unexpected initial public table count ${beforeCounts.size}`)
+      }
+      const child = createMigrationChildEnvironment(process.env, releaseSha)
+      console.log(
+        `staging-migration: child starting release=${releaseSha} application_name=${child.applicationName}`,
+      )
+      try {
+        await runPrismaDeploy(
+          prismaCli,
+          path.join(prismaDirectory, 'schema.prisma'),
+          child.environment,
+        )
+        console.log(`staging-migration: child completed application_name=${child.applicationName}`)
+      } catch {
+        console.log(`staging-migration: child failed application_name=${child.applicationName}`)
+        throw new Error('Prisma migration child failed')
+      }
+      await assertPostMigrationIntegrity(database, manifest)
+      const afterCounts = await publicTableCounts(database)
+      for (const [table, count] of beforeCounts) {
+        if (table === '_prisma_migrations') continue
+        if (afterCounts.get(table) !== count)
+          fail(`row count changed for pre-existing table ${table}`)
+      }
+      console.log(
+        `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; ${EXPECTED.migrationCount}/${EXPECTED.migrationCount} ledger and integrity checks passed`,
+      )
+    } finally {
+      await database.$disconnect()
     }
-    await runPrismaDeploy(prismaCli, path.join(prismaDirectory, 'schema.prisma'), process.env)
-    await assertPostMigrationIntegrity(database, manifest)
-    const afterCounts = await publicTableCounts(database)
-    for (const [table, count] of beforeCounts) {
-      if (table === '_prisma_migrations') continue
-      if (afterCounts.get(table) !== count)
-        fail(`row count changed for pre-existing table ${table}`)
-    }
-    console.log(
-      `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; ${EXPECTED.migrationCount}/${EXPECTED.migrationCount} ledger and integrity checks passed`,
-    )
-  } finally {
-    await database.$disconnect()
+  })
+}
+
+export function expectedPublicTableCount(state) {
+  const counts = {
+    baseline: EXPECTED.baselinePublicTableCount,
+    'prior-complete': EXPECTED.priorCompletePublicTableCount,
+    'capability-baseline': EXPECTED.capabilityBaselinePublicTableCount,
+    'pre-billing': EXPECTED.preBillingPublicTableCount,
+    'billing-foundation': EXPECTED.billingFoundationPublicTableCount,
+    'previous-release': EXPECTED.previousReleasePublicTableCount,
+    'b5-complete': EXPECTED.b5CompletePublicTableCount,
+    'current-staging': EXPECTED.currentStagingPublicTableCount,
+    'hosted-predecessor': EXPECTED.hostedPredecessorPublicTableCount,
+    'venue-media-predecessor': EXPECTED.venueMediaPredecessorPublicTableCount,
+    'performance-predecessor': EXPECTED.performancePredecessorPublicTableCount,
+    'founder-absence-predecessor': EXPECTED.founderAbsencePredecessorPublicTableCount,
+    'founder-absence-complete': EXPECTED.founderAbsenceCompletePublicTableCount,
+    'reply-review-predecessor': EXPECTED.replyReviewPredecessorPublicTableCount,
+    'hosted-release': EXPECTED.hostedReleasePublicTableCount,
+    'campaign-predecessor': EXPECTED.campaignPredecessorPublicTableCount,
+    'legacy-adoption-predecessor': EXPECTED.legacyAdoptionPredecessorPublicTableCount,
+    'media-resolution-predecessor': EXPECTED.mediaResolutionPredecessorPublicTableCount,
+    'media-relation-predecessor': EXPECTED.mediaRelationPredecessorPublicTableCount,
+    'prospect-onboarding-predecessor': EXPECTED.prospectOnboardingPredecessorPublicTableCount,
+    'governed-media-predecessor': EXPECTED.governedMediaPredecessorPublicTableCount,
+    'workflow-registry-predecessor': EXPECTED.workflowRegistryPredecessorPublicTableCount,
+    'usage-observation-predecessor': EXPECTED.usageObservationPredecessorPublicTableCount,
+    'promotion-assessment-predecessor': EXPECTED.promotionAssessmentPredecessorPublicTableCount,
+    'staging-baseline': EXPECTED.stagingBaselinePublicTableCount,
+    'workflow-activation-predecessor': EXPECTED.workflowActivationPredecessorPublicTableCount,
+    'intake-processing-predecessor': EXPECTED.intakeProcessingPredecessorPublicTableCount,
+    'intake-package-predecessor': EXPECTED.intakePackagePredecessorPublicTableCount,
+    'intake-submission-predecessor': EXPECTED.intakeSubmissionPredecessorPublicTableCount,
+    'source-mapping-predecessor': EXPECTED.sourceMappingPredecessorPublicTableCount,
+    'worker-lifecycle-predecessor': EXPECTED.workerLifecyclePredecessorPublicTableCount,
+    'website-discovery-predecessor': EXPECTED.websiteDiscoveryPredecessorPublicTableCount,
+    'question-provenance-predecessor': EXPECTED.questionProvenancePredecessorPublicTableCount,
+    'discussion-predecessor': EXPECTED.discussionPredecessorPublicTableCount,
+    'expiry-predecessor': EXPECTED.expiryPredecessorPublicTableCount,
+    'website-pdf-predecessor': EXPECTED.websitePdfPredecessorPublicTableCount,
+    'file-extraction-predecessor': EXPECTED.fileExtractionPredecessorPublicTableCount,
+    'agent-question-operations-predecessor':
+      EXPECTED.agentQuestionOperationsPredecessorPublicTableCount,
+    complete: EXPECTED.finalPublicTableCount,
   }
+  if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
+  return counts[state]
 }
 
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 if (isMain) {
-  main().catch(async () => {
-    process.exitCode = reportOperatorCliFailure({
-      action: 'staging-migration.failed',
-      errorCode: 'staging-migration-failed',
-    })
+  main().catch(async (error) => {
+    process.exitCode = reportOperatorCliFailure(stagingPredeployExitClassification(error))
     await new Promise((resolve) => setTimeout(resolve, 2_000))
   })
 }

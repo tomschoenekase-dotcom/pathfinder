@@ -1,0 +1,37 @@
+{
+  "recordedAt": "2026-09-08T08:19:56.472092+00:00",
+  "baseCommit": "69877e2ebae3f0a1af1a7c8a224899b16b09b7e7",
+  "scope": "Founder question default priority and visible deadlines",
+  "behavior": [
+    "URGENT questions precede nonurgent blockers; nonurgent questions retain blocking, urgency, age and id ordering.",
+    "Collapsed deadlines compare dueAt against server generatedAt. Overdue does not mean expired and does not change answerability.",
+    "Explicit one-column narrow filter grid and minimum widths prevent 320px horizontal overflow."
+  ],
+  "proof": {
+    "unitTestsPassed": 3,
+    "browserTestsPassed": 1,
+    "viewports": [320, 820, 1024, 1440],
+    "axeViolations": 0,
+    "horizontalOverflow": false,
+    "targetedLint": "passed",
+    "dashboardTypecheck": "passed before independent discussion edits",
+    "rootVisualReview": "All four retained screenshots inspected; existing amber editorial treatment retained, no new branding. Native select labels can truncate at narrow control widths.",
+    "limitations": [
+      "Synthetic UI data; no database, admin authentication or live provider proof.",
+      "First browser run found 7px overflow; final retained run passed after grid correction.",
+      "Deadline labels reflect generatedAt, not a ticking client clock."
+    ]
+  },
+  "normalizedSourceSha256": {
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx": "5c651c4f391aed27699f37c7141a135fb14a7c8b0cac4bd7af0f291312ed853d",
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.test.tsx": "401be82fab2ab760f166d0af36f8896db6a6363d5a04aa2eb070c1edd3bec083",
+    "apps/dashboard/app/dev-fixtures/founder-question-priority/page.tsx": "5027f3caf40fa4b68106009c09bc3e03df7474bfc68ef7e8d42cc3078867a4ae",
+    "apps/dashboard/tests/browser/founder-question-priority.spec.ts": "c784b9390a209280880456ef4333046ca65c41819a5bef1a50f7e21bc40aeaaf"
+  },
+  "screenshots": {
+    "artifacts/founder-priority-d7544cd13877/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-desktop-1440.png": "e897bb978b5a0a47dcc535346449223832df96d15b9c8c8bc3b8e5d45617a846",
+    "artifacts/founder-priority-d7544cd13877/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-laptop-1024.png": "8f5d83b46813a6f4d0a71291a6cfa1602c90bf6c54f17851d8c88f1a8275ff0d",
+    "artifacts/founder-priority-d7544cd13877/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-phone-320.png": "089f110088d4ce7ffe7287c2a5c58b3db080a84eedb090474f7cb48e99339d92",
+    "artifacts/founder-priority-d7544cd13877/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-tablet-820.png": "ddcb4c96b7ff7509fec21da5323fb455295bad9ce35d5f2cf82f2267a90456c0"
+  }
+}

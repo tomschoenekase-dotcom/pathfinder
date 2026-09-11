@@ -4,6 +4,7 @@ import { db } from '../client'
 import { evaluateProspectSendRatePolicy } from './prospect-send-rate-policy'
 
 type Client = typeof db
+type TransactionClient = Parameters<Parameters<Client['$transaction']>[0]>[0]
 
 const TERMINAL_ITEM_STATES = [
   'SENT',
@@ -97,6 +98,35 @@ function recipientEligibility(
     currentIdentityHash === expectedIdentityHash,
   )
   return { eligible, identityChanged }
+}
+
+async function prospectReplyExistsBeforeProvider(
+  tx: Pick<TransactionClient, 'prospectEmailMessage'>,
+  sendItem: {
+    createdAt: Date
+    recipientEmailSnapshot: string
+    member: { id: string; organizationId: string; contactId: string | null; status: string }
+  },
+): Promise<boolean> {
+  if (sendItem.member.status === 'REPLIED') return true
+  const reply = await tx.prospectEmailMessage.findFirst({
+    where: {
+      organizationId: sendItem.member.organizationId,
+      direction: 'INBOUND',
+      createdAt: { gte: sendItem.createdAt },
+      OR: [
+        {
+          fromAddress: { equals: sendItem.recipientEmailSnapshot, mode: 'insensitive' },
+        },
+        {
+          thread: { messages: { some: { sendItem: { memberId: sendItem.member.id } } } },
+        },
+        ...(sendItem.member.contactId ? [{ contactId: sendItem.member.contactId }] : []),
+      ],
+    },
+    select: { id: true },
+  })
+  return Boolean(reply)
 }
 
 export async function finalizeProspectSendBatch(
@@ -341,6 +371,33 @@ export async function claimProspectSendOutboxAction(
       })
       return { send: null, terminalBatchId: sendItem.batchId }
     }
+    if (await prospectReplyExistsBeforeProvider(tx, sendItem)) {
+      const ambiguous = operation.attemptCount > 1
+      const replyCode = ambiguous
+        ? 'REPLY_RECEIVED_AFTER_PRIOR_ATTEMPT'
+        : 'REPLY_RECEIVED_BEFORE_PROVIDER'
+      const replyMessage = ambiguous
+        ? 'An inbound reply was recorded after a prior provider attempt; delivery outcome is ambiguous'
+        : 'An inbound reply was recorded before provider delivery'
+      await tx.prospectSendOutbox.update({
+        where: { id: operation.id },
+        data: {
+          status: ambiguous ? 'AMBIGUOUS' : 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: replyCode,
+          lastErrorMessage: replyMessage,
+          lastErrorRetryable: false,
+          ambiguousSince: ambiguous ? now : null,
+        },
+      })
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: { status: ambiguous ? 'AMBIGUOUS' : 'CANCELLED', lastErrorCode: replyCode },
+      })
+      return { send: null, terminalBatchId: sendItem.batchId }
+    }
     if (!providerAccount.credentialReferenceId) {
       await tx.prospectSendOutbox.update({
         where: { id: operation.id },
@@ -399,8 +456,8 @@ export async function revalidateProspectSendOutboxClaimAction(
   input: { outboxId: string; workerId: string; now?: Date },
   client: Client = db,
 ): Promise<boolean> {
-  const now = input.now ?? new Date()
-  return client.$transaction(async (tx) => {
+  let terminalBatchId: string | null = null
+  const allowed = await client.$transaction(async (tx) => {
     const [control, operation] = await Promise.all([
       tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } }),
       tx.prospectSendOutbox.findUnique({
@@ -430,6 +487,7 @@ export async function revalidateProspectSendOutboxClaimAction(
         },
       }),
     ])
+    const now = input.now ?? new Date()
     if (
       !operation ||
       operation.status !== 'CLAIMED' ||
@@ -450,8 +508,13 @@ export async function revalidateProspectSendOutboxClaimAction(
       sendItem.batch.campaign.pausedAt ||
       sendItem.batch.campaign.status === 'CANCELLED'
     ) {
-      await tx.prospectSendOutbox.update({
-        where: { id: operation.id },
+      const stopped = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: now },
+        },
         data: {
           status: 'CANCELLED',
           terminalAt: now,
@@ -462,10 +525,12 @@ export async function revalidateProspectSendOutboxClaimAction(
           lastErrorRetryable: false,
         },
       })
+      if (stopped.count !== 1) return false
       await tx.prospectSendItem.update({
         where: { id: sendItem.id },
         data: { status: 'CANCELLED', lastErrorCode: 'DELIVERY_STOPPED_BEFORE_PROVIDER' },
       })
+      terminalBatchId = sendItem.batchId
       return false
     }
     const eligibility = recipientEligibility(
@@ -473,8 +538,13 @@ export async function revalidateProspectSendOutboxClaimAction(
       sendItem.recipientIdentityHash,
     )
     if (!eligibility.eligible) {
-      await tx.prospectSendOutbox.update({
-        where: { id: operation.id },
+      const stopped = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: now },
+        },
         data: {
           status: 'SUPPRESSED',
           terminalAt: now,
@@ -487,6 +557,7 @@ export async function revalidateProspectSendOutboxClaimAction(
           lastErrorRetryable: false,
         },
       })
+      if (stopped.count !== 1) return false
       await tx.prospectSendItem.update({
         where: { id: sendItem.id },
         data: {
@@ -497,10 +568,51 @@ export async function revalidateProspectSendOutboxClaimAction(
           lastErrorMessage: 'Recipient eligibility changed after claim and before provider call',
         },
       })
+      terminalBatchId = sendItem.batchId
+      return false
+    }
+    const replyExists = await prospectReplyExistsBeforeProvider(tx, sendItem)
+    const replyCheckedAt = input.now ?? new Date()
+    // A slow reply lookup must not return permission to dispatch after this lease expired.
+    if (operation.claimExpiresAt <= replyCheckedAt) return false
+    if (replyExists) {
+      const ambiguous = operation.attemptCount > 1
+      const replyCode = ambiguous
+        ? 'REPLY_RECEIVED_AFTER_PRIOR_ATTEMPT'
+        : 'REPLY_RECEIVED_BEFORE_PROVIDER'
+      const replyMessage = ambiguous
+        ? 'An inbound reply was recorded after a prior provider attempt; delivery outcome is ambiguous'
+        : 'An inbound reply was recorded before provider delivery'
+      const cancelled = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: replyCheckedAt },
+        },
+        data: {
+          status: ambiguous ? 'AMBIGUOUS' : 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: replyCode,
+          lastErrorMessage: replyMessage,
+          lastErrorRetryable: false,
+          ambiguousSince: ambiguous ? now : null,
+        },
+      })
+      if (cancelled.count !== 1) return false
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: { status: ambiguous ? 'AMBIGUOUS' : 'CANCELLED', lastErrorCode: replyCode },
+      })
+      terminalBatchId = sendItem.batchId
       return false
     }
     return true
   })
+  if (terminalBatchId) await finalizeProspectSendBatch(terminalBatchId, client)
+  return allowed
 }
 
 export async function recordProspectSendFailureAction(

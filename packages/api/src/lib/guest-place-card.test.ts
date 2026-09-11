@@ -39,7 +39,7 @@ describe('buildGuestPlaceCards', () => {
     ])
   })
 
-  it('preserves safe live-location presentation data only for valid coordinate pairs', () => {
+  it('preserves live-location data without treating a legacy URL as photo approval', () => {
     const [card] = buildGuestPlaceCards({
       assistantResponse: 'Try Elephant House next.',
       hasLiveLocation: true,
@@ -47,7 +47,7 @@ describe('buildGuestPlaceCards', () => {
     })
 
     expect(card).toMatchObject({
-      photoUrl: 'https://images.example.com/elephants.jpg',
+      photoUrl: null,
       distanceMeters: 125,
       lat: 40.7,
       lng: -74,
@@ -59,6 +59,31 @@ describe('buildGuestPlaceCards', () => {
       places: [{ ...elephantHouse, lat: 95, lng: null, distanceMeters: -1 }],
     })
     expect(invalid).toMatchObject({ distanceMeters: undefined, lat: null, lng: null })
+  })
+
+  it('keeps grounded text for a mentioned place and omits unrelated place media', () => {
+    const cards = buildGuestPlaceCards({
+      assistantResponse: 'Elephant House is open until 4 PM.',
+      hasLiveLocation: true,
+      places: [
+        elephantHouse,
+        {
+          ...elephantHouse,
+          id: 'place_2',
+          name: 'Reptile House',
+          photoUrl: 'https://images.example.com/internal-review-evidence.jpg',
+        },
+      ],
+    })
+
+    expect(cards).toEqual([
+      expect.objectContaining({
+        id: 'place_1',
+        shortDescription: 'Meet the herd and learn about their care.',
+        hours: '9 AM-4 PM',
+        photoUrl: null,
+      }),
+    ])
   })
 
   it('uses exact name boundaries, preserves retrieval order, and caps cards at three', () => {

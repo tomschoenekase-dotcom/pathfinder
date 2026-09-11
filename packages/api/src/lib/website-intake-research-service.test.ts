@@ -13,6 +13,15 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
 const recordReceipt = vi.mocked(recordWebsiteResearchReceiptAction)
 const operationId = '568c2e1a-8ece-47ad-98dc-e4bde64872ca'
 const now = new Date('2026-08-25T22:00:00.000Z')
+// Frozen SHA-256 of the pre-v2 stable canonical request material for request().
+// This literal is retained from the pre-change hash contract for replay coverage.
+const LEGACY_REQUEST_HASH = '41305b6ebaf1e3809ea10c4deed2103fa59ec574b09a6aea5ac8a3d42d101f57'
+const COST_V2_REQUEST_HASH = '0f271febdbebb15d1283e5aef7e16447de1be923a2e59e1509ff68b50ae301b0'
+const COLLECTION_V1_REQUEST_HASH =
+  '1098bf768795b610455e6bdd9e6f99fc3dccf38f2c5414790dcbff27f92802e1'
+
+const COLLECTION_V2_REQUEST_HASH =
+  '4a649f5f57d061e87ce5209f382f2fab1f7a9bf57fe54280c59b0a07cb404161'
 
 function request() {
   return {
@@ -108,15 +117,55 @@ describe('website intake research execution', () => {
         fetchedPages: 1,
         estimatedCostUnits: 2,
         candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+        discoverySnapshot: expect.objectContaining({ policyVersion: 2 }),
       }),
       expect.anything(),
     )
+    expect(recordReceipt.mock.calls[0]?.[0].researchSnapshot).not.toHaveProperty('discovery')
     expect(result).toMatchObject({
       packageDraftCreated: false,
       autoApproved: false,
       autoApplied: false,
       autoPublished: false,
     })
+  })
+
+  it('persists prose as review material with no fabricated canonical evidence', async () => {
+    const deps = dependencies()
+    deps.extractPage = vi.fn(async () => ({
+      links: [],
+      facts: [],
+      readableText: 'The quiet room is beside the east entrance.',
+      extractionProfile: 'static-html-v1' as const,
+    }))
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: request(),
+      dependencies: deps,
+      now: () => now,
+    })
+    const retained = recordReceipt.mock.calls[0]?.[0]
+    expect(retained).toMatchObject({
+      outcome: 'SUCCEEDED',
+      evidence: [],
+      discrepancies: [],
+      candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+      researchSnapshot: {
+        citations: [],
+        evidence: [],
+        discrepancies: [],
+        pageTextEvidence: [
+          {
+            sourceUrl: 'https://example.org/',
+            text: 'The quiet room is beside the east entrance.',
+            extractionProfile: 'static-html-v1',
+            truncated: false,
+          },
+        ],
+      },
+    })
+    expect(retained?.requestHash).toBe(COLLECTION_V2_REQUEST_HASH)
+    expect(retained?.researchSnapshot).not.toHaveProperty('discovery')
   })
 
   it('replays an exact operation before performing network work', async () => {
@@ -202,5 +251,235 @@ describe('website intake research execution', () => {
     expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('top-secret')
     expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('user:secret')
     expect(recordReceipt.mock.calls[0]?.[0]).not.toHaveProperty('errorMessage')
+  })
+
+  it('replays a pre-v2 legacy hash without fetch or receipt writes', async () => {
+    const deps = dependencies()
+    const db = database({
+      existing: {
+        id: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestHash: LEGACY_REQUEST_HASH,
+        priorReceiptId: null,
+        sourceUriHash: '8198d1bac40a1033653a78e48800cefc9e6b974ff075c66e5548b5c1e145a2b0',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: now,
+      },
+    })
+
+    await expect(
+      executeWebsiteIntakeResearch({ db: db as never, request: request(), dependencies: deps }),
+    ).resolves.toMatchObject({ replayed: true, outcome: 'SUCCEEDED' })
+    expect(deps.fetchPage).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
+  })
+
+  it('replays the frozen cost-v2 hash without fetch or receipt writes', async () => {
+    const deps = dependencies()
+    const db = database({
+      existing: {
+        id: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestHash: COST_V2_REQUEST_HASH,
+        priorReceiptId: null,
+        sourceUriHash: '8198d1bac40a1033653a78e48800cefc9e6b974ff075c66e5548b5c1e145a2b0',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: now,
+      },
+    })
+
+    await expect(
+      executeWebsiteIntakeResearch({ db: db as never, request: request(), dependencies: deps }),
+    ).resolves.toMatchObject({ replayed: true, outcome: 'SUCCEEDED' })
+    expect(deps.fetchPage).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
+  })
+  it('replays the frozen collection-v1 hash without fetch or receipt writes', async () => {
+    const deps = dependencies()
+    const db = database({
+      existing: {
+        id: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestHash: COLLECTION_V1_REQUEST_HASH,
+        priorReceiptId: null,
+        sourceUriHash: '8198d1bac40a1033653a78e48800cefc9e6b974ff075c66e5548b5c1e145a2b0',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: now,
+      },
+    })
+
+    await expect(
+      executeWebsiteIntakeResearch({ db: db as never, request: request(), dependencies: deps }),
+    ).resolves.toMatchObject({ replayed: true, outcome: 'SUCCEEDED' })
+    expect(deps.fetchPage).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['maxCostUnits', { maxCostUnits: 21 }],
+    ['scope', { venueId: 'venue-b' }],
+  ])('rejects legacy replay when %s changes', async (_label, change) => {
+    const deps = dependencies()
+    const db = database({
+      existing: {
+        id: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestHash: LEGACY_REQUEST_HASH,
+        priorReceiptId: null,
+        sourceUriHash: '8198d1bac40a1033653a78e48800cefc9e6b974ff075c66e5548b5c1e145a2b0',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: now,
+      },
+    })
+    await expect(
+      executeWebsiteIntakeResearch({
+        db: db as never,
+        request: { ...request(), ...change },
+        dependencies: deps,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(deps.fetchPage).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
+  })
+
+  it('uses the frozen collection-v2 hash for a newly executed receipt', async () => {
+    const deps = dependencies()
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: request(),
+      dependencies: deps,
+    })
+    expect(recordReceipt.mock.calls[0]?.[0].requestHash).toBe(COLLECTION_V2_REQUEST_HASH)
+  })
+
+  it('retains a complete unsupported discovery inventory without claiming extracted success', async () => {
+    const deps = dependencies()
+    deps.fetchPage = vi.fn(async () => ({
+      status: 200,
+      headers: { 'content-type': 'application/pdf' },
+      body: new Uint8Array([1, 2, 3]),
+    }))
+
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: request(),
+      dependencies: deps,
+      now: () => now,
+    })
+
+    expect(deps.extractPage).not.toHaveBeenCalled()
+    expect(recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'INACCESSIBLE',
+        errorCode: 'NO_ACCESSIBLE_PAGES',
+        evidence: [],
+        discrepancies: [],
+        attemptedFetches: 1,
+        fetchedPages: 0,
+        fetchedBytes: 3,
+        discoverySnapshot: expect.objectContaining({
+          policyVersion: 2,
+          items: [
+            expect.objectContaining({
+              url: 'https://example.org/',
+              disposition: 'UNSUPPORTED_DOCUMENT',
+              byteSize: 3,
+            }),
+          ],
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(recordReceipt.mock.calls[0]?.[0]).not.toHaveProperty('researchSnapshot')
+  })
+
+  it('reserves one engineering cost unit before each redirect fetch and retains the blocked attempt work', async () => {
+    const deps = dependencies()
+    deps.fetchPage = vi.fn(async () => ({
+      status: 302,
+      headers: { location: '/next' },
+      body: '',
+    }))
+
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: { ...request(), maxPages: 1, maxCostUnits: 1 },
+      dependencies: deps,
+      now: () => now,
+    })
+
+    expect(deps.fetchPage).toHaveBeenCalledOnce()
+    expect(recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'FAILED',
+        errorCode: 'COST_LIMIT',
+        attemptedFetches: 1,
+        fetchedPages: 0,
+        fetchedBytes: 0,
+        estimatedCostUnits: 1,
+      }),
+      expect.anything(),
+    )
+  })
+
+  it.each([
+    ['an HTTP failure', async () => ({ status: 503, headers: {}, body: '' })],
+    ['a thrown fetch', async () => Promise.reject(new Error('transport failed'))],
+  ])('retains one attempt unit when %s prevents page extraction', async (_label, fetchPage) => {
+    const deps = dependencies()
+    deps.fetchPage = vi.fn(fetchPage)
+
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: { ...request(), maxCostUnits: 1 },
+      dependencies: deps,
+      now: () => now,
+    })
+
+    expect(recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptedFetches: 1,
+        fetchedPages: 0,
+        fetchedBytes: 0,
+        estimatedCostUnits: 1,
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('charges observed successful body bytes once after reserving the fetch attempt', async () => {
+    const deps = dependencies()
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: { ...request(), maxCostUnits: 1 },
+      dependencies: deps,
+      now: () => now,
+    })
+
+    expect(deps.fetchPage).toHaveBeenCalledOnce()
+    expect(deps.extractPage).not.toHaveBeenCalled()
+    expect(recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'FAILED',
+        errorCode: 'COST_LIMIT',
+        attemptedFetches: 1,
+        fetchedPages: 0,
+        fetchedBytes: Buffer.byteLength('<title>Example Hall</title>', 'utf8'),
+        estimatedCostUnits: 2,
+      }),
+      expect.anything(),
+    )
   })
 })

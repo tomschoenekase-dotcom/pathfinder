@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 import {
   AgentOutcomeActionError,
@@ -45,6 +46,143 @@ function created() {
 }
 
 describe('agent outcome actions', () => {
+  it('snapshots an exact answered question revision without copying answer or answerer', async () => {
+    const updatedAt = new Date('2026-09-08T12:00:00.000Z')
+    const answeredAt = new Date('2026-09-08T11:59:00.000Z')
+    const answer = 'The verified counterexample includes café access.'
+    const outcome = {
+      ...created(),
+      sourceQuestionId: 'question-1',
+      sourceQuestionUpdatedAt: updatedAt,
+      sourceAnsweredAt: answeredAt,
+      sourceAnswerSha256: createHash('sha256').update(answer, 'utf8').digest('hex'),
+    }
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'question-1' }]),
+      agentOutcomeObservation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(outcome),
+      },
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          agentIdentityId: 'agent-1',
+          runType: 'research',
+          modelProvider: 'hermes-bridge',
+          modelName: 'researcher',
+        }),
+      },
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'question-1',
+          updatedAt,
+          answer,
+          answeredById: 'operator-2',
+          answeredAt,
+        }),
+      },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+
+    const result = await recordAgentOutcomeAction(
+      { ...input, sourceQuestion: { questionId: 'question-1', expectedUpdatedAt: updatedAt } },
+      client(transaction) as never,
+    )
+
+    expect(result).toMatchObject(outcome)
+    const data = transaction.agentOutcomeObservation.create.mock.calls[0]![0].data
+    expect(data).toMatchObject({
+      sourceQuestionId: 'question-1',
+      sourceQuestionUpdatedAt: updatedAt,
+      sourceAnsweredAt: answeredAt,
+      sourceAnswerSha256: createHash('sha256').update(answer, 'utf8').digest('hex'),
+    })
+    expect(data).not.toHaveProperty('answer')
+    expect(data).not.toHaveProperty('answeredById')
+    expect(transaction.agentQuestion.findFirst.mock.calls[0]![0].where).toMatchObject({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentRunId: 'run-1',
+      agentIdentityId: 'agent-1',
+      status: 'ANSWERED',
+      updatedAt,
+    })
+  })
+
+  it('rejects stale, unanswered, cross-scope, or cross-identity source questions', async () => {
+    const updatedAt = new Date('2026-09-08T12:00:00.000Z')
+    const transaction = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 'run-1' }])
+        .mockResolvedValueOnce([{ id: 'question-1' }]),
+      agentOutcomeObservation: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          agentIdentityId: 'agent-1',
+          runType: 'research',
+          modelProvider: null,
+          modelName: null,
+        }),
+      },
+      agentQuestion: { findFirst: vi.fn().mockResolvedValue(null) },
+    }
+    await expect(
+      recordAgentOutcomeAction(
+        { ...input, sourceQuestion: { questionId: 'question-1', expectedUpdatedAt: updatedAt } },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(transaction.agentQuestion.findFirst.mock.calls[0]![0].where).toMatchObject({
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.agentRunId,
+      agentIdentityId: 'agent-1',
+      status: 'ANSWERED',
+      updatedAt,
+    })
+  })
+
+  it('replays source provenance before looking up a mutable question', async () => {
+    const updatedAt = new Date('2026-09-08T12:00:00.000Z')
+    const outcome = {
+      ...created(),
+      sourceQuestionId: 'question-1',
+      sourceQuestionUpdatedAt: updatedAt,
+      sourceAnsweredAt: new Date('2026-09-08T11:59:00.000Z'),
+      sourceAnswerSha256: 'a'.repeat(64),
+    }
+    const transaction = {
+      agentOutcomeObservation: { findFirst: vi.fn().mockResolvedValue(outcome) },
+      agentRun: { findFirst: vi.fn() },
+      agentQuestion: { findFirst: vi.fn() },
+      $queryRaw: vi.fn(),
+    }
+    await expect(
+      recordAgentOutcomeAction(
+        { ...input, sourceQuestion: { questionId: 'question-1', expectedUpdatedAt: updatedAt } },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true, sourceQuestionId: 'question-1' })
+    expect(transaction.$queryRaw).not.toHaveBeenCalled()
+    expect(transaction.agentQuestion.findFirst).not.toHaveBeenCalled()
+
+    await expect(
+      recordAgentOutcomeAction(
+        {
+          ...input,
+          sourceQuestion: {
+            questionId: 'question-1',
+            expectedUpdatedAt: new Date(updatedAt.getTime() + 1),
+          },
+        },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
   it('records explicit outcome evidence with frozen run and model identity', async () => {
     const outcome = created()
     const transaction = {

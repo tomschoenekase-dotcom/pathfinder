@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { env } from '@pathfinder/config'
+import { logger } from '@pathfinder/config/logger'
 
 import {
   appendSupportMessageAction,
@@ -60,6 +61,7 @@ const clientMessageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  completionOutcome: true,
   createdAt: true,
   attachments: {
     select: {
@@ -152,7 +154,7 @@ function serializeClientRequest<
     participantIsCurrentUser: participants.some(
       (participant) => participant.userId === actor.actorId && participant.revokedAt === null,
     ),
-    canReply: authorized && request.status !== 'COMPLETED' && request.status !== 'CANCELLED',
+    canReply: authorized && request.status !== 'CANCELLED',
   }
 }
 
@@ -494,8 +496,7 @@ export const supportRouter = router({
             ...clientRequest,
             requesterIsCurrentUser: true,
             participantIsCurrentUser: false,
-            canReply:
-              result.request.status !== 'COMPLETED' && result.request.status !== 'CANCELLED',
+            canReply: result.request.status !== 'CANCELLED',
           },
           message: serializeClientMessage(result.message, actor.actorId),
           replayed: result.replayed,
@@ -533,6 +534,7 @@ export const supportRouter = router({
         return {
           message: serializeClientMessage(result.message, actor.actorId),
           clientVersion: result.clientVersion,
+          status: result.status,
           replayed: result.replayed,
         }
       } catch (error) {
@@ -568,29 +570,50 @@ export const supportRouter = router({
           },
           ctx.db,
         )
-        const dispatch =
-          resume.runEligibleToResume && resume.agentRunId && resume.questionId
-            ? await enqueueAgentRun(
+        let dispatchStatus: 'NOT_NEEDED' | 'DISABLED' | 'ENQUEUED' | 'UNCONFIRMED' = 'NOT_NEEDED'
+        if (resume.runEligibleToResume && resume.agentRunId && resume.questionId) {
+          dispatchStatus = 'DISABLED'
+          if (env.AGENT_RUNNER_ENABLED) {
+            try {
+              const dispatch = await enqueueAgentRun(
                 { tenantId: ctx.session.activeTenantId, runId: resume.agentRunId },
-                {
-                  enabled: env.AGENT_RUNNER_ENABLED,
-                  dispatchKey: `client-answer-${resume.questionId}`,
-                },
+                { enabled: true, dispatchKey: `client-answer-${resume.questionId}` },
               )
-            : { enqueued: false }
+              dispatchStatus = dispatch.enqueued ? 'ENQUEUED' : 'UNCONFIRMED'
+            } catch {
+              // The client reply and linked question resumption have committed. A lost queue
+              // acknowledgement must not make that durable response appear to have failed.
+              dispatchStatus = 'UNCONFIRMED'
+              logger.warn({
+                action: 'support.onboarding-resume.dispatch.unconfirmed',
+                tenantId: ctx.session.activeTenantId,
+                venueId: input.venueId,
+              })
+            }
+          }
+        }
         return {
           ...result,
           message: serializeClientMessage(result.message, actor.actorId),
           onboardingResume: {
             linked: resume.linked,
             replayed: resume.replayed,
-            executionTriggered: dispatch.enqueued,
+            ...('questionExpired' in resume && resume.questionExpired
+              ? { questionExpired: true as const }
+              : {}),
+            executionTriggered: dispatchStatus === 'ENQUEUED',
+            dispatchStatus,
           },
         }
       } catch (error) {
         if (error instanceof OnboardingQuestionActionError)
           throw new TRPCError({
-            code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+            code:
+              error.code === 'EXPIRED'
+                ? 'PRECONDITION_FAILED'
+                : error.code === 'INVALID_INPUT'
+                  ? 'BAD_REQUEST'
+                  : error.code,
             message: error.message,
           })
         return supportActionError(error)

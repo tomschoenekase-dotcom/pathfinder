@@ -1,13 +1,22 @@
 import Link from 'next/link'
+import type { CSSProperties } from 'react'
+import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
+import styles from './venue-arrival.module.css'
 import type { PublicVenueMediaItem } from '@pathfinder/contracts'
 
 import { selectVenueMediaForPresentation } from '../lib/venue-media-presentation'
 import { VenueMediaShowcase } from './VenueMediaShowcase'
+import { VenueBrandingImage } from './VenueBrandingImage'
 
 export type VenueArrivalSummary = {
   name: string
   description: string | null
   category: string | null
+  chatTheme?: string | null
+  chatAccentColor?: string | null
+  chatFont?: string | null
+  chatLogoUrl?: string | null
+  chatBannerUrl?: string | null
 }
 
 export function VenueArrival({
@@ -24,53 +33,76 @@ export function VenueArrival({
   const presentedMedia = selectVenueMediaForPresentation(media)
   const hasMedia = presentedMedia.length > 0
 
+  const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
+  const font =
+    CHAT_FONT_OPTIONS.find((item) => item.value === venue.chatFont) ?? CHAT_FONT_OPTIONS[0]!
+  const theme = {
+    '--arrival-bg': palette.bg,
+    '--arrival-text': palette.text,
+    '--arrival-muted': palette.textMuted,
+    '--arrival-border': palette.border,
+    '--arrival-accent': palette.accent,
+    '--arrival-contrast': palette.accentContrast,
+    fontFamily: `var(${font.cssVar})`,
+  } as CSSProperties
+
   return (
-    <main className="min-h-screen bg-pf-surface px-4 py-8 sm:px-6 sm:py-12 lg:py-16">
-      <section
-        className={`mx-auto grid w-full max-w-6xl items-center gap-8 lg:gap-14 ${hasMedia ? 'lg:grid-cols-[minmax(0,1.15fr)_minmax(22rem,.85fr)]' : 'min-h-[calc(100vh-8rem)] max-w-2xl'}`}
-      >
-        {hasMedia ? <VenueMediaShowcase venueName={venue.name} items={presentedMedia} /> : null}
-
-        <div className="min-w-0 border-t border-pf-light pt-7 lg:border-l lg:border-t-0 lg:py-8 lg:pl-12">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="h-px w-8 bg-pf-primary/45" aria-hidden="true" />
-            {venue.category ? (
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
-                {venue.category}
-              </span>
-            ) : null}
-          </div>
-
-          <h1 className="mt-5 text-4xl font-light tracking-tight text-pf-deep sm:text-5xl">
-            {venue.name}
-          </h1>
-          <p className="mt-4 text-base leading-7 text-pf-deep/60">
-            {venue.description ?? 'Ask your guide where to go, what to see, and what to do next.'}
-          </p>
-
-          <div className="mt-8">
-            <Link
-              href={`/${venueSlug}/chat`}
-              className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-pf-primary px-7 text-sm font-semibold text-white transition hover:bg-pf-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-pf-primary sm:w-auto"
-            >
-              Open your guide &rarr;
-            </Link>
-          </div>
-
-          {mediaStatus === 'unavailable' ? (
-            <p className="mt-5 text-xs leading-5 text-pf-deep/55" role="status">
-              Venue photos are temporarily unavailable. Your guide is ready.
-            </p>
+    <main className={styles.page} style={theme}>
+      <div className={styles.layout}>
+        <header className={styles.identity}>
+          <span className={styles.category}>{venue.category || 'Welcome'}</span>
+          {venue.chatLogoUrl ? (
+            <VenueBrandingImage src={venue.chatLogoUrl} className={styles.wordmark!} />
           ) : null}
-
-          <p className="mt-8 text-xs text-pf-deep/40">
-            Powered by{' '}
-            <Link href="/" className="font-medium hover:text-pf-primary">
-              Torchiko
+        </header>
+        <div className={hasMedia ? styles.withMedia : undefined}>
+          <section className={styles.intro}>
+            <p className={styles.eyebrow}>Your AI visitor guide</p>
+            <h1 className={styles.title}>{venue.name}</h1>
+            <p className={styles.description}>
+              {venue.description ?? 'Ask your guide where to go, what to see, and what to do next.'}
+            </p>
+            <Link href={`/${venueSlug}/chat`} className={styles.action}>
+              <span>Open your guide</span>
+              <span className={styles.arrow} aria-hidden="true">
+                ↗
+              </span>
             </Link>
-          </p>
+            {venue.chatBannerUrl ? (
+              <VenueBrandingImage src={venue.chatBannerUrl} className={styles.banner!} />
+            ) : null}
+            <nav className={styles.entryQuestions} aria-label="Start with a question">
+              <p>Or, start with a question</p>
+              {[
+                'What should I see first?',
+                'Help me plan my visit.',
+                'What makes this place special?',
+              ].map((prompt) => (
+                <Link key={prompt} href={`/${venueSlug}/chat?prompt=${encodeURIComponent(prompt)}`}>
+                  <span>{prompt}</span>
+                  <span aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </nav>
+            {mediaStatus === 'unavailable' ? (
+              <p className={styles.notice} role="status">
+                Venue photos are temporarily unavailable. Your guide is ready.
+              </p>
+            ) : null}
+          </section>
+          {hasMedia ? (
+            <div className={styles.media}>
+              <VenueMediaShowcase venueName={venue.name} items={presentedMedia} compact />
+            </div>
+          ) : null}
         </div>
-      </section>
+        <footer className={styles.footer}>
+          <span>No app to install.</span>
+          <span>
+            Powered by <Link href="/">Torchiko</Link>
+          </span>
+        </footer>
+      </div>
     </main>
   )
 }

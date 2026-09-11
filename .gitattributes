@@ -1,2 +1,5 @@
 # Character hashes are calculated from canonical bytes and must be checkout-stable.
 assets/characters/** text eol=lf
+packages/character-factory/fixtures/**/*.svg text eol=lf
+# Benchmark source hashes bind exact file bytes, including text-like PDF streams.
+scripts/fixtures/media-fusion-v1/**/sources/* binary

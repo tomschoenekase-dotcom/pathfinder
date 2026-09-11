@@ -24,6 +24,7 @@ const guestTurnActions = vi.hoisted(() => ({
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
+  readAdjacentIdentity: vi.fn(),
 }))
 vi.mock('@pathfinder/db', () => ({
   GuestChatTurnActionError: class GuestChatTurnActionError extends Error {},
@@ -72,6 +73,7 @@ vi.mock('@pathfinder/db', () => ({
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
+  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
   publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   readActiveUnhealthyAiProviders: vi.fn().mockResolvedValue([]),
 }))
@@ -91,9 +93,11 @@ const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
+const voiceTranscriptSegmentFindMany = vi.fn().mockResolvedValue([])
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
+const venueKnowledgeEntryFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   visitorSession: { upsert: sessionUpsert },
@@ -102,7 +106,9 @@ const mockDb = {
   aiUsageEvent: { create: aiUsageEventCreate },
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
+  voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
   operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
+  venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
 
@@ -183,6 +189,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
   guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
   guestTurnActions.skip.mockResolvedValue({ skipped: true })
   guestTurnActions.observe.mockResolvedValue({ observed: true })
+  guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
   guestTurnActions.finalize.mockImplementation(async ({ input }) => ({
     state: 'COMPLETE',
     turnId: input.turnId,
@@ -203,6 +210,8 @@ function lowConfidenceCalls() {
 describe('chat.send low-confidence flag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    venueKnowledgeEntryFindMany.mockResolvedValue([])
+    voiceTranscriptSegmentFindMany.mockResolvedValue([])
     _setAnthropicClientForTesting(mockAnthropicClient)
   })
 

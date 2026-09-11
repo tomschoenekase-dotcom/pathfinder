@@ -1,0 +1,93 @@
+{
+  "recordedAt": "2026-09-08T07:23:29.925083+00:00",
+  "baseHead": "a5b350e8b50703a4b74690ef9f58867969438826",
+  "scope": "P01-03: retain already-client-visible canonical question rationale and project it into the existing remote onboarding question cards.",
+  "behavior": [
+    "Preserves legacy onboardingQuestion=true marker; adds versioned sibling context with why, optional prior findings and effect.",
+    "Portal requires canonical marker and strict bounded version1 context; legacy, malformed, unknown-version, extra-key and unmarked artifacts expose no context.",
+    "Existing three-card limit and exact venue/request/return support link retained. Complete long source references wrap; uncertainty guidance invites follow-up without promising semantic detection."
+  ],
+  "verification": {
+    "canonicalDbTests": 4,
+    "portalApiTests": 6,
+    "componentTests": 14,
+    "integratedApiRegression": "44 passed across six changed/related router suites",
+    "typecheck": "Final API and dashboard types passed after separate answer-form narrowing fix",
+    "lint": "Owned sources passed",
+    "visual": "Four viewport checks at320/820/1024/1440; scoped Axe0, exact body width, reduced motion; root inspected4 question-section screenshots plus full phone/desktop."
+  },
+  "sourceHashes": [
+    {
+      "source": "apps/dashboard/app/dev-fixtures/remote-onboarding/page.tsx",
+      "sha256NormalizedLF": "022358e062175008d3585248bc3cdebbcb559a8891957a99d21016c921557d12"
+    },
+    {
+      "source": "apps/dashboard/components/RemoteOnboardingJourney.module.css",
+      "sha256NormalizedLF": "82d8da12640faea003f5ab8f666d2f593f03cf133abb9a9a9a2fbd00cdeeb301"
+    },
+    {
+      "source": "apps/dashboard/components/RemoteOnboardingJourney.test.tsx",
+      "sha256NormalizedLF": "1d6d4b57636fbb593c99a84cf8cb769080f9dfb09e8ad3dfade44c058833a9f7"
+    },
+    {
+      "source": "apps/dashboard/components/RemoteOnboardingJourney.tsx",
+      "sha256NormalizedLF": "e8aa8ef65659592e2498e37da9751c352b400083578b1483aaae71581485c275"
+    },
+    {
+      "source": "packages/api/src/routers/portal-onboarding.test.ts",
+      "sha256NormalizedLF": "4a644a39c27c283e6011caf9e0f8f54d403b5e545bdd3df73ba1e7f2342e76e0"
+    },
+    {
+      "source": "packages/api/src/routers/portal.ts",
+      "sha256NormalizedLF": "ec896023ea197cf2a646c5177fdcea767e784f360535afb0e7a9c07ab40e5c56"
+    },
+    {
+      "source": "packages/db/src/helpers/onboarding-question-actions.test.ts",
+      "sha256NormalizedLF": "dcf46f8a38e6566f21295f92fcee304d49694814a4b4f8161094a24740a94e72"
+    },
+    {
+      "source": "packages/db/src/helpers/onboarding-question-actions.ts",
+      "sha256NormalizedLF": "3327f855a6ad5db41ffaa1d1b4f8bd485d51dcedff1a585533840ec3999f96e3"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\phone-320-page.png",
+      "sha256": "325c14f997c955245a060cde9e193974d06d14c58d8be0159528912e4699f0f5"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\phone-320-questions.png",
+      "sha256": "297192f327741ac4176ba46e5ea1859a3f7e9cc5b578b4a23f3578041e271924"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\tablet-820-page.png",
+      "sha256": "403cbc85870c301b90a6912944c958103894c669e1e8106076b125d1d16bdcd1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\tablet-820-questions.png",
+      "sha256": "31c15706ef2518a158f44135b37e7dd1655d8a21e7f0717d8063b268f67153b0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\laptop-1024-page.png",
+      "sha256": "03c16a3189e1ffa2fe34946ca97e819f2bb519f577458d9aa0ddddb918b0ef78"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\laptop-1024-questions.png",
+      "sha256": "b4ed47c162e5ef55ecbb23d847924ca281c499d11259f8dcf2d121e078e47264"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\desktop-1440-page.png",
+      "sha256": "52c7ce1d5a83e7fb664c02ae92674a659d5f2ad8b341a67b7b4a40b8fe35cc3d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\apps\\dashboard\\artifacts\\client-question-context\\desktop-1440-questions.png",
+      "sha256": "01ba9c7480c9c9be44c7b9d93381f4ad5565633d91e5eb47bc33883a61091c76"
+    }
+  ],
+  "limitations": [
+    "Static development fixture data, not authenticated browser-to-database proof. Background intake reads returned500 without DB/Clerk configuration; full screenshots retain these errors.",
+    "Does not prove that generated questions are evidence-backed or that all source collection formats are complete.",
+    "No deployment, customer communication, live provider or final branding choice."
+  ],
+  "visualCritique": "Uses existing portal typography, divider and spacing language; no new mascot, logo, decorative card system or elaborate placeholder design."
+}

@@ -1,11 +1,12 @@
 import { expect, test, type Browser } from '@playwright/test'
+import { assertVisitorBudget } from '../performance/local-fixture-performance-budgets'
 
 const fixturePath =
   '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English'
 const visitorPath = process.env.PLAYWRIGHT_VISITOR_PATH ?? fixturePath
 const requestedSamples = Number.parseInt(process.env.VISITOR_PERFORMANCE_SAMPLES ?? '3', 10)
 const sampleCount = Number.isSafeInteger(requestedSamples)
-  ? Math.min(10, Math.max(1, requestedSamples))
+  ? Math.min(10, Math.max(3, requestedSamples))
   : 3
 
 type LongTaskEntry = { duration: number; startTime: number }
@@ -31,6 +32,10 @@ async function measureSample(browser: Browser, networkProfile: string) {
     serviceWorkers: 'block',
   })
   const page = await context.newPage()
+  let chatRequestsSent = 0
+  page.on('request', (request) => {
+    if (request.url().includes('/api/chat-stream')) chatRequestsSent += 1
+  })
 
   try {
     if (networkProfile === 'weak-4g') {
@@ -65,16 +70,33 @@ async function measureSample(browser: Browser, networkProfile: string) {
     const response = await page.goto(visitorPath, { waitUntil: 'domcontentloaded' })
     expect(response?.ok()).toBe(true)
 
-    const composer = page.locator('#chat-input')
+    const composer = page.getByRole('textbox')
+    const send = page.getByRole('button', { name: 'Send message' })
     await expect(composer).toBeVisible()
     await expect(composer).toBeEnabled()
+    await expect(send).toBeDisabled()
+    const hydrationProbe = 'hydration readiness probe'
+    let reactDraftObserved = false
+    for (let attempt = 0; attempt < 12 && !reactDraftObserved; attempt += 1) {
+      await composer.fill('')
+      await composer.fill(hydrationProbe)
+      try {
+        await expect(send).toBeEnabled({ timeout: 2_500 })
+        reactDraftObserved = true
+      } catch {
+        // A fill dispatched before React hydration can be replaced by the controlled empty draft.
+      }
+    }
+    expect(reactDraftObserved).toBe(true)
+    await composer.fill('')
+    await expect(send).toBeDisabled()
     const interactionReadyMs = Date.now() - startedAt
 
     // Let deferred chunks and venue assets settle without invoking the chat mutation.
     await page.waitForLoadState('load')
     await page.waitForTimeout(1_000)
 
-    return await page.evaluate((readyMs) => {
+    const browserMetrics = await page.evaluate((readyMs) => {
       const navigation = performance.getEntriesByType('navigation')[0] as
         | PerformanceNavigationTiming
         | undefined
@@ -111,6 +133,7 @@ async function measureSample(browser: Browser, networkProfile: string) {
         },
       }
     }, interactionReadyMs)
+    return { ...browserMetrics, chatRequestsSent }
   } finally {
     await context.close()
   }
@@ -119,6 +142,7 @@ async function measureSample(browser: Browser, networkProfile: string) {
 test('records visitor readiness distributions without sending chat', async ({
   browser,
 }, testInfo) => {
+  test.setTimeout(180_000)
   const networkProfile = String(testInfo.project.metadata.networkProfile ?? 'unthrottled')
   const samples = []
   for (let index = 0; index < sampleCount; index += 1) {
@@ -127,7 +151,9 @@ test('records visitor readiness distributions without sending chat', async ({
 
   const readinessValues = samples.map((sample) => sample.interactionReadyMs)
   const metrics = {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    readinessDefinition:
+      'React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked.',
     measuredAt: new Date().toISOString(),
     revision: process.env.PATHFINDER_RELEASE_SHA ?? null,
     networkProfile,
@@ -136,7 +162,7 @@ test('records visitor readiness distributions without sending chat', async ({
     sampleCount,
     url: new URL(visitorPath, String(testInfo.project.use.baseURL)).toString(),
     viewport: { width: 390, height: 844 },
-    chatRequestsSent: 0,
+    chatRequestsSent: samples.reduce((total, sample) => total + (sample.chatRequestsSent ?? 0), 0),
     interactionReadyMs: {
       minimum: Math.min(...readinessValues),
       p50: nearestRankPercentile(readinessValues, 0.5),
@@ -156,7 +182,12 @@ test('records visitor readiness distributions without sending chat', async ({
     body,
     contentType: 'application/json',
   })
+  // eslint-disable-next-line no-console -- CI consumes this machine-readable measurement artifact.
   console.log(`VISITOR_PERFORMANCE_METRICS=${JSON.stringify(metrics)}`)
+
+  if (!process.env.PLAYWRIGHT_VISITOR_PATH) {
+    assertVisitorBudget(samples, networkProfile)
+  }
 
   expect(samples).toHaveLength(sampleCount)
   expect(samples.every((sample) => sample.allResources.requests > 0)).toBe(true)

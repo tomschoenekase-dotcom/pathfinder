@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-disposable-fixture-proof",
+  "measuredAt": "2026-09-07T21:10:13.906055+00:00",
+  "productRevision": "dae7db18",
+  "sourceTest": "packages/db/src/helpers/prospect-outreach-disposable.integration.test.ts",
+  "testSha256": "bd037592d431f7690cba42f7d489ffef1498b703a7622c54c14f2f58c96e94f6",
+  "backend": "PostgreSQL16.15 pgvector0.8.6 native Windows",
+  "migrationCount": 224,
+  "result": {
+    "database": "pathfinder_disposable_prospect_outreach_7948c621633e",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "failed": 0,
+    "skipped": 0,
+    "passed": 1
+  },
+  "retainedArtifacts": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\migrations.log",
+      "sha256": "01231a5c541b0141f8ae561ee8da985a7317575e2dfba23e75341bdfd127c5c4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\database-readback.log",
+      "sha256": "916a0b3e17d6ddc00f4619ff44e639b0703626ab8e0b22613a24d76b2f2f8de0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\vitest.json",
+      "sha256": "facea2cd5995245344fb2c8103fb2768312a7bc9e4c75cf8513a178f9fa94850"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\vitest.log",
+      "sha256": "1ecbcc5fc87943d8b4bd443c11a6f0fe9d380445b4f315775372fa37c052451d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\result.json",
+      "sha256": "4b6f026914eebe110f125af372fcb74d7d78fb5d7cb0e3ea46d8f8c069518d7c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-prospect-7948c621633e\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "launcher": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-prospect-utc-proof.mjs",
+    "sha256": "5760d87c870e075ca101130fdbbd4365f588c63c6bc100ce906731837b3e0fa5"
+  },
+  "tooling": {
+    "postgresArchive": "postgresql-16.15-3-windows-x64-binaries.zip",
+    "postgresArchiveSha256": "5E8AFFFE67DAF949AEEB03B74951F1EC2324E1888F73FBD036AB0E567AB004D",
+    "pgvectorTag": "v0.8.6",
+    "pgvectorCommit": "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c",
+    "extractedRoot": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\archive\\pgsql",
+    "globalInstall": false
+  },
+  "limits": [
+    "Synthetic frozen batch and inbound reply, no real mailbox or outbound provider.",
+    "Retry states are explicitly synthetic; no real provider send or recovery observation.",
+    "Native server stopped and port55489 read back without a listener. Data and logs intentionally retained, not deleted.",
+    "Earlier failed Docker attempt cleanup remains unknown; no Docker repair or endpoint deletion occurred.",
+    "This verifies the final extended relational fixture; it does not make the final DB read atomic with a later external provider call.",
+    "Schema224 intake tables were present but are not exercised by this prospect journey."
+  ],
+  "timezone": "UTC",
+  "priorProof": "prospect-native-postgres-2026-09-07.json",
+  "reason": "Repeat the same relational journey with explicit PostgreSQL UTC after discovering the native cluster inherited the host timezone."
+}

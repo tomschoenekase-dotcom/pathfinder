@@ -1,0 +1,443 @@
+{
+  "artifactVersion": "guest-preparation-comparison-native-v1",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-preparation-comparison-0c1ca1539490",
+  "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-native-guest-preparation-comparison-proof-port55491.mjs",
+  "runnerSha256": "3f92086d91fb3cd2db82107f1ccf15bdaf7bc9fd47a66e48644a55cbafcce00b",
+  "nativePostgres": {
+    "tables": 258,
+    "stopped": true,
+    "backend": "PostgreSQL 16.15 / pgvector 0.8.6",
+    "database": "pathfinder_disposable_guest_preparation_comparison_0c1ca1539490",
+    "port": 55491,
+    "migrations": 238
+  },
+  "result": {
+    "providerAccess": false,
+    "vitestFailed": 0,
+    "nativeExitCode": 0,
+    "vitestPassed": 1
+  },
+  "fixture": {
+    "tenantId": "tenant-preparation-comparison-5049e697640a",
+    "venueId": "venue-preparation-comparison-5049e697640a",
+    "corpusRows": 86,
+    "seededStandaloneRows": 85,
+    "vectorDimensions": 1536,
+    "fixedVectors": "Structural fixture inputs only; not embedding, model, or language-quality evidence.",
+    "structuralValidationManifest": [
+      {
+        "name": "capacity",
+        "query": "north gallery capacity",
+        "expectedSourceId": "capacity-5049e697640a"
+      },
+      {
+        "name": "access",
+        "query": "quiet access route",
+        "expectedSourceId": "access-5049e697640a"
+      }
+    ]
+  },
+  "preparation": {
+    "vectorPersistenceMs": 38.734899999999925,
+    "vectorWrites": 4,
+    "recompute": {
+      "sourceId": "stale-5049e697640a",
+      "currentVersion": "2026-09-08T21:45:13.132Z",
+      "dispatchPending": true,
+      "persistenceMs": 19.490800000000036,
+      "completedClaim": "COMPLETE",
+      "changedSemanticDistance": 1
+    },
+    "assumptions": "Excludes embedding generation/provider time; measures canonical fenced vector writes only."
+  },
+  "comparison": {
+    "cases": [
+      {
+        "name": "capacity",
+        "expectedSourceId": "capacity-5049e697640a",
+        "lexical": {
+          "initialMs": 60.57830000000013,
+          "repeatedSamplesMs": [
+            7.197299999999814, 7.786200000000008, 8.077200000000175, 7.199999999999818,
+            7.686900000000151, 8.458399999999983, 6.0854999999996835, 6.460199999999986,
+            6.598899999999958, 7.938800000000356, 4.600600000000213, 5.49350000000004
+          ],
+          "p95Ms": 8.458399999999983,
+          "trace": {
+            "path": "lexical-fallback",
+            "retrievedSourceIds": ["stale-5049e697640a", "capacity-5049e697640a"],
+            "retrievedSources": [
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 2,
+              "broad": 2,
+              "semantic": 0
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 5.488399999999729
+          }
+        },
+        "prepared": {
+          "initialMs": 54.16940000000022,
+          "repeatedSamplesMs": [
+            12.19439999999986, 11.121900000000096, 12.934699999999793, 13.70029999999997,
+            12.859099999999671, 13.035699999999906, 13.709800000000087, 11.813700000000154,
+            12.370699999999943, 13.155900000000202, 11.704099999999926, 13.723899999999958
+          ],
+          "p95Ms": 13.723899999999958,
+          "trace": {
+            "path": "semantic+lexical",
+            "retrievedSourceIds": [
+              "stale-5049e697640a",
+              "capacity-5049e697640a",
+              "access-5049e697640a"
+            ],
+            "retrievedSources": [
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              },
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 2,
+              "broad": 2,
+              "semantic": 3
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 13.718599999999697
+          }
+        }
+      },
+      {
+        "name": "access",
+        "expectedSourceId": "access-5049e697640a",
+        "lexical": {
+          "initialMs": 5.539400000000114,
+          "repeatedSamplesMs": [
+            6.04340000000002, 7.379899999999907, 7.3573999999998705, 5.0628999999999,
+            4.805100000000039, 4.729499999999916, 4.794200000000274, 4.691899999999805,
+            4.6578999999996995, 5.148400000000038, 5.036800000000312, 5.093600000000151
+          ],
+          "p95Ms": 7.379899999999907,
+          "trace": {
+            "path": "lexical-fallback",
+            "retrievedSourceIds": ["access-5049e697640a"],
+            "retrievedSources": [
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 1,
+              "broad": 1,
+              "semantic": 0
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 5.089199999999892
+          }
+        },
+        "prepared": {
+          "initialMs": 9.434799999999996,
+          "repeatedSamplesMs": [
+            10.23849999999993, 10.356800000000021, 13.64469999999983, 10.240099999999984,
+            11.362099999999828, 10.279099999999744, 9.93979999999965, 9.774199999999837,
+            9.762500000000273, 8.754899999999907, 7.583599999999933, 9.04529999999977
+          ],
+          "p95Ms": 13.64469999999983,
+          "trace": {
+            "path": "semantic+lexical",
+            "retrievedSourceIds": [
+              "access-5049e697640a",
+              "stale-5049e697640a",
+              "capacity-5049e697640a"
+            ],
+            "retrievedSources": [
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              },
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 1,
+              "broad": 1,
+              "semantic": 3
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 9.040899999999965
+          }
+        }
+      }
+    ],
+    "perQuery": [
+      {
+        "name": "capacity",
+        "expectedSourceId": "capacity-5049e697640a",
+        "lexical": {
+          "initialMs": 60.57830000000013,
+          "repeatedSamplesMs": [
+            7.197299999999814, 7.786200000000008, 8.077200000000175, 7.199999999999818,
+            7.686900000000151, 8.458399999999983, 6.0854999999996835, 6.460199999999986,
+            6.598899999999958, 7.938800000000356, 4.600600000000213, 5.49350000000004
+          ],
+          "p95Ms": 8.458399999999983,
+          "trace": {
+            "path": "lexical-fallback",
+            "retrievedSourceIds": ["stale-5049e697640a", "capacity-5049e697640a"],
+            "retrievedSources": [
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 2,
+              "broad": 2,
+              "semantic": 0
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 5.488399999999729
+          }
+        },
+        "prepared": {
+          "initialMs": 54.16940000000022,
+          "repeatedSamplesMs": [
+            12.19439999999986, 11.121900000000096, 12.934699999999793, 13.70029999999997,
+            12.859099999999671, 13.035699999999906, 13.709800000000087, 11.813700000000154,
+            12.370699999999943, 13.155900000000202, 11.704099999999926, 13.723899999999958
+          ],
+          "p95Ms": 13.723899999999958,
+          "trace": {
+            "path": "semantic+lexical",
+            "retrievedSourceIds": [
+              "stale-5049e697640a",
+              "capacity-5049e697640a",
+              "access-5049e697640a"
+            ],
+            "retrievedSources": [
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              },
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 2,
+              "broad": 2,
+              "semantic": 3
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 13.718599999999697
+          }
+        }
+      },
+      {
+        "name": "access",
+        "expectedSourceId": "access-5049e697640a",
+        "lexical": {
+          "initialMs": 5.539400000000114,
+          "repeatedSamplesMs": [
+            6.04340000000002, 7.379899999999907, 7.3573999999998705, 5.0628999999999,
+            4.805100000000039, 4.729499999999916, 4.794200000000274, 4.691899999999805,
+            4.6578999999996995, 5.148400000000038, 5.036800000000312, 5.093600000000151
+          ],
+          "p95Ms": 7.379899999999907,
+          "trace": {
+            "path": "lexical-fallback",
+            "retrievedSourceIds": ["access-5049e697640a"],
+            "retrievedSources": [
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 1,
+              "broad": 1,
+              "semantic": 0
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 5.089199999999892
+          }
+        },
+        "prepared": {
+          "initialMs": 9.434799999999996,
+          "repeatedSamplesMs": [
+            10.23849999999993, 10.356800000000021, 13.64469999999983, 10.240099999999984,
+            11.362099999999828, 10.279099999999744, 9.93979999999965, 9.774199999999837,
+            9.762500000000273, 8.754899999999907, 7.583599999999933, 9.04529999999977
+          ],
+          "p95Ms": 13.64469999999983,
+          "trace": {
+            "path": "semantic+lexical",
+            "retrievedSourceIds": [
+              "access-5049e697640a",
+              "stale-5049e697640a",
+              "capacity-5049e697640a"
+            ],
+            "retrievedSources": [
+              {
+                "id": "access-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              },
+              {
+                "id": "stale-5049e697640a",
+                "version": "2026-09-08T21:45:13.132Z"
+              },
+              {
+                "id": "capacity-5049e697640a",
+                "version": "2026-09-08T21:45:13.066Z"
+              }
+            ],
+            "excludedSourceIds": [],
+            "candidateCounts": {
+              "strict": 1,
+              "broad": 1,
+              "semantic": 3
+            },
+            "limits": {
+              "strict": 20,
+              "broad": 60,
+              "result": 5
+            },
+            "partialCoverage": false,
+            "truncatedSourceIds": [],
+            "publicationAuthority": [],
+            "retrievalMs": 9.040899999999965
+          }
+        }
+      }
+    ]
+  },
+  "exclusions": {
+    "privateId": "private-5049e697640a",
+    "siblingId": "sibling-5049e697640a",
+    "supersededId": "ucm_531900995ca5dcc47344d02fd4e7874c",
+    "expiredId": "ucm_fc4057cd9257cd2eb11e42602dbca4fd",
+    "staleId": "stale-5049e697640a",
+    "staleVectorMayRank": true,
+    "oldContentLeaked": false
+  },
+  "sourceHashes": {
+    "packages/db/prisma/schema.prisma": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+    "apps/workers/src/processors/dispatch-embeddings.ts": "32de9bd0c799c7cf093eeae4748463b32aafff7fdda48821e4463f3ae194e5e8",
+    "packages/db/src/helpers/embedding-work-claims.ts": "20769101c9f7c729c438fc6bc421aab04e0b01a9cd07910c84187752277208c8",
+    "packages/db/src/helpers/semantic-search.ts": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a",
+    "packages/api/src/lib/guest-knowledge-retrieval.ts": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e",
+    "packages/db/src/helpers/embedding-dispatches.ts": "8c526140e6381ea13feed0d4895600656bcb762d20e9a02fb4e6c80f10dadc5a",
+    "packages/api/src/guest-preparation-comparison.disposable.integration.test.ts": "20bd369e2c9dea723edeeeafe72bfab9b389244e7887f07a558f8b4be7221eac"
+  },
+  "retainedHashes": {
+    "measurement": "bd251be1e01d0e61efe00ff03e0f8c2cbb6128d711c56d97b01019ca7f450fd9",
+    "result": "966998a5a56ebb98be0df18afb65995f1a6f00d6db176214a1afd768e1b49c37",
+    "vitestJson": "19418ec3e6a918d70846cc4917971c2789a32faad117607b60924b3362e8b731"
+  },
+  "limitations": [
+    "Fixed vectors are structural fixture inputs, not generated embeddings, model quality, or trained/held-out evaluation evidence.",
+    "Initial samples are separate from 12 alternating-order paired repetitions. Measurements are descriptive only: no speed improvement, HNSW plan-selection, cache, provider-cost, amortization, or production recommendation claim.",
+    "Actual semantic SQL, claim writes, dispatch record, and canonical rehydration are exercised. The fixture directly completed a current-version vector claim; it does not execute or claim completion by the dispatch worker, so the outbox row may remain.",
+    "The fixture uses explicit disposable isolation bypass; raw semantic SQL explicitly binds tenant and venue.",
+    "Old-text absence is asserted for the corrected source ID only; a distinct unchanged capacity fixture still contains137. No model answer is generated or qualitatively scored."
+  ],
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "db3b288d284c6d3d7bc6d1a74376f2d5eb6e3dec",
+  "rootValidation": {
+    "freshNonIncrementalApiTypes": "passed direct exit0",
+    "typecheckLog": "artifacts/field-preparation-api-types-final-20260908.log",
+    "sourceRunnerRetainedIdentitiesVerified": 11,
+    "nativeTestsPassed": 1,
+    "postgresStopped": true
+  },
+  "preliminaryProofs": ["17e3f096f4d9", "c514c9c6d607"]
+}

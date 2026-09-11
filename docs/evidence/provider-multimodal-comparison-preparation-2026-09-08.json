@@ -1,0 +1,563 @@
+{
+  "schemaVersion": 1,
+  "artifact": "provider-multimodal-comparison-preparation",
+  "generatedAt": "2026-09-08T21:40:16.6106089Z",
+  "sourceRevision": "34601aa67b23edaaf4be2b38457cb5dbeacba2c1",
+  "preparationStatus": "PARTIAL_TASK_DEFINITIONS_BLOCKED_VIDEO_INPUTS",
+  "recommendation": null,
+  "observations": {
+    "video": [
+      {
+        "id": "P10-01-ROUTE-01",
+        "mode": "video",
+        "task": "Route and coverage matrix",
+        "input": "One bounded supported media route per actually registered adapter",
+        "scoreFields": [
+          "implemented",
+          "configured",
+          "authorized",
+          "observed",
+          "provider-model",
+          "coverage-method",
+          "fallback-label"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P10_MULTIMODAL_VENUE_FUSION.md"
+      },
+      {
+        "id": "P10-02-LIFECYCLE-01",
+        "mode": "video",
+        "task": "Bounded lifecycle and fallback",
+        "input": "Synthetic/authorized media fixture through upload/admission/poll/cancel/retry/cleanup",
+        "scoreFields": [
+          "media-hash",
+          "method",
+          "coverage-limit",
+          "timeout",
+          "malformed-result",
+          "unknown-completion",
+          "cleanup",
+          "fallback-budget-provenance"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P10_MULTIMODAL_VENUE_FUSION.md"
+      },
+      {
+        "id": "P10-03-OBSERVATION-01",
+        "mode": "video",
+        "task": "Structured multimodal observations",
+        "input": "Bounded media with visible text, narrated fact, temporal interval and relation cases when source material exists",
+        "scoreFields": [
+          "missed-entities",
+          "doubled-entities",
+          "wrong-merges",
+          "visible-vs-narrated",
+          "interval-or-region-reference",
+          "inference-uncertainty"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P10_MULTIMODAL_VENUE_FUSION.md"
+      },
+      {
+        "id": "P10-08-INTEGRATED-01",
+        "mode": "video",
+        "task": "End-to-end multimodal benchmark and handoff",
+        "input": "Independent development and holdout media manifests; only routes supported by the actual product",
+        "scoreFields": [
+          "coverage",
+          "missed-doubled-entities",
+          "wrong-merges",
+          "useful-relations",
+          "temporal-errors",
+          "manual-questions",
+          "cost",
+          "repeatability",
+          "builder-provenance"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P10_MULTIMODAL_VENUE_FUSION.md"
+      }
+    ],
+    "voice": [
+      {
+        "id": "P11-03-TURN-01",
+        "mode": "realtime-voice",
+        "task": "Quiet interruption",
+        "input": "Short neutral prompt; speak over playback once",
+        "scoreFields": [
+          "cancellation-to-next-turn-ms",
+          "duplicate-turn",
+          "generated-played-interrupted-labels",
+          "manual-control-accessibility"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-03-TURN-02",
+        "mode": "realtime-voice",
+        "task": "Noisy interruption",
+        "input": "Same bounded prompt with documented background noise",
+        "scoreFields": [
+          "false-starts",
+          "reciprocal-turn",
+          "interrupted-tail-label",
+          "useful-audio-vs-filler"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-04-GROUND-01",
+        "mode": "realtime-voice",
+        "task": "Grounded useful latency classes",
+        "input": "Restroom/location, obscure history, family suggestion, and missing-fact case identifiers",
+        "scoreFields": [
+          "grounding-disposition",
+          "scoped-evidence-id",
+          "first-meaningful-audio-ms",
+          "filler-audio-ms",
+          "retrieval-ms",
+          "completion-ms",
+          "usage-cost"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-05-CONT-01",
+        "mode": "realtime-voice",
+        "task": "Captions and voice/text continuity",
+        "input": "Voice captions, one interruption, exit to text, re-enter voice, documented fallback fixture",
+        "scoreFields": [
+          "caption-progress",
+          "interruption-label",
+          "fallback-state",
+          "voice-text-continuity",
+          "history-scope"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-06-LANG-01",
+        "mode": "realtime-voice",
+        "task": "Configured language and personality",
+        "input": "Approved disposable language choices, proper-name placeholder, mixed-language placeholder",
+        "scoreFields": [
+          "configured-language-voice",
+          "observed-transcription-language",
+          "proper-name",
+          "mixed-language",
+          "factuality-respect"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-07-DEVICE-01",
+        "mode": "realtime-voice",
+        "task": "Headset, visibility, network and reconnect",
+        "input": "Named available hardware/browser, route change, network drop, background/lock if available",
+        "scoreFields": [
+          "hardware-os-browser",
+          "route-change",
+          "network-drop",
+          "visibility-lock",
+          "reconnect-capture",
+          "transcript-cost-continuity"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      },
+      {
+        "id": "P11-08-INTEGRATED-01",
+        "mode": "realtime-voice",
+        "task": "Integrated quality/economics",
+        "input": "Quiet/noisy, interruption, language change, grounded lookup, captions, text resumption",
+        "scoreFields": [
+          "independent-review",
+          "useful-first-audio",
+          "filler-silence-context-retry",
+          "provider-usage",
+          "estimated-cost-basis",
+          "lifecycle-device-gaps"
+        ],
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        },
+        "sourceDefinition": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md"
+      }
+    ]
+  },
+  "routes": {
+    "voice": {
+      "tiers": ["ECONOMY", "PREMIUM"],
+      "registeredRoute": "packages/ai/src/realtime-voice.ts",
+      "providerObservation": "UNAVAILABLE",
+      "runtime": "packages/api/src/routers/voice.ts",
+      "routeIdentities": [
+        {
+          "tier": "ECONOMY",
+          "provider": "openai",
+          "model": "gpt-realtime-2.1-mini",
+          "transcriptionModel": "gpt-live-transcribe",
+          "availability": "UNKNOWN",
+          "scriptCaseIds": [
+            "VOICE-SYN-GREETING",
+            "VOICE-SYN-INTERRUPT",
+            "VOICE-SYN-SILENCE",
+            "VOICE-SYN-CONTINUITY"
+          ],
+          "canonicalInputSha256": "efabdcf63f5f6458df009fc6d770d9d64a9adc57101892ddfdaccc3eb5213354"
+        },
+        {
+          "tier": "PREMIUM",
+          "provider": "openai",
+          "model": "gpt-realtime-2.1",
+          "transcriptionModel": "gpt-live-transcribe",
+          "availability": "UNKNOWN",
+          "scriptCaseIds": [
+            "VOICE-SYN-GREETING",
+            "VOICE-SYN-INTERRUPT",
+            "VOICE-SYN-SILENCE",
+            "VOICE-SYN-CONTINUITY"
+          ],
+          "canonicalInputSha256": "efabdcf63f5f6458df009fc6d770d9d64a9adc57101892ddfdaccc3eb5213354"
+        }
+      ]
+    },
+    "video": {
+      "providerObservation": "UNAVAILABLE",
+      "fallbackPolicy": "apps/workers/src/lib/video-analysis-routing.ts",
+      "registeredRoutes": ["packages/ai/src/gemini-video.ts", "packages/ai/src/openai-media.ts"],
+      "runtime": "apps/workers/src/processors/media-ingestion.ts",
+      "routeIdentities": [
+        {
+          "route": "GOOGLE_STATIC_VIDEO_1FPS",
+          "provider": "google",
+          "model": "gemini-3.7-flash",
+          "apiMethod": "files-api+models.generateContent",
+          "availability": "UNKNOWN"
+        },
+        {
+          "route": "OPENAI_MEDIA_JSON",
+          "provider": "openai",
+          "model": "gpt-5.6-luna",
+          "availability": "UNKNOWN"
+        },
+        {
+          "route": "OPENAI_MEDIA_TRANSCRIPTION",
+          "provider": "openai",
+          "model": "gpt-4o-mini-transcribe",
+          "availability": "UNKNOWN"
+        }
+      ]
+    }
+  },
+  "scoring": {
+    "cost": "Record provider usage and estimated/invoice cost separately; null until observed.",
+    "quality": "Task-specific fields above; no aggregate score until observations exist.",
+    "holdout": "Independent holdout required for P10 integrated benchmark; no held-out media corpus is present in this artifact.",
+    "latency": "Record first meaningful audio separately from filler and completion; video processing/coverage timing remains null until observed."
+  },
+  "gates": [
+    "No provider execution, credentials, live account, customer data, deployment, or spend was used.",
+    "Voice route identities are registered but availability is UNKNOWN; entitlement, microphone/device/browser, and bounded session budget remain required.",
+    "Video route identities are registered but availability is UNKNOWN; exact media bytes, account authorization, lifecycle, cleanup, and bounded budget remain required.",
+    "All observations are UNAVAILABLE/null and recommendation remains null.",
+    "No photo-launch requirement is introduced; no unsupported route is added; no new model registry is created."
+  ],
+  "knownMissing": [
+    "Grounded venue/name/language/noise/device comparison inputs remain missing; the separate neutral four-case script is now identically bound to both voice routes but unexecuted.",
+    "Required voice audio/noise/device fixtures are absent.",
+    "No exact video media corpus, expected outputs, or independent holdout manifest was found.",
+    "No real provider/device observations.",
+    "No approved long-session voice budget/device authorization.",
+    "No customer-economic or invoice observation."
+  ],
+  "reproduction": {
+    "command": "python -c \"import json,hashlib; p=json.load(open('docs/evidence/provider-multimodal-comparison-preparation-2026-09-08.json',encoding='utf-8')); s=p['syntheticVoiceScript']; i={'version':'voice-script-v2','proposedSessionCeilingSeconds':s['proposedSessionCeilingSeconds'],'stopRule':s['stopRule'],'cases':[{k:v for k,v in c.items() if k!='observation'} for c in s['cases']]}; assert i==s['canonicalInput']; h=hashlib.sha256(json.dumps(i,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest(); assert h==s['canonicalInputSha256']; assert all(r['canonicalInputSha256']==h and r['scriptCaseIds']==[c['caseId'] for c in s['cases']] for r in p['routes']['voice']['routeIdentities']); assert sum(c['timingWindowSeconds']['caseMax'] for c in s['cases'])<=s['proposedSessionCeilingSeconds']; print('valid')\"",
+    "expected": "Prints valid after checking every script input/action/time/stop rule, canonical hash, route equivalence and total case bounds.",
+    "path": "docs/evidence/provider-multimodal-comparison-preparation-2026-09-08.json"
+  },
+  "sourcePaths": [
+    {
+      "path": "packages/ai/src/realtime-voice.ts",
+      "sha256": "6e1ae7cb47398c9212eaa78d42613d66225d83139f5c0ef166079e3264d3c292",
+      "role": "dedicated realtime voice route registry"
+    },
+    {
+      "path": "packages/api/src/routers/voice.ts",
+      "sha256": "d1c0ce1ccc3d383fd893abcbd63e9a6be599f4e677d721ccb05aa2320ae3aa8f",
+      "role": "voice authorization/session route"
+    },
+    {
+      "path": "apps/workers/src/processors/media-ingestion.ts",
+      "sha256": "52acf2558b4cb4856c360186d681dc5e216fc37523bdb73bd316fd05d4c0c454",
+      "role": "canonical media ingestion worker"
+    },
+    {
+      "path": "packages/ai/src/gemini-video.ts",
+      "sha256": "841ddbb9a35e1946ca82766715c6bcff7805e2654f4c6304633142700b67b61e",
+      "role": "dedicated Gemini video adapter"
+    },
+    {
+      "path": "packages/ai/src/openai-media.ts",
+      "sha256": "00a7be031b23c905ce5c58cc8660ccba727eac9b8bf27f13f1316789c0c06eae",
+      "role": "dedicated OpenAI media adapter"
+    },
+    {
+      "path": "apps/workers/src/lib/video-analysis-routing.ts",
+      "sha256": "54abd66762f263fbd9ebd00e282ec0fceb8ad123f0a99f091d5dda271cf820a1",
+      "role": "video route/fallback policy"
+    },
+    {
+      "path": "packages/api/src/lib/evaluation/provider-comparison-preparation.ts",
+      "sha256": "052a2b6db70accfb4771938bcb88e443571aeeff313e5ebbc5d5f8d109e89cd2",
+      "role": "existing provider-dark comparison preparation seam"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P12_MODELS_COST_AND_SPEED.md",
+      "sha256": "f63562e7ede886354766d23f65d9835568afad139ae0505411349c8dd7331a4b",
+      "role": "P12-05 task definition"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P10_MULTIMODAL_VENUE_FUSION.md",
+      "sha256": "77e3f789211306bd8d9af4a0a03c681a3e35c5b74bafa53a9211b8a301fb1522",
+      "role": "P10 media task definitions"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 2026-09-06/packets/P11_REALTIME_VOICE.md",
+      "sha256": "606aef257ba4d0749c22c8275b4a2d373229e16f665724800f89c0514632acc3",
+      "role": "P11 voice task definitions"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P10_VIDEO_CAPABILITY_MATRIX.md",
+      "sha256": "8bd3e2c787487043a6ec3c1a46b7329e1e1914338b7cd1d550a72939804ab376",
+      "role": "existing video route capability matrix"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/AwesomeVault/95 AI Staging/Torchiko Astra Overnight v2 Execution 2026-09-07/P11_VOICE_ACCEPTANCE_RECONCILIATION.md",
+      "sha256": "a307563579bc30ca3526698d877928423e7a00a7b91e0649379734bd7a5a9959",
+      "role": "existing voice observation sheets and limits"
+    }
+  ],
+  "comparisonReadiness": {
+    "voice": {
+      "status": "PARTIAL_TASK_DEFINITIONS",
+      "caseIds": [
+        "P11-03-TURN-01",
+        "P11-03-TURN-02",
+        "P11-04-GROUND-01",
+        "P11-05-CONT-01",
+        "P11-06-LANG-01",
+        "P11-07-DEVICE-01",
+        "P11-08-INTEGRATED-01"
+      ],
+      "sharedScriptHash": null,
+      "available": "Existing P11 case IDs and ordered observation fields remain source-derived; this artifact additionally supplies a separate synthetic neutral script for four basic lifecycle cases with identical canonical input binding across ECONOMY and PREMIUM.",
+      "missing": [
+        "No provider, browser, microphone, noise, or device execution is authorized here; observations remain UNAVAILABLE with null values.",
+        "Grounded venue/name/language/noise/device cases still lack exact inputs or authorized fixtures.",
+        "The synthetic script is unexecuted preparation only and provides no quality result or route recommendation."
+      ],
+      "neutralScriptInputHash": "efabdcf63f5f6458df009fc6d770d9d64a9adc57101892ddfdaccc3eb5213354"
+    },
+    "video": {
+      "status": "BLOCKED_MISSING_INPUTS",
+      "available": "Route identities and scoring dimensions only.",
+      "missing": [
+        "No exact media corpus or independent holdout manifest was found.",
+        "No media bytes, expected observations, or per-case source hashes are available."
+      ]
+    }
+  },
+  "syntheticVoiceScript": {
+    "status": "SYNTHETIC_UNEXECUTED",
+    "source": "New bounded neutral fixture authored for this preparation; not source-derived P11 observation.",
+    "canonicalInput": {
+      "version": "voice-script-v2",
+      "proposedSessionCeilingSeconds": 120,
+      "stopRule": "Stop the entire proposed session at120 seconds from session start, including transitions; mark unfinished cases unobserved. This script grants no execution authority.",
+      "cases": [
+        {
+          "caseId": "VOICE-SYN-GREETING",
+          "intent": "Basic greeting",
+          "utterance": "Hello. Please say hello and tell me you are ready.",
+          "orderedActions": [
+            "Open one authorized voice session.",
+            "Speak the utterance once.",
+            "Wait for the response to finish."
+          ],
+          "timingWindowSeconds": {
+            "promptStart": 0,
+            "responseObservationMax": 30,
+            "caseMax": 30
+          }
+        },
+        {
+          "caseId": "VOICE-SYN-INTERRUPT",
+          "intent": "Intentional interruption",
+          "utterance": "Please begin a short answer, then I will interrupt you.",
+          "orderedActions": [
+            "Speak the utterance once.",
+            "At approximately 2 seconds after response audio begins, speak the fixed phrase: I am interrupting now.",
+            "Record generated, played, and interrupted labels."
+          ],
+          "timingWindowSeconds": {
+            "promptStart": 0,
+            "interruptAfterResponseAudio": 2,
+            "caseMax": 30
+          }
+        },
+        {
+          "caseId": "VOICE-SYN-SILENCE",
+          "intent": "Quiet ten-second interval",
+          "utterance": "I will be quiet for ten seconds. Do not continue speaking unless needed.",
+          "orderedActions": [
+            "Speak the utterance once.",
+            "Remain silent for 10 seconds.",
+            "Record whether audio or transcript continuation occurs during silence."
+          ],
+          "timingWindowSeconds": {
+            "silenceSeconds": 10,
+            "caseMax": 30
+          }
+        },
+        {
+          "caseId": "VOICE-SYN-CONTINUITY",
+          "intent": "Exit to text and re-enter",
+          "utterance": "I am switching to text now. Keep the conversation brief.",
+          "orderedActions": [
+            "Speak the utterance once.",
+            "Exit voice after response completion.",
+            "Send the same fixed sentence in text: I am back in text.",
+            "Re-enter voice and record only continuity state, not quality."
+          ],
+          "timingWindowSeconds": {
+            "voicePhaseMax": 10,
+            "textPhaseMax": 10,
+            "reentryPhaseMax": 10,
+            "caseMax": 30
+          }
+        }
+      ]
+    },
+    "canonicalInputSha256": "efabdcf63f5f6458df009fc6d770d9d64a9adc57101892ddfdaccc3eb5213354",
+    "proposedSessionCeilingSeconds": 120,
+    "executionAuthority": "NONE",
+    "cases": [
+      {
+        "caseId": "VOICE-SYN-GREETING",
+        "intent": "Basic greeting",
+        "utterance": "Hello. Please say hello and tell me you are ready.",
+        "orderedActions": [
+          "Open one authorized voice session.",
+          "Speak the utterance once.",
+          "Wait for the response to finish."
+        ],
+        "timingWindowSeconds": {
+          "promptStart": 0,
+          "responseObservationMax": 30,
+          "caseMax": 30
+        },
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        }
+      },
+      {
+        "caseId": "VOICE-SYN-INTERRUPT",
+        "intent": "Intentional interruption",
+        "utterance": "Please begin a short answer, then I will interrupt you.",
+        "orderedActions": [
+          "Speak the utterance once.",
+          "At approximately 2 seconds after response audio begins, speak the fixed phrase: I am interrupting now.",
+          "Record generated, played, and interrupted labels."
+        ],
+        "timingWindowSeconds": {
+          "promptStart": 0,
+          "interruptAfterResponseAudio": 2,
+          "caseMax": 30
+        },
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        }
+      },
+      {
+        "caseId": "VOICE-SYN-SILENCE",
+        "intent": "Quiet ten-second interval",
+        "utterance": "I will be quiet for ten seconds. Do not continue speaking unless needed.",
+        "orderedActions": [
+          "Speak the utterance once.",
+          "Remain silent for 10 seconds.",
+          "Record whether audio or transcript continuation occurs during silence."
+        ],
+        "timingWindowSeconds": {
+          "silenceSeconds": 10,
+          "caseMax": 30
+        },
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        }
+      },
+      {
+        "caseId": "VOICE-SYN-CONTINUITY",
+        "intent": "Exit to text and re-enter",
+        "utterance": "I am switching to text now. Keep the conversation brief.",
+        "orderedActions": [
+          "Speak the utterance once.",
+          "Exit voice after response completion.",
+          "Send the same fixed sentence in text: I am back in text.",
+          "Re-enter voice and record only continuity state, not quality."
+        ],
+        "timingWindowSeconds": {
+          "voicePhaseMax": 10,
+          "textPhaseMax": 10,
+          "reentryPhaseMax": 10,
+          "caseMax": 30
+        },
+        "observation": {
+          "status": "UNAVAILABLE",
+          "values": null
+        }
+      }
+    ],
+    "stopRule": "Stop the entire proposed session at120 seconds from session start, including transitions; mark unfinished cases unobserved. This script grants no execution authority.",
+    "canonicalization": "UTF-8 JSON with sorted keys, no ASCII escaping, and comma/colon separators; includes every utterance, action, timing window and stop rule, excludes observations."
+  }
+}

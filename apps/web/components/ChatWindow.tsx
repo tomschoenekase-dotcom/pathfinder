@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
@@ -8,6 +8,7 @@ import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
+import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
@@ -18,6 +19,8 @@ type Message = {
   content: string
   places?: GuestPlaceCard[]
   blocks?: GuestResponseBlock[]
+  voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
+  voicePersistence?: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
 }
 
 type ChatWindowProps = {
@@ -28,6 +31,9 @@ type ChatWindowProps = {
   onDraftChange?: (draft: string) => void
   onRetry?: () => void
   retryLabel?: string
+  onStopResponse?: () => void
+  stopResponseLabel?: string
+  conversationLocked?: boolean
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
@@ -35,6 +41,8 @@ type ChatWindowProps = {
   placeholder?: string
   initialDraft?: string
   emptyState?: ReactNode
+  conversationTools?: ReactNode
+  persistentVoiceControl?: ReactNode
   assistantLabel?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
@@ -53,6 +61,9 @@ export function ChatWindow({
   onDraftChange,
   onRetry,
   retryLabel = 'Retry same message',
+  onStopResponse,
+  stopResponseLabel = 'Stop response',
+  conversationLocked = false,
   isLoading,
   errorMessage = null,
   accentColor,
@@ -60,6 +71,8 @@ export function ChatWindow({
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
   emptyState,
+  conversationTools,
+  persistentVoiceControl,
   assistantLabel = 'Venue guide',
   onPlaceCardClick,
   onPlaceCardView,
@@ -84,6 +97,7 @@ export function ChatWindow({
     respondingLabel,
   ] = getVisitorUiCopy(language).shell
   const [draft, setDraft] = useState(initialDraft)
+  const composerId = useId()
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
   >(null)
@@ -94,6 +108,14 @@ export function ChatWindow({
   const announcementWasLoadingRef = useRef(isLoading)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
+  const followLatestRef = useRef(true)
+
+  useEffect(() => {
+    const node = composerRef.current
+    if (!node) return
+    node.style.height = 'auto'
+    node.style.height = `${Math.min(144, Math.max(44, node.scrollHeight))}px`
+  }, [draft])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -102,19 +124,18 @@ export function ChatWindow({
       return
     }
 
-    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+    if (messages.length < previousMessageCountRef.current) {
+      followLatestRef.current = true
+    }
 
-    if (distanceFromBottom < 120) {
-      const prefersReducedMotion =
-        typeof window.matchMedia === 'function' &&
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
+    if (followLatestRef.current) {
+      // Instant follow avoids animation events racing the reader's scroll position.
       node.scrollTo({
-        top: node.scrollHeight,
-        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        top: messages.length === 0 ? 0 : node.scrollHeight,
+        behavior: 'auto',
       })
     }
-  }, [isLoading, messages])
+  }, [errorMessage, isLoading, messages])
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && shouldRestoreComposerFocusRef.current) {
@@ -144,6 +165,7 @@ export function ChatWindow({
     announcementWasLoadingRef.current = isLoading
 
     if (messages.length < previousMessageCount) {
+      followLatestRef.current = true
       setLiveAnnouncement(null)
     } else if (responseCompleted && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
@@ -165,25 +187,31 @@ export function ChatWindow({
   function submit() {
     const nextMessage = draft.trim()
 
-    if (!nextMessage || isLoading || !isOnline) {
+    if (!nextMessage || isLoading || !isOnline || conversationLocked) {
       return
     }
 
     setDraft('')
+    followLatestRef.current = true
     shouldRestoreComposerFocusRef.current = true
     onSend(nextMessage)
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
+    <section className={`${styles.window} flex min-h-0 flex-1 flex-col overflow-hidden`}>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)] sm:px-5"
+        className={`${styles.conversation} min-h-0 flex-1 space-y-5 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]`}
         role="log"
         aria-label={conversationLabel}
         aria-live="off"
         tabIndex={0}
+        onScroll={(event) => {
+          const node = event.currentTarget
+          followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120
+        }}
       >
+        {conversationTools}
         {messages.length === 0 && emptyState ? emptyState : null}
 
         {messages.map((message, index) => (
@@ -195,14 +223,16 @@ export function ChatWindow({
               language={language}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
+              {...(message.voiceDelivery ? { voiceDelivery: message.voiceDelivery } : {})}
+              {...(message.voicePersistence ? { voicePersistence: message.voicePersistence } : {})}
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(onVisitorAction ? { onVisitorAction } : {})}
-              {...(message.id && onMessageFeedback
+              {...(message.id && !message.voiceDelivery && onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
-              {...(message.role === 'assistant' && !isLoading && isOnline
+              {...(message.role === 'assistant' && !isLoading && isOnline && !conversationLocked
                 ? { onChoiceSelect: onSend }
                 : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
@@ -213,12 +243,15 @@ export function ChatWindow({
           </div>
         ))}
 
-        {onRequestMore && !isLoading && messages.at(-1)?.role === 'assistant' ? (
+        {onRequestMore &&
+        !isLoading &&
+        messages.at(-1)?.role === 'assistant' &&
+        !messages.at(-1)?.voiceDelivery ? (
           <div className="flex justify-start pl-1">
             <button
               type="button"
               onClick={onRequestMore}
-              disabled={isLoading || !isOnline}
+              disabled={isLoading || !isOnline || conversationLocked}
               className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
             >
               {requestMoreLabel}
@@ -227,7 +260,37 @@ export function ChatWindow({
         ) : null}
 
         {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
+
+        {errorMessage ? (
+          <div
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-5 text-rose-700"
+            role="alert"
+          >
+            <p>{errorMessage}</p>
+            {onRetry ? (
+              <button
+                type="button"
+                disabled={isLoading || !isOnline}
+                onClick={onRetry}
+                className="mt-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
+              >
+                {retryLabel}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+
+      {persistentVoiceControl ? (
+        <div
+          className={styles.persistentControl}
+          role="region"
+          aria-label="Voice controls"
+          tabIndex={0}
+        >
+          {persistentVoiceControl}
+        </div>
+      ) : null}
 
       <div className="sr-only" role="status" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
@@ -246,30 +309,11 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      <div className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4">
-        {errorMessage ? (
-          <div
-            className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
-            role="alert"
-          >
-            {errorMessage}
-            {onRetry ? (
-              <button
-                type="button"
-                disabled={isLoading || !isOnline}
-                onClick={onRetry}
-                className="ml-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
-              >
-                {retryLabel}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="flex items-end gap-3">
+      <div className={styles.composer}>
+        <div className={styles.composerField}>
           <label
             className="sr-only"
-            htmlFor="chat-input"
+            htmlFor={composerId}
             lang={presentation.code}
             dir={presentation.direction}
           >
@@ -277,13 +321,13 @@ export function ChatWindow({
           </label>
           <textarea
             ref={composerRef}
-            id="chat-input"
+            id={composerId}
             lang=""
             dir="auto"
             className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
-            disabled={isLoading}
+            enterKeyHint="send"
             placeholder={placeholder}
-            rows={2}
+            rows={1}
             value={draft}
             onChange={(event) => {
               const nextDraft = event.target.value
@@ -291,7 +335,7 @@ export function ChatWindow({
               onDraftChange?.(nextDraft)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 submit()
               }
@@ -306,12 +350,28 @@ export function ChatWindow({
                 isOnline && !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
-            disabled={!isOnline || isLoading || draft.trim().length === 0}
+            disabled={
+              !isOnline ||
+              conversationLocked ||
+              (isLoading ? !onStopResponse : draft.trim().length === 0)
+            }
             type="button"
-            aria-label={!isOnline ? reconnectLabel : isLoading ? sendingLabel : sendMessageLabel}
-            onClick={submit}
+            aria-label={
+              !isOnline
+                ? reconnectLabel
+                : isLoading
+                  ? onStopResponse
+                    ? stopResponseLabel
+                    : sendingLabel
+                  : sendMessageLabel
+            }
+            onClick={isLoading ? onStopResponse : submit}
           >
-            {isLoading ? (
+            {isLoading && onStopResponse ? (
+              <span className="text-base leading-none" aria-hidden="true">
+                ■
+              </span>
+            ) : isLoading ? (
               <svg
                 className="h-4 w-4 animate-spin motion-reduce:animate-none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -334,7 +394,19 @@ export function ChatWindow({
                 />
               </svg>
             ) : (
-              sendLabel
+              <>
+                <span className="hidden sm:inline">{sendLabel}</span>
+                <svg
+                  className="h-5 w-5 sm:hidden"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5m-6 6 6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </>
             )}
           </button>
         </div>

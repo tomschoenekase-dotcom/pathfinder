@@ -1,0 +1,62 @@
+{
+  "recordedAt": "2026-09-08T13:40:11.428826+00:00",
+  "scope": "P04-02 same-tab founder answer draft recovery",
+  "baseCommit": "cc05d138",
+  "unitProof": {
+    "passed": 59,
+    "files": 6,
+    "dashboardTypecheck": "passed",
+    "targetedLint": "passed",
+    "source": "Terra visitor_signal terminal proof, root reviewed source"
+  },
+  "browserProof": {
+    "reload": "artifacts/mobile-visual/2026-09-08T13-33-14.910Z-bf5b7343",
+    "existingWakeupRetry": "artifacts/mobile-visual/2026-09-08T13-34-09.600Z-4aa72993",
+    "passed": 2,
+    "viewports": [1440, 1024, 820, 390],
+    "rootViewedAllFourReloadScreenshots": true,
+    "axeViolations": 0,
+    "horizontalOverflow": false,
+    "unexpectedMutations": 0,
+    "pageErrors": 0,
+    "reducedMotion": true,
+    "syntheticActor": "fixture-founder-admin",
+    "failedDiagnostic": "artifacts/mobile-visual/2026-09-08T13-31-16.071Z-8b82f5d9",
+    "diagnosticResolution": "Pass actorId through both missing visible QuestionCard branches."
+  },
+  "reviewRepairs": [
+    "Evict oldest entries instead of silently retaining stale text at total storage limit.",
+    "Restore after hydration behind initial save fence.",
+    "Suppress draft saves after recorded answers and worker wake-up retries.",
+    "Propagate authenticated identity through all visible and hidden card branches."
+  ],
+  "runtime": {
+    "runner": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-founder-draft-ui-fixture.mjs",
+    "runId": "2a0ad7ba",
+    "session": 67327,
+    "stopped": true,
+    "port3001Absent": true,
+    "environment": "OS allowlist only; no environment-file autoload, provider keys, database or workers"
+  },
+  "limitations": [
+    "Same browser tab/session only; no server or cross-device drafts.",
+    "Browser mutations intercepted; no live account/API/provider execution.",
+    "No deployment or final branding.",
+    "Semantic deduplication, bulk answers and full integrated founder workload are separate remaining scope."
+  ],
+  "sourceHashesLfNormalized": {
+    "apps/dashboard/components/admin/agent-question-answer-draft.ts": "a05507dbbdfc1cb0264423ebb038f711f1b91ab3800511014b2c6d9494d867d5",
+    "apps/dashboard/components/admin/agent-question-answer-draft.test.ts": "14e230f03a905c06a409d0908c9fbccce2b96e2ee0965178628b818a85a975b9",
+    "apps/dashboard/components/admin/AgentQuestionAnswerForm.tsx": "4f4d76ed02b36d3fb0f7b27544f330d278253331af3516cd0d291d7d6ea285e7",
+    "apps/dashboard/components/admin/AgentQuestionAnswerForm.test.tsx": "d913cb5c4aa2ea5eb2f5bab34bba2cac3a5da87517b9c6d79486acdf07f9e793",
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx": "32494c73ef5c1b5950243131072ca3222dc0456e30215ce8be6be7517503e13b",
+    "apps/dashboard/components/admin/AgentOperationsOverview.tsx": "8f20ef6f80edee34996191f837376d486b933bf533f5ee0be70671f3fe038e8e",
+    "apps/dashboard/components/admin/OperationsAttentionConsole.tsx": "124bb1f5958701415addd89052f095fe256790ea0c6e4a39f569fc7dfd733752",
+    "apps/dashboard/app/(admin)/admin/clients/[tenantId]/venues/[venueId]/agents/page.tsx": "6c19d6035e031f40023ff5da341467c0c330005bf7f586988af4f878864b502d",
+    "apps/dashboard/app/(admin)/admin/clients/[tenantId]/venues/[venueId]/agents/page.test.tsx": "c7faed90ec1c8b022908bbc93351b72b5db229ac28ce75516d3a2ab98625cc1f",
+    "apps/dashboard/app/(admin)/admin/operations/page.tsx": "408b045e31828165159bc97c89d08ec6d9bf47e437a2c6e98cd7aec4ba5e4d90",
+    "apps/dashboard/app/dev-fixtures/founder-question-triage/page.tsx": "c726809ba93c885052281b31db045ce5130e0a72feeaea44e83c4c3b90cecaff",
+    "apps/dashboard/tests/visual/founder-question-draft-reload.spec.ts": "35c305c5169cd88cbcaee86f1ec0fbe2c163f14fdcb54d5bce8bb820012e86f8",
+    "docs/founder-answer-draft-recovery.md": "f401a4421f9eb08a20e3e4bc56f02d6454d68cb3e448455a8c14914b0bc104f2"
+  }
+}

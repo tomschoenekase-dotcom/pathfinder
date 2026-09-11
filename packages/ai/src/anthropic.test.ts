@@ -52,6 +52,76 @@ describe('generateText', () => {
     setAnthropicClientForTesting(client)
   })
 
+  it.each(['max_tokens', 'model_context_window_exceeded', 'pause_turn', 'tool_use', null])(
+    'rejects an incomplete Anthropic result (%s), settles observed usage, and does not retry',
+    async (stop_reason) => {
+      const gate = budgetGate()
+      const parseResponse = vi.fn()
+      create.mockResolvedValueOnce({
+        stop_reason,
+        content: [{ type: 'text', text: 'The lift is available except' }],
+        usage: { input_tokens: 8, output_tokens: 4 },
+      })
+      await expect(
+        generateText({
+          modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+          system: [{ type: 'text', text: 'Guide.' }],
+          messages: [{ role: 'user', content: 'Can I use the lift?' }],
+          usageSink,
+          admissionGuard,
+          budgetGate: gate,
+          maxAttempts: 3,
+          parseResponse,
+        }),
+      ).rejects.toMatchObject({ code: 'provider-incomplete-response', attempts: 1 })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(parseResponse).not.toHaveBeenCalled()
+      expect(gate.settleExact).toHaveBeenCalledTimes(1)
+      expect(gate.settleAmbiguous).not.toHaveBeenCalled()
+      expect(usageSink).toHaveBeenCalledTimes(1)
+      expect(usageSink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          errorCode: 'provider-incomplete-response',
+          usage: expect.objectContaining({ inputTokens: 8, outputTokens: 4 }),
+        }),
+      )
+    },
+  )
+
+  it('rejects a streamed token-limit ending after fragments without claiming final success', async () => {
+    const source = anthropicStream({
+      deltas: ['The lift is available except'],
+      finalText: 'The lift is available except',
+    })
+    source.finalMessage.mockResolvedValueOnce({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'The lift is available except' }],
+      usage: { input_tokens: 8, output_tokens: 4 },
+    })
+    stream.mockReturnValueOnce(source)
+    const onTextDelta = vi.fn()
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [{ type: 'text', text: 'Guide.' }],
+        messages: [{ role: 'user', content: 'Can I use the lift?' }],
+        usageSink,
+        admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
+        maxAttempts: 3,
+        onTextDelta,
+      }),
+    ).rejects.toMatchObject({
+      code: 'provider-incomplete-response',
+      textEmitted: true,
+      attempts: 1,
+    })
+    expect(stream).toHaveBeenCalledTimes(1)
+    expect(onTextDelta).toHaveBeenCalledTimes(1)
+    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: false }))
+  })
+
   it('validates text, captures usage, and estimates cached-token cost', async () => {
     create.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'Welcome!' }],
@@ -434,7 +504,7 @@ describe('generateText', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('records a dispatched failure but not the retry denied by admission', async () => {
+  it('records a dispatched unknown failure and a separately undispatched denied retry', async () => {
     admissionGuard
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
@@ -454,10 +524,36 @@ describe('generateText', () => {
     ).rejects.toThrow('paused')
 
     expect(create).toHaveBeenCalledOnce()
-    expect(usageSink).toHaveBeenCalledOnce()
-    expect(usageSink).toHaveBeenCalledWith(
+    expect(usageSink).toHaveBeenCalledTimes(2)
+    expect(usageSink.mock.calls.map(([record]) => record.usageObservationStatus)).toEqual([
+      'UNKNOWN',
+      'NOT_DISPATCHED',
+    ])
+    expect(usageSink.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ attempts: 1, errorCode: 'provider-http-503', success: false }),
     )
+  })
+
+  it('retains an unknown failed attempt when a later retry has observed usage', async () => {
+    create
+      .mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 503 }))
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Ready' }],
+        usage: { input_tokens: 2, output_tokens: 1 },
+      })
+    await generateText({
+      modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+      system: [],
+      messages: [{ role: 'user', content: 'Hello' }],
+      retryDelayMs: 0,
+      usageSink,
+      admissionGuard,
+      budgetGate: NOOP_AI_BUDGET_GATE,
+    })
+    expect(usageSink.mock.calls.map(([record]) => record.usageObservationStatus)).toEqual([
+      'UNKNOWN',
+      'OBSERVED',
+    ])
   })
 
   it('reserves between two admissions and fences dispatch before the provider', async () => {

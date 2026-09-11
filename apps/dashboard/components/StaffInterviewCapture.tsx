@@ -12,12 +12,20 @@ import {
 
 import { browserUuid } from '../lib/browser-uuid'
 
-type AnswerDraft = {
+export type AnswerDraft = {
   mode: 'ANSWER' | 'SKIP' | 'REDACT'
   text: string
   privacy: StaffInterviewPrivacy
   uncertain: boolean
   confidence: number
+}
+
+export type StaffInterviewDraft = {
+  kind: 'INTERVIEW'
+  displayName: string
+  role: StaffInterviewRole
+  consent: boolean
+  draftsByRole: Partial<Record<StaffInterviewRole, Record<string, AnswerDraft>>>
 }
 
 function draftsFor(role: StaffInterviewRole): Record<string, AnswerDraft> {
@@ -56,11 +64,15 @@ function hasMeaningfulDrafts(
 
 export function StaffInterviewCapture({
   disabled,
+  busy = disabled,
   clientFacing = false,
   onSubmit,
   onDirtyChange,
+  initialDraft,
+  onDraftChange,
 }: {
   disabled: boolean
+  busy?: boolean
   clientFacing?: boolean
   onSubmit: (input: {
     displayName: string
@@ -68,21 +80,36 @@ export function StaffInterviewCapture({
     submission: StaffInterviewSubmission
   }) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
+  initialDraft?: StaffInterviewDraft
+  onDraftChange?: (draft: StaffInterviewDraft) => void
 }) {
-  const [role, setRole] = useState<StaffInterviewRole>('EXECUTIVE')
-  const [displayName, setDisplayName] = useState('')
+  const [role, setRole] = useState<StaffInterviewRole>(initialDraft?.role ?? 'EXECUTIVE')
+  const [displayName, setDisplayName] = useState(initialDraft?.displayName ?? '')
   const [draftsByRole, setDraftsByRole] = useState<
     Partial<Record<StaffInterviewRole, Record<string, AnswerDraft>>>
-  >(() => ({ EXECUTIVE: draftsFor('EXECUTIVE') }))
-  const [consent, setConsent] = useState(false)
+  >(() => initialDraft?.draftsByRole ?? { EXECUTIVE: draftsFor('EXECUTIVE') })
+  const [consent, setConsent] = useState(initialDraft?.consent ?? false)
   const [message, setMessage] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
+  const userEditedRef = useRef(false)
   const questions = STAFF_INTERVIEW_QUESTION_SETS[role]
   const drafts = draftsByRole[role] ?? draftsFor(role)
   const dirty = Boolean(displayName || consent || hasMeaningfulDrafts(draftsByRole))
 
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+  useEffect(() => {
+    if (!initialDraft) return
+    userEditedRef.current = false
+    setRole(initialDraft.role)
+    setDisplayName(initialDraft.displayName)
+    setDraftsByRole(initialDraft.draftsByRole)
+    setConsent(initialDraft.consent)
+  }, [initialDraft])
+  useEffect(() => {
+    if (userEditedRef.current)
+      onDraftChange?.({ kind: 'INTERVIEW', displayName, role, consent, draftsByRole })
+  }, [consent, dirty, displayName, draftsByRole, onDraftChange, role])
   const incomplete = useMemo(
     () =>
       questions.some((question) => {
@@ -93,6 +120,7 @@ export function StaffInterviewCapture({
   )
 
   function update(questionId: string, patch: Partial<AnswerDraft>) {
+    userEditedRef.current = true
     setRequestId(browserUuid())
     setDraftsByRole((current) => {
       const roleDrafts = current[role] ?? draftsFor(role)
@@ -130,6 +158,7 @@ export function StaffInterviewCapture({
     })
     submittingRef.current = true
     try {
+      onDraftChange?.({ kind: 'INTERVIEW', displayName, role, consent, draftsByRole })
       await onSubmit({
         displayName: displayName.trim(),
         requestId,
@@ -140,6 +169,7 @@ export function StaffInterviewCapture({
           answers,
         },
       })
+      userEditedRef.current = false
       setDisplayName('')
       setDraftsByRole((current) => ({ ...current, [role]: draftsFor(role) }))
       setConsent(false)
@@ -169,6 +199,7 @@ export function StaffInterviewCapture({
             maxLength={255}
             value={displayName}
             onChange={(event) => {
+              userEditedRef.current = true
               setDisplayName(event.target.value)
               setRequestId(browserUuid())
             }}
@@ -180,6 +211,7 @@ export function StaffInterviewCapture({
           <select
             value={role}
             onChange={(event) => {
+              userEditedRef.current = true
               const nextRole = event.target.value as StaffInterviewRole
               setRole(nextRole)
               setDraftsByRole((current) =>
@@ -314,6 +346,7 @@ export function StaffInterviewCapture({
             type="checkbox"
             checked={consent}
             onChange={(event) => {
+              userEditedRef.current = true
               setConsent(event.target.checked)
               setRequestId(browserUuid())
             }}
@@ -327,7 +360,7 @@ export function StaffInterviewCapture({
         disabled={disabled || incomplete || !consent || !displayName.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled
+        {busy
           ? clientFacing
             ? 'Sharing…'
             : 'Recording…'

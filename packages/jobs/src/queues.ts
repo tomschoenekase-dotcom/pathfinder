@@ -80,6 +80,9 @@ export const AGENT_RUN_QUEUE = queueName('agent-run')
 export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
 export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
 
+export const AGENT_QUESTION_MAINTENANCE_QUEUE = queueName('agent-question-maintenance')
+export const AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB = 'agent-question-expiration-scheduler'
+
 export const PROSPECT_IMPORT_QUEUE = queueName('prospect-import')
 export const PROSPECT_IMPORT_COMMIT_JOB = 'prospect-import-commit'
 export const PROSPECT_IMPORT_INSPECT_JOB = 'prospect-import-inspect'
@@ -104,6 +107,18 @@ export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verific
 export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'
 export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
   'intake-upload-verification-reconciliation'
+
+/**
+ * Opaque canonical V1 processing-dispatch identifiers only. The worker reloads
+ * scope, frozen source hash, fixed policy, and the lease from Postgres.
+ */
+export const INTAKE_V1_SOURCE_PROCESSING_QUEUE = queueName('intake-v1-source-processing')
+export const INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB = 'intake-v1-source-processing-process'
+export const INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB = 'intake-v1-source-processing-recovery'
+
+export const INTAKE_V1_FILE_EXTRACTION_QUEUE = queueName('intake-v1-file-extraction')
+export const INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB = 'intake-v1-file-extraction-process'
+export const INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB = 'intake-v1-file-extraction-recovery'
 
 export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
 export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
@@ -131,11 +146,14 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   EVALUATION_RUN_QUEUE,
   GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
   AGENT_RUN_QUEUE,
+  AGENT_QUESTION_MAINTENANCE_QUEUE,
   PROSPECT_IMPORT_QUEUE,
   GMAIL_SYNC_QUEUE,
   BILLING_RECONCILIATION_QUEUE,
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   VOICE_SESSION_RECOVERY_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
 ] as const)

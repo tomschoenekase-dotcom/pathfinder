@@ -5,10 +5,23 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({ updateChatDesign: vi.fn() }))
+const mocks = vi.hoisted(() => {
+  const updateChatDesign = vi.fn()
+  const listBrandingAssets = vi.fn()
+  return {
+    updateChatDesign,
+    listBrandingAssets,
+    client: {
+      venue: {
+        updateChatDesign: { mutate: updateChatDesign },
+        listApprovedBrandingAssets: { query: listBrandingAssets },
+      },
+    },
+  }
+})
 
 vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({ venue: { updateChatDesign: { mutate: mocks.updateChatDesign } } }),
+  useTRPCClient: () => mocks.client,
 }))
 
 import { ChatDesignForm } from './ChatDesignForm'
@@ -38,11 +51,35 @@ describe('ChatDesignForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.updateChatDesign.mockResolvedValue({ updatedAt: new Date('2026-08-11T14:31:00.000Z') })
+    mocks.listBrandingAssets.mockResolvedValue({ items: [], nextCursor: null })
   })
 
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it('saves dependent governed photo preferences and keeps credits visible when links are off', async () => {
+    render(<ChatDesignForm venues={venues} />)
+    const links = screen.getByLabelText('Link photo credits to their source') as HTMLInputElement
+    expect(links.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText('Show reviewed photos for places mentioned in an answer'))
+    expect(links.disabled).toBe(false)
+    fireEvent.click(links)
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await waitFor(() =>
+      expect(mocks.updateChatDesign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueId: venues[0]!.id,
+          expectedUpdatedAt: venues[0]!.updatedAt,
+          chatShowPhotos: true,
+          chatShowLinks: true,
+        }),
+      ),
+    )
+    expect(
+      screen.getByText('Photo credits remain visible as text when source links are off.'),
+    ).toBeTruthy()
   })
 
   it('submits an exact venue-scoped design payload and exposes selected states', async () => {
@@ -67,6 +104,8 @@ describe('ChatDesignForm', () => {
         chatTheme: 'sunset',
         chatAccentColor: '#ABCDEF',
         chatFont: 'poppins',
+        chatShowPhotos: false,
+        chatShowLinks: false,
       }),
     )
     expect((await screen.findByRole('status')).textContent).toContain('Design saved')
@@ -154,6 +193,8 @@ describe('ChatDesignForm', () => {
         chatTheme: 'dark',
         chatAccentColor: '#D4607A',
         chatFont: 'playfair',
+        chatShowPhotos: false,
+        chatShowLinks: false,
       }),
     )
   })
@@ -173,10 +214,185 @@ describe('ChatDesignForm', () => {
     expect(await screen.findByRole('status')).toBeTruthy()
   })
 
+  it('resets unsaved changes to the last saved design without writing', () => {
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset changes' }))
+
+    expect(screen.getByRole('button', { name: 'Forest' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Inter' }).getAttribute('aria-pressed')).toBe('true')
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(mocks.updateChatDesign).not.toHaveBeenCalled()
+  })
+
+  it('uses the canonical design returned by the save mutation for readback', async () => {
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatTheme: 'midnight',
+      chatAccentColor: '#123456',
+      chatFont: 'dmSans',
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+
+    await screen.findByRole('status')
+    expect(screen.getByRole('button', { name: 'Midnight' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('button', { name: 'DM Sans' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).value).toBe(
+      '#123456',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
+  it('keeps canonical saved design when switching venues and returning', async () => {
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatTheme: 'sunset',
+      chatAccentColor: '#ABCDEF',
+      chatFont: 'poppins',
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await screen.findByRole('status')
+
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[1]!.id } })
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[0]!.id } })
+
+    expect(screen.getByRole('button', { name: 'Sunset' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Poppins' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).value).toBe(
+      '#ABCDEF',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
+  it('starts on the venue selected by the client route', () => {
+    render(<ChatDesignForm venues={venues} initialVenueId={venues[1]!.id} />)
+
+    expect((screen.getByLabelText('Venue') as HTMLSelectElement).value).toBe(venues[1]!.id)
+    expect(screen.getByRole('switch', { name: 'Use dark mode' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+  })
+
   it('renders a graceful empty state without a save control', () => {
     render(<ChatDesignForm venues={[]} />)
 
     expect(screen.getByText(/No venues found/u)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save design' })).toBeNull()
+  })
+
+  it('renders visitor branding read-only for restricted roles', () => {
+    render(<ChatDesignForm venues={venues} canEdit={false} />)
+
+    expect(screen.queryByRole('button', { name: 'Save design' })).toBeNull()
+    expect(screen.getByText(/only venue managers and owners can edit/u)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Forest' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('loads later reviewed assets and submits their exact immutable receipt', async () => {
+    const brandedVenue = { ...venues[0]!, chatLogoDerivativeId: null, chatBannerDerivativeId: null }
+    const first = {
+      derivativeId: '11111111-1111-4111-8111-111111111111',
+      assetId: '22222222-2222-4222-8222-222222222222',
+      altText: 'First approved logo',
+      caption: null,
+      deliveryPath: '/api/venue-media/first',
+      sourceObjectGeneration: '33333333-3333-4333-8333-333333333333',
+      sha256: 'a'.repeat(64),
+      approvedReviewSequence: 1,
+    }
+    const later = {
+      derivativeId: '44444444-4444-4444-8444-444444444444',
+      assetId: '55555555-5555-4555-8555-555555555555',
+      altText: 'Later approved logo',
+      caption: null,
+      deliveryPath: '/api/venue-media/later',
+      sourceObjectGeneration: '66666666-6666-4666-8666-666666666666',
+      sha256: 'b'.repeat(64),
+      approvedReviewSequence: 3,
+    }
+    mocks.listBrandingAssets.mockResolvedValueOnce({ items: [later], nextCursor: null })
+    render(
+      <ChatDesignForm
+        venues={[brandedVenue]}
+        brandingAssetsByVenue={{ [brandedVenue.id]: { items: [], nextCursor: first.derivativeId } }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    expect(await screen.findAllByRole('option', { name: later.altText })).toHaveLength(2)
+    fireEvent.change(screen.getByLabelText('logo asset'), { target: { value: later.derivativeId } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await waitFor(() =>
+      expect(mocks.updateChatDesign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatLogoDerivativeId: later.derivativeId,
+          chatLogoDerivativeReceipt: {
+            assetId: later.assetId,
+            derivativeId: later.derivativeId,
+            sourceObjectGeneration: later.sourceObjectGeneration,
+            sha256: later.sha256,
+            approvedReviewSequence: later.approvedReviewSequence,
+          },
+        }),
+      ),
+    )
+    expect(mocks.listBrandingAssets).toHaveBeenCalledWith(
+      { venueId: brandedVenue.id, cursor: first.derivativeId },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts the current venue transport on switch and the replacement transport on unmount', async () => {
+    const signals: AbortSignal[] = []
+    mocks.listBrandingAssets.mockImplementation((_input, options) => {
+      signals.push(options.signal)
+      return new Promise(() => undefined)
+    })
+    const cursor = '11111111-1111-4111-8111-111111111111'
+    const rendered = render(
+      <ChatDesignForm
+        venues={venues}
+        brandingAssetsByVenue={{
+          [venues[0]!.id]: { items: [], nextCursor: cursor },
+          [venues[1]!.id]: { items: [], nextCursor: cursor },
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    await waitFor(() => expect(signals).toHaveLength(1))
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[1]!.id } })
+    expect(signals[0]?.aborted).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    await waitFor(() => expect(signals).toHaveLength(2))
+    rendered.unmount()
+    expect(signals[1]?.aborted).toBe(true)
   })
 })

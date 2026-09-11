@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-v1-processing-fixture-proof",
+  "measuredAt": "2026-09-07T22:34:10.582978+00:00",
+  "baseProductRevision": "b7d125f4",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 225,
+  "publicTableCount": 252,
+  "manifestHash": "d5d5aed3c06ccb48b045d66a5cd35b940269abfba289603f355e9232746d843e",
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_2d8ea811c2e7",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "assertions": [
+    "Atomic V1 dispatch projections and rollback",
+    "Same-source cross-revision claims serialize while independent sources claim",
+    "Exact member/run/source hash preflight",
+    "Expired lease recovery and attempt3 no-receipt exhaustion",
+    "Final attempt with persisted successful receipt recovers without attempt4",
+    "Matching existing successful research inherits without new execution",
+    "Immutable terminal processing rows and prior V1 ownership/replay/amendment cases",
+    "Canonical source mutation rejected by actual PostgreSQL append-only trigger after final lease; recovery rechecks member/input/URI hashes"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\measured-intake-v1-submission-disposable.integration.test.ts",
+      "sha256": "d8ef67cd7cbb1c876eaaac9272ec67a9f39ab106548d45d3f6d29cdb40747d17"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\measured-intake-v1-processing-dispatch-actions.ts",
+      "sha256": "db0056139ed8b7337a16a2f91aacd802e1e2a8f7271a8a9f3c584912fb059022"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\measured-intake-v1-submission-actions.ts",
+      "sha256": "074aa62df898fb5cde9bb9bcf59c676c8fb1cbd960ba8949fca6ce94138612f4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\measured-migration.sql",
+      "sha256": "ccc21c4b5ed5a80e6c9dd062d2fc4226a90dc8a622d90978766cac56897f1cbf"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\vitest.json",
+      "sha256": "321856250c6bc050316092ec6380a317566b4d74829a8471bcc985880ec2b302"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\database-readback.log",
+      "sha256": "199dfe565cdbf16c2dc52d8fb994f42faa2f369c29d56299cc01e76db86feab8"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\migrations.log",
+      "sha256": "6910bdb44328baf6c258ccbdb9281109c8e80505d6dce7caa889fbb4d4804cf4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-2d8ea811c2e7\\result.json",
+      "sha256": "cc8ad98e5932a83a9c0481126f061a1a321ea0a671b697a8735dd2357601f7bd"
+    }
+  ],
+  "limitations": [
+    "Local disposable database only; no live research/provider/hosted deployment.",
+    "Worker adapter/gate behavior tested separately; this relational fixture does not perform network fetches.",
+    "Only website research is executable. Structured sources await review; unsupported extraction remains held.",
+    "Exactly-once network activity is not claimed across lost responses or expired workers.",
+    "Data/logs retained; server stopped. Earlier Docker cleanup remains unknown."
+  ],
+  "priorPassingProof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-processing-6fad3a09ceeb"
+}

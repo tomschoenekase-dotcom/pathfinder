@@ -50,6 +50,67 @@ const location = {
 }
 
 describe('VenueLocationAuthoring', () => {
+  it('requires an explicit place choice and submits its identity', async () => {
+    mocks.create.mockResolvedValue({ replayed: false })
+    render(
+      <VenueLocationAuthoring
+        tenantId="tenant-1"
+        venueId="venue-1"
+        venueName="Museum"
+        floors={[]}
+        initialLocations={[]}
+        places={[{ id: 'place-1', name: 'East gallery' }]}
+      />,
+    )
+    const selector = screen.getByRole('combobox', {
+      name: 'Primary place (optional)',
+    }) as HTMLSelectElement
+    expect(selector.value).toBe('')
+    fireEvent.change(selector, { target: { value: 'place-1' } })
+    fireEvent.change(screen.getByLabelText('Display name'), {
+      target: { value: 'Gallery entrance' },
+    })
+    fireEvent.change(screen.getByLabelText('Stable key'), { target: { value: 'gallery-entrance' } })
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Save review-only draft' }).closest('form')!,
+    )
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({ primaryPlaceId: 'place-1' }),
+      ),
+    )
+  })
+
+  it('retains an unavailable mapping visibly until an operator clears it', async () => {
+    mocks.update.mockResolvedValue({ updatedAt: new Date() })
+    render(
+      <VenueLocationAuthoring
+        tenantId="tenant-1"
+        venueId="venue-1"
+        venueName="Museum"
+        floors={[]}
+        initialLocations={[{ ...location, primaryPlaceId: 'old-place' }]}
+        places={[]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Edit draft'))
+    const selector = screen.getAllByRole('combobox', {
+      name: 'Primary place (optional)',
+    })[1] as HTMLSelectElement
+    expect(selector.value).toBe('old-place')
+    expect(screen.getByText('Linked place unavailable; guest photos are withheld.')).toBeTruthy()
+    fireEvent.change(selector, { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Change reason'), {
+      target: { value: 'The place no longer represents this entrance.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update review-only draft' }))
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith(
+        expect.objectContaining({ primaryPlaceId: null, expectedUpdatedAt: revision }),
+      ),
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal('crypto', {

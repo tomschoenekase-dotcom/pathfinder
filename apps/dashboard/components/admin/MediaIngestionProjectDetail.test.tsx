@@ -294,7 +294,7 @@ describe('media ingestion review', () => {
               sourceId: 'S-1',
               filename: 'walkthrough.mp4',
               mediaType: 'VIDEO',
-              videoAnalysisMethod: 'GOOGLE_COMPLETE_VIDEO',
+              videoAnalysisMethod: 'GOOGLE_STATIC_VIDEO_1FPS',
               summary: 'Complete walkthrough summary',
               uncertainties: [],
             },
@@ -315,7 +315,7 @@ describe('media ingestion review', () => {
       />,
     )
 
-    expect(screen.getByText('Google complete-video analysis')).toBeTruthy()
+    expect(screen.getByText(/Google video analysis.*1 frame per second/u)).toBeTruthy()
   })
 
   it('surfaces optimistic-concurrency conflicts without claiming a save', async () => {

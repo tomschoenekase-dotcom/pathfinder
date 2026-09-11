@@ -295,6 +295,7 @@ export async function createOpenAiMediaJson<TParsed>(params: {
     structuredOutput = true
     const parsed = params.parseResponse(text)
     await recordMediaUsage(params.usageSink, {
+      usageObservationStatus: 'OBSERVED',
       provider: 'openai',
       model: params.model,
       pricingVersion: OPENAI_MEDIA_PRICING_VERSION,
@@ -315,6 +316,11 @@ export async function createOpenAiMediaJson<TParsed>(params: {
       }
     }
     await recordMediaUsage(params.usageSink, {
+      usageObservationStatus: usageObserved
+        ? 'OBSERVED'
+        : dispatched
+          ? 'UNKNOWN'
+          : 'NOT_DISPATCHED',
       provider: 'openai',
       model: params.model,
       pricingVersion: OPENAI_MEDIA_PRICING_VERSION,
@@ -402,6 +408,7 @@ export async function transcribeOpenAiMedia(params: {
     }
     const response = transcriptionSchema.parse(raw)
     await recordMediaUsage(params.usageSink, {
+      usageObservationStatus: usageObserved ? 'OBSERVED' : 'UNKNOWN',
       provider: 'openai',
       model: params.model,
       pricingVersion: OPENAI_MEDIA_PRICING_VERSION,
@@ -422,6 +429,11 @@ export async function transcribeOpenAiMedia(params: {
       }
     }
     await recordMediaUsage(params.usageSink, {
+      usageObservationStatus: usageObserved
+        ? 'OBSERVED'
+        : dispatched
+          ? 'UNKNOWN'
+          : 'NOT_DISPATCHED',
       provider: 'openai',
       model: params.model,
       pricingVersion: OPENAI_MEDIA_PRICING_VERSION,

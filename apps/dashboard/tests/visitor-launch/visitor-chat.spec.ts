@@ -31,7 +31,7 @@ async function expectViewportIntegrity(page: Page) {
 }
 
 async function expectComposerReachable(page: Page) {
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await composer.scrollIntoViewIfNeeded()
   if (await composer.isEnabled()) {
     await composer.focus()
@@ -42,7 +42,7 @@ async function expectComposerReachable(page: Page) {
   const bounds = await composer.boundingBox()
   const viewportHeight = await page.evaluate(() => window.innerHeight)
   expect(bounds).not.toBeNull()
-  expect(bounds!.height).toBeGreaterThanOrEqual(56)
+  expect(bounds!.height).toBeGreaterThanOrEqual(44)
   expect(bounds!.y).toBeGreaterThanOrEqual(0)
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewportHeight + 1)
 }
@@ -89,6 +89,117 @@ async function saveEvidence(page: Page, testInfo: TestInfo, name: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+})
+
+test('keyboard-sized viewport gives footer space back to the conversation', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+
+  const shell = page.locator('[data-fixture="visitor-chat"] > div')
+  const footer = page.locator('footer')
+  const conversation = page.getByRole('log')
+  const composer = page.getByRole('textbox')
+  await expect(footer).toBeVisible()
+  await composer.focus()
+
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', {
+      configurable: true,
+      value: 320,
+    })
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+
+  await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
+  await expect(shell).toHaveCSS('height', '320px')
+  await expect(footer).toBeHidden()
+  await expectComposerReachable(page)
+  const keyboardConversationHeight = (await conversation.boundingBox())!.height
+  expect(keyboardConversationHeight).toBeGreaterThanOrEqual(80)
+  const composerBounds = await composer.boundingBox()
+  expect(composerBounds).not.toBeNull()
+  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(320)
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  const screenshot = await shell.screenshot({
+    animations: 'disabled',
+    caret: 'hide',
+    path: testInfo.outputPath('visitor-chat-keyboard-320.png'),
+  })
+  expect(screenshot.byteLength).toBeGreaterThan(2_000)
+})
+
+test('approved chat branding remains usable on a short mobile viewport', async ({
+  page,
+}, testInfo) => {
+  const interceptedAssets: string[] = []
+  await page.setViewportSize({
+    width: Math.min(page.viewportSize()?.width ?? 390, 390),
+    height: 420,
+  })
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    interceptedAssets.push(route.request().url())
+    const banner = route.request().url().includes('visitor-brand-banner')
+    return route.fulfill({
+      contentType: 'image/svg+xml',
+      body: banner
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="240"><rect width="900" height="240" fill="#fff"/><path d="M0 170 Q220 70 450 170 T900 170 V240 H0Z" fill="#f8f4e8"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><circle cx="48" cy="48" r="44" fill="#f3d38a"/><path d="M28 56 Q48 72 68 56" fill="none" stroke="#245a4a" stroke-width="6"/></svg>',
+    })
+  })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&branding=approved&theme=forest',
+  )
+  await hideFrameworkDevChrome(page)
+
+  const header = page.locator('header')
+  await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
+  await expect(header.locator('img')).toHaveCount(2)
+  await expect.poll(() => interceptedAssets.length).toBe(2)
+  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(/text-white/u)
+  await expect(page.getByRole('button', { name: 'Clear chat' })).toHaveClass(/text-white/u)
+  await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
+  await expectTouchTargets(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'visitor-chat-approved-branding-short-mobile')
+})
+
+test('fresh chat branding delivery failure preserves short-mobile controls', async ({
+  page,
+}, testInfo) => {
+  const interceptedAssets: string[] = []
+  await page.setViewportSize({
+    width: Math.min(page.viewportSize()?.width ?? 390, 390),
+    height: 420,
+  })
+  // A fresh test context proves an actual failed delivery. WebKit can retain a
+  // previously decoded image across reload, which does not exercise onError.
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    interceptedAssets.push(route.request().url())
+    await route.fulfill({ status: 404, body: '' })
+  })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&branding=approved&theme=forest',
+  )
+  await hideFrameworkDevChrome(page)
+  const header = page.locator('header')
+  await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
+  await expect(header.locator('img')).toHaveCount(0)
+  await expect.poll(() => interceptedAssets.length).toBe(2)
+  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(
+    /text-\[var\(--chat-text\)\]/u,
+  )
+  await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
+  await expectTouchTargets(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'visitor-chat-failed-branding-short-mobile')
 })
 
 test('long RTL and CJK conversation remains usable while offline', async ({ page }, testInfo) => {

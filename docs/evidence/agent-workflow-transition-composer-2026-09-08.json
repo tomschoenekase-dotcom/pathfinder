@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "measuredAtUtc": "2026-09-08T05:19:33.920853Z",
+  "baseCommit": "069dc67eae59508e6d57bd7cfb25d87f398c4df5",
+  "scope": "P13-07 admin rollback and revoke request composer",
+  "sourceSha256NormalizedLf": {
+    "apps/dashboard/components/admin/AgentWorkflowActivationReviewPanel.tsx": "ce1b0f4c950ccfa44ff62fd0021a3dfb8c2c11e019fc466b65f7ec0128f91729",
+    "apps/dashboard/components/admin/AgentWorkflowActivationReviewPanel.test.tsx": "a236ba003953090fafa0fdf7b24fc15b9c1b71a945b1e2fa3075996375e02295",
+    "apps/dashboard/app/dev-fixtures/agent-workflow-ledger/page.tsx": "9a6b6c624a1987fcf78d1714893a66ac5ed8ea72b2d387b6260504ed43db623e",
+    "apps/dashboard/tests/visual/agent-workflow-ledger.spec.ts": "d6fcfafedb506f0605e84b8b4bb259a08447a2fe96c912ebd7b56954f2b62781",
+    "packages/api/src/routers/admin/agent-workflow-activations.ts": "f2c047436db1cdad5ad35876dd3f259ba31cee5573765375bff5ecc61f31c386",
+    "packages/api/src/routers/admin/agent-workflow-activations.test.ts": "8b751fd2566b2a973d77d8bc28066dfeb260bbbd6f1b7d1ffa3fc84d49cae53c",
+    "docs/agent-workflow-registry.md": "f7b3d0fdee40e2d1526f864a5c4e190e2e60a0bd291038731e0d4381d46906c9"
+  },
+  "verification": {
+    "apiTests": 24,
+    "canonicalLifecycleTests": 10,
+    "uiTests": 33,
+    "browserTests": 3,
+    "browserFailed": 0,
+    "browserSkipped": 0,
+    "workspaceTypecheckTasks": 27,
+    "workspaceTypecheckCached": 22,
+    "workspaceTypecheckSeconds": 30.403,
+    "scopedLint": "passed",
+    "formatting": "passed",
+    "browserArtifactDirectory": "apps/dashboard/artifacts/workflow-transition-final-proof",
+    "browserSession": 47651,
+    "browserSeconds": 9.9,
+    "fixtureServer": "stopped after verification; session41622 intentionally terminated"
+  },
+  "assertions": [
+    "Exact tenant/venue/key history with independent head and target pagination; no workflow body or provenance projection",
+    "Rollback has explicit bounded canary; revoke omits version and policy; historical revoked-head targets remain available",
+    "Uncertain request retries retain byte-identical payload and operation UUID; browser recorded zero Apply calls",
+    "Same-scope selection races, changed-head target pagination, refresh invalidation, old-venue completion and competing mutation locks covered by component regressions",
+    "Expanded rollback inspected at320/820/1024/1440; post-revoke layouts inspected at320/820/1440. Overflow and focus checks; reduced motion enabled; Axe WCAG2A/AA clean at320/820/1440."
+  ],
+  "visualReview": "Desktop-first aligned controls and dividers; optional collapsed transition section preserves existing review hierarchy. Explicit AI-generated critique found no added decorative cards, fake metrics, gradients or generic marketing composition. Phone remains basic usable single column.",
+  "limitations": [
+    "Synthetic fixture browser transport is mocked; API authorization/projection proof and canonical lifecycle unit proof are separate",
+    "No new native PostgreSQL journey, live provider, physical device, deployment or real workflow transition claimed",
+    "Historical canary usefulness and broader packet acceptance remain outside this UI slice"
+  ]
+}

@@ -1928,6 +1928,220 @@ describe('venue router', () => {
 
   // --- venue.updateChatDesign ---
 
+  it('venue.listApprovedBrandingAssets returns only currently approved ready derivatives', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      id: venueRow.id,
+      tenantId: 'tenant_1',
+      slug: 'city-zoo',
+    })
+    venueMediaDerivativeFindMany.mockResolvedValueOnce([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        assetId: '22222222-2222-4222-8222-222222222222',
+        variant: 'CARD',
+        approvedReviewSequence: 2,
+        sha256: 'a'.repeat(64),
+        sourceObjectGeneration: '33333333-3333-4333-8333-333333333333',
+        asset: {
+          kind: 'IMAGE',
+          altText: 'Zoo entrance',
+          caption: null,
+          reviews: [{ sequence: 2, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+        },
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        assetId: '55555555-5555-4555-8555-555555555555',
+        variant: 'CARD',
+        approvedReviewSequence: 1,
+        sha256: 'b'.repeat(64),
+        sourceObjectGeneration: '66666666-6666-4666-8666-666666666666',
+        asset: {
+          kind: 'IMAGE',
+          altText: 'Withdrawn image',
+          caption: null,
+          reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+        },
+      },
+    ])
+
+    const result = await testRouter.createCaller(managerCtx()).venue.listApprovedBrandingAssets({
+      venueId: venueRow.id,
+    })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toMatchObject({
+      derivativeId: '11111111-1111-4111-8111-111111111111',
+      deliveryPath: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=city-zoo',
+    })
+  })
+
+  it('projects a receipt-matched derivative anonymously and nulls it after approval withdrawal', async () => {
+    const derivativeId = '11111111-1111-4111-8111-111111111111'
+    const assetId = '22222222-2222-4222-8222-222222222222'
+    const generation = '33333333-3333-4333-8333-333333333333'
+    const receipt = {
+      derivativeId,
+      assetId,
+      sourceObjectGeneration: generation,
+      sha256: 'a'.repeat(64),
+      approvedReviewSequence: 1,
+    }
+    const publicVenue = {
+      id: venueRow.id,
+      tenantId: 'tenant_1',
+      name: 'City Zoo',
+      description: null,
+      category: 'zoo',
+      guideMode: 'location_aware',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      aiGuideName: null,
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: 'https://legacy.example.test/must-not-resurrect.png',
+      chatBannerUrl: null,
+      chatLogoDerivativeId: derivativeId,
+      chatBannerDerivativeId: derivativeId,
+      chatLogoDerivativeReceipt: receipt,
+      chatBannerDerivativeReceipt: { ...receipt, sha256: 'b'.repeat(64) },
+      isActive: true,
+      secondLayerEnabled: false,
+      secondLayerLabel: 'Team',
+      secondLayerAccessKey: null,
+      venueBotConfigurationId: null,
+      venueBotPresentationMode: null,
+      venueBotTonePreset: null,
+      venueBotCharacterKey: null,
+      venueBotPublicDisplayName: null,
+      venueBotGreeting: null,
+    }
+    const derivative = {
+      id: derivativeId,
+      assetId,
+      approvedReviewSequence: 1,
+      sourceObjectGeneration: generation,
+      sha256: 'a'.repeat(64),
+      asset: {
+        kind: 'IMAGE',
+        reviews: [{ sequence: 1, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+      },
+    }
+    dbQueryRaw.mockResolvedValue([publicVenue])
+    venueMediaDerivativeFindMany.mockResolvedValueOnce([derivative]).mockResolvedValueOnce([
+      {
+        ...derivative,
+        asset: {
+          kind: 'IMAGE',
+          reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+        },
+      },
+    ])
+    const anonymous = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+    await expect(anonymous.venue.getBySlug({ slug: 'city-zoo' })).resolves.toMatchObject({
+      chatLogoUrl: `/api/venue-media/${derivativeId}?venue=city-zoo`,
+      chatBannerUrl: null,
+    })
+    await expect(anonymous.venue.getBySlug({ slug: 'city-zoo' })).resolves.toMatchObject({
+      chatLogoUrl: null,
+    })
+  })
+
+  it('scans past a full revoked page and returns a cursor for further approved assets', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      id: venueRow.id,
+      tenantId: 'tenant_1',
+      slug: 'city-zoo',
+    })
+    const revoked = (id: string) => ({
+      id,
+      assetId: '55555555-5555-4555-8555-555555555555',
+      variant: 'CARD',
+      approvedReviewSequence: 1,
+      sha256: 'b'.repeat(64),
+      sourceObjectGeneration: '66666666-6666-4666-8666-666666666666',
+      asset: {
+        kind: 'IMAGE',
+        altText: 'Withdrawn',
+        caption: null,
+        reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+      },
+    })
+    const approved = (id: string) => ({
+      id,
+      assetId: '22222222-2222-4222-8222-222222222222',
+      variant: 'CARD',
+      approvedReviewSequence: 2,
+      sha256: 'a'.repeat(64),
+      sourceObjectGeneration: '33333333-3333-4333-8333-333333333333',
+      asset: {
+        kind: 'IMAGE',
+        altText: 'Approved',
+        caption: null,
+        reviews: [{ sequence: 2, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+      },
+    })
+    venueMediaDerivativeFindMany
+      .mockResolvedValueOnce([
+        revoked('11111111-1111-4111-8111-111111111111'),
+        revoked('22222222-2222-4222-8222-222222222223'),
+      ])
+      .mockResolvedValueOnce([
+        approved('33333333-3333-4333-8333-333333333334'),
+        approved('44444444-4444-4444-8444-444444444445'),
+      ])
+
+    const result = await testRouter
+      .createCaller(managerCtx())
+      .venue.listApprovedBrandingAssets({ venueId: venueRow.id, limit: 1 })
+    expect(result.items.map((item) => item.derivativeId)).toEqual([
+      '33333333-3333-4333-8333-333333333334',
+    ])
+    expect(result.nextCursor).toBe('33333333-3333-4333-8333-333333333334')
+    expect(venueMediaDerivativeFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: { id: '22222222-2222-4222-8222-222222222223' }, skip: 1 }),
+    )
+  })
+
+  it('bounds revoked-only scans and returns the exact continuation cursor', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      id: venueRow.id,
+      tenantId: 'tenant_1',
+      slug: 'city-zoo',
+    })
+    const revoked = (id: string) => ({
+      id,
+      assetId: '55555555-5555-4555-8555-555555555555',
+      variant: 'CARD',
+      approvedReviewSequence: 1,
+      sha256: 'b'.repeat(64),
+      sourceObjectGeneration: '66666666-6666-4666-8666-666666666666',
+      asset: {
+        kind: 'IMAGE',
+        altText: 'Withdrawn',
+        caption: null,
+        reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+      },
+    })
+    for (let page = 0; page < 5; page += 1) {
+      venueMediaDerivativeFindMany.mockResolvedValueOnce([
+        revoked(`00000000-0000-4000-8000-${String(page * 2 + 1).padStart(12, '0')}`),
+        revoked(`00000000-0000-4000-8000-${String(page * 2 + 2).padStart(12, '0')}`),
+      ])
+    }
+    const result = await testRouter
+      .createCaller(managerCtx())
+      .venue.listApprovedBrandingAssets({ venueId: venueRow.id, limit: 1 })
+    expect(result.items).toEqual([])
+    expect(result.nextCursor).toBe('00000000-0000-4000-8000-000000000010')
+    expect(venueMediaDerivativeFindMany).toHaveBeenCalledTimes(5)
+  })
+
   it('venue.updateChatDesign accepts the dark theme and a valid font', async () => {
     venueFindFirst
       .mockResolvedValueOnce({

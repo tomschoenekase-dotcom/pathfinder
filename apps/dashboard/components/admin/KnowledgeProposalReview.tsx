@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { SemanticUpdatePreview } from './SemanticUpdatePreview'
+import { SemanticReviewedDeclineForm } from './SemanticReviewedDeclineForm'
 
 export type KnowledgeProposal = {
   id: string
@@ -26,16 +27,43 @@ export type KnowledgeProposal = {
   createdByType?: string
   supportRequestId?: string | null
   supportRequestVersion?: number | null
+  hasSupportProvenance?: boolean
+  hasLegacyTarget?: boolean
+  resolutionDraft?: {
+    desired: { title: string; category: string; content: string; isEnabled: boolean }
+    relation: 'CORRECTS' | 'SUPERSEDES'
+  } | null
+  duplicateResolution?: {
+    resolutionId: string
+    outcome: 'DUPLICATE_NOOP'
+    targetKnowledgeEntryId: string
+    relation: string
+    createdAt: Date | string
+    proposalRevisionCurrent: boolean
+    currentFulfillmentVerified: false
+  } | null
+  canRecordReviewedDecline?: boolean
+  reviewedDecline?: {
+    resolutionId: string
+    outcome: 'REVIEWED_DECLINE'
+    createdAt: Date | string
+    proposalRevisionCurrent: boolean
+    currentFulfillmentVerified: false
+  } | null
 }
 
 function ProposalActions({
   tenantId,
   venueId,
   proposal,
+  decisionFrozen = false,
+  hideReject = false,
 }: {
   tenantId: string
   venueId: string
   proposal: KnowledgeProposal
+  decisionFrozen?: boolean
+  hideReject?: boolean
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -81,20 +109,22 @@ function ProposalActions({
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={pending || !note.trim()}
+          disabled={decisionFrozen || pending || !note.trim()}
           onClick={() => void review('APPROVED')}
           className="min-h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
         >
           Approve evidence
         </button>
-        <button
-          type="button"
-          disabled={pending || !note.trim()}
-          onClick={() => void review('REJECTED')}
-          className="min-h-11 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
-        >
-          Reject proposal
-        </button>
+        {!hideReject ? (
+          <button
+            type="button"
+            disabled={decisionFrozen || pending || !note.trim()}
+            onClick={() => void review('REJECTED')}
+            className="min-h-11 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
+          >
+            Reject proposal
+          </button>
+        ) : null}
       </div>
       <p className="mt-2 text-xs text-slate-500">
         Approval records a human decision only. It does not publish or overwrite canonical
@@ -118,6 +148,15 @@ export function KnowledgeProposalReview({
   venueId: string
   proposals: KnowledgeProposal[]
 }) {
+  const router = useRouter()
+  const [closedScopes, setClosedScopes] = useState<Set<string>>(() => new Set())
+  const [declineFrozenScopes, setDeclineFrozenScopes] = useState<Set<string>>(() => new Set())
+  const [declineRecordedScopes, setDeclineRecordedScopes] = useState<Set<string>>(() => new Set())
+  const displayedResolutionScopes = new Set(
+    proposals.map((proposal) =>
+      JSON.stringify([tenantId, venueId, proposal.id, new Date(proposal.updatedAt).toISOString()]),
+    ),
+  )
   return (
     <section className="space-y-5">
       <div>
@@ -138,102 +177,187 @@ export function KnowledgeProposalReview({
         </p>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {proposals.map((proposal) => (
-            <article
-              key={proposal.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                    {proposal.status.replaceAll('_', ' ')}
-                  </span>
-                  {proposal.createdByType === 'AGENT' ? (
-                    <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-violet-800">
-                      AI prepared
+          {proposals.map((proposal) => {
+            const resolutionScope = JSON.stringify([
+              tenantId,
+              venueId,
+              proposal.id,
+              new Date(proposal.updatedAt).toISOString(),
+            ])
+            const closedAfterResolution = closedScopes.has(resolutionScope)
+            const declineFrozen = declineFrozenScopes.has(resolutionScope)
+            const declineRecorded = declineRecordedScopes.has(resolutionScope)
+            return (
+              <article
+                id={`proposal-${proposal.id}`}
+                key={proposal.id}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                      {closedAfterResolution
+                        ? 'CLOSED AFTER RESOLUTION'
+                        : proposal.status.replaceAll('_', ' ')}
                     </span>
-                  ) : null}
+                    {proposal.createdByType === 'AGENT' ? (
+                      <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-violet-800">
+                        AI prepared
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {Math.round(proposal.confidence * 100)}% confidence
+                  </span>
                 </div>
-                <span className="text-xs text-slate-500">
-                  {Math.round(proposal.confidence * 100)}% confidence
-                </span>
-              </div>
-              {proposal.observedVisitorClaim ? (
-                <div className="mt-4">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Observed visitor claim
+                {proposal.observedVisitorClaim ? (
+                  <div className="mt-4">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Observed visitor claim
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-700">
+                      {proposal.observedVisitorClaim}
+                    </p>
+                  </div>
+                ) : null}
+                {proposal.aiInference ? (
+                  <div className="mt-4">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      AI inference
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-700">{proposal.aiInference}</p>
+                  </div>
+                ) : null}
+                <div className="mt-4 rounded-xl bg-sky-50 p-4">
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-sky-900">
+                    Proposed change
                   </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">
-                    {proposal.observedVisitorClaim}
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                    {proposal.proposedChange}
                   </p>
                 </div>
-              ) : null}
-              {proposal.aiInference ? (
-                <div className="mt-4">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    AI inference
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">{proposal.aiInference}</p>
-                </div>
-              ) : null}
-              <div className="mt-4 rounded-xl bg-sky-50 p-4">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-sky-900">
-                  Proposed change
-                </h2>
-                <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                  {proposal.proposedChange}
+                <p className="mt-3 text-sm text-slate-600">
+                  <span className="font-semibold text-slate-800">Reason:</span> {proposal.reason}
                 </p>
-              </div>
-              <p className="mt-3 text-sm text-slate-600">
-                <span className="font-semibold text-slate-800">Reason:</span> {proposal.reason}
-              </p>
-              {proposal.sessionId ? (
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-                  <Link
-                    href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs/${proposal.sessionId}`}
-                    className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
-                  >
-                    Review source conversation
-                  </Link>
-                  <span className="text-xs text-slate-500">
-                    {proposal.evidenceMessageIds.length} exact message reference
-                    {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
-                  </span>
-                </div>
-              ) : null}
-              {proposal.supportRequestId && proposal.supportRequestVersion ? (
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-                  <Link
-                    href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations?requestId=${encodeURIComponent(proposal.supportRequestId)}`}
-                    className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
-                  >
-                    Review source request
-                  </Link>
-                  <span className="text-xs text-slate-500">
-                    Frozen request version {proposal.supportRequestVersion} ·{' '}
-                    {proposal.evidenceMessageIds.length} exact message reference
-                    {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
-                  </span>
-                </div>
-              ) : null}
-              {proposal.status === 'PENDING_REVIEW' ? (
-                <ProposalActions tenantId={tenantId} venueId={venueId} proposal={proposal} />
-              ) : proposal.reviewNote ? (
-                <p className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
-                  <span className="font-semibold">Review:</span> {proposal.reviewNote}
-                </p>
-              ) : null}
-              {proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
-                <SemanticUpdatePreview
-                  tenantId={tenantId}
-                  venueId={venueId}
-                  proposalId={proposal.id}
-                  proposalUpdatedAt={proposal.updatedAt}
-                  hasTarget={Boolean(proposal.targetKnowledgeEntryId)}
-                />
-              ) : null}
-            </article>
-          ))}
+                {proposal.sessionId ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                    <Link
+                      href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs/${proposal.sessionId}`}
+                      className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
+                    >
+                      Review source conversation
+                    </Link>
+                    <span className="text-xs text-slate-500">
+                      {proposal.evidenceMessageIds.length} exact message reference
+                      {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
+                    </span>
+                  </div>
+                ) : null}
+                {proposal.supportRequestId && proposal.supportRequestVersion ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                    <Link
+                      href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations?requestId=${encodeURIComponent(proposal.supportRequestId)}`}
+                      className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
+                    >
+                      Review source request
+                    </Link>
+                    <span className="text-xs text-slate-500">
+                      Frozen request version {proposal.supportRequestVersion} ·{' '}
+                      {proposal.evidenceMessageIds.length} exact message reference
+                      {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
+                    </span>
+                  </div>
+                ) : null}
+                {proposal.status === 'PENDING_REVIEW' && !declineRecorded ? (
+                  <ProposalActions
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    proposal={proposal}
+                    decisionFrozen={declineFrozen}
+                    hideReject={proposal.canRecordReviewedDecline === true}
+                  />
+                ) : proposal.reviewNote ? (
+                  <p className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
+                    <span className="font-semibold">Review:</span> {proposal.reviewNote}
+                  </p>
+                ) : null}
+                {proposal.reviewedDecline || declineRecorded ? (
+                  <div className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">Reviewed decline recorded</p>
+                    <p className="mt-1 leading-6">
+                      This historical receipt records an evidence-reviewed decline. It does not
+                      verify current fulfillment or change current venue guidance.
+                    </p>
+                    {proposal.reviewedDecline &&
+                    !proposal.reviewedDecline.proposalRevisionCurrent ? (
+                      <p className="mt-1 text-amber-800">
+                        The proposal has changed since this receipt was recorded.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : proposal.canRecordReviewedDecline &&
+                  (proposal.status === 'PENDING_REVIEW' || proposal.status === 'REJECTED') ? (
+                  <SemanticReviewedDeclineForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    proposalId={proposal.id}
+                    proposalUpdatedAt={proposal.updatedAt}
+                    onFrozenChange={(frozen) =>
+                      setDeclineFrozenScopes((current) => {
+                        const next = new Set(current)
+                        if (frozen) next.add(resolutionScope)
+                        else next.delete(resolutionScope)
+                        return next
+                      })
+                    }
+                    onRecorded={() => {
+                      setDeclineRecordedScopes((current) => new Set(current).add(resolutionScope))
+                      router.refresh()
+                    }}
+                  />
+                ) : proposal.duplicateResolution ? (
+                  <div className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">Duplicate review recorded</p>
+                    <p className="mt-1 leading-6">
+                      This historical receipt records that the proposal duplicated venue guidance.
+                      It does not verify current fulfillment, change canonical content, or complete
+                      the support request.
+                    </p>
+                    {!proposal.duplicateResolution.proposalRevisionCurrent ? (
+                      <p className="mt-1 text-amber-800">
+                        The proposal has changed since this receipt was recorded.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
+                  <SemanticUpdatePreview
+                    hasLegacyTarget={proposal.hasLegacyTarget ?? false}
+                    hasSupportProvenance={
+                      proposal.hasSupportProvenance ?? Boolean(proposal.supportRequestId)
+                    }
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    proposalId={proposal.id}
+                    proposalUpdatedAt={proposal.updatedAt}
+                    hasTarget={Boolean(proposal.targetKnowledgeEntryId)}
+                    resolutionDraft={proposal.resolutionDraft ?? null}
+                    onResolutionRecorded={() => {
+                      setClosedScopes((current) => {
+                        const next = new Set(
+                          [...current].filter((candidate) =>
+                            displayedResolutionScopes.has(candidate),
+                          ),
+                        )
+                        next.add(resolutionScope)
+                        return next
+                      })
+                    }}
+                    onDuplicateRecorded={() => router.refresh()}
+                  />
+                ) : null}
+              </article>
+            )
+          })}
         </div>
       )}
     </section>

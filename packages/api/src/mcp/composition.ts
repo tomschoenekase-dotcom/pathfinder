@@ -15,11 +15,16 @@ import {
   SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
   SupportPackageHandoffSupersessionApplyParameters,
   SupportCompletionProposalApprovalSnapshot,
+  deriveSupportCompletionOutcome,
+  INTAKE_V1_PACKAGE_DRAFT_APPLY_ACTION,
+  INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
+  IntakeV1PackageDraftApplyParameters,
 } from '@pathfinder/contracts'
 import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
   consumeApprovalGrantAction,
+  consumeApprovalGrantInTransaction,
   createIntakeProposal,
   createSupportRequestAction,
   appendSupportMessageAction,
@@ -32,7 +37,6 @@ import {
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
   readGuestAnswerAttributionAgreement,
-  readSupportPackageFulfillment,
   recordCompanyMeetingExtractionAction,
   completeCompanyMeetingProcessingAction,
   listAccountCorrespondence,
@@ -41,6 +45,8 @@ import {
   prepareCustomerAccessRequestAction,
   prepareAgentImprovementProposalAction,
   recordAgentImprovementValidationAction,
+  registerAgentWorkflowVersion as registerAgentWorkflowVersionAction,
+  readCompatibleAgentWorkflowVersions,
   prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
   prepareSupportInformationRequestProposalAction,
@@ -55,13 +61,20 @@ import {
   publishOperationalEvent,
   searchCompanyKnowledge,
   supersedeSupportPackageHandoffAction,
+  prepareIntakeV1PackageDraftProposalAction,
+  readIntakeV1PackageDraftProposalReplay,
+  assertIntakeV1PackageMachineAuthority,
 } from '@pathfinder/db'
+import { PATHFINDER_MCP_TOOLS } from '@pathfinder/contracts/mcp-v0'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
+import { assertMcpWorkflowEffectLease, assertMcpWorkflowToolSupported } from './workflow-boundary'
 import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-finalizers'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { buildIntakeV1PackageCandidate } from '../lib/intake-v1-package-candidate'
+import { createIntakeV1PackageDraft } from '../lib/intake-v1-package-draft'
 import { prepareSupportPackageApprovalProposalAction } from '../lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from '../lib/support-package-application-actions'
 import {
@@ -78,6 +91,8 @@ import { VenuePackagePayloadV3 } from '../schemas/venue-package'
 import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
 import { requestWeeklyReportDraftAction } from '../lib/weekly-report-generation'
+import { createSemanticUniversalContentDraftService } from '../lib/semantic-universal-content-handoff-service'
+import { createLegacyKnowledgeAdoptionDraftService } from '../lib/legacy-knowledge-adoption-service'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -98,6 +113,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.quality.preview_answer_attribution_agreement',
   'torchiko.knowledge.propose_correction',
   'torchiko.knowledge.prepare_from_support',
+  'torchiko.knowledge.create_typed_draft',
+  'torchiko.knowledge.adopt_legacy_draft',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
@@ -117,6 +134,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_package_handoff_supersession',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
+  'torchiko.agent_workflows.register_version',
+  'torchiko.agent_workflows.get_compatible_versions',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
   'torchiko.reports.get_lifecycle',
@@ -200,6 +219,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'previewGuestAnswerAttributionAgreement'
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
+    | 'createSemanticUniversalContentDraft'
+    | 'createLegacyKnowledgeAdoptionDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -218,6 +239,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeSupportPackageHandoffSupersession'
     | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
+    | 'registerAgentWorkflowVersion'
+    | 'readAgentWorkflowVersions'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
@@ -229,6 +252,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'addSupportInternalNote'
     | 'createIntakeNotesProposal'
     | 'generateWeeklyReportDraft'
+    | 'proposeIntakeV1PackageDraft'
+    | 'applyIntakeV1PackageDraft'
   > = {
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
@@ -248,6 +273,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
+    | 'createSemanticUniversalContentDraft'
+    | 'createLegacyKnowledgeAdoptionDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -266,9 +293,245 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeSupportPackageHandoffSupersession'
     | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
+    | 'registerAgentWorkflowVersion'
+    | 'readAgentWorkflowVersions'
+    | 'previewIntakeV1PackageDraft'
+    | 'proposeIntakeV1PackageDraft'
+    | 'applyIntakeV1PackageDraft'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
   > = {
+    async proposeIntakeV1PackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('V1 package proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified V1 package worker is unavailable')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        capability: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
+        idempotencyKey: input.operationId,
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+      }
+      const proposalInput = {
+        operationId: input.operationId,
+        clientId: context.credential.clientId,
+        tenantId: context.credential.tenantId,
+        venueId,
+        submissionId: input.submissionId,
+        revision: input.revision,
+        manifestHash: input.expectedManifestHash,
+        candidateHash: input.expectedCandidateHash,
+        payloadHash: input.expectedPayloadHash,
+        selectionHash: input.expectedSelectionHash,
+        selectedMemberIds: input.selectedMemberIds,
+        partialAcknowledged: input.partialAcknowledged,
+        draftOperationId: input.draftOperationId,
+        executionLeaseToken: input.executionLeaseToken,
+        reason: input.reason,
+        actor,
+      }
+      const replay = await readIntakeV1PackageDraftProposalReplay(proposalInput, database)
+      const candidate = replay
+        ? null
+        : await buildIntakeV1PackageCandidate({
+            db: database,
+            tenantId: context.credential.tenantId,
+            venueId,
+            submissionId: input.submissionId,
+            revision: input.revision,
+            selectedMemberIds: input.selectedMemberIds,
+          })
+      if (
+        candidate &&
+        (!candidate.ready ||
+          !candidate.payload ||
+          !candidate.candidateHash ||
+          !candidate.payloadHash)
+      )
+        throw new McpActionBindingError('Exact V1 candidate is not ready for draft review')
+      if (
+        candidate &&
+        (candidate.manifestHash !== input.expectedManifestHash ||
+          candidate.candidateHash !== input.expectedCandidateHash ||
+          candidate.payloadHash !== input.expectedPayloadHash ||
+          candidate.selectionHash !== input.expectedSelectionHash)
+      )
+        throw new McpActionBindingError('V1 candidate changed; preview it again')
+      const result =
+        replay ?? (await prepareIntakeV1PackageDraftProposalAction(proposalInput, database))
+      return {
+        kind: 'torchiko.intake-v1-package-draft-proposal',
+        summary: result.replayed
+          ? 'Existing exact V1 draft proposal returned.'
+          : 'Exact V1 draft candidate sent for human approval; no package exists.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          replayed: result.replayed,
+          packageDraftCreated: false,
+          packageApproved: false,
+          packageApplied: false,
+          published: false,
+        }),
+      }
+    },
+    async applyIntakeV1PackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId || !context.approvalGrantId)
+        throw new McpActionBindingError('Venue scope and approval grant are required')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified V1 package worker is unavailable')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
+        idempotencyKey: input.operationId,
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+      }
+      const parameters = IntakeV1PackageDraftApplyParameters.parse({
+        clientId: context.credential.clientId,
+        venueId,
+        submissionId: input.submissionId,
+        revision: input.revision,
+        manifestHash: input.expectedManifestHash,
+        candidateHash: input.expectedCandidateHash,
+        payloadHash: input.expectedPayloadHash,
+        selectionHash: input.expectedSelectionHash,
+        selectedMemberIds: input.selectedMemberIds,
+        partialAcknowledged: input.partialAcknowledged,
+        draftOperationId: input.draftOperationId,
+      })
+      const result = await createIntakeV1PackageDraft({
+        db: database,
+        actor,
+        command: {
+          tenantId: context.credential.tenantId,
+          venueId,
+          submissionId: input.submissionId,
+          revision: input.revision,
+          operationId: input.draftOperationId,
+          selectedMemberIds: input.selectedMemberIds,
+          expectedManifestHash: input.expectedManifestHash,
+          expectedCandidateHash: input.expectedCandidateHash,
+          expectedPayloadHash: input.expectedPayloadHash,
+          partialAcknowledged: input.partialAcknowledged,
+        },
+        authorizeFinalization: async (finalized) => {
+          const authority = await assertIntakeV1PackageMachineAuthority(finalized.tx, {
+            tenantId: context.credential.tenantId,
+            clientId: context.credential.clientId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerKey: input.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
+            executionLeaseToken: input.executionLeaseToken,
+            actionClass: 'APPROVAL_BACKED_DOMAIN_EFFECT',
+          })
+          const consumption = await consumeApprovalGrantInTransaction(finalized.tx, {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: INTAKE_V1_PACKAGE_DRAFT_APPLY_ACTION,
+            capability: INTAKE_V1_PACKAGE_DRAFT_CAPABILITY,
+            parameters,
+            actor,
+            now: new Date(),
+            resultReference: `VenuePackage:${finalized.packageId}:IntakeV1Handoff:${input.draftOperationId}:DRAFT`,
+          })
+          await authority.recheckTime()
+          if (
+            finalized.replayed &&
+            (!consumption.replayed ||
+              consumption.consumption.resultReference !==
+                `VenuePackage:${finalized.packageId}:IntakeV1Handoff:${input.draftOperationId}:DRAFT`)
+          )
+            throw new McpActionBindingError('Approved V1 draft replay identity is invalid')
+        },
+      })
+      const attachment = z
+        .object({
+          handoff: z.object({ id: z.string().min(1) }).passthrough(),
+          replayed: z.boolean(),
+        })
+        .passthrough()
+        .parse(result.attachment)
+      return {
+        kind: 'torchiko.intake-v1-package-draft-created',
+        summary: attachment.replayed
+          ? 'Existing approved V1 draft operation returned at its current package status; no new effect occurred.'
+          : 'Approved V1 package DRAFT and immutable handoff recorded; nothing was published.',
+        data: jsonData({
+          packageId: result.value.id,
+          handoffId: attachment.handoff.id,
+          status: result.value.status,
+          replayed: attachment.replayed,
+          packageApproved: false,
+          packageApplied: false,
+          published: false,
+        }),
+      }
+    },
+    async previewIntakeV1PackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('V1 package previews require venue scope')
+      const candidate = await buildIntakeV1PackageCandidate({
+        db: database,
+        tenantId: context.credential.tenantId,
+        venueId,
+        submissionId: input.submissionId,
+        revision: input.revision,
+        selectedMemberIds: input.selectedMemberIds,
+      })
+      return {
+        kind: 'torchiko.intake-v1-package-preview',
+        summary: candidate.ready
+          ? 'Exact V1 package candidate is ready for human review; no package or public change was created.'
+          : 'Exact V1 package candidate needs review; no package or public change was created.',
+        data: jsonData(candidate),
+      }
+    },
     async verifyApprovalGrant(request, context) {
       const now = new Date()
       const grant = await database.approvalGrant.findFirst({
@@ -346,6 +609,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         expiresAt: input.expiresAt,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -469,6 +739,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         body: input.body,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -726,6 +1003,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         attachmentCount: 0 as const,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -1270,6 +1554,153 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         }),
       }
     },
+    async createSemanticUniversalContentDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Typed knowledge drafts require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+      const result = await createSemanticUniversalContentDraftService({
+        db: database,
+        actorId: input.agentIdentityId,
+        agentActor: {
+          agentIdentityId: input.agentIdentityId,
+          agentRunId: input.agentRunId,
+          workerId: worker.id,
+          credentialId: context.credential.credentialId,
+          capability: 'knowledge:draft',
+          idempotencyKey: input.operationId,
+          ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+          ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        },
+        input: {
+          tenantId: context.credential.tenantId,
+          venueId,
+          proposalId: input.proposalId,
+          expectedProposalUpdatedAt: input.expectedProposalUpdatedAt,
+          expectedPreviewHash: input.expectedPreviewHash,
+          relation: input.relation,
+          desired: input.desired,
+          draft: input.draft,
+        },
+      })
+      return {
+        kind: 'torchiko.semantic-universal-content-draft',
+        summary: result.replayed
+          ? 'Existing typed universal-content draft returned; publication remains separate.'
+          : 'Typed universal-content draft created from the approved proposal; publication remains separate.',
+        data: jsonData({
+          tenantId: context.credential.tenantId,
+          venueId,
+          proposalId: input.proposalId,
+          moduleId: result.moduleId,
+          revisionId: result.revisionId,
+          version: result.version,
+          classification: result.classification,
+          draftHash: result.draftHash,
+          replayed: result.replayed,
+          requiresExplicitPublication: true,
+          autoPublished: false,
+        }),
+      }
+    },
+    async createLegacyKnowledgeAdoptionDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Legacy knowledge adoption requires venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+      const serviceInput = {
+        proposalId: input.proposalId,
+        legacyKnowledgeEntryId: input.legacyKnowledgeEntryId,
+        expectedProposalUpdatedAt: input.expectedProposalUpdatedAt,
+        expectedPreviewHash: input.expectedPreviewHash,
+        expectedLegacyUpdatedAt: input.expectedLegacyUpdatedAt,
+        expectedLegacySnapshotHash: input.expectedLegacySnapshotHash,
+        relation: input.relation,
+        desired: input.desired,
+        draft: input.draft,
+      }
+      const result = await createLegacyKnowledgeAdoptionDraftService({
+        db: database,
+        actor: {
+          type: 'AGENT',
+          id: input.agentIdentityId,
+          role: 'AGENT',
+          authorization: 'APPROVED_SEMANTIC_PROPOSAL',
+        },
+        input: { ...serviceInput, tenantId: context.credential.tenantId, venueId },
+      })
+      return {
+        kind: 'torchiko.legacy-knowledge-adoption-draft',
+        summary: result.replayed
+          ? 'Existing legacy adoption draft returned; legacy publication state is unchanged.'
+          : 'Native adoption draft created; the legacy source remains authoritative until separate publication.',
+        data: jsonData({
+          tenantId: context.credential.tenantId,
+          venueId,
+          legacyKnowledgeEntryId: input.legacyKnowledgeEntryId,
+          moduleId: result.moduleId,
+          revisionId: result.revisionId,
+          version: result.version,
+          legacySnapshotHash: result.legacySnapshotHash,
+          draftHash: result.draftHash,
+          replayed: result.replayed,
+          legacyStillAuthoritative: true,
+          requiresExplicitPublication: true,
+          autoPublished: false,
+        }),
+      }
+    },
     async proposeLocationDraft(input, context) {
       const venueId = input.venueId
       if (!venueId) throw new McpActionBindingError('Location proposals require venue scope')
@@ -1572,7 +2003,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
           sameTransaction,
         )
-        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:WAITING_FOR_CLIENT`
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.operationVersion.requestVersion}:WAITING_FOR_CLIENT`
         if (consumption.replayed) {
           if (consumption.consumption.resultReference !== resultReference) {
             throw new McpActionBindingError(
@@ -3299,11 +3730,29 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       if (!run)
         throw new McpActionBindingError('Verified support-completion worker run is unavailable')
       const result = await database.$transaction(async (tx) => {
-        const packageFulfillment = await readSupportPackageFulfillment(tx, {
-          tenantId: context.credential.tenantId,
-          venueId,
-          supportRequestId: input.requestId,
+        const approvedGrant = await tx.approvalGrant.findFirst({
+          where: {
+            id: context.approvalGrantId!,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: 'pathfinder.apply_support_completion',
+            capability: 'support:complete',
+          },
+          select: {
+            approvalDecision: {
+              select: { approvalRequest: { select: { scopeSnapshot: true } } },
+            },
+          },
         })
+        const reviewedSnapshot = SupportCompletionProposalApprovalSnapshot.safeParse(
+          approvedGrant?.approvalDecision?.approvalRequest?.scopeSnapshot,
+        )
+        if (!reviewedSnapshot.success)
+          throw new McpActionBindingError('Approved support completion parameters are unavailable')
+        const packageFulfillment = reviewedSnapshot.data.packageFulfillment
+        const completionOutcome = deriveSupportCompletionOutcome(packageFulfillment)
+        const outcomeWasReviewed = reviewedSnapshot.data.completionOutcome !== undefined
         const parameters = {
           clientId: context.credential.clientId,
           venueId,
@@ -3313,6 +3762,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           toStatus: 'COMPLETED' as const,
           body: input.body,
           packageFulfillment,
+          ...(outcomeWasReviewed ? { completionOutcome } : {}),
         }
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
@@ -3354,6 +3804,12 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
             expectedVersion: input.expectedVersion,
             body: input.body,
             packageFulfillment,
+            ...(outcomeWasReviewed
+              ? {
+                  expectedCompletionOutcome: completionOutcome,
+                  expectedFulfillmentDigest: packageFulfillment.digest,
+                }
+              : {}),
             actor: {
               actorType: 'AGENT',
               participantKind: 'AGENT',
@@ -3373,7 +3829,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
           sameTransaction,
         )
-        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:COMPLETED`
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.operationVersion.requestVersion}:COMPLETED`
         if (consumption.replayed) {
           if (consumption.consumption.resultReference !== resultReference) {
             throw new McpActionBindingError('Approved support completion replay is incomplete')
@@ -3665,6 +4121,111 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         }),
       }
     },
+    async registerAgentWorkflowVersion(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Workflow registration requires venue scope')
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: new Date() },
+          capabilities: { has: 'agent-improvements:propose' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified workflow registration worker is unavailable')
+      const capabilities: Set<string> = new Set(
+        PATHFINDER_MCP_TOOLS.filter(
+          (tool) =>
+            SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+              tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+            ) &&
+            context.credential.capabilities.includes(
+              tool._meta['com.pathfinder/security'].capability,
+            ),
+        ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+      )
+      const result = await registerAgentWorkflowVersionAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          manifest: input.manifest,
+          portableText: input.portableText,
+          provenance: input.provenance,
+          ...(input.supersedesVersionId ? { supersedesVersionId: input.supersedesVersionId } : {}),
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'agent-improvements:propose',
+            idempotencyKey: input.operationId,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+          },
+        },
+        capabilities,
+        database,
+      )
+      return {
+        kind: 'torchiko.agent-workflow-version',
+        summary:
+          'Immutable unactivated workflow version registered; no behavior or authority changed.',
+        data: jsonData({
+          workflowVersionId: result.version.id,
+          registryKey: result.version.registryKey,
+          version: result.version.version,
+          contentHash: result.version.contentHash,
+          compatibility: result.version.requiredToolCapabilities.some(
+            (capability) => !capabilities.has(capability),
+          )
+            ? 'MISSING_TOOLS'
+            : 'COMPATIBLE',
+          provenanceVerification: result.provenanceVerification,
+          replayed: result.replayed,
+          activationGranted: false,
+        }),
+      }
+    },
+    async readAgentWorkflowVersions(input, context) {
+      if (!input.venueId)
+        throw new McpActionBindingError('Workflow inspection requires venue scope')
+      const capabilities = new Set(
+        PATHFINDER_MCP_TOOLS.filter(
+          (tool) =>
+            SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+              tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+            ) &&
+            context.credential.capabilities.includes(
+              tool._meta['com.pathfinder/security'].capability,
+            ),
+        ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+      )
+      const versions = await readCompatibleAgentWorkflowVersions(
+        {
+          tenantId: context.credential.tenantId,
+          venueId: input.venueId,
+          registryKeys: input.registryKeys,
+        },
+        capabilities,
+        database,
+      )
+      return {
+        kind: 'torchiko.agent-workflow-versions',
+        summary:
+          'Registered artifacts for inspection only; activation and execution authority are not granted.',
+        data: jsonData({ versions, activationGranted: false, executionGranted: false }),
+      }
+    },
     async proposeAgentImprovement(input, context) {
       const venueId = input.venueId
       if (!venueId)
@@ -3718,6 +4279,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           hypothesis: input.hypothesis,
           proposedChange: input.proposedChange,
           validationPlan: input.validationPlan,
+          ...(input.generalization ? { generalization: input.generalization } : {}),
           actor: {
             type: 'AGENT',
             actorId: input.agentIdentityId,
@@ -3840,6 +4402,17 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
         },
         database,
+        new Set(
+          PATHFINDER_MCP_TOOLS.filter(
+            (tool) =>
+              SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+                tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+              ) &&
+              context.credential.capabilities.includes(
+                tool._meta['com.pathfinder/security'].capability,
+              ),
+          ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+        ),
       )
       return {
         kind: 'torchiko.agent-improvement-validation',
@@ -4196,6 +4769,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           authorities: input.authorities,
           includeHistorical: input.includeHistorical,
           limit: input.limit,
+          ...(input.cursor ? { cursor: input.cursor } : {}),
         },
         { kind: 'CLIENT', clientId: context.credential.clientId, roles: [] },
         database,
@@ -4412,5 +4986,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     { ...unavailableActions, ...companyBrainReads, ...approvedWrites },
   )
   const actions = createPathfinderMcpAgentActions(database, reads)
-  return createPathfinderMcpRegistry(actions, { writeToolsEnabled: true })
+  return createPathfinderMcpRegistry(actions, {
+    writeToolsEnabled: true,
+    beforeAction: (name, input, context) =>
+      assertMcpWorkflowToolSupported(database, name, input, context),
+  })
 }

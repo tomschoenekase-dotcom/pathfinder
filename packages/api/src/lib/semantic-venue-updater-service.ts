@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import {
+  hashSemanticConflictAnswer,
+  hashSemanticConflictTarget,
+} from './semantic-conflict-resolution-contract'
 
 import type { TRPCContext } from '../context'
+import {
+  resolveKnowledgeProposalTemporalEvidence,
+  type KnowledgeProposalTemporalEvidenceReference,
+} from './knowledge-proposal-temporal-evidence'
 import {
   buildSemanticVenueUpdate,
   type CurrentVenueKnowledge,
@@ -25,6 +34,7 @@ export type SemanticVenueUpdatePreviewParameters = Pick<
   venueId: string
   proposalId: string
   expectedUpdatedAt: Date
+  temporalEvidence?: KnowledgeProposalTemporalEvidenceReference | undefined
 }
 
 type PreviewInput = SemanticVenueUpdatePreviewParameters & { db: TRPCContext['db'] }
@@ -89,13 +99,31 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     },
     select: {
       id: true,
+      producedByConflictResolution: {
+        select: {
+          id: true,
+          inputHash: true,
+          createdBy: true,
+          outcome: true,
+          relation: true,
+          desired: true,
+          targetKnowledgeEntryId: true,
+          targetSnapshotHash: true,
+          answerHash: true,
+          answeredAt: true,
+          questionUpdatedAt: true,
+          question: { select: { status: true, answer: true, answeredAt: true, updatedAt: true } },
+        },
+      },
       status: true,
       targetKnowledgeEntryId: true,
+      conversationInsightId: true,
       proposedChange: true,
       reason: true,
       confidence: true,
       evidenceMessageIds: true,
       createdByType: true,
+      createdById: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -109,6 +137,44 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       'NOT_REVIEWABLE',
       'Only pending-review or approved knowledge proposals can be previewed.',
     )
+  }
+
+  const isVisitorTemporal =
+    Boolean(proposal.conversationInsightId) && Boolean(input.validFrom || input.validUntil)
+  if (isVisitorTemporal && !input.temporalEvidence) {
+    throw new SemanticVenueUpdaterError(
+      'NOT_REVIEWABLE',
+      'A visitor temporal proposal requires a separately reviewed dated source receipt.',
+    )
+  }
+  let temporalEvidence: Awaited<
+    ReturnType<typeof resolveKnowledgeProposalTemporalEvidence>
+  > | null = null
+  if (input.temporalEvidence) {
+    if (!input.validFrom || !input.validUntil) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        'Temporal evidence requires finite dates.',
+      )
+    }
+    try {
+      temporalEvidence = await resolveKnowledgeProposalTemporalEvidence({
+        db: input.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        reference: input.temporalEvidence,
+        desiredContent: input.desired.content,
+        desiredTitle: input.desired.title,
+        desiredCategory: input.desired.category,
+        validFrom: input.validFrom,
+        validUntil: input.validUntil,
+      })
+    } catch (error) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        error instanceof Error ? error.message : 'The reviewed dated source is unavailable.',
+      )
+    }
   }
 
   const current = await input.db.venueKnowledgeEntry.findMany({
@@ -134,20 +200,55 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       sourceType: true,
     },
   })
+  const resolution = proposal.producedByConflictResolution
+  let operatorResolutionId: string | null = null
+  if (resolution) {
+    const target = current.find((entry) => entry.id === resolution.targetKnowledgeEntryId)
+    const question = resolution.question
+    if (
+      resolution.outcome !== 'PROPOSE_REPLACEMENT' ||
+      proposal.targetKnowledgeEntryId !== resolution.targetKnowledgeEntryId ||
+      proposal.proposedChange !== input.desired.content ||
+      proposal.createdByType !== 'HUMAN' ||
+      proposal.createdById !== resolution.createdBy ||
+      resolution.relation !== input.relation ||
+      !isDeepStrictEqual(resolution.desired, input.desired) ||
+      !target ||
+      hashSemanticConflictTarget(target) !== resolution.targetSnapshotHash ||
+      question.status !== 'ANSWERED' ||
+      !question.answer ||
+      question.updatedAt.getTime() !== resolution.questionUpdatedAt.getTime() ||
+      question.answeredAt?.getTime() !== resolution.answeredAt.getTime() ||
+      hashSemanticConflictAnswer(question.answer) !== resolution.answerHash ||
+      input.validFrom ||
+      input.validUntil
+    ) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        'The exact operator resolution, target or answered evidence changed; resolve the new conflict explicitly.',
+      )
+    }
+    if (proposal.status === 'APPROVED') operatorResolutionId = resolution.id
+  }
   const normalizedHash = createHash('sha256')
     .update(
       JSON.stringify({
+        ...(resolution
+          ? { operatorResolutionId, operatorResolutionInputHash: resolution.inputHash }
+          : {}),
         proposalId: proposal.id,
         proposedChange: proposal.proposedChange,
         reason: proposal.reason,
         evidenceMessageIds: proposal.evidenceMessageIds,
         updatedAt: proposal.updatedAt.toISOString(),
+        ...(temporalEvidence ? { temporalEvidence } : {}),
       }),
     )
     .digest('hex')
   const classification = buildSemanticVenueUpdate(
     {
       venueId: input.venueId,
+      ...(operatorResolutionId ? { operatorConflictResolutionId: operatorResolutionId } : {}),
       relation: input.relation,
       ...(proposal.targetKnowledgeEntryId
         ? { targetKnowledgeEntryId: proposal.targetKnowledgeEntryId }
@@ -159,7 +260,8 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
         {
           id: `knowledge-proposal:${proposal.id}`,
           sourceType: 'KNOWLEDGE_PROPOSAL',
-          authority: proposal.status === 'APPROVED' ? 'TRUSTED_PARTNER' : 'UNVERIFIED',
+          authority:
+            !temporalEvidence && proposal.status === 'APPROVED' ? 'TRUSTED_PARTNER' : 'UNVERIFIED',
           confidence: Number(proposal.confidence),
           normalizedHash,
           retrievedAt: proposal.createdAt.toISOString(),
@@ -186,9 +288,11 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     ? proposal.evidenceMessageIds.filter((value): value is string => typeof value === 'string')
     : []
   return {
+    operatorResolutionId,
     proposalId: proposal.id,
     proposalStatus: proposal.status,
     proposalUpdatedAt: proposal.updatedAt,
+    temporalEvidence,
     proposalEvidenceRefs: messageIds.map((id) => `guest-message:${id}`),
     ...classification,
   }

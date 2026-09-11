@@ -48,7 +48,7 @@ test('every disposable shakedown entrypoint uses the code-only reporter', async 
   const entrypoints = (await readdir(directory))
     .filter((name) => /^run-disposable-.*\.mjs$/u.test(name))
     .sort()
-  assert.equal(entrypoints.length, 28)
+  assert.equal(entrypoints.length, 43)
 
   for (const entrypoint of entrypoints) {
     const source = await readFile(new URL(entrypoint, directory), 'utf8')

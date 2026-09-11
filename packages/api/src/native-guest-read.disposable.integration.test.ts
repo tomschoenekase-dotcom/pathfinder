@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import type { Prisma } from '@prisma/client'
 
 import type { AnthropicMessagesClient } from '@pathfinder/ai'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
+import type { NativeCoreVisibleState } from '@pathfinder/contracts'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
@@ -39,26 +41,50 @@ import {
   applyNativeVenueDeploymentAction,
   acquireEmbeddingWork,
   approveNativeVenueDeploymentAction,
+  claimGuestChatTurnAction,
   claimEvaluationRunAttempt,
+  createUniversalContentAction,
   createOrReplayEvaluationRun,
   createNativeVenueDeploymentAction,
+  createOperationalUpdateAction,
   db,
+  expireOperationalUpdateAction,
   finishEvaluationRunAttempt,
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
+  publishUniversalContentAction,
   recordNativeDeploymentEvaluationEvidenceAction,
+  resolveNativeGuestReadSnapshotAction,
   revertNativeVenueDeploymentAction,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
+  updateOperationalUpdateAction,
+  withdrawUniversalContentAction,
+  claimIntakeUploadVerificationAction,
+  recordIntakeUploadPrecheckAction,
+  readAdjacentGuestPlaceIdentityPendingAction,
+  registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
+  reviewVenueMediaAssetAction,
+  reserveIntakeUploadAction,
+  reserveGuestChatTurnAction,
+  settleIntakeUploadAuthoritativeVerificationAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
 
 import type { TRPCContext } from './context'
-import { router } from './core'
+import { mergeRouters, router } from './core'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
+import { adminLocationAuthoringRouter } from './routers/admin/location-authoring'
+import { adminLocationAvailabilityRouter } from './routers/admin/location-availability'
+import { adminLocationConnectionAuthoringRouter } from './routers/admin/location-connection-authoring'
+import { locationRouter } from './routers/location'
 import { createSafeOperationalMcpRegistry } from './mcp/composition'
+import { buildVoiceGroundingContext } from './lib/voice-grounding-context'
+import { retrieveGuestKnowledge } from './lib/guest-knowledge-retrieval'
+import { projectGuestPlaceIdentity } from './lib/guest-place-identity'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
@@ -66,10 +92,742 @@ const enabled =
 
 describe.skipIf(!enabled)('native guest content read disposable rehearsal', () => {
   const testRouter = router({ chat: chatRouter, admin: adminNativeVenueDeploymentsRouter })
+  const visitorRouter = router({
+    admin: mergeRouters(
+      adminLocationAuthoringRouter,
+      adminLocationAvailabilityRouter,
+      adminLocationConnectionAuthoringRouter,
+    ),
+    location: locationRouter,
+  })
 
   afterAll(async () => {
     _setAnthropicClientForTesting(null)
     await db.$disconnect()
+  })
+
+  it('refreshes corrected and withdrawn knowledge across a thousand-row public corpus', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const tenantId = `tenant-fresh-${suffix}`
+      const venueId = `venue-fresh-${suffix}`
+      const siblingVenueId = `venue-fresh-sibling-${suffix}`
+      const knowledgeId = randomUUID()
+      await db.tenant.create({
+        data: { id: tenantId, name: 'Fresh grounding fixture', slug: tenantId },
+      })
+      await db.venue.createMany({
+        data: [venueId, siblingVenueId].map((id) => ({
+          id,
+          tenantId,
+          name: id,
+          slug: id,
+        })),
+      })
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          ...Array.from({ length: 1_000 }, (_, index) => ({
+            tenantId,
+            venueId,
+            title: `Gallery exhibit ${index}`,
+            category: 'GENERAL' as const,
+            content: `Gallery exhibit information number ${index}.`,
+            visibility: 'PUBLIC' as const,
+          })),
+          {
+            id: knowledgeId,
+            tenantId,
+            venueId,
+            title: 'North gallery capacity',
+            category: 'GENERAL' as const,
+            content: 'The north gallery capacity is 137 visitors.',
+            visibility: 'PUBLIC' as const,
+            updatedAt: new Date('2020-01-01T00:00:00Z'),
+          },
+          {
+            tenantId,
+            venueId: siblingVenueId,
+            title: 'North gallery capacity',
+            category: 'GENERAL' as const,
+            content: 'Sibling venue secret capacity is 999.',
+            visibility: 'PUBLIC' as const,
+          },
+        ],
+      })
+      const read = (query: string) =>
+        buildVoiceGroundingContext({ reader: db as never, tenantId, venueId, query })
+      for (const query of ['north gallery capacity', 'aforo galería norte']) {
+        const result = await read(query)
+        expect(result.context).toContain('137 visitors')
+        expect(result.context).not.toContain('999')
+        expect(result.sourceIds).toContain(knowledgeId)
+        expect(
+          result.trace.preOverlayKnowledgeRetrieval.candidateCounts.strict,
+        ).toBeLessThanOrEqual(20)
+        expect(result.trace.preOverlayKnowledgeRetrieval.candidateCounts.broad).toBeLessThanOrEqual(
+          60,
+        )
+        expect(result.context.length).toBeLessThanOrEqual(12_000)
+      }
+      const semanticCandidateBeforeCorrection = {
+        ...(await db.venueKnowledgeEntry.findUniqueOrThrow({ where: { id: knowledgeId } })),
+        distance: 0.01,
+      }
+      const semanticBeforeCorrection = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'north gallery capacity',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [semanticCandidateBeforeCorrection],
+      })
+      expect(semanticBeforeCorrection.entries.find(({ id }) => id === knowledgeId)?.content).toBe(
+        'The north gallery capacity is 137 visitors.',
+      )
+
+      const correctedKnowledge = await db.venueKnowledgeEntry.update({
+        where: { id: knowledgeId },
+        data: {
+          content: 'The north gallery capacity is now 83 visitors.',
+        },
+      })
+      const semanticAfterCorrection = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'north gallery capacity',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [semanticCandidateBeforeCorrection],
+      })
+      expect(semanticAfterCorrection.entries.find(({ id }) => id === knowledgeId)?.content).toBe(
+        'The north gallery capacity is now 83 visitors.',
+      )
+      expect(JSON.stringify(semanticAfterCorrection.entries)).not.toContain('137 visitors')
+      expect(
+        semanticAfterCorrection.trace.retrievedSources.find(({ id }) => id === knowledgeId)
+          ?.version,
+      ).toBe(correctedKnowledge.updatedAt.toISOString())
+      const corrected = await read('north gallery capacity')
+      expect(corrected.context).toContain('83 visitors')
+      expect(corrected.context).not.toContain('137 visitors')
+      await db.venueKnowledgeEntry.update({
+        where: { id: knowledgeId },
+        data: { visibility: 'SECOND_LAYER' },
+      })
+      const withdrawn = await read('north gallery capacity')
+      expect(withdrawn.sourceIds).not.toContain(knowledgeId)
+      expect(withdrawn.context).not.toContain('83 visitors')
+      expect(withdrawn.context).not.toContain('999')
+      expect(withdrawn.provider).toEqual({ called: false, qualityVerified: false })
+
+      const restroomIds = ['public', 'private', 'inactive', 'sibling'].map(
+        (kind) => `restroom-${kind}-${suffix}`,
+      )
+      await db.place.createMany({
+        data: restroomIds.map((id, index) => ({
+          id,
+          tenantId,
+          venueId: index === 3 ? siblingVenueId : venueId,
+          name: index === 0 ? 'East restroom' : `Restricted restroom ${index}`,
+          type: 'ROOM',
+          visibility: index === 1 ? 'SECOND_LAYER' : 'PUBLIC',
+          isActive: index !== 2,
+        })),
+      })
+      const multilingualPlaceCases = []
+      for (const query of ['WC', '厕所在哪里', 'トイレはどこ']) {
+        const grounded = await read(query)
+        expect(grounded.sourceIds).toEqual([`place:${restroomIds[0]}`])
+        expect(grounded.context).toContain('East restroom')
+        expect(grounded.provider.called).toBe(false)
+        multilingualPlaceCases.push({
+          query,
+          includedSourceIds: grounded.sourceIds,
+          measurements: grounded.measurements,
+        })
+      }
+      process.stdout.write(
+        `${JSON.stringify({ multilingualPlaceProof: { version: 'shared-guest-concepts-place-v1', cases: multilingualPlaceCases, excludedControlIds: restroomIds.slice(1), providerCalled: false } })}\n`,
+      )
+
+      const publicationActor = {
+        type: 'HUMAN' as const,
+        id: `publication-owner-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const publishedDraft = await createUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: randomUUID(),
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: 'Atrium evening access',
+            rule: 'Evening visitors enter the atrium through the north doors.',
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: publishedDraft.moduleId,
+        revisionId: publishedDraft.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const publishedProjection = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: publishedDraft.moduleId },
+      })
+      const capturedSemanticCandidate = {
+        ...publishedProjection,
+        distance: 0.01,
+      }
+      const semanticBeforeWithdrawal = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'atrium evening access',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [capturedSemanticCandidate],
+      })
+      expect(semanticBeforeWithdrawal.entries.map(({ id }) => id)).toContain(publishedProjection.id)
+      await withdrawUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: publishedDraft.moduleId,
+        expectedPublishedRevisionId: publishedDraft.revisionId,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      await expect(
+        db.venueKnowledgeEntry.findUniqueOrThrow({
+          where: { id: publishedProjection.id },
+          select: { isEnabled: true },
+        }),
+      ).resolves.toEqual({ isEnabled: false })
+      const semanticAfterWithdrawal = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'atrium evening access',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [capturedSemanticCandidate],
+      })
+      expect(semanticAfterWithdrawal.entries.map(({ id }) => id)).not.toContain(
+        publishedProjection.id,
+      )
+      expect(semanticAfterWithdrawal.trace.excludedSourceIds).toContain(publishedProjection.id)
+    })
+  })
+
+  it('keeps one scoped visitor journey current across correction, route reachability, and media withdrawal', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+      const tenantId = `tenant-combined-${suffix}`
+      const venueId = `venue-combined-${suffix}`
+      const siblingVenueId = `venue-combined-sibling-${suffix}`
+      const venueSlug = `combined-${suffix}`
+      const actorId = `combined-reviewer-${suffix}`
+      const actor = { type: 'HUMAN' as const, id: actorId, role: 'PLATFORM_ADMIN' as const }
+      const anonymousToken = randomUUID()
+      const placeId = `place-combined-${suffix}`
+      const privatePlaceId = `place-private-${suffix}`
+      const siblingPlaceId = `place-sibling-${suffix}`
+      const originId = randomUUID()
+      const reachableId = randomUUID()
+      const disconnectedId = randomUUID()
+
+      await db.tenant.create({
+        data: { id: tenantId, name: 'Combined guest proof', slug: tenantId },
+      })
+      const tenant = await db.tenant.findUniqueOrThrow({ where: { id: tenantId } })
+      await db.productPlanCapability.upsert({
+        where: { planTier_capability: { planTier: tenant.planTier, capability: 'location-plus' } },
+        create: {
+          planTier: tenant.planTier,
+          capability: 'location-plus',
+          enabled: true,
+          createdBy: actorId,
+          updatedBy: actorId,
+        },
+        update: { enabled: true, updatedBy: actorId },
+      })
+      await db.venue.createMany({
+        data: [
+          {
+            id: venueId,
+            tenantId,
+            slug: venueSlug,
+            name: 'Combined visitor venue',
+            chatShowPhotos: true,
+          },
+          {
+            id: siblingVenueId,
+            tenantId,
+            slug: `sibling-${suffix}`,
+            name: 'Combined sibling venue',
+          },
+        ],
+      })
+      await db.place.createMany({
+        data: [
+          {
+            id: placeId,
+            tenantId,
+            venueId,
+            name: 'Reviewed Garden',
+            type: 'RESTROOM',
+            visibility: 'PUBLIC',
+            tags: [],
+          },
+          {
+            id: privatePlaceId,
+            tenantId,
+            venueId,
+            name: 'Private Garden',
+            type: 'RESTROOM',
+            visibility: 'SECOND_LAYER',
+            tags: [],
+          },
+          {
+            id: siblingPlaceId,
+            tenantId,
+            venueId: siblingVenueId,
+            name: 'Sibling Garden',
+            type: 'RESTROOM',
+            visibility: 'PUBLIC',
+            tags: [],
+          },
+        ],
+      })
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          {
+            tenantId,
+            venueId,
+            title: 'Garden status',
+            category: 'GENERAL',
+            content: 'Reviewed garden information.',
+            visibility: 'PUBLIC',
+          },
+          {
+            tenantId,
+            venueId,
+            title: 'Private garden status',
+            category: 'GENERAL',
+            content: 'Private internal garden detail.',
+            visibility: 'SECOND_LAYER',
+          },
+          {
+            tenantId,
+            venueId: siblingVenueId,
+            title: 'Sibling garden status',
+            category: 'GENERAL',
+            content: 'Sibling venue garden detail.',
+            visibility: 'PUBLIC',
+          },
+        ],
+      })
+      const now = new Date()
+      const initialUpdate = await createOperationalUpdateAction({
+        tenantId,
+        actor,
+        schedule: true,
+        now,
+        fields: {
+          venueId,
+          placeId,
+          updateType: 'GENERAL_NOTICE',
+          severity: 'INFO',
+          priority: 'HIGH',
+          title: 'Garden availability',
+          body: 'The reviewed garden is open today.',
+          startsAt: new Date(now.getTime() - 60_000),
+          expiresAt: new Date(now.getTime() + 60 * 60_000),
+        },
+      })
+      const read = () =>
+        buildVoiceGroundingContext({
+          reader: db as never,
+          tenantId,
+          venueId,
+          query: 'What is the garden status?',
+          asOf: now,
+        })
+      const beforeCorrection = await read()
+      expect(beforeCorrection.context).toContain('open today')
+      expect(beforeCorrection.context).not.toContain('Private internal')
+      expect(beforeCorrection.context).not.toContain('Sibling venue')
+      const correctedUpdate = await updateOperationalUpdateAction({
+        tenantId,
+        actor,
+        id: initialUpdate.update.id,
+        expectedUpdatedAt: initialUpdate.update.updatedAt,
+        schedule: false,
+        now,
+        fields: {
+          venueId,
+          placeId,
+          updateType: 'TEMPORARY_CLOSURE',
+          severity: 'CLOSURE',
+          priority: 'HIGH',
+          title: 'Garden availability',
+          body: 'The reviewed garden is temporarily closed today.',
+          startsAt: new Date(now.getTime() - 60_000),
+          expiresAt: new Date(now.getTime() + 60 * 60_000),
+        },
+      })
+      expect(correctedUpdate.update.id).toBe(initialUpdate.update.id)
+      expect(correctedUpdate.update.status).toBe('PUBLISHED')
+      const afterCorrection = await read()
+      expect(afterCorrection.context).toContain('temporarily closed today')
+      expect(afterCorrection.context).not.toContain('open today')
+
+      await db.visitorSession.create({ data: { tenantId, venueId, anonymousToken } })
+      const admin = visitorRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: actorId, activeTenantId: null, role: null, isPlatformAdmin: true },
+      }).admin
+      const visitor = visitorRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      }).location
+      const locationInput = (
+        stableKey: string,
+        kind: 'ENTRANCE' | 'RESTROOM',
+        primaryPlaceId?: string,
+      ) => ({
+        tenantId,
+        venueId,
+        stableKey,
+        kind,
+        displayName: stableKey,
+        description: null,
+        visibility: 'PUBLIC' as const,
+        floorId: null,
+        parentLocationId: null,
+        ...(primaryPlaceId ? { primaryPlaceId } : {}),
+        coordinates: null,
+        mapAnchor: null,
+        externalMapReference: null,
+        accessibilityMetadata: {},
+      })
+      const origin = await admin.createVenueLocationDraft({
+        operationId: originId,
+        ...locationInput('reviewed-entrance', 'ENTRANCE'),
+      })
+      const reachable = await admin.createVenueLocationDraft({
+        operationId: reachableId,
+        ...locationInput('reviewed-garden', 'RESTROOM', placeId),
+      })
+      const disconnected = await admin.createVenueLocationDraft({
+        operationId: disconnectedId,
+        ...locationInput('disconnected-garden', 'RESTROOM', placeId),
+      })
+      await expect(
+        admin.createVenueLocationDraft({
+          operationId: randomUUID(),
+          ...locationInput('sibling-garden-forbidden', 'RESTROOM', siblingPlaceId),
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      for (const location of [origin.location, reachable.location, disconnected.location]) {
+        await admin.setVenueLocationAvailability({
+          tenantId,
+          venueId,
+          locationId: location.id,
+          expectedUpdatedAt: location.updatedAt,
+          active: true,
+          reason: 'Activate reviewed combined fixture anchor.',
+        })
+      }
+      const connection = await admin.createVenueLocationConnectionDraft({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        fromLocationId: originId,
+        toLocationId: reachableId,
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Use the reviewed garden walkway.',
+      })
+      await admin.setVenueLocationConnectionAvailability({
+        tenantId,
+        venueId,
+        connectionId: connection.connection.id,
+        expectedUpdatedAt: connection.connection.updatedAt,
+        active: true,
+        reason: 'Activate reviewed combined fixture connection.',
+      })
+      const routeInput = {
+        venueId,
+        anonymousToken,
+        fromLocationId: originId,
+        kind: 'RESTROOM' as const,
+        accessibleOnly: true,
+      }
+      await expect(visitor.reachableDestination(routeInput)).resolves.toEqual({
+        destination: null,
+        ranking: null,
+      })
+      await expect(
+        visitor.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: originId,
+          toLocationId: reachableId,
+          accessibleOnly: true,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const expiredClosure = await expireOperationalUpdateAction({
+        tenantId,
+        actor,
+        id: correctedUpdate.update.id,
+        expectedUpdatedAt: correctedUpdate.update.updatedAt,
+        now,
+      })
+      expect(expiredClosure.update.isActive).toBe(false)
+      await expect(visitor.reachableDestination(routeInput)).resolves.toMatchObject({
+        destination: { id: reachableId },
+        ranking: { reachableOptionCount: 1 },
+      })
+      await expect(
+        visitor.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: originId,
+          toLocationId: disconnectedId,
+          accessibleOnly: true,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+      const assetId = randomUUID()
+      const sourceGeneration = randomUUID()
+      const sourceSha256 = 'c'.repeat(64)
+      const reserved = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'Combined garden image metadata',
+          fileName: 'garden.png',
+          mimeType: 'image/png',
+          category: 'PHOTO',
+          byteSize: 64,
+          sha256: sourceSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: `intake-quarantine/${randomUUID()}`,
+          objectGeneration: sourceGeneration,
+        },
+      })
+      const precheckClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: precheckClaimId,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: precheckClaimId,
+        verified: {
+          objectGeneration: sourceGeneration,
+          storageVersionId: 'combined-source-version',
+          mimeType: 'image/png',
+          byteSize: 64,
+          sha256: sourceSha256,
+        },
+        evidence: {
+          engine: 'combined-precheck',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`combined-precheck:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: sourceSha256,
+        },
+      })
+      const malwareClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: malwareClaimId,
+      })
+      await settleIntakeUploadAuthoritativeVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: malwareClaimId,
+        malware: {
+          verdict: 'CLEAN',
+          engine: 'combined-malware',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`combined-malware:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: sourceSha256,
+        },
+      })
+      await registerVenueMediaAssetAction({
+        db,
+        actor,
+        registration: {
+          tenantId,
+          venueId,
+          assetId,
+          intakeUploadId: reserved.upload.id,
+          kind: 'IMAGE',
+          semanticDescription: 'Reviewed Garden image metadata.',
+          depictedSubjects: ['Reviewed Garden'],
+          altText: 'Reviewed garden entrance',
+          sourceName: 'Combined fixture',
+          sourceUrl: null,
+          importance: 'PRIMARY',
+          linkedPlaceIds: [placeId],
+          linkedKnowledgeEntryIds: [],
+        },
+      })
+      const approval = await reviewVenueMediaAssetAction({
+        db,
+        actor,
+        review: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestSequence: 0,
+          action: 'APPROVE_CONTENT_USE',
+          rightsBasis: 'VENUE_OWNED',
+          rightsStatement: 'Disposable combined fixture metadata.',
+          rightsEvidenceSourceId: 'combined-fixture',
+        },
+      })
+      const requested = await requestVenueMediaDerivativesAction({
+        db,
+        actor,
+        request: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestReviewSequence: approval.sequence,
+          variants: ['CARD'],
+        },
+      })
+      const derivativeId = requested.items[0]!.derivativeId
+      await expect(
+        db.venueMediaDerivative.updateMany({
+          where: { id: derivativeId, tenantId, venueId, assetId, status: 'PENDING' },
+          data: {
+            status: 'READY',
+            objectKey: `visitor-media/${suffix}.webp`,
+            storageVersionId: 'combined-derivative-version',
+            mimeType: 'image/webp',
+            width: 768,
+            height: 480,
+            byteSize: 64,
+            sha256: 'd'.repeat(64),
+            completedAt: new Date(),
+          },
+        }),
+      ).resolves.toMatchObject({ count: 1 })
+      await expect(visitor.reachableDestination(routeInput)).resolves.toMatchObject({
+        destination: {
+          id: reachableId,
+          media: { photoUrl: `/api/venue-media/${derivativeId}?venue=${venueSlug}` },
+        },
+      })
+      const voiceMediaInput = {
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about the Reviewed Garden.',
+        mediaPolicy: { venueSlug, showPhotos: true, showLinks: true },
+      }
+      const approvedVoiceMedia = await buildVoiceGroundingContext(voiceMediaInput)
+      const mediaSourceId = `media:${derivativeId}:review:${approval.sequence}`
+      expect(approvedVoiceMedia.context).toContain('Reviewed garden entrance')
+      expect(approvedVoiceMedia.context).toContain('SOURCE CREDIT: Combined fixture')
+      expect(approvedVoiceMedia.sourceIds).toContain(mediaSourceId)
+      expect(approvedVoiceMedia.context).not.toContain('/api/venue-media/')
+      expect(approvedVoiceMedia.provider.called).toBe(false)
+      const disabledVoiceMedia = await buildVoiceGroundingContext({
+        ...voiceMediaInput,
+        mediaPolicy: { ...voiceMediaInput.mediaPolicy, showPhotos: false },
+      })
+      expect(disabledVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      // Mutate visibility after the public place read but before the media read.
+      // The actual derivative relation predicate must exclude the now-private link.
+      let visibilityChangedBeforeMediaRead = false
+      const privateRaceVoiceMedia = await buildVoiceGroundingContext({
+        ...voiceMediaInput,
+        reader: {
+          venueKnowledgeEntry: db.venueKnowledgeEntry,
+          place: db.place,
+          operationalUpdate: db.operationalUpdate,
+          venueMediaDerivative: {
+            findMany: async (args: Parameters<typeof db.venueMediaDerivative.findMany>[0]) => {
+              visibilityChangedBeforeMediaRead = true
+              await db.place.update({
+                where: { id: placeId },
+                data: { visibility: 'SECOND_LAYER' },
+              })
+              return db.venueMediaDerivative.findMany(args)
+            },
+          },
+        } as never,
+      })
+      expect(visibilityChangedBeforeMediaRead).toBe(true)
+      expect(privateRaceVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      expect(privateRaceVoiceMedia.context).not.toContain('Reviewed garden entrance')
+      await db.place.update({ where: { id: placeId }, data: { visibility: 'SECOND_LAYER' } })
+      const privateBoundMedia = await visitor.reachableDestination(routeInput)
+      expect(privateBoundMedia.destination).toMatchObject({ id: reachableId })
+      expect(privateBoundMedia.destination).not.toHaveProperty('media')
+      await db.place.update({ where: { id: placeId }, data: { visibility: 'PUBLIC' } })
+      await reviewVenueMediaAssetAction({
+        db,
+        actor,
+        review: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestSequence: approval.sequence,
+          action: 'WITHDRAW_CONTENT_USE',
+          reason: 'Withdraw combined fixture media.',
+        },
+      })
+      const afterWithdrawal = await visitor.reachableDestination(routeInput)
+      expect(afterWithdrawal.destination).toMatchObject({ id: reachableId })
+      expect(afterWithdrawal.destination).not.toHaveProperty('media')
+      const withdrawnVoiceMedia = await buildVoiceGroundingContext(voiceMediaInput)
+      expect(withdrawnVoiceMedia.sourceIds).not.toContain(mediaSourceId)
+      expect(withdrawnVoiceMedia.context).not.toContain('Reviewed garden entrance')
+      process.stdout.write(
+        `${JSON.stringify({ proof: 'combined-guest-read-service-boundary-v1', tenantId, venueId, controls: ['public-correction-current-next-read', 'same-venue-approved-and-withdrawn-media', 'reachable-reviewed-route', 'disconnected-route-not-fabricated', 'private-and-sibling-content-excluded', 'private-place-media-withheld', 'sibling-place-route-anchor-rejected'], limitations: ['tenant-scoped read-service and public-router boundary; fixture seeding uses an explicit isolation bypass, not a tenant-middleware proof', 'not browser or provider E2E', 'synthetic metadata only; no media bytes'] })}\n`,
+      )
+    })
   })
 
   it('rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior', async () => {
@@ -78,9 +836,14 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       const tenantId = `tenant-guestread-${suffix}`
       const controlTenantId = `tenant-guestread-control-${suffix}`
       const venueId = `venue-guestread-${suffix}`
+      const siblingVenueId = `venue-guestread-sibling-${suffix}`
       const controlVenueId = `venue-guestread-control-${suffix}`
       const publicPlaceId = `place-public-${suffix}`
       const employeePlaceId = `place-employee-${suffix}`
+      const privateQrPlaceId = `place-qr-private-${suffix}`
+      const inactiveQrPlaceId = `place-qr-inactive-${suffix}`
+      const foreignVenueQrPlaceId = `place-qr-foreign-venue-${suffix}`
+      const foreignTenantQrPlaceId = `place-qr-foreign-tenant-${suffix}`
       const publicKnowledgeId = randomUUID()
       const employeeKnowledgeId = randomUUID()
       const secondLayerKey = randomUUID()
@@ -110,6 +873,13 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             guideMode: 'non_location',
             secondLayerEnabled: true,
             secondLayerAccessKey: secondLayerKey,
+          },
+          {
+            id: siblingVenueId,
+            tenantId,
+            name: 'Native guest-read sibling venue',
+            slug: siblingVenueId,
+            guideMode: 'non_location',
           },
           {
             id: controlVenueId,
@@ -145,6 +915,51 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             tags: ['employee'],
           },
           {
+            id: privateQrPlaceId,
+            tenantId,
+            venueId,
+            name: 'Private QR Exhibit',
+            shortDescription: 'PRIVATE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'SECOND_LAYER',
+            importanceScore: 89,
+            tags: ['private-qr'],
+          },
+          {
+            id: inactiveQrPlaceId,
+            tenantId,
+            venueId,
+            name: 'Inactive QR Exhibit',
+            shortDescription: 'INACTIVE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            isActive: false,
+            importanceScore: 88,
+            tags: ['inactive-qr'],
+          },
+          {
+            id: foreignVenueQrPlaceId,
+            tenantId,
+            venueId: siblingVenueId,
+            name: 'Foreign Venue QR Exhibit',
+            shortDescription: 'FOREIGN_VENUE_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            importanceScore: 87,
+            tags: ['foreign-venue-qr'],
+          },
+          {
+            id: foreignTenantQrPlaceId,
+            tenantId: controlTenantId,
+            venueId: controlVenueId,
+            name: 'Foreign Tenant QR Exhibit',
+            shortDescription: 'FOREIGN_TENANT_QR_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            importanceScore: 86,
+            tags: ['foreign-tenant-qr'],
+          },
+          {
             id: `place-control-${suffix}`,
             tenantId: controlTenantId,
             venueId: controlVenueId,
@@ -157,6 +972,210 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           },
         ],
       })
+      const firstFloorId = randomUUID()
+      const secondFloorId = randomUUID()
+      const firstCaseId = `case-12-first-${suffix}`
+      const secondCaseId = `case-12-second-${suffix}`
+      const privateCaseId = `case-12-private-${suffix}`
+      const controlCaseId = `case-12-control-${suffix}`
+      await db.place.createMany({
+        data: [
+          ...Array.from({ length: 7 }, (_, index) => ({
+            id: `case-pressure-${index}-${suffix}`,
+            tenantId,
+            venueId,
+            name: `Unrelated Exhibit ${index + 1}`,
+            shortDescription: 'Tell me about Case 12 display details.',
+            type: 'EXHIBIT' as const,
+            visibility: 'PUBLIC' as const,
+            isActive: true,
+            importanceScore: 90 - index,
+          })),
+          {
+            id: firstCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            isActive: true,
+            importanceScore: 100,
+          },
+          {
+            id: secondCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+            isActive: true,
+            importanceScore: 1,
+          },
+          {
+            id: privateCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            shortDescription: 'PRIVATE_CASE_12_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'SECOND_LAYER',
+          },
+          {
+            id: controlCaseId,
+            tenantId: controlTenantId,
+            venueId: controlVenueId,
+            name: 'Case 12',
+            shortDescription: 'CONTROL_CASE_12_SENTINEL',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+          },
+        ],
+      })
+      await db.venueFloor.createMany({
+        data: [
+          { id: firstFloorId, tenantId, venueId, stableKey: 'first-floor', name: 'First floor' },
+          { id: secondFloorId, tenantId, venueId, stableKey: 'second-floor', name: 'Second floor' },
+        ],
+      })
+      await db.venueLocation.createMany({
+        data: [
+          {
+            tenantId,
+            venueId,
+            floorId: firstFloorId,
+            primaryPlaceId: firstCaseId,
+            stableKey: `case-12-first-${suffix}`,
+            kind: 'EXHIBIT',
+            displayName: 'First floor east gallery',
+            verifiedAt: new Date(),
+            verifiedBy: 'disposable-guest-read',
+          },
+          {
+            tenantId,
+            venueId,
+            floorId: secondFloorId,
+            primaryPlaceId: secondCaseId,
+            stableKey: `case-12-second-${suffix}`,
+            kind: 'EXHIBIT',
+            displayName: 'Second floor west gallery',
+            verifiedAt: new Date(),
+            verifiedBy: 'disposable-guest-read',
+          },
+        ],
+      })
+      const useSameFloorCaseAnchors = () =>
+        Promise.all([
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+            data: { floorId: firstFloorId, displayName: 'East gallery' },
+          }),
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: secondCaseId },
+            data: { floorId: firstFloorId, displayName: 'West gallery' },
+          }),
+        ])
+      const restoreCaseAnchors = () =>
+        Promise.all([
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+            data: { floorId: firstFloorId, displayName: 'First floor east gallery' },
+          }),
+          db.venueLocation.updateMany({
+            where: { tenantId, venueId, primaryPlaceId: secondCaseId },
+            data: { floorId: secondFloorId, displayName: 'Second floor west gallery' },
+          }),
+        ])
+      const duplicateCaseIdentity = await projectGuestPlaceIdentity({
+        reader: db,
+        query: 'Tell me about Case 12',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        places: [
+          { id: firstCaseId, name: 'Case 12', areaName: null },
+          { id: secondCaseId, name: 'Case 12', areaName: null },
+        ],
+      })
+      expect(duplicateCaseIdentity).toMatchObject({
+        ambiguity: {
+          requestedName: 'Case 12',
+          candidates: [
+            { location: 'First floor east gallery', floor: 'First floor' },
+            { location: 'Second floor west gallery', floor: 'Second floor' },
+          ],
+        },
+        places: [
+          { location: 'First floor east gallery', floor: 'First floor' },
+          { location: 'Second floor west gallery', floor: 'Second floor' },
+        ],
+      })
+      const narrowedCaseIdentity = await projectGuestPlaceIdentity({
+        reader: db,
+        query: 'Tell me about Case 12 on the first floor',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        places: [
+          { id: firstCaseId, name: 'Case 12', areaName: null },
+          { id: secondCaseId, name: 'Case 12', areaName: null },
+        ],
+      })
+      expect(narrowedCaseIdentity).toMatchObject({
+        ambiguity: null,
+        places: [
+          { location: 'First floor east gallery', floor: 'First floor' },
+          { location: 'Second floor west gallery', floor: 'Second floor' },
+        ],
+      })
+      const duplicateCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12',
+      })
+      expect(duplicateCaseVoice.identityClarificationRequired).toBe(true)
+      expect(duplicateCaseVoice.context).toContain('Case 12 — First floor')
+      expect(duplicateCaseVoice.context).toContain('Case 12 — Second floor')
+      expect(duplicateCaseVoice.sourceIds).toEqual(
+        expect.arrayContaining([`place:${firstCaseId}`, `place:${secondCaseId}`]),
+      )
+      // Seven higher-ranked lexical distractors exhaust the initial eight-place page;
+      // the duplicate expansion must still surface the low-ranked second Case 12.
+      expect(duplicateCaseVoice.sourceIds).toContain(`place:${secondCaseId}`)
+      expect(duplicateCaseVoice.sourceIds).not.toContain(`place:${privateCaseId}`)
+      expect(duplicateCaseVoice.sourceIds).not.toContain(`place:${controlCaseId}`)
+      expect(duplicateCaseVoice.context).not.toContain('PRIVATE_CASE_12_SENTINEL')
+      expect(duplicateCaseVoice.context).not.toContain('CONTROL_CASE_12_SENTINEL')
+
+      const firstFloorCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 on the first floor',
+      })
+      expect(firstFloorCaseVoice.identityClarificationRequired).toBe(false)
+      expect(firstFloorCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(firstFloorCaseVoice.context).toContain('First floor')
+      const prefixedGalleryCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 in East gallery',
+      })
+      expect(prefixedGalleryCaseVoice.identityClarificationRequired).toBe(false)
+      expect(prefixedGalleryCaseVoice.sourceIds).toContain(`place:${firstCaseId}`)
+      expect(prefixedGalleryCaseVoice.sourceIds).not.toContain(`place:${secondCaseId}`)
+      await useSameFloorCaseAnchors()
+      const eastGalleryCaseVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Tell me about Case 12 in East gallery',
+      })
+      expect(eastGalleryCaseVoice.identityClarificationRequired).toBe(false)
+      expect(eastGalleryCaseVoice.context).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(eastGalleryCaseVoice.context).toContain('East gallery')
+      await restoreCaseAnchors()
       await db.venueKnowledgeEntry.createMany({
         data: [
           {
@@ -181,6 +1200,20 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       })
 
       const projected = await projectNativeVenueStateAction(db, { tenantId, venueId })
+      const projectedState = projected.state as NativeCoreVisibleState
+      const desiredState = {
+        ...projectedState,
+        places: projectedState.places.map((item) =>
+          item.id === publicPlaceId
+            ? { ...item, shortDescription: 'Native override: public gallery arrival point.' }
+            : item,
+        ),
+        knowledgeEntries: projectedState.knowledgeEntries.map((item) =>
+          item.id === publicKnowledgeId
+            ? { ...item, content: 'Native override: use the east entrance.' }
+            : item,
+        ),
+      }
       const release = await createNativeVenueDeploymentAction(
         {
           tenantId,
@@ -201,8 +1234,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             },
             venue: projected.state.venue,
             venueBotConfiguration: projected.state.venueBotConfiguration,
-            places: projected.state.places,
-            knowledgeEntries: projected.state.knowledgeEntries,
+            places: desiredState.places,
+            knowledgeEntries: desiredState.knowledgeEntries,
             generalizedModules: projected.state.generalizedModules,
             items: [],
             assets: [],
@@ -262,8 +1295,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             requestedCases: 1,
             contentSnapshotSchemaVersion: 'pathfinder-native-evaluation-content-v1',
             contentComponentCounts: {
-              places: projected.state.places.length,
-              knowledgeEntries: projected.state.knowledgeEntries.length,
+              places: desiredState.places.length,
+              knowledgeEntries: desiredState.knowledgeEntries.length,
               generalizedModules: projected.state.generalizedModules.length,
             },
             contentSnapshot: {
@@ -271,7 +1304,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
               tenantId,
               venueId,
               releaseId: release.id,
-              state: projected.state,
+              state: JSON.parse(JSON.stringify(desiredState)) as Prisma.InputJsonValue,
             },
           },
           declaredBudgetCeilingE8Usd: 0n,
@@ -506,6 +1539,211 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         },
       })
 
+      // Voice uses the same exact applied native snapshot while querying the
+      // current scoped relational indexes on every factual turn.
+      const now = new Date()
+      await db.operationalUpdate.createMany({
+        data: [
+          {
+            id: `update-public-${suffix}`,
+            tenantId,
+            venueId,
+            severity: 'INFO',
+            priority: 'HIGH',
+            title: 'Arrival closure',
+            body: 'The west entrance is closed today.',
+            startsAt: new Date(now.getTime() - 60_000),
+            expiresAt: new Date(now.getTime() + 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+          {
+            id: `update-internal-${suffix}`,
+            tenantId,
+            venueId,
+            placeId: employeePlaceId,
+            severity: 'INFO',
+            title: 'Staff arrival secret',
+            body: 'Internal route only.',
+            startsAt: new Date(now.getTime() - 60_000),
+            expiresAt: new Date(now.getTime() + 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+          {
+            id: `update-expired-${suffix}`,
+            tenantId,
+            venueId,
+            severity: 'INFO',
+            title: 'Expired arrival notice',
+            body: 'Obsolete route.',
+            startsAt: new Date(now.getTime() - 120_000),
+            expiresAt: new Date(now.getTime() - 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+        ],
+      })
+      const voiceGrounding = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'What is the native public arrival gallery update?',
+        asOf: now,
+        nativeSnapshot: await resolveNativeGuestReadSnapshotAction({
+          client: db,
+          tenantId,
+          venueId,
+        }),
+      })
+      expect(voiceGrounding.context).toContain('Native override: use the east entrance.')
+      expect(voiceGrounding.context).toContain('Native Public Gallery')
+      expect(voiceGrounding.context).toContain('Native override: public gallery arrival point.')
+      expect(voiceGrounding.context).toContain('west entrance is closed today')
+      expect(voiceGrounding.context).not.toContain('Public semantic native knowledge says')
+      expect(voiceGrounding.context).not.toContain('Staff arrival secret')
+      expect(voiceGrounding.context).not.toContain('Expired arrival notice')
+      expect(voiceGrounding.sourceIds).toContain(`update:update-public-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(`update:update-internal-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(`update:update-expired-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(employeeKnowledgeId)
+      expect(voiceGrounding.sourceIds).not.toContain(`place:${employeePlaceId}`)
+      expect(voiceGrounding.provider.called).toBe(false)
+      expect(voiceGrounding.nativeProjection).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+        stateHash: release.desiredStateHash,
+      })
+      expect(voiceGrounding.trace.finalIncludedSourceIds).toEqual(voiceGrounding.sourceIds)
+
+      const spanishVoiceGrounding = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: '¿Qué debo saber sobre la llegada a la galería pública?',
+        asOf: now,
+        nativeSnapshot: await resolveNativeGuestReadSnapshotAction({
+          client: db,
+          tenantId,
+          venueId,
+        }),
+      })
+      expect(spanishVoiceGrounding.sourceIds).toContain(publicKnowledgeId)
+      expect(spanishVoiceGrounding.context).toContain('Native override: use the east entrance.')
+      expect(spanishVoiceGrounding.context).toContain('west entrance is closed today')
+      expect(spanishVoiceGrounding.context).not.toContain('Public semantic native knowledge says')
+      expect(spanishVoiceGrounding.context).not.toContain('Staff arrival secret')
+      expect(spanishVoiceGrounding.context).not.toContain('Expired arrival notice')
+      expect(spanishVoiceGrounding.provider).toEqual({ called: false, qualityVerified: false })
+      expect(spanishVoiceGrounding.sourceIds).not.toContain(employeeKnowledgeId)
+      expect(spanishVoiceGrounding.sourceIds).not.toContain(`place:${employeePlaceId}`)
+
+      const operationalCorpus = await db.operationalUpdate.findMany({
+        where: { tenantId, venueId },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          placeId: true,
+          title: true,
+          body: true,
+          startsAt: true,
+          expiresAt: true,
+          status: true,
+          isActive: true,
+        },
+      })
+      const holdoutIdentity = {
+        version: 'native-guest-integrated-visitor-holdout-v1',
+        corpus: {
+          releaseId: release.id,
+          manifestHash: release.manifestHash,
+          desiredStateHash: release.desiredStateHash,
+          operationalUpdatesHash: createHash('sha256')
+            .update(JSON.stringify(operationalCorpus))
+            .digest('hex'),
+          asOf: now.toISOString(),
+        },
+        configuration: {
+          evaluationRunIdentityHash: run.identityHash,
+          runConfigVersion: 'pathfinder-native-evaluation-run-config-v1',
+          contentSnapshotVersion: 'pathfinder-native-evaluation-content-v1',
+        },
+        prompt: {
+          version: GUEST_CHAT_PROMPT_VERSION,
+          hash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
+        },
+      }
+      const holdoutResult = {
+        ...holdoutIdentity,
+        identityHash: createHash('sha256').update(JSON.stringify(holdoutIdentity)).digest('hex'),
+        cases: [
+          {
+            id: 'english-current-correction-expiry',
+            query: 'What is the native public arrival gallery update?',
+            retrievedSourceIds: voiceGrounding.retrievedSourceIds,
+            includedSourceIds: voiceGrounding.sourceIds,
+            omittedSourceIds: voiceGrounding.omittedSourceIds,
+            exclusions: [
+              { sourceId: employeeKnowledgeId, reason: 'second-layer-not-public' },
+              { sourceId: `update:update-internal-${suffix}`, reason: 'private-place-update' },
+              { sourceId: `update:update-expired-${suffix}`, reason: 'expired-before-as-of' },
+            ],
+            knowledgeRetrieval: voiceGrounding.trace.preOverlayKnowledgeRetrieval,
+            measurements: voiceGrounding.measurements,
+            assertions: {
+              correctedNativeValueIncluded: true,
+              replacedLegacyValueExcluded: true,
+              activeUpdateIncluded: true,
+              expiredUpdateExcluded: true,
+              privateUpdateExcluded: true,
+            },
+          },
+          {
+            id: 'spanish-grounded-retrieval',
+            query: '¿Qué debo saber sobre la llegada a la galería pública?',
+            retrievedSourceIds: spanishVoiceGrounding.retrievedSourceIds,
+            includedSourceIds: spanishVoiceGrounding.sourceIds,
+            omittedSourceIds: spanishVoiceGrounding.omittedSourceIds,
+            exclusions: [
+              { sourceId: employeeKnowledgeId, reason: 'second-layer-not-public' },
+              { sourceId: `update:update-internal-${suffix}`, reason: 'private-place-update' },
+              { sourceId: `update:update-expired-${suffix}`, reason: 'expired-before-as-of' },
+            ],
+            knowledgeRetrieval: spanishVoiceGrounding.trace.preOverlayKnowledgeRetrieval,
+            measurements: spanishVoiceGrounding.measurements,
+            assertions: {
+              supportedLanguageQueryRetrievedPublicKnowledge: true,
+              correctedNativeValueIncluded: true,
+              activeUpdateIncluded: true,
+              expiredUpdateExcluded: true,
+              privateUpdateExcluded: true,
+            },
+          },
+        ],
+        provider: {
+          called: false,
+          synthesisQualityVerified: false,
+          reason: 'Retrieval and prompt preparation only; no real-provider observation.',
+        },
+        unresolvedCapabilities: [
+          'visitor-media-selection-not-integrated-with-voice-grounding-context',
+          'accessible-spatial-routing-not-integrated-with-voice-grounding-context',
+        ],
+      }
+      expect(holdoutResult.cases.every((item) => item.measurements.retrievalMs >= 0)).toBe(true)
+      expect(holdoutResult.cases.every((item) => item.includedSourceIds.length > 0)).toBe(true)
+      process.stdout.write(`${JSON.stringify({ proof: holdoutResult })}\n`)
+
       const anthropicCreate = vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: 'Provider-dark guest response.' }],
         usage: {
@@ -533,12 +1771,23 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         (anthropicCreate.mock.calls.at(-1)![0].system as Array<{ text: string }>)
           .map((block) => block.text)
           .join('')
-      const send = async (input: { venueId?: string; employee?: boolean; secondLayer?: boolean }) =>
+      const send = async (input: {
+        venueId?: string
+        employee?: boolean
+        secondLayer?: boolean
+        message?: string
+        anonymousToken?: string
+        operationId?: string
+        entryPlaceId?: string
+        visitContext?: { visitedPlaceIds: string[]; interests: string[] }
+      }) =>
         testRouter.createCaller(context(input.employee)).chat.send({
           venueId: input.venueId ?? venueId,
-          anonymousToken: randomUUID(),
-          operationId: randomUUID(),
-          message: 'What should I know?',
+          anonymousToken: input.anonymousToken ?? randomUUID(),
+          operationId: input.operationId ?? randomUUID(),
+          message: input.message ?? 'What should I know?',
+          ...(input.entryPlaceId ? { entryPlaceId: input.entryPlaceId } : {}),
+          ...(input.visitContext ? { visitContext: input.visitContext } : {}),
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
 
@@ -690,6 +1939,341 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         }),
       )
 
+      const expectQrEntryUnbound = async (input: {
+        entryPlaceId: string
+        message: string
+        sentinel: string
+      }) => {
+        const response = await send(input)
+        expect(latestPrompt()).not.toContain(input.sentinel)
+        expect(response.places.map((place) => place.id)).not.toContain(input.entryPlaceId)
+      }
+      await expectQrEntryUnbound({
+        entryPlaceId: privateQrPlaceId,
+        message: 'Tell me about Private QR Exhibit',
+        sentinel: 'PRIVATE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: inactiveQrPlaceId,
+        message: 'Tell me about Inactive QR Exhibit',
+        sentinel: 'INACTIVE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: foreignVenueQrPlaceId,
+        message: 'Tell me about Foreign Venue QR Exhibit',
+        sentinel: 'FOREIGN_VENUE_QR_SENTINEL',
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: foreignTenantQrPlaceId,
+        message: 'Tell me about Foreign Tenant QR Exhibit',
+        sentinel: 'FOREIGN_TENANT_QR_SENTINEL',
+      })
+
+      const staleQrPlaceId = `place-qr-stale-release-${suffix}`
+      await db.place.create({
+        data: {
+          id: staleQrPlaceId,
+          tenantId,
+          venueId,
+          name: 'Stale Release QR Exhibit',
+          shortDescription: 'STALE_RELEASE_QR_SENTINEL',
+          type: 'EXHIBIT',
+          visibility: 'PUBLIC',
+          importanceScore: 101,
+          tags: ['stale-release-qr'],
+        },
+      })
+      await db.venue.update({
+        where: { id: venueId },
+        data: { aiFeaturedPlaceId: staleQrPlaceId },
+      })
+      await expectQrEntryUnbound({
+        entryPlaceId: staleQrPlaceId,
+        message: 'Tell me about Stale Release QR Exhibit',
+        sentinel: 'STALE_RELEASE_QR_SENTINEL',
+      })
+
+      await send({
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12',
+      })
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('Second floor west gallery')
+      expect(latestPrompt()).not.toContain('First floor east gallery')
+
+      await send({
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12 on the First floor',
+      })
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).not.toContain('Second floor west gallery')
+
+      const durableQrToken = randomUUID()
+      const durableQrOperationId = randomUUID()
+      await send({
+        anonymousToken: durableQrToken,
+        operationId: durableQrOperationId,
+        entryPlaceId: secondCaseId,
+        message: 'Tell me about Case 12',
+      })
+      const providerCallsBeforeQrConflict = anthropicCreate.mock.calls.length
+      await expect(
+        send({
+          anonymousToken: durableQrToken,
+          operationId: durableQrOperationId,
+          entryPlaceId: firstCaseId,
+          message: 'Tell me about Case 12',
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(anthropicCreate).toHaveBeenCalledTimes(providerCallsBeforeQrConflict)
+      await db.venue.update({ where: { id: venueId }, data: { aiFeaturedPlaceId: null } })
+      await db.place.delete({ where: { id: staleQrPlaceId } })
+
+      const adjacentToken = randomUUID()
+      const adjacentFirstOperationId = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: adjacentToken,
+        operationId: adjacentFirstOperationId,
+      })
+      expect(latestPrompt()).toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('Case 12 — First floor')
+      expect(latestPrompt()).toContain('Case 12 — Second floor')
+      expect(latestPrompt()).not.toContain('PRIVATE_CASE_12_SENTINEL')
+      expect(latestPrompt()).not.toContain('CONTROL_CASE_12_SENTINEL')
+
+      const adjacentFirstTurn = await db.guestChatTurn.findFirstOrThrow({
+        where: { tenantId, venueId, requestId: adjacentFirstOperationId },
+        select: { status: true, replayMetadata: true },
+      })
+      expect(adjacentFirstTurn).toMatchObject({
+        status: 'COMPLETE',
+        replayMetadata: {
+          pendingPlaceIdentity: {
+            version: 'guest-place-identity-pending-v1',
+            requestedName: 'Case 12',
+            candidates: expect.arrayContaining([
+              expect.objectContaining({
+                id: firstCaseId,
+                name: 'Case 12',
+                floor: 'First floor',
+                location: 'First floor east gallery',
+              }),
+              expect.objectContaining({
+                id: secondCaseId,
+                name: 'Case 12',
+                floor: 'Second floor',
+                location: 'Second floor west gallery',
+              }),
+            ]),
+          },
+        },
+      })
+
+      const adjacentSecondOperationId = randomUUID()
+      const adjacentSecond = await send({
+        message: 'East gallery',
+        anonymousToken: adjacentToken,
+        operationId: adjacentSecondOperationId,
+      })
+      expect(latestPrompt()).toContain('ADJACENT PLACE IDENTITY CONTEXT')
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).not.toContain('Second floor west gallery')
+      const adjacentSecondTurn = await db.guestChatTurn.findFirstOrThrow({
+        where: { tenantId, venueId, requestId: adjacentSecondOperationId },
+        select: { userMessageId: true },
+      })
+      expect(adjacentSecondTurn.userMessageId).not.toBeNull()
+      await expect(
+        db.message.findUniqueOrThrow({
+          where: { id: adjacentSecondTurn.userMessageId! },
+          select: { content: true },
+        }),
+      ).resolves.toEqual({ content: 'East gallery' })
+      const providerCallsAfterAdjacentSecond = anthropicCreate.mock.calls.length
+      const adjacentReplay = await send({
+        message: 'East gallery',
+        anonymousToken: adjacentToken,
+        operationId: adjacentSecondOperationId,
+      })
+      expect(adjacentReplay).toMatchObject({
+        response: adjacentSecond.response,
+        assistantMessageId: adjacentSecond.assistantMessageId,
+        sessionId: adjacentSecond.sessionId,
+        places: adjacentSecond.places,
+        citations: adjacentSecond.citations,
+        replayed: true,
+      })
+      expect(anthropicCreate).toHaveBeenCalledTimes(providerCallsAfterAdjacentSecond)
+
+      // Exercise the SQL-side predecessor and claim fences without dispatching a second provider call.
+      const pendingFenceToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: pendingFenceToken,
+        operationId: randomUUID(),
+      })
+      const pendingFenceRequestId = randomUUID()
+      const pendingFenceReservation = await reserveGuestChatTurnAction({
+        client: db,
+        request: {
+          tenantId,
+          venueId,
+          anonymousToken: pendingFenceToken,
+          requestId: pendingFenceRequestId,
+          visitorId: null,
+          message: 'East gallery',
+          language: null,
+          lat: null,
+          lng: null,
+          retainLocation: true,
+          experienceScope: 'PUBLIC',
+        },
+      })
+      if (pendingFenceReservation.state !== 'RESERVED')
+        throw new Error(`Pending fence turn was not reserved: ${pendingFenceReservation.state}`)
+      const pendingFenceClaim = {
+        tenantId,
+        venueId,
+        anonymousToken: pendingFenceToken,
+        requestId: pendingFenceRequestId,
+        turnId: pendingFenceReservation.turnId,
+        claimId: randomUUID(),
+      }
+      await expect(
+        claimGuestChatTurnAction({ client: db, claim: pendingFenceClaim }),
+      ).resolves.toMatchObject({ state: 'GENERATING' })
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'PUBLIC',
+        }),
+      ).resolves.toMatchObject({
+        version: 'guest-place-identity-pending-v1',
+        requestedName: 'Case 12',
+      })
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: { ...pendingFenceClaim, claimId: randomUUID() },
+          experienceScope: 'PUBLIC',
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'SECOND_LAYER',
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        readAdjacentGuestPlaceIdentityPendingAction({
+          client: db,
+          claim: pendingFenceClaim,
+          experienceScope: 'PUBLIC',
+          now: new Date(Date.now() + 3 * 60 * 1_000),
+        }),
+      ).resolves.toBeNull()
+
+      const noInheritedIdentity = async (anonymousToken: string, operationId: string) => {
+        await send({ message: 'East gallery', anonymousToken, operationId })
+        expect(latestPrompt()).not.toContain('ADJACENT PLACE IDENTITY CONTEXT')
+        const turn = await db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: operationId },
+          select: { userMessageId: true, replayMetadata: true },
+        })
+        expect(turn.replayMetadata).not.toMatchObject({
+          pendingPlaceIdentity: expect.anything(),
+        })
+        expect(turn.userMessageId).not.toBeNull()
+        await expect(
+          db.message.findUniqueOrThrow({
+            where: { id: turn.userMessageId! },
+            select: { content: true },
+          }),
+        ).resolves.toEqual({ content: 'East gallery' })
+      }
+      // A fresh/reset browser token has no predecessor in the earlier conversation.
+      await noInheritedIdentity(randomUUID(), randomUUID())
+
+      const removedAnchorToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: removedAnchorToken,
+        operationId: randomUUID(),
+      })
+      await db.place.update({ where: { id: firstCaseId }, data: { isActive: false } })
+      await noInheritedIdentity(removedAnchorToken, randomUUID())
+      await db.place.update({ where: { id: firstCaseId }, data: { isActive: true } })
+
+      const relabelledAnchorToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: relabelledAnchorToken,
+        operationId: randomUUID(),
+      })
+      await db.venueLocation.updateMany({
+        where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+        data: { displayName: 'Renamed east gallery' },
+      })
+      await noInheritedIdentity(relabelledAnchorToken, randomUUID())
+      await db.venueLocation.updateMany({
+        where: { tenantId, venueId, primaryPlaceId: firstCaseId },
+        data: { displayName: 'First floor east gallery' },
+      })
+
+      const duplicateBetweenTurnsToken = randomUUID()
+      await send({
+        message: 'Tell me about Case 12',
+        anonymousToken: duplicateBetweenTurnsToken,
+        operationId: randomUUID(),
+      })
+      const insertedCaseId = `case-12-inserted-${suffix}`
+      await db.place.create({
+        data: {
+          id: insertedCaseId,
+          tenantId,
+          venueId,
+          name: 'Case 12',
+          type: 'EXHIBIT',
+          visibility: 'PUBLIC',
+          isActive: true,
+          importanceScore: 80,
+        },
+      })
+      await db.venueLocation.create({
+        data: {
+          tenantId,
+          venueId,
+          floorId: firstFloorId,
+          primaryPlaceId: insertedCaseId,
+          stableKey: `case-12-inserted-${suffix}`,
+          kind: 'EXHIBIT',
+          displayName: 'First floor north gallery',
+          verifiedAt: new Date(),
+          verifiedBy: 'disposable-guest-read',
+        },
+      })
+      await send({
+        message: 'First floor',
+        anonymousToken: duplicateBetweenTurnsToken,
+        operationId: randomUUID(),
+      })
+      expect(latestPrompt()).toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('First floor east gallery')
+      expect(latestPrompt()).toContain('First floor north gallery')
+      await db.place.update({ where: { id: insertedCaseId }, data: { isActive: false } })
+
+      await useSameFloorCaseAnchors()
+      await send({ message: 'Tell me about Case 12 in East gallery' })
+      expect(latestPrompt()).not.toContain('IDENTITY RULE:')
+      expect(latestPrompt()).not.toContain('IDENTITY CLARIFICATION DATA')
+      expect(latestPrompt()).toContain('East gallery')
+      await restoreCaseAnchors()
+
       await send({ employee: true, secondLayer: true })
       expect(latestPrompt()).toContain('Native Public Gallery')
       expect(latestPrompt()).toContain('Native Staff Room')
@@ -698,9 +2282,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       await send({})
       expect(latestPrompt()).toContain('Native Public Gallery')
       expect(latestPrompt()).toContain('Native Public Arrival Guide')
-      expect(latestPrompt()).toContain(
-        'Public semantic native knowledge says to use the east entrance.',
-      )
+      expect(latestPrompt()).toContain('Native override: use the east entrance.')
       expect(latestPrompt()).not.toContain('Native Staff Room')
       expect(latestPrompt()).not.toContain('Native Staff Arrival Procedure')
       expect(logger.info).toHaveBeenLastCalledWith(
@@ -737,6 +2319,69 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         }),
       ).resolves.toBe(1)
 
+      embeddingMocks.queryEmbedding = semanticEmbedding
+      const visitedPublic = { visitedPlaceIds: [publicPlaceId], interests: ['gallery'] }
+      const nativeRecommendation = await send({
+        message: 'What should I see next for public gallery arrival?',
+        visitContext: visitedPublic,
+      })
+      expect(nativeRecommendation.places).toEqual([])
+      expect(
+        nativeRecommendation.citations.filter(({ detail }) => detail.startsWith('Place:')),
+      ).toEqual([])
+      expect(latestPrompt()).toContain('RECOMMENDATION SCOPE')
+      expect(latestPrompt()).not.toContain('Native override: public gallery arrival point.')
+      expect(logger.info).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          action: 'guest-chat.native-content-read',
+          readPath: 'NATIVE',
+          gateReason: 'NATIVE_READY',
+          releaseId: release.id,
+        }),
+      )
+      const activeNativeSnapshot = await resolveNativeGuestReadSnapshotAction({
+        client: db,
+        tenantId,
+        venueId,
+      })
+      expect(activeNativeSnapshot).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+      })
+      const nativeRecommendationVoice = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'What should I see next for public gallery arrival?',
+        visitContext: visitedPublic,
+        asOf: now,
+        nativeSnapshot: activeNativeSnapshot,
+      })
+      expect(nativeRecommendationVoice.sourceIds.filter((id) => id.startsWith('place:'))).toEqual(
+        [],
+      )
+      expect(nativeRecommendationVoice.context).toContain('Native override: use the east entrance.')
+      expect(nativeRecommendationVoice.context).toContain('west entrance is closed today')
+      expect(nativeRecommendationVoice.nativeProjection).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+        stateHash: release.desiredStateHash,
+      })
+      expect(nativeRecommendationVoice.nativeProjection.effectiveContentPath).toBe('NATIVE')
+      const visitedDirectFact = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'Describe Native Public Gallery',
+        visitContext: visitedPublic,
+        asOf: now,
+        nativeSnapshot: activeNativeSnapshot,
+      })
+      expect(visitedDirectFact.sourceIds).toContain(`place:${publicPlaceId}`)
+      expect(visitedDirectFact.context).toContain('Native override: public gallery arrival point.')
+      expect(visitedDirectFact.nativeProjection.path).toBe('NATIVE')
       embeddingMocks.queryEmbedding = null
 
       await db.tenantFeatureFlag.update({

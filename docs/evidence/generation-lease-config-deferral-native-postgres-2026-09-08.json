@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08",
+  "requirement": "V2-P12-06 answer-analysis configuration deferral persistence boundary",
+  "proofLayer": "native disposable PostgreSQL generation lease/defer boundary",
+  "entrypoint": {
+    "source": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-generation-lease-config-deferral-proof-port55491.mjs",
+    "sha256": "2260c853af0ae9e62b33e0ab2004eb1abebe3aacfb3ebf87640ee284f8c0dcd2"
+  },
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124",
+  "database": "pathfinder_disposable_generation_lease_aa3e3a79e124",
+  "port": 55491,
+  "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+  "migrations": 238,
+  "publicTables": 258,
+  "passedTests": 26,
+  "postgresStopped": true,
+  "measuredSources": [
+    {
+      "source": "packages/db/src/helpers/generation-execution-claims.integration.test.ts",
+      "sha256": "852b6256e39cff075efaa5f365f08a4bd6e65624ed9ea1338874d9f49f30d07a",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-generation-execution-claims.integration.test.ts"
+    },
+    {
+      "source": "packages/db/src/helpers/generation-execution-claims.ts",
+      "sha256": "cc444352cfd5ff2bfaa5df8932ed208e26d2db401c1ab4151ad6a6d42dc908b0",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-generation-execution-claims.ts"
+    },
+    {
+      "source": "packages/db/prisma/schema.prisma",
+      "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-schema.prisma"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260703000000_add_answer_capture_and_weekly_reports/migration.sql",
+      "sha256": "8e9dd4532ce732abfea3f97e9d1068da2059414da845a0963f1e92906110453d",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-20260703000000_add_answer_capture_and_weekly_reports-migration.sql"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260809000000_add_generation_execution_leases/migration.sql",
+      "sha256": "d0f2625a101ba36c256febc2fce22930c7ff00fa2f36a2fea90b304a668364eb",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-20260809000000_add_generation_execution_leases-migration.sql"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260809010000_add_generation_request_dispatches/migration.sql",
+      "sha256": "b134bf554739a79e0cc21d01d3fa2ea1e0e1797b917e7fe33862354fcda05210",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-generation-lease-config-deferral-aa3e3a79e124\\measured-20260809010000_add_generation_request_dispatches-migration.sql"
+    }
+  ],
+  "covered": [
+    "32-way answer-analysis and weekly-report claims grant exactly one owner.",
+    "Fenced answer-analysis and weekly-report deferral immediately permits a new lease while stale and chained recovery tokens remain blocked.",
+    "Database constraints reject half-present leases/request identity and scope/range mismatches; recovery and expiry paths remain contention-safe."
+  ],
+  "limits": [
+    "This exercises the canonical PostgreSQL lease/defer helpers, not answer-analysis worker routing or a provider.",
+    "The new worker configuration/routing composition is covered by its dark-provider unit suite; no live model, runtime override service, or production database was used."
+  ]
+}

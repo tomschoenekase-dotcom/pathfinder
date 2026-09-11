@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "db3b288d284c6d3d7bc6d1a74376f2d5eb6e3dec",
+  "fieldRequirement": "FM02",
+  "classification": "partially solved",
+  "confirmedLocalGap": "A duplicate label with unknown floor was dropped from ambiguity when one other candidate matched the named floor. Two regressions failed before repair.",
+  "implemented": "Retain unknown-floor duplicate candidates; narrow only known contradictory floor labels. Known unique-floor disambiguation and non-identity requests remain.",
+  "checks": {
+    "identityPromptChatTestsPassed": 169,
+    "freshNonIncrementalApiTypes": "passed direct exit0 after concurrent native fixture correction",
+    "scopedLint": "passed",
+    "independentReview": "no actionable findings"
+  },
+  "artifacts": [
+    "artifacts/field-identity-floor-before-20260908.log",
+    "artifacts/field-identity-floor-final-20260908.log",
+    "artifacts/field-identity-lint-20260908.log",
+    "artifacts/field-preparation-api-types-final-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/api/src/lib/guest-place-identity.ts",
+      "sha256": "f7cbafe75a4da6fb63a2c92ec0d320730363700fc92609b4149029a2a2c82689"
+    },
+    {
+      "path": "packages/api/src/lib/guest-place-identity.test.ts",
+      "sha256": "44c8ce3023c1108d69998af55f18fa1702941aa0443ddc47c69105a50689da2e"
+    },
+    {
+      "path": "packages/api/src/lib/venue-context.ts",
+      "sha256": "c8c7af79be29e72dc64deaecf12bbdf1a02c356c446f0d1d956a45182634c86a"
+    }
+  ],
+  "limits": [
+    "Current local source/model-context projection proof, not current museum data, deployed model or human field reproduction.",
+    "Existing authorized candidate/location query is unchanged; no new venue-wide discovery or native persistence claim.",
+    "Exact normalized phrase matching, incomplete top-N discovery and voice identity behavior are not expanded by this change."
+  ]
+}

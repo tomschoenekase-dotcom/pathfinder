@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T04:10:15.193995+00:00",
+  "baseProductRevision": "aace377c2ed9146b2f29dd5769554f243483f257",
+  "result": {
+    "database": "pathfinder_disposable_agent_run_cancellation_93a4ca2cae59",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-direct-cancel-callback-93a4ca2cae59",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeTests": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focusedCancellationTestsPassed": 15,
+  "dbTypecheck": "passed",
+  "scopedLint": "passed",
+  "measuredSources": [
+    {
+      "path": "packages/db/src/helpers/agent-run-cancellation-claim.disposable.integration.test.ts",
+      "sha256": "6ea68ecbe339f87ee3b64f77a8a85dd467f962821b0a19bfaae3614f337ee59d",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+      "sha256": "84a3d55c68e8a85559f055f7d2ed556349cc5357360bcf7f6e8e91e7f2e4388b",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+      "sha256": "2ed5743f5ecc56e961a7ffc3d17b23afae2e11b478e22cfafb099e50ae682979",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+      "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "implemented": [
+    "Direct administrator cancellation of a non-running delegated child uses the same scoped terminal-result helper as worker finalization.",
+    "Parent validation and callback participate in the exact cancellation CAS/audit transaction.",
+    "RUNNING intent, existing terminal states and replay do not append a callback."
+  ],
+  "nativeControls": [
+    "Canonical delegated QUEUED child cancellation retains exactly one parent CANCELLED event and RESULT message.",
+    "Repeated request does not duplicate callback; parent RUNNING lease/state are preserved.",
+    "Earlier immediate/legacy cancellation, intent-only running cancellation, thrown-claim persistence and26-candidate starvation controls still pass."
+  ],
+  "limits": [
+    "Disposable PostgreSQL and synthetic scoped credentials only. No provider, production, external delivery or deployment.",
+    "No automatic parent requeue/dependency wake-up or authority change.",
+    "Internal helpers are not added to the public package barrel or exposed as callable tools."
+  ]
+}

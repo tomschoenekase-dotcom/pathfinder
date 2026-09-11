@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-09",
+  "baseCommit": "d1c7bab4d772e3e589d4e260834b366fce2ba24c",
+  "fieldRequirement": "FM02",
+  "classification": "partially solved",
+  "scope": "Shared text/voice identity candidate discovery, prompt preparation and synthetic provider capture; no live provider or current museum reproduction",
+  "implementation": [
+    "Shared scoped exact-label expansion before native authorization overlay",
+    "Current-query identity projection over all authorized candidates before eight-place text fact selection",
+    "Known requested floor promoted without discarding unknown-floor ambiguity; cap65 saturation cannot create false uniqueness",
+    "Fresh exact-read canonical fields preserve seed-only semantic/physical distance metadata without inventing distances",
+    "Text identity metadata bounded1500chars; mandatory rule outside untrusted data; voice keeps existing12000context cap"
+  ],
+  "promptIdentity": {
+    "version": "guest-chat-prompt-v19",
+    "contractHash": "5d4fc88ca159d2261a1a47a26bfa2dadbe7e2b9a3489762b06dccb38b11b116c",
+    "previousVersion": "guest-chat-prompt-v18",
+    "previousEvidence": "Retained at its historical source identity; not current v19 output proof"
+  },
+  "unitProof": {
+    "passed": 211,
+    "failed": 0,
+    "report": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\text-voice-identity-units-final.json",
+    "reportSha256": "de807aa855143ffeb740cec9d535521a0899a901962d94165554739c0d61ab13",
+    "sourceHashes": [
+      {
+        "source": "packages/api/src/routers/chat.test.ts",
+        "sha256": "445ac8eb4e6f8722b371ca3628c21645ba6ef4b7f16046dd70a59597f1c9a4b5"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.test.ts",
+        "sha256": "2282fa2dfcbb564145fabb5638ffaf415a6038a88d026dbddefc573a17d161b7"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.test.ts",
+        "sha256": "44c8ce3023c1108d69998af55f18fa1702941aa0443ddc47c69105a50689da2e"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "sha256": "721bd51cffb7ad3f4b2ad986e10a1b748fd155698fb9ac7ce70bfafab1357bdc"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.test.ts",
+        "sha256": "0090d38ecdcf63d4df2b881b8c6e89643a15025c9c1d33b62e8ce26cf29a6782"
+      },
+      {
+        "source": "packages/api/src/lib/evaluation/evaluation.test.ts",
+        "sha256": "d1ceb77a8ca830daf4d0fc573e2755b0ac4db2d43025df626eaf9c43640aa1bc"
+      }
+    ]
+  },
+  "nativeProof": {
+    "database": "pathfinder_disposable_native_guest_read_text_13bd54330755",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-text-voice-exhibit-identity-13bd54330755",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "retained": "measured-native-guest-read.disposable.integration.test.ts",
+        "sha256": "c74bb9ecc839810e38c0f79983706b5d185cda77d1161d7e449be2ace4bd2a2e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "retained": "measured-guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.test.ts",
+        "retained": "measured-guest-place-media.test.ts",
+        "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-voice-grounding-context.ts",
+        "sha256": "0a14860149d3e1864eebb072cc884eeaffeb8badfcc1725ad847c9c56f44a0c5"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.ts",
+        "retained": "measured-guest-place-identity.ts",
+        "sha256": "91047aeb11a8390987a740256e8ed71106e796d5e1719e0c3b91503696207a68"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.test.ts",
+        "retained": "measured-guest-place-identity.test.ts",
+        "sha256": "44c8ce3023c1108d69998af55f18fa1702941aa0443ddc47c69105a50689da2e"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.tsx",
+        "retained": "measured-VoiceControl.tsx",
+        "sha256": "132f2c228e22962924859b137ae6146bd8f7caa6ba2ad7ccb5b28ab9cb10514b"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.test.tsx",
+        "retained": "measured-VoiceControl.test.tsx",
+        "sha256": "181533d26c57390b06dba5f19db3b934ca24ad5c606d7b0bd885895ccd7dedda"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "retained": "measured-voice-grounding-context.test.ts",
+        "sha256": "721bd51cffb7ad3f4b2ad986e10a1b748fd155698fb9ac7ce70bfafab1357bdc"
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-voice.ts",
+        "sha256": "19d58d829f178ecd7722b60b3666bb3e83381de89d347afdab3cb58a472f73aa"
+      },
+      {
+        "source": "packages/api/src/routers/voice.test.ts",
+        "retained": "measured-voice.test.ts",
+        "sha256": "733a76f1a9f08aa73f2aa58bcff6c68bd15bfcf85bfec967a830529876310788"
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "retained": "measured-chat.ts",
+        "sha256": "5950e3986a75e86902cc57e0c47e583be252dbd22267d2b3bdbbadee28a30a48"
+      },
+      {
+        "source": "packages/api/src/routers/chat.test.ts",
+        "retained": "measured-chat.test.ts",
+        "sha256": "be3552ae1f871f167e0adb87491235b4355c2b3207c78d3905306476486950e6"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.ts",
+        "retained": "measured-guest-place-identity-discovery.ts",
+        "sha256": "f395bc79e297072c2260e72af38072a55093e4d24c5b0c58d7902423431c0410"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.test.ts",
+        "retained": "measured-guest-place-identity-discovery.test.ts",
+        "sha256": "2282fa2dfcbb564145fabb5638ffaf415a6038a88d026dbddefc573a17d161b7"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.ts",
+        "retained": "measured-venue-context.ts",
+        "sha256": "3b4d5e923869c9e3e33f3da2deda867666a9103901dedd33153ea97d059e7222"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.test.ts",
+        "retained": "measured-venue-context.test.ts",
+        "sha256": "0090d38ecdcf63d4df2b881b8c6e89643a15025c9c1d33b62e8ce26cf29a6782"
+      },
+      {
+        "source": "packages/contracts/src/prompt-contract.ts",
+        "retained": "measured-prompt-contract.ts",
+        "sha256": "fe6f18a5b224d296ff3e28b0ec81a867329e6133475a9fb696a86b9c2aa22f74"
+      },
+      {
+        "source": "packages/api/src/lib/evaluation/evaluation.test.ts",
+        "retained": "measured-evaluation.test.ts",
+        "sha256": "d1ceb77a8ca830daf4d0fc573e2755b0ac4db2d43025df626eaf9c43640aa1bc"
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "retained": "measured-semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+      },
+      {
+        "source": "packages/db/src/helpers/native-guest-content-read.ts",
+        "retained": "measured-native-guest-content-read.ts",
+        "sha256": "0b3a5178294abd1909e480212ff6c767a1ade58381e68cbd723b3101cbc74662"
+      },
+      {
+        "source": "packages/api/src/lib/guest-visit-retrieval-query.ts",
+        "retained": "measured-guest-visit-retrieval-query.ts",
+        "sha256": "3e973d87846e28a5163be718890d0d532e17b0917430bd070e7f5dbf0a297d9e"
+      }
+    ],
+    "runnerSha256": "ddac113f0a4dcba87b7344a6d4f3acdbfff14f0a9fc3447053261817a69da4ed",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 3
+    },
+    "sourceHashesStable": true
+  },
+  "sourceReadback": {
+    "matchingNativeMeasuredSources": 25,
+    "totalNativeMeasuredSources": 26,
+    "onlyChangedSourceAfterNativeRun": "packages/api/src/routers/chat.test.ts",
+    "explanation": "Only the unrelated non-location card unit mock was aligned with the new follow-on exact canonical read and its queued default reset; all production files and actual disposable test bytes remain exactly native-proven. The final211-test run proves the updated unit file. No repeat database rehearsal solely for this mock correction."
+  },
+  "checks": {
+    "apiTypecheck": "PASS reported by Sol after shared discovery source freeze",
+    "webTypecheck": "PASS",
+    "affectedConfiguredLint": "PASS",
+    "prettier": "PASS all10 implementation/test files",
+    "tenantBypassCalls": 436,
+    "tenantBypassFiles": 147,
+    "tenantProcedures": 114,
+    "rawSqlReads": 125,
+    "rawSqlWrites": 85
+  },
+  "fixtureLimits": [
+    "Native PostgreSQL16.15/vector0.8.6;238migrations258tables;selected1PASS2intentionally unselected;ownedprocessstopped",
+    "Actual chat send captured synthetic provider prompt with duplicate floors and private/foreign exclusions; no provider inference/audio",
+    "New exact discovery remains seed-bound; a label absent from initial relevance results is not discovered venue-wide",
+    "No UI layout change; provider/device/currentmuseum/full32QA/A/B/C gates remain pending"
+  ],
+  "preliminaryAttempts": [
+    {
+      "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-text-voice-exhibit-identity-825632766088",
+      "result": "Blocked by PostgreSQL database-name truncation before migrations; shortened isolated test name",
+      "stopped": true
+    }
+  ],
+  "review": "Root architecture and integration; Luna read-only final review found no additional material issue. Ranking omission, floor-compatible budget ordering, native scope and prompt provenance explicitly reviewed."
+}

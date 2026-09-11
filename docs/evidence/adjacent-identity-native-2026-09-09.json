@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-09",
+  "baseCommit": "eabcc1b8a3277b04f8ced2e6386ebc9c2709c5fa",
+  "fieldRequirement": "FM02",
+  "classification": "partially solved",
+  "implementation": "Text adjacent clarification uses integrity-bound immediate completed predecessor, exact current claim/scope/lease, current canonical same-name candidates, whole-label reply and fresh final discovery including newly added duplicates. Raw message and request identity unchanged; no transcript search or expanded retention.",
+  "promptVersion": "guest-chat-prompt-v21",
+  "promptContractHash": "81b4146fc8998043e8d0e8f4c1ad69368d59c8023774d27f22c4096047a91b21",
+  "unitProof": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\adjacent-identity-api-units.json",
+      "sha256": "d8ee282fc4a36a6a4a63e4060acafafd5b0eb4679a55b0d8ed931231f4c98e0f",
+      "passed": 216,
+      "failed": 0
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\adjacent-identity-integrity-units.json",
+      "sha256": "b071320918db648e35ae270f210d8d2d78a6c8b9519e80b9f94901c88bfaeae5",
+      "passed": 27,
+      "failed": 0
+    }
+  ],
+  "nativeProof": {
+    "database": "pathfinder_disposable_native_guest_read_adjacent_9ad7cfc7a480",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-adjacent-identity-9ad7cfc7a480",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/routers/chat.low-confidence.test.ts",
+        "retained": "measured-chat.low-confidence.test.ts",
+        "sha256": "77ff090e9f3e13d346c39f8bcbdcb15d29aac3b320f1cb922381713a618b6c40"
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "retained": "measured-index.ts",
+        "sha256": "22390115cb4513a754e866ab71a39a2a47252f2ea4ecad6129849a26418c4d4f"
+      },
+      {
+        "source": "packages/db/src/helpers/guest-chat-turn-actions.ts",
+        "retained": "measured-guest-chat-turn-actions.ts",
+        "sha256": "1ecbe9155f451eda7c5fdfc75f619f98bffecb739731a6d290fc08ab2a8b06ed"
+      },
+      {
+        "source": "packages/db/src/helpers/guest-chat-turn-actions.test.ts",
+        "retained": "measured-guest-chat-turn-actions.test.ts",
+        "sha256": "d913fcb415aeff6c6f00445e1d6955fd6ed44452d401da229962ce5047ca1138"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-followup.ts",
+        "retained": "measured-guest-place-identity-followup.ts",
+        "sha256": "2b21994abd060055e67089f7ead05b859de0a1aab659cc5bca392aa8ff284fae"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-followup.test.ts",
+        "retained": "measured-guest-place-identity-followup.test.ts",
+        "sha256": "7f02b17f654f72ecf1035b15c318d550db8c491c49099ea7b647d29bfb6e5a80"
+      },
+      {
+        "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "retained": "measured-native-guest-read.disposable.integration.test.ts",
+        "sha256": "a5e7315ab0919c6db4c5f62342a560ee939cc734acecbbb387ce4a4df678e431"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "retained": "measured-guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.test.ts",
+        "retained": "measured-guest-place-media.test.ts",
+        "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-voice-grounding-context.ts",
+        "sha256": "4cd98a339550303f5093b12d352d8af70c4f403fa411a16350d0bde14a1be895"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.ts",
+        "retained": "measured-guest-place-identity.ts",
+        "sha256": "eddddf12a88b1f70e8afb8abac1ce05aa1ad97dba5a24aa26351cbb54613c0a7"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.test.ts",
+        "retained": "measured-guest-place-identity.test.ts",
+        "sha256": "9ac111004bda5b27bf47fdf2af99ebeb0a48fc360f58e062857ecf60edef89a3"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.tsx",
+        "retained": "measured-VoiceControl.tsx",
+        "sha256": "132f2c228e22962924859b137ae6146bd8f7caa6ba2ad7ccb5b28ab9cb10514b"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.test.tsx",
+        "retained": "measured-VoiceControl.test.tsx",
+        "sha256": "181533d26c57390b06dba5f19db3b934ca24ad5c606d7b0bd885895ccd7dedda"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "retained": "measured-voice-grounding-context.test.ts",
+        "sha256": "9243f448ca07615d2170624254c3192405fc804f436eaa6411b1ded5f901cea1"
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-voice.ts",
+        "sha256": "4b5e178f660eaa571e9d823190580f2552479369dacbee5609f2a6c623907cfd"
+      },
+      {
+        "source": "packages/api/src/routers/voice.test.ts",
+        "retained": "measured-voice.test.ts",
+        "sha256": "9744ee1be0b16b943269a62c4a43f947b0557f56da1947802fb9e2739dfdf146"
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "retained": "measured-chat.ts",
+        "sha256": "792660d22a57a66380ffe7547e07e9faa22fc5ea3a6743ea958cc3c7f46b14a3"
+      },
+      {
+        "source": "packages/api/src/routers/chat.test.ts",
+        "retained": "measured-chat.test.ts",
+        "sha256": "8a4d4b77e6d99fd6903b9e9a41b33681286b4e9b2ad582a662d20f256f4dc870"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.ts",
+        "retained": "measured-guest-place-identity-discovery.ts",
+        "sha256": "bfa5c77a1e1bd772f11057203e64921b981b4b5c72225709aba12c7a13d4faf3"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.test.ts",
+        "retained": "measured-guest-place-identity-discovery.test.ts",
+        "sha256": "93430f7445a1567480dcdbf02a2cf166f02a2eee653719d6703af6b762097a08"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.ts",
+        "retained": "measured-venue-context.ts",
+        "sha256": "8d282e1b85fe85dafde470f406e58796334c201d43247c41f503880807545800"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.test.ts",
+        "retained": "measured-venue-context.test.ts",
+        "sha256": "c01a944c44a8734561f3ea5543bcfb50771d9e0e2e1d65d5d6d23a057e731b6a"
+      },
+      {
+        "source": "packages/contracts/src/prompt-contract.ts",
+        "retained": "measured-prompt-contract.ts",
+        "sha256": "cff68237ec0d0a7dbb8e98cfe81446aec568812239e81ff49949b46bb40ffe3f"
+      },
+      {
+        "source": "packages/api/src/lib/evaluation/evaluation.test.ts",
+        "retained": "measured-evaluation.test.ts",
+        "sha256": "5e9cd591f537ad8a76ece50ed6afa6c9fa79f88a37e08040f964a1a79702f1a3"
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "retained": "measured-semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+      },
+      {
+        "source": "packages/db/src/helpers/native-guest-content-read.ts",
+        "retained": "measured-native-guest-content-read.ts",
+        "sha256": "0b3a5178294abd1909e480212ff6c767a1ade58381e68cbd723b3101cbc74662"
+      },
+      {
+        "source": "packages/api/src/lib/guest-visit-retrieval-query.ts",
+        "retained": "measured-guest-visit-retrieval-query.ts",
+        "sha256": "3e973d87846e28a5163be718890d0d532e17b0917430bd070e7f5dbf0a297d9e"
+      }
+    ],
+    "runnerSha256": "7e013a1a9b96bb6142eae3fd790daa06c3239ad1a31f2c2373aa026e573f4343",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 3
+    },
+    "sourceHashesStable": true
+  },
+  "otherChecks": [
+    "API and DB typechecks passed",
+    "Configured ESLint passed for owned API and DB implementation/test files",
+    "Root reviewed integrity hashing, composite assistant relation, post-lock clock, current authorization and seedless final discovery"
+  ],
+  "limits": [
+    "Synthetic provider capture proves dispatch context and persistence, not actual answer quality",
+    "Native selected one combined case; two cases intentionally unselected",
+    "No hosted/current museum/model/full September8 logs/provider/voice-device/customer/release/full32QA/A-B-C completion",
+    "Pending read fences exercised against real DB; not exhaustive concurrent schedule testing",
+    "No UI changed; no new rendered-view proof claimed",
+    "Count65 pending acceptance fails closed; existing discovery saturation tests retained, no separate router count65 assertion"
+  ]
+}

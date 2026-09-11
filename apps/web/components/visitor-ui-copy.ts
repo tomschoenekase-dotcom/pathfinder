@@ -1,6 +1,13 @@
 import { SUPPORTED_CHAT_LANGUAGES, type SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 type VisitorUiCopy = {
+  voice: {
+    transcript: string
+    captured: string
+    interrupted: string
+    saving: string
+    unconfirmed: string
+  }
   shell: readonly [
     selectLanguage: string,
     back: string,
@@ -81,10 +88,17 @@ export function getVisitorTextPresentation(language: SupportedChatLanguage) {
 
 const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
   English: {
+    voice: {
+      transcript: 'Voice transcript',
+      captured: 'Captured',
+      interrupted: 'Interrupted; may be incomplete',
+      saving: 'Saving…',
+      unconfirmed: 'Save not confirmed',
+    },
     shell: [
       'Select language',
       'Back',
-      'New conversation',
+      'Clear chat',
       'Conversation',
       'You',
       'Ask a question',
@@ -142,6 +156,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Español: {
+    voice: {
+      transcript: 'Transcripción de voz',
+      captured: 'Registrada',
+      interrupted: 'Interrumpida; puede estar incompleta',
+      saving: 'Guardando…',
+      unconfirmed: 'Guardado no confirmado',
+    },
     shell: [
       'Seleccionar idioma',
       'Volver',
@@ -203,6 +224,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Français: {
+    voice: {
+      transcript: 'Transcription vocale',
+      captured: 'Enregistrée',
+      interrupted: 'Interrompue ; peut être incomplète',
+      saving: 'Enregistrement…',
+      unconfirmed: 'Enregistrement non confirmé',
+    },
     shell: [
       'Sélectionner la langue',
       'Retour',
@@ -264,6 +292,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Deutsch: {
+    voice: {
+      transcript: 'Sprachtranskript',
+      captured: 'Erfasst',
+      interrupted: 'Unterbrochen; möglicherweise unvollständig',
+      saving: 'Wird gespeichert…',
+      unconfirmed: 'Speicherung nicht bestätigt',
+    },
     shell: [
       'Sprache auswählen',
       'Zurück',
@@ -325,6 +360,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Italiano: {
+    voice: {
+      transcript: 'Trascrizione vocale',
+      captured: 'Acquisita',
+      interrupted: 'Interrotta; potrebbe essere incompleta',
+      saving: 'Salvataggio…',
+      unconfirmed: 'Salvataggio non confermato',
+    },
     shell: [
       'Seleziona lingua',
       'Indietro',
@@ -386,6 +428,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Português: {
+    voice: {
+      transcript: 'Transcrição de voz',
+      captured: 'Registrada',
+      interrupted: 'Interrompida; pode estar incompleta',
+      saving: 'Salvando…',
+      unconfirmed: 'Salvamento não confirmado',
+    },
     shell: [
       'Selecionar idioma',
       'Voltar',
@@ -447,6 +496,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   中文: {
+    voice: {
+      transcript: '语音转录',
+      captured: '已记录',
+      interrupted: '已中断，内容可能不完整',
+      saving: '正在保存…',
+      unconfirmed: '尚未确认保存',
+    },
     shell: [
       '选择语言',
       '返回',
@@ -508,6 +564,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   日本語: {
+    voice: {
+      transcript: '音声の文字起こし',
+      captured: '記録済み',
+      interrupted: '中断されました。内容が不完全な場合があります',
+      saving: '保存中…',
+      unconfirmed: '保存を確認できません',
+    },
     shell: [
       '言語を選択',
       '戻る',
@@ -569,6 +632,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   한국어: {
+    voice: {
+      transcript: '음성 기록',
+      captured: '기록됨',
+      interrupted: '중단됨; 내용이 불완전할 수 있음',
+      saving: '저장 중…',
+      unconfirmed: '저장 확인 안 됨',
+    },
     shell: [
       '언어 선택',
       '뒤로',
@@ -630,6 +700,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   العربية: {
+    voice: {
+      transcript: 'نص المحادثة الصوتية',
+      captured: 'تم تسجيل النص',
+      interrupted: 'تمت المقاطعة؛ قد يكون النص غير مكتمل',
+      saving: 'جارٍ الحفظ…',
+      unconfirmed: 'لم يتم تأكيد الحفظ',
+    },
     shell: [
       'اختيار اللغة',
       'رجوع',
@@ -710,6 +787,76 @@ type VisitorRecoveryCopy = readonly [
   prepareSessionFailed: string,
 ]
 
+export type VisitorStopCopy = {
+  stop: string
+  checking: string
+  refreshed: string
+}
+
+const STOP_COPY: Record<SupportedChatLanguage, VisitorStopCopy> = {
+  English: {
+    stop: 'Stop response',
+    checking:
+      'Response stopped locally. Checking the message outcome before allowing another message.',
+    refreshed: 'Response stopped locally. Conversation refreshed; you may send a new message.',
+  },
+  Español: {
+    stop: 'Detener respuesta',
+    checking:
+      'La respuesta se detuvo localmente. Se está comprobando el resultado antes de permitir otro mensaje.',
+    refreshed:
+      'La respuesta se detuvo localmente. Se actualizó la conversación; puedes enviar un mensaje nuevo.',
+  },
+  Français: {
+    stop: 'Arrêter la réponse',
+    checking:
+      'Réponse arrêtée localement. Vérification du résultat avant d’autoriser un autre message.',
+    refreshed:
+      'Réponse arrêtée localement. Conversation actualisée ; vous pouvez envoyer un nouveau message.',
+  },
+  Deutsch: {
+    stop: 'Antwort stoppen',
+    checking:
+      'Antwort lokal gestoppt. Das Ergebnis wird geprüft, bevor eine weitere Nachricht zugelassen wird.',
+    refreshed:
+      'Antwort lokal gestoppt. Unterhaltung aktualisiert; du kannst eine neue Nachricht senden.',
+  },
+  Italiano: {
+    stop: 'Ferma risposta',
+    checking:
+      'Risposta fermata localmente. Verifica dell’esito prima di consentire un altro messaggio.',
+    refreshed:
+      'Risposta fermata localmente. Conversazione aggiornata; puoi inviare un nuovo messaggio.',
+  },
+  Português: {
+    stop: 'Parar resposta',
+    checking:
+      'Resposta interrompida localmente. Verificando o resultado antes de permitir outra mensagem.',
+    refreshed:
+      'Resposta interrompida localmente. Conversa atualizada; você pode enviar uma nova mensagem.',
+  },
+  中文: {
+    stop: '停止回答',
+    checking: '回答已在本地停止。正在检查消息结果，确认后才能发送另一条消息。',
+    refreshed: '回答已在本地停止。对话已刷新；你可以发送一条新消息。',
+  },
+  日本語: {
+    stop: '回答を停止',
+    checking: '回答をローカルで停止しました。別のメッセージを許可する前に結果を確認しています。',
+    refreshed: '回答をローカルで停止しました。会話を更新しました。新しいメッセージを送信できます。',
+  },
+  한국어: {
+    stop: '응답 중지',
+    checking: '응답을 로컬에서 중지했습니다. 다른 메시지를 허용하기 전에 결과를 확인하는 중입니다.',
+    refreshed: '응답을 로컬에서 중지했습니다. 대화를 새로 고쳤으며 새 메시지를 보낼 수 있습니다.',
+  },
+  العربية: {
+    stop: 'إيقاف الرد',
+    checking: 'تم إيقاف الرد محليًا. جارٍ التحقق من نتيجة الرسالة قبل السماح برسالة أخرى.',
+    refreshed: 'تم إيقاف الرد محليًا. تم تحديث المحادثة ويمكنك إرسال رسالة جديدة.',
+  },
+}
+
 const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
   English: [
     'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.',
@@ -722,7 +869,7 @@ const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
     'The outcome of this message is not confirmed. Retry the same message safely.',
     'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
     'The conversation still could not be confirmed. Try checking again.',
-    'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
+    'Clear chat? Your visit preferences stay on this page. The current chat will leave this screen, but it will not be deleted from Torchiko records.',
     'We could not start a new conversation in this browser.',
     'Check conversation',
     'Retry same message',
@@ -972,6 +1119,10 @@ export function getVisitorUiCopy(language: SupportedChatLanguage = 'English') {
 
 export function getVisitorRecoveryCopy(language: SupportedChatLanguage = 'English') {
   return RECOVERY_COPY[language] ?? RECOVERY_COPY.English
+}
+
+export function getVisitorStopCopy(language: SupportedChatLanguage = 'English') {
+  return STOP_COPY[language] ?? STOP_COPY.English
 }
 
 export function getVisitorStateCopy(language: SupportedChatLanguage = 'English') {

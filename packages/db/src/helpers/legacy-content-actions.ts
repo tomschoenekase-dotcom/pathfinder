@@ -377,6 +377,7 @@ export async function updateLegacyKnowledgeAction(
         tenantId: input.tenantId,
         venueId: input.venueId,
         updatedAt: input.expectedUpdatedAt,
+        contentModuleId: null,
       },
       data: input.fields,
     })

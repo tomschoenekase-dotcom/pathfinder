@@ -19,12 +19,14 @@ vi.mock('@pathfinder/db', () => ({
 import {
   createFileExtractionClarificationQuestion,
   resolveFileExtractionClarification,
+  resolveFileExtractionClarificationInTransaction,
 } from './intake-file-clarifications'
 
 const receiptId = '975140d8-5af9-4c2d-9132-40b5cf6f5962'
 const textHash = 'a'.repeat(64)
 const answeredAt = new Date('2026-08-29T17:00:00.000Z')
 const resolutionRequestId = 'b79ca1f5-9c21-498e-890e-88ddb889f9b4'
+const runlessOperationId = 'daaacee6-3ff6-583d-9b7c-2f9716335edb'
 
 function input(db: unknown, overrides: Record<string, unknown> = {}) {
   return {
@@ -70,6 +72,7 @@ describe('file extraction clarification', () => {
       expect.objectContaining({
         tenantId: 'tenant-a',
         venueId: 'venue-a',
+        operationId: runlessOperationId,
         agentIdentityId: 'identity-a',
         category: 'builder-file-clarification',
         blocking: false,
@@ -102,6 +105,68 @@ describe('file extraction clarification', () => {
       publicationTriggered: false,
       venueContactTriggered: false,
     })
+  })
+
+  it('binds an explicit agent run and gives each run a distinct operation identity', async () => {
+    const db = {
+      intakeFileExtractionReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          extractedText: 'Welcome. Guests should use the east entrance. Thank you.',
+          extractedTextHash: textHash,
+          review: null,
+        }),
+      },
+      agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'identity-a' }) },
+    }
+
+    await createFileExtractionClarificationQuestion(input(db, { agentRunId: 'agent-run-a' }))
+    await createFileExtractionClarificationQuestion(input(db, { agentRunId: 'agent-run-b' }))
+
+    const first = mocks.askQuestion.mock.calls[0]?.[0]
+    const second = mocks.askQuestion.mock.calls[1]?.[0]
+    expect(first).toEqual(
+      expect.objectContaining({
+        agentRunId: 'agent-run-a',
+        callbackMetadata: expect.objectContaining({ agentRunId: 'agent-run-a' }),
+      }),
+    )
+    expect(second).toEqual(
+      expect.objectContaining({
+        agentRunId: 'agent-run-b',
+        callbackMetadata: expect.objectContaining({ agentRunId: 'agent-run-b' }),
+      }),
+    )
+    expect(first.operationId).not.toBe(second.operationId)
+    expect(first.operationId).not.toBe(runlessOperationId)
+    expect(second.operationId).not.toBe(runlessOperationId)
+  })
+
+  it('forwards scoped agent-run validation errors without creating fallback questions', async () => {
+    const db = {
+      intakeFileExtractionReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          extractedText: 'Welcome. Guests should use the east entrance. Thank you.',
+          extractedTextHash: textHash,
+          review: null,
+        }),
+      },
+      agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'identity-a' }) },
+    }
+    const { AgentQuestionActionError } = await import('@pathfinder/db')
+    mocks.askQuestion.mockRejectedValueOnce(
+      new AgentQuestionActionError(
+        'FORBIDDEN',
+        'Agent run is not active for this tenant, venue, and identity.',
+      ),
+    )
+
+    await expect(
+      createFileExtractionClarificationQuestion(input(db, { agentRunId: 'agent-run-a' })),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Agent run is not active for this tenant, venue, and identity.',
+    })
+    expect(mocks.askQuestion).toHaveBeenCalledOnce()
   })
 
   it('makes only an explicit foundational ambiguity block terminal review', async () => {
@@ -259,6 +324,20 @@ describe('file extraction clarification', () => {
     await expect(resolveFileExtractionClarification(request as never)).resolves.toMatchObject({
       replayed: true,
     })
+    const admission = vi.fn(async (tx: unknown) => {
+      expect(tx).toBe(transaction)
+      expect(transaction.$executeRaw).toHaveBeenCalled()
+      throw new Error('current claim rejected')
+    })
+    const replayReads = findUnique.mock.calls.length
+    await expect(
+      resolveFileExtractionClarificationInTransaction(transaction as never, request, {
+        admitResolution: admission,
+      }),
+    ).rejects.toThrow('current claim rejected')
+    expect(admission).toHaveBeenCalledOnce()
+    expect(findUnique).toHaveBeenCalledTimes(replayReads)
+
     expect(create).toHaveBeenCalledOnce()
   })
 

@@ -9,22 +9,31 @@ const mocks = vi.hoisted(() => ({
   connected: vi.fn(),
   transcript: vi.fn(),
   usage: vi.fn(),
+  groundingContext: vi.fn(),
+  locationCatalog: vi.fn(),
+  locationRoute: vi.fn(),
   end: vi.fn(),
   getUserMedia: vi.fn(),
 }))
 
-vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({
+vi.mock('../lib/trpc', () => {
+  const client = {
     voice: {
       availability: { query: mocks.availability },
       start: { mutate: mocks.start },
       connected: { mutate: mocks.connected },
       transcript: { mutate: mocks.transcript },
       usage: { mutate: mocks.usage },
+      groundingContext: { mutate: mocks.groundingContext },
       end: { mutate: mocks.end },
     },
-  }),
-}))
+    location: {
+      catalog: { query: mocks.locationCatalog },
+      route: { query: mocks.locationRoute },
+    },
+  }
+  return { useTRPCClient: () => client }
+})
 
 import {
   MICROPHONE_REQUEST_TIMEOUT_MS,
@@ -49,10 +58,17 @@ describe('VoiceControl', () => {
     })
     vi.stubGlobal('RTCPeerConnection', class {})
     vi.stubGlobal('React', React)
+    mocks.groundingContext.mockResolvedValue({
+      context: '[Bathrooms]\nBeside the east lift.',
+      sourceIds: ['bathroom'],
+    })
+    mocks.locationCatalog.mockResolvedValue({ locations: [] })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
   })
   afterEach(() => {
     vi.useRealTimers()
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -132,6 +148,1507 @@ describe('VoiceControl', () => {
 
     expect(stop).toHaveBeenCalledOnce()
     expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('serializes rapid starts and stops media acquired after the component leaves its scope', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    let resolveMicrophone!: (stream: MediaStream) => void
+    mocks.getUserMedia.mockReturnValue(
+      new Promise<MediaStream>((resolve) => {
+        resolveMicrophone = resolve
+      }),
+    )
+    const stop = vi.fn()
+    const view = render(<VoiceControl {...props} />)
+    const start = await screen.findByRole('button', { name: 'Start voice conversation' })
+
+    act(() => {
+      start.click()
+      start.click()
+    })
+    expect(mocks.getUserMedia).toHaveBeenCalledOnce()
+
+    view.unmount()
+    await act(async () => {
+      resolveMicrophone({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+      await Promise.resolve()
+    })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('keeps an A to B to A restart active when the first authorization resolves late', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    let resolveOldAuthorization!: (value: {
+      voiceSessionId: string
+      clientSecret: string
+      maxDurationSeconds: number
+    }) => void
+    let resolveCurrentAuthorization!: (value: {
+      voiceSessionId: string
+      clientSecret: string
+      maxDurationSeconds: number
+    }) => void
+    mocks.start
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldAuthorization = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCurrentAuthorization = resolve
+        }),
+      )
+    const oldStop = vi.fn()
+    const currentStop = vi.fn()
+    mocks.getUserMedia
+      .mockResolvedValueOnce({ getTracks: () => [{ stop: oldStop }] } as unknown as MediaStream)
+      .mockResolvedValueOnce({ getTracks: () => [{ stop: currentStop }] } as unknown as MediaStream)
+    const channel = { close: vi.fn(), addEventListener: vi.fn() }
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+      ontrack: null,
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+    const view = render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1))
+
+    view.rerender(
+      <VoiceControl
+        {...props}
+        venueId="venue-2"
+        anonymousToken="223e4567-e89b-42d3-a456-426614174001"
+      />,
+    )
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalledTimes(2))
+    view.rerender(<VoiceControl {...props} />)
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalledTimes(3))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      resolveOldAuthorization({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'retired-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(mocks.end).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        fallbackToText: true,
+        errorCode: 'CLIENT_UNMOUNTED',
+      }),
+    )
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(oldStop).toHaveBeenCalled()
+    expect(currentStop).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Connecting')
+
+    await act(async () => {
+      resolveCurrentAuthorization({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'current-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(mocks.connected).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+      }),
+    )
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('does not reset an active session when the parent replaces its character callback', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const listeners = new Map<string, () => void>()
+    const channel = {
+      close: vi.fn(),
+      addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+    const firstCharacterCallback = vi.fn()
+    const secondCharacterCallback = vi.fn()
+    const view = render(<VoiceControl {...props} onCharacterState={firstCharacterCallback} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    act(() => listeners.get('open')?.())
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+
+    view.rerender(<VoiceControl {...props} onCharacterState={secondCharacterCallback} />)
+
+    expect(mocks.availability).toHaveBeenCalledOnce()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('allows a restart while the previous remote end acknowledgement is delayed', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start
+      .mockResolvedValueOnce({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'first-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      .mockResolvedValueOnce({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'second-ephemeral',
+        maxDurationSeconds: 600,
+      })
+    mocks.connected.mockResolvedValue({ connected: true })
+    let resolveOldEnd!: (value: { ended: boolean }) => void
+    mocks.end.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOldEnd = resolve
+      }),
+    )
+    const oldStop = vi.fn()
+    const currentStop = vi.fn()
+    mocks.getUserMedia
+      .mockResolvedValueOnce({
+        getTracks: () => [{ stop: oldStop, addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+      .mockResolvedValueOnce({
+        getTracks: () => [{ stop: currentStop, addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+    const channelListeners: Array<Map<string, () => void>> = []
+    const channels = Array.from({ length: 2 }, () => {
+      const listeners = new Map<string, () => void>()
+      channelListeners.push(listeners)
+      return {
+        close: vi.fn(),
+        addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+      }
+    })
+    let peerIndex = 0
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channels[peerIndex++]!,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
+    )
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(1))
+    act(() => channelListeners[0]!.get('open')?.())
+
+    fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+    const restart = await screen.findByRole('button', { name: 'Start voice conversation' })
+    expect(oldStop).toHaveBeenCalledOnce()
+    expect(mocks.end).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      fallbackToText: false,
+    })
+
+    fireEvent.click(restart)
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(2))
+    act(() => channelListeners[1]!.get('open')?.())
+    await act(async () => {
+      resolveOldEnd({ ended: true })
+      await Promise.resolve()
+    })
+
+    expect(currentStop).not.toHaveBeenCalled()
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('ignores delayed events from a retired data channel after voice restarts', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start
+      .mockResolvedValueOnce({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'first-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      .mockResolvedValueOnce({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'second-ephemeral',
+        maxDurationSeconds: 600,
+      })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const channelListeners: Array<Map<string, (event?: MessageEvent<string>) => void>> = []
+    const channels = Array.from({ length: 2 }, () => {
+      const listeners = new Map<string, (event?: MessageEvent<string>) => void>()
+      channelListeners.push(listeners)
+      return {
+        close: vi.fn(),
+        addEventListener: (type: string, listener: (event?: MessageEvent<string>) => void) =>
+          listeners.set(type, listener),
+      }
+    })
+    let peerIndex = 0
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channels[peerIndex++]!,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
+    )
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(1))
+    act(() => channelListeners[0]!.get('open')?.())
+    fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce())
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(2))
+    act(() => channelListeners[1]!.get('open')?.())
+
+    act(() => {
+      channelListeners[0]!.get('open')?.()
+      channelListeners[0]!.get('message')?.({
+        data: JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.completed',
+          event_id: 'retired-event',
+          transcript: 'A retired turn.',
+        }),
+      } as MessageEvent<string>)
+      channelListeners[0]!.get('message')?.({
+        data: JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'retired-call',
+            arguments: JSON.stringify({ query: 'private?' }),
+          },
+        }),
+      } as MessageEvent<string>)
+      channelListeners[0]!.get('close')?.()
+    })
+
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(mocks.transcript).not.toHaveBeenCalled()
+    expect(mocks.groundingContext).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+  })
+
+  it('renders ordered rolling captions and replaces them with one played transcript line', async () => {
+    const onTranscriptLine = vi.fn()
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const channel = {
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    const providerEvent = (payload: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(payload) } as MessageEvent<string>)
+
+    act(() => {
+      providerEvent({ type: 'response.created', response: { id: 'response-caption' } })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-1',
+        response_id: 'response-caption',
+        delta: 'The gallery ',
+      })
+    })
+    const transcriptViewport = screen.getByLabelText('Voice transcript')
+    Object.defineProperties(transcriptViewport, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 300 },
+    })
+    act(() => {
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-caption',
+        delta: 'is open.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-caption',
+        delta: 'is open.',
+      })
+    })
+
+    expect(screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Guide: The gallery is open.(caption in progress)',
+    )
+    expect(transcriptViewport.scrollTop).toBe(300)
+    expect(screen.getByRole('status').textContent).toContain('Thinking')
+    expect(mocks.transcript).not.toHaveBeenCalled()
+
+    act(() => {
+      providerEvent({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'response-caption',
+      })
+      providerEvent({ type: 'response.created', response: { id: 'response-newer' } })
+      providerEvent({ type: 'output_audio_buffer.started', response_id: 'response-newer' })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'newer-caption-delta',
+        response_id: 'response-newer',
+        delta: 'The cafe is downstairs.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'late-old-caption-delta',
+        response_id: 'response-caption',
+        delta: ' This must not replace the new caption.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'caption-done',
+        response_id: 'response-caption',
+        transcript: 'The gallery is open.',
+      })
+    })
+
+    expect(screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Guide: The gallery is open.Guide: The cafe is downstairs.(caption in progress)',
+    )
+    expect(screen.getByLabelText('Voice transcript').textContent).not.toContain('must not replace')
+    expect(screen.getByRole('status').textContent).toContain('Speaking')
+    expect(mocks.transcript).toHaveBeenCalledOnce()
+    expect(mocks.transcript).toHaveBeenCalledWith(
+      expect.objectContaining({ providerEventId: 'caption-done', text: 'The gallery is open.' }),
+    )
+    await waitFor(() =>
+      expect(onTranscriptLine).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'The gallery is open.',
+          voiceDelivery: 'CAPTURED',
+          persistence: 'SAVED',
+        }),
+      ),
+    )
+
+    act(() => {
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'newer-caption-done',
+        response_id: 'response-newer',
+        transcript: 'The cafe is downstairs.',
+      })
+      providerEvent({ type: 'output_audio_buffer.stopped', response_id: 'response-newer' })
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'newer-caption-done-duplicate',
+        response_id: 'response-newer',
+        transcript: 'The cafe is downstairs.',
+      })
+    })
+    expect(screen.getByLabelText('Voice transcript').textContent).not.toContain(
+      'caption in progress',
+    )
+    expect(mocks.transcript).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(onTranscriptLine).toHaveBeenCalledTimes(4))
+  })
+
+  it.each(['scope change', 'unmount'] as const)(
+    'does not publish a delayed transcript save state after %s',
+    async (retirement) => {
+      mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+      mocks.start.mockResolvedValue({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'ephemeral',
+        maxDurationSeconds: 600,
+      })
+      mocks.connected.mockResolvedValue({ connected: true })
+      let resolveTranscript!: (value: { accepted: boolean }) => void
+      mocks.transcript.mockReturnValue(
+        new Promise((resolve) => {
+          resolveTranscript = resolve
+        }),
+      )
+      mocks.getUserMedia.mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+      const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+      vi.stubGlobal(
+        'RTCPeerConnection',
+        vi.fn(() => ({
+          addTrack: vi.fn(),
+          createDataChannel: () => ({
+            close: vi.fn(),
+            addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+              listeners.set(type, listener),
+          }),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+          setLocalDescription: vi.fn(),
+          setRemoteDescription: vi.fn(),
+          close: vi.fn(),
+          ontrack: null,
+        })),
+      )
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+      const onTranscriptLine = vi.fn()
+      const view = render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+      await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+      const visitorTranscript =
+        retirement === 'scope change' ? ` ${'x'.repeat(9_000)} ` : 'Where is the lift?'
+      act(() =>
+        listeners.get('message')?.({
+          data: JSON.stringify({
+            type: 'conversation.item.input_audio_transcription.completed',
+            event_id: 'visitor-line-delayed-save',
+            transcript: visitorTranscript,
+          }),
+        } as MessageEvent<string>),
+      )
+      expect(onTranscriptLine).toHaveBeenCalledOnce()
+      expect(onTranscriptLine).toHaveBeenLastCalledWith(
+        expect.objectContaining({ persistence: 'PENDING' }),
+      )
+      if (retirement === 'scope change') {
+        expect(mocks.transcript).toHaveBeenCalledWith(
+          expect.objectContaining({ text: 'x'.repeat(8_000) }),
+        )
+        expect(onTranscriptLine.mock.calls[0]?.[0].content).toHaveLength(8_000)
+      }
+
+      if (retirement === 'scope change') {
+        view.rerender(
+          <VoiceControl {...props} venueId="venue-2" onTranscriptLine={onTranscriptLine} />,
+        )
+      } else {
+        view.unmount()
+      }
+      await act(async () => {
+        resolveTranscript({ accepted: true })
+        await Promise.resolve()
+      })
+
+      expect(onTranscriptLine).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each(['deadline', 'speech interruption', 'unmount', 'scope change'] as const)(
+    'aborts pending route and catalog transports on %s and fences late results',
+    async (ending) => {
+      mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+      mocks.start.mockResolvedValue({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'ephemeral',
+        maxDurationSeconds: 600,
+      })
+      mocks.connected.mockResolvedValue({ connected: true })
+      mocks.getUserMedia.mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+      })
+      const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+      const send = vi.fn()
+      vi.stubGlobal(
+        'RTCPeerConnection',
+        vi.fn(() => ({
+          addTrack: vi.fn(),
+          createDataChannel: () => ({
+            readyState: 'open',
+            send,
+            close: vi.fn(),
+            addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+              listeners.set(type, listener),
+          }),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+          setLocalDescription: vi.fn(),
+          setRemoteDescription: vi.fn(),
+          close: vi.fn(),
+          ontrack: null,
+        })),
+      )
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+      let resolveCatalog!: (value: unknown) => void
+      let resolveRoute!: (value: unknown) => void
+      mocks.locationCatalog.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCatalog = resolve
+        }),
+      )
+      mocks.locationRoute.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRoute = resolve
+        }),
+      )
+      const view = render(<VoiceControl {...props} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+      await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+      act(() => listeners.get('open')?.({} as MessageEvent<string>))
+      const event = (value: Record<string, unknown>) =>
+        listeners.get('message')?.({ data: JSON.stringify(value) } as MessageEvent<string>)
+      vi.useFakeTimers()
+      await act(async () =>
+        event({
+          type: 'response.done',
+          response: {
+            id: 'pending-routes',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'list_reviewed_route_locations',
+                call_id: 'pending-catalog',
+                arguments: JSON.stringify({ offset: 0 }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_reviewed_route',
+                call_id: 'pending-route',
+                arguments: JSON.stringify({
+                  fromLocationId: 'one',
+                  toLocationId: 'two',
+                  accessibleOnly: true,
+                }),
+              },
+            ],
+          },
+        }),
+      )
+      const catalogSignal = mocks.locationCatalog.mock.calls[0]?.[1].signal as AbortSignal
+      const routeSignal = mocks.locationRoute.mock.calls[0]?.[1].signal as AbortSignal
+      expect(catalogSignal.aborted).toBe(false)
+      expect(routeSignal.aborted).toBe(false)
+      send.mockClear()
+      await act(async () => {
+        if (ending === 'deadline') await vi.advanceTimersByTimeAsync(15_000)
+        else if (ending === 'speech interruption')
+          event({ type: 'input_audio_buffer.speech_started' })
+        else if (ending === 'unmount') view.unmount()
+        else view.rerender(<VoiceControl {...props} venueId="venue-2" />)
+      })
+      expect(catalogSignal.aborted).toBe(true)
+      expect(routeSignal.aborted).toBe(true)
+      const outputs = () =>
+        send.mock.calls
+          .map(([value]) => JSON.parse(value as string))
+          .filter((value) => value.type === 'conversation.item.create')
+      if (ending === 'deadline') {
+        expect(outputs()).toHaveLength(2)
+        for (const output of outputs())
+          expect(JSON.parse(output.item.output)).toMatchObject({
+            grounded: false,
+            error: 'GROUNDING_UNAVAILABLE',
+          })
+      } else expect(outputs()).toHaveLength(0)
+      const beforeLateResults = send.mock.calls.length
+      await act(async () => {
+        resolveCatalog({ locations: [] })
+        resolveRoute({ segments: [] })
+      })
+      expect(send).toHaveBeenCalledTimes(beforeLateResults)
+    },
+  )
+
+  it('registers bounded route tools and dispatches exact canonical location inputs', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    mocks.locationCatalog.mockResolvedValue({
+      locations: Array.from({ length: 25 }, (_, index) => ({
+        id: `location-${index}`,
+        stableKey: `place-${index}`,
+        displayName: `Place ${index}`,
+        kind: 'EXHIBIT',
+        floor: {
+          stableKey: `level-${index % 2}`,
+          name: `Level ${index % 2}`,
+          level: index % 2,
+        },
+        coordinates: { latitude: 1, longitude: 2 },
+      })),
+    })
+    const route = {
+      from: { id: 'location-4' },
+      to: { id: 'location-9' },
+      accessibleOnly: true,
+      segmentCount: 2,
+      describedSegmentCount: 1,
+      guidanceConfidence: 'LIMITED',
+      hasEquivalentRoute: true,
+      review: { status: 'VENUE_REVIEWED', reviewedAt: new Date('2026-09-08T12:00:00Z') },
+      segments: [{ connectionId: 'edge-1', directions: null }],
+    }
+    mocks.locationRoute.mockResolvedValue(route)
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    const channel = {
+      readyState: 'open',
+      send,
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+
+    render(
+      <VoiceControl {...props} visitContext={{ visitedPlaceIds: ['location-4'], interests: [] }} />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    act(() => listeners.get('open')?.({} as MessageEvent<string>))
+
+    const sessionUpdate = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.type === 'session.update')
+    const tools = sessionUpdate.session.tools as Array<{
+      name?: unknown
+      parameters?: unknown
+      description?: unknown
+    }>
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'lookup_venue_knowledge',
+      'list_reviewed_route_locations',
+      'lookup_reviewed_route',
+    ])
+    expect(tools[1]?.parameters).toMatchObject({
+      additionalProperties: false,
+      required: ['offset'],
+    })
+    expect(tools[2]?.parameters).toMatchObject({
+      additionalProperties: false,
+      required: ['fromLocationId', 'toLocationId', 'accessibleOnly'],
+    })
+    expect(String(tools[2]?.description)).toContain('never infer')
+    expect(String(tools[2]?.description)).toContain('LIMITED')
+
+    const providerEvent = (event: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'catalog',
+              arguments: JSON.stringify({ offset: 4 }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'route',
+              arguments: JSON.stringify({
+                fromLocationId: ' location-4 ',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+              }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'mixed-knowledge',
+              arguments: JSON.stringify({ query: 'What is here?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'mixed-overflow',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-1',
+                toLocationId: 'location-2',
+                accessibleOnly: false,
+              }),
+            },
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'catalog',
+              arguments: JSON.stringify({ offset: 4 }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() => expect(mocks.locationRoute).toHaveBeenCalledOnce())
+    expect(mocks.locationCatalog).toHaveBeenCalledWith(
+      {
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.locationRoute).toHaveBeenCalledWith(
+      {
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        fromLocationId: 'location-4',
+        toLocationId: 'location-9',
+        accessibleOnly: true,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.locationRoute.mock.calls[0]?.[0]).not.toHaveProperty('visitContext')
+    expect(mocks.locationCatalog).toHaveBeenCalledOnce()
+    expect(mocks.groundingContext).toHaveBeenCalledOnce()
+    const outputs = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .filter((event) => event.type === 'conversation.item.create')
+    const catalogOutput = JSON.parse(
+      outputs.find((event) => event.item.call_id === 'catalog').item.output,
+    )
+    expect(catalogOutput.locations).toHaveLength(20)
+    expect(catalogOutput).toMatchObject({ truncated: true, nextOffset: 24 })
+    expect(catalogOutput.locations[0]).toEqual({
+      id: 'location-4',
+      stableKey: 'place-4',
+      displayName: 'Place 4',
+      kind: 'EXHIBIT',
+      floor: { stableKey: 'level-0', name: 'Level 0', level: 0 },
+    })
+    expect(JSON.parse(outputs.find((event) => event.item.call_id === 'route').item.output)).toEqual(
+      {
+        grounded: true,
+        route: {
+          ...route,
+          review: { ...route.review, reviewedAt: '2026-09-08T12:00:00.000Z' },
+        },
+      },
+    )
+    expect(
+      JSON.parse(outputs.find((event) => event.item.call_id === 'mixed-overflow').item.output),
+    ).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_CALL_LIMIT_EXCEEDED',
+    })
+
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'invalid-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'invalid-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+                latitude: 1,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('invalid-route'))).toBe(true),
+    )
+    expect(mocks.locationRoute).toHaveBeenCalledOnce()
+    const invalidOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'invalid-route')
+    expect(JSON.parse(invalidOutput.item.output)).toEqual({
+      grounded: false,
+      context: '',
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationRoute.mockRejectedValueOnce(new Error('denied'))
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'denied-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'denied-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: false,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('denied-route'))).toBe(true),
+    )
+    const deniedOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'denied-route')
+    expect(JSON.parse(deniedOutput.item.output)).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationRoute.mockResolvedValueOnce({
+      ...route,
+      segments: [{ directions: 'x'.repeat(13_000) }],
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'oversize-route-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_reviewed_route',
+              call_id: 'oversize-route',
+              arguments: JSON.stringify({
+                fromLocationId: 'location-4',
+                toLocationId: 'location-9',
+                accessibleOnly: true,
+              }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('oversize-route'))).toBe(
+        true,
+      ),
+    )
+    const oversizeOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'oversize-route')
+    expect(JSON.parse(oversizeOutput.item.output)).toMatchObject({
+      grounded: false,
+      error: 'GROUNDING_UNAVAILABLE',
+    })
+
+    mocks.locationCatalog.mockResolvedValueOnce({
+      locations: Array.from({ length: 500 }, (_, index) => ({
+        id: `last-page-${index}`,
+        stableKey: `last-page-${index}`,
+        displayName: `Last page ${index}`,
+        kind: 'EXHIBIT',
+        floor: null,
+      })),
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'last-page-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'list_reviewed_route_locations',
+              call_id: 'last-page',
+              arguments: JSON.stringify({ offset: 499 }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('last-page'))).toBe(true),
+    )
+    const lastPageOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'last-page')
+    expect(JSON.parse(lastPageOutput.item.output)).toMatchObject({
+      grounded: true,
+      truncated: false,
+      nextOffset: null,
+      locations: [{ id: 'last-page-499' }],
+    })
+
+    mocks.groundingContext.mockResolvedValueOnce({
+      context: 'k'.repeat(12_000),
+      sourceIds: ['large'],
+    })
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'large-knowledge-response',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'large-knowledge',
+              arguments: JSON.stringify({ query: 'Give the reviewed details.' }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(send.mock.calls.some(([value]) => String(value).includes('large-knowledge'))).toBe(
+        true,
+      ),
+    )
+    const largeKnowledgeOutput = send.mock.calls
+      .map(([value]) => JSON.parse(value as string))
+      .find((event) => event.item?.call_id === 'large-knowledge')
+    expect(JSON.parse(largeKnowledgeOutput.item.output).context).toHaveLength(12_000)
+  })
+
+  it.each([true, false, undefined])(
+    'forwards identity clarification %s while handling barge-in and teardown',
+    async (identityClarificationRequired) => {
+      mocks.groundingContext.mockResolvedValue({
+        context: '[Bathrooms]\nBeside the east lift.',
+        sourceIds: ['bathroom'],
+        identityClarificationRequired,
+      })
+      mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+      mocks.start.mockResolvedValue({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'ephemeral',
+        maxDurationSeconds: 600,
+      })
+      mocks.connected.mockResolvedValue({ connected: true })
+      mocks.transcript.mockResolvedValue({ accepted: true })
+      mocks.end.mockResolvedValue({ ended: true })
+      let onTrackEnded: (() => void) | undefined
+      const stop = vi.fn(() => onTrackEnded?.())
+      const track = {
+        stop,
+        addEventListener: vi.fn((type: string, listener: () => void) => {
+          if (type === 'ended') onTrackEnded = listener
+        }),
+      }
+      mocks.getUserMedia.mockResolvedValue({ getTracks: () => [track] } as unknown as MediaStream)
+      const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+      const send = vi.fn((value: string) => {
+        if ((JSON.parse(value) as { type?: string }).type === 'response.create') {
+          throw new Error('simulated closed-channel send')
+        }
+      })
+      const closeChannel = vi.fn()
+      const channel = {
+        readyState: 'open',
+        send,
+        close: closeChannel,
+        addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+          listeners.set(type, listener),
+      }
+      const closePeer = vi.fn()
+      const peer = {
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: closePeer,
+        ontrack: null,
+      }
+      vi.stubGlobal(
+        'RTCPeerConnection',
+        vi.fn(() => peer),
+      )
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+
+      const visitContext = { visitedPlaceIds: [], interests: ['trains'], remainingMinutes: 15 }
+      const view = render(<VoiceControl {...props} visitContext={visitContext} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+      await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+      expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ visitContext }))
+      const updatedVisitContext = { ...visitContext, interests: ['local history'] }
+      view.rerender(<VoiceControl {...props} visitContext={updatedVisitContext} />)
+
+      const providerEvent = (event: Record<string, unknown>) =>
+        listeners.get('message')?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+      act(() => {
+        providerEvent({
+          type: 'response.created',
+          event_id: 'created-1',
+          response: { id: 'response-1' },
+        })
+        providerEvent({ type: 'response.output_audio.delta', event_id: 'audio-1' })
+        providerEvent({
+          type: 'response.output_audio_transcript.delta',
+          event_id: 'caption-partial-1',
+          response_id: 'response-1',
+          delta: 'The gallery is on ',
+        })
+        providerEvent({
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'call-1',
+            arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+          },
+        })
+        providerEvent({
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'call-1',
+            arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+          },
+        })
+        providerEvent({
+          type: 'response.output_item.done',
+          response_id: 'response-1',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'call-2',
+            arguments: JSON.stringify({ query: 'Is there step-free access?' }),
+          },
+        })
+      })
+      expect(
+        send.mock.calls.some(([value]) => JSON.parse(value as string).type === 'response.create'),
+      ).toBe(false)
+      act(() =>
+        providerEvent({
+          type: 'response.done',
+          response: {
+            id: 'response-1',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-1',
+                arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-2',
+                arguments: JSON.stringify({ query: 'Is there step-free access?' }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-3',
+                arguments: JSON.stringify({ query: 'What are today’s hours?' }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-4',
+                arguments: JSON.stringify({ query: 'Where is the cafe?' }),
+              },
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-1',
+                arguments: JSON.stringify({ query: 'duplicate' }),
+              },
+            ],
+          },
+        }),
+      )
+      await waitFor(() => expect(mocks.groundingContext).toHaveBeenCalledTimes(3))
+      expect(mocks.groundingContext).toHaveBeenCalledWith(
+        expect.objectContaining({ visitContext: updatedVisitContext }),
+      )
+      await waitFor(() =>
+        expect(
+          send.mock.calls.filter(
+            ([value]) => JSON.parse(value as string).type === 'response.create',
+          ),
+        ).toHaveLength(1),
+      )
+      expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: 'call-1',
+          output: JSON.stringify({
+            grounded: true,
+            context: '[Bathrooms]\nBeside the east lift.',
+            sourceIds: ['bathroom'],
+            identityClarificationRequired: identityClarificationRequired === true,
+          }),
+        },
+      })
+      expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: 'call-4',
+          output: JSON.stringify({
+            grounded: false,
+            context: '',
+            error: 'GROUNDING_CALL_LIMIT_EXCEEDED',
+          }),
+        },
+      })
+
+      let resolveLate!: (value: { context: string; sourceIds: string[] }) => void
+      mocks.groundingContext.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveLate = resolve
+        }),
+      )
+      act(() => {
+        providerEvent({ type: 'response.created', response: { id: 'response-2' } })
+        providerEvent({
+          type: 'response.done',
+          response: {
+            id: 'response-2',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-late',
+                arguments: JSON.stringify({ query: 'What time does it close?' }),
+              },
+            ],
+          },
+        })
+        providerEvent({ type: 'response.created', response: { id: 'response-3' } })
+        providerEvent({ type: 'input_audio_buffer.speech_started', event_id: 'speech-1' })
+        providerEvent({
+          type: 'response.output_item.done',
+          response_id: 'response-2',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'call-after-interrupt',
+            arguments: JSON.stringify({ query: 'This call is stale.' }),
+          },
+        })
+        providerEvent({
+          type: 'output_audio_buffer.cleared',
+          event_id: 'clear-1',
+          response_id: 'response-1',
+        })
+      })
+      expect(
+        screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' '),
+      ).toContain('Guide: The gallery is on (interrupted; finalizing)')
+      expect(mocks.transcript).not.toHaveBeenCalled()
+      act(() => {
+        providerEvent({
+          type: 'response.output_audio_transcript.done',
+          event_id: 'transcript-1',
+          response_id: 'response-1',
+          transcript: 'The gallery is on the second floor.',
+        })
+      })
+
+      await act(async () => {
+        resolveLate({ context: '[Hours]\nFive.', sourceIds: ['hours'] })
+        await Promise.resolve()
+      })
+      act(() =>
+        providerEvent({
+          type: 'response.done',
+          response: { id: 'response-3', status: 'cancelled' },
+        }),
+      )
+      act(() =>
+        providerEvent({
+          type: 'response.done',
+          response: {
+            id: 'response-2',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'call-late',
+                arguments: JSON.stringify({ query: 'duplicate old response' }),
+              },
+            ],
+          },
+        }),
+      )
+      expect(send.mock.calls.some(([value]) => String(value).includes('call-late'))).toBe(false)
+      expect(mocks.groundingContext).toHaveBeenCalledTimes(4)
+      expect(
+        send.mock.calls.filter(([value]) => JSON.parse(value as string).type === 'response.create'),
+      ).toHaveLength(1)
+
+      expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+        type: 'response.cancel',
+        response_id: 'response-3',
+      })
+      expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+        type: 'output_audio_buffer.clear',
+      })
+      expect(await screen.findByText('(interrupted)')).toBeTruthy()
+      expect(mocks.transcript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerEventId: 'transcript-1',
+          text: '[Interrupted] The gallery is on the second floor.',
+        }),
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+      await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce())
+      expect(stop).toHaveBeenCalledOnce()
+      expect(closeChannel).toHaveBeenCalledOnce()
+      expect(closePeer).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('finalizes once when microphone end and duplicate peer failures race with cleanup', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    let onTrackEnded: (() => void) | undefined
+    const stop = vi.fn(() => onTrackEnded?.())
+    const track = {
+      stop,
+      addEventListener: vi.fn((type: string, listener: () => void) => {
+        if (type === 'ended') onTrackEnded = listener
+      }),
+    }
+    mocks.getUserMedia.mockResolvedValue({ getTracks: () => [track] } as unknown as MediaStream)
+    const closeChannel = vi.fn()
+    const peer = {
+      connectionState: 'new',
+      iceConnectionState: 'new',
+      onconnectionstatechange: null as (() => void) | null,
+      oniceconnectionstatechange: null as (() => void) | null,
+      ontrack: null,
+      addTrack: vi.fn(),
+      createDataChannel: () => ({
+        close: closeChannel,
+        addEventListener: vi.fn(),
+      }),
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+
+    peer.connectionState = 'failed'
+    peer.iceConnectionState = 'failed'
+    act(() => {
+      onTrackEnded?.()
+      peer.onconnectionstatechange?.()
+      peer.oniceconnectionstatechange?.()
+    })
+
+    await waitFor(() =>
+      expect(mocks.end).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        fallbackToText: true,
+        errorCode: 'MICROPHONE_ENDED',
+      }),
+    )
+    expect(stop).toHaveBeenCalledOnce()
+    expect(closeChannel).toHaveBeenCalledOnce()
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(screen.getByRole('alert').textContent).toContain('microphone stopped')
+  })
+
+  it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {
+    const onTranscriptLine = vi.fn()
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.transcript.mockRejectedValue(new Error('transcript save unavailable'))
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    const channel = {
+      send,
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+      ontrack: null,
+    }
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn() }],
+    } as unknown as MediaStream)
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    const event = (payload: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(payload) } as MessageEvent<string>)
+    act(() => {
+      event({ type: 'response.created', response: { id: 'response-2' } })
+      event({ type: 'output_audio_buffer.started', response_id: 'response-2' })
+    })
+    expect(screen.getByRole('status').textContent).toContain('Speaking')
+    act(() => {
+      event({ type: 'response.done', response: { id: 'response-2' } })
+      event({ type: 'input_audio_buffer.speech_started' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'transcript-2',
+        response_id: 'response-2',
+        transcript: 'Partly heard.',
+      })
+      event({ type: 'output_audio_buffer.stopped', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'transcript-2-duplicate',
+        response_id: 'response-2',
+        transcript: 'Partly heard.',
+      })
+    })
+
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
+      { type: 'output_audio_buffer.clear' },
+    ])
+    expect(screen.getAllByText('(interrupted)')).toHaveLength(1)
+    expect(mocks.transcript).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(onTranscriptLine).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          content: 'Partly heard.',
+          voiceDelivery: 'INTERRUPTED',
+          persistence: 'UNCONFIRMED',
+        }),
+      ),
+    )
   })
 })
 

@@ -42,7 +42,7 @@ export function VenueTemporarilyUnavailable({
       dir={presentation.direction}
     >
       <section className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-10 text-center shadow-sm">
-        <TorchikoIcon className="mx-auto h-12 w-12" />
+        <TorchikoIcon className="mx-auto text-base" />
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-pf-deep">
           {unavailableTitle}
         </h1>

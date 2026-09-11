@@ -42,6 +42,61 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
+  it('labels durable voice history without offering text-message feedback for transcript rows', () => {
+    const onFeedback = vi.fn()
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'voice:visitor',
+            role: 'user',
+            content: 'Where is the quiet route?',
+            voiceDelivery: 'CAPTURED',
+          },
+          {
+            id: 'voice:assistant',
+            role: 'assistant',
+            content: 'Continue past the family lounge.',
+            voiceDelivery: 'INTERRUPTED',
+            voicePersistence: 'UNCONFIRMED',
+          },
+        ]}
+        onSend={vi.fn()}
+        onRequestMore={vi.fn()}
+        onMessageFeedback={onFeedback}
+        isLoading={false}
+      />,
+    )
+
+    expect(screen.getAllByText(/Voice transcript/u)).toHaveLength(2)
+    expect(screen.getByText(/Interrupted; may be incomplete/u)).toBeTruthy()
+    expect(screen.getByText(/Save not confirmed/u)).toBeTruthy()
+    expect(screen.getByText('Continue past the family lounge.')).toBeTruthy()
+    expect(screen.queryByLabelText('Rate this answer')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+    expect(onFeedback).not.toHaveBeenCalled()
+  })
+
+  it('does not offer text-context expansion for a captured assistant voice line', () => {
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'voice:assistant:captured',
+            role: 'assistant',
+            content: 'The gallery is open.',
+            voiceDelivery: 'CAPTURED',
+          },
+        ]}
+        onSend={vi.fn()}
+        onRequestMore={vi.fn()}
+        isLoading={false}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+  })
+
   it('uses automatic direction and unknown language for free-form and restored text', () => {
     const arabicQuestion = '\u0623\u064a\u0646 \u0627\u0644\u0645\u0639\u0631\u0636\u061f'
     const arabicResponse =
@@ -105,7 +160,9 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('The guide could not respond.')
+    expect(alert.closest('[role="log"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
 
@@ -226,6 +283,93 @@ describe('ChatWindow accessibility and motion behavior', () => {
     )
 
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('brings a newly reported failure into view while following the latest turn', () => {
+    const props = {
+      messages: [{ role: 'assistant' as const, content: 'Earlier answer.' }],
+      onSend: vi.fn(),
+      isLoading: false,
+    }
+    const view = render(<ChatWindow {...props} />)
+    scrollTo.mockClear()
+
+    view.rerender(<ChatWindow {...props} errorMessage="The guide could not respond." />)
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('does not pull a reader back down while a streamed response grows', () => {
+    const view = render(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Tell me the full history.' },
+          { role: 'assistant', content: 'First fragment' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, value: 100 },
+    })
+    fireEvent.wheel(log, { deltaY: -100 })
+    fireEvent.scroll(log)
+    scrollTo.mockClear()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Tell me the full history.' },
+          { role: 'assistant', content: 'First fragment, followed by a much longer answer.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('stops following when a continuous scroll gesture moves beyond the follow threshold', () => {
+    const props = { onSend: vi.fn(), isLoading: true }
+    const messages = [{ role: 'assistant' as const, content: 'First fragment' }]
+    const view = render(<ChatWindow {...props} messages={messages} />)
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 590 },
+    })
+    fireEvent.touchMove(log)
+    fireEvent.scroll(log)
+    log.scrollTop = 300
+    fireEvent.scroll(log)
+    scrollTo.mockClear()
+    view.rerender(
+      <ChatWindow {...props} messages={[{ role: 'assistant', content: 'More content' }]} />,
+    )
+    expect(scrollTo).not.toHaveBeenCalled()
+    log.scrollTop = 600
+    fireEvent.scroll(log)
+    view.rerender(
+      <ChatWindow {...props} messages={[{ role: 'assistant', content: 'Final fragment' }]} />,
+    )
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('grows the composer for multiline drafts up to its reading cap', () => {
+    render(<ChatWindow messages={[]} onSend={vi.fn()} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 96 })
+    fireEvent.change(composer, { target: { value: 'A longer\nquestion' } })
+    expect((composer as HTMLTextAreaElement).style.height).toBe('96px')
+    Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 400 })
+    fireEvent.change(composer, { target: { value: 'A much longer\nquestion\nwith details' } })
+    expect((composer as HTMLTextAreaElement).style.height).toBe('144px')
   })
 
   it('submits trimmed text and clears the composer', () => {
@@ -350,6 +494,22 @@ describe('ChatWindow accessibility and motion behavior', () => {
       (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
     ).toBe('Tell me about the Tide Clock.')
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps the next draft editable during a response while fencing sends', () => {
+    const onSend = vi.fn()
+    const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading />)
+    const composer = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(composer.disabled).toBe(false)
+    fireEvent.change(composer, { target: { value: 'My next question' } })
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(composer.value).toBe('My next question')
+    view.rerender(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    expect(onSend).not.toHaveBeenCalled()
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('My next question')
   })
 
   it('offers one explicit expansion action only after an assistant answer', () => {

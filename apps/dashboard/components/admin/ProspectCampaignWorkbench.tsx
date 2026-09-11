@@ -26,6 +26,10 @@ type Readiness = Awaited<
 type Rehearsal = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectNoSendRehearsal']['query']>
 >
+type Cursor = { version: 2; campaignId: string; createdAt: string; id: string }
+type DeliveryPage = Awaited<
+  ReturnType<ReturnType<typeof useTRPCClient>['admin']['listProspectCampaignDeliveries']['query']>
+>
 
 export function ProspectCampaignWorkbench({
   campaignId,
@@ -46,6 +50,15 @@ export function ProspectCampaignWorkbench({
   const [notice, setNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
   const [providerAccountId, setProviderAccountId] = useState('')
+  const [deliveryBodies, setDeliveryBodies] = useState<Record<string, string>>({})
+  const [memberCursor, setMemberCursor] = useState<Cursor | null>(() => {
+    const last = fixture?.campaign.members.at(-1)
+    return fixture?.campaign.page?.hasMoreMembers && last
+      ? { version: 2, campaignId, createdAt: last.createdAt.toISOString(), id: last.id }
+      : null
+  })
+  const [deliveries, setDeliveries] = useState<DeliveryPage['items']>([])
+  const [deliveryCursor, setDeliveryCursor] = useState<Cursor | null | undefined>(undefined)
   const [confirmation, setConfirmation] = useState<{
     action: 'approve' | 'release'
     batch: Campaign['sendBatches'][number]
@@ -54,6 +67,7 @@ export function ProspectCampaignWorkbench({
   const confirmationDialogRef = useRef<HTMLElement>(null)
   const refreshGeneration = useRef(0)
   const refreshAbort = useRef<AbortController | null>(null)
+  const interactionAbort = useRef(new AbortController())
 
   const refresh = useCallback(async () => {
     if (fixture) return
@@ -84,6 +98,19 @@ export function ProspectCampaignWorkbench({
       ])
       if (refreshGeneration.current !== generation) return
       setCampaign(next)
+      const lastMember = next.members.at(-1)
+      setMemberCursor(
+        next.page.hasMoreMembers && lastMember
+          ? {
+              version: 2,
+              campaignId,
+              createdAt: lastMember.createdAt.toISOString(),
+              id: lastMember.id,
+            }
+          : null,
+      )
+      setDeliveries([])
+      setDeliveryCursor(undefined)
       setReadiness(ready)
       setRehearsal(noSendRehearsal)
     } catch {
@@ -97,8 +124,13 @@ export function ProspectCampaignWorkbench({
     }
   }, [campaignId, client, fixture])
   useEffect(() => {
+    interactionAbort.current.abort()
+    interactionAbort.current = new AbortController()
+    setBusy(false)
+    setRefreshError('')
     void refresh()
     return () => {
+      interactionAbort.current.abort()
       refreshGeneration.current += 1
       refreshAbort.current?.abort()
       refreshAbort.current = null
@@ -260,6 +292,106 @@ export function ProspectCampaignWorkbench({
       await refresh()
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function loadDeliveryBody(sendItemId: string) {
+    const controller = interactionAbort.current
+    setBusy(true)
+    try {
+      const body = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.getProspectDeliveryMessageBody.query(
+            {
+              campaignId,
+              sendItemId,
+              detailVersion: 2,
+            },
+            { signal },
+          ),
+      })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
+      setDeliveryBodies((current) => ({ ...current, [sendItemId]: body.textBodySnapshot }))
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('The frozen message could not be loaded. Try again.')
+    } finally {
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
+    }
+  }
+
+  async function loadMoreMembers() {
+    if (!memberCursor) return
+    const controller = interactionAbort.current
+    setBusy(true)
+    try {
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.listProspectCampaignMembers.query(
+            {
+              campaignId,
+              cursor: memberCursor,
+              detailVersion: 2,
+            },
+            { signal },
+          ),
+      })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
+      setCampaign((current) =>
+        current
+          ? {
+              ...current,
+              members: [
+                ...current.members,
+                ...page.items.filter(
+                  (member) => !current.members.some((loaded) => loaded.id === member.id),
+                ),
+              ],
+            }
+          : current,
+      )
+      setMemberCursor(page.nextCursor)
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('More campaign recipients could not be loaded. Try again.')
+    } finally {
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
+    }
+  }
+
+  async function loadMoreDeliveries() {
+    if (deliveryCursor === null) return
+    const controller = interactionAbort.current
+    setBusy(true)
+    try {
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.listProspectCampaignDeliveries.query(
+            {
+              campaignId,
+              ...(deliveryCursor ? { cursor: deliveryCursor } : {}),
+              detailVersion: 2,
+            },
+            { signal },
+          ),
+      })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
+      setDeliveries((current) => [
+        ...current,
+        ...page.items.filter((item) => !current.some((loaded) => loaded.id === item.id)),
+      ])
+      setDeliveryCursor(page.nextCursor)
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('More delivery evidence could not be loaded. Try again.')
+    } finally {
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
     }
   }
 
@@ -647,6 +779,22 @@ export function ProspectCampaignWorkbench({
             )
           })}
         </ul>
+        {memberCursor ? (
+          <div className="border-t border-slate-200 p-4 text-center">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void loadMoreMembers()}
+              className="min-h-11 rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-900 disabled:opacity-40"
+            >
+              Load more recipients
+            </button>
+            <p className="mt-2 text-xs text-slate-500">
+              {campaign.members.length} recipients loaded. Checked drafts stay selected while more
+              load.
+            </p>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -722,9 +870,20 @@ export function ProspectCampaignWorkbench({
                         <p className="mt-2 text-sm font-semibold text-slate-900">
                           {item.subjectSnapshot}
                         </p>
-                        <p className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                          {item.textBodySnapshot}
-                        </p>
+                        {deliveryBodies[item.id] ? (
+                          <p className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {deliveryBodies[item.id]}
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void loadDeliveryBody(item.id)}
+                            className="mt-2 min-h-10 border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 disabled:opacity-50"
+                          >
+                            Load full frozen message
+                          </button>
+                        )}
                         <p className="mt-2 break-all font-mono text-[10px] text-slate-500">
                           content {item.contentHashSnapshot}
                         </p>
@@ -736,6 +895,53 @@ export function ProspectCampaignWorkbench({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="font-semibold text-slate-950">Delivery history</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Browse every delivery in bounded pages. Message bodies load only when requested.
+            </p>
+          </div>
+          {deliveryCursor !== null ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void loadMoreDeliveries()}
+              className="min-h-11 rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-900 disabled:opacity-40"
+            >
+              {deliveryCursor === undefined ? 'Browse deliveries' : 'Load more deliveries'}
+            </button>
+          ) : null}
+        </div>
+        {deliveries.length ? (
+          <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+            {deliveries.map((item) => (
+              <li key={item.id} className="min-w-0 rounded-xl border border-slate-200 p-4">
+                <p className="break-all text-xs font-bold text-slate-900">
+                  To: {item.recipientEmailSnapshot}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">{item.subjectSnapshot}</p>
+                {deliveryBodies[item.id] ? (
+                  <p className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    {deliveryBodies[item.id]}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void loadDeliveryBody(item.id)}
+                    className="mt-3 min-h-10 border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 disabled:opacity-50"
+                  >
+                    Load full frozen message
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </section>
 
       {confirmation ? (

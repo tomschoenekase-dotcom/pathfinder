@@ -349,6 +349,9 @@ export async function createTenantCheckout(params: {
     : []
   const operationKey = params.operationKey ?? randomUUID()
   const reserved = await client.$transaction(async (tx) => {
+    // Serialize reservation against the always-present tenant identity. Provider work happens
+    // after this transaction commits; the pending replacement row is the cross-request fence.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`torchiko:billing-checkout:${params.tenantId}`}, 0))`
     const replay = await tx.billingCheckoutAttempt.findFirst({
       where: { tenantId: params.tenantId, operationKey },
     })
@@ -378,9 +381,26 @@ export async function createTenantCheckout(params: {
       where: {
         tenantId: params.tenantId,
         isBase: true,
-        status: { in: ['PENDING', 'TRIALING', 'ACTIVE', 'PAST_DUE', 'PAUSED'] },
       },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     })
+    const pendingReplacement = await tx.commercialAgreement.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        isBase: false,
+        status: 'PENDING',
+        billingMode: 'STRIPE_SUBSCRIPTION',
+        stripeSubscriptionId: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    })
+    if (pendingReplacement) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'A reviewed subscription Checkout is already awaiting completion.',
+      )
+    }
     if (
       current?.status === 'PENDING' &&
       current.billingMode === 'STRIPE_SUBSCRIPTION' &&
@@ -453,8 +473,11 @@ export async function createTenantCheckout(params: {
         return { replay: attempt, tenant, account, agreement: current, replacementId: null }
       }
     }
+    const terminalReplacement =
+      current !== null && (current.status === 'CANCELED' || current.status === 'ENDED')
     if (
       current &&
+      !terminalReplacement &&
       (!params.replaceManualArrangement ||
         current.billingMode === 'STRIPE_SUBSCRIPTION' ||
         current.billingMode === 'STRIPE_INVOICE')
@@ -473,7 +496,12 @@ export async function createTenantCheckout(params: {
         createdBy: params.actorId,
         updatedBy: params.actorId,
       },
-      update: { billingMode: 'STRIPE_SUBSCRIPTION', updatedBy: params.actorId },
+      update: {
+        billingMode: 'STRIPE_SUBSCRIPTION',
+        stripeMode: mode(environment),
+        stripeAccountId: environment.STRIPE_ACCOUNT_NAMESPACE,
+        updatedBy: params.actorId,
+      },
     })
     const agreement = await tx.commercialAgreement.create({
       data: {
@@ -1601,14 +1629,44 @@ export async function createBillingAccessOverride(params: {
   expiresAt: Date
   reason: string
   reference?: string | null
+  /** Stable internal effect identity; callers must retain it across recovery. */
+  idempotencyKey?: string
   client?: DbClient
 }) {
   const client = params.client ?? db
   const startsAt = params.startsAt ?? new Date()
-  if (params.expiresAt <= startsAt)
-    throw new BillingServiceError('CONFLICT', 'Override expiry must follow its start.')
+  const effectId = params.idempotencyKey
+    ? `billing-effect-${createHash('sha256')
+        .update(JSON.stringify([params.tenantId, params.idempotencyKey]))
+        .digest('hex')}`
+    : undefined
   return withTenantIsolationBypass(() =>
     client.$transaction(async (tx) => {
+      if (effectId) {
+        // Tenant-qualified advisory lock serializes this one effect, including audit persistence.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${effectId}, 0))`
+        const existing = await tx.billingAccessOverride.findFirst({
+          where: { id: effectId, tenantId: params.tenantId },
+        })
+        if (existing) {
+          if (
+            existing.commercialAgreementId !== (params.agreementId ?? null) ||
+            existing.venueId !== (params.venueId ?? null) ||
+            existing.effect !== params.effect ||
+            existing.kind !== params.kind ||
+            existing.expiresAt.getTime() !== params.expiresAt.getTime() ||
+            existing.reason !== params.reason ||
+            existing.sourceReference !== (params.reference ?? null)
+          )
+            throw new BillingServiceError(
+              'CONFLICT',
+              'Billing effect identity was reused with different terms.',
+            )
+          return existing
+        }
+      }
+      if (params.expiresAt <= startsAt)
+        throw new BillingServiceError('CONFLICT', 'Override expiry must follow its start.')
       const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
       if (!account) throw new BillingServiceError('NOT_FOUND', 'Billing account not found.')
       if (params.agreementId) {
@@ -1634,6 +1692,7 @@ export async function createBillingAccessOverride(params: {
       }
       const override = await tx.billingAccessOverride.create({
         data: {
+          ...(effectId ? { id: effectId } : {}),
           tenantId: params.tenantId,
           billingAccountId: account.id,
           commercialAgreementId: params.agreementId ?? null,

@@ -11,7 +11,7 @@ import {
   AgentExecutionProvider,
   AgentIdentityType,
   agentConfigurationCoherenceIssue,
-} from '@pathfinder/contracts'
+} from '@pathfinder/contracts/agent-identity'
 
 import { useTRPCClient } from '../../lib/trpc'
 

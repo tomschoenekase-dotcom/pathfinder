@@ -32,6 +32,8 @@ const current = {
   chatFont: 'inter',
   chatLogoUrl: 'https://cdn.example.test/reviewed-logo.png',
   chatBannerUrl: null,
+  chatShowPhotos: false,
+  chatShowLinks: false,
   updatedAt: revision,
 }
 
@@ -91,6 +93,8 @@ describe('admin Guest design adapter', () => {
         chatFont: 'poppins',
         chatLogoUrl: current.chatLogoUrl,
         chatBannerUrl: null,
+        chatShowPhotos: true,
+        chatShowLinks: false,
       },
     })
     expect(mocks.findFirst).toHaveBeenNthCalledWith(2, {
@@ -103,7 +107,12 @@ describe('admin Guest design adapter', () => {
         venueId: 'venue-1',
         expectedUpdatedAt: revision,
         actor: { type: 'HUMAN', id: 'platform-1', role: 'PLATFORM_ADMIN' },
-        fields: expect.objectContaining({ chatTheme: 'dark', chatFont: 'poppins' }),
+        fields: expect.objectContaining({
+          chatTheme: 'dark',
+          chatFont: 'poppins',
+          chatShowPhotos: true,
+          chatShowLinks: false,
+        }),
       },
       expect.anything(),
     )

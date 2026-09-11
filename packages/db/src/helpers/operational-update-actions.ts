@@ -274,8 +274,7 @@ export async function createOperationalUpdateAction(
   client: OperationalUpdateActionClient = db,
 ): Promise<OperationalUpdateActionResult> {
   validateWindow(input.fields)
-  const now = input.now ?? new Date()
-  if (input.schedule && input.fields.expiresAt.getTime() <= now.getTime()) {
+  if (input.schedule && input.now && input.fields.expiresAt.getTime() <= input.now.getTime()) {
     throw new OperationalUpdateActionError('INVALID_INPUT', 'Expired updates cannot be scheduled')
   }
   return client.$transaction(async (rawTx) => {
@@ -283,6 +282,10 @@ export async function createOperationalUpdateAction(
     await prepare(tx, input.actor, input.schedule)
     await assertScope(tx, input.tenantId, input.fields)
     if (input.schedule) await assertCapacity(tx, { tenantId: input.tenantId, ...input.fields })
+    const now = input.now ?? new Date()
+    if (input.schedule && input.fields.expiresAt.getTime() <= now.getTime()) {
+      throw new OperationalUpdateActionError('INVALID_INPUT', 'Expired updates cannot be scheduled')
+    }
     const created = await tx.operationalUpdate.create({
       data: {
         ...(input.id ? { id: input.id } : {}),
@@ -339,7 +342,6 @@ export async function updateOperationalUpdateAction(
   client: OperationalUpdateActionClient = db,
 ): Promise<OperationalUpdateActionResult> {
   validateWindow(input.fields)
-  const now = input.now ?? new Date()
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     await prepare(tx, input.actor, input.schedule)
@@ -352,19 +354,26 @@ export async function updateOperationalUpdateAction(
     if (!existing)
       throw new OperationalUpdateActionError('NOT_FOUND', 'Operational update not found')
     await assertScope(tx, input.tenantId, input.fields)
-    if (input.schedule) assertSchedulable(existing, now)
+    if (input.schedule && existing.status !== 'DRAFT') {
+      throw new OperationalUpdateActionError('CONFLICT', 'Only a draft can be scheduled')
+    }
     if (input.schedule || (existing.status === 'PUBLISHED' && existing.isActive)) {
-      if (input.fields.expiresAt.getTime() <= now.getTime()) {
-        throw new OperationalUpdateActionError(
-          'INVALID_INPUT',
-          'An active update must expire in the future',
-        )
-      }
       await assertCapacity(tx, {
         tenantId: input.tenantId,
         ...input.fields,
         excludeId: input.id,
       })
+    }
+    const now = input.now ?? new Date()
+    if (input.schedule) assertSchedulable(existing, now)
+    if (
+      (input.schedule || (existing.status === 'PUBLISHED' && existing.isActive)) &&
+      input.fields.expiresAt.getTime() <= now.getTime()
+    ) {
+      throw new OperationalUpdateActionError(
+        'INVALID_INPUT',
+        'An active update must expire in the future',
+      )
     }
     const changed = await tx.operationalUpdate.updateMany({
       where: {
@@ -426,7 +435,6 @@ export async function scheduleOperationalUpdateAction(
   },
   client: OperationalUpdateActionClient = db,
 ): Promise<OperationalUpdateActionResult> {
-  const now = input.now ?? new Date()
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     await prepare(tx, input.actor, true)
@@ -438,7 +446,9 @@ export async function scheduleOperationalUpdateAction(
     const existing = await findUpdate(tx, input.id, input.tenantId)
     if (!existing)
       throw new OperationalUpdateActionError('NOT_FOUND', 'Operational update not found')
-    assertSchedulable(existing, now)
+    if (existing.status !== 'DRAFT') {
+      throw new OperationalUpdateActionError('CONFLICT', 'Only a draft can be scheduled')
+    }
     await assertCapacity(tx, {
       tenantId: input.tenantId,
       venueId: existing.venueId,
@@ -446,6 +456,8 @@ export async function scheduleOperationalUpdateAction(
       expiresAt: existing.expiresAt,
       excludeId: existing.id,
     })
+    const now = input.now ?? new Date()
+    assertSchedulable(existing, now)
     const changed = await tx.operationalUpdate.updateMany({
       where: {
         id: input.id,

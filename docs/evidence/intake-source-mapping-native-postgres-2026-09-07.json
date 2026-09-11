@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-intake-source-mapping-journey",
+  "measuredAt": "2026-09-07T23:29:42.999517+00:00",
+  "baseProductRevision": "1efeb3c1",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "manifestHash": "821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19",
+  "result": {
+    "database": "pathfinder_disposable_intake_source_mapping_7ba86cb08f67",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "assertions": [
+    "Canonical retained website research maps to a scoped immutable review and derived proposal",
+    "Explicit human consent selects exact code-point ranges from optional notes",
+    "Exact review retries retain one derived source without recomputing mutable evidence",
+    "Wrong source hash, receipt and tenant/venue are rejected",
+    "Injected review persistence failure rolls back its derived source",
+    "Both reviewed sources feed a ready canonical V1 aggregate",
+    "Database rejects mutation of original source and immutable mapping review"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\measured-intake-source-mapping-review-actions.ts",
+      "sha256": "7f84a4425d1afd15ce201db8dd9444a5492202dd199deb36f93f79765a6359b4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\measured-intake-source-mapping-review-disposable.integration.test.ts",
+      "sha256": "c0bfc91e0d308df717dc81718676e3b3a7e66ddf89304a935a3c0957cdc1dd81"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\measured-intake-source-mapping-review.ts",
+      "sha256": "156e491e1605be6cc7713aad4934aa0e10bd845a27626cdd0976ad1744eae920"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\measured-intake-venue-package-candidate.ts",
+      "sha256": "d32f8d055c434782bb3d4e924c6b439d1c8af67337094c2497b27da9d555e2b5"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\measured-migration.sql",
+      "sha256": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\vitest.json",
+      "sha256": "f65e25b342a2f62fc8d9ea6941e6fc83a5ee37db60a734a88d838db8b63809ef"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\migrations.log",
+      "sha256": "c36f9ac410c3b29896a48882d5fe28a63e9581a7a0efceb091975148a27d403f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-7ba86cb08f67\\result.json",
+      "sha256": "9984cbd34d58201e6c761fe57eeef482dab7ee13384cc60c598b9b198bee100f"
+    }
+  ],
+  "limitations": [
+    "Local disposable PostgreSQL only; no live website fetch or provider inference.",
+    "No package, approval, application, publication or customer delivery is performed by this journey.",
+    "Admin transport authority is covered by separate four-test router suite; this fixture calls canonical services directly.",
+    "Earlier retained attempt 84a0ecf9365f failed at a fixture UUID cast and stopped; this passing run includes the correction."
+  ]
+}

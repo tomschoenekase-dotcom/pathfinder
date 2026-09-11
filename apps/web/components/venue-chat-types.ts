@@ -28,6 +28,9 @@ export type ChatMessage = {
   content: string
   places?: GuestPlaceCard[]
   blocks?: GuestResponseBlock[]
+  /** Browser-captured voice text; CAPTURED does not prove the full assistant audio played. */
+  voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
+  voicePersistence?: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
   /** Client-only identity for an optimistic, not-yet-confirmed guest turn. */
   pendingOperationId?: string
 }

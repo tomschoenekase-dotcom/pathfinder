@@ -158,23 +158,32 @@ export async function registerVenueMediaAssetAction(input: {
             ? new Date(registration.sourceCapturedAt)
             : null,
           createdBy: input.actor.id,
-          placeLinks: {
-            create: registration.linkedPlaceIds.map((placeId) => ({
-              tenantId: registration.tenantId,
-              venueId: registration.venueId,
-              placeId,
-            })),
-          },
-          knowledgeLinks: {
-            create: registration.linkedKnowledgeEntryIds.map((knowledgeEntryId) => ({
-              tenantId: registration.tenantId,
-              venueId: registration.venueId,
-              knowledgeEntryId,
-            })),
-          },
         },
         select: { id: true },
       })
+      // Composite scope columns are shared by both relations. Create the explicit
+      // scoped link rows in this transaction instead of mixing Prisma nested
+      // checked relations with unchecked parent foreign-key fields.
+      if (registration.linkedPlaceIds.length) {
+        await tx.venueMediaPlaceLink.createMany({
+          data: registration.linkedPlaceIds.map((placeId) => ({
+            assetId: registration.assetId,
+            tenantId: registration.tenantId,
+            venueId: registration.venueId,
+            placeId,
+          })),
+        })
+      }
+      if (registration.linkedKnowledgeEntryIds.length) {
+        await tx.venueMediaKnowledgeLink.createMany({
+          data: registration.linkedKnowledgeEntryIds.map((knowledgeEntryId) => ({
+            assetId: registration.assetId,
+            tenantId: registration.tenantId,
+            venueId: registration.venueId,
+            knowledgeEntryId,
+          })),
+        })
+      }
       await writeAuditLogStrict(
         {
           tenantId: registration.tenantId,

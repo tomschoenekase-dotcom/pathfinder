@@ -12,6 +12,7 @@ import {
   runDisposableIntakeVerificationShakedown,
   runDisposableOperationsReadinessShakedown,
   runDisposableRetentionDispositionPreviewShakedown,
+  runDisposableServiceShakedown,
   validateLocalDockerEndpoint,
   validateVitestReport,
 } from './lib/disposable-intake-upload-verification.mjs'
@@ -181,7 +182,7 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
         const name = args[args.indexOf('--name') + 1]
         assert.match(
           name,
-          /^pathfinder-disposable-(?:intake|golden|retention|opsreadiness)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
+          /^pathfinder-disposable-(?:intake|golden|retention|opsreadiness|prospectoutreach)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
         )
         running.add(name)
         return { status: 0, stdout: 'container-id\n', stderr: '' }
@@ -271,6 +272,44 @@ test('runs all four services, isolates the child, and verifies exact cleanup', a
   assert.equal(runtime.childEnvironments[0].OUTBOUND_PROVIDER_WORKERS_ENABLED, 'false')
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.calls.filter(({ args }) => args[0] === 'rm').length, 4)
+})
+
+test('allows only the exact prospect-outreach disposable resource identity', async () => {
+  const runtime = fakeRuntime()
+  await assert.doesNotReject(
+    runDisposableServiceShakedown({
+      env: {
+        npm_execpath: 'pnpm-cli.cjs',
+        npm_lifecycle_event: 'test:prospect-outreach:disposable',
+      },
+      spawnSyncImpl: runtime.spawnSyncImpl,
+      fetchImpl: async () => ({ ok: true }),
+      waitImpl: async () => {},
+      stdout: { write() {} },
+      repositoryRoot: 'C:/pathfinder',
+      configuration: {
+        resourceFamily: 'prospectoutreach',
+        databasePrefix: 'pathfinder_disposable_prospect_outreach_',
+        optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_PROSPECT_OUTREACH',
+        lifecycleEvent: 'test:prospect-outreach:disposable',
+        successAction: 'prospect-outreach.disposable-shakedown.passed',
+        proofScope: [],
+        failureScope: [],
+        integration: {
+          packageDirectory: 'packages/db',
+          testFile: 'src/helpers/prospect-outreach-disposable.integration.test.ts',
+          expectedPassed: 1,
+          environment: { RUN_PROSPECT_OUTREACH_DB_INTEGRATION: '1' },
+        },
+      },
+    }),
+  )
+  const integration = runtime.calls.find(
+    ({ command, args }) => command === process.execPath && args.includes('vitest'),
+  )
+  assert.ok(integration)
+  assert.ok(integration.args.includes('src/helpers/prospect-outreach-disposable.integration.test.ts'))
+  assert.equal(runtime.childEnvironments[0].RUN_PROSPECT_OUTREACH_DB_INTEGRATION, '1')
 })
 
 test('runs the Golden Venue core lifecycle with an exact provider-dark integration contract', async () => {

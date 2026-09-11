@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "kind": "character-verified-reference-contract-native-postgresql",
+  "measuredAt": "2026-09-08T02:40:19.867335+00:00",
+  "baseProductRevision": "153aa96b495149d7b8ff761d66eebf66ef2d4720",
+  "result": {
+    "database": "pathfinder_disposable_character_contract_3330f0793f55",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "relatedUnitTests": {
+    "apiArtifactStorage": 4,
+    "workerExecutor": 6,
+    "failed": 0
+  },
+  "measuredSources": [
+    {
+      "path": "packages/db/src/helpers/custom-character-factory-disposable.integration.test.ts",
+      "sha256": "0f46baca68590123ac60391cc264442e43a86061f5301810c7c2b350187735c4",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/custom-character-factory-actions.ts",
+      "sha256": "56abed1de28accf95956e78ab72f40461f423c36f26f307845024d5de6eec4a7",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/character-artifact-storage.ts",
+      "sha256": "71ce390f821eb318a9aa017606f36e69293cc3576206392750e3403f1f94eb3e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/character-factory-executor.ts",
+      "sha256": "fa4563a081b59b7f5232fe536222efba5a1a368cb8e2566e0a21dad0a74ef933",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "verifiedAssertions": [
+    "Missing required field, wrong media type, invalid SHA-256, NaN/negative/oversized byte length and extra field all reject before creating a character; CREATE job remains RUNNING with no result.",
+    "Wrong character version and wrong export character identity reject.",
+    "Valid CREATE and EXPORT persist the exact verifier reference and imported source URL/hash/license/attribution.",
+    "Exported specification remains on a REVIEW character; no founder artwork approval or deployment.",
+    "Existing replay, cross-worker lease, cancellation and stale revision guards rerun."
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\measured-character-artifact-storage.ts",
+      "sha256": "71ce390f821eb318a9aa017606f36e69293cc3576206392750e3403f1f94eb3e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\measured-character-factory-executor.ts",
+      "sha256": "fa4563a081b59b7f5232fe536222efba5a1a368cb8e2566e0a21dad0a74ef933"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\measured-custom-character-factory-actions.ts",
+      "sha256": "56abed1de28accf95956e78ab72f40461f423c36f26f307845024d5de6eec4a7"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\measured-custom-character-factory-disposable.integration.test.ts",
+      "sha256": "0f46baca68590123ac60391cc264442e43a86061f5301810c7c2b350187735c4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\result.json",
+      "sha256": "fc7bb6e9c9c0a7f465a9b64a6fed3d431d22eb3dcb9c166d10c3bd2df67b4695"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\vitest.json",
+      "sha256": "a6c17aa186890a8a7db55d77ab87d8151ed6136c0b16f3fb21bfd02c1bd6c422"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-artifact-contract-3330f0793f55\\vitest.log",
+      "sha256": "09e3d7c1cbcbaf686b121e028d609f2d0f37eb096988e16dc4772d717357ecff"
+    }
+  ],
+  "limits": [
+    "Trusted verifier return-contract validation; no demonstrated production verifier bypass or malformed real exported bytes is claimed.",
+    "Storage verifier is synthetic in the PostgreSQL fixture; no live object storage or provider generation.",
+    "Fixture receipt hashes and sizes are synthetic; actual bundle byte validation remains the existing storage verifier responsibility.",
+    "No version-restore UI, final Tochi selection or published character acceptance is claimed."
+  ]
+}

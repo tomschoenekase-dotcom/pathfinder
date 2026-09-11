@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseHead": "20cd844ce6ff102d05c4da23c7a317432d31e9f5",
+  "slice": "W01/W04 same-venue applied package to reviewed public route/media/voice and safe rollback",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-golden-reviewed-guest-context-6103bef954b9",
+  "proofResultSha256": "f16e173f087bbd8d6b7d5597584a7aab3f9132e686a5bac3aafeab9097365750",
+  "runnerPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-golden-reviewed-guest-context-proof.mjs",
+  "result": {
+    "database": "pathfinder_disposable_golden_venue_6103bef954b9",
+    "pgPort": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-golden-reviewed-guest-context-6103bef954b9",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "sourceHead": "20cd844ce6ff102d05c4da23c7a317432d31e9f5",
+    "boundary": "Synthetic lifecycle with real disposable PG/Redis/MinIO; scanner verdicts and new media derivative metadata are synthetic, provider and embedding adapters injected; no browser/provider/device/customer/release proof.",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 238,
+      "publicTableCount": 258
+    },
+    "sourceHashes": [
+      {
+        "source": "packages/api/src/remote-onboarding-disposable.integration.test.ts",
+        "sha256": "0211ce7c0d76b4fd16ed11fe13b5a594d50ba5733ddf30d5ccc72322c179a97b",
+        "bytes": 100750
+      },
+      {
+        "source": "packages/api/src/routers/venue-package.ts",
+        "sha256": "dc300591eb0daeb12ff411f88d10a6ed0aaaceb9bdab38e43897d033c323cedc",
+        "bytes": 57387
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-manifest-service.ts",
+        "sha256": "cc756b9f0c7125eae8e1638f56f02eb83e63db7b6fb3eae5957b46ee42e51af6",
+        "bytes": 16656
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-core.ts",
+        "sha256": "d33d03f330aaeea6691820d5dd4123de76838b6fe6f54e5ab83c90ecfb535642",
+        "bytes": 71454
+      },
+      {
+        "source": "packages/db/src/helpers/venue-package-lifecycle-actions.ts",
+        "sha256": "dc297dacb55755c1741b3756e33659999fd2696911ae8a38fc1d439da0cfebd8",
+        "bytes": 9686
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4",
+        "bytes": 15529
+      },
+      {
+        "source": "packages/api/src/routers/location-public-scope.ts",
+        "sha256": "b3fcbdc244cae36fc87f9abf64856d74dd38467e98d68c559c39ac049c1c5eb7",
+        "bytes": 1065
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c",
+        "bytes": 2804
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f",
+        "bytes": 6382
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "sha256": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756",
+        "bytes": 25485
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "sha256": "d0177ce12736d401c16cb83d3fb84342383b073c558ea92e881e754401eb3a30",
+        "bytes": 8994
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b",
+        "bytes": 5254
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c",
+        "bytes": 77888
+      },
+      {
+        "source": "packages/db/src/helpers/guest-chat-turn-actions.ts",
+        "sha256": "3457aa9a1fe9c2d38428034791dd75ecc4853d7024c6bacd4f6fee5fedbfb944",
+        "bytes": 45659
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "sha256": "7fdfd5e96b4ee0ff8590e3339f17e2ae8972ebdd339c8ff6f476e693682c526d",
+        "bytes": 48345
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+        "bytes": 1809
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+        "bytes": 598067
+      },
+      {
+        "source": "packages/contracts/src/venue-deployment-manifest.ts",
+        "sha256": "f30aeba5f60051d0d10a66413c7ba9db4493d25a95bc5afa06bd2206d9b25867",
+        "bytes": 28549
+      },
+      {
+        "source": "packages/contracts/src/prompt-contract.ts",
+        "sha256": "a476d5e237c29812df2e399bbbd3f29fb6f6dcb369c9936c0314cd88e2e42633",
+        "bytes": 343
+      },
+      {
+        "source": "packages/contracts/src/evaluation.ts",
+        "sha256": "d966025431650b4d47413990bab8edb044f97b568ed02540a1f69280f4f79fa4",
+        "bytes": 22045
+      },
+      {
+        "source": "scripts/golden-venue/fixture.json",
+        "sha256": "c848834d22f320e09b456e5fb33939a72c28174e38ca9b96d0729302df5a3740",
+        "bytes": 3222
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+        "bytes": 6270
+      },
+      {
+        "source": "packages/jobs/src/connection.ts",
+        "sha256": "69c3a629922e20e426ae9d64f16173821ab26fb51eb17da3f824b7c9e8f38b9f",
+        "bytes": 2292
+      },
+      {
+        "source": "packages/jobs/src/enqueue.ts",
+        "sha256": "86e3b24f46d04c438f4b187195840f657456fc51868aff28b4c77042730331fa",
+        "bytes": 32866
+      },
+      {
+        "source": "packages/api/src/routers/admin/guest-design.ts",
+        "sha256": "12006b1aa5596a3ff7ae54ec1e6b2391818d52e995ab62e88dd284a94bb18411",
+        "bytes": 7810
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-authoring.ts",
+        "sha256": "7881248a36598e7bdd51e56a544a3ef013f4823e294a79a7638f601396155308",
+        "bytes": 12486
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-authoring-contract.ts",
+        "sha256": "e6bea39aa98777a7c91b4d31137b09c05966fc5df83a00ad181d4826a5ac76c7",
+        "bytes": 4901
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-availability.ts",
+        "sha256": "69cfeb232c190a2461cf18b8c49eac59872d1c891bafe9af7593a3674d31ebe1",
+        "bytes": 4754
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-connection-authoring.ts",
+        "sha256": "1b8fe6e90d681e7440709d58f3cbff638a92b8a87c5e2f6ee86752a6d3e96438",
+        "bytes": 11451
+      },
+      {
+        "source": "packages/db/src/helpers/venue-media-actions.ts",
+        "sha256": "f5be54c93ae8bde180265b0f4c562fcec20c0e1568b525871c4f54b441e61070",
+        "bytes": 23245
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e",
+        "bytes": 63064
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e",
+        "bytes": 17546
+      },
+      {
+        "source": "packages/api/src/lib/media-relation-route-loader.ts",
+        "sha256": "2e9095c83a8b7043ed06f6deb48c5be592ef280b4c1d130db0f65df8b99084b3",
+        "bytes": 10571
+      },
+      {
+        "source": "packages/api/vitest.config.ts",
+        "sha256": "c9e1c98760e918372d636c20511e91413fe4a0b7ddee17eb9edbf54a74b95282",
+        "bytes": 194
+      },
+      {
+        "source": "packages/api/vitest.setup.ts",
+        "sha256": "03e6731848e97090e9d44e17df02f24b7cbfc38c4a00db628bbd9813bc97a3ab",
+        "bytes": 770
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a",
+        "bytes": 15605
+      },
+      {
+        "source": "packages/db/src/helpers/content-text.ts",
+        "sha256": "83f51fbc1cad329dca98657ceb2e77f36ec33652d894e752727a3f8285fb7e89",
+        "bytes": 758
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-semantic-analysis.ts",
+        "sha256": "c9b8d29e269614e76fbceaa1b90b1da5a5ec859901ff2f1bde8616dee1f34996",
+        "bytes": 16416
+      },
+      {
+        "source": "packages/db/src/helpers/embedding-work-claims.ts",
+        "sha256": "20769101c9f7c729c438fc6bc421aab04e0b01a9cd07910c84187752277208c8",
+        "bytes": 3912
+      }
+    ],
+    "pgStopped": true,
+    "redisStopped": true,
+    "minioStopped": true,
+    "sourceHashesAfter": [
+      {
+        "source": "packages/api/src/remote-onboarding-disposable.integration.test.ts",
+        "sha256": "0211ce7c0d76b4fd16ed11fe13b5a594d50ba5733ddf30d5ccc72322c179a97b",
+        "bytes": 100750
+      },
+      {
+        "source": "packages/api/src/routers/venue-package.ts",
+        "sha256": "dc300591eb0daeb12ff411f88d10a6ed0aaaceb9bdab38e43897d033c323cedc",
+        "bytes": 57387
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-manifest-service.ts",
+        "sha256": "cc756b9f0c7125eae8e1638f56f02eb83e63db7b6fb3eae5957b46ee42e51af6",
+        "bytes": 16656
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-core.ts",
+        "sha256": "d33d03f330aaeea6691820d5dd4123de76838b6fe6f54e5ab83c90ecfb535642",
+        "bytes": 71454
+      },
+      {
+        "source": "packages/db/src/helpers/venue-package-lifecycle-actions.ts",
+        "sha256": "dc297dacb55755c1741b3756e33659999fd2696911ae8a38fc1d439da0cfebd8",
+        "bytes": 9686
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4",
+        "bytes": 15529
+      },
+      {
+        "source": "packages/api/src/routers/location-public-scope.ts",
+        "sha256": "b3fcbdc244cae36fc87f9abf64856d74dd38467e98d68c559c39ac049c1c5eb7",
+        "bytes": 1065
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c",
+        "bytes": 2804
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f",
+        "bytes": 6382
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "sha256": "80e3630a3395fd022f9c1da8755d08ed5f06969c71a8deaafe57e52ce40cf756",
+        "bytes": 25485
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "sha256": "d0177ce12736d401c16cb83d3fb84342383b073c558ea92e881e754401eb3a30",
+        "bytes": 8994
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b",
+        "bytes": 5254
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c",
+        "bytes": 77888
+      },
+      {
+        "source": "packages/db/src/helpers/guest-chat-turn-actions.ts",
+        "sha256": "3457aa9a1fe9c2d38428034791dd75ecc4853d7024c6bacd4f6fee5fedbfb944",
+        "bytes": 45659
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "sha256": "7fdfd5e96b4ee0ff8590e3339f17e2ae8972ebdd339c8ff6f476e693682c526d",
+        "bytes": 48345
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+        "bytes": 1809
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+        "bytes": 598067
+      },
+      {
+        "source": "packages/contracts/src/venue-deployment-manifest.ts",
+        "sha256": "f30aeba5f60051d0d10a66413c7ba9db4493d25a95bc5afa06bd2206d9b25867",
+        "bytes": 28549
+      },
+      {
+        "source": "packages/contracts/src/prompt-contract.ts",
+        "sha256": "a476d5e237c29812df2e399bbbd3f29fb6f6dcb369c9936c0314cd88e2e42633",
+        "bytes": 343
+      },
+      {
+        "source": "packages/contracts/src/evaluation.ts",
+        "sha256": "d966025431650b4d47413990bab8edb044f97b568ed02540a1f69280f4f79fa4",
+        "bytes": 22045
+      },
+      {
+        "source": "scripts/golden-venue/fixture.json",
+        "sha256": "c848834d22f320e09b456e5fb33939a72c28174e38ca9b96d0729302df5a3740",
+        "bytes": 3222
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+        "bytes": 6270
+      },
+      {
+        "source": "packages/jobs/src/connection.ts",
+        "sha256": "69c3a629922e20e426ae9d64f16173821ab26fb51eb17da3f824b7c9e8f38b9f",
+        "bytes": 2292
+      },
+      {
+        "source": "packages/jobs/src/enqueue.ts",
+        "sha256": "86e3b24f46d04c438f4b187195840f657456fc51868aff28b4c77042730331fa",
+        "bytes": 32866
+      },
+      {
+        "source": "packages/api/src/routers/admin/guest-design.ts",
+        "sha256": "12006b1aa5596a3ff7ae54ec1e6b2391818d52e995ab62e88dd284a94bb18411",
+        "bytes": 7810
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-authoring.ts",
+        "sha256": "7881248a36598e7bdd51e56a544a3ef013f4823e294a79a7638f601396155308",
+        "bytes": 12486
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-authoring-contract.ts",
+        "sha256": "e6bea39aa98777a7c91b4d31137b09c05966fc5df83a00ad181d4826a5ac76c7",
+        "bytes": 4901
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-availability.ts",
+        "sha256": "69cfeb232c190a2461cf18b8c49eac59872d1c891bafe9af7593a3674d31ebe1",
+        "bytes": 4754
+      },
+      {
+        "source": "packages/api/src/routers/admin/location-connection-authoring.ts",
+        "sha256": "1b8fe6e90d681e7440709d58f3cbff638a92b8a87c5e2f6ee86752a6d3e96438",
+        "bytes": 11451
+      },
+      {
+        "source": "packages/db/src/helpers/venue-media-actions.ts",
+        "sha256": "f5be54c93ae8bde180265b0f4c562fcec20c0e1568b525871c4f54b441e61070",
+        "bytes": 23245
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e",
+        "bytes": 63064
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e",
+        "bytes": 17546
+      },
+      {
+        "source": "packages/api/src/lib/media-relation-route-loader.ts",
+        "sha256": "2e9095c83a8b7043ed06f6deb48c5be592ef280b4c1d130db0f65df8b99084b3",
+        "bytes": 10571
+      },
+      {
+        "source": "packages/api/vitest.config.ts",
+        "sha256": "c9e1c98760e918372d636c20511e91413fe4a0b7ddee17eb9edbf54a74b95282",
+        "bytes": 194
+      },
+      {
+        "source": "packages/api/vitest.setup.ts",
+        "sha256": "03e6731848e97090e9d44e17df02f24b7cbfc38c4a00db628bbd9813bc97a3ab",
+        "bytes": 770
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a",
+        "bytes": 15605
+      },
+      {
+        "source": "packages/db/src/helpers/content-text.ts",
+        "sha256": "83f51fbc1cad329dca98657ceb2e77f36ec33652d894e752727a3f8285fb7e89",
+        "bytes": 758
+      },
+      {
+        "source": "packages/api/src/lib/venue-package-semantic-analysis.ts",
+        "sha256": "c9b8d29e269614e76fbceaa1b90b1da5a5ec859901ff2f1bde8616dee1f34996",
+        "bytes": 16416
+      },
+      {
+        "source": "packages/db/src/helpers/embedding-work-claims.ts",
+        "sha256": "20769101c9f7c729c438fc6bc421aab04e0b01a9cd07910c84187752277208c8",
+        "bytes": 3912
+      }
+    ],
+    "redisConfigSha256": "dbdb74c82ed26558317bcfaf71c5fe2bdd7eef78f8cd35fb4ea145fbf3060070",
+    "runnerSha256": "18571488cd4de362e71d2c7fab80afdc15e0baac1f1077a3f6c21df071a48589",
+    "redisWrapperPid": 20228,
+    "minioWrapperPid": 62692,
+    "minioReady": true,
+    "redisPort": "16393",
+    "testCounts": {
+      "suites": 2,
+      "passedSuites": 2,
+      "tests": 1,
+      "passedTests": 1
+    },
+    "sourceHashesStable": true,
+    "reviewedGuestContext": {
+      "proof": "GOLDEN_REVIEWED_GUEST_CONTEXT",
+      "synthetic": true,
+      "tenantId": "remote-proof-tenant-a5ace72c56b0",
+      "venueId": "cmttlawu300028tysoti9v5qw",
+      "appliedPackageId": "cmttlax7c00318tysdbzi4qcx",
+      "appliedContentVersionId": "50cd0011-030c-4f16-a7bc-7a30d29809b8",
+      "placeId": "cmttlaxex003g8tys5na5jat2",
+      "originLocationId": "380937ed-f67b-4e05-b5aa-f0218a2b440e",
+      "destinationLocationId": "612e073c-5183-4ca5-ae40-050997e228e3",
+      "derivativeId": "a8a84e81-653c-4edb-a7a4-ba0361409082",
+      "reviewSequence": 1,
+      "unpublishedDraftId": "cmttlay1z005o8tysykbugatm",
+      "sourceIds": [
+        "cmttlaxfh003m8tysd2lljhpi",
+        "place:cmttlaxex003g8tys5na5jat2",
+        "media:a8a84e81-653c-4edb-a7a4-ba0361409082:review:1"
+      ],
+      "outcomes": {
+        "routeReviewed": true,
+        "reachablePlaceMatched": true,
+        "approvedMediaMatched": true,
+        "appliedPlacePresent": true,
+        "unpublishedDraftAbsent": true
+      }
+    },
+    "retainedDependencyRollback": {
+      "proof": "GOLDEN_RETAINED_DEPENDENCY_ROLLBACK",
+      "synthetic": true,
+      "tenantId": "remote-proof-tenant-a5ace72c56b0",
+      "venueId": "cmttlawu300028tysoti9v5qw",
+      "originalPackageId": "cmttlax7c00318tysdbzi4qcx",
+      "originalPlaceId": "cmttlaxex003g8tys5na5jat2",
+      "originalContentVersionId": "50cd0011-030c-4f16-a7bc-7a30d29809b8",
+      "originalKnowledgeCount": 4,
+      "originalKnowledgeHash": "3bd5c13481b98eea4bf83c355e9117c5ad7e4d3521795016b5d79652bf410eae",
+      "rollbackControlPackageId": "cmttlaycf006s8tysq7gq9ffr",
+      "rollbackControlPlaceId": "cmttlaydr006y8tysejqxn1te",
+      "rollbackControlContentVersionId": "4129bc30-04d0-4055-b7f3-68fa88761160",
+      "outcomes": {
+        "retainedDependencyDeniedOriginalRollback": true,
+        "originalPackageRemainedApplied": true,
+        "originalPlaceRetained": true,
+        "originalKnowledgeHashRetained": true,
+        "exactControlReverted": true
+      }
+    },
+    "goldenVenueLifecyclePassed": true,
+    "minioPortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T04:20:03.742Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T04:20:03.946Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T04:20:04.148Z",
+          "available": true
+        }
+      ]
+    },
+    "minioConsolePortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T04:20:04.149Z",
+          "available": true
+        }
+      ]
+    },
+    "proofPassed": true
+  },
+  "preliminaryAttempts": [
+    {
+      "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-golden-reviewed-guest-context-c5967ed6e6b7",
+      "status": "FAILED_RETAINED",
+      "cause": "Approved display policy was false; fixture fixed through canonical guest-design CAS.",
+      "servicesStopped": true,
+      "sourcesStable": true
+    },
+    {
+      "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-golden-reviewed-guest-context-b20a8738acfa",
+      "status": "FAILED_RETAINED",
+      "cause": "New route/media links correctly prevented original package rollback; retained dependency denial and separate rollback control added.",
+      "servicesStopped": true,
+      "sourcesStable": true
+    },
+    {
+      "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-golden-reviewed-guest-context-7739a527ceea",
+      "status": "FAILED_RETAINED",
+      "cause": "Separate control approval correctly denied incomplete existing-place embedding coverage; scoped synthetic embedding receipt added.",
+      "servicesStopped": true,
+      "sourcesStable": true
+    }
+  ],
+  "proofLayer": "E2 disposable infrastructure; actual canonical APIs/actions with synthetic identities and injected provider adapters",
+  "limits": [
+    "One passing synthetic Golden lifecycle case is not completion of original case A/B/C or all32QA.",
+    "Primary package uses synthetic seven-dimension evaluation evidence. Separate rollback control uses actual approval/apply/revert gates without an added model-quality assessment.",
+    "Media upload verdicts and READY derivative metadata are fixture seams; no actual media bytes, derivative worker or scanner execution in this run.",
+    "New route anchors are canonically authored and link to the actual package-applied Place; they are not package-applied location records.",
+    "Embedding vectors are deterministic synthetic fixtures, including the current Place coverage receipt; no model quality, latency, provider, physical-device, hosted-auth, customer or release claim.",
+    "Visitor photo input remains default-off; only synthetic venue approved-photo/source-link display is enabled through canonical admin CAS."
+  ],
+  "validation": {
+    "nativeExitCode": 0,
+    "nativeCasesPassed": 1,
+    "nativeCasesSkipped": 0,
+    "formatExitCode": 0,
+    "disabledCollection": "One skipped case, exit0; not native proof",
+    "apiTypes": {
+      "exitCode": 0,
+      "command": "node ../../node_modules/typescript/bin/tsc --noEmit --incremental false",
+      "log": "artifacts/golden-reviewed-context-types-root-20260908.log"
+    },
+    "configuredLint": {
+      "exitCode": 0,
+      "log": "artifacts/golden-reviewed-context-lint-configured-20260908.log",
+      "preliminary": "Root invocation without explicit config exited2; retained log, corrected configured invocation passed."
+    }
+  }
+}

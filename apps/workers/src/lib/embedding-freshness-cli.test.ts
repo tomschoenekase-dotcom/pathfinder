@@ -17,11 +17,13 @@ import {
   runEmbeddingFreshnessCommand,
 } from './embedding-freshness-cli'
 
+const testEnv = { NODE_ENV: 'test' } as const
+
 describe('embedding freshness CLI', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('defaults to a read-only tenant audit', () => {
-    expect(parseEmbeddingFreshnessArgs(['--tenant-id', 'tenant_1'], {})).toEqual({
+    expect(parseEmbeddingFreshnessArgs(['--tenant-id', 'tenant_1'], testEnv)).toEqual({
       mode: 'audit',
       tenantId: 'tenant_1',
     })
@@ -44,12 +46,13 @@ describe('embedding freshness CLI', () => {
       '--confirm-dispatcher-disabled',
       'true',
     ]
-    expect(() => parseEmbeddingFreshnessArgs(args, {})).toThrow('requires RAILWAY_ENVIRONMENT')
-    expect(() => parseEmbeddingFreshnessArgs(args, { RAILWAY_ENVIRONMENT: 'staging' })).toThrow(
-      'explicit EMBEDDING_DISPATCH_ENABLED=false',
-    )
+    expect(() => parseEmbeddingFreshnessArgs(args, testEnv)).toThrow('requires RAILWAY_ENVIRONMENT')
+    expect(() =>
+      parseEmbeddingFreshnessArgs(args, { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' }),
+    ).toThrow('explicit EMBEDDING_DISPATCH_ENABLED=false')
     expect(
       parseEmbeddingFreshnessArgs(args, {
+        ...testEnv,
         RAILWAY_ENVIRONMENT: 'staging',
         EMBEDDING_DISPATCH_ENABLED: 'false',
       }),
@@ -58,6 +61,7 @@ describe('embedding freshness CLI', () => {
       parseEmbeddingFreshnessArgs(
         args.map((value, index) => (index === 11 ? '4' : value)),
         {
+          ...testEnv,
           RAILWAY_ENVIRONMENT: 'staging',
           EMBEDDING_DISPATCH_ENABLED: 'false',
         },

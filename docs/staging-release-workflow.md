@@ -19,6 +19,23 @@ This is the normal Torchiko feature-delivery path:
    release-specific production migration/cutover approval has been recorded. Railway production
    tracks `master`, so merging that pull request is the production application deployment action.
 
+A preserved-data migration uses a controlled exception to step 5. Pause all three application
+autodeploy triggers without deploying, freeze the final owner SHA, require its CI success, and
+drain writers before capturing the release-bound backup and restore proof. Arm only web with
+`PATHFINDER_ALLOW_STAGING_MIGRATIONS=1` and `PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1` using
+`--skip-deploys`. The canonical predeploy verifies migrations and deliberately exits `2` with
+`migration-verified-application-held`; this first deployment is intentionally FAILED so its web
+application cannot start. Hold applies even to an already-complete ledger. Real migration or
+integrity errors remain failures and do not receive the verified-held classification.
+
+After explicit database acceptance, close both values to `0` with `--skip-deploys` and manually
+deploy web again at that same SHA for read-only code-only checks. Code-only startup requires
+migration opt-in explicitly `0`; an unset hold defaults to `0`, and other hold values are refused.
+Release dashboard and dormant workers only after web health passes. Restore autodeploy/CI settings
+without deployment after exact three-service admission. Keep the first held receipt separate from
+the healthy application receipt, and never use an unresolved cancellation as permission to reopen.
+The detailed preservation and recovery gates remain in [the staging runbook](railway-staging.md).
+
 ## Exact owner handoff
 
 For a large candidate assembled outside the owner staging branch, generate a deterministic handoff
@@ -96,9 +113,12 @@ revision. The staging dashboard DNS may be activated independently because it ta
 staging services and resources listed above.
 
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
-default branch. Before that first reviewed production promotion, run the same checked-in
+default branch. It accepts only successful same-repository pushes to the exact staging branch.
+Its secret-bearing job checks out the trusted default-branch `github.sha`; the triggering candidate
+SHA is used only as the expected deployment identity. Pull requests, forks, and candidate checkout
+cannot enter that privileged readback path. This follows [GitHub's workflow-run event contract](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run). Before that first reviewed production promotion, run the same checked-in
 `verify:staging-health` command from `railway-staging.md` after Railway reports the staging deployment
-healthy. Railway's own health check remains active. The dashboard's Railway `Wait for CI` switch is
-temporarily disabled because this branch is not receiving a completing GitHub check suite; restore
-that switch after the repository CI workflow is visible to Railway. Web and workers retain their
-existing CI wait behavior.
+healthy. Railway's own health check remains active. Require `Wait for CI` on all three application
+services and verify the owner check suite actually completes. That setting does not order web,
+dashboard and workers relative to the migration; preserved-data cutovers still use the explicit
+held web-only sequence above.

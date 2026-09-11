@@ -8,11 +8,13 @@ import type { AppRouter } from '@pathfinder/api'
 import {
   GuestPublicErrorCode,
   type GuestPublicErrorCode as GuestPublicErrorCodeType,
-} from '@pathfinder/contracts'
+} from '@pathfinder/contracts/guest-response'
 
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useSession } from '../hooks/useSession'
+import { useGuestVisitContext } from '../hooks/useGuestVisitContext'
+import { GuestVisitPreferences } from './GuestVisitPreferences'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
 import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
@@ -24,15 +26,21 @@ import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
 import { LocationRoutePlanner } from './LocationRoutePlanner'
-import { getVisitorRecoveryCopy, localizeVisitorShellError } from './visitor-ui-copy'
+import {
+  getVisitorRecoveryCopy,
+  getVisitorStopCopy,
+  localizeVisitorShellError,
+} from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { GuestEntrySource } from '../lib/entry-prompt'
+import type { FinalizedVoiceTranscriptLine } from './VoiceControl'
 
 type VenueChatExperienceProps = {
   venueSlug: string
   presentation?: VenueChatPresentation
   initialDraft?: string
   entrySource?: GuestEntrySource
+  initialEntryPlaceId?: string
   secondLayerKey?: string
 }
 
@@ -102,6 +110,7 @@ export function VenueChatExperience({
   presentation = 'standalone',
   initialDraft = '',
   entrySource,
+  initialEntryPlaceId,
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
@@ -119,7 +128,9 @@ export function VenueChatExperience({
   const [pageError, setPageError] = useState<string | null>(null)
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [recoveryMode, setRecoveryMode] = useState<'retry-turn' | 'check-history' | null>(null)
+  const [recoveryMode, setRecoveryMode] = useState<
+    'retry-turn' | 'check-history' | 'load-history' | null
+  >(null)
   const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
     const stored = getStoredLanguage()
     return SUPPORTED_LANGUAGES.some((entry) => entry.label === stored)
@@ -127,23 +138,43 @@ export function VenueChatExperience({
       : 'English'
   })
   const recoveryCopy = getVisitorRecoveryCopy(language)
+  const stopCopy = getVisitorStopCopy(language)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const conversationEpochRef = useRef(0)
-  const sendingEpochRef = useRef<number | null>(null)
   const activeOperationRef = useRef<string | null>(null)
   const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
   const reconciliationAbortRef = useRef<AbortController | null>(null)
+  const historyBootstrapAbortRef = useRef<AbortController | null>(null)
+  const historyBootstrapFailureRef = useRef<{
+    venueId: string
+    anonymousToken: string
+    epoch: number
+  } | null>(null)
   const pendingTurnRef = useRef<PendingTurn | null>(null)
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
   const reconciliationRequiredRef = useRef(false)
+  const stoppedOperationsRef = useRef(new Set<string>())
   const characterResetTimerRef = useRef<number | null>(null)
+  const entryPlaceRef = useRef({
+    scope: `${venueSlug}:${initialEntryPlaceId ?? ''}`,
+    value: initialEntryPlaceId,
+  })
+  const entryPlaceScope = `${venueSlug}:${initialEntryPlaceId ?? ''}`
+  if (entryPlaceRef.current.scope !== entryPlaceScope) {
+    entryPlaceRef.current = { scope: entryPlaceScope, value: initialEntryPlaceId }
+  }
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
   const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
   const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
     useSession(venue?.id ?? '', experienceStorageScope)
+  const {
+    context: visitContext,
+    updateContext: updateVisitContext,
+    clearVisit,
+  } = useGuestVisitContext(venue?.id ?? '', experienceStorageScope)
   const visitorId = useVisitorId()
   const {
     endSession,
@@ -198,6 +229,9 @@ export function VenueChatExperience({
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
       reconciliationAbortRef.current = null
+      historyBootstrapAbortRef.current?.abort()
+      historyBootstrapAbortRef.current = null
+      stoppedOperationsRef.current.clear()
     },
     [],
   )
@@ -220,14 +254,17 @@ export function VenueChatExperience({
       setSendError(null)
       setRecoveryMode(null)
       reconciliationRequiredRef.current = false
+      stoppedOperationsRef.current.clear()
       setIsSending(false)
       activeStreamRef.current?.unsubscribe()
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
       reconciliationAbortRef.current = null
+      historyBootstrapAbortRef.current?.abort()
+      historyBootstrapAbortRef.current = null
+      historyBootstrapFailureRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
-      sendingEpochRef.current = null
       lastSyncedPosRef.current = null
       resetAnalytics()
       try {
@@ -271,10 +308,21 @@ export function VenueChatExperience({
                   { signal },
                 ),
             })
-            if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
-              setMessages(history.messages as ChatMessage[])
+            if (!disposed && conversationEpochRef.current === epoch) {
+              historyBootstrapFailureRef.current = null
+              if (history.messages.length) setMessages(history.messages as ChatMessage[])
+            }
           } catch {
-            // History is optional; a failed read starts an empty conversation.
+            if (!disposed && conversationEpochRef.current === epoch) {
+              historyBootstrapFailureRef.current = {
+                venueId: result.id,
+                anonymousToken: token,
+                epoch,
+              }
+              setRecoveryMode('load-history')
+              setSendError(getVisitorRecoveryCopy()[2])
+              setStableCharacterState('error')
+            }
           }
         }
       } catch (error) {
@@ -303,6 +351,7 @@ export function VenueChatExperience({
     resetAnalytics,
     secondLayerKey,
     setTemporaryCharacterState,
+    setStableCharacterState,
     venueSlug,
   ])
 
@@ -371,7 +420,7 @@ export function VenueChatExperience({
   }
 
   function applyStreamDelta(turn: PendingTurn, delta: string) {
-    if (!delta || !turnIsCurrent(turn)) return
+    if (!delta || stoppedOperationsRef.current.has(turn.operationId) || !turnIsCurrent(turn)) return
     setStableCharacterState('speaking')
     setMessages((current) => {
       const existingIndex = current.findIndex(
@@ -435,12 +484,20 @@ export function VenueChatExperience({
             {
               venueId: turn.venueId,
               anonymousToken: turn.anonymousToken,
+              operationId: turn.operationId,
               ...(secondLayerKey ? { secondLayerKey } : {}),
             },
             { signal },
           ),
       })
       if (!turnIsCurrent(turn)) return false
+      const scopedTurn = 'turn' in history ? history.turn : null
+      if (
+        !scopedTurn ||
+        scopedTurn.operationId !== turn.operationId ||
+        !['COMPLETE', 'FAILED', 'AMBIGUOUS'].includes(scopedTurn.status)
+      )
+        return false
       setMessages(history.messages as ChatMessage[])
       reconciliationRequiredRef.current = false
       return true
@@ -449,6 +506,53 @@ export function VenueChatExperience({
       return false
     } finally {
       if (reconciliationAbortRef.current === controller) reconciliationAbortRef.current = null
+    }
+  }
+
+  async function retryHistoryBootstrap() {
+    const failure = historyBootstrapFailureRef.current
+    if (!failure || activeOperationRef.current !== null) return
+    historyBootstrapAbortRef.current?.abort()
+    const controller = new AbortController()
+    historyBootstrapAbortRef.current = controller
+    setIsSending(true)
+    try {
+      const history = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: VISITOR_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.chat.history.query(
+            {
+              venueId: failure.venueId,
+              anonymousToken: failure.anonymousToken,
+              ...(secondLayerKey ? { secondLayerKey } : {}),
+            },
+            { signal },
+          ),
+      })
+      if (
+        historyBootstrapFailureRef.current !== failure ||
+        conversationEpochRef.current !== failure.epoch ||
+        currentVenueIdRef.current !== failure.venueId ||
+        currentAnonymousTokenRef.current !== failure.anonymousToken
+      )
+        return
+      setMessages(history.messages as ChatMessage[])
+      historyBootstrapFailureRef.current = null
+      setRecoveryMode(null)
+      setSendError(null)
+      setTemporaryCharacterState('success', 900)
+    } catch {
+      if (
+        historyBootstrapFailureRef.current === failure &&
+        conversationEpochRef.current === failure.epoch
+      )
+        setSendError(getVisitorRecoveryCopy()[9])
+    } finally {
+      if (historyBootstrapAbortRef.current === controller) {
+        historyBootstrapAbortRef.current = null
+        if (conversationEpochRef.current === failure.epoch) setIsSending(false)
+      }
     }
   }
 
@@ -468,9 +572,9 @@ export function VenueChatExperience({
           pendingOperationId: turn.operationId,
         },
       ])
-    sendingEpochRef.current = turn.epoch
     try {
       const result = await sendTurnRequest(turn)
+      if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
       const response = result.response
       const resultPlaces = result.places
@@ -511,6 +615,7 @@ export function VenueChatExperience({
       setRecoveryMode(null)
       setTemporaryCharacterState('success', 900)
     } catch (error) {
+      if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
       const code = trpcErrorCode(error)
       const publicCode = publicGuestErrorCode(error)
@@ -569,9 +674,10 @@ export function VenueChatExperience({
         activeStreamRef.current.unsubscribe()
         activeStreamRef.current = null
       }
-      if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
-      if (turnScopeIsCurrent(turn)) setIsSending(false)
-      if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
+      if (activeOperationRef.current === turn.operationId) {
+        if (!reconciliationRequiredRef.current) setIsSending(false)
+        activeOperationRef.current = null
+      }
     }
   }
 
@@ -583,7 +689,8 @@ export function VenueChatExperience({
       !anonymousToken ||
       !message ||
       activeOperationRef.current !== null ||
-      reconciliationRequiredRef.current
+      reconciliationRequiredRef.current ||
+      recoveryMode === 'load-history'
     )
       return
     abandonPendingOptimistic()
@@ -601,11 +708,18 @@ export function VenueChatExperience({
       anonymousToken,
       ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
+      ...(entryPlaceRef.current.value ? { entryPlaceId: entryPlaceRef.current.value } : {}),
       message,
+      ...(visitContext.interests.length ||
+      visitContext.visitedPlaceIds.length ||
+      visitContext.remainingMinutes != null
+        ? { visitContext }
+        : {}),
       ...(responseIntent === 'EXPAND' ? { responseIntent } : {}),
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
       ...(language === 'English' ? {} : { language }),
     }
+    entryPlaceRef.current.value = undefined
     const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
     pendingTurnRef.current = turn
     void dispatchTurn(turn, true)
@@ -613,6 +727,10 @@ export function VenueChatExperience({
 
   function handleRetry() {
     if (!isOnline) return
+    if (recoveryMode === 'load-history') {
+      void retryHistoryBootstrap()
+      return
+    }
     const turn = pendingTurnRef.current
     if (!turn) return
     if (recoveryMode === 'check-history') {
@@ -627,11 +745,10 @@ export function VenueChatExperience({
             reconciliationRequiredRef.current = false
             pendingTurnRef.current = null
             setRecoveryMode(null)
-            setSendError(
-              'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
-            )
+            stoppedOperationsRef.current.delete(turn.operationId)
+            setSendError(recoveryCopy[8])
           } else {
-            setSendError('The conversation still could not be confirmed. Try checking again.')
+            setSendError(recoveryCopy[9])
           }
         }
         if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
@@ -639,35 +756,80 @@ export function VenueChatExperience({
     } else if (recoveryMode === 'retry-turn') void dispatchTurn(turn, false)
   }
 
+  function handleStopResponse() {
+    const turn = pendingTurnRef.current
+    if (!turn || activeOperationRef.current !== turn.operationId) return
+    stoppedOperationsRef.current.add(turn.operationId)
+    if (stoppedOperationsRef.current.size > 8) {
+      const oldest = stoppedOperationsRef.current.values().next().value
+      if (oldest) stoppedOperationsRef.current.delete(oldest)
+    }
+    reconciliationRequiredRef.current = true
+    if (activeStreamRef.current?.operationId === turn.operationId) {
+      activeStreamRef.current.unsubscribe()
+      activeStreamRef.current = null
+    }
+    setSendError(stopCopy.checking)
+    setRecoveryMode('check-history')
+    setIsSending(true)
+    void reconcileTurn(turn).then((reconciled) => {
+      if (!turnIsCurrent(turn)) return
+      if (reconciled) {
+        pendingTurnRef.current = null
+        activeOperationRef.current = null
+        reconciliationRequiredRef.current = false
+        setRecoveryMode(null)
+        setSendError(stopCopy.refreshed)
+        stoppedOperationsRef.current.delete(turn.operationId)
+      } else {
+        activeOperationRef.current = null
+        reconciliationRequiredRef.current = true
+        setRecoveryMode('check-history')
+        setSendError(recoveryCopy[2])
+      }
+      setIsSending(false)
+    })
+  }
+
   function handleDraftChange(draft = '') {
     setStableCharacterState(draft.trim() ? 'listening' : 'idle')
-    if (
-      activeOperationRef.current !== null ||
-      !pendingTurnRef.current ||
-      reconciliationRequiredRef.current
-    )
-      return
+    if (activeOperationRef.current !== null || !pendingTurnRef.current) return
+    if (reconciliationRequiredRef.current) return
     abandonPendingOptimistic()
   }
 
-  function handleNewConversation() {
-    if (!isOnline || !venue || !anonymousToken || isSending || activeOperationRef.current !== null)
+  function handleNewConversation(freshVisit = false) {
+    if (
+      !isOnline ||
+      !venue ||
+      !anonymousToken ||
+      isSending ||
+      activeOperationRef.current !== null ||
+      reconciliationRequiredRef.current
+    )
       return
-    if (messages.length && !window.confirm(recoveryCopy[10])) return
+    const resetCopy = freshVisit
+      ? 'Start a fresh visit? This clears the chat from this screen and your visit preferences. Saved Torchiko records are not deleted.'
+      : recoveryCopy[10]
+    if ((messages.length || freshVisit) && !window.confirm(resetCopy)) return
     const previousToken = anonymousToken
     const previousStartedAt = sessionStartedAtRef.current
     if (!startNewConversation()) {
       setSendError('We could not start a new conversation in this browser.')
       return
     }
+    if (freshVisit) clearVisit()
     conversationEpochRef.current += 1
-    sendingEpochRef.current = null
     activeOperationRef.current = null
     pendingTurnRef.current = null
+    historyBootstrapAbortRef.current?.abort()
+    historyBootstrapAbortRef.current = null
+    historyBootstrapFailureRef.current = null
     setMessages([])
     setSendError(null)
     setRecoveryMode(null)
     reconciliationRequiredRef.current = false
+    stoppedOperationsRef.current.clear()
     lastSyncedPosRef.current = null
     resetAnalytics()
     setTemporaryCharacterState('attention', 900)
@@ -693,6 +855,26 @@ export function VenueChatExperience({
         language={language}
       />
     )
+
+  const handleVoiceTranscriptLine = (line: FinalizedVoiceTranscriptLine) => {
+    if (
+      currentVenueIdRef.current !== line.venueId ||
+      currentAnonymousTokenRef.current !== line.anonymousToken
+    )
+      return
+    setMessages((current) => {
+      const message: ChatMessage = {
+        id: line.id,
+        role: line.role,
+        content: line.content,
+        voiceDelivery: line.voiceDelivery,
+        voicePersistence: line.persistence,
+      }
+      const existingIndex = current.findIndex((entry) => entry.id === line.id)
+      if (existingIndex === -1) return [...current, message]
+      return current.map((entry, index) => (index === existingIndex ? message : entry))
+    })
+  }
 
   return (
     <VenueChatShell
@@ -727,9 +909,34 @@ export function VenueChatExperience({
       requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
-      retryLabel={recoveryMode === 'check-history' ? recoveryCopy[12] : recoveryCopy[13]}
-      onNewConversation={handleNewConversation}
+      retryLabel={
+        recoveryMode === 'check-history' || recoveryMode === 'load-history'
+          ? recoveryCopy[12]
+          : recoveryCopy[13]
+      }
+      {...(isSending && recoveryMode !== 'check-history' && recoveryMode !== 'load-history'
+        ? { onStopResponse: handleStopResponse }
+        : {})}
+      stopResponseLabel={stopCopy.stop}
+      conversationLocked={
+        reconciliationRequiredRef.current ||
+        recoveryMode === 'check-history' ||
+        recoveryMode === 'load-history'
+      }
+      onNewConversation={() => handleNewConversation()}
+      visitContext={visitContext}
+      visitPreferences={
+        <GuestVisitPreferences
+          context={visitContext}
+          onChange={updateVisitContext}
+          onFreshVisit={() => handleNewConversation(true)}
+          disabled={!isOnline || isSending || !anonymousToken || reconciliationRequiredRef.current}
+          places={messages.flatMap((message) => message.places ?? [])}
+        />
+      }
       onVoiceCharacterState={setStableCharacterState}
+      onVoiceTranscriptLine={handleVoiceTranscriptLine}
+      {...(recoveryMode === 'load-history' ? { voiceControl: null } : {})}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {
           viewedPlaceIdsRef.current.add(placeId)

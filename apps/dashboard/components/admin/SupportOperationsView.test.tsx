@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   triage: vi.fn(),
   requestInformation: vi.fn(),
   completeRequest: vi.fn(),
+  completionPreview: vi.fn(),
   linkRun: vi.fn(),
   query: vi.fn(),
   listEligibleAttachments: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../../lib/trpc', () => ({
       triageSupportRequest: { mutate: mocks.triage },
       requestSupportInformation: { mutate: mocks.requestInformation },
       completeSupportRequest: { mutate: mocks.completeRequest },
+      getSupportCompletionPreview: { query: mocks.completionPreview },
       linkSupportAgentRun: { mutate: mocks.linkRun },
       createSupportKnowledgeProposal: { mutate: mocks.prepareKnowledge },
     },
@@ -144,6 +146,7 @@ describe('support operations UI', () => {
               authorKind: 'CLIENT',
               visibility: 'CLIENT_VISIBLE',
               body: 'Client text',
+              completionOutcome: 'UPDATED',
               requestVersion: 2,
               createdAt: new Date(),
               attachments: [],
@@ -166,6 +169,7 @@ describe('support operations UI', () => {
     expect(screen.getByText('CLIENT VISIBLE')).toBeTruthy()
     expect(screen.getByText('INTERNAL ONLY')).toBeTruthy()
     expect(screen.getByText('Client text')).toBeTruthy()
+    expect(screen.getByText('Updates applied')).toBeTruthy()
     expect(screen.getByText('Private note')).toBeTruthy()
     expect(screen.queryByText(/artifacts/i)).toBeNull()
   })
@@ -652,6 +656,11 @@ describe('support operations UI', () => {
   })
 
   it('requires confirmation for manual completion and does not claim execution', async () => {
+    mocks.completionPreview.mockResolvedValueOnce({
+      outcome: 'RESOLVED',
+      fulfillmentDigest: 'a'.repeat(64),
+      expectedVersion: 6,
+    })
     mocks.completeRequest.mockResolvedValueOnce({ status: 'COMPLETED', replayed: false })
     const { container } = render(
       <SupportManualLoopActions
@@ -666,6 +675,8 @@ describe('support operations UI', () => {
     fireEvent.change(screen.getByLabelText('Completion message to client'), {
       target: { value: 'We have answered your question.' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Review completion outcome' }))
+    expect(await screen.findByText('Request resolved')).toBeTruthy()
     const submit = screen.getByRole('button', {
       name: 'Complete support request',
     }) as HTMLButtonElement
@@ -674,20 +685,103 @@ describe('support operations UI', () => {
     fireEvent.click(submit)
 
     await waitFor(() =>
-      expect(mocks.completeRequest).toHaveBeenCalledWith({
-        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        requestId: 'req_1',
-        expectedVersion: 6,
-        body: 'We have answered your question.',
-      }),
+      expect(mocks.completeRequest).toHaveBeenCalledWith(
+        {
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'req_1',
+          expectedVersion: 6,
+          body: 'We have answered your question.',
+          expectedCompletionOutcome: 'RESOLVED',
+          expectedFulfillmentDigest: 'a'.repeat(64),
+        },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
     )
     expect((await screen.findByRole('status')).textContent).toMatch(
       /No package was approved, applied, or published/i,
     )
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
     expect(result.violations).toEqual([])
+  })
+
+  it('retains the exact completion body and digest for an unknown retry', async () => {
+    vi.useFakeTimers()
+    mocks.completionPreview.mockResolvedValueOnce({
+      outcome: 'MIXED',
+      fulfillmentDigest: 'c'.repeat(64),
+      expectedVersion: 7,
+    })
+    mocks.completeRequest
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockResolvedValueOnce({ status: 'COMPLETED', replayed: true })
+    render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={7}
+        currentStatus="IN_REVIEW"
+        missingInformation={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Completion message to client'), {
+      target: { value: 'Applied the reviewed update and retained the remaining item.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Review completion outcome' }))
+    await act(async () => Promise.resolve())
+    fireEvent.click(screen.getByLabelText(/I confirm this conversation is complete/))
+    fireEvent.click(screen.getByRole('button', { name: 'Complete support request' }))
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    const first = structuredClone(mocks.completeRequest.mock.calls[0]![0])
+    expect(screen.getByRole('button', { name: 'Retry exact completion' })).toBeTruthy()
+    expect(
+      (screen.getByLabelText('Completion message to client') as HTMLTextAreaElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry exact completion' }))
+    await act(async () => Promise.resolve())
+    expect(mocks.completeRequest.mock.calls[1]![0]).toEqual(first)
+    expect(first).toMatchObject({
+      body: 'Applied the reviewed update and retained the remaining item.',
+      expectedCompletionOutcome: 'MIXED',
+      expectedFulfillmentDigest: 'c'.repeat(64),
+    })
+  })
+
+  it('discards a late completion preview after a synchronous scope change', async () => {
+    let resolvePreview!: (value: unknown) => void
+    mocks.completionPreview.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePreview = resolve
+      }),
+    )
+    const view = render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={7}
+        currentStatus="IN_REVIEW"
+        missingInformation={[]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Review completion outcome' }))
+    view.rerender(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_2"
+        expectedVersion={1}
+        currentStatus="IN_REVIEW"
+        missingInformation={[]}
+      />,
+    )
+    await act(async () =>
+      resolvePreview({ outcome: 'UPDATED', fulfillmentDigest: 'd'.repeat(64), expectedVersion: 7 }),
+    )
+    expect(screen.queryByText('Updates applied')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Complete support request' })).toBeNull()
   })
 
   it('drops late manual-action outcomes after a render-synchronous scope change', async () => {
@@ -760,6 +854,11 @@ describe('support operations UI', () => {
   })
 
   it('locks every sibling action synchronously after confirmation until a new version renders', async () => {
+    mocks.completionPreview.mockResolvedValueOnce({
+      outcome: 'UPDATED',
+      fulfillmentDigest: 'b'.repeat(64),
+      expectedVersion: 4,
+    })
     let resolve!: (value: unknown) => void
     mocks.completeRequest.mockReturnValueOnce(new Promise((done) => (resolve = done)))
     const sibling = vi.fn()
@@ -781,6 +880,8 @@ describe('support operations UI', () => {
     fireEvent.change(screen.getByLabelText('Completion message to client'), {
       target: { value: 'This is resolved.' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Review completion outcome' }))
+    await screen.findByText('Updates applied')
     fireEvent.click(screen.getByLabelText(/I confirm this conversation is complete/))
     fireEvent.click(screen.getByRole('button', { name: 'Complete support request' }))
     await act(async () => resolve({ status: 'COMPLETED', replayed: false }))

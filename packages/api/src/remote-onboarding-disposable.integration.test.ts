@@ -30,6 +30,7 @@ import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interv
 import {
   askAgentQuestionAction,
   acquireEmbeddingWork,
+  buildPlaceText,
   claimGuestChatTurnAction,
   claimEvaluationRunAttempt,
   claimIntakeUploadVerificationAction,
@@ -50,19 +51,27 @@ import {
   recordApprovedPackageEvaluationMilestones,
   recordIntakeUploadPrecheckAction,
   recordOrReplayOnboardingMilestoneEvent,
+  registerVenueMediaAssetAction,
   reserveGuestChatTurnAction,
   reserveIntakeUploadAction,
+  requestVenueMediaDerivativesAction,
+  reviewVenueMediaAssetAction,
   respondToSupportInformationAction,
   resumeOnboardingQuestionFromSupportAction,
   settleIntakeUploadAuthoritativeVerificationAction,
   setAiProviderHealthOverrideAction,
   storeKnowledgeEntryEmbeddingForScope,
+  storePlaceEmbeddingForScope,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
 import { mergeRouters, router } from './core'
 import type { TRPCContext } from './context'
 import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-service'
+import { adminLocationAuthoringRouter } from './routers/admin/location-authoring'
+import { adminLocationAvailabilityRouter } from './routers/admin/location-availability'
+import { adminLocationConnectionAuthoringRouter } from './routers/admin/location-connection-authoring'
+import { adminGuestDesignRouter } from './routers/admin/guest-design'
 import { adminSupportAgentRunLineageRouter } from './routers/admin/support-agent-run-lineage'
 import { adminSupportManualLoopRouter } from './routers/admin/support-manual-loop'
 import { adminSupportOperationsRouter } from './routers/admin/support-operations'
@@ -75,6 +84,7 @@ import { adminWeeklyReportsRouter } from './routers/admin/weekly-reports'
 import { analyticsRouter } from './routers/analytics'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { feedbackRouter } from './routers/feedback'
+import { locationRouter } from './routers/location'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
@@ -130,10 +140,15 @@ const testRouter = router({
     adminSupportOperationsRouter,
     adminWeeklyReportsRouter,
     adminEvaluationConversationCasesRouter,
+    adminGuestDesignRouter,
+    adminLocationAuthoringRouter,
+    adminLocationAvailabilityRouter,
+    adminLocationConnectionAuthoringRouter,
   ),
   analytics: analyticsRouter,
   chat: chatRouter,
   feedback: feedbackRouter,
+  location: locationRouter,
   operationalUpdate: operationalUpdateRouter,
   portal: portalRouter,
   support: supportRouter,
@@ -636,7 +651,15 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       expect(internalMessage).toMatchObject({ requestVersion: 4, replayed: false })
 
       const completionOperationId = randomUUID()
+      const completionPreview = await admin.getSupportCompletionPreview({
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: internalMessage.requestVersion,
+      })
       const completionInput = {
+        expectedCompletionOutcome: completionPreview.outcome,
+        expectedFulfillmentDigest: completionPreview.fulfillmentDigest,
         operationId: completionOperationId,
         tenantId,
         venueId,
@@ -666,7 +689,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       })
       expect(clientResolution).toMatchObject({
         status: 'COMPLETED',
-        canReply: false,
+        canReply: true,
         missingInformation: [],
       })
       expect(clientResolution.messages.map((message) => message.body)).not.toContain(
@@ -1160,6 +1183,16 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           reason: 'Golden Venue provider-dark Voice Mode lifecycle proof',
         },
       })
+      const guestDesignRevision = await db.venue.findFirstOrThrow({
+        where: { id: venueId, tenantId },
+        select: { updatedAt: true },
+      })
+      await admin.updateGuestDesign({
+        tenantId,
+        venueId,
+        expectedUpdatedAt: guestDesignRevision.updatedAt,
+        fields: { chatShowPhotos: true, chatShowLinks: true },
+      })
       const voiceAuthorize = vi.fn().mockResolvedValue({
         provider: 'openai' as const,
         model: 'gpt-realtime-2.1-mini',
@@ -1211,6 +1244,358 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           voiceSessionId: voiceSession.voiceSessionId,
         }),
       ).resolves.toEqual({ connected: true })
+
+      // The applied package's real Place is reused by the canonical reviewed route and media
+      // projections. All uploaded-byte/provider work remains outside this metadata-only block.
+      const riverGallery = await db.place.findFirstOrThrow({
+        where: { tenantId, venueId, name: 'River Gallery', visibility: 'PUBLIC', isActive: true },
+      })
+      const appliedContentVersion = await db.contentVersion.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          venuePackageId: approved.id,
+          venuePackageAction: 'APPLY',
+          entityType: 'PLACE',
+          entityId: riverGallery.id,
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+      await db.productEntitlementOverride.create({
+        data: {
+          tenantId,
+          venueId,
+          capability: 'location-plus',
+          effect: 'GRANT',
+          kind: 'ADMIN',
+          settings: {},
+          setBy: operatorId,
+          reason: 'Golden Venue provider-dark reviewed-route proof',
+        },
+      })
+      const routeFields = (
+        stableKey: string,
+        kind: 'ENTRANCE' | 'ACCESSIBILITY_POINT',
+        primaryPlaceId?: string,
+      ) => ({
+        tenantId,
+        venueId,
+        stableKey,
+        kind,
+        displayName: stableKey === 'river-gallery' ? 'River Gallery' : 'Oak Street entrance',
+        description: null,
+        visibility: 'PUBLIC' as const,
+        floorId: null,
+        parentLocationId: null,
+        ...(primaryPlaceId ? { primaryPlaceId } : {}),
+        coordinates: null,
+        mapAnchor: null,
+        externalMapReference: null,
+        accessibilityMetadata: {},
+      })
+      const origin = await admin.createVenueLocationDraft({
+        operationId: randomUUID(),
+        ...routeFields('oak-street-entrance', 'ENTRANCE'),
+      })
+      const destination = await admin.createVenueLocationDraft({
+        operationId: randomUUID(),
+        ...routeFields('river-gallery', 'ACCESSIBILITY_POINT', riverGallery.id),
+      })
+      for (const location of [origin.location, destination.location]) {
+        await admin.setVenueLocationAvailability({
+          tenantId,
+          venueId,
+          locationId: location.id,
+          expectedUpdatedAt: location.updatedAt,
+          active: true,
+          reason: 'Activate reviewed Golden Venue route anchor.',
+        })
+      }
+      const connection = await admin.createVenueLocationConnectionDraft({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        fromLocationId: origin.location.id,
+        toLocationId: destination.location.id,
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Follow the reviewed east corridor to the River Gallery.',
+      })
+      await admin.setVenueLocationConnectionAvailability({
+        tenantId,
+        venueId,
+        connectionId: connection.connection.id,
+        expectedUpdatedAt: connection.connection.updatedAt,
+        active: true,
+        reason: 'Activate reviewed Golden Venue route connection.',
+      })
+
+      const mediaActor = {
+        type: 'HUMAN' as const,
+        id: operatorId,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const mediaGeneration = randomUUID()
+      const mediaSha256 = createHash('sha256').update(`river-media:${suffix}`).digest('hex')
+      const mediaUpload = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor: mediaActor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'River Gallery reviewed metadata',
+          fileName: 'river-gallery.png',
+          mimeType: 'image/png',
+          category: 'PHOTO',
+          byteSize: 64,
+          sha256: mediaSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: `intake-quarantine/${randomUUID()}`,
+          objectGeneration: mediaGeneration,
+        },
+      })
+      const precheckClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: mediaUpload.upload.id,
+        actor: mediaActor,
+        claimId: precheckClaimId,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: mediaUpload.upload.id,
+        actor: mediaActor,
+        claimId: precheckClaimId,
+        verified: {
+          objectGeneration: mediaGeneration,
+          storageVersionId: 'metadata-only-source-version',
+          mimeType: 'image/png',
+          byteSize: 64,
+          sha256: mediaSha256,
+        },
+        evidence: {
+          engine: 'remote-proof-precheck',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`precheck:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: mediaSha256,
+        },
+      })
+      const malwareClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: mediaUpload.upload.id,
+        actor: mediaActor,
+        claimId: malwareClaimId,
+      })
+      await settleIntakeUploadAuthoritativeVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: mediaUpload.upload.id,
+        actor: mediaActor,
+        claimId: malwareClaimId,
+        malware: {
+          verdict: 'CLEAN',
+          engine: 'remote-proof-malware',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`malware:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: mediaSha256,
+        },
+      })
+      const mediaAssetId = randomUUID()
+      await registerVenueMediaAssetAction({
+        db,
+        actor: mediaActor,
+        registration: {
+          tenantId,
+          venueId,
+          assetId: mediaAssetId,
+          intakeUploadId: mediaUpload.upload.id,
+          kind: 'IMAGE',
+          semanticDescription: 'Reviewed River Gallery route destination metadata.',
+          depictedSubjects: ['River Gallery'],
+          altText: 'River Gallery entrance',
+          sourceName: 'Golden Venue fixture',
+          sourceUrl: 'https://example.invalid/river-gallery-source',
+          importance: 'PRIMARY',
+          linkedPlaceIds: [riverGallery.id],
+          linkedKnowledgeEntryIds: [],
+        },
+      })
+      const mediaApproval = await reviewVenueMediaAssetAction({
+        db,
+        actor: mediaActor,
+        review: {
+          tenantId,
+          venueId,
+          assetId: mediaAssetId,
+          requestId: randomUUID(),
+          expectedLatestSequence: 0,
+          action: 'APPROVE_CONTENT_USE',
+          rightsBasis: 'VENUE_OWNED',
+          rightsStatement: 'Synthetic Golden Venue fixture metadata.',
+          rightsEvidenceSourceId: 'golden-venue-fixture',
+        },
+      })
+      const derivativeRequest = await requestVenueMediaDerivativesAction({
+        db,
+        actor: mediaActor,
+        request: {
+          tenantId,
+          venueId,
+          assetId: mediaAssetId,
+          requestId: randomUUID(),
+          expectedLatestReviewSequence: mediaApproval.sequence,
+          variants: ['CARD'],
+        },
+      })
+      const derivativeId = derivativeRequest.items[0]!.derivativeId
+      expect(
+        (
+          await db.venueMediaDerivative.updateMany({
+            where: {
+              id: derivativeId,
+              tenantId,
+              venueId,
+              assetId: mediaAssetId,
+              status: 'PENDING',
+            },
+            data: {
+              status: 'READY',
+              objectKey: `remote-proof/${suffix}.webp`,
+              storageVersionId: 'metadata-only-derivative-version',
+              mimeType: 'image/webp',
+              width: 768,
+              height: 480,
+              byteSize: 64,
+              sha256: createHash('sha256').update(`derivative:${suffix}`).digest('hex'),
+              completedAt: new Date(),
+            },
+          })
+        ).count,
+      ).toBe(1)
+
+      const reviewedRoute = await publicCaller.location.route({
+        venueId,
+        anonymousToken,
+        fromLocationId: origin.location.id,
+        toLocationId: destination.location.id,
+        accessibleOnly: true,
+      })
+      expect(reviewedRoute).toMatchObject({
+        from: { id: origin.location.id },
+        to: { id: destination.location.id },
+        accessibleOnly: true,
+        guidanceConfidence: 'HIGH',
+        review: { status: 'VENUE_REVIEWED' },
+      })
+      const reachable = await publicCaller.location.reachableDestination({
+        venueId,
+        anonymousToken,
+        fromLocationId: origin.location.id,
+        kind: 'ACCESSIBILITY_POINT',
+        accessibleOnly: true,
+      })
+      expect(reachable.destination).toMatchObject({
+        id: destination.location.id,
+        media: {
+          photoAttribution: {
+            altText: 'River Gallery entrance',
+            sourceName: 'Golden Venue fixture',
+          },
+        },
+      })
+      const destinationRecord = await db.venueLocation.findFirstOrThrow({
+        where: { id: destination.location.id, tenantId, venueId },
+        select: { primaryPlaceId: true },
+      })
+      expect(destinationRecord.primaryPlaceId).toBe(riverGallery.id)
+      const unpublishedMarker = `Unpublished river annex ${suffix}`
+      const unpublished = await reviewVenuePackageManifestService({
+        db,
+        tenantId,
+        venueId,
+        actor: mediaActor,
+        manifest: {
+          ...patchManifest,
+          manifestId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          operations: [
+            {
+              operationId: randomUUID(),
+              op: 'UPSERT_CONTENT_MODULE',
+              value: {
+                id: `unpublished-river-annex-${suffix}`,
+                version: 1,
+                audience: 'PUBLIC',
+                evidence: [],
+                assetIds: [],
+                kind: 'KNOWLEDGE',
+                title: unpublishedMarker,
+                body: unpublishedMarker,
+                topics: ['unpublished-fixture'],
+              },
+            },
+          ],
+        },
+        persist: true,
+      })
+      expect(unpublished.draft).toMatchObject({ status: 'DRAFT' })
+      expect(
+        await db.venueKnowledgeEntry.count({
+          where: { tenantId, venueId, title: unpublishedMarker },
+        }),
+      ).toBe(0)
+      const voiceGrounding = await publicCaller.voice.groundingContext({
+        venueId,
+        anonymousToken,
+        voiceSessionId: voiceSession.voiceSessionId,
+        toolCallId: 'remote-proof-river-gallery',
+        query: `How do I reach the River Gallery and ${unpublishedMarker}?`,
+      })
+      expect(voiceGrounding.context).toContain('River Gallery entrance')
+      expect(voiceGrounding.context).toContain('Golden Venue fixture')
+      expect(voiceGrounding.context).not.toContain(unpublishedMarker)
+      const mediaSourceId = `media:${derivativeId}:review:${mediaApproval.sequence}`
+      expect(voiceGrounding.sourceIds).toContain(mediaSourceId)
+      expect(appliedContentVersion).toMatchObject({
+        tenantId,
+        venueId,
+        venuePackageId: approved.id,
+      })
+      process.stdout.write(
+        `${JSON.stringify({
+          proof: 'GOLDEN_REVIEWED_GUEST_CONTEXT',
+          synthetic: true,
+          tenantId,
+          venueId,
+          appliedPackageId: approved.id,
+          appliedContentVersionId: appliedContentVersion.id,
+          placeId: riverGallery.id,
+          originLocationId: origin.location.id,
+          destinationLocationId: destination.location.id,
+          derivativeId,
+          reviewSequence: mediaApproval.sequence,
+          unpublishedDraftId: unpublished.draft!.id,
+          sourceIds: voiceGrounding.sourceIds,
+          outcomes: {
+            routeReviewed: reviewedRoute.review.status === 'VENUE_REVIEWED',
+            reachablePlaceMatched:
+              reachable.destination?.id === destination.location.id &&
+              destinationRecord.primaryPlaceId === riverGallery.id,
+            approvedMediaMatched: voiceGrounding.sourceIds.includes(mediaSourceId),
+            appliedPlacePresent: voiceGrounding.context.includes('River Gallery entrance'),
+            unpublishedDraftAbsent: !voiceGrounding.context.includes(unpublishedMarker),
+          },
+        })}\n`,
+      )
+
       const transcriptInput = {
         venueId,
         anonymousToken,
@@ -1227,6 +1612,15 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
         accepted: false,
       })
+      await expect(
+        publicCaller.voice.transcript({
+          ...transcriptInput,
+          providerEventId: 'provider-dark-transcript-2',
+          sequence: 2,
+          speaker: 'ASSISTANT',
+          text: '[Interrupted] Continue past the family lounge.',
+        }),
+      ).resolves.toEqual({ accepted: true })
       const usageInput = {
         venueId,
         anonymousToken,
@@ -1279,6 +1673,62 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           select: { status: true, fallbackToText: true, errorCode: true },
         }),
       ).resolves.toEqual({ status: 'ENDED', fallbackToText: true, errorCode: null })
+      const crossModeQuestion = 'Can you continue that route?'
+      const crossModeAnswer = 'Continue along the east corridor toward the family lounge.'
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: crossModeAnswer }],
+        usage: {
+          input_tokens: 24,
+          output_tokens: 11,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      })
+      await expect(
+        publicCaller.chat.send({
+          operationId: randomUUID(),
+          venueId,
+          anonymousToken,
+          message: crossModeQuestion,
+        }),
+      ).resolves.toMatchObject({
+        response: crossModeAnswer,
+        sessionId: guestTurn.sessionId,
+        replayed: false,
+      })
+      const crossModeProviderMessages = (
+        anthropicCreate.mock.calls.at(-1)?.[0] as {
+          messages: Array<{ role: string; content: string }>
+        }
+      ).messages
+      expect(crossModeProviderMessages.slice(-3)).toEqual([
+        {
+          role: 'user',
+          content:
+            '[Voice transcript data: visitor speech captured by the browser; transcription is unverified]\n' +
+            primaryExpected.question,
+        },
+        {
+          role: 'assistant',
+          content:
+            '[Voice transcript data: assistant output was interrupted, may be incomplete, and may not have been heard by the visitor]\nContinue past the family lounge.',
+        },
+        { role: 'user', content: crossModeQuestion },
+      ])
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: primaryExpected.question,
+            voiceDelivery: 'CAPTURED',
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Continue past the family lounge.',
+            voiceDelivery: 'INTERRUPTED',
+          }),
+        ]),
+      })
 
       // A provider route mismatch is rejected, persisted as failed, and surfaced as an
       // actionable operational incident. The existing text history remains available.
@@ -1469,14 +1919,213 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       ).resolves.toBe(1)
       _setAnthropicClientForTesting(null)
 
-      // 18. Exact rollback restores the content base after the public interaction evidence.
-      const reverted = await caller.venuePackage.revertPackage({
-        id: approved.id,
-        expectedUpdatedAt: applied.updatedAt,
+      // 18. Reviewed route/media references correctly retain their applied source. A separate,
+      // unreferenced canonical package proves exact rollback without deleting durable evidence.
+      const retainedDeletePreview = await caller.venuePackage.preview({
+        venueId,
+        payload: {
+          schemaVersion: 3,
+          places: {
+            create: [],
+            update: [],
+            delete: [
+              {
+                itemKey: randomUUID(),
+                id: riverGallery.id,
+                provenance: {
+                  sourceType: 'SYNTHETIC_DISPOSABLE_PROOF',
+                  sourceName: 'Retained route and media dependency control',
+                  contentOrigin: 'AI_GENERATED',
+                },
+              },
+            ],
+          },
+          knowledgeEntries: { create: [], update: [], delete: [] },
+        },
+      })
+      expect(retainedDeletePreview.report.errors).toContainEqual(
+        expect.objectContaining({
+          code: 'DELETE_BLOCKED',
+          path: 'places.delete.0',
+          message: expect.stringContaining('location-anchors (1), media-place-links (1)'),
+        }),
+      )
+      const originalKnowledge = await db.venueKnowledgeEntry.findMany({
+        where: { tenantId, venueId },
+        orderBy: { id: 'asc' },
+        select: { id: true, title: true, content: true },
+      })
+      const originalKnowledgeHash = createHash('sha256')
+        .update(JSON.stringify(originalKnowledge))
+        .digest('hex')
+      await expect(
+        caller.venuePackage.revertPackage({
+          id: approved.id,
+          expectedUpdatedAt: applied.updatedAt,
+          commandKey: randomUUID(),
+        }),
+      ).rejects.toMatchObject({
+        code: 'CONFLICT',
+        message:
+          'Created package place has retained dependencies: location-anchors (1), media-place-links (1)',
+      })
+      await expect(
+        db.venuePackage.findFirstOrThrow({
+          where: { id: approved.id, tenantId, venueId },
+          select: { status: true },
+        }),
+      ).resolves.toEqual({ status: 'APPLIED' })
+      await expect(
+        db.place.findFirstOrThrow({
+          where: { id: riverGallery.id, tenantId, venueId },
+          select: { name: true },
+        }),
+      ).resolves.toEqual({ name: 'River Gallery' })
+      const retainedKnowledge = await db.venueKnowledgeEntry.findMany({
+        where: { tenantId, venueId },
+        orderBy: { id: 'asc' },
+        select: { id: true, title: true, content: true },
+      })
+      expect(retainedKnowledge).toHaveLength(originalKnowledge.length)
+      expect(createHash('sha256').update(JSON.stringify(retainedKnowledge)).digest('hex')).toBe(
+        originalKnowledgeHash,
+      )
+
+      // Synthetic vectors complete the existing-place coverage prerequisite for the separate
+      // rollback control. This is scoped persistence proof, not embedding quality evidence.
+      const rollbackCoveragePlace = await db.place.findFirstOrThrow({
+        where: { id: riverGallery.id, tenantId, venueId },
+      })
+      const rollbackCoverageLease = randomUUID()
+      const rollbackCoverageClaim = await acquireEmbeddingWork({
+        tenantId,
+        venueId,
+        entityType: 'PLACE',
+        entityId: rollbackCoveragePlace.id,
+        contentUpdatedAt: rollbackCoveragePlace.updatedAt,
+        sourceHash: createHash('sha256')
+          .update(buildPlaceText(rollbackCoveragePlace))
+          .digest('hex'),
+        embeddingProfile: 'openai:text-embedding-3-small:1536',
+        leaseToken: rollbackCoverageLease,
+      })
+      if (rollbackCoverageClaim.state !== 'acquired') {
+        throw new Error(`Place coverage claim was not acquired: ${rollbackCoverageClaim.state}`)
+      }
+      const rollbackCoverageVector = Array(1_536).fill(0)
+      rollbackCoverageVector[1] = 1
+      await expect(
+        storePlaceEmbeddingForScope({
+          placeId: rollbackCoveragePlace.id,
+          tenantId,
+          venueId,
+          contentUpdatedAt: rollbackCoveragePlace.updatedAt,
+          source: rollbackCoveragePlace,
+          embedding: rollbackCoverageVector,
+          claimId: rollbackCoverageClaim.claimId,
+          leaseToken: rollbackCoverageLease,
+        }),
+      ).resolves.toEqual({ claimCompleted: true, stored: true })
+
+      const rollbackControlName = `Rollback control ${suffix}`
+      const rollbackControlMaterialized = await reviewVenuePackageManifestService({
+        db,
+        tenantId,
+        venueId,
+        actor: mediaActor,
+        manifest: {
+          ...patchManifest,
+          manifestId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          operations: [
+            {
+              operationId: randomUUID(),
+              op: 'UPSERT_CONTENT_MODULE',
+              value: {
+                id: `rollback-control-${suffix}`,
+                version: 1,
+                audience: 'PUBLIC',
+                evidence: [],
+                assetIds: [],
+                kind: 'PLACE',
+                name: rollbackControlName,
+                description: 'Unreferenced canonical rollback control.',
+                accessibility: [],
+              },
+            },
+          ],
+        },
+        persist: true,
+      })
+      const rollbackControlDraft = rollbackControlMaterialized.draft!
+      expect(rollbackControlDraft.status).toBe('DRAFT')
+      const rollbackControlApproved = await caller.venuePackage.approve({
+        id: rollbackControlDraft.id,
+        expectedUpdatedAt: rollbackControlDraft.updatedAt,
+        commandKey: randomUUID(),
+        acknowledgedWarningDigest: rollbackControlDraft.preview.warningDigest,
+        acknowledgedPayloadHash: rollbackControlDraft.payloadHash,
+      })
+      const rollbackControlApplied = await caller.venuePackage.applyPackage({
+        id: rollbackControlApproved.id,
+        expectedUpdatedAt: rollbackControlApproved.updatedAt,
         commandKey: randomUUID(),
       })
-      expect(reverted.status).toBe('REVERTED')
-      expect(await db.place.count({ where: { tenantId, venueId, name: 'River Gallery' } })).toBe(0)
+      const rollbackControlPlace = await db.place.findFirstOrThrow({
+        where: { tenantId, venueId, name: rollbackControlName },
+      })
+      const rollbackControlVersion = await db.contentVersion.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          venuePackageId: rollbackControlApproved.id,
+          venuePackageAction: 'APPLY',
+          entityType: 'PLACE',
+          entityId: rollbackControlPlace.id,
+        },
+      })
+      const rollbackControlReverted = await caller.venuePackage.revertPackage({
+        id: rollbackControlApproved.id,
+        expectedUpdatedAt: rollbackControlApplied.updatedAt,
+        commandKey: randomUUID(),
+      })
+      expect(rollbackControlReverted.status).toBe('REVERTED')
+      expect(
+        await db.place.count({
+          where: { id: rollbackControlPlace.id, tenantId, venueId },
+        }),
+      ).toBe(0)
+      expect(await db.place.count({ where: { id: riverGallery.id, tenantId, venueId } })).toBe(1)
+      await expect(
+        db.venuePackage.findFirstOrThrow({
+          where: { id: unpublished.draft!.id, tenantId, venueId },
+          select: { status: true },
+        }),
+      ).resolves.toEqual({ status: 'DRAFT' })
+      process.stdout.write(
+        `${JSON.stringify({
+          proof: 'GOLDEN_RETAINED_DEPENDENCY_ROLLBACK',
+          synthetic: true,
+          tenantId,
+          venueId,
+          originalPackageId: approved.id,
+          originalPlaceId: riverGallery.id,
+          originalContentVersionId: appliedContentVersion.id,
+          originalKnowledgeCount: originalKnowledge.length,
+          originalKnowledgeHash,
+          rollbackControlPackageId: rollbackControlApproved.id,
+          rollbackControlPlaceId: rollbackControlPlace.id,
+          rollbackControlContentVersionId: rollbackControlVersion.id,
+          outcomes: {
+            retainedDependenciesReportedInPreview: true,
+            retainedDependencyDeniedOriginalRollback: true,
+            originalPackageRemainedApplied: true,
+            originalPlaceRetained: true,
+            originalKnowledgeHashRetained: true,
+            exactControlReverted: rollbackControlReverted.status === 'REVERTED',
+          },
+        })}\n`,
+      )
       expect(
         await db.onboardingMilestoneEvent.findMany({
           where: { tenantId, venueId },
@@ -1543,6 +2192,9 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           status: 'DRAFT',
           title: 'Synthetic Golden Venue report',
           content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+          generatedAt: new Date(),
+          answerCount: guestProofs.length + 1,
+          sessionCount: guestProofs.length,
           createdBy: operatorId,
         },
       })
@@ -1716,7 +2368,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         replayed: true,
       })
       expect(openAiCreate).toHaveBeenCalledTimes(embeddingCallsBeforeReplay)
-      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length + 1)
 
       // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
       // requests in the fixed window and rejects the next request without another write.
@@ -2001,11 +2653,18 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
 
       // Failure matrix G — report failure: the real worker consumes a durable request, records
       // a failed job, and leaves the report visibly FAILED when deterministic generation rejects.
+      const failedReportWindowStart = new Date()
+      failedReportWindowStart.setUTCHours(0, 0, 0, 0)
+      const failedReportWindowEnd = new Date(failedReportWindowStart)
+      failedReportWindowEnd.setUTCDate(failedReportWindowEnd.getUTCDate() + 1)
+      failedReportWindowEnd.setUTCMilliseconds(-1)
+      const failedReportWeekStart = failedReportWindowStart.toISOString()
+      const failedReportWeekEnd = failedReportWindowEnd.toISOString()
       const failedReportRequest = await admin.generateWeeklyReportDraft({
         tenantId,
         venueId,
-        weekStart: '2026-08-17T00:00:00.000Z',
-        weekEnd: '2026-08-22T23:59:59.999Z',
+        weekStart: failedReportWeekStart,
+        weekEnd: failedReportWeekEnd,
         title: 'Synthetic failing Golden Venue report',
         requestId: randomUUID(),
       })
@@ -2037,8 +2696,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
               reportId: failedReportRequest.reportId,
               tenantId,
               venueId,
-              weekStart: '2026-08-17T00:00:00.000Z',
-              weekEnd: '2026-08-22T23:59:59.999Z',
+              weekStart: failedReportWeekStart,
+              weekEnd: failedReportWeekEnd,
             },
             {
               bullJobId: `golden-venue-report-failure-${suffix}`,
@@ -2057,7 +2716,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }),
       ).resolves.toMatchObject({
         status: 'FAILED',
-        error: expect.stringContaining('Synthetic report provider failure'),
+        error: 'WEEKLY_REPORT_FAILED',
       })
       await expect(
         db.jobRecord.count({

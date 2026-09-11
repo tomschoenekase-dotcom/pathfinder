@@ -1,0 +1,88 @@
+{
+  "recordedAt": "2026-09-08T07:41:04.993302+00:00",
+  "baseHead": "b8b424ad83bb53efab5ca1a4bd8df53299f25802",
+  "scope": "P04-02 typed founder question controls in both existing admin callers",
+  "behavior": [
+    "YES_NO fallback suggestions; MULTIPLE_CHOICE replaces selected answer; MULTI_SELECT toggle set serialized in supplied order with optional context.",
+    "Combined 5000-character API limit enforced before submission. Scope/revision clears new selection/context state. Exact frozen wake-up retry retained.",
+    "APPROVAL_REJECT guidance remains answer data; action authority remains separate. Other types retain free-text fallback."
+  ],
+  "verification": {
+    "componentAndCallerTestsInitial": 18,
+    "finalFormTests": 15,
+    "types": "Dashboard typecheck passed",
+    "lint": "Owned lint passed",
+    "browser": {
+      "passed": 1,
+      "failed": 0,
+      "viewports": [320, 820, 1024, 1440],
+      "axeViolations": 0,
+      "runtimeErrors": 0,
+      "keyboard": true,
+      "overflow": false
+    },
+    "readback": "Root inspected all four retained screenshots, browser last-run passed, exact production diff and typed-specific test additions. Owned Next process stopped; no3001 listener. Generated Next reference restored."
+  },
+  "designReview": "Preserves existing compact admin controls; desktop side-by-side fixture and stacked mobile remain readable. Explicit AI-default critique: no new decorative branding, gradients or animation; existing choice button treatment is functional. Fixture containers are not a redesign of the production board.",
+  "limitations": [
+    "Browser uses real component with mocked answer transport; no new native database or worker execution proof.",
+    "Canonical answer remains opaque human text, not server-enforced typed choices. DATE_TIME and STRUCTURED_OBJECT retain free-text fallback.",
+    "Full founder question bundling/discussion/expiry acceptance remains separate."
+  ],
+  "sourceHashes": [
+    {
+      "source": "apps/dashboard/components/admin/AgentQuestionAnswerForm.tsx",
+      "sha256NormalizedLF": "cb8b3727ca69af215e38482df84f707eb0a24937fbfa01b463199418a580210b"
+    },
+    {
+      "source": "apps/dashboard/components/admin/AgentQuestionAnswerForm.test.tsx",
+      "sha256NormalizedLF": "38424aad400fee97f578135eda2e81d35d90f816976e8e50cb886978e2e17054"
+    },
+    {
+      "source": "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx",
+      "sha256NormalizedLF": "414da7a06c947fa48668e192d95c1e2e7d59a4789927ec7760b4719328f5dc00"
+    },
+    {
+      "source": "apps/dashboard/components/admin/FounderQuestionTriageBoard.test.tsx",
+      "sha256NormalizedLF": "d009f751853a361b9ad8d3caa1187edbe3d97c12a0f09dd5f94387d9a9016360"
+    },
+    {
+      "source": "apps/dashboard/components/admin/AgentOperationsOverview.tsx",
+      "sha256NormalizedLF": "e1955caa855b74b603fd72c5e312fdc2786b3bf6490ac40c1acac8b2157f6412"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/founder-question-types/page.tsx",
+      "sha256NormalizedLF": "75bd3f8e68443a7503f50c2c859b9b24a70834d2be1578314a3b1b4f886c05ab"
+    },
+    {
+      "source": "apps/dashboard/tests/visual/founder-question-types.spec.ts",
+      "sha256NormalizedLF": "4b35e6c1ca72775a924a6776bcda43dbd2bc90bde462261882647eb7bff5a0fa"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1024.png",
+      "sha256": "cb06e32d9cab09bbd8a6e2b7f269bbd2ec4d9332f17b60d050e85e1cc0eb2008"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1440.png",
+      "sha256": "e369ff499ae93c51c3599d6cd4d131f886f7cf68f36ec6855e90310831565f68"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-320.png",
+      "sha256": "8fe0ac065be7ad7671067104a5525171e8b2d5355c8abba4c8add1f9c3f6f3ad"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-820.png",
+      "sha256": "326c535b8b7d727c7b86dedb1022da6144892a94b85bf0c67b2bb3a72c5fbd5c"
+    }
+  ],
+  "artifactRetention": {
+    "correctedAt": "2026-09-08T08:01:51.143590+00:00",
+    "reason": "Shared Playwright output is cleared by later runs; regenerated proofs use this dedicated artifact directory.",
+    "rerun": "2/2 founder types and answer recovery browser checks passed on the current form.",
+    "exactOriginalScreenshotHashesVerified": true,
+    "sourceHead": "76b5e8c29a966c0bbf0c5f842fc22f2e759de045",
+    "outputDirectory": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored"
+  }
+}

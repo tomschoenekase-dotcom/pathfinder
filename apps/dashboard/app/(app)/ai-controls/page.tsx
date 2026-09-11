@@ -1,9 +1,11 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 
 import tochiDevelopmentManifest from '../../../../../assets/characters/tochi/v0-development/manifest.json'
 import { AiControlsForm } from '../../../components/AiControlsForm'
+import { ChatDesignForm } from '../../../components/ChatDesignForm'
 import { createDashboardCaller } from '../../../lib/server-caller'
 
 type AiControlsPageProps = {
@@ -13,6 +15,15 @@ type AiControlsPageProps = {
 }
 
 export default async function AiControlsPage({ searchParams }: AiControlsPageProps) {
+  const { orgRole, sessionClaims } = await auth()
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as { platform_role?: string } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
+  const canEditBranding =
+    isPlatformAdmin ||
+    orgRole === 'org:admin' ||
+    orgRole === 'org:manager' ||
+    orgRole === 'org:owner'
   const { venue: requestedVenue } = await searchParams
   const caller = await createDashboardCaller('/ai-controls')
   const venues = await caller.venue.list()
@@ -62,6 +73,14 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       profiles: await caller.venue.listPersonalityProfiles({ venueId: venue.id }),
     })),
   )
+  const brandingAssetsByVenue = Object.fromEntries(
+    await Promise.all(
+      venues.map(
+        async (venue) =>
+          [venue.id, await caller.venue.listApprovedBrandingAssets({ venueId: venue.id })] as const,
+      ),
+    ),
+  )
 
   const characterRolloutVisible =
     isFeatureEnabled('venueCharacterMode') &&
@@ -91,6 +110,30 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
             Choose how your public visitor guide appears and communicates. Venue Bot is separate
             from Tochi in your private client portal.
           </p>
+        </section>
+
+        <section
+          aria-labelledby="chat-design-heading"
+          className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
+            Branding
+          </p>
+          <h2 id="chat-design-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
+            Customize the visitor chat
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+            Choose a built-in colour theme, accent, and typeface for this venue’s public visitor
+            guide. Changes save to the venue and appear in the visitor chat immediately.
+          </p>
+          <div className="mt-6">
+            <ChatDesignForm
+              venues={venues}
+              canEdit={canEditBranding}
+              initialVenueId={initialVenueId}
+              brandingAssetsByVenue={brandingAssetsByVenue}
+            />
+          </div>
         </section>
 
         <AiControlsForm

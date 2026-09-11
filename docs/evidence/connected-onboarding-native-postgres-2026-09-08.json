@@ -1,0 +1,234 @@
+{
+  "recordedAt": "2026-09-08T07:02:25.083719+00:00",
+  "baseHead": "dbcae4c1802aefaa3ff3d9ebe0d481c5e0193e10",
+  "scope": "Connected owner draft persistence and retained source reader through actual appRouter, production permission helpers and disposable PostgreSQL; synthetic session acquisition and source receipts.",
+  "native": {
+    "database": "pathfinder_disposable_onboarding_b797f9153d25",
+    "pgPort": "55489",
+    "nextPort": 3002,
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-connected-browser-b797f9153d25",
+    "distDir": ".next-onboarding-connected-b797f9153d25",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 230,
+      "publicTableCount": 254
+    },
+    "nextReady": true,
+    "browserPassed": true,
+    "browserCounts": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nextStopped": true,
+    "nextPortAvailableAfterTeardown": true,
+    "nextPortReleaseAfterTeardown": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-08T06:56:06.740Z",
+          "available": true
+        }
+      ]
+    },
+    "pgStopped": true
+  },
+  "fixes": [
+    "All four draft reads now include root tenantId required by the actual tenant-isolation middleware, including composite lookup and update/reopen readbacks. No bypass added.",
+    "Draft conflict UI uses structured TRPC CONFLICT code even when server message is masked. Unsaved text survives conflict and permission loss.",
+    "Source previews, pagination, offsets and UI counts use Unicode code points. Search offsets retain whole-string lowercase semantics and up to 100 matches per page. Signed v2 codePoint cursors reject legacy code-unit continuations."
+  ],
+  "acceptance": [
+    "Two browser contexts: save, reload, compare-and-swap conflict, reload winner, subsequent save, permission loss and private owner isolation.",
+    "Retained source with emoji at position 3999: exact 4000-code-point preview and first page; next page contains later fact; exact returned cursor sent with same receipt/hash.",
+    "Wrong role and tenant denied; source receipt unchanged; no venue knowledge or non-file proposal created."
+  ],
+  "focusedChecks": {
+    "draftHelperAndTenantIsolation": 330,
+    "intakeRouter": 13,
+    "workspace": 23,
+    "readerAndLifecycleService": 13,
+    "lifecyclePanel": 13,
+    "types": "DB, API and dashboard passed before final native proof",
+    "lint": "Scoped changed sources passed"
+  },
+  "visualReview": {
+    "reviewedBy": "Astra root",
+    "screenshots": [
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-connected-browser-b797f9153d25\\playwright-output\\onboarding-connected-conne-433d4-ding-CAS-or-permission-loss-connected-chromium\\draft-conflict-320.png",
+        "sha256": "46ca31c48fa579ad56035c76d5e74a1a6c1b3c0591df9c04494925340964de7f"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-connected-browser-b797f9153d25\\playwright-output\\onboarding-connected-conne-433d4-ding-CAS-or-permission-loss-connected-chromium\\draft-permission-loss-320.png",
+        "sha256": "274bb9e2bd3630ab1e2540ddca2293393f737046b7fd0935aae790c222bca71e"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-connected-browser-b797f9153d25\\playwright-output\\onboarding-connected-conne-c2b87--denies-wrong-scope-or-role-connected-chromium\\retained-source-page-two-1440.png",
+        "sha256": "97a28ef1f4f84116bbcc1b201983847488fa01ebc19763219e3a208658aea410"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-connected-browser-b797f9153d25\\playwright-output\\onboarding-connected-conne-c2b87--denies-wrong-scope-or-role-connected-chromium\\retained-source-page-two-820.png",
+        "sha256": "ab0f3c1c9d0bcb92fe3c1a151b0a3e4b2f2d8c4134cdd7803dbb8373e008792d"
+      }
+    ],
+    "finding": "Conflict and permission-loss text remains visible at 320px; retained source continuation readable at 820 and 1440px. Existing forms and divider language retained; no additional branding design. Development Next indicator is fixture-only."
+  },
+  "limitations": [
+    "Synthetic session acquisition, actual authorization helpers; no production Clerk/SSR authentication proof.",
+    "Canonical synthetic upload verification/extraction receipt; no real upload scanner or extraction provider.",
+    "Legacy source-reader cursors intentionally return CONFLICT and require reopening the reader.",
+    "No physical-device, deployment, publication, customer communication or live-provider proof."
+  ],
+  "retainedEarlierAttempts": {
+    "0d77a4c11f1b": "Auth module interception fixture failure",
+    "6e11904f83a8": "Ambiguous Notes selector",
+    "efb268dd0085": "Actual tenant guard rejected draft reads",
+    "087e2ad0cae3": "Actual conflict UI hid masked CONFLICT",
+    "863510676aa7": "Draft scenario passed; ambiguous Bounded preview selector; delayed port release subsequently verified"
+  },
+  "sourceHashes": [
+    {
+      "source": "apps/dashboard/tests/browser/onboarding-connected.spec.ts",
+      "sha256NormalizedLf": "1491d57e4558d75f0a2b76b80621e72d38a79ff75b8fd463887e2af98fc8aa87"
+    },
+    {
+      "source": "apps/dashboard/playwright.onboarding-connected.config.ts",
+      "sha256NormalizedLf": "693b50424aa279327094e4092b4f1617b909de59aef8d0d477cc41facccf9ea2"
+    },
+    {
+      "source": "apps/dashboard/next.config.ts",
+      "sha256NormalizedLf": "3ae9d3baa2570996816ca152650bd101177a6543fee5ed9077cb4c22ed1dddb7"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/remote-onboarding/page.tsx",
+      "sha256NormalizedLf": "5b88a43edda9a250c3c43ff308cfe707d94558e3a3740dc1f89fc9ab166c4b67"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/connected-intake-reader/page.tsx",
+      "sha256NormalizedLf": "0517bdccf169a720b021578823c1edbd72bef6a47b22a5e589bbe4325dfbbf9a"
+    },
+    {
+      "source": "apps/dashboard/components/RemoteOnboardingJourney.tsx",
+      "sha256NormalizedLf": "8be8ec3b2849742afad5ed67e56e141af12df3d1d86671828b3e39455a84e7e5"
+    },
+    {
+      "source": "apps/dashboard/components/IntakeProposalWorkspace.tsx",
+      "sha256NormalizedLf": "57e618ae951e4924fe5f394cce4f4b39d83cc6c1a42991f0d08c0c80929ef4f5"
+    },
+    {
+      "source": "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.tsx",
+      "sha256NormalizedLf": "1d876d49fd6d332af861a9a6399b656c6ac8bf62db25b7996dfd1250595a216d"
+    },
+    {
+      "source": "apps/dashboard/components/TorchikoCore.tsx",
+      "sha256NormalizedLf": "ba802dda5b63fb91423a2dab5314db4b32f859d7eda85eb7e58e5b4f73fb237f"
+    },
+    {
+      "source": "apps/dashboard/components/TorchikoClientPrimitives.module.css",
+      "sha256NormalizedLf": "32142c770bea3e7966c261304a551f85aa6efb89a213ed2e3c365a2d961df667"
+    },
+    {
+      "source": "apps/dashboard/lib/trpc.tsx",
+      "sha256NormalizedLf": "35516660d232afa1c1e65ff2ac77cfa86db25807907e7f2cb2e9e31808cf2634"
+    },
+    {
+      "source": "packages/contracts/src/client-portal-lifecycle.ts",
+      "sha256NormalizedLf": "5aab707f09fcd16d934a2d29e7ac3a988e1fd8163bfe8117c80f26659a90915c"
+    },
+    {
+      "source": "packages/contracts/src/remote-onboarding.ts",
+      "sha256NormalizedLf": "c06b762dc302184244d7876832b7056eca01ae13213781a970888ce3652205f3"
+    },
+    {
+      "source": "packages/api/src/index.ts",
+      "sha256NormalizedLf": "f5475e0ab3f33eea3fefdf8bcba2e6b61a2bcc662546b61c2054f644a5359942"
+    },
+    {
+      "source": "packages/api/src/root.ts",
+      "sha256NormalizedLf": "f313e07e9775bbe9f1ac98c283dee46863f29c5cf655d3eb702ea68f4e9686cd"
+    },
+    {
+      "source": "packages/api/src/trpc.ts",
+      "sha256NormalizedLf": "c0e8328afcd407c6d24c60a66d1df93f90654b9f6b8c808acc1e659739088150"
+    },
+    {
+      "source": "packages/api/src/routers/intake.ts",
+      "sha256NormalizedLf": "f617c33825ef20b20b68921d5b439c98b045a8a4518945b98e385dcc52904e38"
+    },
+    {
+      "source": "packages/api/src/routers/admin/intake-operations.ts",
+      "sha256NormalizedLf": "138118b8f18fff2c7662b8c81562fe271327578ffa29e1f311fc3b2dfb816a1b"
+    },
+    {
+      "source": "packages/api/src/routers/admin/intake-file-extraction.ts",
+      "sha256NormalizedLf": "2bee22469f262eca1bc09ac26fff3b0c68b566d283bbf87b2ff0b663087121e2"
+    },
+    {
+      "source": "packages/api/src/lib/intake-builder-lifecycle-service.ts",
+      "sha256NormalizedLf": "9893c72ea6cf0692dd5df19f7dbb77a65bcb6ea7ed12c26e1f5bbd5f7b26317f"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+      "sha256NormalizedLf": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+    },
+    {
+      "source": "packages/db/src/index.ts",
+      "sha256NormalizedLf": "52ea9d1c4f404f3143d561178438aa4c9e724498b4abb223c5bc9114d030a65d"
+    },
+    {
+      "source": "packages/db/src/client.ts",
+      "sha256NormalizedLf": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-submission-draft-actions.ts",
+      "sha256NormalizedLf": "c8316fe34bf3e44b5c4a66905a021152feedc6176b1750e2d8bdadbf1d4eda38"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-upload-actions.ts",
+      "sha256NormalizedLf": "873359880d4b5b647e64bf950c7c32b4c20f35097cbe400d8cbe85aa80e69f7a"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+      "sha256NormalizedLf": "56fc063c3296353b941bb9087918cf8b3ed8f35e5076bd23b0c7f2cb6602ed4d"
+    },
+    {
+      "source": "packages/auth/src/permissions.ts",
+      "sha256NormalizedLf": "72a3ed60b374b18d39087b488170fd35b80ad390a59943df0a15c053f7c636b6"
+    }
+  ],
+  "additionalTestHashes": [
+    {
+      "source": "apps/dashboard/components/IntakeProposalWorkspace.test.tsx",
+      "sha256NormalizedLf": "cefaf7a339158b48dbaf02a451838300500827f891d405d46e96a19c4e4b996e"
+    },
+    {
+      "source": "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.test.tsx",
+      "sha256NormalizedLf": "0f044caea9f86d19a3bd6521ef90e06088dc5a53df9d057681c7c1ee34175e5e"
+    },
+    {
+      "source": "packages/api/src/lib/intake-builder-lifecycle-service.test.ts",
+      "sha256NormalizedLf": "b4d4e5ae427d467e560357c3d37cc7f889b99050853607c003a3fa1171b1704b"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-extraction-reader.test.ts",
+      "sha256NormalizedLf": "9a3815f6abc3f3e3d844468aff4864dd01990386191d41365af7f5ff1e854f23"
+    },
+    {
+      "source": "packages/api/src/routers/intake.test.ts",
+      "sha256NormalizedLf": "9fa5180ad2c19a80c4a8d5c3dd6b7431e74443833f04a8e7e623b409bb9e57f8"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-submission-draft-actions.test.ts",
+      "sha256NormalizedLf": "bc234a6f9668e961ab0f8337a47d08aba8534c611014a1251055cbf36a193376"
+    },
+    {
+      "source": "packages/db/src/middleware/tenant-isolation.test.ts",
+      "sha256NormalizedLf": "35c6115e31bd8db2a7cf6db6cc7e7a7132485083010386f16a0cbce3d6a223b5"
+    }
+  ]
+}

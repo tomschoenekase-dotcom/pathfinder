@@ -9,6 +9,26 @@ const base = {
 }
 
 describe('billing environment', () => {
+  it('cannot enforce an implicit seven-day recovery default', () => {
+    expect(() =>
+      parseBillingEnvironment({ ...base, BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true' }),
+    ).toThrow(/approved payment recovery policy/u)
+    expect(() =>
+      parseBillingEnvironment({
+        ...base,
+        BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true',
+        BILLING_RECOVERY_POLICY_APPROVED: 'true',
+      }),
+    ).toThrow(/explicitly configured grace period/u)
+    const environment = parseBillingEnvironment({
+      ...base,
+      BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true',
+      BILLING_RECOVERY_POLICY_APPROVED: 'true',
+      BILLING_GRACE_PERIOD_DAYS: '14',
+    })
+    expect(billingCapabilityEnabled('entitlement-enforcement', environment)).toBe(true)
+    expect(environment.BILLING_GRACE_PERIOD_DAYS).toBe(14)
+  })
   it('fails closed by default', () => {
     const environment = parseBillingEnvironment(base)
     expect(environment.STRIPE_MODE).toBe('test')

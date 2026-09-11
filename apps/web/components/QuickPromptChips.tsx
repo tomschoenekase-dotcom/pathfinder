@@ -1,3 +1,4 @@
+import styles from './visitor-chat.module.css'
 import React from 'react'
 import { LANGUAGE_START_LABELS } from './LanguagePicker'
 
@@ -253,18 +254,21 @@ export function QuickPromptChips({
       <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--chat-text-muted)]">
         {startLabel}
       </p>
-      <div className="flex flex-wrap gap-2">
+      <div className={styles.prompts}>
         {prompts.map((prompt) => (
           <button
             key={prompt}
-            className="inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 text-center text-sm font-medium text-[var(--chat-accent-text)] shadow-sm transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${styles.prompt} min-h-11 inline-flex items-center text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50`}
             type="button"
             disabled={disabled}
             onClick={() => {
               onSend(prompt)
             }}
           >
-            {prompt}
+            <span>{prompt}</span>
+            <span className={styles.promptArrow} aria-hidden="true">
+              ↗
+            </span>
           </button>
         ))}
       </div>

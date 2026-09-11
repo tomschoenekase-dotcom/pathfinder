@@ -1,0 +1,69 @@
+{
+  "recordedAt": "2026-09-08T10:20:23.944582+00:00",
+  "baseCommit": "dd694e07b6b261de0ca74f8e1a26daa78fb3a2b5",
+  "scope": "Preserve current loaded question drafts through filtering and prevent redundant initial answer-form reset.",
+  "behavior": [
+    "One flat keyed card tree remains mounted even for zero matching questions. Filtered current loaded cards are natively hidden, excluded from layout/accessibility/keyboard traversal.",
+    "Only current loaded questions are retained; server removal unmounts them and re-add starts clean.",
+    "Answer form skips redundant initial scope-reset effect because initial useState values already belong to that scope. Actual scope/revision generation changes still reset form state and fence stale completions.",
+    "No browser-storage persistence, answer mutation, authority grant or canonical question state change."
+  ],
+  "checks": {
+    "board": 5,
+    "operationsConsole": 13,
+    "answerForm": 18,
+    "realFormComposition": 1,
+    "dashboardTypecheck": "passed",
+    "ownedLint": "passed",
+    "browser": {
+      "diagnosticPassed": 1,
+      "fullPassed": 4,
+      "suites": ["grouping3", "existing priority1"],
+      "project": "desktop-chromium",
+      "widths": [320, 820, 1024, 1440],
+      "assertions": [
+        "Answer agent enabled after initial entry; same textarea marker, value and open card survive view toggles and venue filter.",
+        "Value persists after twelve Tab traversals, before/after Axe, zero-match and Clear filters.",
+        "Filtered north card cannot receive focus; only matching cards visible; main-scoped Axe includes color contrast and has zero violations.",
+        "All grouping flows collect and assert zero page errors; no horizontal overflow; reduced-motion rendering."
+      ],
+      "outputDirectory": "artifacts/founder-question-grouping-final3-postfix-full/results",
+      "session": 29563,
+      "listenerPid": 62244,
+      "stopped": true
+    }
+  },
+  "retainedFailures": [
+    {
+      "artifact": "artifacts/founder-question-grouping-final2-4e7bc2a1/results",
+      "result": "3/4; final draft empty after zero-match/Clear. Initial inference about conditional grid was rejected because current grid was unconditional."
+    },
+    {
+      "artifact": "artifacts/founder-question-grouping-final3-diagnostic/results",
+      "result": "Isolated empty textarea immediately after venue filter on same DOM node, before keyboard/Axe/zero-match. Additional form reset guard then passed diagnostic and full sequence."
+    }
+  ],
+  "visualProof": "All8 final PNG hashes exactly match captures root already inspected at320/820/1024/1440 for dd694e07. No new visible design or branding.",
+  "limitations": [
+    "Synthetic guarded fixture, local browser and mocked transport. No connected auth/database/provider or actual answer submission proof.",
+    "Local drafts persist only while their current loaded question/component remains mounted; reload/navigation persistence is not claimed.",
+    "No complete semantic deduplication or full founder workload acceptance claim."
+  ],
+  "normalizedSourceSha256": {
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx": "7937c6cfff95067dcfc89a0325215eeca3759bc7e917b4c13cdb4a0c578365d5",
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.test.tsx": "d519c5a04bdb5f847f2dbdc0280c20f09d1b1057153ef86ed24e27b0b113a88b",
+    "apps/dashboard/components/admin/AgentQuestionAnswerForm.tsx": "3ccac588602a1fde71d879df5128ca68177c55a56c2195cfaad8189729ecc4ff",
+    "apps/dashboard/components/admin/FounderQuestionDraftLifecycle.test.tsx": "5057d607706db2bf3f59e3688385101abee71cc3786390e5a020adf4165e81d6",
+    "apps/dashboard/tests/browser/founder-question-grouping.spec.ts": "7d6819dbbd8d931da277170ddb4dc666b5a97e650548bdf7407a8c57236aff9c"
+  },
+  "screenshotSha256": {
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-desktop-1440.png": "026a051b4eb4769c532fbaee781279a04ff3ba05653ce49f14868e6c5f9604ca",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-laptop-1024.png": "9700574defeb972c4452bc8b73d606c011cf23d104dec9ed46034a3f1226304a",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-phone-320.png": "031e479b8d9c42676dafd5b900db5d715836ebab5565297504703ad8fc610cf8",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-tablet-820.png": "924b6bdf4f85f92a7cea8f119701f31c7f8ecdaedfd6aa00557187a24615765b",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-desktop-1440.png": "070e7ca81885d3ff2912047c1381a016048d8a8261c70c722bf84b4ad403b249",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-laptop-1024.png": "37c45ca14d0e9bf961fd994a9215d2b4ca03a7967de4ebdf31cdc0903885ce78",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-phone-320.png": "527f080d584f67fe428a6e9ff46ba6a822c6a7140effc9edcb21ce5ba7eb87b2",
+    "artifacts/founder-question-grouping-final3-postfix-full/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-tablet-820.png": "70bb691a4c9cbd0b38d8b95aee2bd7dbeb18241b392dba614c631fcc36643949"
+  }
+}

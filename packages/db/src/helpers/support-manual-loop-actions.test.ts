@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const audit = vi.hoisted(() => vi.fn())
+const readFulfillment = vi.hoisted(() => vi.fn())
 vi.mock('./audit', () => ({ writeAuditLogStrict: audit }))
+vi.mock('./support-package-fulfillment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./support-package-fulfillment')>()),
+  readSupportPackageFulfillment: readFulfillment,
+}))
 
 import {
   completeSupportRequestAction,
@@ -62,6 +67,7 @@ function harness(overrides: Record<string, unknown> = {}) {
       create: vi.fn().mockResolvedValue(message),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
+    knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
     supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
   }
@@ -86,6 +92,7 @@ describe('manual Support loop actions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     audit.mockResolvedValue(undefined)
+    readFulfillment.mockReset().mockResolvedValue(packageFreeFulfillment)
   })
 
   it('atomically requests information with prompt, items, status, versions and audits', async () => {
@@ -367,6 +374,155 @@ describe('manual Support loop actions', () => {
     expect(blocked.tx.supportRequest.updateMany).not.toHaveBeenCalled()
   })
 
+  it('fences and persists the derived structured completion outcome', async () => {
+    await completeSupportRequestAction(
+      {
+        operationId: '33333333-3333-4333-8333-333333333333',
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Probe the current verified fulfillment.',
+        actor: operator,
+      },
+      harness().client as never,
+    )
+    const currentDigest = (
+      audit.mock.calls.at(-1)?.[0] as { afterState: { packageFulfillmentDigest: string } }
+    ).afterState.packageFulfillmentDigest
+    audit.mockClear()
+    const h = harness()
+    await completeSupportRequestAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'This request has been resolved.',
+        expectedCompletionOutcome: 'RESOLVED',
+        expectedFulfillmentDigest: currentDigest,
+        actor: operator,
+      },
+      h.client as never,
+    )
+    expect(h.tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          body: 'This request has been resolved.',
+          completionOutcome: 'RESOLVED',
+        }),
+      }),
+    )
+
+    await expect(
+      completeSupportRequestAction(
+        {
+          operationId: '22222222-2222-4222-8222-222222222222',
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'This request has been resolved.',
+          expectedCompletionOutcome: 'NO_CHANGE',
+          expectedFulfillmentDigest: currentDigest,
+          actor: operator,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    readFulfillment.mockResolvedValue(packageFreeFulfillment)
+  })
+
+  it('requires expected completion outcome and digest as a pair', async () => {
+    await expect(
+      completeSupportRequestAction(
+        {
+          operationId,
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'This request has been resolved.',
+          expectedCompletionOutcome: 'RESOLVED',
+          actor: operator,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('requires V7 decline completion evidence, binds the exact body, and replays before a fresh fulfillment read', async () => {
+    const fulfillment = {
+      contractVersion: 7 as const,
+      linkedPackageCount: 0,
+      packages: [],
+      digest: 'a'.repeat(64),
+      guestObservability: { effects: [] },
+      contentFulfillment: { receipts: [] },
+      temporalFulfillment: { receipts: [] },
+      noChangeFulfillment: { receipts: [] },
+      proposalResolutionFulfillment: {
+        contractVersion: 1 as const,
+        declines: [{ proposalId: 'proposal_1' }],
+        replacements: [],
+      },
+    }
+    readFulfillment.mockResolvedValue(fulfillment)
+    const h = harness()
+    const base = {
+      operationId: '44444444-4444-4444-8444-444444444444',
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 4,
+      body: 'The request was reviewed and resolved without a content change.',
+      actor: operator,
+    }
+    await expect(completeSupportRequestAction(base, h.client as never)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    await completeSupportRequestAction(
+      {
+        ...base,
+        expectedCompletionOutcome: 'RESOLVED',
+        expectedFulfillmentDigest: fulfillment.digest,
+      },
+      h.client as never,
+    )
+    const created = h.tx.supportMessage.create.mock.calls[0]![0].data
+    h.tx.supportMessage.findFirst.mockResolvedValue({
+      ...h.message,
+      body: base.body,
+      submissionRequestId: base.operationId,
+      submissionInputHash: created.submissionInputHash,
+      requestVersion: 5,
+      clientVersion: 4,
+    })
+    readFulfillment.mockRejectedValueOnce(new Error('fresh fulfillment must not run for replay'))
+    await expect(
+      completeSupportRequestAction(
+        {
+          ...base,
+          expectedCompletionOutcome: 'RESOLVED',
+          expectedFulfillmentDigest: fulfillment.digest,
+        },
+        h.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    await expect(
+      completeSupportRequestAction(
+        {
+          ...base,
+          body: 'Different client-visible completion wording.',
+          expectedCompletionOutcome: 'RESOLVED',
+          expectedFulfillmentDigest: fulfillment.digest,
+        },
+        h.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
   it('attributes approved agent completion and records customer contact truthfully', async () => {
     const h = harness()
     h.message.authorKind = 'AGENT'
@@ -464,7 +620,7 @@ describe('manual Support loop actions', () => {
     expect(h.tx.supportRequest.findFirst).toHaveBeenCalledTimes(2)
   })
 
-  it('replays the durable produced versions after a later global-only request change', async () => {
+  it('replays the current response-thread projection while retaining immutable operation versions', async () => {
     const h = harness({ status: 'WAITING_FOR_CLIENT', missingInformation: ['Details'] })
     h.message.authorKind = 'CLIENT'
     h.message.authorId = 'client_1'
@@ -521,7 +677,15 @@ describe('manual Support loop actions', () => {
       },
       h.client as never,
     )
-    expect(replay).toMatchObject({ requestVersion: 5, clientVersion: 4, replayed: true })
+    expect(replay).toMatchObject({
+      status: 'IN_REVIEW',
+      missingInformation: [],
+      requestVersion: 6,
+      clientVersion: 4,
+      currentProjection: { requestVersion: 6, clientVersion: 4, status: 'IN_REVIEW' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: true,
+    })
     expect(h.tx.supportRequest.updateMany).not.toHaveBeenCalled()
     expect(h.tx.supportMessage.create).not.toHaveBeenCalled()
     expect(h.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
@@ -549,5 +713,60 @@ describe('manual Support loop actions', () => {
         h.client as never,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('does not report an old completion as current after the client reopens the thread', async () => {
+    const h = harness()
+    const input = {
+      operationId,
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 4,
+      body: 'This request is complete. No package was changed.',
+      actor: operator,
+    }
+    const first = await completeSupportRequestAction(input, h.client as never)
+    expect(first).toMatchObject({
+      status: 'COMPLETED',
+      requestVersion: 5,
+      clientVersion: 4,
+      currentProjection: { requestVersion: 5, clientVersion: 4, status: 'COMPLETED' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: false,
+    })
+    const createdData = h.tx.supportMessage.create.mock.calls[0]![0].data
+    h.tx.supportRequest.findFirst.mockResolvedValue({
+      ...h.request,
+      status: 'IN_REVIEW',
+      missingInformation: ['New details'],
+      version: 6,
+      clientVersion: 5,
+    })
+    h.tx.supportMessage.findFirst.mockResolvedValue({
+      ...h.message,
+      submissionRequestId: operationId,
+      submissionInputHash: createdData.submissionInputHash,
+      requestVersion: 5,
+      clientVersion: 4,
+    })
+    h.tx.supportRequest.updateMany.mockClear()
+    h.tx.supportMessage.create.mockClear()
+    h.tx.supportRequestAuditEvent.create.mockClear()
+    audit.mockClear()
+
+    await expect(completeSupportRequestAction(input, h.client as never)).resolves.toMatchObject({
+      status: 'IN_REVIEW',
+      missingInformation: ['New details'],
+      requestVersion: 6,
+      clientVersion: 5,
+      currentProjection: { requestVersion: 6, clientVersion: 5, status: 'IN_REVIEW' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: true,
+    })
+    expect(h.tx.supportRequest.updateMany).not.toHaveBeenCalled()
+    expect(h.tx.supportMessage.create).not.toHaveBeenCalled()
+    expect(h.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 })

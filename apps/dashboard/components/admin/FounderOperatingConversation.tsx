@@ -41,6 +41,20 @@ function evidenceItems(value: unknown): Evidence[] {
 
 function ExchangeCard({ exchange }: { exchange: Exchange }) {
   const items = evidenceItems(exchange.evidence)
+  const task = exchange.directiveTaskRequest
+  const taskLabel = task
+    ? task.status === 'AWAITING_APPROVAL'
+      ? 'Approval pending'
+      : task.status === 'REJECTED'
+        ? 'Rejected'
+        : task.status === 'CANCELLED'
+          ? 'Cancelled'
+          : task.agentRun
+            ? task.agentRun.status.replaceAll('_', ' ').toLowerCase()
+            : task.status === 'APPROVED'
+              ? 'Approved · awaiting materialization'
+              : 'Materialized · run unavailable'
+    : null
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-sm font-medium leading-6 text-slate-700">{exchange.prompt}</p>
@@ -49,7 +63,7 @@ function ExchangeCard({ exchange }: { exchange: Exchange }) {
           <h3 className="font-semibold">{exchange.responseTitle}</h3>
           {exchange.disposition === 'RECORDED_FOR_TRIAGE' ? (
             <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-950">
-              Recorded for triage · not executed
+              {task ? 'Initial response · ' : ''}Recorded for triage · not executed
             </span>
           ) : null}
         </div>
@@ -72,6 +86,35 @@ function ExchangeCard({ exchange }: { exchange: Exchange }) {
           </ul>
         ) : null}
       </div>
+      {task ? (
+        <section
+          aria-label="Current task status"
+          className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-700"
+        >
+          <p className="font-bold uppercase tracking-wide text-sky-950">Current task status</p>
+          <p className="mt-1">
+            <span className="font-semibold capitalize">{taskLabel}</span> ·{' '}
+            {task.agentIdentity.name}
+          </p>
+          {task.agentRun ? (
+            <>
+              <p className="mt-1 break-words">{task.agentRun.requestedOperation}</p>
+              <Link
+                href={`/admin/clients/${encodeURIComponent(task.tenantId)}/venues/${encodeURIComponent(task.venueId)}/agents/runs/${encodeURIComponent(task.agentRun.id)}`}
+                className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-sky-200 px-3 font-semibold text-sky-900 hover:border-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                Open real agent run
+              </Link>
+            </>
+          ) : (
+            <p className="mt-1 text-slate-600">
+              {task.status === 'MATERIALIZED'
+                ? 'Run details are unavailable.'
+                : 'No agent run has been created.'}
+            </p>
+          )}
+        </section>
+      ) : null}
       <p className="mt-2 text-xs text-slate-500">{new Date(exchange.createdAt).toLocaleString()}</p>
     </article>
   )

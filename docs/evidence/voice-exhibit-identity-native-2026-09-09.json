@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-09",
+  "baseCommit": "c2b1886af3efa520ce7a211386d684bcdfe8d7bb",
+  "scope": "Local voice exhibit identity and scoped candidate discovery; not live audio/provider or current museum reproduction",
+  "fieldRequirement": "FM02",
+  "classification": "partially solved",
+  "implemented": [
+    "Canonical identity projection after authorization and before context budgeting",
+    "Exact named-label expansion beyond initial ranking, bounded65 per seed; incomplete discovery preserves uncertainty",
+    "Current query only; unknown floors retained; floor and distinct location labels preserved",
+    "Server boolean drives mandatory one-question clarification; strict client forwarding; existing prompt/context limits preserved"
+  ],
+  "unitProof": {
+    "sharedIdentity": 7,
+    "voiceGrounding": 23,
+    "voiceRouter": 23,
+    "VoiceControl": 24,
+    "total": 77
+  },
+  "staticProof": {
+    "apiTypecheck": "PASS",
+    "webTypecheck": "PASS",
+    "affectedConfiguredLint": "PASS",
+    "tenantBypassCalls": 436,
+    "tenantBypassFiles": 147,
+    "rawSqlReads": 125,
+    "rawSqlWrites": 85
+  },
+  "nativeProof": {
+    "database": "pathfinder_disposable_native_guest_read_identity_f72a32670715",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-exhibit-identity-f72a32670715",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "retained": "measured-native-guest-read.disposable.integration.test.ts",
+        "sha256": "b119f96460e8e57f48143643a4fd67f74693b3855e34095db6e223cc89374091"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "retained": "measured-guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.test.ts",
+        "retained": "measured-guest-place-media.test.ts",
+        "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-voice-grounding-context.ts",
+        "sha256": "e317ee296fe6edf5275154eab562c85bc7f5a0ff8f94916a8f35de8f0568964a"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.ts",
+        "retained": "measured-guest-place-identity.ts",
+        "sha256": "91047aeb11a8390987a740256e8ed71106e796d5e1719e0c3b91503696207a68"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.test.ts",
+        "retained": "measured-guest-place-identity.test.ts",
+        "sha256": "44c8ce3023c1108d69998af55f18fa1702941aa0443ddc47c69105a50689da2e"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.tsx",
+        "retained": "measured-VoiceControl.tsx",
+        "sha256": "132f2c228e22962924859b137ae6146bd8f7caa6ba2ad7ccb5b28ab9cb10514b"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.test.tsx",
+        "retained": "measured-VoiceControl.test.tsx",
+        "sha256": "181533d26c57390b06dba5f19db3b934ca24ad5c606d7b0bd885895ccd7dedda"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "retained": "measured-voice-grounding-context.test.ts",
+        "sha256": "721bd51cffb7ad3f4b2ad986e10a1b748fd155698fb9ac7ce70bfafab1357bdc"
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-voice.ts",
+        "sha256": "19d58d829f178ecd7722b60b3666bb3e83381de89d347afdab3cb58a472f73aa"
+      },
+      {
+        "source": "packages/api/src/routers/voice.test.ts",
+        "retained": "measured-voice.test.ts",
+        "sha256": "733a76f1a9f08aa73f2aa58bcff6c68bd15bfcf85bfec967a830529876310788"
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "retained": "measured-chat.ts",
+        "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c"
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "retained": "measured-semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+      },
+      {
+        "source": "packages/db/src/helpers/native-guest-content-read.ts",
+        "retained": "measured-native-guest-content-read.ts",
+        "sha256": "0b3a5178294abd1909e480212ff6c767a1ade58381e68cbd723b3101cbc74662"
+      },
+      {
+        "source": "packages/api/src/lib/guest-visit-retrieval-query.ts",
+        "retained": "measured-guest-visit-retrieval-query.ts",
+        "sha256": "3e973d87846e28a5163be718890d0d532e17b0917430bd070e7f5dbf0a297d9e"
+      }
+    ],
+    "runnerSha256": "a71f55af9d68da2faab7cad579bf4fc877f3c44ab89d18d32d64ca7055693bec",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 3
+    },
+    "sourceHashesStable": true
+  },
+  "nativeFixtureBoundaries": [
+    "Real PostgreSQL16.15/vector0.8.6 with238 migrations and258 tables",
+    "Seeded active public floor/location anchors carrying verification metadata; no new human approval claimed",
+    "Seven lexical distractors rank above second Case12; same-label SECOND_LAYER and foreign-venue controls excluded",
+    "Existing native activation/dark/fallback/isolation/kill-switch rehearsal retained",
+    "One selected test passes; two other cases intentionally not selected"
+  ],
+  "preliminaryAttempt": {
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-voice-exhibit-identity-799b7812eae3",
+    "result": "FAIL: new distractor importance scores exceeded canonical0..100; fixture corrected to90-index without weakening ranking pressure",
+    "stopped": true
+  },
+  "remainingGates": [
+    "Live provider follows clarification across spoken turns",
+    "Physical audio/device/noise/barge-in scenarios",
+    "Current museum package/model and full September8 logs unavailable",
+    "Casual clues, aliases, multimodal identity and complete32QA/A/B/C remain separately gated"
+  ],
+  "review": "Root architecture/integration review and Luna read-only review caught ranking-cap false uniqueness; bounded expansion corrected it. Knowledge context cap12000 intentionally excludes bounded wrapper; complete route/catalog JSON uses separate existing12000 cap. No visual layout changed.",
+  "implementationCommit": "2d832c32dc52c2770b301cc48d7f5211f9d74656",
+  "preFormatterPassingProof": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-voice-exhibit-identity-c892c807d063",
+    "testPassed": true,
+    "sourceHashesStable": true,
+    "stopped": true,
+    "limit": "Pre-commit formatting source; superseded by exact-candidate proof below"
+  }
+}

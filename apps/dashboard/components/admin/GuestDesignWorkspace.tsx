@@ -11,6 +11,9 @@ import {
 } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const QUERY_TIMEOUT_MS = 15_000
 
 type GuestDesign = {
   id: string
@@ -23,8 +26,25 @@ type GuestDesign = {
   chatFont: string | null
   chatLogoUrl: string | null
   chatBannerUrl: string | null
+  chatLogoDerivativeId?: string | null
+  chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: Date
 }
+
+type BrandingAsset = {
+  derivativeId: string
+  assetId: string
+  altText: string
+  caption: string | null
+  deliveryPath: string
+  sourceObjectGeneration: string
+  sha256: string
+  approvedReviewSequence: number
+}
+type BrandingAssetPage = { items: BrandingAsset[]; nextCursor: string | null }
+const EMPTY_BRANDING_ASSET_PAGE: BrandingAssetPage = { items: [], nextCursor: null }
 
 const themeValues = ['default', 'forest', 'sunset', 'midnight', 'rose', 'dark'] as const
 type Theme = (typeof themeValues)[number]
@@ -44,10 +64,12 @@ export function GuestDesignWorkspace({
   tenantId,
   venueId,
   initial,
+  initialBrandingAssets = EMPTY_BRANDING_ASSET_PAGE,
 }: {
   tenantId: string
   venueId: string
   initial: GuestDesign
+  initialBrandingAssets?: BrandingAssetPage
 }) {
   const client = useTRPCClient()
   const [chatTheme, setChatTheme] = useState<Theme>(() => theme(initial.chatTheme))
@@ -57,16 +79,34 @@ export function GuestDesignWorkspace({
   const [bannerUrl, setBannerUrl] = useState(initial.chatBannerUrl)
   const [keepLogo, setKeepLogo] = useState(Boolean(initial.chatLogoUrl))
   const [keepBanner, setKeepBanner] = useState(Boolean(initial.chatBannerUrl))
+  const [logoDerivativeId, setLogoDerivativeId] = useState(initial.chatLogoDerivativeId ?? null)
+  const [bannerDerivativeId, setBannerDerivativeId] = useState(
+    initial.chatBannerDerivativeId ?? null,
+  )
+  const [savedLogoDerivativeId, setSavedLogoDerivativeId] = useState(
+    initial.chatLogoDerivativeId ?? null,
+  )
+  const [savedBannerDerivativeId, setSavedBannerDerivativeId] = useState(
+    initial.chatBannerDerivativeId ?? null,
+  )
+  const [brandingAssets, setBrandingAssets] = useState(initialBrandingAssets)
+  const [showPhotos, setShowPhotos] = useState(initial.chatShowPhotos ?? false)
+  const [showLinks, setShowLinks] = useState(initial.chatShowLinks ?? false)
+  const [loadingAssets, setLoadingAssets] = useState(false)
   const [revision, setRevision] = useState(initial.updatedAt)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const inFlight = useRef(false)
   const generation = useRef(0)
+  const queryScope = useRef(new AbortController())
   const scope = `${tenantId}:${venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
 
   useEffect(() => {
+    queryScope.current.abort()
+    const controller = new AbortController()
+    queryScope.current = controller
     generation.current += 1
     inFlight.current = false
     setChatTheme(theme(initial.chatTheme))
@@ -76,10 +116,19 @@ export function GuestDesignWorkspace({
     setBannerUrl(initial.chatBannerUrl)
     setKeepLogo(Boolean(initial.chatLogoUrl))
     setKeepBanner(Boolean(initial.chatBannerUrl))
+    setLogoDerivativeId(initial.chatLogoDerivativeId ?? null)
+    setBannerDerivativeId(initial.chatBannerDerivativeId ?? null)
+    setSavedLogoDerivativeId(initial.chatLogoDerivativeId ?? null)
+    setSavedBannerDerivativeId(initial.chatBannerDerivativeId ?? null)
+    setBrandingAssets(initialBrandingAssets)
+    setShowPhotos(initial.chatShowPhotos ?? false)
+    setShowLinks(initial.chatShowLinks ?? false)
     setRevision(initial.updatedAt)
     setBusy(false)
+    setLoadingAssets(false)
     setNotice(null)
-  }, [initial, tenantId, venueId])
+    return () => controller.abort()
+  }, [client, initial, initialBrandingAssets, tenantId, venueId])
 
   const normalizedAccent = accent.trim()
   const invalidAccent = normalizedAccent !== '' && !isHexColor(normalizedAccent)
@@ -87,6 +136,67 @@ export function GuestDesignWorkspace({
   const palette = getChatPalette(chatTheme, accentValue)
   const fontFamily = `var(${CHAT_FONT_OPTIONS.find((option) => option.value === chatFont)!.cssVar})`
   const guideName = initial.aiGuideName?.trim() || `${initial.name} Guide`
+  const logoAsset = brandingAssets.items.find((asset) => asset.derivativeId === logoDerivativeId)
+  const bannerAsset = brandingAssets.items.find(
+    (asset) => asset.derivativeId === bannerDerivativeId,
+  )
+  const effectiveLogoUrl = logoAsset?.deliveryPath ?? logoUrl
+  const effectiveBannerUrl = bannerAsset?.deliveryPath ?? bannerUrl
+
+  async function loadMoreAssets() {
+    if (!brandingAssets.nextCursor || loadingAssets) return
+    const cursor = brandingAssets.nextCursor
+    const controller = queryScope.current
+    const initiatingClient = client
+    const initiatingScope = scope
+    setLoadingAssets(true)
+    setNotice(null)
+    try {
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: QUERY_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listGuestBrandingAssets.query(
+            {
+              tenantId,
+              venueId,
+              cursor,
+            },
+            { signal },
+          ),
+      })
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        scopeRef.current !== initiatingScope
+      )
+        return
+      setBrandingAssets((current) => ({
+        items: [...current.items, ...next.items],
+        nextCursor: next.nextCursor,
+      }))
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        scopeRef.current !== initiatingScope
+      )
+        return
+      setNotice(
+        error instanceof Error ? error.message : 'More reviewed assets could not be loaded.',
+      )
+    } finally {
+      if (
+        !controller.signal.aborted &&
+        queryScope.current === controller &&
+        client === initiatingClient &&
+        scopeRef.current === initiatingScope
+      )
+        setLoadingAssets(false)
+    }
+  }
 
   async function save() {
     if (inFlight.current || invalidAccent) return
@@ -104,16 +214,50 @@ export function GuestDesignWorkspace({
           chatTheme,
           chatAccentColor: accentValue,
           chatFont,
+          chatShowPhotos: showPhotos,
+          chatShowLinks: showLinks,
           chatLogoUrl: keepLogo ? logoUrl : null,
           chatBannerUrl: keepBanner ? bannerUrl : null,
+          ...(logoDerivativeId !== savedLogoDerivativeId
+            ? {
+                chatLogoDerivativeId: logoDerivativeId,
+                chatLogoDerivativeReceipt: logoAsset
+                  ? {
+                      assetId: logoAsset.assetId,
+                      derivativeId: logoAsset.derivativeId,
+                      sourceObjectGeneration: logoAsset.sourceObjectGeneration,
+                      sha256: logoAsset.sha256,
+                      approvedReviewSequence: logoAsset.approvedReviewSequence,
+                    }
+                  : null,
+              }
+            : {}),
+          ...(bannerDerivativeId !== savedBannerDerivativeId
+            ? {
+                chatBannerDerivativeId: bannerDerivativeId,
+                chatBannerDerivativeReceipt: bannerAsset
+                  ? {
+                      assetId: bannerAsset.assetId,
+                      derivativeId: bannerAsset.derivativeId,
+                      sourceObjectGeneration: bannerAsset.sourceObjectGeneration,
+                      sha256: bannerAsset.sha256,
+                      approvedReviewSequence: bannerAsset.approvedReviewSequence,
+                    }
+                  : null,
+              }
+            : {}),
         },
       })
       if (current !== generation.current || submittedScope !== scopeRef.current) return
       setRevision(saved.updatedAt)
       setLogoUrl(saved.chatLogoUrl)
       setBannerUrl(saved.chatBannerUrl)
-      setKeepLogo(Boolean(saved.chatLogoUrl))
-      setKeepBanner(Boolean(saved.chatBannerUrl))
+      setLogoDerivativeId(saved.chatLogoDerivativeId ?? logoDerivativeId)
+      setBannerDerivativeId(saved.chatBannerDerivativeId ?? bannerDerivativeId)
+      setSavedLogoDerivativeId(saved.chatLogoDerivativeId ?? logoDerivativeId)
+      setSavedBannerDerivativeId(saved.chatBannerDerivativeId ?? bannerDerivativeId)
+      setKeepLogo(Boolean(saved.chatLogoUrl || saved.chatLogoDerivativeId))
+      setKeepBanner(Boolean(saved.chatBannerUrl || saved.chatBannerDerivativeId))
       setNotice(saved.replayed ? 'This exact design was already saved.' : 'Guest design saved.')
     } catch (error) {
       if (current !== generation.current || submittedScope !== scopeRef.current) return
@@ -183,6 +327,31 @@ export function GuestDesignWorkspace({
         <p id="guest-accent-help" className="mt-1 text-xs text-pf-deep/65">
           Leave blank to use the selected theme&apos;s reviewed default.
         </p>
+
+        <fieldset className="mt-6 rounded-2xl border border-pf-light p-4" disabled={busy}>
+          <legend className="px-1 text-sm font-semibold text-pf-deep">Place card references</legend>
+          <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={showPhotos}
+              onChange={(event) => setShowPhotos(event.target.checked)}
+            />
+            Show reviewed photos for places mentioned in an answer
+          </label>
+          <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={showLinks}
+              disabled={!showPhotos || busy}
+              onChange={(event) => setShowLinks(event.target.checked)}
+            />
+            Link photo credits to their approved source
+          </label>
+          <p className="mt-1 text-xs leading-5 text-pf-deep/65">
+            Credits remain visible as text when source links are off. Revoked media disappears
+            automatically.
+          </p>
+        </fieldset>
         {invalidAccent ? (
           <p id="guest-accent-error" className="mt-1 text-xs text-rose-700">
             Enter a six-digit hex colour such as #3A7BD5.
@@ -212,6 +381,52 @@ export function GuestDesignWorkspace({
             This workspace cannot upload or approve assets. It can only retain or clear references
             already reviewed and used by the Guest experience.
           </p>
+          {brandingAssets.items.length ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {(['logo', 'banner'] as const).map((role) => (
+                <label
+                  key={role}
+                  className="text-xs font-semibold uppercase tracking-wide text-pf-deep/60"
+                >
+                  {role} asset
+                  <select
+                    className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 text-sm font-normal normal-case tracking-normal text-pf-deep"
+                    value={(role === 'logo' ? logoDerivativeId : bannerDerivativeId) ?? ''}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const value = event.target.value || null
+                      if (role === 'logo') {
+                        setLogoDerivativeId(value)
+                        setLogoUrl(null)
+                        setKeepLogo(Boolean(value))
+                      } else {
+                        setBannerDerivativeId(value)
+                        setBannerUrl(null)
+                        setKeepBanner(Boolean(value))
+                      }
+                    }}
+                  >
+                    <option value="">No reviewed asset</option>
+                    {brandingAssets.items.map((asset) => (
+                      <option key={asset.derivativeId} value={asset.derivativeId}>
+                        {asset.altText}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          ) : null}
+          {brandingAssets.nextCursor ? (
+            <button
+              type="button"
+              onClick={loadMoreAssets}
+              disabled={busy || loadingAssets}
+              className="mt-4 min-h-11 rounded-xl border border-pf-light bg-white px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+            >
+              {loadingAssets ? 'Loading reviewed assets…' : 'Load more reviewed assets'}
+            </button>
+          ) : null}
           {logoUrl ? (
             <label className="mt-3 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
               <input
@@ -285,9 +500,9 @@ export function GuestDesignWorkspace({
             style={{
               borderColor: palette.border,
               backgroundColor: palette.card,
-              ...(keepBanner && bannerUrl
+              ...(keepBanner && effectiveBannerUrl
                 ? {
-                    backgroundImage: `linear-gradient(rgba(0,0,0,.42),rgba(0,0,0,.42)),url(${bannerUrl})`,
+                    backgroundImage: `linear-gradient(rgba(0,0,0,.42),rgba(0,0,0,.42)),url(${effectiveBannerUrl})`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     color: '#fff',
@@ -296,11 +511,11 @@ export function GuestDesignWorkspace({
             }}
           >
             <div className="flex items-center gap-3">
-              {keepLogo && logoUrl ? (
+              {keepLogo && effectiveLogoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain" />
+                <img src={effectiveLogoUrl} alt="" className="h-9 w-9 rounded-lg object-contain" />
               ) : (
-                <TorchikoIcon className="h-8 w-8" />
+                <TorchikoIcon className="text-sm" />
               )}
               <h3 className="text-xl font-semibold">{guideName}</h3>
             </div>

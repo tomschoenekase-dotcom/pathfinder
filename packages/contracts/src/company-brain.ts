@@ -150,6 +150,8 @@ export const CompanyKnowledgeSearchRequest = z
     to: z.string().datetime().optional(),
     includeHistorical: z.boolean().default(false),
     limit: z.number().int().min(1).max(20).default(5),
+    /** Opaque continuation for a later permission-filtered semantic candidate window. */
+    cursor: z.string().min(1).max(2_000).optional(),
   })
   .strict()
 export type CompanyKnowledgeSearchRequest = z.input<typeof CompanyKnowledgeSearchRequest>

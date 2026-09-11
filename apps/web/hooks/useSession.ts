@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { browserUuid } from '../lib/browser-uuid'
 
@@ -14,21 +14,46 @@ type SessionHookState = {
   startNewConversation: () => boolean
 }
 
+type SessionState = {
+  scopeKey: string
+  anonymousToken: string
+  sessionId: string | null
+  identityUnavailable: boolean
+}
+
 function generateAnonymousToken() {
   return browserUuid() ?? ''
 }
 
 export function useSession(venueId: string, experienceScope = 'public'): SessionHookState {
-  const [anonymousSession, setAnonymousSession] = useState({ venueId: '', token: '' })
-  const [sessionId, setSessionIdState] = useState<string | null>(null)
-  const [identityUnavailable, setIdentityUnavailable] = useState(false)
-  const anonymousToken = anonymousSession.venueId === venueId ? anonymousSession.token : ''
+  const scopeKey = `${venueId}\u0000${experienceScope}`
+  const [sessionState, setSessionState] = useState<SessionState>({
+    scopeKey: '',
+    anonymousToken: '',
+    sessionId: null,
+    identityUnavailable: false,
+  })
+  const lifecycleRef = useRef(0)
+  const scopeKeyRef = useRef(scopeKey)
+  if (scopeKeyRef.current !== scopeKey) {
+    scopeKeyRef.current = scopeKey
+    lifecycleRef.current += 1
+  }
+  const lifecycle = lifecycleRef.current
+  const anonymousToken = sessionState.scopeKey === scopeKey ? sessionState.anonymousToken : ''
+  const sessionId = sessionState.scopeKey === scopeKey ? sessionState.sessionId : null
+  const identityUnavailable =
+    sessionState.scopeKey === scopeKey ? sessionState.identityUnavailable : false
 
   useEffect(() => {
     if (!venueId || typeof window === 'undefined') {
-      setAnonymousSession({ venueId: '', token: '' })
-      setSessionIdState(null)
-      setIdentityUnavailable(false)
+      if (scopeKeyRef.current !== scopeKey) return
+      setSessionState({
+        scopeKey,
+        anonymousToken: '',
+        sessionId: null,
+        identityUnavailable: false,
+      })
       return
     }
 
@@ -44,9 +69,13 @@ export function useSession(venueId: string, experienceScope = 'public'): Session
     }
 
     if (existing && UUID_RE.test(existing)) {
-      setAnonymousSession({ venueId, token: existing })
-      setSessionIdState(null)
-      setIdentityUnavailable(false)
+      if (scopeKeyRef.current !== scopeKey) return
+      setSessionState({
+        scopeKey,
+        anonymousToken: existing,
+        sessionId: null,
+        identityUnavailable: false,
+      })
       return
     }
 
@@ -58,23 +87,44 @@ export function useSession(venueId: string, experienceScope = 'public'): Session
         // The in-memory identity still provides a valid session for this page.
       }
     }
-    setAnonymousSession({ venueId, token: nextToken })
-    setSessionIdState(null)
-    setIdentityUnavailable(!nextToken)
-  }, [experienceScope, venueId])
+    if (scopeKeyRef.current !== scopeKey) return
+    setSessionState({
+      scopeKey,
+      anonymousToken: nextToken,
+      sessionId: null,
+      identityUnavailable: !nextToken,
+    })
+  }, [experienceScope, scopeKey, venueId])
 
-  const setSessionId = useCallback((id: string | null) => {
-    setSessionIdState(id)
-  }, [])
+  const setSessionId = useCallback(
+    (id: string | null) => {
+      if (scopeKeyRef.current !== scopeKey || lifecycleRef.current !== lifecycle) return
+      setSessionState((previous) =>
+        previous.scopeKey === scopeKey && lifecycleRef.current === lifecycle
+          ? { ...previous, sessionId: id }
+          : previous,
+      )
+    },
+    [lifecycle, scopeKey],
+  )
 
   const startNewConversation = useCallback(() => {
-    if (!venueId || typeof window === 'undefined') {
+    if (
+      !venueId ||
+      typeof window === 'undefined' ||
+      scopeKeyRef.current !== scopeKey ||
+      lifecycleRef.current !== lifecycle
+    ) {
       return false
     }
 
     const nextToken = generateAnonymousToken()
     if (!nextToken) {
-      setIdentityUnavailable(true)
+      setSessionState((previous) =>
+        previous.scopeKey === scopeKey && lifecycleRef.current === lifecycle
+          ? { ...previous, identityUnavailable: true }
+          : previous,
+      )
       return false
     }
 
@@ -87,11 +137,15 @@ export function useSession(venueId: string, experienceScope = 'public'): Session
     } catch {
       // Continue with the new in-memory UUID when storage is unavailable.
     }
-    setAnonymousSession({ venueId, token: nextToken })
-    setSessionIdState(null)
-    setIdentityUnavailable(false)
+    lifecycleRef.current += 1
+    setSessionState({
+      scopeKey,
+      anonymousToken: nextToken,
+      sessionId: null,
+      identityUnavailable: false,
+    })
     return true
-  }, [experienceScope, venueId])
+  }, [experienceScope, lifecycle, scopeKey, venueId])
 
   return {
     anonymousToken,

@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import { resolveAiWorkloadConfiguration, type AnthropicMessagesClient } from '@pathfinder/ai'
 import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
   acquireAnswerAnalysisExecution: vi.fn(),
   acquireAnswerAnalysisRecoveryExecution: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
+  resolveConfiguration: vi.fn(),
   deferAnswerAnalysisExecution: vi.fn(),
   renewAnswerAnalysisExecution: vi.fn(),
   snapshotUpdateMany: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@pathfinder/db', () => ({
   GENERATION_EXECUTION_LEASE_MS: 300_000,
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
   assertVenueAiAvailable: mocks.assertGlobalAiAvailable,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
   reserveAiCostAttempt: vi.fn(async () => null),
   markAiCostAttemptDispatched: vi.fn(),
   settleAiCostAttemptExact: vi.fn(),
@@ -65,7 +67,11 @@ vi.mock('@pathfinder/db', () => ({
   updateJobRecord: mocks.updateJobRecord,
 }))
 
-import { _setAnthropicClientForTesting, processAnswerAnalysisJob } from './answer-analysis'
+import {
+  _setAnthropicClientForTesting,
+  loadAnswerAnalysisSources,
+  processAnswerAnalysisJob,
+} from './answer-analysis'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -100,6 +106,9 @@ describe('processAnswerAnalysisJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
+    mocks.resolveConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({ workloadId: 'answer-analysis' }),
+    )
     mocks.deferAnswerAnalysisExecution.mockResolvedValue(true)
     mocks.renewAnswerAnalysisExecution.mockResolvedValue(true)
     mocks.acquireAnswerAnalysisExecution.mockResolvedValue({
@@ -129,6 +138,24 @@ describe('processAnswerAnalysisJob', () => {
       content: [{ type: 'text', text: JSON.stringify(validSummary) }],
       usage: { input_tokens: 100, output_tokens: 40 },
     })
+  })
+
+  it('defers a claimed analysis when its effective configuration changes before dispatch', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'answer-analysis' })
+    mocks.resolveConfiguration
+      .mockResolvedValueOnce(configuration)
+      .mockResolvedValue({ ...configuration, maxOutputTokens: 100 })
+
+    await expect(processAnswerAnalysisJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.deferAnswerAnalysisExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        leaseToken: LEASE_TOKEN,
+      }),
+    )
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
   })
 
   it('loads the venue within the tenant boundary and records successful usage', async () => {
@@ -179,6 +206,149 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('loads both analysis sources only through exact public tenant and venue sessions', async () => {
+    await loadAnswerAnalysisSources(payload)
+
+    const sessionScope = {
+      is: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        experienceScope: 'PUBLIC',
+      },
+    }
+    expect(mocks.responseFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        answeredAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: sessionScope,
+      },
+      orderBy: { answeredAt: 'asc' },
+      select: { questionText: true, answerText: true, answerType: true, isAiInvented: true },
+    })
+    expect(mocks.messageFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        role: 'user',
+        createdAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: sessionScope,
+        answerEngagementResponses: { none: {} },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 300,
+      select: { content: true },
+    })
+  })
+
+  it('retains an ordinary opinion as aggregate prompt input without factual-candidate semantics', async () => {
+    mocks.messageFindMany.mockResolvedValue(
+      Array.from({ length: 4 }, () => ({ content: 'The display is ugly.' })),
+    )
+
+    await processAnswerAnalysisJob(payload)
+
+    const request = JSON.stringify(anthropicCreate.mock.calls[0]?.[0])
+    expect(request).toContain('The display is ugly.')
+    expect(request).toContain('ordinary guest chat messages')
+    expect(request).not.toContain('FACTUAL_ADDITION')
+    expect(request).not.toContain('UNVERIFIED')
+  })
+
+  it('uses configured fallback, output and timeout through the real gateway', async () => {
+    mocks.resolveConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({
+        workloadId: 'answer-analysis',
+        overrides: [
+          {
+            activation: 'ENABLED',
+            scope: { level: 'WORKLOAD', workloadId: 'answer-analysis' },
+            values: {
+              fallback: { enabled: true, modelKeys: ['client-tochi'] },
+              maxAttempts: 1,
+              maxOutputTokens: 321,
+              timeoutMs: 4321,
+              requestBudgetCeilingE8Usd: '1000000000',
+            },
+            unsafeChangesEnabled: true,
+            reason: 'Synthetic configured analysis fallback',
+          },
+        ],
+      }),
+    )
+    anthropicCreate.mockRejectedValueOnce(
+      Object.assign(new Error('primary unavailable'), { status: 503 }),
+    )
+    await processAnswerAnalysisJob(payload)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: 'claude-sonnet-4-6', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: 'claude-haiku-4-5-20251001', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+    expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'COMPLETE', summary: validSummary }),
+      }),
+    )
+  })
+
+  it('defers without dispatch when the configured request ceiling cannot admit an attempt', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'answer-analysis' })
+    mocks.resolveConfiguration.mockResolvedValue({
+      ...configuration,
+      requestBudgetCeilingE8Usd: '1',
+    })
+    await expect(processAnswerAnalysisJob(payload)).rejects.toMatchObject({
+      code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+    })
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.deferAnswerAnalysisExecution).toHaveBeenCalledOnce()
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not enter fallback when configuration changes during a provider failure', async () => {
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'answer-analysis',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'answer-analysis' },
+          values: {
+            fallback: { enabled: true, modelKeys: ['client-tochi'] },
+            maxAttempts: 1,
+            maxOutputTokens: 321,
+          },
+          unsafeChangesEnabled: true,
+          reason: 'Synthetic failure-time configuration change',
+        },
+      ],
+    })
+    mocks.resolveConfiguration.mockResolvedValue(configuration)
+    anthropicCreate.mockImplementationOnce(async () => {
+      mocks.resolveConfiguration.mockResolvedValue({
+        ...configuration,
+        requestBudgetCeilingE8Usd: '1',
+      })
+      throw Object.assign(new Error('primary unavailable'), { status: 503 })
+    })
+    await expect(processAnswerAnalysisJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.deferAnswerAnalysisExecution).toHaveBeenCalledOnce()
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
   })
 
   it('fenced-releases its execution lease without recording failure when its venue pauses', async () => {

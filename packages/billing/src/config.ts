@@ -29,12 +29,30 @@ const billingEnvironmentSchema = z
     STRIPE_WEBHOOK_PROCESSING_ENABLED: booleanFlag,
     STRIPE_RECONCILIATION_ENABLED: booleanFlag,
     BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: booleanFlag,
+    BILLING_RECOVERY_POLICY_APPROVED: booleanFlag,
     STRIPE_LIVE_MODE_ALLOWED: booleanFlag,
     TORCHIKO_LEGAL_ENTITY_VERIFIED: booleanFlag,
     TORCHIKO_LEGAL_ENTITY_NAME: z.string().trim().min(1).max(200).optional(),
-    BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+    BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().min(1).max(90).optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED && !value.BILLING_RECOVERY_POLICY_APPROVED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['BILLING_RECOVERY_POLICY_APPROVED'],
+        message: 'Billing enforcement requires an explicitly approved payment recovery policy.',
+      })
+    }
+    if (
+      value.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED &&
+      value.BILLING_GRACE_PERIOD_DAYS === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['BILLING_GRACE_PERIOD_DAYS'],
+        message: 'Billing enforcement requires an explicitly configured grace period.',
+      })
+    }
     if (value.STRIPE_MODE === 'live') {
       if (value.RAILWAY_ENVIRONMENT !== 'production') {
         ctx.addIssue({
@@ -71,6 +89,12 @@ const billingEnvironmentSchema = z
       }
     }
   })
+
+  // The fallback supports disabled local projections only; it cannot authorize enforcement.
+  .transform((value) => ({
+    ...value,
+    BILLING_GRACE_PERIOD_DAYS: value.BILLING_GRACE_PERIOD_DAYS ?? 7,
+  }))
 
 export type BillingEnvironment = z.infer<typeof billingEnvironmentSchema>
 
@@ -115,6 +139,9 @@ export function billingCapabilityEnabled(
     case 'reconciliation':
       return environment.STRIPE_RECONCILIATION_ENABLED && Boolean(environment.STRIPE_SECRET_KEY)
     case 'entitlement-enforcement':
-      return environment.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED
+      return (
+        environment.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED &&
+        environment.BILLING_RECOVERY_POLICY_APPROVED
+      )
   }
 }

@@ -28,6 +28,8 @@ describe('VenueQrKit', () => {
     expect(screen.getByText('https://guide.example.com/museum/chat?source=qr')).toBeTruthy()
     expect(screen.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeTruthy()
     expect(screen.getAllByTitle(/QR code for/)).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /Download SVG for/ })).toHaveLength(2)
+    expect(screen.getAllByText(/save this QR code for signs and handouts/i)).toHaveLength(2)
     expect(screen.getByText(/never send it automatically/i)).toBeTruthy()
   })
 
@@ -45,5 +47,44 @@ describe('VenueQrKit', () => {
     expect(print).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Print QR sheets' }))
     expect(print).toHaveBeenCalledOnce()
+  })
+
+  it('uses client-safe launch language without exposing admin authority', () => {
+    render(
+      <VenueQrKit
+        audience="client"
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        generatedAt="2026-08-11T18:00:00.000Z"
+        guideItems={[]}
+      />,
+    )
+
+    expect(screen.getByText('Launch materials')).toBeTruthy()
+    expect(screen.getByText(/does not change whether the visitor guide is live/i)).toBeTruthy()
+    expect(screen.getByText(/scan each code before displaying it/i)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/internal|approve|publish|rate limit|incident/iu)
+  })
+
+  it('shows an accessible recovery message when SVG export fails', () => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: () => 'blob:qr',
+    })
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('download unavailable')
+    })
+    render(
+      <VenueQrKit
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        generatedAt="2026-08-11T18:00:00.000Z"
+        guideItems={[]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download SVG for Museum guest guide' }))
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be downloaded/i)
   })
 })

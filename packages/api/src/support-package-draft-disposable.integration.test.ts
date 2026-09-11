@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
+import type { AnthropicMessagesClient } from '@pathfinder/ai'
+
 import {
   SupportCompletionApplyParameters,
   SupportPackageApprovalApplyParameters,
@@ -52,28 +54,58 @@ vi.mock('@pathfinder/ai', async (importOriginal) => {
     }),
   }
 })
+vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('./lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
+vi.mock('./lib/guest-query-embedding', () => ({
+  generateGuestQueryEmbedding: vi.fn(
+    async (
+      _text: string,
+      _usageSink: unknown,
+      _admissionGuard: unknown,
+      _budgetGate: unknown,
+      _invocationId: string | undefined,
+      onBeforeFirstDispatch: (() => Promise<void>) | undefined,
+    ) => {
+      await onBeforeFirstDispatch?.()
+      return null
+    },
+  ),
+}))
 
 import { withAiRequestBudgetCeiling, type AiBudgetGate } from '@pathfinder/ai'
 
 import {
   claimAgentRunExecution,
+  claimEvaluationRunAttempt,
   completeAgentRunExecution,
   consumeApprovalGrantAction,
   completeSupportRequestAction,
+  createNativeVenueDeploymentAction,
   createOrReplayEvaluationRun,
   db,
   evaluationSnapshotHash,
+  finishEvaluationRunAttempt,
   issueApprovalGrantAction,
+  markEvaluationRunQueued,
   prepareSupportCompletionProposalAction,
   prepareSupportPackageDraftProposalAction,
+  projectNativeVenueStateAction,
+  recordNativeDeploymentEvaluationEvidenceAction,
   recordApprovalDecisionAction,
+  approveNativeVenueDeploymentAction,
+  applyNativeVenueDeploymentAction,
+  revertNativeVenueDeploymentAction,
   supportPackageDraftPayloadHash,
   readSupportPackageFulfillment,
   supersedeSupportPackageHandoffAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
+import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
 
 import { supportAgentReviewedDraftFinalizer } from './lib/admin-reviewed-draft-finalizers'
+import type { TRPCContext } from './context'
+import { router } from './core'
 import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-package-evaluation'
 import { prepareSupportPackageApprovalProposalAction } from './lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from './lib/support-package-application-actions'
@@ -86,13 +118,21 @@ import {
 } from './lib/venue-package-core'
 import { VenuePackageDraftInput } from './schemas/venue-package'
 import { createVenuePackageDraftService } from './routers/venue-package'
+import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 
 const enabled =
-  process.env.RUN_SUPPORT_PACKAGE_DRAFT_DB_INTEGRATION === '1' &&
-  /\/pathfinder_disposable_support_package_draft_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? '')
+  (process.env.RUN_SUPPORT_PACKAGE_DRAFT_DB_INTEGRATION === '1' &&
+    /\/pathfinder_disposable_support_package_draft_[a-z0-9_]+$/u.test(
+      process.env.DATABASE_URL ?? '',
+    )) ||
+  (process.env.RUN_SUPPORT_COMPLETION_OBSERVABILITY_DB_INTEGRATION === '1' &&
+    /\/pathfinder_disposable_support_completion_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? ''))
 
 describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
-  afterAll(async () => db.$disconnect())
+  afterAll(async () => {
+    _setAnthropicClientForTesting(null)
+    await db.$disconnect()
+  })
 
   it('creates, evaluates, applies, and completes only after exact package fulfillment', async () => {
     await withTenantIsolationBypass(async () => {
@@ -993,6 +1033,258 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         content: 'The reviewed visitor guidance is current.',
         isEnabled: true,
       })
+      const nativeActor = {
+        type: 'HUMAN' as const,
+        role: 'PLATFORM_ADMIN' as const,
+        id: operatorId,
+      }
+      const publishNativeProjection = async (label: string) => {
+        const projected = await projectNativeVenueStateAction(db, { tenantId, venueId })
+        const currentHead = await db.nativeVenueDeploymentHead.findUnique({
+          where: { tenantId_venueId: { tenantId, venueId } },
+          select: { revision: true },
+        })
+        const plannedRevision = BigInt((currentHead?.revision ?? 0) + 1)
+        const release = await createNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            actor: nativeActor,
+            manifest: {
+              schemaVersion: 2,
+              packageType: 'FULL',
+              materializationProfile: 'NATIVE_CORE_V1',
+              manifestId: randomUUID(),
+              idempotencyKey: randomUUID(),
+              venueRef: venueId,
+              provenance: {
+                sourceIds: [`synthetic:support-observability:${label}`],
+                evidenceIds: [],
+                createdAt: new Date().toISOString(),
+                createdBy: { kind: 'OPERATOR', actorRef: operatorId },
+              },
+              venue: projected.state.venue,
+              venueBotConfiguration: projected.state.venueBotConfiguration,
+              places: projected.state.places,
+              knowledgeEntries: projected.state.knowledgeEntries,
+              generalizedModules: projected.state.generalizedModules,
+              items: [],
+              assets: [],
+              capabilityOverrides: [],
+              modelReferences: [],
+              evaluation: {
+                status: 'NOT_REQUIRED_FOR_CORE_PROFILE',
+                policyVersion: 'native-core-v1',
+              },
+              baseState: { stateHash: projected.stateHash, ...projected.universe },
+            },
+          },
+          db,
+        )
+        const evalCase = await db.evalCase.create({
+          data: {
+            tenantId,
+            venueId,
+            caseKey: `support-observability-${suffix}-${label}`,
+            revision: 1,
+            schemaVersion: 'fixture-v1',
+            category: 'authorization-and-grounding',
+            caseHash: 'd'.repeat(64),
+            caseSnapshot: { prompt: 'Read the exact reviewed visitor guidance.' },
+            createdBy: operatorId,
+            sourceType: 'SYNTHETIC',
+            sourceRef: `fixture:${suffix}:${label}`,
+          },
+        })
+        const { run } = await createOrReplayEvaluationRun({
+          db,
+          runId: randomUUID(),
+          identity: {
+            tenantId,
+            venueId,
+            idempotencyKey: `support-observability-eval-${suffix}-${label}`,
+            caseManifest: [
+              { caseId: evalCase.id, revision: evalCase.revision, caseHash: evalCase.caseHash },
+            ],
+            promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
+            promptContractHash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
+            packageSnapshotRef: `native-core-v1:${release.id}`,
+            packageSnapshotHash: release.manifestHash,
+            contentSnapshotKind: 'NATIVE_CORE_V1',
+            contentSnapshotRef: release.id,
+            contentSnapshotVersion: plannedRevision,
+            contentSnapshotHash: release.desiredStateHash,
+            modelProvider: 'deterministic-in-process',
+            modelName: 'provider-dark-fixture',
+            modelSnapshot: {
+              provider: 'deterministic-in-process',
+              model: 'provider-dark-fixture',
+            },
+            runConfigSnapshot: {
+              version: 'pathfinder-native-evaluation-run-config-v1',
+              maximumCases: 1,
+              requestedCases: 1,
+              contentSnapshotSchemaVersion: 'pathfinder-native-evaluation-content-v1',
+              contentComponentCounts: {
+                places: projected.state.places.length,
+                knowledgeEntries: projected.state.knowledgeEntries.length,
+                generalizedModules: projected.state.generalizedModules.length,
+              },
+              contentSnapshot: {
+                version: 'pathfinder-native-evaluation-content-v1',
+                tenantId,
+                venueId,
+                releaseId: release.id,
+                state: projected.state,
+              },
+            },
+            declaredBudgetCeilingE8Usd: 0n,
+            createdBy: operatorId,
+            triggerType: 'DISPOSABLE_REHEARSAL',
+          },
+        })
+        const runScope = {
+          runId: run.id,
+          tenantId,
+          venueId,
+          runIdentityHash: run.identityHash,
+        }
+        expect(await markEvaluationRunQueued(runScope)).toBe(true)
+        const claim = await claimEvaluationRunAttempt({
+          ...runScope,
+          attemptNumber: 1,
+          maxAttempts: 1,
+        })
+        if (claim.state !== 'acquired') throw new Error('Native evaluation run was not acquired')
+        await db.evalResult.create({
+          data: {
+            tenantId,
+            venueId,
+            runId: run.id,
+            runIdentityHash: run.identityHash,
+            caseId: evalCase.id,
+            caseRevision: evalCase.revision,
+            caseHash: evalCase.caseHash,
+            outcome: 'SCORED',
+            observationHash: 'e'.repeat(64),
+            observationSnapshot: { answer: 'Deterministic provider-dark result.' },
+            checksSnapshot: [{ check: 'grounding', passed: true }],
+            passed: true,
+            passedChecks: 1,
+            totalChecks: 1,
+            latencyMs: 1,
+            costE8Usd: 0n,
+          },
+        })
+        expect(
+          await finishEvaluationRunAttempt({
+            ...runScope,
+            attemptNumber: claim.attemptNumber,
+            leaseToken: claim.leaseToken,
+            outcome: 'COMPLETED',
+          }),
+        ).toBe(true)
+        const evidence = await recordNativeDeploymentEvaluationEvidenceAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: release.id,
+            runId: run.id,
+            expectedRunIdentityHash: run.identityHash,
+            operationId: randomUUID(),
+            actor: nativeActor,
+          },
+          db,
+        )
+        const approvedNative = (await approveNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: release.updatedAt.toISOString(),
+            actor: nativeActor,
+          },
+          db,
+        )) as { updatedAt: string }
+        const appliedNative = (await applyNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: approvedNative.updatedAt,
+            actor: nativeActor,
+          },
+          db,
+        )) as { updatedAt: string }
+        await db.tenantFeatureFlag.upsert({
+          where: {
+            tenantId_flagKey: { tenantId, flagKey: nativeGuestReadTenantFlagKey(venueId) },
+          },
+          create: {
+            tenantId,
+            flagKey: nativeGuestReadTenantFlagKey(venueId),
+            enabled: true,
+            metadata: {
+              schemaVersion: 1,
+              mode: 'ACTIVE',
+              venueId,
+              targetReleaseId: release.id,
+              evaluationEvidenceId: evidence.id,
+              qualityPolicyRef: 'policy://support-observability-fixture',
+              rollbackRehearsalRef: 'evidence://support-observability-fixture',
+              productionApprovalRef: null,
+            },
+            setBy: operatorId,
+          },
+          update: {
+            enabled: true,
+            metadata: {
+              schemaVersion: 1,
+              mode: 'ACTIVE',
+              venueId,
+              targetReleaseId: release.id,
+              evaluationEvidenceId: evidence.id,
+              qualityPolicyRef: 'policy://support-observability-fixture',
+              rollbackRehearsalRef: 'evidence://support-observability-fixture',
+              productionApprovalRef: null,
+            },
+            setBy: operatorId,
+          },
+        })
+        return { release, appliedNative, evidence }
+      }
+      const proveNativeObservability =
+        process.env.RUN_SUPPORT_COMPLETION_OBSERVABILITY_DB_INTEGRATION === '1'
+      const exactNative = proveNativeObservability ? await publishNativeProjection('exact') : null
+      const anthropicCreate = vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'Provider-dark guest response.' }],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 4,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      })
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate },
+      } as AnthropicMessagesClient)
+      const anonymousContext: TRPCContext = {
+        db,
+        headers: new Headers(),
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      }
+      await router({ chat: chatRouter }).createCaller(anonymousContext).chat.send({
+        venueId,
+        anonymousToken: randomUUID(),
+        operationId: randomUUID(),
+        message: 'What is the current visitor guidance?',
+      })
+      const prompt = (anthropicCreate.mock.calls.at(-1)![0].system as Array<{ text: string }>)
+        .map((block) => block.text)
+        .join('')
+      expect(prompt).toContain('The reviewed visitor guidance is current.')
       expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(0)
       expect(
         await db.supportRequest.findUniqueOrThrow({
@@ -1043,6 +1335,17 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
           }
         ).packageFulfillment,
       })
+      if (exactNative) {
+        expect(completionSnapshot.packageFulfillment).toMatchObject({
+          contractVersion: 2,
+          guestObservability: {
+            configuredPath: 'NATIVE',
+            reason: 'NATIVE_READY',
+            releaseId: exactNative.release.id,
+            effects: [{ readPath: 'NATIVE' }],
+          },
+        })
+      }
       const completionDecision = await recordApprovalDecisionAction({
         tenantId,
         venueId,
@@ -1131,7 +1434,7 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
             },
             sameTransaction,
           )
-          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.requestVersion}:COMPLETED`
+          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.operationVersion.requestVersion}:COMPLETED`
           if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
           else
             await tx.approvalGrantConsumption.update({
@@ -1140,6 +1443,53 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
             })
           return result
         })
+      if (exactNative) {
+        await db.venueKnowledgeEntry.updateMany({
+          where: { tenantId, venueId, title: 'Visitor guidance' },
+          data: { content: 'Later content drift that was not in the approved package.' },
+        })
+        const staleNative = await publishNativeProjection('stale')
+        await expect(complete()).rejects.toThrow('differs from its apply evidence')
+        expect(
+          await db.supportRequest.findUniqueOrThrow({
+            where: { id: request.id },
+            select: { status: true },
+          }),
+        ).toEqual({ status: 'IN_REVIEW' })
+        await revertNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: staleNative.release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: staleNative.appliedNative.updatedAt,
+            actor: nativeActor,
+          },
+          db,
+        )
+        await db.tenantFeatureFlag.update({
+          where: {
+            tenantId_flagKey: { tenantId, flagKey: nativeGuestReadTenantFlagKey(venueId) },
+          },
+          data: {
+            metadata: {
+              schemaVersion: 1,
+              mode: 'ACTIVE',
+              venueId,
+              targetReleaseId: exactNative.release.id,
+              evaluationEvidenceId: exactNative.evidence.id,
+              qualityPolicyRef: 'policy://support-observability-fixture',
+              rollbackRehearsalRef: 'evidence://support-observability-fixture',
+              productionApprovalRef: null,
+            },
+            setBy: operatorId,
+          },
+        })
+        await db.venueKnowledgeEntry.updateMany({
+          where: { tenantId, venueId, title: 'Visitor guidance' },
+          data: { content: 'The reviewed visitor guidance is current.' },
+        })
+      }
       await expect(complete()).resolves.toMatchObject({
         replayed: false,
         status: 'COMPLETED',
@@ -1160,6 +1510,26 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         version: request.version + 2,
         clientVersion: request.clientVersion + 1,
       })
+      if (exactNative) {
+        await revertNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: exactNative.release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: exactNative.appliedNative.updatedAt,
+            actor: nativeActor,
+          },
+          db,
+        )
+        await db.tenantFeatureFlag.update({
+          where: {
+            tenantId_flagKey: { tenantId, flagKey: nativeGuestReadTenantFlagKey(venueId) },
+          },
+          data: { enabled: false, setBy: operatorId },
+        })
+        return
+      }
 
       const reversionIdentityId = `identity-package-reversion-${suffix}`
       await db.agentIdentity.create({
@@ -1700,10 +2070,7 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
           venueId,
           supportRequestId: request.id,
         }),
-      ).resolves.toMatchObject({
-        linkedPackageCount: 1,
-        packages: [{ handoffId: replacementHandoff.id, packageId: replacement.id }],
-      })
+      ).rejects.toThrow('apply evidence is missing or malformed')
       expect(await db.supportPackageHandoff.count({ where: { tenantId, venueId } })).toBe(2)
       expect(
         await db.supportPackageHandoffSupersession.count({ where: { tenantId, venueId } }),

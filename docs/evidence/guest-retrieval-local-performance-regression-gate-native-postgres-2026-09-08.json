@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08",
+  "requirements": ["V2-P12-07", "V2-P12-02 partial local retrieval measurement"],
+  "proofLayer": "native disposable PostgreSQL provider-dark retrieval regression gate",
+  "entrypoint": {
+    "source": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-native-guest-retrieval-performance-proof-port55491.mjs",
+    "sha256": "eb170f8d3652cf57139cf44c19b59543117c10c518e4545a366b01c3e3f53283"
+  },
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d",
+  "preliminarySingleSampleControlProof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-acd88f330e56",
+  "database": "pathfinder_disposable_guest_retrieval_performance_8364a759f19d",
+  "port": 55491,
+  "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+  "migrations": 238,
+  "publicTables": 258,
+  "nativeTests": {
+    "passed": 1,
+    "failed": 0,
+    "pending": 0
+  },
+  "policyUnitTests": {
+    "passed": 2,
+    "failed": 0
+  },
+  "postgresStopped": true,
+  "engineeringGate": {
+    "version": "guest-retrieval-local-engineering-budget-v1",
+    "firstReadMaxMs": 1000,
+    "repeatedP95MaxMs": 250,
+    "boundedHistoryMaxMs": 100,
+    "baselineDerivation": "2026-09-08 retained local baseline: first 51.1ms, repeated p95 12.1-16.2ms, history 0.7ms; thresholds provide deliberately generous local regression headroom.",
+    "acceptedMeasurement": {
+      "firstReadMs": 56.307500000000346,
+      "repeatedP95Ms": 22.338600000000042,
+      "boundedHistoryMs": 0.6466999999997824
+    },
+    "deliberateSlowReader": {
+      "sampleCount": 12,
+      "samplesMs": [
+        319.29280000000017, 310.9022, 315.08500000000004, 322.96939999999995, 326.3649999999998,
+        322.66910000000007, 324.6397999999999, 324.0060999999996, 324.4883, 326.4319999999998,
+        310.77019999999993, 324.8580000000002
+      ],
+      "p50Ms": 322.96939999999995,
+      "p95Ms": 326.4319999999998,
+      "wallClockSamplesMs": [
+        319.3037000000004, 310.9123999999997, 315.09349999999995, 322.97899999999936,
+        326.3751000000002, 322.6794, 324.65179999999964, 324.01630000000023, 324.4994000000006,
+        326.4426000000003, 310.78420000000006, 324.8701000000001
+      ],
+      "rejected": true
+    }
+  },
+  "preservedBehavior": [
+    "Small and 1,001-row large corpus reads return the exact scoped public source.",
+    "Correction read returns current content/version and excludes superseded text before all delayed-sample checks.",
+    "1,000 input history entries remain bounded to 10 projected messages."
+  ],
+  "measuredSources": [
+    {
+      "source": "packages/api/src/guest-retrieval-performance.disposable.integration.test.ts",
+      "sha256": "1a0034fe6752ac8744e0c68fac4f1e0922804bdbba84adb88a4b657e420a9932",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d\\measured-guest-retrieval-performance.disposable.integration.test.ts"
+    },
+    {
+      "source": "packages/api/src/lib/evaluation/guest-retrieval-performance-policy.ts",
+      "sha256": "26668977356df3fa57a37134200e83d6c4dbdcaa1c967d882c91855bd412aee6",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d\\measured-guest-retrieval-performance-policy.ts"
+    },
+    {
+      "source": "packages/api/src/lib/evaluation/guest-retrieval-performance-policy.test.ts",
+      "sha256": "bc1246e4bb27507c6967c32efe74a95216105b57b640e595d4683a30a1a971a8",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d\\measured-guest-retrieval-performance-policy.test.ts"
+    },
+    {
+      "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+      "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d\\measured-guest-knowledge-retrieval.ts"
+    },
+    {
+      "source": "packages/api/src/lib/guest-conversation-history.ts",
+      "sha256": "518130ea6a1717f5ded3e7b9d4585005afc23655e0383409a6f089baf00b3bf3",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-retrieval-performance-8364a759f19d\\measured-guest-conversation-history.ts"
+    }
+  ],
+  "limits": [
+    "Single local Windows host and synthetic disposable corpus. Measurements include no network, provider, embedding, storage, queue, first useful text/audio, or customer device latency.",
+    "Repeated reads may use PostgreSQL and operating-system buffers; thresholds are local engineering regression targets, not a hosted SLO or UX promise.",
+    "The negative control delays the fixture reader before actual scoped strict/broad DB reads. Twelve complete retrieval measurements supply p50/p95; it proves the local retrieval gate, not a production slowdown. No cache/performance improvement is claimed."
+  ],
+  "rootValidation": {
+    "policyUnitTestsPassed": 2,
+    "freshNonIncrementalApiTypes": "passed direct exit0",
+    "scopedLint": "passed with repository config",
+    "artifacts": [
+      "artifacts/retrieval-gate-policy-root-20260908.log",
+      "artifacts/retrieval-gate-api-types-20260908.log",
+      "artifacts/retrieval-gate-lint-root-20260908.log"
+    ]
+  }
+}

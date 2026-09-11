@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { SupportCompletionOutcome } from './support-completion-outcome'
+
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION = 'pathfinder.create_update_draft' as const
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY = 'updates:draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_draft' as const
@@ -15,6 +17,9 @@ export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_complet
 export const SUPPORT_COMPLETION_CAPABILITY = 'support:complete' as const
 export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const
 export const SUPPORT_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
+export const INTAKE_V1_PACKAGE_DRAFT_APPLY_ACTION =
+  'pathfinder.apply_intake_v1_package_draft' as const
+export const INTAKE_V1_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
 export const SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION =
   'pathfinder.apply_support_package_approval' as const
 export const SUPPORT_PACKAGE_APPROVAL_CAPABILITY = 'packages:approve' as const
@@ -285,28 +290,567 @@ export type SupportInformationRequestProposalApprovalSnapshot = z.infer<
 /** Exact one-shot authority derived from an approved completion proposal. The
  * reviewed message and request version are immutable; this is never reusable
  * customer-contact or lifecycle authority. */
-export const SupportCompletionPackageFulfillment = z
+const SupportCompletionPackageEvidence = z
+  .object({
+    handoffId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    handoffRequestVersion: z.number().int().positive(),
+    status: z.literal('APPLIED'),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    appliedAt: z.string().datetime(),
+    appliedBy: z.string().trim().min(1).max(191),
+    appliedCommandKey: z.string().uuid(),
+    packageUpdatedAt: z.string().datetime(),
+  })
+  .strict()
+
+const supportCompletionPackageShape = {
+  linkedPackageCount: z.number().int().nonnegative(),
+  packages: z.array(SupportCompletionPackageEvidence),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+} as const
+
+export const SupportCompletionPackageFulfillmentV1 = z
   .object({
     contractVersion: z.literal(1),
-    linkedPackageCount: z.number().int().nonnegative(),
-    packages: z.array(
-      z
-        .object({
-          handoffId: z.string().trim().min(1).max(191),
-          packageId: z.string().trim().min(1).max(191),
-          handoffRequestVersion: z.number().int().positive(),
-          status: z.literal('APPLIED'),
-          payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
-          appliedAt: z.string().datetime(),
-          appliedBy: z.string().trim().min(1).max(191),
-          appliedCommandKey: z.string().uuid(),
-          packageUpdatedAt: z.string().datetime(),
-        })
-        .strict(),
-    ),
+    ...supportCompletionPackageShape,
+  })
+  .strict()
+
+export const SupportCompletionGuestObservability = z
+  .object({
+    contractVersion: z.literal(1),
+    configuredPath: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+    reason: z.enum([
+      'NO_LINKED_PACKAGES',
+      'SERVER_DISABLED',
+      'POLICY_MISSING',
+      'POLICY_INVALID',
+      'PRODUCTION_APPROVAL_MISSING',
+      'HEAD_INVALID',
+      'EVALUATION_INVALID',
+      'NATIVE_READY',
+    ]),
+    releaseId: z.string().trim().min(1).max(191).nullable(),
+    nativeStateHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    effects: z
+      .array(
+        z
+          .object({
+            packageId: z.string().trim().min(1).max(191),
+            applyVersionId: z.string().uuid(),
+            entityType: z.enum(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY']),
+            entityId: z.string().trim().min(1).max(191),
+            operation: z.enum(['CREATE', 'UPDATE', 'DELETE']),
+            readPath: z.enum(['LIVE_VENUE', 'LEGACY', 'DARK', 'NATIVE']),
+            expectedGuestStateHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .nullable(),
+            observedGuestStateHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .nullable(),
+          })
+          .strict(),
+      )
+      .max(500),
+    verifiedAt: z.string().datetime(),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
+export type SupportCompletionGuestObservability = z.infer<
+  typeof SupportCompletionGuestObservability
+>
+
+export const SupportCompletionPackageFulfillmentV2 = z
+  .object({
+    contractVersion: z.literal(2),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+  })
+  .strict()
+
+export const SupportCompletionContentFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            receiptKind: z.enum(['UNIVERSAL', 'ADOPTION']),
+            receiptId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            moduleId: z.string().min(1).max(191),
+            revisionId: z.string().min(1).max(191),
+            publicationId: z.string().min(1).max(191),
+            projectionId: z.string().min(1).max(191),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    guestRead: z
+      .object({
+        path: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+        releaseId: z.string().min(1).max(191).nullable(),
+        nativeStateHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .nullable(),
+      })
+      .strict(),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestRead'],
+        message: 'Content receipts require an applicable guest read.',
+      })
+    }
+    if (
+      new Set(value.receipts.map((receipt) => `${receipt.receiptKind}:${receipt.receiptId}`))
+        .size !== value.receipts.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['receipts'],
+        message: 'Content fulfillment contains duplicate receipts.',
+      })
+    }
+    if (
+      value.guestRead.path === 'NATIVE' &&
+      (!value.guestRead.releaseId || !value.guestRead.nativeStateHash)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestRead'],
+        message: 'Native content fulfillment requires exact release and state identity.',
+      })
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV3 = z
+  .object({
+    contractVersion: z.literal(3),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillment,
+  })
+  .strict()
+
+export const SupportCompletionTemporalFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            handoffId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            operationalUpdateId: z.string().min(1).max(191),
+            updatedAt: z.string().datetime(),
+            publishedAt: z.string().datetime(),
+            startsAt: z.string().datetime(),
+            expiresAt: z.string().datetime(),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      new Set(value.receipts.map((receipt) => receipt.handoffId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((receipt) => receipt.operationalUpdateId)).size !==
+        value.receipts.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['receipts'],
+        message: 'Temporal fulfillment contains duplicate evidence.',
+      })
+    }
+    value.receipts.forEach((receipt, index) => {
+      if (
+        !(
+          Date.parse(receipt.startsAt) <= Date.parse(value.verifiedAt) &&
+          Date.parse(value.verifiedAt) < Date.parse(receipt.expiresAt)
+        )
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['receipts', index],
+          message: 'Temporal fulfillment must be currently effective at verification.',
+        })
+      }
+    })
+  })
+
+export const SupportCompletionPackageFulfillmentV4 = z
+  .object({
+    contractVersion: z.literal(4),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillment,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+  })
+  .strict()
+
+const supportCompletionChainedReceiptShape = {
+  receiptKind: z.enum(['UNIVERSAL', 'ADOPTION']),
+  receiptId: z.string().min(1).max(191),
+  proposalId: z.string().min(1).max(191),
+  sourceProposalId: z.string().min(1).max(191),
+  sourceRequestVersion: z.number().int(),
+  replacementOfProposalId: z.string().min(1).max(191).nullable(),
+  moduleId: z.string().min(1).max(191),
+  moduleKind: z.enum(['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP']),
+  revisionId: z.string().min(1).max(191),
+  revisionVersion: z.number().int().positive(),
+  effectiveFrom: z.string().datetime().nullable(),
+  effectiveUntil: z.string().datetime().nullable(),
+  operationalFactExpiresAt: z.string().datetime().nullable(),
+  classification: z.string().min(1).max(32).nullable(),
+  relation: z.string().min(1).max(32).nullable(),
+  expectedBaseRevisionId: z.string().min(1).max(191).nullable(),
+  expectedBaseVersion: z.number().int().positive().nullable(),
+} as const
+
+export const SupportCompletionContentFulfillmentV2 = z
+  .object({
+    contractVersion: z.literal(2),
+    receipts: z
+      .array(
+        z.discriminatedUnion('state', [
+          z
+            .object({
+              ...supportCompletionChainedReceiptShape,
+              state: z.literal('CURRENT'),
+              supersededByReceiptId: z.null(),
+              publicationId: z.string().min(1).max(191),
+              projectionId: z.string().min(1).max(191),
+              observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+            })
+            .strict(),
+          z
+            .object({
+              ...supportCompletionChainedReceiptShape,
+              state: z.literal('SUPERSEDED'),
+              supersededByReceiptId: z.string().min(1).max(191),
+              publicationId: z.null(),
+              projectionId: z.null(),
+              observedStateHash: z.null(),
+            })
+            .strict(),
+        ]),
+      )
+      .max(100),
+    guestRead: SupportCompletionContentFulfillment.innerType().shape.guestRead,
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['receipts'], message })
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE'))
+      issue('Content receipts require an applicable guest read.')
+    if (
+      value.guestRead.path === 'NATIVE' &&
+      (!value.guestRead.releaseId || !value.guestRead.nativeStateHash)
+    )
+      issue('Native content fulfillment requires exact release and state identity.')
+    if (
+      new Set(value.receipts.map((receipt) => receipt.receiptId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((receipt) => receipt.revisionId)).size !== value.receipts.length
+    )
+      issue('Chained content fulfillment contains duplicate identity.')
+    const groups = new Map<string, typeof value.receipts>()
+    for (const receipt of value.receipts) {
+      if (receipt.state === 'CURRENT') {
+        const at = Date.parse(value.verifiedAt)
+        if (
+          (receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > at) ||
+          (receipt.effectiveUntil !== null && Date.parse(receipt.effectiveUntil) <= at) ||
+          (receipt.operationalFactExpiresAt !== null &&
+            Date.parse(receipt.operationalFactExpiresAt) <= at)
+        )
+          issue('Current content receipt must be effective at verification.')
+      }
+
+      const emptyBase =
+        receipt.expectedBaseRevisionId === null && receipt.expectedBaseVersion === null
+      const appendBase =
+        receipt.expectedBaseRevisionId !== null &&
+        receipt.expectedBaseVersion !== null &&
+        receipt.expectedBaseVersion + 1 === receipt.revisionVersion
+      if (receipt.receiptKind === 'ADOPTION') {
+        if (!emptyBase || receipt.classification !== null || receipt.relation !== null)
+          issue('Adoption evidence must be a root without semantic base fields.')
+      } else {
+        const addition =
+          receipt.classification === 'ADDITION' && receipt.relation === 'NEW_FACT' && emptyBase
+        const correction =
+          receipt.classification === 'CORRECTION' && receipt.relation === 'CORRECTS' && appendBase
+        const supersession =
+          receipt.classification === 'SUPERSESSION' &&
+          receipt.relation === 'SUPERSEDES' &&
+          appendBase
+        if (!addition && !correction && !supersession)
+          issue('Universal receipt semantic relation and exact base are inconsistent.')
+      }
+      const localBase = value.receipts.find(
+        (base) => base.revisionId === receipt.expectedBaseRevisionId,
+      )
+      if (
+        localBase &&
+        (localBase.moduleId !== receipt.moduleId ||
+          localBase.moduleKind !== receipt.moduleKind ||
+          localBase.state !== 'SUPERSEDED' ||
+          localBase.supersededByReceiptId !== receipt.receiptId)
+      )
+        issue('A local base must explicitly link to its same-module successor.')
+      const group = groups.get(receipt.moduleId) ?? []
+      group.push(receipt)
+      groups.set(receipt.moduleId, group)
+      if (receipt.state === 'SUPERSEDED') {
+        const successor = value.receipts.find(
+          (next) =>
+            next.receiptKind === 'UNIVERSAL' && next.receiptId === receipt.supersededByReceiptId,
+        )
+        if (
+          !successor ||
+          successor.moduleId !== receipt.moduleId ||
+          successor.moduleKind !== receipt.moduleKind ||
+          successor.revisionVersion !== receipt.revisionVersion + 1 ||
+          successor.expectedBaseRevisionId !== receipt.revisionId ||
+          successor.expectedBaseVersion !== receipt.revisionVersion
+        )
+          issue('Superseded receipt requires its exact consecutive successor.')
+        if (successor) {
+          const semanticPair =
+            (successor.classification === 'CORRECTION' && successor.relation === 'CORRECTS') ||
+            (successor.classification === 'SUPERSESSION' && successor.relation === 'SUPERSEDES')
+          const orderedSource =
+            successor.sourceRequestVersion > receipt.sourceRequestVersion ||
+            (successor.sourceRequestVersion === receipt.sourceRequestVersion &&
+              successor.replacementOfProposalId === receipt.proposalId &&
+              successor.sourceProposalId === receipt.proposalId)
+          if (!semanticPair || !orderedSource)
+            issue(
+              'Receipt successor requires an approved semantic relation and forward source lineage.',
+            )
+        }
+      }
+    }
+    for (const group of groups.values()) {
+      if (
+        group.filter((receipt) => receipt.state === 'CURRENT').length !== 1 ||
+        new Set(group.map((receipt) => receipt.moduleKind)).size !== 1
+      )
+        issue('Each module must have one current terminal and one kind.')
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV5 = z
+  .object({
+    contractVersion: z.literal(5),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+  })
+  .strict()
+
+export const SupportCompletionNoChangeFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    receipts: z
+      .array(
+        z
+          .object({
+            outcome: z.enum(['DUPLICATE_NOOP', 'KEEP_CANONICAL']),
+            resolutionId: z.string().min(1).max(191),
+            proposalId: z.string().min(1).max(191),
+            sourceProposalId: z.string().min(1).max(191),
+            sourceRequestVersion: z.number().int().positive(),
+            replacementOfProposalId: z.string().min(1).max(191).nullable(),
+            proposalUpdatedAt: z.string().datetime(),
+            targetKnowledgeEntryId: z.string().min(1).max(191),
+            targetSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
+            observedStateHash: z.string().regex(/^[a-f0-9]{64}$/),
+            decisionCreatedAt: z.string().datetime(),
+            contentModuleId: z.string().min(1).max(191).nullable(),
+            contentRevisionId: z.string().min(1).max(191).nullable(),
+            contentPublicationId: z.string().min(1).max(191).nullable(),
+            effectiveFrom: z.string().datetime().nullable(),
+            effectiveUntil: z.string().datetime().nullable(),
+            operationalFactExpiresAt: z.string().datetime().nullable(),
+          })
+          .strict(),
+      )
+      .max(100),
+    guestRead: z
+      .object({
+        path: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+        releaseId: z.string().nullable(),
+        nativeStateHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .nullable(),
+      })
+      .strict(),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['receipts'], message })
+    if (
+      new Set(value.receipts.map((r) => r.resolutionId)).size !== value.receipts.length ||
+      new Set(value.receipts.map((r) => r.proposalId)).size !== value.receipts.length
+    )
+      issue('No-change outcomes must have unique decision and proposal identities.')
+    if ((value.receipts.length === 0) !== (value.guestRead.path === 'NOT_APPLICABLE'))
+      issue('No-change observation path must match the presence of outcomes.')
+    for (const r of value.receipts) {
+      const links = [r.contentModuleId, r.contentRevisionId, r.contentPublicationId]
+      if (links.some((v) => v !== null) && links.some((v) => v === null))
+        issue('No-change native projection identity must be complete.')
+      if (
+        (r.effectiveFrom !== null && Date.parse(r.effectiveFrom) > Date.parse(value.verifiedAt)) ||
+        (r.effectiveUntil !== null &&
+          Date.parse(r.effectiveUntil) <= Date.parse(value.verifiedAt)) ||
+        (r.operationalFactExpiresAt !== null &&
+          Date.parse(r.operationalFactExpiresAt) <= Date.parse(value.verifiedAt))
+      )
+        issue('No-change guidance must be effective at verification.')
+    }
+  })
+
+export const SupportCompletionPackageFulfillmentV6 = z
+  .object({
+    contractVersion: z.literal(6),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+    noChangeFulfillment: SupportCompletionNoChangeFulfillment,
+  })
+  .strict()
+
+const resolutionIdentity = {
+  resolutionId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  sourceRequestVersion: z.number().int().positive(),
+  proposalUpdatedAt: z.string().datetime(),
+  createdBy: z.string().trim().min(1).max(191),
+  decisionCreatedAt: z.string().datetime(),
+} as const
+
+export const SupportCompletionProposalResolutionFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    declines: z
+      .array(
+        z
+          .object({
+            ...resolutionIdentity,
+            sourceProposalId: z.string().uuid(),
+            replacementOfProposalId: z.string().uuid().nullable(),
+            reviewedProposalUpdatedAt: z.string().datetime(),
+            reviewedAt: z.string().datetime(),
+            reviewNoteHash: z.string().regex(/^[a-f0-9]{64}$/),
+            reviewNote: z.string().min(1).max(2000),
+            proposalSummary: z.string().min(1).max(500),
+            sourceEvidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+    replacements: z
+      .array(
+        z
+          .object({
+            ...resolutionIdentity,
+            replacementProposalId: z.string().uuid(),
+            decisionProposalUpdatedAt: z.string().datetime(),
+            questionId: z.string().trim().min(1).max(191),
+            questionUpdatedAt: z.string().datetime(),
+            answeredAt: z.string().datetime(),
+            answerHash: z.string().regex(/^[a-f0-9]{64}$/),
+            replacementFulfillmentKind: z.enum([
+              'CONTENT',
+              'PACKAGE',
+              'TEMPORAL',
+              'NO_CHANGE',
+              'DECLINE',
+            ]),
+          })
+          .strict(),
+      )
+      .max(100),
+    verifiedAt: z.string().datetime(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const all = [...value.declines, ...value.replacements]
+    const issue = (message: string) =>
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['declines'], message })
+    if (all.length > 100) issue('Proposal resolution fulfillment is limited to 100 decisions.')
+    if (new Set(all.map(({ resolutionId }) => resolutionId)).size !== all.length)
+      issue('Proposal resolution fulfillment contains duplicate resolution identities.')
+    if (new Set(all.map(({ proposalId }) => proposalId)).size !== all.length)
+      issue('Proposal resolution fulfillment contains duplicate proposal identities.')
+    if (
+      new Set(value.replacements.map(({ replacementProposalId }) => replacementProposalId)).size !==
+      value.replacements.length
+    )
+      issue('Proposal resolution fulfillment contains duplicate replacement identities.')
+    const replacementOriginals = new Set(value.replacements.map(({ proposalId }) => proposalId))
+    if (value.declines.some(({ proposalId }) => replacementOriginals.has(proposalId)))
+      issue('A proposal cannot be both declined and replaced.')
+  })
+
+export const SupportCompletionPackageFulfillmentV7 = z
+  .object({
+    contractVersion: z.literal(7),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+    contentFulfillment: SupportCompletionContentFulfillmentV2,
+    temporalFulfillment: SupportCompletionTemporalFulfillment,
+    noChangeFulfillment: SupportCompletionNoChangeFulfillment,
+    proposalResolutionFulfillment: SupportCompletionProposalResolutionFulfillment,
+  })
+  .strict()
+
+export const SupportCompletionPackageFulfillment = z
+  .discriminatedUnion('contractVersion', [
+    SupportCompletionPackageFulfillmentV1,
+    SupportCompletionPackageFulfillmentV2,
+    SupportCompletionPackageFulfillmentV3,
+    SupportCompletionPackageFulfillmentV4,
+    SupportCompletionPackageFulfillmentV5,
+    SupportCompletionPackageFulfillmentV6,
+    SupportCompletionPackageFulfillmentV7,
+  ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {
       context.addIssue({
@@ -321,6 +865,65 @@ export const SupportCompletionPackageFulfillment = z
         code: z.ZodIssueCode.custom,
         path: ['packages'],
         message: 'Support completion package evidence contains duplicate packages.',
+      })
+    }
+    if (value.contractVersion === 1) return
+    const observation = value.guestObservability
+    const packageFree = value.linkedPackageCount === 0
+    const notApplicable =
+      observation.configuredPath === 'NOT_APPLICABLE' &&
+      observation.reason === 'NO_LINKED_PACKAGES' &&
+      observation.effects.length === 0
+    if (
+      packageFree
+        ? !notApplicable
+        : observation.configuredPath === 'NOT_APPLICABLE' ||
+          observation.reason === 'NO_LINKED_PACKAGES'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability'],
+        message: 'Package-free observability is only valid when no packages are linked.',
+      })
+    }
+    if (!packageFree && observation.effects.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'effects'],
+        message: 'Linked packages require exact guest-visible effect evidence.',
+      })
+    }
+    const applyVersionIds = observation.effects.map(({ applyVersionId }) => applyVersionId)
+    if (new Set(applyVersionIds).size !== applyVersionIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'effects'],
+        message: 'Guest observability contains duplicate apply evidence.',
+      })
+    }
+    observation.effects.forEach((effect, index) => {
+      if (!packageIds.includes(effect.packageId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['guestObservability', 'effects', index, 'packageId'],
+          message: 'Guest observability references an unlinked package.',
+        })
+      }
+      if (effect.expectedGuestStateHash !== effect.observedGuestStateHash) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['guestObservability', 'effects', index, 'observedGuestStateHash'],
+          message: 'Observed guest state does not match the applied guest-visible state.',
+        })
+      }
+    })
+    const nativeIdentityPresent =
+      observation.releaseId !== null && observation.nativeStateHash !== null
+    if ((observation.configuredPath === 'NATIVE') !== nativeIdentityPresent) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'nativeStateHash'],
+        message: 'Native observability requires one exact release and native state hash.',
       })
     }
   })
@@ -339,6 +942,9 @@ export const SupportCompletionApplyParameters = z
     toStatus: z.literal('COMPLETED'),
     body: z.string().trim().min(1).max(20_000),
     packageFulfillment: SupportCompletionPackageFulfillment,
+    // Historical grants predate the structured outcome. New completion proposals
+    // always bind it, while old approved grants remain parseable.
+    completionOutcome: z.enum(SupportCompletionOutcome).optional(),
   })
   .strict()
 
@@ -356,6 +962,7 @@ export const SupportCompletionProposalApprovalSnapshot = z
     body: z.string().trim().min(1).max(20_000),
     missingInformationCount: z.literal(0),
     packageFulfillment: SupportCompletionPackageFulfillment,
+    completionOutcome: z.enum(SupportCompletionOutcome).optional(),
     allLinkedPackagesApplied: z.literal(true),
     supportRequestChanged: z.literal(false),
     clientActivityChanged: z.literal(false),
@@ -447,6 +1054,58 @@ export const SupportPackageDraftProposalApprovalSnapshot = z
 
 export type SupportPackageDraftProposalApprovalSnapshot = z.infer<
   typeof SupportPackageDraftProposalApprovalSnapshot
+>
+
+const IntakeV1ExactSelection = z
+  .array(z.string().trim().min(1).max(191))
+  .min(1)
+  .max(50)
+  .refine((ids) => new Set(ids).size === ids.length, 'Selected member IDs must be unique.')
+const Sha256 = z.string().regex(/^[a-f0-9]{64}$/)
+
+/** One-shot authority to create one inactive V3 draft from an exact, server-derived V1 candidate. */
+export const IntakeV1PackageDraftApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    submissionId: z.string().trim().min(1).max(191),
+    revision: z.number().int().positive(),
+    manifestHash: Sha256,
+    candidateHash: Sha256,
+    payloadHash: Sha256,
+    selectionHash: Sha256,
+    selectedMemberIds: IntakeV1ExactSelection,
+    partialAcknowledged: z.boolean(),
+    draftOperationId: z.string().uuid(),
+  })
+  .strict()
+export type IntakeV1PackageDraftApplyParameters = z.infer<
+  typeof IntakeV1PackageDraftApplyParameters
+>
+
+export const IntakeV1PackageDraftProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    submissionId: z.string().trim().min(1).max(191),
+    revision: z.number().int().positive(),
+    manifestHash: Sha256,
+    candidateHash: Sha256,
+    payloadHash: Sha256,
+    selectionHash: Sha256,
+    selectedMemberIds: IntakeV1ExactSelection,
+    partialAcknowledged: z.boolean(),
+    draftOperationId: z.string().uuid(),
+    packageDraftCreated: z.literal(false),
+    packageApproved: z.literal(false),
+    packageApplied: z.literal(false),
+    packagePublished: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+export type IntakeV1PackageDraftProposalApprovalSnapshot = z.infer<
+  typeof IntakeV1PackageDraftProposalApprovalSnapshot
 >
 
 const SupportPackageApprovalHandoff = z

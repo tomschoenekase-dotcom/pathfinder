@@ -56,6 +56,8 @@ const semanticUpdaterInput = z
     desired: SemanticUpdaterDesiredKnowledge,
     contentOrigin: z.enum(['HUMAN_AUTHORED', 'AI_GENERATED']),
     evidenceReview: z.enum(['UNREVIEWED', 'HUMAN_REVIEWED']),
+    // Supplied only after the scoped service validates an immutable human resolution.
+    operatorConflictResolutionId: z.string().uuid().optional(),
     evidence: z.array(sourceEvidence).min(1).max(20),
     validFrom: z.string().datetime().optional(),
     validUntil: z.string().datetime().optional(),
@@ -155,10 +157,17 @@ export function buildSemanticVenueUpdate(
   const evidenceRefs = rankedEvidence.map(
     (item) => `source-evidence:${item.id}:${item.normalizedHash}`,
   )
-  const exactMatch = currentEntries.find((entry) => sameKnowledge(entry, input.desired))
   const target = input.targetKnowledgeEntryId
     ? currentEntries.find((entry) => entry.id === input.targetKnowledgeEntryId)
     : undefined
+  // A match elsewhere cannot discharge an explicit correction of a different target.
+  const exactMatch = input.targetKnowledgeEntryId
+    ? target && sameKnowledge(target, input.desired)
+      ? target
+      : undefined
+    : [...currentEntries]
+        .filter((entry) => sameKnowledge(entry, input.desired))
+        .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0]
   const logicalMatches = currentEntries.filter((entry) => sameLogicalKey(entry, input.desired))
   const blockers: SemanticUpdaterBlocker[] = []
 
@@ -205,7 +214,10 @@ export function buildSemanticVenueUpdate(
         ? 'The requested target is not current in this venue scope.'
         : 'A conflicting logical fact requires an explicit target before it can be changed.',
     })
-  } else if (SOURCE_AUTHORITY[primary.authority] < SOURCE_AUTHORITY[target.authority]) {
+  } else if (
+    SOURCE_AUTHORITY[primary.authority] < SOURCE_AUTHORITY[target.authority] &&
+    !input.operatorConflictResolutionId
+  ) {
     classification = 'CONFLICT'
     blockers.push({
       code: 'LOWER_AUTHORITY_CONFLICT',
@@ -232,6 +244,7 @@ export function buildSemanticVenueUpdate(
       evidence: evidenceRefs,
     }),
   )
+  const legacyPatchCompatibleTarget = !target || z.string().cuid().safeParse(target.id).success
 
   const venuePackagePatch =
     classification === 'ADDITION'
@@ -244,7 +257,9 @@ export function buildSemanticVenueUpdate(
             delete: [],
           },
         })
-      : (classification === 'CORRECTION' || classification === 'SUPERSESSION') && target
+      : (classification === 'CORRECTION' || classification === 'SUPERSESSION') &&
+          target &&
+          legacyPatchCompatibleTarget
         ? VenuePackagePayloadV3.parse({
             schemaVersion: 3,
             places: { create: [], update: [], delete: [] },
@@ -272,11 +287,40 @@ export function buildSemanticVenueUpdate(
         }
       : null
 
+  // Retain exact bytes and authority, even when normalized text compares equal.
+  // This is preview identity only; it does not constitute a durable reviewed outcome.
+  const duplicateMatch =
+    classification === 'DUPLICATE_NOOP' && exactMatch
+      ? {
+          knowledgeEntryId: exactMatch.id,
+          snapshotHash: createHash('sha256')
+            .update(
+              JSON.stringify({
+                id: exactMatch.id,
+                title: exactMatch.title,
+                category: exactMatch.category,
+                content: exactMatch.content,
+                isEnabled: exactMatch.isEnabled,
+                authority: exactMatch.authority,
+              }),
+            )
+            .digest('hex'),
+        }
+      : null
+
   const previewHash = createHash('sha256')
     .update(
       JSON.stringify({
         schemaVersion: 1,
         classification,
+        ...(duplicateMatch
+          ? {
+              duplicateMatch,
+              venueId: input.venueId,
+              relation: input.relation,
+              desired: input.desired,
+            }
+          : {}),
         confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
         authority: primary.authority,
         targetKnowledgeEntryId: target?.id ?? null,
@@ -291,6 +335,7 @@ export function buildSemanticVenueUpdate(
   return {
     schemaVersion: 1 as const,
     previewHash,
+    duplicateMatch,
     classification,
     confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
     authority: primary.authority,

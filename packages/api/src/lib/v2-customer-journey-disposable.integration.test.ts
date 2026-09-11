@@ -1,0 +1,1438 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { setOpenAiEmbeddingsClientForTesting, type OpenAiEmbeddingsClient } from '@pathfinder/ai'
+import {
+  db,
+  withTenantIsolationBypass,
+  getIntakeSubmissionDraft,
+  saveIntakeSubmissionDraft,
+  createIntakeProposal,
+  createUniversalContentAction,
+  addUniversalContentRevisionAction,
+  publishUniversalContentAction,
+  searchKnowledgeByEmbedding,
+  withdrawUniversalContentAction,
+  listIntakeProposals,
+  listOnboardingBootstrapDetails,
+} from '@pathfinder/db'
+import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
+import { runGuestRetrievalBaseline } from './evaluation/guest-retrieval-baseline'
+import { createSemanticUniversalContentDraftService } from './semantic-universal-content-handoff-service'
+import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
+import { createMediaIntakeHandoff } from './media-intake-handoff-service'
+import { saveMediaResolution } from './media-resolution-service'
+import { mediaIntakeHash } from './media-intake-snapshot'
+import { createMediaTemporalClarification } from './media-temporal-clarification'
+import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
+import { createIntakeCandidateDraftForAdmin } from '../routers/admin/intake-draft-actions'
+
+const enabled =
+  process.env.RUN_V2_CUSTOMER_JOURNEY_DB_INTEGRATION === '1' &&
+  /\/pathfinder_disposable_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? '')
+
+describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => {
+  afterAll(async () => db.$disconnect())
+
+  it('preserves concurrent drafts, rolls back stale submissions, and retrieves scoped long-tail facts without embeddings', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const tenantId = `journey-${suffix}`
+      const venueId = `museum-${suffix}`
+      const ownerUserId = `owner-${suffix}`
+      const otherTenantId = `other-${suffix}`
+      const otherVenueId = `other-museum-${suffix}`
+      await db.tenant.createMany({
+        data: [tenantId, otherTenantId].map((id) => ({ id, slug: id, name: 'Synthetic journey' })),
+      })
+      await db.venue.createMany({
+        data: [
+          { id: venueId, tenantId, slug: venueId, name: 'Synthetic museum' },
+          {
+            id: otherVenueId,
+            tenantId: otherTenantId,
+            slug: otherVenueId,
+            name: 'Other synthetic museum',
+          },
+        ],
+      })
+      await db.user.create({ data: { id: ownerUserId, email: `${ownerUserId}@example.test` } })
+      const scope = { tenantId, venueId, ownerUserId, sourceKind: 'NOTES' as const }
+      const save = (notes: string, expectedRevision: number) =>
+        saveIntakeSubmissionDraft({
+          ...scope,
+          expectedRevision,
+          content: { kind: 'NOTES', notes },
+        })
+      const firstSaves = await Promise.allSettled([save('First tab', 0), save('Second tab', 0)])
+      expect(firstSaves.filter((item) => item.status === 'fulfilled')).toHaveLength(1)
+      expect(firstSaves.find((item) => item.status === 'rejected')).toMatchObject({
+        reason: { code: 'CONFLICT' },
+      })
+      const original = await getIntakeSubmissionDraft(scope)
+      expect(original?.revision).toBe(1)
+      expect(await getIntakeSubmissionDraft({ ...scope, ownerUserId: 'not-the-owner' })).toBeNull()
+      expect(await getIntakeSubmissionDraft({ ...scope, tenantId: otherTenantId })).toBeNull()
+      const nextSaves = await Promise.allSettled([
+        save('North gallery capacity is 137.', 1),
+        save('Stale second tab', 1),
+      ])
+      expect(nextSaves.filter((item) => item.status === 'fulfilled')).toHaveLength(1)
+      const saved = await getIntakeSubmissionDraft(scope)
+      expect(saved?.revision).toBe(2)
+      const actor = { type: 'HUMAN' as const, id: ownerUserId, role: 'OWNER' as const }
+      const staleRequestId = randomUUID()
+      await expect(
+        createIntakeProposal({
+          db,
+          tenantId,
+          venueId,
+          actor,
+          requestId: staleRequestId,
+          proposal: { kind: 'NOTES', notes: 'Stale submission must not create a proposal.' },
+          draft: { ownerUserId, expectedRevision: 1 },
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(await db.intakeRun.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(await db.intakeEvidenceRecord.count({ where: { tenantId, venueId } })).toBe(0)
+      const requestId = randomUUID()
+      const proposal = {
+        kind: 'NOTES' as const,
+        notes: (saved!.content as { notes: string }).notes,
+      }
+      const submit = () =>
+        createIntakeProposal({
+          db,
+          tenantId,
+          venueId,
+          actor,
+          requestId,
+          proposal,
+          draft: { ownerUserId, expectedRevision: 2 },
+        })
+      const submitted = await submit()
+      expect((await submit()).id).toBe(submitted.id)
+      expect(await db.intakeRun.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await getIntakeSubmissionDraft(scope)).toMatchObject({
+        submittedProposalId: submitted.id,
+        revision: 3,
+      })
+      await save('A fresh post-submission note', 0)
+      expect(await getIntakeSubmissionDraft(scope)).toMatchObject({
+        submittedProposalId: null,
+        revision: 4,
+      })
+
+      const older = new Date('2025-01-01T00:00:00Z')
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          ...Array.from({ length: 95 }, (_, index) => ({
+            id: `distractor-${suffix}-${index}`,
+            tenantId,
+            venueId,
+            title: `Museum gallery ${index}`,
+            category: 'Visit',
+            content: 'Gallery visitors can see paintings. Capacity varies by event.',
+            lastReviewedAt: new Date(),
+          })),
+          {
+            id: `capacity-${suffix}`,
+            tenantId,
+            venueId,
+            title: 'North gallery capacity',
+            category: 'Approved facts',
+            content: `${'The museum displays regional art. '.repeat(400)}North gallery maximum capacity is exactly 137 visitors.`,
+            lastReviewedAt: older,
+          },
+          {
+            id: `capacity-archived-${suffix}`,
+            tenantId,
+            venueId,
+            title: 'Archived obsolete north gallery capacity occupancy visitors guests',
+            category: 'Superseded schedule',
+            content: 'The old maximum capacity was 120 visitors.',
+            lastReviewedAt: new Date(),
+          },
+          {
+            id: `private-${suffix}`,
+            tenantId,
+            venueId,
+            title: 'North gallery capacity private',
+            category: 'Staff',
+            content: 'Private staff planning limit is 999.',
+            visibility: 'SECOND_LAYER',
+            lastReviewedAt: new Date(),
+          },
+          {
+            id: `cross-${suffix}`,
+            tenantId: otherTenantId,
+            venueId: otherVenueId,
+            title: 'North gallery capacity',
+            category: 'Visit',
+            content: 'Other tenant capacity is 888.',
+            lastReviewedAt: new Date(),
+          },
+          {
+            id: `disabled-${suffix}`,
+            tenantId,
+            venueId,
+            title: 'North gallery capacity disabled',
+            category: 'Visit',
+            content: 'Old disabled capacity is 777.',
+            isEnabled: false,
+            lastReviewedAt: new Date(),
+          },
+        ].map((entry) => ({
+          ...entry,
+          lastReviewedBy: ownerUserId,
+          sourceType: 'SYNTHETIC_FIXTURE',
+          authorship: 'HUMAN_AUTHORED',
+        })),
+      })
+      for (const query of [
+        'What is the north gallery capacity?',
+        '¿Cuántas personas caben en la galería norte?',
+      ]) {
+        const result = await retrieveGuestKnowledge({
+          reader: db,
+          query,
+          tenantId,
+          venueId,
+          includeSecondLayer: false,
+          queryEmbedding: null,
+        })
+        expect(result.entries.map((entry) => entry.id)).toContain(`capacity-${suffix}`)
+        expect(result.entries.map((entry) => entry.id)).not.toEqual(
+          expect.arrayContaining([`private-${suffix}`, `cross-${suffix}`, `disabled-${suffix}`]),
+        )
+        expect(result.entries.map((entry) => entry.id)).toContain(`capacity-archived-${suffix}`)
+        expect(result.trace.truncatedSourceIds).toContain(`capacity-${suffix}`)
+        const retrievedContent = result.entries.map((entry) => entry.content).join('\n')
+        expect(retrievedContent).not.toMatch(/999|888|777/)
+        expect(retrievedContent).toContain('120 visitors')
+        expect(result.trace.path).toBe('lexical-fallback')
+        expect(
+          result.trace.retrievedSources.find((entry) => entry.id === `capacity-${suffix}`)?.version,
+        ).toMatch(/^\d{4}-/)
+      }
+      const baseline = await runGuestRetrievalBaseline({
+        reader: {
+          venueKnowledgeEntry: {
+            findMany: (args) => db.venueKnowledgeEntry.findMany(args as never),
+          },
+        },
+        tenantId,
+        venueId,
+        intendedTestTargetMs: 5_000,
+        cases: [
+          {
+            name: 'english-long-tail-capacity-no-embedding',
+            query: 'What is the north gallery capacity?',
+            expectedSourceId: `capacity-${suffix}`,
+          },
+          {
+            name: 'spanish-long-tail-capacity-no-embedding',
+            query: '¿Cuántas personas caben en la galería norte?',
+            expectedSourceId: `capacity-${suffix}`,
+          },
+        ],
+      })
+      expect(baseline.comparison).toEqual({
+        allExpectedSourcesFound: true,
+        allWithinIntendedTestTarget: true,
+      })
+      expect(baseline.provider).toMatchObject({
+        called: false,
+        latencyMs: null,
+        invoiceCostUsd: null,
+      })
+      // Disposable proof output is intentionally machine-readable for release evidence.
+      // eslint-disable-next-line no-console
+      console.info(JSON.stringify({ event: 'guest-retrieval-baseline', ...baseline }))
+
+      const publicationActor = {
+        type: 'HUMAN' as const,
+        id: ownerUserId,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const published: Array<{ moduleId: string; revisionId: string; publicationId: string }> = []
+      for (let index = 0; index < 55; index += 1) {
+        const moduleId = randomUUID()
+        const created = await createUniversalContentAction({
+          db,
+          tenantId,
+          venueId,
+          moduleId,
+          actor: publicationActor,
+          draft: {
+            audience: 'PUBLIC',
+            evidence: [],
+            payload: {
+              kind: 'POLICY',
+              title: index === 54 ? 'Quasar stroller storage policy' : `Universal policy ${index}`,
+              rule:
+                index === 54
+                  ? 'Quasar strollers must be stored beside the east welcome desk.'
+                  : `Fixture policy value ${index}.`,
+              appliesTo: [],
+            },
+          },
+        })
+        const publication = await publishUniversalContentAction({
+          db,
+          tenantId,
+          venueId,
+          moduleId: created.moduleId,
+          revisionId: created.revisionId,
+          expectedLatestVersion: 1,
+          requestId: randomUUID(),
+          actor: publicationActor,
+        })
+        published.push({ ...created, publicationId: publication.publicationId })
+      }
+      const projection = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: published[54]!.moduleId },
+        select: {
+          id: true,
+          contentModuleId: true,
+          contentRevisionId: true,
+          contentPublicationId: true,
+          isEnabled: true,
+        },
+      })
+      expect(projection).toMatchObject({
+        contentModuleId: published[54]!.moduleId,
+        contentRevisionId: published[54]!.revisionId,
+        contentPublicationId: published[54]!.publicationId,
+        isEnabled: true,
+      })
+      expect(
+        await db.venueKnowledgeEntry.findUniqueOrThrow({
+          where: { id: projection.id },
+          select: { authorship: true },
+        }),
+      ).toEqual({ authorship: 'UNKNOWN' })
+
+      const semanticTarget = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: published[3]!.moduleId },
+      })
+      const semanticProposal = await db.knowledgeChangeProposal.create({
+        data: {
+          tenantId,
+          venueId,
+          targetKnowledgeEntryId: semanticTarget.id,
+          proposedChange: 'Universal policy 3 now requires the west desk.',
+          reason: 'Reviewed official policy source.',
+          confidence: 0.98,
+          status: 'APPROVED',
+          createdByType: 'OPERATOR',
+          createdById: ownerUserId,
+          reviewerId: ownerUserId,
+          reviewedAt: new Date(),
+        },
+      })
+      const semanticDesired = {
+        title: 'Universal policy 3',
+        category: 'POLICY',
+        content: 'Fixture policy 3 now requires the west desk.',
+        isEnabled: true,
+      }
+      const semanticPreview = await previewSemanticVenueUpdateFromProposal({
+        db,
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedUpdatedAt: semanticProposal.updatedAt,
+        relation: 'CORRECTS',
+        desired: semanticDesired,
+      })
+      expect(semanticPreview.classification).toBe('CORRECTION')
+      const semanticInput = {
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedProposalUpdatedAt: semanticProposal.updatedAt.toISOString(),
+        expectedPreviewHash: semanticPreview.previewHash,
+        relation: 'CORRECTS' as const,
+        desired: semanticDesired,
+        draft: {
+          audience: 'PUBLIC' as const,
+          evidence: [
+            {
+              sourceId: 'official-policy.pdf',
+              locator: 'page:3',
+              capturedAt: '2026-09-07T12:00:00.000Z',
+              excerptHash: 'c'.repeat(64),
+            },
+          ],
+          payload: {
+            kind: 'POLICY' as const,
+            title: semanticDesired.title,
+            rule: semanticDesired.content,
+            appliesTo: [],
+          },
+        },
+      }
+      const semanticRace = await Promise.all([
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+      ])
+      expect(new Set(semanticRace.map((result) => result.revisionId)).size).toBe(1)
+      expect(semanticRace.filter((result) => result.replayed)).toHaveLength(1)
+      const semanticDraft = semanticRace[0]!
+      expect(semanticDraft.version).toBe(2)
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.count({
+          where: { proposalId: semanticProposal.id, tenantId, venueId },
+        }),
+      ).resolves.toBe(1)
+      await expect(
+        db.contentModulePublication.count({
+          where: {
+            tenantId,
+            venueId,
+            moduleId: published[3]!.moduleId,
+            revisionId: semanticDraft.revisionId,
+          },
+        }),
+      ).resolves.toBe(0)
+      await expect(
+        db.contentModuleEvidence.findMany({
+          where: { tenantId, venueId, revisionId: semanticDraft.revisionId },
+          select: { sourceId: true },
+        }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          { sourceId: 'official-policy.pdf' },
+          { sourceId: `knowledge-proposal:${semanticProposal.id}` },
+        ]),
+      )
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: semanticDraft.moduleId,
+        revisionId: semanticDraft.revisionId,
+        expectedLatestVersion: 2,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const unrelatedThird = await addUniversalContentRevisionAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: semanticDraft.moduleId,
+        expectedLatestVersion: 2,
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: semanticDesired.title,
+            rule: semanticDesired.content,
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: unrelatedThird.moduleId,
+        revisionId: unrelatedThird.revisionId,
+        expectedLatestVersion: 3,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const changedCorpusPreview = await previewSemanticVenueUpdateFromProposal({
+        db,
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedUpdatedAt: semanticProposal.updatedAt,
+        relation: 'CORRECTS',
+        desired: semanticInput.desired,
+      })
+      expect(changedCorpusPreview.previewHash).not.toBe(semanticInput.expectedPreviewHash)
+      await expect(
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+      ).resolves.toMatchObject({
+        moduleId: semanticDraft.moduleId,
+        revisionId: semanticDraft.revisionId,
+        version: 2,
+        replayed: true,
+      })
+      const immutableHandoff = await db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+        where: { proposalId: semanticProposal.id, tenantId, venueId },
+      })
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.update({
+          where: { id: immutableHandoff.id },
+          data: { draftHash: 'd'.repeat(64) },
+        }),
+      ).rejects.toThrow()
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.delete({
+          where: { id: immutableHandoff.id },
+        }),
+      ).rejects.toThrow()
+      const invalidBaseProposal = await db.knowledgeChangeProposal.create({
+        data: {
+          tenantId,
+          venueId,
+          targetKnowledgeEntryId: semanticTarget.id,
+          proposedChange: 'Invalid base fixture.',
+          reason: 'Prove the database rejects a mismatched stored base version.',
+          confidence: 0.99,
+          status: 'APPROVED',
+          createdByType: 'OPERATOR',
+          createdById: ownerUserId,
+          reviewerId: ownerUserId,
+          reviewedAt: new Date(),
+        },
+      })
+      await expect(
+        db.$executeRaw`
+          INSERT INTO knowledge_proposal_universal_content_handoffs (
+            tenant_id, venue_id, proposal_id, module_id, module_kind, revision_id,
+            classification, relation, preview_hash, draft_hash, proposal_updated_at,
+            expected_base_revision_id, expected_base_version, created_by
+          ) VALUES (
+            ${tenantId}, ${venueId}, ${invalidBaseProposal.id}::uuid, ${semanticDraft.moduleId},
+            'POLICY'::"NormalizedContentModuleKind", ${unrelatedThird.revisionId},
+            'CORRECTION', 'CORRECTS', ${'e'.repeat(64)}, ${'f'.repeat(64)},
+            ${invalidBaseProposal.updatedAt}, ${semanticDraft.revisionId}, 99, ${ownerUserId}
+          )
+        `,
+      ).rejects.toThrow()
+      const backfillTarget = published[0]!
+      await db.$executeRaw`SELECT sync_universal_content_search_projection(${backfillTarget.publicationId})`
+      await expect(
+        db.venueKnowledgeEntry.findFirst({
+          where: { tenantId, venueId, contentModuleId: backfillTarget.moduleId },
+        }),
+      ).resolves.toMatchObject({ contentRevisionId: backfillTarget.revisionId, isEnabled: true })
+
+      await expect(
+        db.$executeRaw`
+          INSERT INTO venue_knowledge_entries (
+            id, tenant_id, venue_id, title, category, content, is_enabled, visibility,
+            source_type, authorship, content_module_id, content_revision_id,
+            content_publication_id, created_at, updated_at
+          ) VALUES (
+            ${`bad_${randomUUID()}`}, ${tenantId}, ${venueId}, 'invalid', 'POLICY', 'invalid',
+            TRUE, 'PUBLIC', 'UNIVERSAL_CONTENT', 'UNKNOWN', ${published[0]!.moduleId},
+            ${published[1]!.revisionId}, ${published[0]!.publicationId}, NOW(), NOW()
+          )
+        `,
+      ).rejects.toThrow()
+      await expect(
+        db.venueKnowledgeEntry.update({
+          where: { id: projection.id },
+          data: { content: 'independently edited projection' },
+        }),
+      ).rejects.toThrow()
+      await expect(
+        db.venueKnowledgeEntry.delete({ where: { id: projection.id } }),
+      ).rejects.toThrow()
+
+      const relationship = await createUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: randomUUID(),
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'RELATIONSHIP',
+            fromModuleId: published[0]!.moduleId,
+            toModuleId: published[1]!.moduleId,
+            relationshipType: 'RELATED_TO',
+            description: 'Internal graph linkage must not become guest free text.',
+          },
+        },
+      })
+      const relationshipPublication = await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: relationship.moduleId,
+        revisionId: relationship.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      await expect(
+        db.venueKnowledgeEntry.findFirst({
+          where: { tenantId, venueId, contentModuleId: relationship.moduleId },
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        db.$executeRaw`
+          INSERT INTO venue_knowledge_entries (
+            id, tenant_id, venue_id, title, category, content, is_enabled, visibility,
+            source_type, authorship, content_module_id, content_revision_id,
+            content_publication_id, created_at, updated_at
+          ) VALUES (
+            ${`invented_${randomUUID()}`}, ${tenantId}, ${venueId}, 'Invented relationship',
+            'RELATIONSHIP', 'Private endpoint identifiers', TRUE, 'PUBLIC',
+            'UNIVERSAL_CONTENT', 'UNKNOWN', ${relationship.moduleId}, ${relationship.revisionId},
+            ${relationshipPublication.publicationId}, NOW(), NOW()
+          )
+        `,
+      ).rejects.toThrow(/current publication ledger event/)
+      const projectedRetrieval = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'Where must Quasar strollers be stored?',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: null,
+      })
+      expect(projectedRetrieval.entries.map((entry) => entry.id)).toContain(projection.id)
+      expect(
+        projectedRetrieval.entries.find((entry) => entry.id === projection.id)?.content,
+      ).toContain('east welcome desk')
+      expect(projectedRetrieval.trace.publicationAuthority).toContainEqual(
+        expect.objectContaining({
+          id: projection.id,
+          moduleId: published[54]!.moduleId,
+          revisionId: published[54]!.revisionId,
+          publicationId: published[54]!.publicationId,
+        }),
+      )
+      const futureModuleId = randomUUID()
+      const future = await createUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: futureModuleId,
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          effectiveFrom: '2035-01-01T00:00:00.000Z',
+          effectiveUntil: '2036-01-01T00:00:00.000Z',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: 'Nebula ticket exchange',
+            rule: 'Nebula tickets exchange at the south desk.',
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: future.moduleId,
+        revisionId: future.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const retrieveNebula = (asOf: Date) =>
+        retrieveGuestKnowledge({
+          reader: db,
+          query: 'Where can Nebula tickets be exchanged?',
+          tenantId,
+          venueId,
+          includeSecondLayer: false,
+          queryEmbedding: null,
+          asOf,
+        })
+      await expect(retrieveNebula(new Date('2034-12-31T23:59:59.999Z'))).resolves.toMatchObject({
+        entries: [],
+      })
+      expect(
+        (await retrieveNebula(new Date('2035-06-01T00:00:00.000Z'))).entries.map(
+          (entry) => entry.contentModuleId,
+        ),
+      ).toContain(future.moduleId)
+      await expect(retrieveNebula(new Date('2036-01-01T00:00:00.000Z'))).resolves.toMatchObject({
+        entries: [],
+      })
+      await withdrawUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: published[54]!.moduleId,
+        expectedPublishedRevisionId: published[54]!.revisionId,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      expect(
+        await retrieveGuestKnowledge({
+          reader: db,
+          query: 'Where must Quasar strollers be stored?',
+          tenantId,
+          venueId,
+          includeSecondLayer: false,
+          queryEmbedding: null,
+        }),
+      ).toMatchObject({
+        trace: { retrievedSourceIds: expect.not.arrayContaining([projection.id]) },
+      })
+
+      const vector = `[${Array.from({ length: 1_536 }, () => 0.01).join(',')}]`
+      await db.$executeRaw`
+        UPDATE venue_knowledge_entries
+           SET embedding = ${vector}::vector
+         WHERE id = ${projection.id} AND tenant_id = ${tenantId}
+      `
+      await expect(
+        searchKnowledgeByEmbedding({
+          queryEmbedding: Array.from({ length: 1_536 }, () => 0.01),
+          tenantId,
+          venueId,
+          includeSecondLayer: false,
+        }),
+      ).resolves.not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: projection.id })]),
+      )
+
+      const versionedProjection = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: published[2]!.moduleId },
+      })
+      await db.$executeRaw`
+        UPDATE venue_knowledge_entries
+           SET embedding = ${vector}::vector
+         WHERE id = ${versionedProjection.id} AND tenant_id = ${tenantId}
+      `
+      const secondRevision = await addUniversalContentRevisionAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: published[2]!.moduleId,
+        expectedLatestVersion: 1,
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: 'Universal policy 2 replacement',
+            rule: 'The newly published revision requires a new embedding.',
+            appliesTo: [],
+          },
+        },
+      })
+      const secondPublication = await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: secondRevision.moduleId,
+        revisionId: secondRevision.revisionId,
+        expectedLatestVersion: 2,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      await expect(
+        db.$queryRaw<Array<{ content_revision_id: string; embedding_is_null: boolean }>>`
+          SELECT content_revision_id, embedding IS NULL AS embedding_is_null
+            FROM venue_knowledge_entries
+           WHERE id = ${versionedProjection.id} AND tenant_id = ${tenantId}
+        `,
+      ).resolves.toEqual([
+        { content_revision_id: secondRevision.revisionId, embedding_is_null: true },
+      ])
+      await db.$executeRaw`
+        UPDATE venue_knowledge_entries SET embedding = ${vector}::vector
+         WHERE id = ${versionedProjection.id} AND tenant_id = ${tenantId}
+      `
+      await db.embeddingDispatch.deleteMany({
+        where: {
+          tenantId,
+          venueId,
+          entityType: 'KNOWLEDGE_ENTRY',
+          entityId: versionedProjection.id,
+        },
+      })
+      const beforeReplay = await db.venueKnowledgeEntry.findUniqueOrThrow({
+        where: { id: versionedProjection.id },
+        select: { updatedAt: true },
+      })
+      await db.$executeRaw`SELECT sync_universal_content_search_projection(${secondPublication.publicationId})`
+      await expect(
+        db.$queryRaw<Array<{ updated_at: Date; embedding_is_null: boolean }>>`
+          SELECT updated_at, embedding IS NULL AS embedding_is_null
+            FROM venue_knowledge_entries
+           WHERE id = ${versionedProjection.id} AND tenant_id = ${tenantId}
+        `,
+      ).resolves.toEqual([{ updated_at: beforeReplay.updatedAt, embedding_is_null: false }])
+      await expect(
+        db.embeddingDispatch.count({
+          where: {
+            tenantId,
+            venueId,
+            entityType: 'KNOWLEDGE_ENTRY',
+            entityId: versionedProjection.id,
+          },
+        }),
+      ).resolves.toBe(0)
+
+      const thirdRevision = await addUniversalContentRevisionAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: published[2]!.moduleId,
+        expectedLatestVersion: 2,
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: 'Universal policy 2 replacement',
+            rule: 'The newly published revision requires a new embedding.',
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: thirdRevision.moduleId,
+        revisionId: thirdRevision.revisionId,
+        expectedLatestVersion: 3,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      await expect(
+        db.$queryRaw<Array<{ embedding_is_null: boolean }>>`
+          SELECT embedding IS NULL AS embedding_is_null FROM venue_knowledge_entries
+           WHERE id = ${versionedProjection.id} AND tenant_id = ${tenantId}
+        `,
+      ).resolves.toEqual([{ embedding_is_null: true }])
+      await expect(
+        db.embeddingDispatch.count({
+          where: {
+            tenantId,
+            venueId,
+            entityType: 'KNOWLEDGE_ENTRY',
+            entityId: versionedProjection.id,
+          },
+        }),
+      ).resolves.toBe(1)
+
+      const mediaProjectId = `media-${suffix}`
+      const mediaVenueId = `media-venue-${suffix}`
+      await db.venue.create({
+        data: {
+          id: mediaVenueId,
+          tenantId,
+          slug: mediaVenueId,
+          name: 'Synthetic media review venue',
+        },
+      })
+      const sourceGeneration = randomUUID()
+      const mediaUploadAttemptId = randomUUID()
+      const mediaRequestId = randomUUID()
+      const reviewedItem = {
+        title: 'Media reviewed entrance',
+        category: 'ARRIVAL',
+        content: 'The reviewed walkthrough identifies the north entrance.',
+        isEnabled: true,
+      }
+      const unrelatedReviewedItem = {
+        title: 'Permanent gallery orientation',
+        category: 'VISITOR_GUIDANCE',
+        content: 'The sculpture gallery is reached through the north entrance lobby.',
+        isEnabled: true,
+      }
+      const observation = {
+        kind: 'entity_candidate' as const,
+        statement: 'North entrance',
+        evidenceChannel: 'visual' as const,
+        directness: 'observed' as const,
+        confidence: 'probable' as const,
+        processingMethod: 'provider_video_static_1fps' as const,
+        locator: { type: 'video_interval' as const, startSeconds: 1, endSeconds: 2 },
+      }
+      const finding = {
+        sourceId: 'video-1',
+        filename: 'walkthrough.mp4',
+        mediaType: 'VIDEO' as const,
+        summary: 'The north entrance is visible.',
+        uncertainties: ['Opening hours are not established by this video.'],
+        videoAnalysisMethod: 'GOOGLE_STATIC_VIDEO_1FPS' as const,
+        sourceObservations: [observation],
+        review: {
+          summary: 'The north entrance is visible.',
+          uncertainties: ['Opening hours are not established by this video.'],
+          note: 'Accepted only as entrance-location evidence.',
+          reviewedBy: ownerUserId,
+          reviewedAt: new Date().toISOString(),
+        },
+      }
+      const secondFinding = {
+        ...finding,
+        sourceId: 'image-2',
+        filename: 'entrance.jpg',
+        mediaType: 'IMAGE' as const,
+        videoAnalysisMethod: undefined,
+        sourceObservations: [
+          {
+            ...observation,
+            statement: 'Main entrance',
+            processingMethod: 'provider_image_analysis' as const,
+            locator: { type: 'whole_source' as const },
+          },
+        ],
+      }
+      await db.mediaIngestionProject.create({
+        data: {
+          id: mediaProjectId,
+          tenantId,
+          venueId: mediaVenueId,
+          name: 'Reviewed walkthrough',
+          createdBy: ownerUserId,
+          status: 'READY_FOR_REVIEW',
+          stage: 'review',
+          sourceObjectGeneration: sourceGeneration,
+          sourceObjectKey: `fixture/${mediaProjectId}.zip`,
+          uploadAttemptId: mediaUploadAttemptId,
+          draftJson: {
+            schemaVersion: 1,
+            places: [],
+            knowledgeEntries: [reviewedItem, unrelatedReviewedItem],
+          },
+          findings: [finding, secondFinding],
+          questions: [],
+          assets: {
+            create: [
+              {
+                tenantId,
+                sourceId: finding.sourceId,
+                filename: finding.filename,
+                mediaType: finding.mediaType,
+                objectKey: `fixture/${mediaProjectId}.zip#${finding.filename}`,
+                bytes: 128n,
+                sha256: 'a'.repeat(64),
+                status: 'COMPLETE',
+                analysis: finding,
+              },
+              {
+                tenantId,
+                sourceId: secondFinding.sourceId,
+                filename: secondFinding.filename,
+                mediaType: secondFinding.mediaType,
+                objectKey: `fixture/${mediaProjectId}.zip#${secondFinding.filename}`,
+                bytes: 64n,
+                sha256: 'b'.repeat(64),
+                status: 'COMPLETE',
+                analysis: secondFinding,
+              },
+            ],
+          },
+        },
+      })
+      const reviewedProject = await db.mediaIngestionProject.findFirstOrThrow({
+        where: { id: mediaProjectId, tenantId, venueId: mediaVenueId },
+        select: { updatedAt: true, uploadAttemptId: true },
+      })
+      const resolutionScope = {
+        tenantId,
+        projectId: mediaProjectId,
+        uploadAttemptId: reviewedProject.uploadAttemptId!,
+      }
+      const candidates = [
+        {
+          candidateId: 'north-entrance',
+          label: 'North entrance',
+          kind: 'entrance',
+          identifiers: [],
+          contextKeys: [],
+          evidence: [
+            {
+              ...resolutionScope,
+              sourceId: finding.sourceId,
+              sourceSha256: 'a'.repeat(64),
+              observationIndex: 0,
+              observationSha256: mediaIntakeHash(observation),
+            },
+          ],
+        },
+        {
+          candidateId: 'main-entrance',
+          label: 'Main entrance',
+          kind: 'entrance',
+          identifiers: [],
+          contextKeys: [],
+          evidence: [
+            {
+              ...resolutionScope,
+              sourceId: secondFinding.sourceId,
+              sourceSha256: 'b'.repeat(64),
+              observationIndex: 0,
+              observationSha256: mediaIntakeHash(secondFinding.sourceObservations[0]),
+            },
+          ],
+        },
+      ]
+      const initializedReview = await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: 0,
+          candidates,
+        },
+      })
+      const mergeRequestId = randomUUID()
+      const mergedReview = await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: mergeRequestId,
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: initializedReview.revision,
+          decision: {
+            kind: 'MERGE',
+            candidateIds: ['north-entrance', 'main-entrance'],
+            representativeId: 'north-entrance',
+            rationale: 'The reviewer matched both retained entrance observations.',
+          },
+        },
+      })
+      const handoffInput = {
+        tenantId,
+        venueId: mediaVenueId,
+        projectId: mediaProjectId,
+        requestId: mediaRequestId,
+        sourceGeneration,
+        expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+        bindings: [
+          {
+            kind: 'knowledge' as const,
+            itemIndex: 0,
+            itemHash: mediaIntakeHash(reviewedItem),
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+            entityRepresentativeId: 'north-entrance',
+          },
+          {
+            kind: 'knowledge' as const,
+            itemIndex: 1,
+            itemHash: mediaIntakeHash(unrelatedReviewedItem),
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+            entityRepresentativeId: 'north-entrance',
+          },
+        ],
+        rationale: 'Human reviewed the source limitation and approved this draft binding.',
+        identityReviewId: mergedReview.id,
+      }
+      const claimValueHash = (value: string) => createHash('sha256').update(value).digest('hex')
+      const temporalClaim = (
+        claimId: string,
+        value: string,
+        source: { sourceId: string; sourceObservations: unknown[] },
+        sourceSha256: string,
+      ) => ({
+        claimId,
+        targetKey: 'north-entrance:current-access',
+        targetItemHash: mediaIntakeHash(reviewedItem),
+        claimType: 'STABLE_FACT' as const,
+        value,
+        valueHash: claimValueHash(value),
+        authority: 'AUTHORIZED_STAFF' as const,
+        consequential: true,
+        source: {
+          sourceId: source.sourceId,
+          sourceSha256,
+          sourceVersion: mediaUploadAttemptId,
+          capturedAt: null,
+          observationIndex: 0,
+          observationSha256: mediaIntakeHash(source.sourceObservations[0]),
+        },
+      })
+      const conflictingTemporalClaims = [
+        temporalClaim('access-open', 'The north entrance is open.', finding, 'a'.repeat(64)),
+        temporalClaim(
+          'access-closed',
+          'The north entrance is closed.',
+          secondFinding,
+          'b'.repeat(64),
+        ),
+      ]
+      const temporalHandoffInput = { ...handoffInput, temporalClaims: conflictingTemporalClaims }
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          input: { ...handoffInput, identityReviewId: initializedReview.id },
+          actorId: ownerUserId,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const tamperedFindings = [
+        {
+          ...finding,
+          sourceObservations: [
+            { ...observation, statement: 'Changed after identity review was frozen' },
+          ],
+        },
+        secondFinding,
+      ]
+      await db.$executeRaw`
+        UPDATE media_ingestion_projects SET findings = ${JSON.stringify(tamperedFindings)}::jsonb
+        WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
+      `
+      await expect(
+        createMediaIntakeHandoff({ db, input: temporalHandoffInput, actorId: ownerUserId }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await db.$executeRaw`
+        UPDATE media_ingestion_projects SET findings = ${JSON.stringify([finding, secondFinding])}::jsonb
+        WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
+      `
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: conflictingTemporalClaims.map((claim) => ({
+              ...claim,
+              source: { ...claim.source, sourceVersion: randomUUID() },
+            })),
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: [
+              {
+                ...conflictingTemporalClaims[0]!,
+                source: {
+                  ...conflictingTemporalClaims[0]!.source,
+                  observationSha256: 'f'.repeat(64),
+                },
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: [
+              {
+                ...conflictingTemporalClaims[0]!,
+                source: { ...conflictingTemporalClaims[0]!.source, sourceSha256: 'f'.repeat(64) },
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const unboundClaim = {
+        ...conflictingTemporalClaims[0]!,
+        claimId: 'unbound-item-source',
+        targetKey: 'gallery:current-access',
+        targetItemHash: mediaIntakeHash(unrelatedReviewedItem),
+      }
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            bindings: [
+              handoffInput.bindings[0]!,
+              { ...handoffInput.bindings[1]!, sourceIds: [secondFinding.sourceId] },
+            ],
+            temporalClaims: [unboundClaim],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const now = Date.now()
+      const allItemsHeldClaims = [
+        ...conflictingTemporalClaims,
+        {
+          ...temporalClaim(
+            'gallery-temporary',
+            'The sculpture gallery is temporarily closed.',
+            secondFinding,
+            'b'.repeat(64),
+          ),
+          targetKey: 'gallery:temporary-access',
+          targetItemHash: mediaIntakeHash(unrelatedReviewedItem),
+          claimType: 'TEMPORARY_SCHEDULE' as const,
+          effectiveFrom: new Date(now - 60_000).toISOString(),
+          effectiveUntil: new Date(now + 3_600_000).toISOString(),
+        },
+      ]
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: allItemsHeldClaims,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const mediaHandoff = await createMediaIntakeHandoff({
+        db,
+        input: temporalHandoffInput,
+        actorId: ownerUserId,
+      })
+      const frozenIdentitySnapshot = await db.intakeRun.findFirstOrThrow({
+        where: { id: mediaHandoff.runId, tenantId, venueId: mediaVenueId },
+        select: { structuredBootstrap: true },
+      })
+      expect(frozenIdentitySnapshot.structuredBootstrap).toMatchObject({
+        identityReview: { id: mergedReview.id, revision: 2 },
+        temporalReview: {
+          claims: conflictingTemporalClaims,
+          sourceVersion: mediaUploadAttemptId,
+        },
+      })
+      expect(
+        (frozenIdentitySnapshot.structuredBootstrap as { bindings: unknown[] }).bindings,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            entityRepresentativeId: 'north-entrance',
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+          }),
+        ]),
+      )
+      expect(
+        (frozenIdentitySnapshot.structuredBootstrap as { draft: { knowledgeEntries: unknown[] } })
+          .draft.knowledgeEntries,
+      ).toHaveLength(2)
+      const frozenIdentitySnapshotHash = mediaIntakeHash(frozenIdentitySnapshot.structuredBootstrap)
+      const contentIdentityId = `media-content-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: contentIdentityId,
+          tenantId,
+          venueId: mediaVenueId,
+          identityKey: `media.temporal.${suffix}`,
+          name: 'Media temporal clarification specialist',
+          agentType: 'CONTENT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['content.draft'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: ownerUserId,
+        },
+      })
+      const clarificationInput = {
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+        agentIdentityId: contentIdentityId,
+        targetKey: 'north-entrance:current-access',
+        expectedSnapshotHash: frozenIdentitySnapshotHash,
+      }
+      const clarification = await createMediaTemporalClarification({
+        client: db,
+        input: clarificationInput,
+      })
+      const clarificationReplay = await createMediaTemporalClarification({
+        client: db,
+        input: clarificationInput,
+      })
+      expect(clarification).toMatchObject({
+        blockerScope: 'LOCAL',
+        sourceAmendmentRequired: true,
+        publicationTriggered: false,
+        canonicalVenueChanged: false,
+      })
+      expect(clarificationReplay).toMatchObject({
+        questionId: clarification.questionId,
+        replayed: true,
+      })
+      await expect(
+        db.agentQuestion.count({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            category: 'media-temporal-clarification',
+            blocking: false,
+          },
+        }),
+      ).resolves.toBe(1)
+      await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: mergedReview.revision,
+          decision: {
+            kind: 'REVERT_MERGE',
+            mergeRequestId,
+            rationale: 'The reviewer reversed the identity grouping.',
+          },
+        },
+      })
+      await expect(
+        createMediaIntakeHandoff({ db, input: temporalHandoffInput, actorId: ownerUserId }),
+      ).resolves.toMatchObject({ runId: mediaHandoff.runId, replayed: true })
+      expect(
+        mediaIntakeHash(
+          (
+            await db.intakeRun.findFirstOrThrow({
+              where: { id: mediaHandoff.runId, tenantId, venueId: mediaVenueId },
+              select: { structuredBootstrap: true },
+            })
+          ).structuredBootstrap,
+        ),
+      ).toBe(frozenIdentitySnapshotHash)
+      await db.mediaIngestionProject.update({
+        where: { id: mediaProjectId },
+        data: {
+          name: 'Changed after immutable handoff',
+          findings: [
+            { ...finding, summary: 'Source changed after immutable handoff.' },
+            secondFinding,
+          ],
+        },
+      })
+      const distinctRequestReplay = await createMediaIntakeHandoff({
+        db,
+        input: temporalHandoffInput,
+        actorId: ownerUserId,
+      })
+      expect(distinctRequestReplay).toMatchObject({ runId: mediaHandoff.runId, replayed: true })
+      expect(
+        await db.intakeRun.count({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            structuredBootstrap: { path: ['projectId'], equals: mediaProjectId },
+          },
+        }),
+      ).toBe(1)
+      const mediaCandidate = await buildIntakeVenuePackageCandidate({
+        db,
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+      })
+      expect(mediaCandidate).toMatchObject({ ready: true, autoApprove: false, autoApply: false })
+      expect(mediaCandidate.payload?.knowledgeEntries.create).toEqual([
+        expect.objectContaining({ value: unrelatedReviewedItem }),
+      ])
+      const embeddingCreate = vi.fn(async (params: { input: string[]; dimensions: number }) => ({
+        data: params.input.map((_text, index) => {
+          const embedding = Array(params.dimensions).fill(0)
+          embedding[index % Math.min(params.dimensions, 4)] = 1
+          return { index, embedding }
+        }),
+        usage: { prompt_tokens: params.input.length, total_tokens: params.input.length },
+      }))
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: { create: embeddingCreate },
+      } as OpenAiEmbeddingsClient)
+      const mediaDraft = await createIntakeCandidateDraftForAdmin({
+        db,
+        actorId: ownerUserId,
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+        expectedCandidateHash: mediaCandidate.candidateHash!,
+      })
+      setOpenAiEmbeddingsClientForTesting(null)
+      const retainedMediaDraft = await db.venuePackage.findFirstOrThrow({
+        where: { id: mediaDraft.value.id, tenantId, venueId: mediaVenueId },
+        select: { status: true, payloadHash: true },
+      })
+      expect(retainedMediaDraft).toMatchObject({
+        status: 'DRAFT',
+      })
+      expect(retainedMediaDraft.payloadHash).toBe(mediaDraft.value.payloadHash)
+      await expect(
+        db.contentModulePublication.count({ where: { tenantId, venueId: mediaVenueId } }),
+      ).resolves.toBe(0)
+      await expect(
+        db.intakePackageHandoff.findFirstOrThrow({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            runId: mediaHandoff.runId,
+            packageDraftId: mediaDraft.value.id,
+          },
+        }),
+      ).resolves.toBeTruthy()
+      expect(
+        await db.intakeEvidenceRecord.count({
+          where: { tenantId, venueId: mediaVenueId, runId: mediaHandoff.runId },
+        }),
+      ).toBe(3)
+      const legacyBootstrap = { version: 1, content: { kind: 'knowledge', value: reviewedItem } }
+      await db.intakeRun.create({
+        data: {
+          tenantId,
+          venueId: mediaVenueId,
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          status: 'AWAITING_REVIEW',
+          displayName: 'Legacy bootstrap without top-level kind',
+          structuredBootstrap: legacyBootstrap,
+          submissionRequestId: randomUUID(),
+          submissionInputHash: 'b'.repeat(64),
+          requestedBy: ownerUserId,
+        },
+      })
+      const [proposalList, bootstrapList] = await Promise.all([
+        listIntakeProposals({ db, tenantId, venueId: mediaVenueId, limit: 50 }),
+        listOnboardingBootstrapDetails({
+          client: db,
+          tenantId,
+          venueId: mediaVenueId,
+          limit: 50,
+        }),
+      ])
+      for (const list of [proposalList, bootstrapList]) {
+        expect(list.find((row) => row.id === mediaHandoff.runId)?.structuredBootstrap).toEqual({
+          kind: 'MEDIA_PROJECT_REVIEW',
+          retainedEvidenceCount: 3,
+        })
+        expect(
+          list.find((row) => row.displayName === 'Legacy bootstrap without top-level kind')
+            ?.structuredBootstrap,
+        ).toEqual(legacyBootstrap)
+        expect(JSON.stringify(list)).not.toContain('Opening hours are not established')
+      }
+    })
+  }, 60_000)
+})

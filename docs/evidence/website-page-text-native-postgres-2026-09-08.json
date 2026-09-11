@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08",
+  "scope": "P01 bounded website document text retention and scoped admin API",
+  "baselineCommit": "52dabe6a6a1dc1d6e0b593dabae1f88450fe920e",
+  "implementation": [
+    "Direct parse5 static body extraction; plain text stays literal; UTF-8 input decoding retained.",
+    "Optional additive pageTextEvidence with admitted URL/exact received-byte hash/capture time/profile/full and retained normalized text hashes/counts/truncation.",
+    "20,000 Unicode code points per page, 100,000 per crawl, maximum 100 pages; later omitted text remains explicit.",
+    "Strict clarification parser accepts new material without manufacturing structured claims or mapping selections. Existing request and cost replay identities remain unchanged.",
+    "Authenticated admin list/read uses exact tenant, venue, run, receipt, source, and hashes; source metadata excludes body; reader supports 1..4,000 code-point segments and exact case-sensitive search.",
+    "Continuation is a deterministic consistency binding, not a secret authentication credential; admin authentication and exact database scope remain the access boundary."
+  ],
+  "native": {
+    "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-website-text-ea9f52a79ef8",
+    "runner": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-website-text-proof.mjs",
+    "runnerSha256": "3e98e1c538520a288cc351dda7e946167858ba6ff532da4d7006981ffdd930be",
+    "postgres": "16.15",
+    "pgvector": "0.8.6",
+    "timezone": "UTC",
+    "migrations": 233,
+    "tables": 255,
+    "testsPassed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "stopped": true,
+    "proof": [
+      "Actual parser to crawler to canonical receipt to appRouter/auth middleware and database-backed reader.",
+      "Read/search beyond 4,000 and footer; escaped source remains data; exact byte hash and replay readback.",
+      "Stale hash, invalid cursor, oversized segment, wrong tenant/venue/run/receipt, staff and anonymous requests rejected.",
+      "Injected large Unicode prose preserves truncation and replay; no extra canonical evidence or handoff.",
+      "Append-only receipt guards and unsupported adapter inventory retained."
+    ]
+  },
+  "focusedChecks": {
+    "apiTests": 73,
+    "contractTests": 3,
+    "apiTypecheck": "passed",
+    "contractsTypecheck": "passed",
+    "ownedEslint": "passed after explicit metadata projection repair"
+  },
+  "sourceHashesLfNormalized": {
+    "packages/api/src/lib/website-intake-runtime.ts": "21b2d38f99534268b0823db6f4e13dc528ccb6f2287498e9b731c2e1b3e9913e",
+    "packages/api/src/lib/website-page-text-reader.ts": "24aec60283619a4f36bfbe72639233d575e06e2c2d6fd8384e7b3d55e834fbb8",
+    "packages/api/src/routers/admin/website-page-text.ts": "03d6dcc4b1b0ebe21e0a1966be22d0105f847ac805f79f0a8ad70aaac6eff3dc",
+    "packages/api/src/routers/admin/intake-operations.ts": "ad33742b22c6b5bf1b74a32954dbf18fefa31622dc6847bff36c8767c3573c15",
+    "packages/api/src/root.ts": "f313e07e9775bbe9f1ac98c283dee46863f29c5cf655d3eb702ea68f4e9686cd",
+    "packages/api/src/middleware/require-auth.ts": "ebe3fb33b8b0d48eee9917002ab367ac65d99eab61c0f18edc2a818b8411b725",
+    "packages/api/src/middleware/require-platform-admin.ts": "ade86b704f6740235a62f0598b2bbf202773c274cd7ab57b1cbe2a340293e4ce",
+    "packages/api/src/trpc.ts": "c0e8328afcd407c6d24c60a66d1df93f90654b9f6b8c808acc1e659739088150",
+    "packages/api/package.json": "4ec539b1e74999e4c6c20bf7768f6d9b5a981580a54b5f4776f123c55186e077",
+    "pnpm-lock.yaml": "3542a66b4ff94ad33fad494066a83074ebd4f491d358452073f6dc039433da44",
+    "packages/api/src/lib/website-discovery.disposable.integration.test.ts": "330d09fd4ac57775a6cfd61dcb60563432e717ae67d8f522b91553474afa8595",
+    "packages/api/src/lib/website-intake-research-service.ts": "8f013c69d775732a54a71d71483c618c294f23de5b52804c403a1bd26a5cb573",
+    "packages/api/src/lib/website-intake.ts": "579e36163d49a98ceb7fce679e5115501a9440b5af03a94b86634ea3e8ed65f9",
+    "packages/contracts/src/intake-engine.ts": "6137a51237e474d0486c6ebd60700fe95278124efcbebb722590c39f479db92c",
+    "packages/db/src/helpers/intake-website-research-actions.ts": "81b0ed616d1074b4ecb4d63f9d2dafd982232299d1e86bd65d1cfade62520dbd",
+    "packages/db/src/helpers/audit.ts": "218dd5809e6e7c9c8becdfd2b666c6cc912988a0c76011cd03417d59502d44f9",
+    "packages/db/src/client.ts": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869",
+    "packages/db/src/index.ts": "8139858eeece2338b60ba2bdb7f08326b8f2338ca824bd93fc55c0f10c368464",
+    "packages/db/src/middleware/tenant-isolation.ts": "0b0ddb4a6261b82169ba5d6c0167f6bd931e8d4e6bff253675fc6d4d2f122a3a",
+    "packages/db/prisma/schema.prisma": "7334f4b155cad1a80d0100e0a491eba002116eef984ca8bd088e28958b57ec0e",
+    "packages/db/prisma/migrations/20260908080000_add_website_source_discovery/migration.sql": "03e06c9452af04c440d850da37faa4a02484f159a1e585467af5824e784b57e9",
+    "scripts/lib/disposable-prisma-migration.mjs": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7",
+    "scripts/run-staging-migration-predeploy.mjs": "9a95eb19883890d9d111c186a41ff7bdf8b3a966fc56daca3bf6b858ae82761a",
+    "packages/api/src/lib/website-page-text-reader.test.ts": "06beeb86f3083781a2a9b489ecf7006faf4212cff91b141b401077aa40281440",
+    "packages/api/src/lib/website-intake.test.ts": "70828b46c66f7f5f5846d25ae9340e78b5dccd279d5f4d260b654e4f3dcc795f",
+    "packages/api/src/lib/website-intake-runtime.test.ts": "a495a9f84b181b7167623bb1d971f178315874983bf64a0486069ede1d06450d",
+    "packages/api/src/lib/website-intake-research-service.test.ts": "6507580cfb11112acebcc7b5d72f0818951485bea436a3334a64958038da7a4b",
+    "packages/api/src/lib/intake-website-clarifications.ts": "6f8b904ad1551a18b7ea73dad75e9c9f34936d81bc5dbb3e0f5dcd3488c0d19a",
+    "packages/api/src/lib/intake-website-clarifications.test.ts": "0701bebf91dc5239bbb0cab120f67b340846c0c31b0ab22aa74fef6b58c4ec88",
+    "packages/contracts/src/website-page-text-evidence.test.ts": "c6434b49e5de0e482b8d09aa2f530e17803f3cc6ce971c578ccc0881d15e4f4e"
+  },
+  "limitations": [
+    "UI implementation and rendered proof are separate, still in progress when this backend evidence was recorded.",
+    "No live website fetch, identity-provider session transport, production execution, deployment, provider inference, PDF/video/OCR adapter, CSS-rendered visibility, non-UTF-8 charset support, or authority/freshness verification claimed.",
+    "Legacy receipts are not retroactively enriched. Text is review material, not approved knowledge."
+  ],
+  "retainedEarlierRuns": [
+    "b2084e8f3b48 injected retention proof passed",
+    "f90a77a7e7e0 full path passed before lint-only explicit metadata projection repair"
+  ]
+}

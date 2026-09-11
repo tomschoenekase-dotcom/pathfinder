@@ -20,6 +20,13 @@ const mocks = vi.hoisted(() => ({
   eventCreate: vi.fn(),
   auditCreate: vi.fn(),
   executeRaw: vi.fn(),
+  draftFind: vi.fn(),
+  draftCreate: vi.fn(),
+  draftUpdate: vi.fn(),
+  draftFindRequired: vi.fn(),
+  v1SubmissionFind: vi.fn(),
+  v1RevisionFind: vi.fn(),
+  uploadFindMany: vi.fn(),
 }))
 const db = {
   venue: { findFirst: mocks.venue, create: mocks.venueCreate },
@@ -27,6 +34,15 @@ const db = {
   intakeEvidenceRecord: { create: mocks.evidenceCreate },
   intakeRunEvent: { create: mocks.eventCreate },
   auditLog: { create: mocks.auditCreate },
+  intakeSubmissionDraft: {
+    findUnique: mocks.draftFind,
+    create: mocks.draftCreate,
+    updateMany: mocks.draftUpdate,
+    findUniqueOrThrow: mocks.draftFindRequired,
+  },
+  intakeV1Submission: { findFirst: mocks.v1SubmissionFind },
+  intakeV1SubmissionRevision: { findFirst: mocks.v1RevisionFind },
+  intakeUpload: { findMany: mocks.uploadFindMany },
   $executeRaw: mocks.executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as TRPCContext['db']
@@ -54,6 +70,51 @@ describe('intake draft proposals', () => {
       displayName: 'Interview',
       createdAt: new Date(),
     })
+    mocks.draftFind.mockResolvedValue(null)
+    mocks.draftCreate.mockResolvedValue({ id: 'draft-1', revision: 1, updatedAt: new Date() })
+    mocks.draftUpdate.mockResolvedValue({ count: 1 })
+    mocks.draftFindRequired.mockResolvedValue({ id: 'draft-1', revision: 2, updatedAt: new Date() })
+    mocks.v1SubmissionFind.mockResolvedValue(null)
+    mocks.v1RevisionFind.mockResolvedValue(null)
+    mocks.uploadFindMany.mockResolvedValue([])
+  })
+
+  it('keeps draft reads private to the authenticated user and tenant', async () => {
+    await caller
+      .createCaller(context('tenant-a'))
+      .intake.getSubmissionDraft({ venueId: 'venue-a', sourceKind: 'NOTES' })
+    expect(mocks.draftFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-a',
+          tenantId_venueId_ownerUserId_sourceKind: {
+            tenantId: 'tenant-a',
+            venueId: 'venue-a',
+            ownerUserId: 'user-1',
+            sourceKind: 'NOTES',
+          },
+        },
+      }),
+    )
+  })
+
+  it('passes the authenticated scope and optimistic revision when saving', async () => {
+    await caller.createCaller(context('tenant-a')).intake.saveSubmissionDraft({
+      venueId: 'venue-a',
+      sourceKind: 'NOTES',
+      expectedRevision: 0,
+      content: { kind: 'NOTES', notes: 'Draft note' },
+    })
+    expect(mocks.draftCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          ownerUserId: 'user-1',
+          sourceKind: 'NOTES',
+        }),
+      }),
+    )
   })
 
   it('adapts an owner onboarding submission to an inactive empty shell and review-only run', async () => {
@@ -168,6 +229,177 @@ describe('intake draft proposals', () => {
       'Sensitive internal instructions.',
     )
     expect(mocks.evidenceCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('marks the exact current user draft submitted in the proposal transaction', async () => {
+    mocks.runCreate.mockResolvedValueOnce({
+      id: 'run-web',
+      venueId: 'venue-a',
+      sourceKind: 'WEBSITE',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Site',
+      createdAt: new Date(),
+    })
+    await caller.createCaller(context()).intake.createProposal({
+      venueId: 'venue-a',
+      requestId: 'cf2f4623-64fa-4c7a-b607-f0f6bbbc599e',
+      kind: 'WEBSITE',
+      displayName: 'Site',
+      websiteUri: 'https://example.com',
+      draftRevision: 3,
+    })
+    expect(mocks.draftUpdate).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        ownerUserId: 'user-1',
+        sourceKind: 'WEBSITE',
+        revision: 3,
+        submittedAt: null,
+      },
+      data: {
+        submittedProposalId: 'run-web',
+        submittedAt: expect.any(Date),
+        revision: { increment: 1 },
+      },
+    })
+  })
+
+  it('pages owned V1 revision history and forwards the exclusive cursor', async () => {
+    mocks.v1SubmissionFind.mockResolvedValueOnce({
+      id: 'submission-1',
+      status: 'AWAITING_CANONICAL_REVIEW',
+      revision: 25,
+      revisions: [
+        {
+          revision: 20,
+          manifestHash: 'a'.repeat(64),
+          criticalMissing: [],
+          createdAt: new Date(),
+          members: [],
+        },
+      ],
+    })
+    const result = await caller.createCaller(context()).intake.getV1({
+      venueId: 'venue-a',
+      submissionId: 'submission-1',
+      revisionCursor: 21,
+      revisionLimit: 5,
+    })
+    expect(result.revisionSemantics).toBe('FULL_REPLACEMENT')
+    expect(mocks.v1SubmissionFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'submission-1',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          ownerUserId: 'user-1',
+        }),
+        select: expect.objectContaining({
+          revisions: expect.objectContaining({
+            where: { revision: { lt: 21 } },
+            take: 6,
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('resumes the latest owned V1 submission without an opaque submission id', async () => {
+    mocks.v1SubmissionFind
+      .mockResolvedValueOnce({ id: 'submission-latest' })
+      .mockResolvedValueOnce({
+        id: 'submission-latest',
+        status: 'AWAITING_CANONICAL_REVIEW',
+        revision: 2,
+        revisions: [],
+      })
+    const result = await caller
+      .createCaller(context())
+      .intake.getLatestV1({ venueId: 'venue-a', revisionLimit: 10 })
+    expect(result).toMatchObject({ id: 'submission-latest', revisions: [] })
+    expect(mocks.v1SubmissionFind.mock.calls[0]?.[0]).toMatchObject({
+      where: { tenantId: 'tenant-a', venueId: 'venue-a', ownerUserId: 'user-1' },
+      select: { id: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    })
+  })
+
+  it('returns bounded processing truth for the exact authenticated owner revision', async () => {
+    mocks.v1RevisionFind.mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revision: 3,
+      createdAt: new Date('2026-09-07T12:00:00.000Z'),
+      members: [
+        {
+          id: 'member-1',
+          ordinal: 0,
+          intakeRun: { displayName: 'Museum website', sourceKind: 'WEBSITE' },
+          intakeUpload: null,
+          processingDispatch: {
+            kind: 'WEBSITE_RESEARCH',
+            status: 'PENDING',
+            holdReason: null,
+          },
+        },
+      ],
+    })
+    const result = await caller.createCaller(context('tenant-a')).intake.getV1Processing({
+      venueId: 'venue-a',
+      submissionId: 'submission-1',
+      revision: 3,
+    })
+
+    expect(mocks.v1RevisionFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          submissionId: 'submission-1',
+          revision: 3,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          submission: { ownerUserId: 'user-1' },
+        },
+      }),
+    )
+    expect(result).toMatchObject({
+      submissionId: 'submission-1',
+      revision: 3,
+      publicationCreated: false,
+      counts: { total: 1 },
+      members: [{ displayName: 'Museum website', processingKind: 'WEBSITE_RESEARCH' }],
+    })
+    expect(JSON.stringify(result)).not.toMatch(/lastError|leaseToken|sourceHash/iu)
+  })
+
+  it('lists bounded owner-scoped upload candidates without storage metadata', async () => {
+    mocks.uploadFindMany.mockResolvedValueOnce([
+      {
+        id: 'upload-1',
+        displayName: 'Floor plan',
+        status: 'AWAITING_REVIEW',
+        intakeRunId: 'run-1',
+        createdAt: new Date('2030-01-02T00:00:00.000Z'),
+      },
+    ])
+    const result = await caller
+      .createCaller(context())
+      .intake.listV1UploadCandidates({ venueId: 'venue-a', limit: 10 })
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: 'upload-1', displayName: 'Floor plan' }),
+    ])
+    expect(mocks.uploadFindMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-a', venueId: 'venue-a', requestedBy: 'user-1' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 11,
+      select: {
+        id: true,
+        displayName: true,
+        status: true,
+        intakeRunId: true,
+        createdAt: true,
+      },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/objectKey|sha256|storageVersionId/u)
   })
 
   it('requires exact consent and rejects privacy weaker than the role question default', async () => {

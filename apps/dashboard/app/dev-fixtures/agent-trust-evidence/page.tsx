@@ -1,12 +1,80 @@
 import type { inferRouterOutputs } from '@trpc/server'
+import type { Metadata } from 'next'
 
 import type { AppRouter } from '@pathfinder/api'
+import {
+  ActionClassTrustEvidence,
+  type ActionClassTrustEvidenceResult,
+} from '../../../components/admin/ActionClassTrustEvidence'
 import { OperationsAttentionConsole } from '../../../components/admin/OperationsAttentionConsole'
 import { TRPCProvider } from '../../../lib/trpc'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 
+export const metadata: Metadata = { title: 'Agent trust evidence fixture' }
+
 const emptyPage = { items: [], nextCursor: null }
+const actionClassTrustEvidence: ActionClassTrustEvidenceResult = {
+  recommendationOnly: true,
+  authorityChange: false,
+  incomplete: true,
+  unlinkedOutcomeIds: ['outcome_fixture_unlinked'],
+  mismatchedOutcomeIds: [],
+  conflictingOutcomeIds: [],
+  conflictingApprovalDecisionIds: [],
+  unmatchedApprovalDecisionIds: ['approval_fixture_unmatched'],
+  schemaVersion: 1,
+  emailReviewReductionRecommended: false,
+  sourceIds: {
+    actionIds: ['action_fixture_success', 'action_fixture_denied'],
+    outcomeIds: ['outcome_fixture_positive', 'outcome_fixture_adverse'],
+    approvalDecisionIds: ['approval_fixture_approved'],
+  },
+  groups: [
+    {
+      key: 'fixture-support-draft',
+      tenantId: 'tenant_harbor_museum',
+      venueId: 'venue_north_gallery',
+      agentIdentityId: 'agent_support_drafter',
+      actionName: 'support.draft',
+      actionIds: ['action_fixture_success', 'action_fixture_denied'],
+      successfulActionIds: ['action_fixture_success'],
+      failedActionIds: [],
+      deniedActionIds: ['action_fixture_denied'],
+      cancelledActionIds: [],
+      successfulActionsWithoutQualityCount: 3,
+      linkedOutcomeIds: ['outcome_fixture_positive', 'outcome_fixture_adverse'],
+      linkedPositiveOutcomeIds: ['outcome_fixture_positive'],
+      linkedAdverseOutcomeIds: ['outcome_fixture_adverse'],
+      uncertainOutcomeIds: ['outcome_fixture_uncertain'],
+      approvalDecisionIds: ['approval_fixture_approved', 'approval_fixture_expired'],
+      approvedApprovalDecisionIds: ['approval_fixture_approved'],
+      rejectedApprovalDecisionIds: [],
+      uncertainApprovalDecisionIds: ['approval_fixture_expired'],
+      recommendation: 'INSPECT_ADVERSE_EVIDENCE',
+      blocksPositiveRecommendation: true,
+      executionBoundaryBlocksPositive: true,
+      approvalBoundaryBlocksPositive: true,
+      uncertainEvidence: true,
+      incomplete: true,
+      evidence: {
+        actionCount: 7,
+        successfulActionCount: 6,
+        failedActionCount: 0,
+        deniedActionCount: 1,
+        cancelledActionCount: 0,
+        linkedOutcomeCount: 4,
+        linkedPositiveOutcomeCount: 3,
+        linkedAdverseOutcomeCount: 1,
+        uncertainOutcomeCount: 1,
+        approvalDecisionCount: 3,
+        approvedApprovalDecisionCount: 2,
+        rejectedApprovalDecisionCount: 0,
+        uncertainApprovalDecisionCount: 1,
+      },
+    },
+  ],
+}
 const data: Data = {
   generatedAt: new Date('2026-08-22T20:00:00.000Z'),
   jobs: emptyPage,
@@ -40,8 +108,16 @@ const data: Data = {
     },
     ai: {
       estimatedCostUsd: '86.50000000',
+      observedEstimatedCostUsd: '74.25000000',
       requestCount: 1240,
       attributedTenantCount: 5,
+      usageCoverage: {
+        observedRequestCount: 1180,
+        unknownRequestCount: 40,
+        notDispatchedRequestCount: 12,
+        legacyUnclassifiedRequestCount: 8,
+      },
+      observationCompleteness: 'PARTIAL_RECORDED_USAGE',
       completeness: 'PROVIDER_PRICING_ESTIMATE',
     },
     nonAi: {
@@ -385,7 +461,7 @@ export default async function AgentTrustEvidenceFixturePage({
   searchParams: Promise<{ focus?: string }>
 }) {
   const { focus } = await searchParams
-  const fixtureData =
+  const fixtureData: Data =
     focus === 'decision'
       ? {
           ...data,
@@ -418,12 +494,44 @@ export default async function AgentTrustEvidenceFixturePage({
             metrics: { ...data.briefing.metrics, criticalRisks: 1, actionItems: 1 },
           },
         }
-      : data
+      : focus === 'visitor-feedback-hazard'
+        ? {
+            ...data,
+            events: {
+              items: [
+                {
+                  id: '11111111-1111-4111-8111-111111111111',
+                  tenantId: 'tenant_fixture',
+                  venueId: 'venue_fixture',
+                  eventType: 'visitor-feedback.potential-urgent-hazard',
+                  sourceSubsystem: 'visitor-feedback',
+                  severity: 'CRITICAL',
+                  title: 'Potential visitor-reported safety hazard',
+                  summary:
+                    'An unverified visitor feedback report may describe an immediate venue safety hazard.',
+                  recommendedAction:
+                    'Review the current feedback record and its cited public conversation immediately.',
+                  state: 'OPEN',
+                  actionRequired: true,
+                  linkedObjectType: 'MessageFeedback',
+                  linkedObjectId: 'feedback_fixture',
+                  occurrenceCount: 2,
+                  createdAt: new Date('2026-09-07T20:00:00.000Z'),
+                  lastOccurredAt: new Date('2026-09-07T20:05:00.000Z'),
+                },
+              ],
+              nextCursor: null,
+            },
+          }
+        : data
   return (
     <TRPCProvider scopeKey="agent-trust-evidence-fixture">
       <main data-fixture="agent-trust-evidence" className="min-h-screen bg-slate-100 p-4 sm:p-8">
         <div className="mx-auto max-w-7xl">
           <OperationsAttentionConsole data={fixtureData} />
+          <div className="mt-6" data-fixture-panel="action-class-trust-evidence">
+            <ActionClassTrustEvidence evidence={actionClassTrustEvidence} />
+          </div>
         </div>
       </main>
     </TRPCProvider>

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
+import { canonicalEvaluationJson } from '@pathfinder/contracts/evaluation'
+import { GuestChatReplayMetadata } from '@pathfinder/db'
 
 import {
   buildGuestAnswerEvidenceBundle,
@@ -7,6 +10,52 @@ import {
 } from './guest-answer-evidence'
 
 describe('guest answer evidence', () => {
+  it('reads and verifies retained v13 evidence without relabeling its prompt identity', () => {
+    const evidence = buildGuestAnswerEvidenceBundle({
+      assistantResponse: 'Open today.',
+      staticSystemPrompt: 'Prior static prompt.',
+      dynamicSystemPrompt: 'Prior dynamic prompt.',
+      sources: [
+        {
+          sourceId: 'venue:1',
+          kind: 'VENUE_PROFILE',
+          label: 'Museum',
+          snapshot: { name: 'Museum' },
+        },
+      ],
+    })
+    const hash = (value: Parameters<typeof canonicalEvaluationJson>[0]) =>
+      createHash('sha256').update(canonicalEvaluationJson(value)).digest('hex')
+    const retained = { ...evidence, promptContractVersion: 'guest-chat-prompt-v13' as const }
+    retained.systemPromptHash = hash({
+      promptContractVersion: retained.promptContractVersion,
+      system: retained.system,
+    })
+    retained.evidenceSetHash = hash({
+      promptContractVersion: retained.promptContractVersion,
+      systemPromptHash: retained.systemPromptHash,
+      routeConfigurationVersion: retained.routeConfigurationVersion,
+      sources: retained.sources,
+    })
+    const replay = GuestChatReplayMetadata.parse({ places: [], answerEvidence: retained })
+    expect(replay.answerEvidence).toEqual(retained)
+    expect(
+      verifyGuestAnswerEvidenceBundle({ assistantResponse: 'Open today.', evidence: retained }),
+    ).toBe(true)
+    expect(
+      verifyGuestAnswerEvidenceBundle({
+        assistantResponse: 'Open today.',
+        evidence: { ...retained, promptContractVersion: evidence.promptContractVersion },
+      }),
+    ).toBe(false)
+    expect(() =>
+      GuestChatReplayMetadata.parse({
+        places: [],
+        answerEvidence: { ...retained, promptContractVersion: 'guest-chat-prompt-v999' },
+      }),
+    ).toThrow()
+  })
+
   it('freezes exact prompts and canonical source snapshots with stable hashes', () => {
     const first = buildGuestAnswerEvidenceBundle({
       assistantResponse: 'The museum closes at 5 PM.',

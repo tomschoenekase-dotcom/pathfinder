@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import { MEDIA_SOURCE_FILENAME_LIMIT } from '@pathfinder/contracts'
+import {
+  MEDIA_SOURCE_FILENAME_LIMIT,
+  MediaVideoMethodSchema,
+  MediaVideoCoverageSchema,
+  MediaObservationSchema,
+  MediaSourceObservationSchema,
+} from '@pathfinder/contracts'
 
 export const MEDIA_FINDING_PAGE_LIMIT = 50
 export const MEDIA_FINDING_LIMIT = 10_000
@@ -10,9 +16,10 @@ export const mediaFindingSchema = z
     sourceId: z.string().min(1).max(500),
     filename: z.string().min(1).max(MEDIA_SOURCE_FILENAME_LIMIT),
     mediaType: z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT']),
-    videoAnalysisMethod: z
-      .enum(['GOOGLE_COMPLETE_VIDEO', 'SAMPLED_VIDEO', 'SAMPLED_VIDEO_FALLBACK'])
-      .optional(),
+    videoAnalysisMethod: MediaVideoMethodSchema.optional(),
+    videoAnalysisCoverage: MediaVideoCoverageSchema.optional(),
+    observations: z.array(MediaObservationSchema).max(2_000).optional(),
+    sourceObservations: z.array(MediaSourceObservationSchema).max(2_000).optional(),
     summary: z.string().max(50_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
     review: z
@@ -28,13 +35,71 @@ export const mediaFindingSchema = z
   })
   .passthrough()
   .superRefine((finding, context) => {
-    if (finding.videoAnalysisMethod && finding.mediaType !== 'VIDEO') {
+    if (
+      (finding.videoAnalysisMethod || finding.videoAnalysisCoverage || finding.observations) &&
+      finding.mediaType !== 'VIDEO'
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['videoAnalysisMethod'],
         message: 'Video analysis provenance is only valid for video findings.',
       })
     }
+    if (finding.videoAnalysisCoverage) {
+      const coverage = finding.videoAnalysisCoverage
+      const staticVideo = finding.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS'
+      const sampled =
+        finding.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+        finding.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+      if (
+        (!staticVideo && !sampled) ||
+        coverage.inputScope !== (staticVideo ? 'uploaded-video' : 'sampled-frames') ||
+        coverage.visualCoverage !==
+          (staticVideo ? 'provider-static-1fps' : 'bounded-interval-samples') ||
+        coverage.audioCoverage !== (staticVideo ? 'provider-video-audio' : 'optional-transcription')
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['videoAnalysisCoverage'],
+          message: 'Video coverage must match its recorded processing method.',
+        })
+      }
+    }
+    finding.sourceObservations?.forEach((observation, index) => {
+      const locatorType = observation.locator.type
+      const validLocator =
+        locatorType === 'whole_source' ||
+        (finding.mediaType === 'IMAGE' && locatorType === 'image_region') ||
+        (finding.mediaType === 'DOCUMENT' && locatorType === 'document_page') ||
+        (finding.mediaType === 'VIDEO' && locatorType === 'video_interval')
+      const validMethod =
+        (finding.mediaType === 'IMAGE' &&
+          observation.processingMethod === 'provider_image_analysis') ||
+        (finding.mediaType === 'VIDEO' &&
+          ((finding.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS' &&
+            observation.processingMethod === 'provider_video_static_1fps') ||
+            ((finding.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+              finding.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK') &&
+              observation.processingMethod === 'sampled_video_analysis'))) ||
+        (finding.mediaType === 'AUDIO' && observation.processingMethod === 'audio_transcription') ||
+        (finding.mediaType === 'DOCUMENT' && observation.processingMethod === 'text_extraction')
+      const validChannel =
+        (finding.mediaType === 'IMAGE' &&
+          ['visual', 'visible_text', 'mixed'].includes(observation.evidenceChannel)) ||
+        (finding.mediaType === 'VIDEO' &&
+          ['visual', 'visible_text', 'speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (finding.mediaType === 'AUDIO' &&
+          ['speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (finding.mediaType === 'DOCUMENT' &&
+          ['document_text', 'visible_text', 'mixed'].includes(observation.evidenceChannel))
+      if (!validLocator || !validMethod || !validChannel) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sourceObservations', index],
+          message: 'Source observation locator and method must match the finding media type.',
+        })
+      }
+    })
   })
 
 export const mediaFindingsSchema = z.array(mediaFindingSchema).max(MEDIA_FINDING_LIMIT)

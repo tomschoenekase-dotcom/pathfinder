@@ -9,6 +9,7 @@ import {
   Headphones,
   MessageCircleHeart,
   Megaphone,
+  QrCode,
   Sparkles,
 } from 'lucide-react'
 
@@ -109,7 +110,10 @@ export function DashboardOverviewView({
     lifecycle.clientAction === 'CONTINUE_INTAKE'
       ? { href: `/venues/${encodeURIComponent(venue.id)}/onboarding`, label: 'Continue setup' }
       : lifecycle.clientAction === 'CONTACT_SUPPORT'
-        ? { href: '/support', label: 'Contact Support' }
+        ? {
+            href: `/support?venue=${encodeURIComponent(venue.id)}`,
+            label: 'Contact Support',
+          }
         : null
   const fallbackTasks: ClientPortalTask[] = previewHref
     ? [
@@ -256,7 +260,7 @@ export function DashboardOverviewView({
             <div className="relative flex min-h-44 items-center justify-center border-t border-white/10 bg-white/[0.025] px-6 py-7 sm:min-h-52 md:border-l md:border-t-0">
               <TorchikoCore
                 state={coreStateFor(lifecycle)}
-                className="max-w-[15rem] brightness-125 saturate-[0.85] sm:max-w-[18rem] md:max-w-[22rem]"
+                className={`max-w-[15rem] brightness-125 saturate-[0.85] sm:max-w-[18rem] md:max-w-[22rem] ${showLiveTools ? 'mb-16' : ''}`}
               />
               {showLiveTools ? (
                 <div className="absolute bottom-6 left-6 right-6 border-t border-white/15 pt-4 sm:left-10 sm:right-10 lg:left-8 lg:right-8">
@@ -321,6 +325,37 @@ export function DashboardOverviewView({
                 </li>
               ))}
             </ol>
+          </section>
+        ) : null}
+
+        {publicGuestLinkAvailable && chatUrl ? (
+          <section
+            className="mt-10 border-y border-pf-light py-6"
+            aria-labelledby="launch-materials-heading"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
+                  Visitor access
+                </p>
+                <h2
+                  id="launch-materials-heading"
+                  className="mt-2 text-xl font-semibold text-pf-deep"
+                >
+                  Print or share your QR code
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/70">
+                  Get printable codes for your visitor guide and public exhibits.
+                </p>
+              </div>
+              <Link
+                href={`/venues/${encodeURIComponent(venue.id)}/qr-kit`}
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+              >
+                <QrCode className="h-4 w-4" aria-hidden="true" />
+                Open QR kit
+              </Link>
+            </div>
           </section>
         ) : null}
 
@@ -405,13 +440,13 @@ export function DashboardOverviewView({
                   Icon: Megaphone,
                 },
                 {
-                  href: '/ai-controls',
+                  href: `/ai-controls?venue=${encodeURIComponent(venue.id)}`,
                   title: 'Visitor experience',
                   body: 'Choose the voice that feels right for your visitors.',
                   Icon: Sparkles,
                 },
                 {
-                  href: '/support',
+                  href: `/support?venue=${encodeURIComponent(venue.id)}`,
                   title: 'Help & changes',
                   body: 'Ask a question or request a change from the Torchiko team.',
                   Icon: Headphones,

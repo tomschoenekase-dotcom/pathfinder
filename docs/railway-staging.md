@@ -147,14 +147,25 @@ older worker replica and prove that only the reviewed release SHA remains; an ol
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
 jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
 
-For production workers, all nine controls must be explicitly set to `true` or `false`:
+For production workers, all twelve controls must be explicitly set to `true` or `false`:
 `OUTBOUND_PROVIDER_WORKERS_ENABLED`, `CRM_BACKGROUND_WORKERS_ENABLED`,
-`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
+`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED`,
+`INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
 `EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
-`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`, and
-`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED`. Omission is a startup failure, not implicit authorization.
+`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`,
+`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED`, and `FOUNDER_ABSENCE_OBSERVER_ENABLED`.
+This list follows `WORKER_EXECUTION_FLAGS` in `apps/workers/src/lib/worker-startup-policy.ts`.
+Use all twelve explicitly set to `false` for a fully dormant staging deployment.
+Omission in production is a startup failure, not implicit authorization.
 Scheduler flags do not by themselves freeze ordinary consumers; a cutover freeze still requires
 stopped/drained worker replicas and inspected queues.
+
+Canonical staging admission proves the exact three-service deployment and connectivity; it does
+not prove scheduler execution. A deliberately dormant worker creates no new queues or schedulers
+and does not refresh the execution heartbeat. Authenticated operational readiness can therefore
+remain degraded after that heartbeat expires. Record this as disabled execution, not healthy
+scheduling. Before activating a capability, separately verify its exact scheduler identities,
+cadences and recent execution; a fresh heartbeat alone does not establish that inventory.
 
 For an isolated staging evaluation window, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
 `EVALUATION_RUNNER_ENABLED=true`, and keep the CRM and intake-only modes false. The worker must report
@@ -229,12 +240,34 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-207-20260901`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-247-20260910`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
-Prisma. After the exact migration and hosted health pass, restore
-`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. A normal
-deployment with the closed value is expected to stop at pre-deploy and is not a second migration
-proof.
+Prisma when migrations are pending. A pending `preserve-existing` migration also requires
+`PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1`. Capture the final owner SHA, pause application autodeploy
+without deploying, require owner CI, drain old writers and external ingress, and verify the final
+release-bound backup/restore evidence before arming this one web attempt. Keep dashboard/workers
+stopped and verify the provider predeploy timeout independently. The hold is captured once;
+only exact `0` and `1` are accepted, and unset means `0` for code-only compatibility.
+
+With hold `1`, successful migration and all integrity/preservation checks deliberately end predeploy
+with exit `2`, action `staging-migration.application-held`, and code
+`migration-verified-application-held`. Railway marks this migration-only deployment FAILED and does
+not start its application. The already-complete ledger path is held too. A genuine migration,
+integrity or disconnect error retains ordinary failure classification; the held event is not proof
+of healthy application deployment. Keep the exact failed deployment ID and database verification
+receipt, and never retry automatically after an unresolved cancellation or stop alarm.
+
+After the operator accepts that exact database readback, set both
+`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` and `PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=0` with
+`--skip-deploys`. Manually deploy web again at the same frozen owner SHA through the existing source
+path. Only after code-only web health passes may dashboard and dormant workers be released at that
+SHA; restore reviewed autodeploy settings without deployment after full admission. Code-only
+deployments with a complete exact ledger require migration opt-in explicitly `0` and run read-only
+integrity checks with that gate closed;
+they do not require fresh migration permission or backup attestations. A pending suffix still
+requires every migration admission and preservation check before Prisma runs. The provider Git
+SHA may identify the release without a configured override; any configured override must agree.
+Local uploads still require the exact local-upload attestation.
 
 The frozen manifest identity is computed from LF-normalized migration text so it is stable across
 checkouts. Ledger verification separately accepts only the exact raw-byte checksum Prisma records
@@ -242,9 +275,37 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The reviewed 206-migration state contains 232 public tables: the B.5 boundary contains 193 and the
-subsequent 64-migration suffix adds 38. The post-migration guard freezes that exact topology along
-with the ordered ledger, checksums, valid indexes, and validated constraints.
+The measured V1 processing predecessor `701c47e4a75353922ae18a886dde2ea44caf5190` retains 225 migrations, 252 public tables, and normalized manifest SHA-256 `d5d5aed3c06ccb48b045d66a5cd35b940269abfba289603f355e9232746d843e`. Its 225-row boundary remains explicitly admitted; the retained processing proof is preserved.
+
+The measured V1 submission predecessor `1e84eee2bb99912ca7aa44382ed17eb9f4f68a88` retains 224 migrations, 251 public tables, and normalized manifest SHA-256 `8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532`. Its earlier fixture proof remains preserved and the 224-row state is explicitly admitted as a predecessor.
+
+The reviewed local migration endpoint contains 247 migrations and 264 public tables, ending with `20260910140000_add_semantic_reviewed_decline`, with LF-normalized manifest SHA-256 `accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c`. The exact-question operation boundary remains an explicitly measured predecessor: 236 migrations, 256 public tables, final migration `20260908160000_add_agent_question_operations`, and manifest `f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9`. Its eleven-file suffix is accepted only as the complete reviewed transition; an intermediate 237–246 ledger is not automatically admitted. The prior file-extraction candidate (235 migrations, 255 tables, final migration `20260908150000_add_intake_v1_file_extraction_dispatches`) remains an explicitly admitted predecessor with manifest SHA-256 `968270ab6d65dd64e9b3027e3c6d6b906d4805d7312190eecaa3b269cc34d0e5`. The prior 234-migration, 255-table website PDF state remains an explicitly admitted predecessor with manifest SHA-256 `fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab`.
+
+The [populated 236/245 rehearsal](evidence/migration-236-247-admission-2026-09-10.json) and
+[actual staging archive local restore preflight](evidence/staging-full-archive-restore-preflight-2026-09-10.json)
+have independently reviewed local proof. The latter preserved the actual 207-row predecessor,
+all 231 application tables, sequences, ownership and privileges through 247. It is not a final
+drained backup or a hosted upgrade. Read-only staging observation on 2026-09-10 remains 207/232.
+Before execution, the exact final release needs its canonical candidate report, fresh preservation
+attestations and the concrete recovery decision in [the recovery review](migration-236-247-recovery-review.md).
+The new approval value alone grants no hosted restore/cutover or production authority.
+
+The campaign's local candidate `f510cd38b2f79efdc2b74c940b8b5b7535c7596f` contains 227 migrations and 254 public tables, measured on native disposable PostgreSQL 16.15 in UTC, ending with immutable intake source-mapping reviews. The normalized manifest SHA-256 is `821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19`; [retained fixture evidence](evidence/intake-source-mapping-native-postgres-2026-09-07.json) records successful tests and server shutdown. Fixture data and logs remain retained; this does not establish cleanup of earlier Docker resources. The measured 226-row/253-table revision-package handoff state is an admitted predecessor. The measured 223-row/248-table workflow-activation state remains an admitted predecessor. The 222-row/245-table promotion-assessment state is an admitted migration-derived predecessor boundary. The 221-row/244-table usage-observation and
+220-row/244-table workflow-registry states are admitted migration-derived predecessor boundaries.
+The measured 219-row/243-table governed-media, 218-row/243-table prospect-onboarding,
+216-row/240-table media-relation, 215-row/239-table media-resolution, 214-row/238-table
+legacy-adoption, and 207-row/232-table campaign boundaries remain admitted predecessors. The
+post-migration guard freezes the exact topology along with the ordered
+ledger, checksums, valid indexes, and validated constraints. These candidate expectations do not
+change historical hosted observations into evidence of a new deployment.
+
+The staging admission workflow now composes exact web/dashboard/worker topology, public health,
+and bounded runtime error/worker-identity checks through `scripts/admit-staging-release.mjs`.
+It requires `RAILWAY_STAGING_READ_TOKEN` in GitHub's secret store, scoped to the staging project;
+availability of that configuration must be verified through the authorized service interface.
+Missing access fails closed. The command grants no mutation or migration authority, and a healthy
+web response cannot admit a mismatched dashboard or worker. Founder-absence maturity remains a
+separate product-readiness assessment; release admission still rejects actual runtime errors.
 
 If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.
 Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remains blocked until the
@@ -338,9 +399,15 @@ verifies that both the candidate and recorded base are ancestors of the owner co
 reused, malformed, dirty, stale, or already-pushed handoff, replaces every owner-revision placeholder,
 and emits a deterministic resolved manifest. Use only the exact commands and identity in that
 resolved manifest for `PATHFINDER_RELEASE_SHA`, local-upload messages, topology admission, runtime
-audit, and hosted verification. Stage every required Railway variable with `--skip-deploys` before
-pushing the owner branch because that push may immediately create Git-backed deployments. Require
-owner CI success before waiting services are released.
+audit, and hosted verification. Stage the exact release identity and approval variables with
+`--skip-deploys` before pushing the owner branch because that push may immediately create
+Git-backed deployments. For a preserved-data migration, first pause all three application
+autodeploy triggers without deploying, then push and require owner CI success while the branch
+remains frozen. Leave mutation opt-in closed until the subsequent drain, final backup/restore and
+recovery gates pass; only then stage the release-bound backup evidence and arm migration opt-in
+and hold together with `--skip-deploys`. Follow the held web-only
+migration and separate same-SHA code-only web release above before dashboard/workers; Wait for CI
+alone does not impose migration ordering between services.
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
 emits only the three application deployment IDs, immutable image digests, expected revision, and

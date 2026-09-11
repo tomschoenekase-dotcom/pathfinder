@@ -99,10 +99,83 @@ test('checkout never persists the workflow token', async () => {
   }
 })
 
-test('branch and pull-request workflows receive no repository secrets', async () => {
-  for (const { name, source } of await workflows()) {
-    assert.doesNotMatch(source, /\bsecrets\s*\./u, name)
+function assertWorkflowSecretBoundary({ name, source }) {
+  if (!/\bsecrets\s*(?:\.|\[|\}\})/u.test(source)) return
+
+  // The canonical staging readback is a privileged default-branch workflow, not
+  // branch/PR CI. Fail closed on every other secret use or trigger. GitHub defines
+  // workflow_run's github.sha as the default-branch commit:
+  // https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run
+  assert.equal(name, 'staging-admission.yml', 'Only reviewed staging readback may use a secret')
+  const normalized = source.replace(/\r\n/gu, '\n')
+  const trigger = normalized.match(/^on:\n(?:(?:[ \t].*|)\n)*/mu)?.[0].trim()
+  assert.equal(
+    trigger,
+    [
+      'on:',
+      '  workflow_run:',
+      '    workflows: [CI]',
+      '    types: [completed]',
+      '    branches: [codex/pathfinder-v2-staging]',
+    ].join('\n'),
+  )
+  const jobs = workflowJobBlocks(normalized)
+  assert.equal(jobs.length, 1, 'Secret-bearing readback may contain only its guarded job')
+  assert.equal(jobs[0].name, 'admit-staging')
+  const condition = jobs[0].source.match(/^    if: >-\n((?:      .*\n)+)/mu)?.[1]
+  assert.equal(
+    condition?.trim().replace(/\s+/gu, ' '),
+    [
+      "github.event.workflow_run.conclusion == 'success'",
+      "github.event.workflow_run.event == 'push'",
+      'github.event.workflow_run.head_repository.full_name == github.repository',
+      "github.event.workflow_run.head_branch == 'codex/pathfinder-v2-staging'",
+    ].join(' && '),
+  )
+  assert.equal(normalized.match(/\bsecrets\b/gu)?.length, 1)
+  assert.match(
+    normalized,
+    /^          RAILWAY_TOKEN: \$\{\{ secrets\.RAILWAY_STAGING_READ_TOKEN \}\}$/mu,
+  )
+  assert.equal(normalized.match(/^\s+ref:/gmu)?.length, 1)
+  assert.match(normalized, /^          ref: \$\{\{ github\.sha \}\}$/mu)
+  assert.equal(normalized.match(/github\.event\.workflow_run\.head_sha/gu)?.length, 1)
+  assert.match(
+    normalized,
+    /^          RELEASE_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}$/mu,
+  )
+}
+
+test('branch and pull-request workflows receive no secrets; staging readback executes only trusted code', async () => {
+  for (const workflow of await workflows()) assertWorkflowSecretBoundary(workflow)
+})
+
+test('staging secret admission rejects fork/PR triggers, candidate checkout, and expanded secret scope', async () => {
+  const approved = (await workflows()).find(({ name }) => name === 'staging-admission.yml')
+  assert.ok(approved)
+  assertWorkflowSecretBoundary(approved)
+  const mutations = [
+    (source) => source.replace("github.event.workflow_run.event == 'push' &&", ''),
+    (source) =>
+      source.replace(
+        'github.event.workflow_run.head_repository.full_name == github.repository &&',
+        '',
+      ),
+    (source) => source.replace("head_branch == 'codex/pathfinder-v2-staging'", "head_branch != ''"),
+    (source) =>
+      source.replace('ref: ${{ github.sha }}', 'ref: ${{ github.event.workflow_run.head_sha }}'),
+    (source) => source.replace('secrets.RAILWAY_STAGING_READ_TOKEN', 'secrets.PRODUCTION_TOKEN'),
+    (source) =>
+      source.replace('secrets.RAILWAY_STAGING_READ_TOKEN', "secrets['RAILWAY_STAGING_READ_TOKEN']"),
+    (source) => source.replace('  workflow_run:', '  pull_request:'),
+    (source) => `${source}\n  unguarded:\n    runs-on: ubuntu-latest\n`,
+  ]
+  for (const mutate of mutations) {
+    const source = mutate(approved.source)
+    assert.notEqual(source, approved.source)
+    assert.throws(() => assertWorkflowSecretBoundary({ ...approved, source }))
   }
+  assert.throws(() => assertWorkflowSecretBoundary({ ...approved, name: 'ci.yml' }))
 })
 
 test('the immutable-reference parser rejects mutable tags and accepts local or digest-safe forms', () => {

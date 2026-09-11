@@ -85,6 +85,7 @@ const published = {
 
 describe('operational update domain actions', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     vi.resetAllMocks()
     venueFindFirst.mockResolvedValue({ id: 'venue_1' })
     placeFindFirst.mockResolvedValue({ id: 'place_1' })
@@ -282,6 +283,103 @@ describe('operational update domain actions', () => {
       excludeId: 'update_1',
     })
     expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: 'scheduled create',
+      arrange: () => undefined,
+      run: () =>
+        createOperationalUpdateAction(
+          { tenantId: 'tenant_1', actor, fields, schedule: true },
+          client,
+        ),
+      mutation: create,
+    },
+    {
+      name: 'inactive scheduled update',
+      arrange: () =>
+        findFirst.mockResolvedValue({ ...published, status: 'DRAFT', isActive: false }),
+      run: () =>
+        updateOperationalUpdateAction(
+          {
+            tenantId: 'tenant_1',
+            actor,
+            id: 'update_1',
+            expectedUpdatedAt,
+            fields,
+            schedule: true,
+          },
+          client,
+        ),
+      mutation: updateMany,
+    },
+    {
+      name: 'active update',
+      arrange: () => findFirst.mockResolvedValue(published),
+      run: () =>
+        updateOperationalUpdateAction(
+          {
+            tenantId: 'tenant_1',
+            actor,
+            id: 'update_1',
+            expectedUpdatedAt,
+            fields,
+            schedule: false,
+          },
+          client,
+        ),
+      mutation: updateMany,
+    },
+    {
+      name: 'schedule command',
+      arrange: () =>
+        findFirst.mockResolvedValue({ ...published, status: 'DRAFT', isActive: false }),
+      run: () =>
+        scheduleOperationalUpdateAction(
+          { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt },
+          client,
+        ),
+      mutation: updateMany,
+    },
+  ])(
+    'rejects $name when the capacity lock wait crosses expiry',
+    async ({ arrange, run, mutation }) => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(expiresAt.getTime() - 1))
+      let releaseCapacity!: () => void
+      lockCapacity.mockReturnValue(
+        new Promise<void>((resolve) => {
+          releaseCapacity = resolve
+        }),
+      )
+      arrange()
+      const action = run()
+      for (let index = 0; index < 10 && lockCapacity.mock.calls.length === 0; index += 1) {
+        await Promise.resolve()
+      }
+      expect(lockCapacity).toHaveBeenCalledOnce()
+      vi.setSystemTime(new Date(expiresAt.getTime() + 1))
+      releaseCapacity()
+      await expect(action).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(mutation).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps an explicit injected clock deterministic after the capacity lock', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(expiresAt.getTime() + 60_000))
+    const draft = { ...published, status: 'DRAFT', isActive: false }
+    findFirst.mockResolvedValueOnce(draft).mockResolvedValueOnce(published)
+    updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(
+      scheduleOperationalUpdateAction(
+        { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt, now },
+        client,
+      ),
+    ).resolves.toMatchObject({ preview: { lifecycle: 'LIVE', guestVisibleNow: true } })
+    expect(updateMany).toHaveBeenCalledOnce()
   })
 
   it('expires only an active published update with tenant-scoped CAS', async () => {

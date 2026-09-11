@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-07T19:31:57.674Z",
+  "policyVersion": 1,
+  "environment": {
+    "server": "local Next development server on http://127.0.0.1:3000",
+    "browser": "local Playwright Chromium",
+    "limits": [
+      "These are deterministic local-fixture regression measurements, not production SLOs or retrieval latency measurements.",
+      "The visitor fixture sends zero chat requests and has no provider or database retrieval.",
+      "Development compilation and cache state affect the samples; weak-4g readiness being lower here does not establish a network-speed relationship."
+    ]
+  },
+  "visitor": {
+    "unthrottled": {
+      "schemaVersion": 2,
+      "measuredAt": "2026-09-07T19:30:35.777Z",
+      "revision": null,
+      "networkProfile": "unthrottled",
+      "networkConditions": null,
+      "sampleCount": 3,
+      "url": "http://127.0.0.1:3000/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": { "width": 390, "height": 844 },
+      "chatRequestsSent": 0,
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "interactionReadyMs": { "minimum": 1058, "p50": 1115, "p95": 1144, "maximum": 1144 },
+      "samples": [
+        {
+          "interactionReadyMs": 1058,
+          "navigation": {
+            "responseStartMs": 74,
+            "domContentLoadedMs": 133,
+            "loadEventMs": 820,
+            "documentTransferBytes": 9822,
+            "documentEncodedBodyBytes": 9522
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 244, "longestMs": 244 }
+        },
+        {
+          "interactionReadyMs": 1144,
+          "navigation": {
+            "responseStartMs": 54,
+            "domContentLoadedMs": 113,
+            "loadEventMs": 891,
+            "documentTransferBytes": 9820,
+            "documentEncodedBodyBytes": 9520
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 336, "longestMs": 336 }
+        },
+        {
+          "interactionReadyMs": 1115,
+          "navigation": {
+            "responseStartMs": 72,
+            "domContentLoadedMs": 135,
+            "loadEventMs": 857,
+            "documentTransferBytes": 9821,
+            "documentEncodedBodyBytes": 9521
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 247, "longestMs": 247 }
+        }
+      ]
+    },
+    "weak4g": {
+      "schemaVersion": 2,
+      "measuredAt": "2026-09-07T19:31:57.674Z",
+      "revision": null,
+      "networkProfile": "weak-4g",
+      "sampleCount": 3,
+      "networkConditions": { "latencyMs": 150, "downloadMbps": 1.6, "uploadKbps": 750 },
+      "url": "http://127.0.0.1:3000/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": { "width": 390, "height": 844 },
+      "chatRequestsSent": 0,
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "interactionReadyMs": { "minimum": 742, "p50": 756, "p95": 759, "maximum": 759 },
+      "samples": [
+        {
+          "interactionReadyMs": 742,
+          "navigation": {
+            "responseStartMs": 66,
+            "domContentLoadedMs": 710,
+            "loadEventMs": 25782,
+            "documentTransferBytes": 9822,
+            "documentEncodedBodyBytes": 9522
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 288, "longestMs": 288 }
+        },
+        {
+          "interactionReadyMs": 756,
+          "navigation": {
+            "responseStartMs": 61,
+            "domContentLoadedMs": 728,
+            "loadEventMs": 25801,
+            "documentTransferBytes": 9819,
+            "documentEncodedBodyBytes": 9519
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 280, "longestMs": 280 }
+        },
+        {
+          "interactionReadyMs": 759,
+          "navigation": {
+            "responseStartMs": 51,
+            "domContentLoadedMs": 730,
+            "loadEventMs": 25780,
+            "documentTransferBytes": 9820,
+            "documentEncodedBodyBytes": 9520
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195444,
+            "encodedBodyBytes": 5192144,
+            "decodedBodyBytes": 23586214
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124735,
+            "encodedBodyBytes": 5122635,
+            "decodedBodyBytes": 23329996
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": { "count": 1, "totalDurationMs": 276, "longestMs": 276 }
+        }
+      ]
+    }
+  },
+  "dashboard": {
+    "schemaVersion": 1,
+    "measuredAt": "2026-09-07T19:30:01.624Z",
+    "revision": null,
+    "sampleCount": 3,
+    "url": "http://127.0.0.1:3000/dev-fixtures/dashboard-performance",
+    "viewport": { "width": 1440, "height": 1000 },
+    "fixtureBounds": {
+      "clients": 100,
+      "venues": 60,
+      "analyticsSessions": 20,
+      "transcriptPage": 50,
+      "transcriptTotal": 2400
+    },
+    "coldReadyMs": { "minimum": 1176, "p50": 1871, "p95": 5864, "maximum": 5864 },
+    "switchMs": { "minimum": 47, "p50": 66, "p95": 84, "maximum": 84 },
+    "samples": [
+      {
+        "coldReadyMs": 5864,
+        "switchMs": { "venues": 64, "analytics": 66, "transcript": 67, "directory": 84 },
+        "counts": { "clients": 100, "venues": 60, "sessions": 20, "messages": 50 },
+        "domElements": 195,
+        "navigation": {
+          "responseStartMs": 4663,
+          "domContentLoadedMs": 4693,
+          "loadEventMs": 5450,
+          "transferBytes": 7508
+        },
+        "resources": { "requests": 8, "transferBytes": 3537886 },
+        "scripts": { "requests": 5, "transferBytes": 3463135 },
+        "longTasks": { "count": 1, "totalDurationMs": 206, "longestMs": 206 }
+      },
+      {
+        "coldReadyMs": 1871,
+        "switchMs": { "venues": 47, "analytics": 66, "transcript": 51, "directory": 83 },
+        "counts": { "clients": 100, "venues": 60, "sessions": 20, "messages": 50 },
+        "domElements": 195,
+        "navigation": {
+          "responseStartMs": 303,
+          "domContentLoadedMs": 346,
+          "loadEventMs": 1104,
+          "transferBytes": 7508
+        },
+        "resources": { "requests": 8, "transferBytes": 3537886 },
+        "scripts": { "requests": 5, "transferBytes": 3463135 },
+        "longTasks": { "count": 1, "totalDurationMs": 180, "longestMs": 180 }
+      },
+      {
+        "coldReadyMs": 1176,
+        "switchMs": { "venues": 54, "analytics": 67, "transcript": 66, "directory": 68 },
+        "counts": { "clients": 100, "venues": 60, "sessions": 20, "messages": 50 },
+        "domElements": 195,
+        "navigation": {
+          "responseStartMs": 112,
+          "domContentLoadedMs": 157,
+          "loadEventMs": 800,
+          "transferBytes": 7508
+        },
+        "resources": { "requests": 8, "transferBytes": 3537887 },
+        "scripts": { "requests": 5, "transferBytes": 3463135 },
+        "longTasks": { "count": 1, "totalDurationMs": 181, "longestMs": 181 }
+      }
+    ]
+  }
+}

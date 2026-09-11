@@ -1,0 +1,107 @@
+{
+  "recordedAt": "2026-09-08T09:13:27.073842+00:00",
+  "scope": "Client onboarding answers respect all blockers and cancellation, release stale execution ownership, and reach bounded persisted execution context.",
+  "baseCommit": "7fa4e4d197cbf6301ef684b9fce3fec53ad9b30a",
+  "native": {
+    "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding_resume-4efc5f95ff1e",
+    "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-onboarding-resume-proof.mjs",
+    "runnerSha256": "6b84214c00f8716350ce23fea7eb43116b96a1bc81a3a4cbf3bd687dbc59694a",
+    "session": 42500,
+    "tests": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "postgres": "16.15",
+    "pgvector": "0.8.6",
+    "timezone": "UTC",
+    "migrations": 232,
+    "tables": 255,
+    "stopped": true,
+    "assertions": [
+      "Canonical two-client-answer lifecycle: first answer and replay preserve AWAITING_INPUT and old ownership; claim remains denied.",
+      "Final client blocker releases populated bridge, worker, lease token, lease expiry and heartbeat, queues exact run; exact replay is eligible only while still QUEUED.",
+      "Replay validates exact authorized client message; wrong actor first/replay denied and wrong venue cannot locate link.",
+      "Concurrent direct founder/client answers serialize with one eligible result, zero pending blockers and a QUEUED run.",
+      "Cancelled run accepts and retains linked late response as answered, remains CANCELLED, replay ineligible.",
+      "Real subsequent claim receives each exact client response with support IDs, author, body and timestamp; unrelated same-run ANSWER excluded.",
+      "No approval request or agent action created; one client-answer audit per exact claim."
+    ],
+    "limitations": [
+      "Synthetic tenant/user/credential/bridge/worker foreign-key setup only uses middleware bypass. Disabled credential metadata is intentionally non-authenticating; no real credential or provider accessed.",
+      "Canonical helpers and explicit scoped readbacks execute with normal middleware. This is not an auth-provider, connected-browser, queue-delivery or live-worker inference proof.",
+      "One real concurrent direct/client answer pair, not an exhaustive interleaving/stress proof."
+    ],
+    "priorFixtureFailures": [
+      {
+        "proof": "proof-onboarding_resume-fc0f7ab752af",
+        "reason": "Synthetic disabled credential required a capability; setup repaired.",
+        "stopped": true
+      },
+      {
+        "proof": "proof-onboarding_resume-5e6702dd8f64",
+        "reason": "Synthetic disabled credential required matching deferred operation receipt; setup now transactionally includes it.",
+        "stopped": true
+      }
+    ]
+  },
+  "focusedChecks": {
+    "db": {
+      "passed": 74,
+      "suites": [
+        "agent-question-actions",
+        "onboarding-question-actions",
+        "agent-run-execution-context",
+        "agent-run-execution-actions",
+        "agent-run-cancellation-actions"
+      ]
+    },
+    "api": {
+      "passed": 8,
+      "suite": "support-onboarding-resume",
+      "assertion": "Saved linked but ineligible first/replayed response returns NOT_NEEDED and never enqueues."
+    },
+    "types": ["DB passed after final fixture edits", "API passed"],
+    "lint": "Owned DB/API source and tests passed; diff check passed."
+  },
+  "contextContract": {
+    "version": 3,
+    "selection": "Exact answered question onboardingLink.answeredSupportMessage; existing PROMPT/RESULT message filter unchanged.",
+    "clientBodyMaxChars": 420,
+    "budgetBehavior": "Discussion and run messages are discarded first; answer/question/client excerpts shrink as needed. Existing explicitly flagged overflow fallback retains bounded client content and source IDs; it does not claim to fit arbitrarily tiny requested budgets.",
+    "authority": "Client text is data, not action permission. Historical AgentQuestion.answer pointer remains unchanged."
+  },
+  "normalizedSourceSha256": {
+    "packages/db/src/helpers/onboarding-question-resume.disposable.integration.test.ts": "1f8f7faceda4d1ae80a0460473c7c8336332c5b36a4e04dbd20c734d0d10444d",
+    "packages/db/src/helpers/onboarding-question-actions.ts": "f4010be50faa86f7d2ec5c341e21c179413285931bac476bb2e3112dac403e5f",
+    "packages/db/src/helpers/agent-question-actions.ts": "490a4cfefcc041984ff4f39a904b785cb3fcf16cfe5749292c4d285f82e7a78c",
+    "packages/db/src/helpers/agent-run-execution-actions.ts": "fc483600a97c352fa3571708a041626ac6e05c092ed4a55b1f205b945566f8ac",
+    "packages/db/src/helpers/agent-run-execution-context.ts": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea",
+    "packages/db/src/helpers/agent-run-cancellation-actions.ts": "84a3d55c68e8a85559f055f7d2ed556349cc5357360bcf7f6e8e91e7f2e4388b",
+    "packages/db/src/helpers/support-actions.ts": "179b66ba599586548c11017f7e27d83eea555255e0e7476c676514e1c2353b4d",
+    "packages/db/src/helpers/support-participant-actions.ts": "6b90bf30a6ba5755f75437bec358ea1cc797641f3ba0208dfc790b5050924bf1",
+    "packages/db/src/helpers/onboarding-milestone-events.ts": "1b7ecb8f65145ce0632d07ed1b5ffe61ba5d4b886693da418fe4c3db6d1f8fde",
+    "packages/db/src/helpers/audit.ts": "218dd5809e6e7c9c8becdfd2b666c6cc912988a0c76011cd03417d59502d44f9",
+    "packages/db/src/client.ts": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869",
+    "packages/db/src/index.ts": "5ea5daadfe688529a13d3296206c21b4533d094c6258275824e23d4586b0da87",
+    "packages/db/src/middleware/tenant-isolation.ts": "0b0ddb4a6261b82169ba5d6c0167f6bd931e8d4e6bff253675fc6d4d2f122a3a",
+    "packages/db/src/tenanted-tables.ts": "a035a22ab313a1e2f80777efc546e9ac51be29fb193ba2854ac4bdf98894a2be",
+    "packages/db/prisma/schema.prisma": "bdc3d8264f2d1fc8f829bd038c80d081e84395993e81bdf30326d78508dedcdc",
+    "scripts/lib/disposable-prisma-migration.mjs": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7",
+    "scripts/lib/staging-migration-admission.mjs": "3c57498faccf46b31cb7930bdc2eed463b56c846a21bdfb19b5efaff003903fb",
+    "scripts/run-staging-migration-predeploy.mjs": "399e37762cdfbbc372e73f8d2fe7bc1ec099adc593f85a348eed475911a6fc06",
+    "packages/db/src/helpers/agent-question-actions.test.ts": "43ca64b7faa5a5693fc78033482375cd9c90b261f0af1b459d6f618efbf77d1b",
+    "packages/db/src/helpers/onboarding-question-actions.test.ts": "18676b3c1145bd2856889bd5b5998614f47573de86a3b078da2d4674286a98b8",
+    "packages/db/src/helpers/agent-run-execution-actions.test.ts": "131f7260f66f4be7c5e429b33e490c0a3005ba3d174a6c6850a90b5858cfbd1e",
+    "packages/db/src/helpers/agent-run-execution-context.test.ts": "978f4e9f4cbc08055a7d19e08784b0eef2e6602f3dd02ecbf2a3f2f65043bdd1",
+    "packages/api/src/routers/support-onboarding-resume.test.ts": "05b94178de66846829ae386a746e0502c2fb022706588877622ffee9bad4cc05",
+    "packages/api/src/routers/support.ts": "90af7c7397bce334f9fe55ca24d4960b8edb4dd8b9d2d6710f7922f7718c0aca"
+  },
+  "artifactSha256": {
+    "result.json": "2293949c5ea2663300b3c2bd47a63c65bd4e9da469295a954fd02d5bbf1e40a5",
+    "vitest.json": "040cc34173e151950b5166aef25c16345d00400a9e35378c7abd1840d7372746",
+    "database-readback.log": "283398308ac37a69b5c7575bdcadabee90d841d162c663c52bc643ff206e148c",
+    "stop.log": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+  },
+  "remaining": "Question expiry/scheduled enforcement and recovery, semantic bundling, realistic founder workload and the wider retained campaign remain incomplete. No schema migration, UI change, deployment or final branding decision in this slice."
+}

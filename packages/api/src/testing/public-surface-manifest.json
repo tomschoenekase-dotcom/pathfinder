@@ -52,6 +52,13 @@
       "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
     },
     {
+      "path": "location.reachableDestination",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
       "path": "location.resolve",
       "kind": "query",
       "exposure": "public",
@@ -102,6 +109,13 @@
     },
     {
       "path": "voice.end",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.groundingContext",
       "kind": "mutation",
       "exposure": "public",
       "controlProfile": "bounded-session-write",
@@ -331,6 +345,16 @@
       "exposure": "intentional-public",
       "controlProfile": "bounded-widget-readiness",
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/admin/character-candidate-preview/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts",
+        "packages/api/src/routers/admin/character-candidate-reviews.test.ts"
+      ]
     }
   ],
   "dashboardPublicApiPaths": [

@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  readAgentSourceAssignment,
+  AGENT_SOURCE_WORKER_ROLES,
+  AGENT_SOURCE_WORKER_CAPABILITIES,
+} from '@pathfinder/contracts'
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
@@ -20,6 +25,8 @@ import {
 
 const SESSION_TTL_MS = 2 * 60_000
 const MAX_CLAIM_CANDIDATES = 25
+const MAX_BRIDGE_WORKFLOW_CONTEXT_CHARS = 6_000
+const MAX_BRIDGE_PROMPT_CHARS = 10_000
 
 function readStringList(value: unknown, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -32,8 +39,24 @@ function workerMatchesRun(
   scopeSnapshot: unknown,
   worker: { capabilities: string[]; agentRoles: string[] } | null,
 ) {
-  const requiredRoles = readStringList(scopeSnapshot, 'requiredWorkerRoles')
-  const requiredCapabilities = readStringList(scopeSnapshot, 'requiredWorkerCapabilities')
+  const assignment = readAgentSourceAssignment(scopeSnapshot)
+  // Older immutable assignments predate explicit scheduling metadata. Derive the same
+  // minimum requirements rather than rewriting their snapshots or claiming unusable work.
+  if (
+    scopeSnapshot &&
+    typeof scopeSnapshot === 'object' &&
+    'sourceAssignment' in scopeSnapshot &&
+    !assignment
+  )
+    return false
+  const requiredRoles = [
+    ...readStringList(scopeSnapshot, 'requiredWorkerRoles'),
+    ...(assignment ? AGENT_SOURCE_WORKER_ROLES : []),
+  ]
+  const requiredCapabilities = [
+    ...readStringList(scopeSnapshot, 'requiredWorkerCapabilities'),
+    ...(assignment ? AGENT_SOURCE_WORKER_CAPABILITIES : []),
+  ]
   if (requiredRoles.length === 0 && requiredCapabilities.length === 0) return true
   if (!worker) return false
   return (
@@ -120,6 +143,7 @@ export async function registerAgentBridgeSession(rawInput: {
   return db.agentBridgeSession.upsert({
     where: {
       id_tenantId: { id: input.sessionId, tenantId: credential.tenantId },
+      tenantId: credential.tenantId,
     },
     create: {
       id: input.sessionId,
@@ -234,6 +258,7 @@ export async function claimAgentBridgeTask(input: {
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
       modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
+      cancelRequestedAt: null,
       AND: [
         {
           OR: [{ status: 'QUEUED' }, { status: 'RUNNING', executionLeaseExpiresAt: { lt: now } }],
@@ -262,6 +287,9 @@ export async function claimAgentBridgeTask(input: {
         tenantId: input.credential.tenantId,
         runId: run.id,
         bridgeSessionId: session.id,
+        ...(worker ? { executionWorkerId: worker.id } : {}),
+        workflowContextMaxChars: MAX_BRIDGE_WORKFLOW_CONTEXT_CHARS,
+        executionPromptMaxChars: MAX_BRIDGE_PROMPT_CHARS,
       })
       break
     } catch (error) {
@@ -270,12 +298,6 @@ export async function claimAgentBridgeTask(input: {
     }
   }
   if (!claimed) return { task: null }
-  if (worker) {
-    await db.agentRun.update({
-      where: { id: claimed.id },
-      data: { executionWorkerId: worker.id },
-    })
-  }
   return AgentBridgeClaimResult.parse({
     task: {
       id: claimed.id,
@@ -283,7 +305,7 @@ export async function claimAgentBridgeTask(input: {
       venueId: claimed.venueId,
       runType: claimed.runType,
       requestedOperation: claimed.requestedOperation,
-      prompt: claimed.requestPrompt,
+      prompt: claimed.executionPrompt,
       modelProvider: claimed.modelProvider,
       modelName: claimed.modelName,
       leaseToken: claimed.leaseToken,

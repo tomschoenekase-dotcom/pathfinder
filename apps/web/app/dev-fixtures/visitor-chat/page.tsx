@@ -1,9 +1,11 @@
 import { notFound } from 'next/navigation'
 import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
+import { CHAT_FONT_OPTIONS } from '@pathfinder/ui/theme'
 
 import {
   VenueChatFixture,
   type VisitorFixtureAsset,
+  type VisitorFixtureBranding,
   type VisitorFixtureConversation,
   type VisitorFixtureMode,
   type VisitorFixtureRoute,
@@ -49,6 +51,10 @@ export default async function VisitorChatVisualFixture({
     route?: string | string[]
     language?: string | string[]
     surface?: string | string[]
+    theme?: string | string[]
+    font?: string | string[]
+    accent?: string | string[]
+    branding?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -58,14 +64,19 @@ export default async function VisitorChatVisualFixture({
   const state = oneOf(params.state, VISITOR_FIXTURE_STATES, 'idle')
   const conversation = oneOf(
     params.conversation,
-    ['empty', 'long', 'multilingual', 'streaming'] as const,
+    ['empty', 'long', 'multilingual', 'streaming', 'voice-history'] as const,
     'empty',
   )
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
-  const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
+  const voice = oneOf(
+    params.voice,
+    ['none', 'idle', 'listening', 'speaking', 'interrupted', 'error'] as const,
+    'none',
+  )
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
   const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
+  const branding = oneOf(params.branding, ['none', 'approved'] as const, 'none')
   const language = oneOf(
     params.language,
     SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
@@ -100,6 +111,14 @@ export default async function VisitorChatVisualFixture({
       network={network}
       route={route satisfies VisitorFixtureRoute}
       language={language}
+      theme={first(params.theme)}
+      font={oneOf(
+        params.font,
+        CHAT_FONT_OPTIONS.map((font) => font.value),
+        'jakarta',
+      )}
+      accent={first(params.accent)}
+      branding={branding satisfies VisitorFixtureBranding}
     />
   )
 }

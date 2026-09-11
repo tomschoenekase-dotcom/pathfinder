@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-disposable-fixture-proof",
+  "measuredAt": "2026-09-07T21:32:39.934543+00:00",
+  "baseProductRevision": "6b5fc222",
+  "workingTreeChanges": "Intake V1 aggregate, immutable revision/member schema224, owner and receipt snapshot checks; measured source copies retained before formatting.",
+  "backend": "PostgreSQL16.15 pgvector0.8.6 native Windows",
+  "timezone": "UTC",
+  "migrationCount": 224,
+  "publicTableCount": 251,
+  "manifestHash": "8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532",
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_bc3f4f261ade",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "measuredSources": [
+    {
+      "repositoryPath": "packages/db/src/helpers/intake-v1-submission-disposable.integration.test.ts",
+      "retainedPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\measured-intake-v1-submission-disposable.integration.test.ts",
+      "sha256": "f2e559cdcdb7cabe36ff83b6b5624dc6b1262569dd59a0d4f15f50b31b6de47a"
+    },
+    {
+      "repositoryPath": "packages/db/src/helpers/intake-v1-submission-actions.ts",
+      "retainedPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\measured-intake-v1-submission-actions.ts",
+      "sha256": "663631ed8545fd0d41083f9ecaac4e8b482a197bbfcfc9f08ef256301e4d0c12"
+    },
+    {
+      "repositoryPath": "packages/db/src/helpers/intake-actions.ts",
+      "retainedPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\measured-intake-actions.ts",
+      "sha256": "19b7e3fc81b418d278f8e53466ac1deb6060164388547264131bcb8f28e85e46"
+    },
+    {
+      "repositoryPath": "packages/db/prisma/migrations/20260907022400_add_intake_v1_submissions/migration.sql",
+      "retainedPath": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\measured-migration.sql",
+      "sha256": "f4c1a669bdb3225a85951b3011d090f00fd6e3e4daf1904c913b6b7f0a9c4b5e"
+    }
+  ],
+  "retainedArtifacts": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\migrations.log",
+      "sha256": "4b74ddf6713f8eae0e9038b0289d554739ef09f73c117e8088357bb68dbd7965"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\database-readback.log",
+      "sha256": "2a2b85898daa4df033a7889981a68d22d6f9f04a42ec65e7967fde3e0e015c69"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\vitest.json",
+      "sha256": "ee5f3640e29821a397922190c7754223d3e5d03a5b0ffb801937986db4c91b95"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\vitest.log",
+      "sha256": "55eb8d13115801db957da86dfd23ae8f4b33080741ffaa77ec832813100fa39f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\result.json",
+      "sha256": "72977fae402ffad62618ac37052390799d856cf695033b9c3fe4c08b9e868a2f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-bc3f4f261ade\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "launcher": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-intake-v1-proof.mjs",
+    "sha256": "16bcc4e0279c9b5ca18a61fa81484489fa4f0807d74e34f1399001e4bcc34a74"
+  },
+  "coverage": [
+    "Atomic private draft materialization, exact initial replay after amendment, same-operation concurrent convergence, competing amendment CAS, stale draft conflict, explicit partial retention.",
+    "Wrong-owner and wrong-tenant denial; canonical verified upload admitted; upload plus linked source rejected.",
+    "Canonical upload precheck rejects stale generation/SHA; separate focused V1 unit tests directly reject all four retained receipt identity mismatches.",
+    "Append-only revision/member constraints and deliberate post-materialization aggregate failure roll back canonical sources/evidence and preserve the private draft."
+  ],
+  "limits": [
+    "Synthetic tenant, sources, users and upload-verification receipts; no storage provider, malware service, model, customer or hosted deployment.",
+    "One relational journey contains multiple assertions; it is not a one-test measure of overall product quality.",
+    "Native server stopped; database and logs intentionally retained. Earlier Docker cleanup remains unknown.",
+    "Review/build pipeline and mobile integration are separate surfaces; a V1 receipt does not prove generation or publication."
+  ]
+}

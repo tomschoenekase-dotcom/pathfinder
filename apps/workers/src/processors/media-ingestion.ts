@@ -15,6 +15,8 @@ import { z } from 'zod'
 
 import {
   MEDIA_SOURCE_FILENAME_LIMIT,
+  MediaObservationSchema,
+  MediaSourceObservationSchema,
   VENUE_PACKAGE_ITEM_LIMIT,
   VenuePackagePayloadV1,
   VenuePackagePayloadV1Object,
@@ -24,8 +26,12 @@ import { logger } from '@pathfinder/config'
 import {
   analyzeGeminiVideo,
   assertGeminiVideoFileSize,
+  deleteGeminiVideoFile,
+  GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   AiRequestBudgetCeilingExceededError,
   GeminiVideoDeletionUnconfirmedError,
+  GeminiVideoAccountingPendingError,
+  observedGeminiVideoCostUnits,
   createOpenAiMediaJson,
   resolveGeminiVideoModel,
   resolveOpenAiMediaJsonModel,
@@ -36,8 +42,17 @@ import {
 } from '@pathfinder/ai'
 import {
   assertVenueAiAvailable,
+  claimMediaProviderOperation,
+  confirmMediaProviderOperationCleanup,
+  heartbeatMediaProviderOperation,
   db,
   isAiAdmissionControlError,
+  markMediaProviderOperationAmbiguous,
+  markMediaProviderOperationDispatched,
+  prepareMediaProviderOperation,
+  recordMediaProviderOperationOutput,
+  releaseMediaProviderOperation,
+  settleMediaProviderOperationAccounting,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -73,7 +88,8 @@ import {
   normalizeMediaJobError,
 } from '../lib/media-job-cancellation'
 import {
-  runOptionalFullVideoAnalysis,
+  runOptionalGoogleVideoAnalysis,
+  type VideoAnalysisCoverage,
   type VideoAnalysisMethod,
 } from '../lib/video-analysis-routing'
 import {
@@ -164,6 +180,9 @@ type Analysis = {
   spatialClues: string[]
   uncertainties: string[]
   videoAnalysisMethod?: VideoAnalysisMethod
+  videoAnalysisCoverage?: VideoAnalysisCoverage
+  observations?: Array<z.infer<typeof MediaObservationSchema>>
+  sourceObservations?: Array<z.infer<typeof MediaSourceObservationSchema>>
 }
 
 const analysisSchema = z
@@ -182,6 +201,8 @@ const analysisSchema = z
       .max(1_000),
     spatialClues: z.array(z.string().max(10_000)).max(1_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
+    observations: z.array(MediaObservationSchema).max(2_000).optional(),
+    sourceObservations: z.array(MediaSourceObservationSchema).max(2_000).optional(),
   })
   .strict()
 
@@ -397,7 +418,18 @@ function parseProviderJson<TSchema extends z.ZodTypeAny>(
 }
 
 export function parseMediaAnalysisResponse(text: string): Analysis {
-  return parseProviderJson(text, analysisSchema, 'Media analysis provider output')
+  const parsed = parseProviderJson(text, analysisSchema, 'Media analysis provider output')
+  return {
+    summary: parsed.summary,
+    visibleText: parsed.visibleText,
+    objects: parsed.objects,
+    spatialClues: parsed.spatialClues,
+    uncertainties: parsed.uncertainties,
+    ...(parsed.observations !== undefined ? { observations: parsed.observations } : {}),
+    ...(parsed.sourceObservations !== undefined
+      ? { sourceObservations: parsed.sourceObservations }
+      : {}),
+  }
 }
 
 export function parseMediaSynthesisResponse(text: string): z.infer<typeof synthesisDraftSchema> {
@@ -422,6 +454,71 @@ function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
     spatialClues: [],
     uncertainties: uncertainty ? [uncertainty] : [],
   }
+}
+
+export function sourceObservationsForAnalysis(
+  mediaType: MediaType,
+  analysis: Analysis,
+): Array<z.infer<typeof MediaSourceObservationSchema>> | undefined {
+  if (analysis.sourceObservations?.length) {
+    const compatible = analysis.sourceObservations.every((observation) => {
+      const locator = observation.locator.type
+      const channelCompatible =
+        (mediaType === 'IMAGE' &&
+          ['visual', 'visible_text', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'VIDEO' &&
+          ['visual', 'visible_text', 'speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'AUDIO' && ['speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'DOCUMENT' &&
+          ['document_text', 'visible_text', 'mixed'].includes(observation.evidenceChannel))
+      if (!channelCompatible) return false
+      if (mediaType === 'IMAGE')
+        return (
+          observation.processingMethod === 'provider_image_analysis' &&
+          (locator === 'whole_source' || locator === 'image_region')
+        )
+      if (mediaType === 'AUDIO')
+        return observation.processingMethod === 'audio_transcription' && locator === 'whole_source'
+      if (mediaType === 'DOCUMENT')
+        return (
+          observation.processingMethod === 'text_extraction' &&
+          (locator === 'whole_source' || locator === 'document_page')
+        )
+      const expectedMethod =
+        analysis.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS'
+          ? 'provider_video_static_1fps'
+          : analysis.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+              analysis.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+            ? 'sampled_video_analysis'
+            : null
+      return (
+        expectedMethod !== null &&
+        observation.processingMethod === expectedMethod &&
+        (locator === 'whole_source' || locator === 'video_interval')
+      )
+    })
+    if (!compatible) throw new Error('Media source observation does not match its source type.')
+    return analysis.sourceObservations
+  }
+  if (mediaType !== 'VIDEO' || !analysis.observations?.length) return undefined
+  const processingMethod =
+    analysis.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS'
+      ? ('provider_video_static_1fps' as const)
+      : analysis.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+          analysis.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+        ? ('sampled_video_analysis' as const)
+        : null
+  if (!processingMethod) return undefined
+  return analysis.observations.map(({ startSeconds, endSeconds, region, ...observation }) => ({
+    ...observation,
+    processingMethod,
+    locator: {
+      type: 'video_interval' as const,
+      startSeconds,
+      endSeconds,
+      ...(region ? { region } : {}),
+    },
+  }))
 }
 
 export function failedMediaAssetAnalysis(): Analysis {
@@ -463,7 +560,7 @@ async function analyzeImage(
           {
             role: 'system',
             content:
-              'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
+              'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), uncertainties (string[]), and sourceObservations. Each sourceObservations item must contain kind (entity_candidate|visible_text|narrated_fact|spatial_relation), statement, evidenceChannel (visual|visible_text|mixed), directness (observed|inferred), confidence (confirmed|probable|unverified), processingMethod exactly provider_image_analysis, and locator. Locator is either {type:"whole_source"} or {type:"image_region",region:{x,y,width,height}} with normalized 0..1 coordinates wholly inside the image. Use whole_source unless a region is directly supported; never invent coordinates.',
           },
           {
             role: 'user',
@@ -514,13 +611,38 @@ async function transcribe(
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  return emptyAnalysis(result)
+  return audioTranscriptAnalysis(result)
+}
+
+export function audioTranscriptAnalysis(result: string): Analysis {
+  const truncated = result.length > 10_000
+  return {
+    ...emptyAnalysis(result),
+    uncertainties: truncated
+      ? [
+          'The retained speech observation is a bounded transcript prefix, not exhaustive audio coverage.',
+        ]
+      : [],
+    sourceObservations: result.trim()
+      ? [
+          {
+            kind: 'narrated_fact',
+            statement: result.slice(0, 10_000),
+            evidenceChannel: 'speech',
+            directness: 'observed',
+            confidence: 'unverified',
+            processingMethod: 'audio_transcription',
+            locator: { type: 'whole_source' },
+          },
+        ]
+      : [],
+  }
 }
 
 const GEMINI_VIDEO_RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties'],
+  required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties', 'observations'],
   properties: {
     summary: { type: 'string' },
     visibleText: { type: 'array', items: { type: 'string' } },
@@ -538,6 +660,45 @@ const GEMINI_VIDEO_RESPONSE_SCHEMA = {
     },
     spatialClues: { type: 'array', items: { type: 'string' } },
     uncertainties: { type: 'array', items: { type: 'string' } },
+    observations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'kind',
+          'statement',
+          'evidenceChannel',
+          'directness',
+          'confidence',
+          'startSeconds',
+          'endSeconds',
+        ],
+        properties: {
+          kind: {
+            type: 'string',
+            enum: ['entity_candidate', 'visible_text', 'narrated_fact', 'spatial_relation'],
+          },
+          statement: { type: 'string' },
+          evidenceChannel: { type: 'string', enum: ['visual', 'visible_text', 'speech', 'mixed'] },
+          directness: { type: 'string', enum: ['observed', 'inferred'] },
+          confidence: { type: 'string', enum: ['confirmed', 'probable', 'unverified'] },
+          startSeconds: { type: 'number', minimum: 0 },
+          endSeconds: { type: 'number', minimum: 0 },
+          region: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['x', 'y', 'width', 'height'],
+            properties: {
+              x: { type: 'number', minimum: 0, maximum: 1 },
+              y: { type: 'number', minimum: 0, maximum: 1 },
+              width: { type: 'number', minimum: 0, maximum: 1 },
+              height: { type: 'number', minimum: 0, maximum: 1 },
+            },
+          },
+        },
+      },
+    },
   },
 } as const
 
@@ -563,17 +724,35 @@ export function shouldPropagateFullVideoFailure(error: unknown, signal?: AbortSi
     isAiAdmissionControlError(error) ||
     error instanceof AiRequestBudgetCeilingExceededError ||
     error instanceof GeminiVideoDeletionUnconfirmedError ||
+    error instanceof GeminiVideoAccountingPendingError ||
+    error instanceof MediaProviderOperationRecoveryError ||
     error instanceof UnrecoverableError
   )
 }
 
-async function analyzeVideoWithGemini(
+export class MediaProviderOperationRecoveryError extends AggregateError {
+  readonly code = 'media-provider-operation-recovery-pending'
+
+  constructor(errors: unknown[]) {
+    super(errors, 'Gemini cleanup or accounting recovery remains pending')
+    this.name = 'MediaProviderOperationRecoveryError'
+  }
+}
+
+export async function analyzeVideoWithGemini(
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
   fileSizeBytes: number,
   filename: string,
   sourceId: string,
+  identity: {
+    tenantId: string
+    venueId: string
+    projectId: string
+    uploadAttemptId: string
+    inputSha256: string
+  },
   context: string,
   usageSink: AiUsageSink,
   budgetGate: AiBudgetGate,
@@ -584,31 +763,155 @@ async function analyzeVideoWithGemini(
   // fallback limitation instead of attempting an upload Google cannot accept.
   assertGeminiVideoFileSize(fileSizeBytes)
   const model = resolveGeminiVideoModel(process.env.MEDIA_VIDEO_ANALYSIS_MODEL)
-  return executeMediaProviderOperation(
-    admissionGuard,
-    reserveProviderOperation,
-    () =>
-      analyzeGeminiVideo({
-        filePath,
-        fileSizeBytes,
-        filename,
-        mimeType: videoMimeType(filename),
-        model,
-        prompt:
-          `Source ${sourceId}. Analyze this complete client-supplied venue video using both its visual and audio streams. ` +
-          'Report only evidence the video supports. Put a concise timestamped sequence of salient events in summary. ' +
-          'Transcribe readable labels verbatim with timestamps in visibleText. Record navigational relationships, movement, adjacency, entrances, exits, levels, landmarks, and accessibility evidence in spatialClues with timestamps. ' +
-          'Never infer an identity from shape alone. Separate confirmed, probable, and unverified objects. Keep contradictions, unreadable details, sampling limitations, and missing coverage explicit in uncertainties. ' +
-          'Return JSON with exactly summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]). ' +
-          `Operator context follows and is context, not video evidence:\n${context.slice(0, 12_000)}`,
-        responseJsonSchema: GEMINI_VIDEO_RESPONSE_SCHEMA,
-        parseResponse: parseMediaAnalysisResponse,
-        usageSink,
-        budgetGate,
-        ...(signal ? { signal } : {}),
-      }),
-    () => assertMediaJobActive(signal),
-  )
+  const prompt =
+    `Source ${sourceId}. Analyze this uploaded client-supplied venue video using Gemini's static video mode (documented fixed-rate 1 FPS visual extraction) and available audio. ` +
+    'Do not claim every frame was inspected. Report only evidence the processed video input supports. Put a concise timestamped sequence of salient events in summary. ' +
+    'Transcribe readable labels verbatim with timestamps in visibleText. Record navigational relationships, movement, adjacency, entrances, exits, levels, landmarks, and accessibility evidence in spatialClues with timestamps. ' +
+    'Never infer an identity from shape alone. Separate confirmed, probable, and unverified objects. Keep contradictions, unreadable details, sampling limitations, and missing coverage explicit in uncertainties. ' +
+    'Also return observations with kind, statement, evidenceChannel, directness, confidence, startSeconds, endSeconds, and an optional normalized image region. Distinguish visible text from speech and direct observation from inference. Missing coverage is uncertainty, never negative evidence. ' +
+    'Return JSON with exactly summary, visibleText, objects, spatialClues, uncertainties, and observations. ' +
+    `Operator context follows and is context, not video evidence:\n${context.slice(0, 12_000)}`
+  const operation = await prepareMediaProviderOperation({
+    ...identity,
+    sourceId,
+    provider: 'google',
+    model,
+    method: 'files-api+models.generateContent',
+    promptSha256: createHash('sha256').update(prompt).digest('hex'),
+    extractionSchemaVersion: 'media-analysis-v1',
+    plannedProviderFileName: `files/torchiko-${createHash('sha256').update(`${identity.uploadAttemptId}:${sourceId}`).digest('hex').slice(0, 40)}`,
+  })
+  const claim = await claimMediaProviderOperation({ id: operation.id, tenantId: identity.tenantId })
+  if (!claim) throw new Error('media-provider-operation-leased')
+  const currentOperation = claim.operation
+  let revision = claim.revision
+  const fence = () => ({
+    id: operation.id,
+    tenantId: identity.tenantId,
+    leaseToken: claim.leaseToken,
+    revision,
+  })
+  if (currentOperation.dispatchState === 'DISPATCHED') {
+    try {
+      const recoveryErrors: unknown[] = []
+      if (currentOperation.cleanupState === 'PENDING') {
+        try {
+          await deleteGeminiVideoFile({
+            providerFileName: currentOperation.plannedProviderFileName,
+            ...(signal ? { signal } : {}),
+          })
+          revision = await confirmMediaProviderOperationCleanup(fence())
+        } catch (error) {
+          recoveryErrors.push(error)
+        }
+      }
+      if (currentOperation.accountingState === 'PENDING' && currentOperation.budgetReservationId) {
+        try {
+          const reservation = {
+            id: currentOperation.budgetReservationId,
+            reservedUnits: GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
+          }
+          if (currentOperation.outcomeState === 'OBSERVED' && currentOperation.usage) {
+            const usage = z
+              .object({
+                inputTokens: z.number().int().nonnegative(),
+                outputTokens: z.number().int().nonnegative(),
+                cacheCreationInputTokens: z.number().int().nonnegative(),
+                cacheReadInputTokens: z.number().int().nonnegative(),
+              })
+              .parse(currentOperation.usage)
+            await budgetGate.settleExact(
+              reservation,
+              observedGeminiVideoCostUnits(usage, currentOperation.dispatchedAt!),
+            )
+            revision = await settleMediaProviderOperationAccounting(fence(), 'SETTLED')
+          } else {
+            await budgetGate.settleAmbiguous(reservation)
+            revision = await settleMediaProviderOperationAccounting(fence(), 'AMBIGUOUS')
+          }
+        } catch (error) {
+          recoveryErrors.push(error)
+        }
+      }
+      if (recoveryErrors.length > 0) throw new MediaProviderOperationRecoveryError(recoveryErrors)
+      if (currentOperation.outcomeState === 'OBSERVED' && currentOperation.result)
+        return parseMediaAnalysisResponse(JSON.stringify(currentOperation.result))
+      throw new UnrecoverableError(
+        `Gemini provider operation ended ${currentOperation.outcomeState.toLowerCase()}; cleanup is confirmed.`,
+      )
+    } finally {
+      await releaseMediaProviderOperation(fence()).catch(() => false)
+    }
+  }
+  const operationController = new AbortController()
+  const invocationAt = new Date()
+  const effectiveSignal = signal
+    ? AbortSignal.any([signal, operationController.signal])
+    : operationController.signal
+  const heartbeat = setInterval(() => {
+    void heartbeatMediaProviderOperation(fence())
+      .then((renewed) => {
+        if (!renewed) operationController.abort(new Error('media-provider-operation-fence-lost'))
+      })
+      .catch(() =>
+        operationController.abort(new Error('media-provider-operation-heartbeat-failed')),
+      )
+  }, 60_000)
+  heartbeat.unref?.()
+  try {
+    return await executeMediaProviderOperation(
+      admissionGuard,
+      reserveProviderOperation,
+      () =>
+        analyzeGeminiVideo({
+          filePath,
+          fileSizeBytes,
+          filename,
+          mimeType: videoMimeType(filename),
+          model,
+          prompt,
+          responseJsonSchema: GEMINI_VIDEO_RESPONSE_SCHEMA,
+          parseResponse: parseMediaAnalysisResponse,
+          usageSink,
+          budgetGate,
+          plannedProviderFileName: currentOperation.plannedProviderFileName,
+          invokedAt: invocationAt,
+          lifecycle: {
+            beforeProviderDispatch: async (reservationId) => {
+              revision = await markMediaProviderOperationDispatched(
+                fence(),
+                reservationId,
+                invocationAt,
+              )
+            },
+            outputObserved: async (value, responseText, usage) => {
+              revision = await recordMediaProviderOperationOutput(fence(), {
+                result: value,
+                responseText,
+                usage,
+              })
+            },
+            cleanupConfirmed: async () => {
+              revision = await confirmMediaProviderOperationCleanup(fence())
+            },
+            outputAmbiguous: async (code) => {
+              revision = await markMediaProviderOperationAmbiguous(fence(), code)
+            },
+            accountingSettled: async () => {
+              revision = await settleMediaProviderOperationAccounting(fence(), 'SETTLED')
+            },
+            accountingAmbiguous: async () => {
+              revision = await settleMediaProviderOperationAccounting(fence(), 'AMBIGUOUS')
+            },
+          },
+          signal: effectiveSignal,
+        }),
+      () => assertMediaJobActive(signal),
+    )
+  } finally {
+    clearInterval(heartbeat)
+    await releaseMediaProviderOperation(fence()).catch(() => false)
+  }
 }
 
 async function extractVideoFrames(
@@ -767,8 +1070,7 @@ async function analyzeVideoBySampling(
         ).summary
       } catch (error) {
         assertMediaJobActive(signal)
-        if (isAiAdmissionControlError(error)) throw error
-        if (error instanceof UnrecoverableError) throw error
+        if (shouldPropagateFullVideoFailure(error, signal)) throw error
         transcript = ''
       }
     }
@@ -1072,7 +1374,7 @@ export async function processMediaIngestionJob(
     const analyses: Array<{
       sourceId: string
       filename: string
-      mediaType: string
+      mediaType: MediaType
       analysis: Analysis
     }> = []
     const analysesByHash = new Map<string, Analysis>()
@@ -1165,9 +1467,9 @@ export async function processMediaIngestionJob(
               budgetGate,
               signal,
             )
-          const videoResult = await runOptionalFullVideoAnalysis({
+          const videoResult = await runOptionalGoogleVideoAnalysis({
             enabled: settings.useGeminiVideoUnderstanding === true,
-            analyzeFullVideo: () =>
+            analyzeGoogleVideo: () =>
               analyzeVideoWithGemini(
                 venueAdmission,
                 reserveProviderOperation,
@@ -1175,6 +1477,13 @@ export async function processMediaIngestionJob(
                 file.bytes,
                 file.filename,
                 sourceId,
+                {
+                  tenantId: payload.tenantId,
+                  venueId: payload.venueId,
+                  projectId: project.id,
+                  uploadAttemptId,
+                  inputSha256: sha256,
+                },
                 project.context,
                 usageSink,
                 budgetGate,
@@ -1186,6 +1495,7 @@ export async function processMediaIngestionJob(
           analysis = {
             ...videoResult.analysis,
             videoAnalysisMethod: videoResult.method,
+            videoAnalysisCoverage: videoResult.coverage,
           }
         } else if (
           mediaType === 'DOCUMENT' &&
@@ -1202,7 +1512,25 @@ export async function processMediaIngestionJob(
               ...(signal ? { signal } : {}),
             })
             textRetention.retain(text)
-            analysis = emptyAnalysis(text)
+            analysis = {
+              ...emptyAnalysis(
+                text,
+                'Only a bounded retained text prefix was extracted; document coverage is not exhaustive.',
+              ),
+              sourceObservations: text
+                ? [
+                    {
+                      kind: 'narrated_fact',
+                      statement: text.slice(0, 10_000),
+                      evidenceChannel: 'document_text',
+                      directness: 'observed',
+                      confidence: 'unverified',
+                      processingMethod: 'text_extraction',
+                      locator: { type: 'whole_source' },
+                    },
+                  ]
+                : [],
+            }
           }
         } else {
           analysis = emptyAnalysis(
@@ -1225,8 +1553,7 @@ export async function processMediaIngestionJob(
         })
       } catch (error) {
         assertMediaJobActive(signal)
-        if (isAiAdmissionControlError(error)) throw error
-        if (error instanceof UnrecoverableError) throw error
+        if (shouldPropagateFullVideoFailure(error, signal)) throw error
         analysis = failedMediaAssetAnalysis()
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
         await persistMediaIngestionAsset({
@@ -1295,16 +1622,24 @@ export async function processMediaIngestionJob(
           stage: questions.length > 0 ? 'questions' : 'review',
           progress: 100,
           questions,
-          findings: analyses.map((item) => ({
-            sourceId: item.sourceId,
-            filename: item.filename,
-            mediaType: item.mediaType,
-            summary: item.analysis.summary,
-            uncertainties: item.analysis.uncertainties,
-            ...(item.analysis.videoAnalysisMethod
-              ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
-              : {}),
-          })),
+          findings: analyses.map((item) => {
+            const sourceObservations = sourceObservationsForAnalysis(item.mediaType, item.analysis)
+            return {
+              sourceId: item.sourceId,
+              filename: item.filename,
+              mediaType: item.mediaType,
+              summary: item.analysis.summary,
+              uncertainties: item.analysis.uncertainties,
+              ...(item.analysis.videoAnalysisMethod
+                ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
+                : {}),
+              ...(item.analysis.videoAnalysisCoverage
+                ? { videoAnalysisCoverage: item.analysis.videoAnalysisCoverage }
+                : {}),
+              ...(item.analysis.observations ? { observations: item.analysis.observations } : {}),
+              ...(sourceObservations ? { sourceObservations } : {}),
+            }
+          }),
           draftJson: draft,
           coverage: {
             totalFiles: files.length,

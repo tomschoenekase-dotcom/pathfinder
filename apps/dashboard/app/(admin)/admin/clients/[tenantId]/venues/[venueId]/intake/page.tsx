@@ -7,7 +7,7 @@ import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type PageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
-  searchParams: Promise<{ uploadCreatedAt?: string; uploadId?: string }>
+  searchParams: Promise<{ uploadCreatedAt?: string; uploadId?: string; runId?: string }>
 }
 
 export default async function AdminIntakePage({ params, searchParams }: PageProps) {
@@ -18,6 +18,47 @@ export default async function AdminIntakePage({ params, searchParams }: PageProp
       ? { createdAt: query.uploadCreatedAt, id: query.uploadId }
       : undefined
   const caller = await createAdminCaller()
+  if (query.runId) {
+    let focusedRun
+    try {
+      focusedRun = await caller.mediaIngestion.getIntakeHandoff({
+        tenantId,
+        venueId,
+        runId: query.runId,
+      })
+    } catch {
+      return (
+        <section role="alert" className="space-y-3 text-pf-deep">
+          <h2 className="text-xl font-semibold">Reviewed media proposal unavailable</h2>
+          <p className="text-sm">
+            This proposal could not be loaded for the selected client and venue.
+          </p>
+          <a
+            href="?"
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary underline"
+          >
+            Return to intake workspace
+          </a>
+        </section>
+      )
+    }
+    return (
+      <div className="space-y-5">
+        <header>
+          <a
+            href="?"
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary underline"
+          >
+            All intake proposals
+          </a>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+            Reviewed media in Builder
+          </h2>
+        </header>
+        <OnboardingBootstrapReview tenantId={tenantId} venueId={venueId} run={focusedRun} />
+      </div>
+    )
+  }
   let proposals
   let onboardingDetails
   let intakeUploads

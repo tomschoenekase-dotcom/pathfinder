@@ -42,6 +42,10 @@ import {
 import { adminIntakeInterviewClarificationsRouter } from './intake-interview-clarifications'
 import { adminIntakeFileExtractionRouter } from './intake-file-extraction'
 import { adminIntakeFileClarificationsRouter } from './intake-file-clarifications'
+import { adminIntakeV1PackagesRouter } from './intake-v1-packages'
+import { adminIntakeSourceMappingReviewRouter } from './intake-source-mapping-review'
+import { adminIntakeV1PackageDraftApprovalRouter } from './intake-v1-package-draft-approval'
+import { adminWebsitePageTextRouter } from './website-page-text'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
 const createInput = z.discriminatedUnion('kind', [
@@ -364,4 +368,8 @@ export const adminIntakeOperationsRouter = mergeRouters(
   adminIntakeFileClarificationsRouter,
   adminIntakeFileExtractionRouter,
   adminIntakeInterviewClarificationsRouter,
+  adminIntakeV1PackagesRouter,
+  adminIntakeSourceMappingReviewRouter,
+  adminIntakeV1PackageDraftApprovalRouter,
+  adminWebsitePageTextRouter,
 )

@@ -1,0 +1,153 @@
+{
+  "recordedAt": "2026-09-08T06:56:27.845033+00:00",
+  "baseHead": "9e53a29f7ed5f4e0373bd2f63afba3c2dde91f08",
+  "scope": "Same CRM-converted tenant/venue from V1 held-delivery journey now executes exact owner-requested, human-approved member invitation through real appRouter admin route, executor and canonical DB actions. Only external organization-invitation provider is mocked.",
+  "native": {
+    "database": "pathfinder_disposable_intake_v1_delivery_a03764ef3462",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-crm-access-delivery-a03764ef3462",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 230,
+      "publicTableCount": 254
+    },
+    "testPassed": true,
+    "testCounts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "stopped": true
+  },
+  "journey": {
+    "proof": "intake-v1-connected-crm-held-delivery-preparation-v2",
+    "synthetic": true,
+    "operationCount": 8,
+    "operationCountScope": "timed customer delivery subset; CRM setup and review are excluded",
+    "operationDurationsMs": {
+      "collect": 40.29,
+      "freeze-v1": 24.05,
+      "preview-candidate": 16.12,
+      "create-draft-handoff": 61.11,
+      "review-preview": 9.26,
+      "prepare-evaluation": 27.29,
+      "read-portal": 20.15,
+      "read-billing": 4.63
+    },
+    "prospectOrganizationId": "cmtsbe9mj00028tms967d70ry",
+    "prospectVenueId": "cmtsbe9mo00048tms83lt95ea",
+    "onboardingDeliveryAttemptId": "06a87a23-d971-4934-9d5b-7e60793e88f0",
+    "prospectLocationConversionId": "cmtsbe9ra000z8tmswajpw5fd",
+    "customerAccessRequestId": "cmtsbe9xf001q8tmsumn8rrxp",
+    "customerAccess": "INVITED_PROVIDER_MOCK",
+    "providerInvitationCalls": 1,
+    "lineageLimit": "Local seeded owner and mocked organization-invitation provider; no Clerk transport, account acceptance, or customer delivery.",
+    "publication": "HELD",
+    "qrReadiness": "HELD_UNTIL_ACTIVE",
+    "invitationDraft": "RETAINED_PROVIDER_DARK",
+    "billingReadiness": "NOT_CONFIGURED"
+  },
+  "assertions": [
+    "Independent wrong-tenant, wrong-venue and non-platform-admin rejection before provider I/O",
+    "Canonical request and human approval bound to same prospect contact/venue",
+    "Exact provider organization/email/role/inviter arguments",
+    "INVITED and provider ID persisted",
+    "Replay uses refreshed revision and does not call provider again",
+    "Exact prepared/provider-started/invitation-confirmed audit sequence",
+    "No target-email local membership",
+    "Venue inactive, package not applied, zero prospect send outbox and outbound email"
+  ],
+  "verification": {
+    "apiTypecheck": "passed",
+    "scopedLint": "passed",
+    "format": "passed",
+    "disabledDiscovery": "exactly one skipped",
+    "sourceHashes": [
+      {
+        "source": "packages/api/src/intake-v1-delivery-journey-disposable.integration.test.ts",
+        "sha256NormalizedLF": "304994732d0d07570f7aba5b36ded415c89e87f94c939f00129b91d6136e5220"
+      },
+      {
+        "source": "packages/api/src/lib/customer-access-executor.ts",
+        "sha256NormalizedLF": "5f514da4e10f2e09682c51bb01701ffd993a07a622a571d50e89d800e2eaae89"
+      },
+      {
+        "source": "packages/api/src/lib/intake-v1-package-draft.ts",
+        "sha256NormalizedLF": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d"
+      },
+      {
+        "source": "packages/api/src/lib/reviewable-package-evaluation.ts",
+        "sha256NormalizedLF": "be126bef6909b36e8c563b1ef639a3a3bca48a4159919c6a85a636e80035c91e"
+      },
+      {
+        "source": "packages/api/src/root.ts",
+        "sha256NormalizedLF": "f313e07e9775bbe9f1ac98c283dee46863f29c5cf655d3eb702ea68f4e9686cd"
+      },
+      {
+        "source": "packages/api/src/routers/admin/_admin.ts",
+        "sha256NormalizedLF": "bc6f3215d1f9244e798c60eef580a444bed3707ab3cdea6f9b39f63bdf156332"
+      },
+      {
+        "source": "packages/api/src/routers/admin/customer-access-execution.ts",
+        "sha256NormalizedLF": "8747b862eb1ac1852ce1cd915121e125e34d0b265cc2452efa4e2a3cc1481b0a"
+      },
+      {
+        "source": "packages/api/src/routers/admin/evaluation-onboarding-actions.ts",
+        "sha256NormalizedLF": "55cb5573299c7f06aa9594afe02cc5c60fef9ccd2a9695f90f89b0a50b4ff696"
+      },
+      {
+        "source": "packages/api/src/routers/admin/prospect-crm-delivery-read.ts",
+        "sha256NormalizedLF": "372d4d265c52f01252ab1435cc20e73fd807e43b4680df87f6f837e28c2d8b7a"
+      },
+      {
+        "source": "packages/api/src/routers/portal.ts",
+        "sha256NormalizedLF": "89cb96bbef4df6c23f048f85ec462e08bec810cb5da8f50d0020d0d29bba3672"
+      },
+      {
+        "source": "packages/auth/src/server.ts",
+        "sha256NormalizedLF": "41fb1695b0d9d100a0f6db679522a465b1cb96f8741cc9ac1356d2a90de911f9"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260823030000_add_customer_access_requests/migration.sql",
+        "sha256NormalizedLF": "07d4b0730bfaecc480c327b8a19e2b4751174a36ec56356f7ac5ca6289fb9331"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260907022700_add_intake_source_mapping_reviews/migration.sql",
+        "sha256NormalizedLF": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6"
+      },
+      {
+        "source": "packages/db/src/helpers/approval-decisions.ts",
+        "sha256NormalizedLF": "3204661b6b166a36fac576ad071c91bfc4adeb43b8d0be3816a7b5ecf6a2fbf2"
+      },
+      {
+        "source": "packages/db/src/helpers/customer-access-execution-actions.ts",
+        "sha256NormalizedLF": "466c8d0e792f876a73a635ceb5cbb48c245e3b6266ea6a00f8f330fadaae43f0"
+      },
+      {
+        "source": "packages/db/src/helpers/customer-access-request-actions.ts",
+        "sha256NormalizedLF": "c8e3e4f6e83b580b3d492b0162b7a8b28ee195afefb5c5144c5cf5a8854e2255"
+      },
+      {
+        "source": "packages/db/src/helpers/prospect-actions.ts",
+        "sha256NormalizedLF": "081d8802a5d281c41c868f3924f34514bf2ea95bd1fef4a3c7ba249bc00fecd6"
+      },
+      {
+        "source": "packages/db/src/helpers/prospect-inbound-reply-review-actions.ts",
+        "sha256NormalizedLF": "ef741bc4c7a1b34896ff55844cef580eb09436e55059381baf6b808e276ae626"
+      },
+      {
+        "source": "packages/db/src/helpers/prospect-onboarding-delivery-attempt.ts",
+        "sha256NormalizedLF": "8afa29453c0ea1923becb41c4315baaa68ef2734c80d1c2aaaddc5838d10175d"
+      }
+    ]
+  },
+  "limitations": [
+    "Synthetic session, seeded owner and mocked external invitation evidence; no Clerk transport or accepted account membership.",
+    "Original eight timings cover only the earlier delivery subset. CRM setup/review and the new access checks are untimed.",
+    "Publication, activation, QR release, billing and customer delivery remain held; no deployment or live provider."
+  ]
+}

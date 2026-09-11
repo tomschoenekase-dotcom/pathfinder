@@ -134,7 +134,10 @@ describe('legacy content actions', () => {
       db as never,
     )
     expect(tx.venueKnowledgeEntry.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { isEnabled: false } }),
+      expect.objectContaining({
+        where: expect.objectContaining({ contentModuleId: null }),
+        data: { isEnabled: false },
+      }),
     )
     expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'knowledge.retired' }) }),

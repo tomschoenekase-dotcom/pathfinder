@@ -15,14 +15,17 @@ export { normalizeAiUsageErrorCode, type AiUsageErrorCode } from './usage-error-
 export {
   analyzeGeminiVideo,
   assertGeminiVideoFileSize,
+  deleteGeminiVideoFile,
   GEMINI_VIDEO_FILE_MAX_BYTES,
   GeminiVideoDeletionUnconfirmedError,
+  GeminiVideoAccountingPendingError,
   GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   GEMINI_VIDEO_DELETE_TIMEOUT_MS,
   GEMINI_VIDEO_MAX_INPUT_TOKENS,
   GEMINI_VIDEO_MAX_OUTPUT_TOKENS,
   GEMINI_VIDEO_MODEL,
   GEMINI_VIDEO_PRICING_VERSION,
+  observedGeminiVideoCostUnits,
   GEMINI_VIDEO_PROCESSING_TIMEOUT_MS,
   resolveGeminiVideoModel,
   setGeminiVideoClientForTesting,
@@ -114,6 +117,11 @@ export {
   type RealtimeVoiceUsage,
 } from './realtime-voice'
 export { generateTextForCapability, type RoutedAiTextResult } from './routed-generation'
+export {
+  AI_INVENTORY_OMISSIONS,
+  buildAiWorkloadInventory,
+  type AiProviderConfigurationState,
+} from './workload-inventory'
 export {
   AI_CAPABILITIES,
   AI_WORKLOAD_CAPABILITIES,

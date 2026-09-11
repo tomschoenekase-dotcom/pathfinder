@@ -38,6 +38,7 @@ export function projectLocation(location: {
   visibility: string
   floorId: string | null
   parentLocationId: string | null
+  primaryPlaceId: string | null
   latitude: unknown
   longitude: unknown
   mapX: unknown
@@ -59,6 +60,7 @@ export function projectLocation(location: {
     visibility: location.visibility,
     floorId: location.floorId,
     parentLocationId: location.parentLocationId,
+    primaryPlaceId: location.primaryPlaceId,
     coordinates:
       location.latitude !== null && location.longitude !== null
         ? { latitude: Number(location.latitude), longitude: Number(location.longitude) }
@@ -89,6 +91,7 @@ export function exactCreateReplay(
     existing.visibility === input.visibility &&
     existing.floorId === input.floorId &&
     existing.parentLocationId === input.parentLocationId &&
+    existing.primaryPlaceId === (input.primaryPlaceId ?? null) &&
     JSON.stringify(existing.coordinates) === JSON.stringify(input.coordinates) &&
     JSON.stringify(existing.mapAnchor) === JSON.stringify(input.mapAnchor) &&
     existing.externalMapReference === input.externalMapReference &&
@@ -99,15 +102,29 @@ export function exactCreateReplay(
 }
 
 export async function validateLocationRelations(
-  tx: Pick<typeof db, 'venueFloor' | 'venueLocation'>,
+  tx: Pick<typeof db, 'venueFloor' | 'venueLocation' | 'place'>,
   input: {
     tenantId: string
     venueId: string
     floorId: string | null
     parentLocationId: string | null
+    primaryPlaceId?: string | null | undefined
     locationId?: string
   },
 ) {
+  if (input.primaryPlaceId) {
+    const place = await tx.place.findFirst({
+      where: {
+        id: input.primaryPlaceId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        isActive: true,
+        visibility: 'PUBLIC',
+      },
+      select: { id: true },
+    })
+    if (!place) throw new TRPCError({ code: 'NOT_FOUND', message: 'Primary Place not found.' })
+  }
   if (input.floorId) {
     const floor = await tx.venueFloor.findFirst({
       where: {

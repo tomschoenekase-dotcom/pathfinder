@@ -7,6 +7,7 @@ import {
   searchCompanyKnowledge,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
+import type { CompanyKnowledgeSearchRequest } from '@pathfinder/contracts/company-brain'
 
 const enabled =
   process.env.RUN_COMPANY_BRAIN_DB_INTEGRATION === '1' &&
@@ -116,6 +117,125 @@ describe.skipIf(!enabled)('Company Brain disposable scale proof', () => {
         })),
       })
 
+      const longTailBase = new Date('2026-01-01T00:00:00.000Z')
+      const lexicalCriticalId = `lexical-critical-${suffix}`
+      await db.companyKnowledgeItem.createMany({
+        data: [
+          ...Array.from({ length: 81 }, (_, index) => ({
+            id: `lexical-distractor-${suffix}-${index}`,
+            tenantId,
+            venueId,
+            organizationId,
+            type: 'COMMITMENT' as const,
+            title: `Freight note ${index}`,
+            summary: `override cobalt elevator critical ${index}`,
+            accessScope: 'TENANT' as const,
+            authority: 'DURABLE_CONTEXT' as const,
+            promotionStatus: 'PROMOTED' as const,
+            contentHash: digest(`lexical-distractor-${suffix}-${index}`),
+            createdByType: 'SYSTEM' as const,
+            createdById: actorId,
+            idempotencyKey: `lexical-distractor-${suffix}-${index}`,
+            lastConfirmedAt: new Date(longTailBase.getTime() + (index + 1) * 1_000),
+          })),
+          {
+            id: lexicalCriticalId,
+            tenantId,
+            venueId,
+            organizationId,
+            type: 'COMMITMENT' as const,
+            title: 'Retained access commitment',
+            summary: 'critical cobalt freight elevator override',
+            accessScope: 'TENANT' as const,
+            authority: 'DURABLE_CONTEXT' as const,
+            promotionStatus: 'PROMOTED' as const,
+            contentHash: digest(`lexical-critical-${suffix}`),
+            createdByType: 'SYSTEM' as const,
+            createdById: actorId,
+            idempotencyKey: `lexical-critical-${suffix}`,
+            lastConfirmedAt: longTailBase,
+          },
+        ],
+      })
+
+      const semanticCriticalId = `semantic-critical-${suffix}`
+      const foreignSemanticId = `semantic-foreign-${suffix}`
+      const semanticDistractorIds = Array.from(
+        { length: 501 },
+        (_, index) => `semantic-distractor-${suffix}-${index}`,
+      )
+      await db.companyKnowledgeItem.createMany({
+        data: [
+          ...semanticDistractorIds.map((id, index) => ({
+            id,
+            tenantId,
+            venueId,
+            organizationId,
+            type: 'PRIORITY' as const,
+            title: `General operations priority ${index}`,
+            summary: 'Synthetic semantic distractor.',
+            accessScope: 'TENANT' as const,
+            authority: 'DURABLE_CONTEXT' as const,
+            promotionStatus: 'PROMOTED' as const,
+            contentHash: digest(id),
+            createdByType: 'SYSTEM' as const,
+            createdById: actorId,
+            idempotencyKey: id,
+            lastConfirmedAt: new Date(longTailBase.getTime() + (index + 1) * 1_000),
+          })),
+          {
+            id: semanticCriticalId,
+            tenantId,
+            venueId,
+            organizationId,
+            type: 'PRIORITY' as const,
+            title: 'Older nearest semantic fact',
+            summary: 'Retained beyond the first authorized window.',
+            accessScope: 'TENANT' as const,
+            authority: 'DURABLE_CONTEXT' as const,
+            promotionStatus: 'PROMOTED' as const,
+            contentHash: digest(semanticCriticalId),
+            createdByType: 'SYSTEM' as const,
+            createdById: actorId,
+            idempotencyKey: semanticCriticalId,
+            lastConfirmedAt: longTailBase,
+          },
+        ],
+      })
+      const foreignTenantId = `tenant-foreign-${suffix}`
+      await db.tenant.create({
+        data: { id: foreignTenantId, name: 'Foreign Synthetic Tenant', slug: foreignTenantId },
+      })
+      await db.companyKnowledgeItem.create({
+        data: {
+          id: foreignSemanticId,
+          tenantId: foreignTenantId,
+          type: 'PRIORITY',
+          title: 'Foreign nearest semantic fact',
+          summary: 'Must never enter another tenant authorization window.',
+          accessScope: 'TENANT',
+          authority: 'DURABLE_CONTEXT',
+          promotionStatus: 'PROMOTED',
+          contentHash: digest(foreignSemanticId),
+          createdByType: 'SYSTEM',
+          createdById: actorId,
+          idempotencyKey: foreignSemanticId,
+          lastConfirmedAt: new Date('2030-01-01T00:00:00.000Z'),
+        },
+      })
+      const matchingVector = `[1,${Array.from({ length: 1535 }, () => 0).join(',')}]`
+      const distractorVector = `[0,1,${Array.from({ length: 1534 }, () => 0).join(',')}]`
+      await db.$executeRaw`
+        UPDATE company_knowledge_items
+        SET embedding = CASE WHEN id = ${semanticCriticalId}
+          THEN ${matchingVector}::vector ELSE ${distractorVector}::vector END
+        WHERE tenant_id = ${tenantId} AND type = 'PRIORITY'::"CompanyKnowledgeType"
+      `
+      await db.$executeRaw`
+        UPDATE company_knowledge_items SET embedding = ${matchingVector}::vector
+        WHERE id = ${foreignSemanticId} AND tenant_id = ${foreignTenantId}
+      `
+
       const contextStarted = performance.now()
       const context = await getCompactAccountContext({
         clientId: tenantId,
@@ -147,6 +267,68 @@ describe.skipIf(!enabled)('Company Brain disposable scale proof', () => {
       expect(search.results[0]).toMatchObject({ authority: 'AUTHORITATIVE_CURRENT' })
       expect(search.payload.withinTarget).toBe(true)
       expect(search.results.length).toBeLessThanOrEqual(5)
+
+      const lexicalLongTail = await searchCompanyKnowledge(
+        {
+          query: 'critical cobalt freight elevator override',
+          clientId: tenantId,
+          venueId,
+          organizationId,
+          types: ['COMMITMENT'],
+          authorities: ['DURABLE_CONTEXT'],
+          limit: 5,
+        },
+        { kind: 'CLIENT', clientId: tenantId, roles: ['OWNER'] },
+      )
+      expect(lexicalLongTail.results[0]?.id).toBe(lexicalCriticalId)
+      expect(lexicalLongTail.retrieval.candidateCoverage).toMatchObject({
+        exactPhrase: 1,
+        strictAllTerms: 80,
+        partial: true,
+      })
+
+      const semanticRequest: CompanyKnowledgeSearchRequest = {
+        query: 'amber quartz zephyr mnemonic',
+        clientId: tenantId,
+        venueId,
+        organizationId,
+        types: ['PRIORITY'],
+        authorities: ['DURABLE_CONTEXT'],
+        limit: 5,
+      }
+      const queryEmbedding = [1, ...Array.from({ length: 1535 }, () => 0)]
+      const semanticFirst = await searchCompanyKnowledge(
+        semanticRequest,
+        { kind: 'CLIENT', clientId: tenantId, roles: ['OWNER'] },
+        db,
+        { queryEmbedding },
+      )
+      expect(semanticFirst.results.some((item) => item.id === semanticCriticalId)).toBe(false)
+      expect(semanticFirst.retrieval.candidateCoverage).toMatchObject({
+        semanticAuthorized: 500,
+        semanticRanking: 'PER_WINDOW',
+        semanticWindowsExhausted: false,
+      })
+      const semanticSecond = await searchCompanyKnowledge(
+        {
+          ...semanticRequest,
+          cursor: semanticFirst.retrieval.candidateCoverage.nextCursor!,
+        },
+        { kind: 'CLIENT', clientId: tenantId, roles: ['OWNER'] },
+        db,
+        { queryEmbedding },
+      )
+      expect(semanticSecond.results[0]?.id).toBe(semanticCriticalId)
+      expect(
+        [...semanticFirst.results, ...semanticSecond.results].some(
+          (item) => item.id === foreignSemanticId,
+        ),
+      ).toBe(false)
+      expect(semanticSecond.retrieval.candidateCoverage).toMatchObject({
+        semanticAuthorized: 2,
+        nextCursor: null,
+        semanticWindowsExhausted: true,
+      })
 
       // Generous CI ceiling; payload/collection assertions are the hard scale contract.
       expect(contextMs).toBeLessThan(3_000)

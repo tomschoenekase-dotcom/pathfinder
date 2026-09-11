@@ -6,6 +6,10 @@ import {
   GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   GEMINI_VIDEO_MODEL,
   GEMINI_VIDEO_PRICING_VERSION,
+  GEMINI_VIDEO_PRICING_VERSION_2027,
+  deleteGeminiVideoFile,
+  GEMINI_VIDEO_API_METHOD,
+  GEMINI_VIDEO_PROCESSING_MODE,
   setGeminiVideoClientForTesting,
   type GeminiVideoClient,
 } from './gemini-video'
@@ -42,6 +46,9 @@ function client(options?: {
     promptTokenCount?: number
     candidatesTokenCount?: number
     cachedContentTokenCount?: number
+    thoughtsTokenCount?: number
+    toolUsePromptTokenCount?: number
+    totalTokenCount?: number
   }
   deleteFailure?: Error
   uploadFailure?: Error
@@ -90,7 +97,11 @@ function client(options?: {
 }
 
 describe('Gemini video understanding', () => {
-  it('reserves conservatively, analyzes the whole video, records exact usage, and deletes the file', async () => {
+  it('reports the installed API route as static processing rather than agentic or exhaustive', () => {
+    expect(GEMINI_VIDEO_API_METHOD).toBe('files-api+models.generateContent')
+    expect(GEMINI_VIDEO_PROCESSING_MODE).toBe('static-default-1fps')
+  })
+  it('reserves conservatively, submits the uploaded video to static processing, records usage, and deletes the file', async () => {
     const fakeClient = client()
     const { budgetGate, reservation } = gate()
     const usageSink = vi.fn(async () => undefined)
@@ -183,19 +194,21 @@ describe('Gemini video understanding', () => {
     const usageSink = vi.fn(async () => undefined)
     setGeminiVideoClientForTesting(fakeClient)
 
-    await expect(
-      analyzeGeminiVideo({
-        filePath: 'tour.mp4',
-        fileSizeBytes: 1_000_000,
-        filename: 'tour.mp4',
-        mimeType: 'video/mp4',
-        model: GEMINI_VIDEO_MODEL,
-        prompt: 'Return JSON.',
-        parseResponse: JSON.parse,
-        usageSink,
-        budgetGate,
-      }),
-    ).rejects.toThrow('Gemini video file deletion could not be confirmed')
+    const result = analyzeGeminiVideo({
+      filePath: 'tour.mp4',
+      fileSizeBytes: 1_000_000,
+      filename: 'tour.mp4',
+      mimeType: 'video/mp4',
+      model: GEMINI_VIDEO_MODEL,
+      prompt: 'Return JSON.',
+      parseResponse: JSON.parse,
+      usageSink,
+      budgetGate,
+    })
+    await expect(result).rejects.toMatchObject({
+      message: 'Gemini video file deletion could not be confirmed',
+      providerFileName: 'files/client-tour',
+    })
 
     expect(usageSink).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -370,5 +383,206 @@ describe('Gemini video understanding', () => {
 
     expect(budgetGate.releaseUndispatched).toHaveBeenCalledWith(reservation)
     expect(budgetGate.markDispatched).not.toHaveBeenCalled()
+  })
+
+  it('rejects an already-aborted attempt before reservation or provider dispatch', async () => {
+    const fakeClient = client()
+    const { budgetGate } = gate()
+    const controller = new AbortController()
+    controller.abort(new DOMException('cancelled', 'AbortError'))
+    setGeminiVideoClientForTesting(fakeClient)
+
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(budgetGate.reserve).not.toHaveBeenCalled()
+    expect(budgetGate.markDispatched).not.toHaveBeenCalled()
+    expect(fakeClient.files.upload).not.toHaveBeenCalled()
+  })
+
+  it('bills validated thinking tokens without retaining thought content', async () => {
+    const fakeClient = client({
+      usageMetadata: {
+        promptTokenCount: 1_200,
+        candidatesTokenCount: 100,
+        cachedContentTokenCount: 200,
+        thoughtsTokenCount: 50,
+      },
+    })
+    const { budgetGate, reservation } = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+
+    await analyzeGeminiVideo({
+      filePath: 'tour.mp4',
+      fileSizeBytes: 1_000_000,
+      filename: 'tour.mp4',
+      mimeType: 'video/mp4',
+      model: GEMINI_VIDEO_MODEL,
+      prompt: 'Return JSON.',
+      parseResponse: JSON.parse,
+      usageSink: vi.fn(async () => undefined),
+      budgetGate,
+      invokedAt: new Date('2026-12-31T23:59:59.999Z'),
+    })
+
+    expect(budgetGate.settleExact).toHaveBeenCalledWith(reservation, 132_750n)
+  })
+
+  it('rejects unexpected tool-use accounting and applies the 2027 effective price', async () => {
+    const invalidClient = client({
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 10,
+        toolUsePromptTokenCount: 1,
+      },
+    })
+    const invalidGate = gate()
+    setGeminiVideoClientForTesting(invalidClient)
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate: invalidGate.budgetGate,
+      }),
+    ).rejects.toThrow('invalid usage metadata')
+
+    const futureClient = client()
+    const futureGate = gate()
+    const usageSink = vi.fn(async () => undefined)
+    setGeminiVideoClientForTesting(futureClient)
+    await analyzeGeminiVideo({
+      filePath: 'tour.mp4',
+      fileSizeBytes: 1_000_000,
+      filename: 'tour.mp4',
+      mimeType: 'video/mp4',
+      model: GEMINI_VIDEO_MODEL,
+      prompt: 'Return JSON.',
+      parseResponse: JSON.parse,
+      usageSink,
+      budgetGate: futureGate.budgetGate,
+      invokedAt: new Date('2027-01-01T00:00:00.000Z'),
+    })
+
+    expect(futureGate.budgetGate.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({ pricingVersion: GEMINI_VIDEO_PRICING_VERSION_2027 }),
+    )
+    expect(futureGate.budgetGate.settleExact).toHaveBeenCalledWith(futureGate.reservation, 228_000n)
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({ pricingVersion: GEMINI_VIDEO_PRICING_VERSION_2027 }),
+    )
+  })
+
+  it('rejects an invalid pricing clock and inconsistent observable total tokens', async () => {
+    const fakeClient = client()
+    const invalidDateGate = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate: invalidDateGate.budgetGate,
+        invokedAt: new Date(Number.NaN),
+      }),
+    ).rejects.toThrow('invocation time must be a valid date')
+    expect(invalidDateGate.budgetGate.reserve).not.toHaveBeenCalled()
+
+    const inconsistentClient = client({
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 10,
+        totalTokenCount: 125,
+      },
+    })
+    const inconsistentGate = gate()
+    setGeminiVideoClientForTesting(inconsistentClient)
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate: inconsistentGate.budgetGate,
+      }),
+    ).rejects.toThrow('inconsistent total usage metadata')
+    expect(inconsistentGate.budgetGate.settleAmbiguous).toHaveBeenCalledWith(
+      inconsistentGate.reservation,
+    )
+  })
+
+  it('confirms only a typed 404 for an exact cleanup identity', async () => {
+    const fakeClient = client()
+    vi.mocked(fakeClient.files.delete).mockRejectedValueOnce(
+      Object.assign(new Error('missing'), { status: 404 }),
+    )
+    setGeminiVideoClientForTesting(fakeClient)
+    await expect(deleteGeminiVideoFile({ providerFileName: 'files/exact-fixture' })).resolves.toBe(
+      'absent',
+    )
+    await expect(deleteGeminiVideoFile({ providerFileName: '' })).rejects.toThrow(
+      'exact provider file name',
+    )
+    expect(fakeClient.files.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('still attempts exact cleanup when ambiguous-outcome persistence fails', async () => {
+    const fakeClient = client({ uploadFailure: new Error('upload failed') })
+    const { budgetGate } = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 10,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate,
+        plannedProviderFileName: 'files/exact-upload',
+        lifecycle: {
+          beforeProviderDispatch: vi.fn(async () => undefined),
+          outputObserved: vi.fn(async () => undefined),
+          cleanupConfirmed: vi.fn(async () => undefined),
+          outputAmbiguous: vi.fn(async () => {
+            throw new Error('receipt unavailable')
+          }),
+          accountingSettled: vi.fn(async () => undefined),
+          accountingAmbiguous: vi.fn(async () => undefined),
+        },
+      }),
+    ).rejects.toThrow('receipt unavailable')
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: 'files/exact-upload',
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
   })
 })

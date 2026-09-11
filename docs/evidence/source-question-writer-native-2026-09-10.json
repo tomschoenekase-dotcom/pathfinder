@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-10",
+  "baseCommit": "f3388667152366d50526f88dda7cc2a28d7c419a",
+  "scope": "Registered source-bound pathfinder.ask_operator using existing canonical payload/replay and transaction admission, followed by founder answer, exact reclaim and registered bounded source read.",
+  "native": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-question-writer-021a787512e9",
+    "resultSha256": "972335f6972fdb0aee63e9568abaa9dcce2b9da7b7561e81ddccb4432621d8b7",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "migrations": 240,
+    "tables": 258,
+    "stopped": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/mcp/source-question-writer.ts",
+        "retained": "measured-packages__api__src__mcp__source-question-writer.ts",
+        "sha256": "119ffd65b718fed1fe3ee723f2acdea82b27ca49b91fe2130dae9d85cb05bac4"
+      },
+      {
+        "source": "packages/api/src/mcp/source-question-writer.test.ts",
+        "retained": "measured-packages__api__src__mcp__source-question-writer.test.ts",
+        "sha256": "4534312df078faec3ef29c8b5b14607dadb603f4752b1aa517f1a3601916ad1c"
+      },
+      {
+        "source": "packages/api/src/mcp/agent-actions.ts",
+        "retained": "measured-packages__api__src__mcp__agent-actions.ts",
+        "sha256": "f617eb2b88b0ab3e8f62990134cf67c2dcb72e8678d29b02ffb39e3e8caa843c"
+      },
+      {
+        "source": "packages/api/src/mcp/agent-actions.test.ts",
+        "retained": "measured-packages__api__src__mcp__agent-actions.test.ts",
+        "sha256": "bfb80c402ef249bcfbe3e12fd960cbd63380c43caca1e0c8475763d4d595bdc3"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-review-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-file-extraction-review-actions.ts",
+        "sha256": "38fd983d103722c9a7369577957e850233f6e38371df26a628eaa7316d5d958f"
+      },
+      {
+        "source": "packages/api/src/mcp/execution-claim.ts",
+        "retained": "measured-packages__api__src__mcp__execution-claim.ts",
+        "sha256": "6ba3c8e13e0ec0a12684ce3dbd9cce35f272c0e62882b329b4f7e25fec6d2fae"
+      },
+      {
+        "source": "packages/api/src/mcp/registry.ts",
+        "retained": "measured-packages__api__src__mcp__registry.ts",
+        "sha256": "d73cf6af9ab9e8ab953923ba41775e52655530e1eef3b6848b48dd5cc6e9ccb7"
+      },
+      {
+        "source": "packages/api/src/mcp/read-actions.ts",
+        "retained": "measured-packages__api__src__mcp__read-actions.ts",
+        "sha256": "9f9973f1df4b13c5f8c060abf4cc2e99c0da1698f0d3ad900f324176fce75146"
+      },
+      {
+        "source": "packages/api/src/mcp/question-source-reader.ts",
+        "retained": "measured-packages__api__src__mcp__question-source-reader.ts",
+        "sha256": "2885b552e028bcdd3ed7ae25ce010c7458087fbee514de31adafe9b41daafb57"
+      },
+      {
+        "source": "packages/api/src/agent-bridge/registry.ts",
+        "retained": "measured-packages__api__src__agent-bridge__registry.ts",
+        "sha256": "5443da0e1a567ecd2d15d462bed36b665c7ea17f7719e3498ced986fd3f5bbb5"
+      },
+      {
+        "source": "packages/api/src/question-source-reader.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__question-source-reader.disposable.integration.test.ts",
+        "sha256": "86d3cf2613fc365c1219b57729d8b1704fc0f03b728d6becf5ca62c6992d44e0"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-reader.ts",
+        "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-clarifications.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-clarifications.ts",
+        "sha256": "229e82f9d533eab679e331f343255948a5a274dbdd85747e1b9bb18b774e56fa"
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-storage.ts",
+        "retained": "measured-packages__api__src__lib__intake-upload-storage.ts",
+        "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-service.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-service.ts",
+        "sha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454"
+      },
+      {
+        "source": "packages/contracts/src/mcp-v0.ts",
+        "retained": "measured-packages__contracts__src__mcp-v0.ts",
+        "sha256": "bcf3da124d69052835c85dec8d1a4ed3a8a1afefde00b799cf54a340f47efd3e"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260909230000_add_intake_source_read_capability/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260909230000_add_intake_source_read_capability__migration.sql",
+        "sha256": "05d0af249da2241ccf64dfb3b2ff8c45d4c60ef89b581d2b34210d0a124e0a42"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "retained": "measured-packages__db__src__index.ts",
+        "sha256": "9f85e2f044ffdeee7139eb190671c4d1491f1a7ec17d44ccc1d7c2e09eaa7cd7"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-current-worker-claim.ts",
+        "retained": "measured-packages__db__src__helpers__agent-current-worker-claim.ts",
+        "sha256": "613bbe31258568e85797d9e1a43961851bab2e2faac3cbc60ae87f7ebed85993"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-workflow-run-lease.ts",
+        "retained": "measured-packages__db__src__helpers__agent-workflow-run-lease.ts",
+        "sha256": "7e19f735f49edb84b44476bf413a05259441839806f6dcfd5f6fb13b272b1c84"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-question-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-question-actions.ts",
+        "sha256": "7d54316c9bb84076c17b70700d1820e576fba91231af7f7b22bd073e3533cc9a"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-actions.ts",
+        "sha256": "8c4fb77cac6a2b3ec2d292f2d6f24393b0b0e45131f1e2f1562f34c3a05df23b"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-context.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-context.ts",
+        "sha256": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-bridge-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-bridge-actions.ts",
+        "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-worker-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-worker-actions.ts",
+        "sha256": "d732f75c1398435be2404376dfa162f79ef87cea57b5bd3d87e8b3a24cf022fc"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-actions.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-actions.ts",
+        "sha256": "e076d295cb86f844b2251632989bebb12fc4d85f201b814d07419dc059796eac"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-verification.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-verification.ts",
+        "sha256": "dfa6f10331aa042d57f21d8c6b14e0a013b2b6465fbfebbc91f732605afdcee5"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-file-extraction-actions.ts",
+        "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-file-extraction-dispatch-actions.ts",
+        "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-processing-dispatch-actions.ts",
+        "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3"
+      }
+    ]
+  },
+  "units": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\source-question-writer-api.json",
+      "sha256": "64211c051022401709d5a6fe1523d3cc52233f4b33824e39485e9f2d4ac4689c",
+      "passed": 99,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\source-question-writer-contracts.json",
+      "sha256": "62b6116fbada09196791adaa25a6b5d181bb2ecb7cddcda7c121f01497ab30c0",
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "checks": [
+    "API and contracts typechecks passed",
+    "Configured changed-file lint passed",
+    "Owned diff check passed"
+  ],
+  "proved": [
+    "Strict source variant rejects generic operation/lifecycle overrides; generic question behavior preserved",
+    "MCP registry requires questions/source/execution grants and exact outer worker claim",
+    "Canonical same-transaction admission matches current identity and intake.read/content.draft authority before replay",
+    "Exact successful unreviewed FILE_UPLOAD/AWAITING_REVIEW receipt/hash/excerpt is rechecked before effect",
+    "Actual registered question asks whether two greenhouse references identify distinct buildings; saved founder answer persists and exact second claim reads page-two capacity137",
+    "Stale first claim after FOUNDATIONAL transition is denied; valid current claim can replay",
+    "Missing source grant and wrong lease cannot create a question",
+    "Terminal source review denies both writer replay and source read",
+    "Earlier caller-transaction rollback and LOCAL helper run-state assertions remain passing"
+  ],
+  "limits": [
+    "Native registry calls run in one process; no HTTP transport or actual worker/queue process restart",
+    "Source question receives a fixture-provided exact locator; initial immutable Content-run source assignment remains missing",
+    "Two-building answer is a synthetic human fixture response, not provider/entity-quality or full Case A acceptance",
+    "Selected-workflow OPERATOR_QUESTION activation and capability mapping holds remain fail closed",
+    "No provider, hosted, device, customer, release or complete32QA/A-B-C claims"
+  ],
+  "retainedTestFailures": [
+    "source-question-writer-contracts-before-generic-expectation-fix.json: expected explicit undefined key after preserving generic output shape; fixed expectation",
+    "source-question-writer-api-before-hook-test-fix.json: two stale test expectations assumed action not entered; updated to enforce denied admission before canonical effects"
+  ],
+  "nativeFailedAttempts": [],
+  "historicalPreformatNative": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-question-writer-f7475cecae0c",
+    "resultSha256": "8f791306b48142f86d0b75398e7bca84fcbd965326fee3d23579babc95e937fd",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "migrations": 240,
+    "tables": 258,
+    "stopped": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/mcp/source-question-writer.ts",
+        "retained": "measured-packages__api__src__mcp__source-question-writer.ts",
+        "sha256": "684a1c8f27b198c41bd5984b550ded34200ecdefef1e4e68385871aa4d8b08eb"
+      },
+      {
+        "source": "packages/api/src/mcp/source-question-writer.test.ts",
+        "retained": "measured-packages__api__src__mcp__source-question-writer.test.ts",
+        "sha256": "15708ea62c40e033b6420362db7ed1bcd024c73aedb028c3063f921de710774e"
+      },
+      {
+        "source": "packages/api/src/mcp/agent-actions.ts",
+        "retained": "measured-packages__api__src__mcp__agent-actions.ts",
+        "sha256": "f617eb2b88b0ab3e8f62990134cf67c2dcb72e8678d29b02ffb39e3e8caa843c"
+      },
+      {
+        "source": "packages/api/src/mcp/agent-actions.test.ts",
+        "retained": "measured-packages__api__src__mcp__agent-actions.test.ts",
+        "sha256": "bfb80c402ef249bcfbe3e12fd960cbd63380c43caca1e0c8475763d4d595bdc3"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-review-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-file-extraction-review-actions.ts",
+        "sha256": "38fd983d103722c9a7369577957e850233f6e38371df26a628eaa7316d5d958f"
+      },
+      {
+        "source": "packages/api/src/mcp/execution-claim.ts",
+        "retained": "measured-packages__api__src__mcp__execution-claim.ts",
+        "sha256": "6ba3c8e13e0ec0a12684ce3dbd9cce35f272c0e62882b329b4f7e25fec6d2fae"
+      },
+      {
+        "source": "packages/api/src/mcp/registry.ts",
+        "retained": "measured-packages__api__src__mcp__registry.ts",
+        "sha256": "d73cf6af9ab9e8ab953923ba41775e52655530e1eef3b6848b48dd5cc6e9ccb7"
+      },
+      {
+        "source": "packages/api/src/mcp/read-actions.ts",
+        "retained": "measured-packages__api__src__mcp__read-actions.ts",
+        "sha256": "9f9973f1df4b13c5f8c060abf4cc2e99c0da1698f0d3ad900f324176fce75146"
+      },
+      {
+        "source": "packages/api/src/mcp/question-source-reader.ts",
+        "retained": "measured-packages__api__src__mcp__question-source-reader.ts",
+        "sha256": "2885b552e028bcdd3ed7ae25ce010c7458087fbee514de31adafe9b41daafb57"
+      },
+      {
+        "source": "packages/api/src/agent-bridge/registry.ts",
+        "retained": "measured-packages__api__src__agent-bridge__registry.ts",
+        "sha256": "5443da0e1a567ecd2d15d462bed36b665c7ea17f7719e3498ced986fd3f5bbb5"
+      },
+      {
+        "source": "packages/api/src/question-source-reader.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__question-source-reader.disposable.integration.test.ts",
+        "sha256": "86d3cf2613fc365c1219b57729d8b1704fc0f03b728d6becf5ca62c6992d44e0"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-reader.ts",
+        "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-clarifications.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-clarifications.ts",
+        "sha256": "229e82f9d533eab679e331f343255948a5a274dbdd85747e1b9bb18b774e56fa"
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-storage.ts",
+        "retained": "measured-packages__api__src__lib__intake-upload-storage.ts",
+        "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-service.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-service.ts",
+        "sha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454"
+      },
+      {
+        "source": "packages/contracts/src/mcp-v0.ts",
+        "retained": "measured-packages__contracts__src__mcp-v0.ts",
+        "sha256": "bcf3da124d69052835c85dec8d1a4ed3a8a1afefde00b799cf54a340f47efd3e"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260909230000_add_intake_source_read_capability/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260909230000_add_intake_source_read_capability__migration.sql",
+        "sha256": "05d0af249da2241ccf64dfb3b2ff8c45d4c60ef89b581d2b34210d0a124e0a42"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "retained": "measured-packages__db__src__index.ts",
+        "sha256": "9f85e2f044ffdeee7139eb190671c4d1491f1a7ec17d44ccc1d7c2e09eaa7cd7"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-current-worker-claim.ts",
+        "retained": "measured-packages__db__src__helpers__agent-current-worker-claim.ts",
+        "sha256": "613bbe31258568e85797d9e1a43961851bab2e2faac3cbc60ae87f7ebed85993"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-workflow-run-lease.ts",
+        "retained": "measured-packages__db__src__helpers__agent-workflow-run-lease.ts",
+        "sha256": "7e19f735f49edb84b44476bf413a05259441839806f6dcfd5f6fb13b272b1c84"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-question-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-question-actions.ts",
+        "sha256": "7d54316c9bb84076c17b70700d1820e576fba91231af7f7b22bd073e3533cc9a"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-actions.ts",
+        "sha256": "8c4fb77cac6a2b3ec2d292f2d6f24393b0b0e45131f1e2f1562f34c3a05df23b"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-context.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-context.ts",
+        "sha256": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-bridge-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-bridge-actions.ts",
+        "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-worker-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-worker-actions.ts",
+        "sha256": "d732f75c1398435be2404376dfa162f79ef87cea57b5bd3d87e8b3a24cf022fc"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-actions.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-actions.ts",
+        "sha256": "e076d295cb86f844b2251632989bebb12fc4d85f201b814d07419dc059796eac"
+      },
+      {
+        "source": "packages/db/src/helpers/external-credential-verification.ts",
+        "retained": "measured-packages__db__src__helpers__external-credential-verification.ts",
+        "sha256": "dfa6f10331aa042d57f21d8c6b14e0a013b2b6465fbfebbc91f732605afdcee5"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-file-extraction-actions.ts",
+        "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-file-extraction-dispatch-actions.ts",
+        "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-processing-dispatch-actions.ts",
+        "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3"
+      }
+    ]
+  },
+  "implementationCommit": "ee0830243d258931d5493272c7313c246646fcdf",
+  "postCommitProofNote": "Precommit hook formatted the two new writer files. This second native run measures committed formatted source; earlier passing proof retained with its original byte hashes."
+}

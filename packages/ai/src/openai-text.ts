@@ -31,14 +31,17 @@ const openAiResponseSchema = z.object({
         .passthrough(),
     )
     .optional(),
-  usage: z.object({
-    input_tokens: z.number().int().nonnegative(),
-    output_tokens: z.number().int().nonnegative(),
-    input_tokens_details: z
-      .object({ cached_tokens: z.number().int().nonnegative().optional() })
-      .passthrough()
-      .optional(),
-  }),
+  usage: z
+    .object({
+      input_tokens: z.number().int().nonnegative(),
+      output_tokens: z.number().int().nonnegative(),
+      input_tokens_details: z
+        .object({ cached_tokens: z.number().int().nonnegative().optional() })
+        .passthrough()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
 })
 
 export type OpenAiResponsesClient = {
@@ -104,7 +107,7 @@ export async function createOpenAiTextResponse(params: {
   maxOutputTokens: number
   timeoutMs: number
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
   const raw = await getOpenAiResponsesClient().responses.create(
     {
       model: params.spec.model,
@@ -117,8 +120,14 @@ export async function createOpenAiTextResponse(params: {
     { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
   )
   const response = openAiResponseSchema.parse(raw)
-  if (response.status === 'incomplete' || response.incomplete_details) {
-    throw new OpenAiIncompleteResponseError(response.incomplete_details?.reason ?? 'unspecified')
+  const incomplete =
+    (response.status !== undefined && response.status !== 'completed') ||
+    Boolean(response.incomplete_details)
+  if (!response.usage) {
+    if (incomplete) {
+      throw new OpenAiIncompleteResponseError(response.incomplete_details?.reason ?? 'unspecified')
+    }
+    throw new Error('OpenAI response did not include usage')
   }
   const cachedInputTokens = response.usage.input_tokens_details?.cached_tokens ?? 0
   const text =
@@ -130,6 +139,7 @@ export async function createOpenAiTextResponse(params: {
       .join('\n')
       .trim()
   return {
+    ...(incomplete ? { incomplete: true as const } : {}),
     text,
     usage: {
       inputTokens: Math.max(0, response.usage.input_tokens - cachedInputTokens),
@@ -148,7 +158,7 @@ export async function createOpenAiTextStream(params: {
   timeoutMs: number
   onTextDelta: (delta: string) => void | Promise<void>
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
   const raw = await getOpenAiResponsesClient().responses.create(
     {
       model: params.spec.model,
@@ -166,6 +176,7 @@ export async function createOpenAiTextStream(params: {
   }
 
   let completedResponse: z.infer<typeof openAiResponseSchema> | null = null
+  let terminalType: 'response.completed' | 'response.incomplete' | 'response.failed' | null = null
   let streamedText = ''
   for await (const rawEvent of raw as OpenAiResponseStream) {
     const event = openAiStreamEventSchema.safeParse(rawEvent)
@@ -177,16 +188,22 @@ export async function createOpenAiTextStream(params: {
       continue
     }
     completedResponse = event.data.response
+    terminalType = event.data.type
   }
 
   if (!completedResponse) throw new Error('OpenAI stream ended without a terminal response')
-  if (completedResponse.status === 'incomplete' || completedResponse.incomplete_details) {
-    throw new OpenAiIncompleteResponseError(
-      completedResponse.incomplete_details?.reason ?? 'unspecified',
-    )
-  }
-  if (completedResponse.status && completedResponse.status !== 'completed') {
-    throw new Error(`OpenAI stream ended with status ${completedResponse.status}`)
+  const incomplete =
+    terminalType === 'response.incomplete' ||
+    terminalType === 'response.failed' ||
+    (completedResponse.status !== undefined && completedResponse.status !== 'completed') ||
+    Boolean(completedResponse.incomplete_details)
+  if (!completedResponse.usage) {
+    if (incomplete) {
+      throw new OpenAiIncompleteResponseError(
+        completedResponse.incomplete_details?.reason ?? 'unspecified',
+      )
+    }
+    throw new Error('OpenAI terminal response did not include usage')
   }
   const cachedInputTokens = completedResponse.usage.input_tokens_details?.cached_tokens ?? 0
   const finalText =
@@ -199,6 +216,7 @@ export async function createOpenAiTextStream(params: {
       .trim() ||
     streamedText.trim()
   return {
+    ...(incomplete ? { incomplete: true as const } : {}),
     text: finalText,
     usage: {
       inputTokens: Math.max(0, completedResponse.usage.input_tokens - cachedInputTokens),

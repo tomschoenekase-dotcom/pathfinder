@@ -20,6 +20,7 @@ import {
   WebsiteClarificationError,
 } from './intake-website-clarifications'
 import { WEBSITE_MAPPING_FIELD_PATHS } from './intake-website-mapping'
+import { projectWebsiteSourceDiscovery } from './website-source-discovery-review'
 
 const MAX_WEBSITE_RESEARCH_ATTEMPTS = 4
 
@@ -85,6 +86,7 @@ export async function getIntakeBuilderLifecycle(input: {
     select: {
       id: true,
       sourceKind: true,
+      websiteUri: true,
       status: true,
       _count: { select: { evidence: true } },
       evidence: {
@@ -154,6 +156,7 @@ export async function getIntakeBuilderLifecycle(input: {
           id: true,
           outcome: true,
           researchSnapshot: true,
+          discoverySnapshot: true,
           candidateSnapshot: true,
           attemptedFetches: true,
           fetchedPages: true,
@@ -542,6 +545,15 @@ export async function getIntakeBuilderLifecycle(input: {
   })
   return {
     ...lifecycle,
+    ...(latestWebsiteResearch
+      ? {
+          websiteSourceDiscovery: projectWebsiteSourceDiscovery({
+            receiptId: latestWebsiteResearch.id,
+            websiteUri: run.websiteUri,
+            discoverySnapshot: latestWebsiteResearch.discoverySnapshot,
+          }),
+        }
+      : {}),
     fileExtractionReview:
       latestFileExtraction?.outcome === 'SUCCEEDED' && latestFileExtraction.extractedText
         ? {
@@ -551,8 +563,8 @@ export async function getIntakeBuilderLifecycle(input: {
             extractedTextHash: latestFileExtraction.extractedTextHash!,
             extractedCharacterCount: latestFileExtraction.extractedCharacterCount,
             extractedLineCount: latestFileExtraction.extractedLineCount,
-            preview: latestFileExtraction.extractedText.slice(0, 4_000),
-            previewTruncated: latestFileExtraction.extractedText.length > 4_000,
+            preview: Array.from(latestFileExtraction.extractedText).slice(0, 4_000).join(''),
+            previewTruncated: Array.from(latestFileExtraction.extractedText).length > 4_000,
             createdAt: latestFileExtraction.createdAt,
             reviewRequired: latestFileExtraction.review === null,
             review: latestFileExtraction.review

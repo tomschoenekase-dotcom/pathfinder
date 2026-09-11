@@ -16,6 +16,10 @@ import {
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import {
+  SupportCompletionOutcome,
+  type SupportCompletionOutcomeValue,
+} from './SupportCompletionOutcome'
 
 const SUPPORT_READ_TIMEOUT_MS = 15_000
 
@@ -56,6 +60,7 @@ type ClientMessage = {
   body: string
   createdAt: Date | string
   attachments: Attachment[]
+  completionOutcome?: SupportCompletionOutcomeValue | null
 }
 type RequestDetail = RequestSummary & {
   messages: ClientMessage[]
@@ -457,12 +462,7 @@ export function SupportWorkspace({
         detailRequestRef.current !== requestId
       )
         return
-      if (
-        detail?.id !== requestId ||
-        !next.canReply ||
-        next.status === 'COMPLETED' ||
-        next.status === 'CANCELLED'
-      ) {
+      if (detail?.id !== requestId || !next.canReply || next.status === 'CANCELLED') {
         setReplyBody('')
         setReplyAttachments([])
       }
@@ -691,6 +691,7 @@ export function SupportWorkspace({
         clientVersion: number
         status?: string
         missingInformation?: string[]
+        onboardingResume?: { questionExpired?: boolean }
       } = await (respondingToInformation
         ? client.support.respondToInformation.mutate({
             operationId: replyOperationId.current,
@@ -714,8 +715,9 @@ export function SupportWorkspace({
           ? {
               ...current,
               clientVersion: result.clientVersion,
-              ...(result.status && result.missingInformation
-                ? { status: result.status, missingInformation: result.missingInformation }
+              ...(result.status ? { status: result.status } : {}),
+              ...(result.missingInformation
+                ? { missingInformation: result.missingInformation }
                 : {}),
               messages: [...current.messages, result.message as ClientMessage],
             }
@@ -727,8 +729,9 @@ export function SupportWorkspace({
             ? {
                 ...request,
                 clientVersion: result.clientVersion,
-                ...(result.status && result.missingInformation
-                  ? { status: result.status, missingInformation: result.missingInformation }
+                ...(result.status ? { status: result.status } : {}),
+                ...(result.missingInformation
+                  ? { missingInformation: result.missingInformation }
                   : {}),
               }
             : request,
@@ -737,7 +740,11 @@ export function SupportWorkspace({
       setReplyBody('')
       setReplyAttachments([])
       replyOperationId.current = browserUuid()
-      setNotice('Your message and selected files were submitted for review. Nothing was published.')
+      setNotice(
+        result.onboardingResume?.questionExpired
+          ? 'Your reply was saved. The original response window has closed, so the team will review it before work continues.'
+          : 'Your message and selected files were submitted for review. Nothing was published.',
+      )
     } catch (replyError) {
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       if (isNotFound(replyError)) {
@@ -1147,7 +1154,6 @@ export function SupportWorkspace({
 
                 {detail.canReply &&
                 detail.missingInformation.length > 0 &&
-                detail.status !== 'COMPLETED' &&
                 detail.status !== 'CANCELLED' ? (
                   <section
                     aria-labelledby="support-information-needed"
@@ -1218,6 +1224,12 @@ export function SupportWorkspace({
                             : 'Torchiko Support'}{' '}
                           · {dateLabel(message.createdAt)}
                         </p>
+                        {message.completionOutcome ? (
+                          <SupportCompletionOutcome
+                            outcome={message.completionOutcome}
+                            className="mt-2 opacity-80"
+                          />
+                        ) : null}
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
                         {message.attachments.length > 0 ? (
                           <ul className="mt-3 space-y-1 text-xs">
@@ -1301,16 +1313,20 @@ export function SupportWorkspace({
                   </section>
                 ) : null}
 
-                {!detail.canReply ||
-                detail.status === 'COMPLETED' ||
-                detail.status === 'CANCELLED' ? (
+                {!detail.canReply || detail.status === 'CANCELLED' ? (
                   <p className="rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/70">
-                    {detail.status === 'COMPLETED' || detail.status === 'CANCELLED'
+                    {detail.status === 'CANCELLED'
                       ? 'This conversation is closed. Start a new request if you need anything else.'
                       : 'You no longer have access to reply to this conversation.'}
                   </p>
                 ) : (
                   <form onSubmit={sendReply} className="border-t border-pf-light pt-5">
+                    {detail.status === 'COMPLETED' ? (
+                      <p className="mb-4 border-l-2 border-pf-primary bg-pf-surface px-4 py-3 text-sm leading-6 text-pf-deep/75">
+                        Need to add something? Reply here. We’ll reopen this conversation for review
+                        so its history stays together.
+                      </p>
+                    ) : null}
                     <label className="sr-only" htmlFor="support-reply">
                       Reply
                     </label>

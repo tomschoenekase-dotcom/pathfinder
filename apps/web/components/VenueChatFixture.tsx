@@ -24,10 +24,22 @@ export const VISITOR_FIXTURE_STATES = [
 ] as const satisfies readonly CharacterState[]
 
 export type VisitorFixtureMode = 'classic' | 'character'
-export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'streaming'
+export type VisitorFixtureConversation =
+  | 'empty'
+  | 'long'
+  | 'multilingual'
+  | 'streaming'
+  | 'voice-history'
 export type VisitorFixtureAsset = 'ok' | 'missing'
-export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
+export type VisitorFixtureVoice =
+  | 'none'
+  | 'idle'
+  | 'listening'
+  | 'speaking'
+  | 'interrupted'
+  | 'error'
 export type VisitorFixtureRoute = 'none' | 'ready'
+export type VisitorFixtureBranding = 'none' | 'approved'
 
 const FIXTURE_ROUTE_SOURCE = {
   catalog: async () => ({
@@ -188,6 +200,26 @@ const STREAMING_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+const VOICE_HISTORY_CONVERSATION: ChatMessage[] = [
+  {
+    id: 'fixture-text-before-voice',
+    role: 'assistant',
+    content: 'I can help you find a quieter route.',
+  },
+  {
+    id: 'voice:fixture-visitor-segment',
+    role: 'user',
+    content: 'Can we avoid the busy central stairs?',
+    voiceDelivery: 'CAPTURED',
+  },
+  {
+    id: 'voice:fixture-assistant-segment',
+    role: 'assistant',
+    content: 'Take the east corridor past the family lounge, then use the accessible lift.',
+    voiceDelivery: 'INTERRUPTED',
+  },
+]
+
 function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
   const projection =
     asset === 'ok'
@@ -240,6 +272,10 @@ export function VenueChatFixture({
   network = 'online',
   route = 'none',
   language = 'English',
+  theme,
+  font,
+  accent,
+  branding = 'none',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -250,6 +286,10 @@ export function VenueChatFixture({
   network?: NetworkConnectionState
   route?: VisitorFixtureRoute
   language?: SupportedChatLanguage
+  theme?: string | undefined
+  font?: string | undefined
+  accent?: string | undefined
+  branding?: VisitorFixtureBranding
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -262,9 +302,21 @@ export function VenueChatFixture({
         data-fixture-voice={voice}
         data-fixture-network={network}
         data-fixture-route={route}
+        data-fixture-branding={branding}
       >
         <VenueChatShell
-          venue={fixtureVenue(mode, asset)}
+          venue={{
+            ...fixtureVenue(mode, asset),
+            ...(theme ? { chatTheme: theme } : {}),
+            ...(font ? { chatFont: font } : {}),
+            ...(accent ? { chatAccentColor: accent } : {}),
+            ...(branding === 'approved'
+              ? {
+                  chatLogoUrl: '/dev-fixtures/visitor-brand-logo.svg',
+                  chatBannerUrl: '/dev-fixtures/visitor-brand-banner.svg',
+                }
+              : {}),
+          }}
           venueSlug="fixture-great-lakes-museum"
           presentation="standalone"
           messages={
@@ -274,7 +326,9 @@ export function VenueChatFixture({
                 ? MULTILINGUAL_CONVERSATION
                 : conversation === 'streaming'
                   ? STREAMING_CONVERSATION
-                  : []
+                  : conversation === 'voice-history'
+                    ? VOICE_HISTORY_CONVERSATION
+                    : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
@@ -297,7 +351,7 @@ export function VenueChatFixture({
           voiceControl={
             voice === 'none' ? null : (
               <VoiceControlPanel
-                state={voice}
+                state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
                 error={
                   voice === 'error'
@@ -305,10 +359,34 @@ export function VenueChatFixture({
                     : null
                 }
                 transcript={
-                  voice === 'listening'
-                    ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
-                    : []
+                  voice === 'speaking' || voice === 'interrupted'
+                    ? [
+                        { speaker: 'VISITOR', text: 'Where should we begin?' },
+                        {
+                          speaker: 'ASSISTANT',
+                          text: 'Start in the lake gallery.',
+                          delivery: 'PLAYED',
+                        },
+                        { speaker: 'VISITOR', text: 'Is there a quieter route?' },
+                        {
+                          speaker: 'ASSISTANT',
+                          text: 'Yes. Take the east lift and follow the blue signs.',
+                          delivery: 'PLAYED',
+                        },
+                      ]
+                    : voice === 'listening'
+                      ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
+                      : []
                 }
+                {...(voice === 'speaking' || voice === 'interrupted'
+                  ? {
+                      liveAssistantCaption: {
+                        responseId: 'fixture-live-caption',
+                        text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift.',
+                        interrupted: voice === 'interrupted',
+                      },
+                    }
+                  : {})}
                 onStart={() => undefined}
                 onEnd={() => undefined}
               />

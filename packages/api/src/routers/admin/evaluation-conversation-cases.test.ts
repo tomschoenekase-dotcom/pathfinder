@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   listGaps: vi.fn(),
+  insightFindMany: vi.fn(),
   insightFind: vi.fn(),
   insightUpdate: vi.fn(),
   venueFind: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('@pathfinder/db', () => ({
         auditLog: { create: vi.fn() },
       }),
     ),
+    conversationInsight: { findMany: mocks.insightFindMany },
   },
 }))
 
@@ -78,6 +80,7 @@ describe('conversation-derived evaluation cases', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.insightFind.mockResolvedValue(insight())
+    mocks.insightFindMany.mockResolvedValue([])
     mocks.insightUpdate.mockResolvedValue({ count: 1 })
     mocks.venueFind.mockResolvedValue({ guideMode: 'location_aware' })
     mocks.placeFindMany.mockResolvedValue([{ name: 'Main Hall' }, { name: 'Main Hall' }])
@@ -106,6 +109,195 @@ describe('conversation-derived evaluation cases', () => {
       { tenantId: 'tenant_1', venueId: 'venue_1', limit: 10 },
       expect.anything(),
     )
+  })
+
+  it('opts into bounded rejected candidate feedback under public venue scope', async () => {
+    mocks.listGaps.mockResolvedValue([])
+    mocks.insightFindMany.mockResolvedValue([
+      {
+        id: insightId,
+        category: 'CONTENT_UPDATE_CANDIDATE',
+        summary: 'Possible location update',
+        reviewerFeedback: 'This confuses two exhibits; retain it as a regression case.',
+        candidateRevision: 2,
+        reviewedAt: new Date('2026-09-08T18:00:00.000Z'),
+      },
+    ])
+
+    await expect(
+      testRouter.createCaller(context()).evaluations.listRejectedConversationCandidates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: insightId,
+        reviewerFeedback: 'This confuses two exhibits; retain it as a regression case.',
+        candidateRevision: 2,
+      }),
+    ])
+    expect(mocks.insightFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          category: 'CONTENT_UPDATE_CANDIDATE',
+          reviewStatus: 'DISMISSED',
+          reviewerFeedback: { not: null },
+          guestChatTurnId: { not: null },
+          guestChatTurn: {
+            userMessage: { isNot: null },
+            assistantMessage: { isNot: null },
+          },
+          session: { experienceScope: 'PUBLIC' },
+        }),
+        select: expect.not.objectContaining({ guestChatTurn: expect.anything() }),
+      }),
+    )
+  })
+
+  it('omits legacy rejected rows without actionable feedback', async () => {
+    mocks.insightFindMany.mockResolvedValue([
+      {
+        id: insightId,
+        category: 'CONTENT_UPDATE_CANDIDATE',
+        summary: 'Possible update',
+        reviewerFeedback: '   ',
+        candidateRevision: 1,
+        reviewedAt: new Date('2026-09-08T18:00:00.000Z'),
+      },
+    ])
+    await expect(
+      testRouter.createCaller(context()).evaluations.listRejectedConversationCandidates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      }),
+    ).resolves.toEqual([])
+  })
+
+  it('prepares a revision-bound case from actionable rejected feedback without reopening it', async () => {
+    mocks.insightFind.mockResolvedValue(
+      insight({
+        category: 'CONTENT_UPDATE_CANDIDATE',
+        reviewStatus: 'DISMISSED',
+        reviewerFeedback: 'The statement confuses two exhibits.',
+        candidateRevision: 4,
+      }),
+    )
+
+    await expect(
+      testRouter.createCaller(context()).evaluations.prepareConversationEvaluationCase({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        insightId,
+        expectedCandidateRevision: 4,
+        sanitizedQuestion: 'Where is the locomotive?',
+        expectation: 'KNOWN_ANSWER',
+        acceptablePhrases: ['rail hall'],
+        forbiddenPhrases: ['aviation gallery'],
+        sanitizationConfirmed: true,
+      }),
+    ).resolves.toMatchObject({ sourceInsightId: insightId })
+
+    expect(mocks.createCase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          sourceRef: `conversation-insight:${insightId}:turn:${turnId}:candidate-revision:4`,
+        }),
+      }),
+    )
+    expect(mocks.insightUpdate).not.toHaveBeenCalled()
+    expect(JSON.stringify(mocks.createCase.mock.calls)).not.toContain('confuses two exhibits')
+  })
+
+  it('rejects stale or ineligible dismissed evidence', async () => {
+    const request = {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      insightId,
+      expectedCandidateRevision: 3,
+      sanitizedQuestion: 'Where is the locomotive?',
+      expectation: 'KNOWN_ANSWER' as const,
+      acceptablePhrases: ['rail hall'],
+      forbiddenPhrases: ['aviation gallery'],
+      sanitizationConfirmed: true as const,
+    }
+    mocks.insightFind.mockResolvedValue(
+      insight({
+        category: 'CONTENT_UPDATE_CANDIDATE',
+        reviewStatus: 'DISMISSED',
+        reviewerFeedback: 'Wrong identity.',
+        candidateRevision: 4,
+      }),
+    )
+    await expect(
+      testRouter.createCaller(context()).evaluations.prepareConversationEvaluationCase(request),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    mocks.insightFind.mockResolvedValue(null)
+    await expect(
+      testRouter.createCaller(context()).evaluations.prepareConversationEvaluationCase(request),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(mocks.insightFind).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          guestChatTurnId: { not: null },
+          session: { experienceScope: 'PUBLIC' },
+          OR: expect.arrayContaining([
+            {
+              reviewStatus: 'DISMISSED',
+              category: 'CONTENT_UPDATE_CANDIDATE',
+              reviewerFeedback: { not: null },
+            },
+          ]),
+        }),
+      }),
+    )
+    expect(mocks.createCase).not.toHaveBeenCalled()
+  })
+
+  it('exactly replays a revision-bound rejected candidate case', async () => {
+    mocks.insightFind.mockResolvedValue(
+      insight({
+        category: 'CONTENT_UPDATE_CANDIDATE',
+        reviewStatus: 'DISMISSED',
+        reviewerFeedback: 'Keep the two exhibits distinct.',
+        candidateRevision: 4,
+      }),
+    )
+    mocks.caseFind.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      revision: 2,
+      caseHash: 'f'.repeat(64),
+      sourceType: 'REVIEWED_CONVERSATION_INSIGHT',
+      sourceRef: `conversation-insight:${insightId}:turn:${turnId}:candidate-revision:4`,
+    })
+    mocks.createCase.mockImplementation(async ({ caseId, identity }) => ({
+      evalCase: {
+        id: caseId,
+        caseKey: identity.caseKey,
+        revision: identity.revision,
+        category: identity.category,
+      },
+      replayed: true,
+    }))
+
+    await expect(
+      testRouter.createCaller(context()).evaluations.prepareConversationEvaluationCase({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        insightId,
+        expectedCandidateRevision: 4,
+        sanitizedQuestion: 'Where is the locomotive?',
+        expectation: 'KNOWN_ANSWER',
+        acceptablePhrases: ['rail hall'],
+        forbiddenPhrases: ['aviation gallery'],
+        sanitizationConfirmed: true,
+      }),
+    ).resolves.toMatchObject({ revision: 2, replayed: true })
+    expect(mocks.insightUpdate).not.toHaveBeenCalled()
   })
 
   it('creates a sanitized known-answer revision without copying the failed answer', async () => {

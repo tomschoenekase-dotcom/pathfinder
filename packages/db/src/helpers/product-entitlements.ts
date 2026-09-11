@@ -179,7 +179,14 @@ export async function resolveProductEntitlement(params: {
     })
   }
 
-  if (process.env.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true') {
+  const explicitGraceDays = Number(process.env.BILLING_GRACE_PERIOD_DAYS)
+  if (
+    process.env.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true' &&
+    process.env.BILLING_RECOVERY_POLICY_APPROVED === 'true' &&
+    Number.isInteger(explicitGraceDays) &&
+    explicitGraceDays >= 1 &&
+    explicitGraceDays <= 90
+  ) {
     const tenantEnforcement = await params.client.tenantFeatureFlag?.findUnique({
       where: {
         tenantId_flagKey: {

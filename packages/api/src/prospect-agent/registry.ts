@@ -10,6 +10,7 @@ import {
 } from '@pathfinder/db'
 
 import prospectToolContracts from './tool-contracts.json'
+import { validateProspectCopyHandoff } from './copy-assistant'
 
 const prospectCapability = z.enum([
   'prospects.read',
@@ -104,6 +105,31 @@ const draftInput = z
       .object({ id: z.string().trim().min(1).max(191), version: z.string().trim().min(1).max(100) })
       .strict(),
     warnings: z.array(z.string().trim().min(1).max(500)).max(25).default([]),
+    claims: z
+      .array(
+        z
+          .object({
+            text: z.string().trim().min(1).max(2_000),
+            evidenceReferences: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
+          })
+          .strict(),
+      )
+      .max(25)
+      .default([]),
+    copySources: z
+      .array(
+        z
+          .object({
+            id: z.string().trim().min(1).max(191),
+            version: z
+              .string()
+              .trim()
+              .regex(/^\d{1,9}$/u),
+          })
+          .strict(),
+      )
+      .max(20)
+      .default([]),
   })
   .strict()
 const questionInput = z
@@ -112,6 +138,7 @@ const questionInput = z
     question: z.string().trim().min(1).max(2_000),
     context: z.string().trim().min(1).max(2_000).optional(),
     urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
     blocking: z.boolean().default(true),
     evidence: z.array(evidenceReference).max(20).default([]),
   })
@@ -546,6 +573,65 @@ export function createProspectAgentRegistry(
           }
           case 'torchiko.prospects.save_outreach_draft': {
             const input = draftInput.parse(rawInput)
+            const resolvedCopySources = await Promise.all(
+              input.copySources.map(async (requested) => {
+                const version = Number(requested.version)
+                const item = await db.companyKnowledgeItem.findFirst({
+                  where: {
+                    id: requested.id,
+                    accessScope: 'PLATFORM',
+                    type: 'POLICY_CONTEXT',
+                    OR: [
+                      { promotionStatus: 'PROMOTED', authority: 'AUTHORITATIVE_CURRENT' },
+                      {
+                        promotionStatus: 'CANDIDATE',
+                        authority: { in: ['DURABLE_CONTEXT', 'INFERENCE'] },
+                      },
+                    ],
+                    currentRevision: version,
+                    archivedAt: null,
+                    supersededAt: null,
+                  },
+                  select: {
+                    id: true,
+                    currentRevision: true,
+                    promotionStatus: true,
+                    revisions: {
+                      where: { revision: version },
+                      take: 1,
+                      select: { sourceDigest: true, structuredData: true },
+                    },
+                  },
+                })
+                const revision = item?.revisions[0]
+                const structured = revision?.structuredData as { allowedUses?: unknown } | undefined
+                const allowedUses = Array.isArray(structured?.allowedUses)
+                  ? structured.allowedUses.filter(
+                      (value): value is 'OUTREACH' | 'FOLLOW_UP' | 'PROPOSAL' =>
+                        value === 'OUTREACH' || value === 'FOLLOW_UP' || value === 'PROPOSAL',
+                    )
+                  : []
+                if (!item || !revision || !allowedUses.includes('OUTREACH'))
+                  throw new ProspectAgentRegistryError(
+                    'OUT_OF_SCOPE',
+                    'Copy source is stale, ineligible, or unavailable for outreach',
+                  )
+                return {
+                  id: item.id,
+                  version: String(item.currentRevision),
+                  status:
+                    item.promotionStatus === 'PROMOTED'
+                      ? ('APPROVED' as const)
+                      : ('PROPOSED' as const),
+                  allowedUses,
+                  provenance: revision.sourceDigest,
+                }
+              }),
+            )
+            const copyHandoff = validateProspectCopyHandoff({
+              ...input,
+              copySources: resolvedCopySources,
+            })
             const member = await db.prospectCampaignMember.findFirst({
               where: { id: input.memberId, organization: organizationScope(context) },
               select: { id: true },
@@ -571,6 +657,7 @@ export function createProspectAgentRegistry(
                 template: input.template,
                 prompt: input.prompt,
                 warnings: input.warnings,
+                copyHandoff,
                 lineage: {
                   agentRunId: context.agentRunId,
                   agentIdentityId: context.actorId,
@@ -599,6 +686,7 @@ export function createProspectAgentRegistry(
               ...(input.context ? { context: input.context } : {}),
               category: 'prospect-crm',
               urgency: input.urgency,
+              ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
               blocking: input.blocking,
               evidence: input.evidence.map((item) => ({
                 label: item.kind,

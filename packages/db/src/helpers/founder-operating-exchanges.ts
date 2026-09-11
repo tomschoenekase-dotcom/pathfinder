@@ -39,6 +39,7 @@ const snapshot = z
       .strict(),
     metrics: z
       .object({
+        actionItems: z.number().int().nonnegative().optional(),
         decisions: z.number().int().nonnegative(),
         criticalRisks: z.number().int().nonnegative(),
         workingAgents: z.number().int().nonnegative(),
@@ -48,6 +49,7 @@ const snapshot = z
       .strict(),
     changesSinceLastReview: z
       .object({
+        attentionItems: z.number().int().nonnegative().optional(),
         criticalRisks: z.number().int().nonnegative(),
         decisions: z.number().int().nonnegative(),
         completedAgents: z.number().int().nonnegative(),
@@ -159,6 +161,26 @@ const projection = {
   snapshot: true,
   snapshotHash: true,
   createdAt: true,
+  directiveTaskRequest: {
+    select: {
+      id: true,
+      status: true,
+      tenantId: true,
+      venueId: true,
+      approvalRequestId: true,
+      updatedAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+      agentRun: {
+        select: {
+          id: true,
+          status: true,
+          requestedOperation: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      },
+    },
+  },
 } as const
 
 function replayExisting<T extends { operatorUserId: string; prompt: string }>(

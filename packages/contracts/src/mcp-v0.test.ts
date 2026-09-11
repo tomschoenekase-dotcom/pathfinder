@@ -3,10 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMcpScope,
   McpReadInput,
+  McpResolveSourceClarificationInput,
+  McpAskOperatorInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpIntakeV1PackagePreviewInput,
   McpSupportInformationRequestApplyInput,
   McpSupportCompletionApplyInput,
+  McpSupportDraftInput,
+  McpSupportInternalNoteInput,
+  McpDelegateSpecialistInput,
+  McpAgentImprovementProposalInput,
   McpSupportPackageDraftApplyInput,
   McpSupportPackageDraftProposalInput,
   McpSupportPackageApprovalApplyInput,
@@ -15,6 +22,7 @@ import {
   McpSupportPackageApplicationProposalInput,
   McpSupportPackageHandoffSupersessionApplyInput,
   McpSupportPackageHandoffSupersessionProposalInput,
+  McpUpdateDraftInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -32,6 +40,160 @@ const credential: VerifiedMcpCredentialScope = {
 }
 
 describe('Torchiko MCP v0 contracts', () => {
+  it('retains bounded agent-improvement generalization in runtime and tool schemas', () => {
+    const generalization = {
+      rationale: 'A distinct counterexample bounds the proposed generalized rule.',
+      counterexampleObservationIds: ['outcome-2'],
+      exclusions: ['Exclude answers grounded in an already-current approved source.'],
+    }
+    expect(
+      McpAgentImprovementProposalInput.parse({
+        operationId: 'ba99cd03-9310-4aa2-84d7-4fe808b3f0df',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        targetAgentIdentityId: 'target-agent-1',
+        outcomeObservationIds: ['outcome-1', 'outcome-2'],
+        proposalKey: 'bounded-correction-rule',
+        revision: 1,
+        targetKind: 'INSTRUCTIONS',
+        title: 'Bound the correction rule',
+        hypothesis: 'Repeated corrections indicate a bounded instruction gap.',
+        proposedChange: 'Apply the rule only within the documented evidence boundary.',
+        validationPlan: 'Replay corrections and the retained counterexample before review.',
+        generalization,
+      }),
+    ).toMatchObject({ generalization })
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'torchiko.agent_improvements.propose',
+    )!
+    expect(definition.inputSchema).toMatchObject({
+      properties: {
+        generalization: {
+          additionalProperties: false,
+          description: expect.stringContaining('Required when selected outcome evidence'),
+          required: ['rationale', 'counterexampleObservationIds', 'exclusions'],
+        },
+      },
+    })
+  })
+
+  it('declares an exact bounded read-only V1 package preview', () => {
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'pathfinder.preview_intake_v1_package_draft',
+    )!
+    expect(definition.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true })
+    expect(definition._meta['com.pathfinder/security']).toMatchObject({
+      scope: 'venue',
+      capability: 'packages:read',
+      effect: 'read',
+      approvalRequired: false,
+    })
+    expect(definition.inputSchema).toMatchObject({
+      additionalProperties: false,
+      required: expect.arrayContaining([
+        'clientId',
+        'venueId',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+      ]),
+      properties: { selectedMemberIds: { minItems: 1, maxItems: 50, uniqueItems: true } },
+    })
+    expect(() =>
+      McpIntakeV1PackagePreviewInput.parse({
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 1,
+        selectedMemberIds: ['member-1', 'member-1'],
+      }),
+    ).toThrow()
+  })
+  it('keeps the optional execution lease UUID aligned across validators and tool JSON schemas', () => {
+    const lease = '11111111-1111-4111-8111-111111111111'
+    const cases = [
+      {
+        schema: McpUpdateDraftInput,
+        tool: 'pathfinder.create_update_draft',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          title: 'Closure',
+          body: 'East entrance closed.',
+          startsAt: '2030-01-01T12:00:00.000Z',
+          expiresAt: '2030-01-01T18:00:00.000Z',
+        },
+      },
+      {
+        schema: McpSupportDraftInput,
+        tool: 'pathfinder.create_support_draft',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          subject: 'Review closure',
+          body: 'Please review the closure.',
+          category: 'GENERAL',
+        },
+      },
+      {
+        schema: McpSupportInternalNoteInput,
+        tool: 'pathfinder.add_support_internal_note',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          requestId: 'request-1',
+          expectedVersion: 1,
+          body: 'Internal note.',
+        },
+      },
+      {
+        schema: McpDelegateSpecialistInput,
+        tool: 'pathfinder.delegate_specialist',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          parentAgentRunId: 'run-1',
+          requestingAgentIdentityId: 'agent-1',
+          specialistAgentIdentityId: 'agent-2',
+          instructions: 'Review retained evidence.',
+          reason: 'Use the scoped specialist.',
+        },
+      },
+    ] as const
+
+    for (const testCase of cases) {
+      expect(testCase.schema.parse(testCase.input)).not.toHaveProperty('executionLeaseToken')
+      expect(
+        testCase.schema.parse({ ...testCase.input, executionLeaseToken: lease }),
+      ).toHaveProperty('executionLeaseToken', lease)
+      expect(() =>
+        testCase.schema.parse({ ...testCase.input, executionLeaseToken: 'not-a-uuid' }),
+      ).toThrow()
+
+      const definition = PATHFINDER_MCP_TOOLS.find(({ name }) => name === testCase.tool)!
+      expect(definition.inputSchema).toMatchObject({
+        properties: { executionLeaseToken: { type: 'string', format: 'uuid' } },
+        required: expect.not.arrayContaining(['executionLeaseToken']),
+      })
+    }
+  })
+
   it('publishes a valid deterministic resource and tool catalog with explicit security metadata', () => {
     expect(() => validatePathfinderMcpCatalog()).not.toThrow()
     expect(PATHFINDER_MCP_RESOURCES.map(({ name }) => name)).toEqual([
@@ -52,6 +214,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.integrations',
       'pathfinder.agent-runs',
       'pathfinder.agent-run-trace',
+      'pathfinder.agent-run-result',
       'pathfinder.events',
       'pathfinder.deployments',
       'pathfinder.feature-flags',
@@ -59,6 +222,8 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.readiness',
       'pathfinder.retention-preview',
       'pathfinder.questions',
+      'pathfinder.assigned-source',
+      'pathfinder.question-source',
       'pathfinder.outcomes',
       'pathfinder.agent-improvements',
     ])
@@ -98,7 +263,7 @@ describe('Torchiko MCP v0 contracts', () => {
     expect(customerAccess.description).toContain('never contacts Clerk')
   })
 
-  it('requires an exact run id only for the bounded agent run trace resource', () => {
+  it('requires an exact run id for bounded trace and result resources', () => {
     const read = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.read')!
     expect(read.inputSchema).toMatchObject({
       properties: { agentRunId: { type: 'string', maxLength: 120 } },
@@ -112,6 +277,49 @@ describe('Torchiko MCP v0 contracts', () => {
     ).toThrow()
     expect(() =>
       McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactIndex: 0,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        cursor: 'not-accepted',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactOffset: 0,
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-trace',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactIndex: 0,
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
         resource: 'agent-runs',
         clientId: 'client-1',
         venueId: 'venue-1',
@@ -120,7 +328,84 @@ describe('Torchiko MCP v0 contracts', () => {
     ).toThrow()
   })
 
+  it('requires a question and exact run for bounded question-source reads', () => {
+    const read = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.read')!
+    expect(read.inputSchema).toMatchObject({
+      properties: {
+        questionId: { type: 'string', maxLength: 120 },
+        sourceCursor: { type: 'string', maxLength: 1024 },
+        pageSize: { type: 'integer', minimum: 1, maximum: 4000 },
+        search: { type: 'string', maxLength: 200 },
+      },
+    })
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+        agentRunId: 'run-1',
+        sourceCursor: 'page-1',
+        pageSize: 4000,
+        search: 'greenhouse',
+      }),
+    ).not.toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'question-source',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        questionId: 'question-1',
+        agentRunId: 'run-1',
+        cursor: 'generic-page-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'questions',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        sourceCursor: 'page-1',
+      }),
+    ).toThrow()
+  })
+
   it('rejects cross-client, cross-venue, and missing-capability scope attempts', () => {
+    expect(() =>
+      assertMcpScope(credential, { clientId: 'client-1' }, 'content:read', 'client-or-venue'),
+    ).not.toThrow()
+    expect(() =>
+      assertMcpScope(
+        credential,
+        { clientId: 'client-1', venueId: 'venue-1' },
+        'content:read',
+        'client-or-venue',
+      ),
+    ).not.toThrow()
+    expect(() =>
+      assertMcpScope(
+        credential,
+        { clientId: 'client-1', venueId: 'venue-2' },
+        'content:read',
+        'client-or-venue',
+      ),
+    ).toThrow(McpScopeError)
     expect(() =>
       assertMcpScope(
         credential,
@@ -441,4 +726,153 @@ describe('Torchiko MCP v0 contracts', () => {
     expect(result.structuredContent).toEqual(JSON.parse(result.content[0].text))
     expect(result.resultType).toBe('complete')
   })
+})
+
+describe('source-bound operator question contract', () => {
+  const source = {
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'agent-run-1',
+    question: 'Are these two distinct greenhouses?',
+    sourceClarification: {
+      runId: 'intake-run-1',
+      receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      expectedExtractedTextHash: 'a'.repeat(64),
+      fieldPath: 'entities.greenhouse',
+      reason: 'CONTRADICTION',
+      blockerScope: 'LOCAL',
+      evidenceExcerpt: 'Two similar greenhouses.',
+    },
+  }
+  it('derives source blocking while keeping the two run identities distinct', () => {
+    expect(McpAskOperatorInput.parse(source)).toMatchObject({
+      agentRunId: 'agent-run-1',
+      blocking: false,
+      operationId: undefined,
+      sourceClarification: { runId: 'intake-run-1' },
+    })
+    expect(
+      McpAskOperatorInput.parse({
+        ...source,
+        sourceClarification: { ...source.sourceClarification, blockerScope: 'FOUNDATIONAL' },
+      }).blocking,
+    ).toBe(true)
+  })
+  it('rejects generic lifecycle/replay overrides and missing worker run', () => {
+    for (const extra of [
+      { operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      { context: 'override' },
+      { blocking: true },
+      { choices: [] },
+      { expiresAt: '2026-09-11T12:00:00Z' },
+      { agentRunId: undefined },
+    ])
+      expect(McpAskOperatorInput.safeParse({ ...source, ...extra }).success).toBe(false)
+  })
+  it('rejects unbounded, forged or unknown source metadata', () => {
+    for (const extra of [
+      { runId: '' },
+      { receiptId: 'not-a-uuid' },
+      { expectedExtractedTextHash: 'wrong' },
+      { fieldPath: 'x'.repeat(501) },
+      { evidenceExcerpt: 'x'.repeat(1001) },
+      { callbackMetadata: { workflow: 'privileged' } },
+    ])
+      expect(
+        McpAskOperatorInput.safeParse({
+          ...source,
+          sourceClarification: { ...source.sourceClarification, ...extra },
+        }).success,
+      ).toBe(false)
+  })
+  it('preserves generic operation IDs and defaults', () => {
+    const generic = {
+      clientId: source.clientId,
+      venueId: source.venueId,
+      agentIdentityId: source.agentIdentityId,
+      question: source.question,
+    }
+    expect(
+      McpAskOperatorInput.parse({
+        ...generic,
+        operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+    ).toMatchObject({ blocking: true, choices: [] })
+    expect(McpAskOperatorInput.safeParse(generic).success).toBe(false)
+  })
+})
+
+describe('source clarification resolution contract', () => {
+  const input = {
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentIdentityId: 'content-1',
+    agentRunId: 'agent-run-1',
+    requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    runId: 'intake-run-1',
+    receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    expectedExtractedTextHash: 'a'.repeat(64),
+    questionId: 'question-1',
+    expectedAnsweredAt: '2026-09-10T12:00:00.000Z',
+    kind: 'REPLACE_EXCERPT' as const,
+    amendedExcerpt: 'The east greenhouse is a separate structure.',
+    rationale: 'The operator clarified the ambiguous source excerpt.',
+  }
+
+  it('accepts only the bounded amendment shape and publishes matching draft metadata', () => {
+    expect(McpResolveSourceClarificationInput.parse(input)).toEqual(input)
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'pathfinder.resolve_source_clarification',
+    )!
+    expect(definition._meta['com.pathfinder/security']).toMatchObject({
+      scope: 'venue',
+      capability: 'intake:draft',
+      effect: 'interaction',
+      approvalRequired: false,
+    })
+    expect(definition.description).toContain('does not review, approve, apply, or publish')
+  })
+
+  it('requires amended text only for replacement and rejects unbounded or unknown input', () => {
+    expect(
+      McpResolveSourceClarificationInput.safeParse({
+        ...input,
+        kind: 'EXCLUDE_EVIDENCE',
+        amendedExcerpt: undefined,
+      }).success,
+    ).toBe(true)
+    for (const invalid of [
+      { ...input, amendedExcerpt: undefined },
+      { ...input, kind: 'EXCLUDE_EVIDENCE', amendedExcerpt: 'forged replacement' },
+      { ...input, requestId: 'not-a-uuid' },
+      { ...input, expectedExtractedTextHash: 'wrong' },
+      { ...input, venueId: undefined },
+      { ...input, expectedAnsweredAt: 'yesterday' },
+      { ...input, rationale: ' ' },
+      { ...input, amendedExcerpt: 'x'.repeat(2001) },
+      { ...input, publish: true },
+    ])
+      expect(McpResolveSourceClarificationInput.safeParse(invalid).success).toBe(false)
+  })
+})
+
+it('accepts bounded assigned-source pages but never caller-selected receipt or question authority', () => {
+  const input = {
+    resource: 'assigned-source',
+    clientId: 'tenant-1',
+    venueId: 'venue-1',
+    agentRunId: 'run-1',
+    pageSize: 4000,
+  }
+  expect(McpReadInput.safeParse(input).success).toBe(true)
+  for (const extra of [
+    { agentRunId: undefined },
+    { questionId: 'question-1' },
+    { receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    { cursor: 'generic' },
+    { pageSize: 4001 },
+    { sourceCursor: 'x'.repeat(1025) },
+  ])
+    expect(McpReadInput.safeParse({ ...input, ...extra }).success).toBe(false)
 })

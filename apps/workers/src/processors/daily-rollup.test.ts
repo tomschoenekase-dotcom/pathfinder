@@ -132,6 +132,44 @@ describe('buildChatReliabilityRollups', () => {
 })
 
 describe('buildAiCostRollups', () => {
+  it('reports observed, unknown, undispatched, and legacy coverage without dropping recorded totals', () => {
+    const base = {
+      venueId: null,
+      feature: 'coverage',
+      requestCount: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      audioInputTokens: 0,
+      audioOutputTokens: 0,
+      cachedAudioInputTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: '0.01000000',
+      success: false,
+    }
+    const [row] = buildAiCostRollups({
+      tenantId: 'tenant_1',
+      date: targetDate,
+      events: [
+        { ...base, usageObservationStatus: 'OBSERVED' },
+        { ...base, usageObservationStatus: 'UNKNOWN' },
+        { ...base, usageObservationStatus: 'NOT_DISPATCHED' },
+        { ...base },
+      ],
+    })
+    expect(row).toMatchObject({
+      requestCount: 4,
+      estimatedCostUsd: '0.04000000',
+      observedUsageRequestCount: 1,
+      observedTotalTokens: 0,
+      observedEstimatedCostUsd: '0.01000000',
+      unknownUsageRequestCount: 1,
+      notDispatchedRequestCount: 1,
+      legacyUnclassifiedRequestCount: 1,
+    })
+  })
+
   it('groups by venue and feature with exact eight-decimal cost arithmetic', () => {
     const rows = buildAiCostRollups({
       tenantId: 'tenant_1',
@@ -151,6 +189,7 @@ describe('buildAiCostRollups', () => {
           totalTokens: 19,
           estimatedCostUsd: '0.10000001',
           success: true,
+          usageObservationStatus: 'OBSERVED',
         },
         {
           venueId: 'venue_1',
@@ -166,6 +205,7 @@ describe('buildAiCostRollups', () => {
           totalTokens: 8,
           estimatedCostUsd: '2e-8',
           success: false,
+          usageObservationStatus: 'UNKNOWN',
         },
         {
           venueId: 'venue_2',
@@ -194,6 +234,12 @@ describe('buildAiCostRollups', () => {
         requestCount: 2,
         successfulRequestCount: 1,
         failedRequestCount: 1,
+        observedUsageRequestCount: 1,
+        unknownUsageRequestCount: 1,
+        notDispatchedRequestCount: 0,
+        legacyUnclassifiedRequestCount: 0,
+        observedTotalTokens: 19,
+        observedEstimatedCostUsd: '0.10000001',
         inputTokens: 15,
         outputTokens: 3,
         cacheCreationInputTokens: 3,
@@ -212,6 +258,12 @@ describe('buildAiCostRollups', () => {
         requestCount: 1,
         successfulRequestCount: 1,
         failedRequestCount: 0,
+        observedUsageRequestCount: 0,
+        unknownUsageRequestCount: 0,
+        notDispatchedRequestCount: 0,
+        legacyUnclassifiedRequestCount: 1,
+        observedTotalTokens: 0,
+        observedEstimatedCostUsd: '0.00000000',
         inputTokens: 7,
         outputTokens: 0,
         cacheCreationInputTokens: 0,
@@ -365,7 +417,7 @@ describe('processDailyRollupJob AI cost rollups', () => {
       },
     }
     expect(mocks.usageGroupBy).toHaveBeenCalledWith({
-      by: ['venueId', 'feature', 'success'],
+      by: ['venueId', 'feature', 'success', 'usageObservationStatus'],
       where: dayWhere,
       _count: { _all: true },
       _sum: {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import type {
   CharacterState,
@@ -34,7 +34,14 @@ export type VenueCharacterStageProps = {
   motion?: 'system' | 'reduced' | 'full'
 }
 
-export function VenueCharacterStage({
+export function VenueCharacterStage(props: VenueCharacterStageProps) {
+  const { characterId, assetPackId, assetPackVersion } = props.projection
+  const identity = JSON.stringify([characterId, assetPackId, assetPackVersion])
+  // Reset in the render that changes the projection, not in a later effect.
+  return <VenueCharacterStageScope key={identity} {...props} />
+}
+
+function VenueCharacterStageScope({
   projection,
   state,
   displayName,
@@ -43,20 +50,27 @@ export function VenueCharacterStage({
   motion = 'system',
 }: VenueCharacterStageProps) {
   const [assetFailed, setAssetFailed] = useState(false)
+  const active = useRef(false)
+  useLayoutEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
+  // Stable for the scope, including unsupported-context effects in the presence.
+  const reportAssetError = useCallback(() => {
+    if (active.current) setAssetFailed(true)
+  }, [])
   const name = displayName ?? projection.displayName
   const stateLabel = assetFailed
     ? 'Character display unavailable; text chat is ready'
     : STATE_LABELS[state]
 
-  useEffect(() => {
-    setAssetFailed(false)
-  }, [projection.assetPackId, projection.assetPackVersion])
-
   return (
     <section
       className={`grid items-center gap-3 overflow-hidden rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 shadow-sm ${
         expanded
-          ? 'min-h-28 grid-cols-[minmax(5rem,7rem)_1fr] py-3 sm:grid-cols-[8rem_1fr]'
+          ? 'min-h-16 grid-cols-[3.5rem_1fr] py-2 sm:min-h-28 sm:grid-cols-[8rem_1fr] sm:py-3'
           : 'min-h-16 grid-cols-[3.5rem_1fr] py-2'
       }`}
       aria-label={`${name} character status`}
@@ -64,7 +78,7 @@ export function VenueCharacterStage({
       data-character-layout={expanded ? 'expanded' : 'compact'}
     >
       <div
-        className={`flex items-center justify-center overflow-hidden ${expanded ? 'h-24 max-h-[20svh]' : 'h-12'}`}
+        className={`flex items-center justify-center overflow-hidden ${expanded ? 'h-12 sm:h-24 sm:max-h-[20svh]' : 'h-12'}`}
       >
         <PublicCharacterPresence
           projection={projection}
@@ -72,7 +86,7 @@ export function VenueCharacterStage({
           context="venue-text-chat"
           motion={motion}
           size={expanded ? 'stage' : 'compact'}
-          onAssetError={() => setAssetFailed(true)}
+          onAssetError={reportAssetError}
         />
       </div>
       <div className="min-w-0">
@@ -86,7 +100,7 @@ export function VenueCharacterStage({
           {stateLabel}
         </p>
         {expanded && greeting ? (
-          <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--chat-text-muted)]">
+          <p className="mt-1 hidden line-clamp-2 text-sm leading-5 text-[var(--chat-text-muted)] sm:block">
             {greeting}
           </p>
         ) : null}

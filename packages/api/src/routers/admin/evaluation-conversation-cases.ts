@@ -38,6 +38,7 @@ const prepareInput = scopedInput
     forbiddenPhrases: z.array(phrase).max(20).default([]),
     maxWords: z.number().int().min(1).max(1_000).default(200),
     sanitizationConfirmed: z.literal(true),
+    expectedCandidateRevision: z.number().int().min(0).optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -70,6 +71,49 @@ export const adminEvaluationConversationCasesRouter = router({
       withTenantIsolationBypass(() => listConversationKnowledgeGaps(input, db)),
     ),
 
+  listRejectedConversationCandidates: adminProcedure
+    .input(scopedInput.extend({ limit: z.number().int().min(1).max(25).default(10) }).strict())
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const rows = await db.conversationInsight.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            category: 'CONTENT_UPDATE_CANDIDATE',
+            reviewStatus: 'DISMISSED',
+            reviewerFeedback: { not: null },
+            guestChatTurnId: { not: null },
+            guestChatTurn: {
+              userMessage: { isNot: null },
+              assistantMessage: { isNot: null },
+            },
+            session: { experienceScope: 'PUBLIC' },
+          },
+          orderBy: [{ reviewedAt: 'desc' }, { id: 'desc' }],
+          take: input.limit,
+          select: {
+            id: true,
+            category: true,
+            summary: true,
+            reviewerFeedback: true,
+            candidateRevision: true,
+            reviewedAt: true,
+          },
+        })
+        return rows.flatMap((row) => {
+          const reviewerFeedback = row.reviewerFeedback?.trim()
+          if (!reviewerFeedback) return []
+          return [
+            {
+              ...row,
+              summary: row.summary.trim().slice(0, 1000),
+              reviewerFeedback: reviewerFeedback.slice(0, 1000),
+            },
+          ]
+        })
+      }),
+    ),
+
   prepareConversationEvaluationCase: adminProcedure.input(prepareInput).mutation(({ input, ctx }) =>
     withTenantIsolationBypass(() =>
       db.$transaction(async (tx) => {
@@ -79,7 +123,14 @@ export const adminEvaluationConversationCasesRouter = router({
             tenantId: input.tenantId,
             venueId: input.venueId,
             category: { in: [...reviewableCategories] },
-            reviewStatus: { in: ['UNREVIEWED', 'ACKNOWLEDGED'] },
+            OR: [
+              { reviewStatus: { in: ['UNREVIEWED', 'ACKNOWLEDGED'] } },
+              {
+                reviewStatus: 'DISMISSED',
+                category: 'CONTENT_UPDATE_CANDIDATE',
+                reviewerFeedback: { not: null },
+              },
+            ],
             guestChatTurnId: { not: null },
             session: { experienceScope: 'PUBLIC' },
           },
@@ -87,6 +138,8 @@ export const adminEvaluationConversationCasesRouter = router({
             id: true,
             category: true,
             reviewStatus: true,
+            reviewerFeedback: true,
+            candidateRevision: true,
             guestChatTurnId: true,
             guestChatTurn: {
               select: {
@@ -107,6 +160,23 @@ export const adminEvaluationConversationCasesRouter = router({
             code: 'NOT_FOUND',
             message: 'Reviewable public conversation evidence was not found',
           })
+        }
+        if (insight.reviewStatus === 'DISMISSED') {
+          if (
+            input.expectedCandidateRevision === undefined ||
+            input.expectedCandidateRevision !== insight.candidateRevision
+          ) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Rejected candidate changed; refresh before preparing an evaluation case',
+            })
+          }
+          if (!insight.reviewerFeedback?.trim()) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'Rejected candidate has no actionable reviewer feedback',
+            })
+          }
         }
         if (
           insight.category === 'VISITOR_NEGATIVE_FEEDBACK' &&
@@ -185,7 +255,10 @@ export const adminEvaluationConversationCasesRouter = router({
         }
 
         const sourceType = 'REVIEWED_CONVERSATION_INSIGHT'
-        const sourceRef = `conversation-insight:${insight.id}:turn:${insight.guestChatTurn.id}`
+        const sourceRef =
+          insight.reviewStatus === 'DISMISSED'
+            ? `conversation-insight:${insight.id}:turn:${insight.guestChatTurn.id}:candidate-revision:${insight.candidateRevision}`
+            : `conversation-insight:${insight.id}:turn:${insight.guestChatTurn.id}`
         const latest = await tx.evalCase.findFirst({
           where: { tenantId: input.tenantId, venueId: input.venueId, caseKey },
           orderBy: { revision: 'desc' },

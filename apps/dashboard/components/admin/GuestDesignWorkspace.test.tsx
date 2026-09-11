@@ -4,9 +4,22 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ update: vi.fn() }))
+const mocks = vi.hoisted(() => {
+  const update = vi.fn()
+  const listAssets = vi.fn()
+  return {
+    update,
+    listAssets,
+    client: {
+      admin: {
+        updateGuestDesign: { mutate: update },
+        listGuestBrandingAssets: { query: listAssets },
+      },
+    },
+  }
+})
 vi.mock('../../lib/trpc', () => ({
-  useTRPCClient: () => ({ admin: { updateGuestDesign: { mutate: mocks.update } } }),
+  useTRPCClient: () => mocks.client,
 }))
 
 import { GuestDesignWorkspace } from './GuestDesignWorkspace'
@@ -23,6 +36,8 @@ const initial = {
   chatFont: 'inter',
   chatLogoUrl: 'https://cdn.example.test/reviewed-logo.png',
   chatBannerUrl: 'https://cdn.example.test/reviewed-banner.png',
+  chatShowPhotos: false,
+  chatShowLinks: false,
   updatedAt: new Date('2026-08-12T12:00:00.000Z'),
 }
 
@@ -56,6 +71,8 @@ describe('GuestDesignWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Accent colour'), { target: { value: '#ABCDEF' } })
     fireEvent.change(screen.getByLabelText('Font'), { target: { value: 'poppins' } })
     fireEvent.click(screen.getByLabelText('Keep current reviewed banner'))
+    fireEvent.click(screen.getByLabelText('Show reviewed photos for places mentioned in an answer'))
+    fireEvent.click(screen.getByLabelText('Link photo credits to their approved source'))
     fireEvent.click(screen.getByRole('button', { name: 'Save guest design' }))
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({
@@ -66,6 +83,8 @@ describe('GuestDesignWorkspace', () => {
           chatTheme: 'dark',
           chatAccentColor: '#ABCDEF',
           chatFont: 'poppins',
+          chatShowPhotos: true,
+          chatShowLinks: true,
           chatLogoUrl: initial.chatLogoUrl,
           chatBannerUrl: null,
         },
@@ -137,5 +156,31 @@ describe('GuestDesignWorkspace', () => {
     expect(screen.queryByText('What should I see?')).toBeNull()
     expect(screen.queryByText('Plan my visit')).toBeNull()
     expect(screen.queryByText('Ask anything about this place…')).toBeNull()
+  })
+
+  it('aborts an old branding page read when the venue scope changes', async () => {
+    const pending = deferred<{ items: never[]; nextCursor: null }>()
+    mocks.listAssets.mockReturnValueOnce(pending.promise)
+    const view = render(
+      <GuestDesignWorkspace
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initial={initial}
+        initialBrandingAssets={{ items: [], nextCursor: '11111111-1111-4111-8111-111111111111' }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    await waitFor(() => expect(mocks.listAssets).toHaveBeenCalled())
+    const signal = mocks.listAssets.mock.calls[0]?.[1]?.signal as AbortSignal
+    view.rerender(
+      <GuestDesignWorkspace
+        tenantId="tenant-1"
+        venueId="venue-2"
+        initial={{ ...initial, id: 'venue-2' }}
+      />,
+    )
+    expect(signal.aborted).toBe(true)
+    await act(async () => pending.reject(new Error('late old-scope failure')))
+    expect(screen.queryByText(/late old-scope failure/i)).toBeNull()
   })
 })

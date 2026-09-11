@@ -12,6 +12,7 @@ import {
 } from './universal-content-actions'
 
 const tx = {
+  $executeRaw: vi.fn(),
   venue: { findFirst: vi.fn() },
   place: { findFirst: vi.fn() },
   contentModuleIdentity: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
@@ -98,6 +99,85 @@ describe('universal content domain actions', () => {
       version: 1,
       preview: { guestVisible: false, clientVisible: false, requiresExplicitPublication: true },
     })
+  })
+
+  it('records an approved semantic agent as the draft author without granting publication', async () => {
+    await createUniversalContentAction({
+      db: client as never,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: '4e3bd2b3-73b4-40a2-8791-6cce8fcf2a50',
+      actor: {
+        type: 'AGENT',
+        id: 'agent-1',
+        role: 'AGENT',
+        authorization: 'APPROVED_SEMANTIC_PROPOSAL',
+      },
+      precondition: vi.fn(),
+      finalizer: vi.fn(),
+      draft: {
+        audience: 'PUBLIC',
+        evidence,
+        payload: { kind: 'SERVICE', name: 'Coat check', availability: 'Weekends' },
+      },
+    })
+    expect(tx.contentModuleRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ createdBy: 'agent-1' }) }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'agent-1',
+        actorRole: 'AGENT',
+        afterState: expect.objectContaining({
+          source: 'APPROVED_SEMANTIC_PROPOSAL_AGENT',
+          publication: 'NOT_PUBLISHED',
+        }),
+      }),
+      tx,
+    )
+  })
+
+  it('rejects an agent draft without both atomic approval and receipt callbacks', async () => {
+    await expect(
+      createUniversalContentAction({
+        db: client as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: '4e3bd2b3-73b4-40a2-8791-6cce8fcf2a51',
+        actor: {
+          type: 'AGENT',
+          id: 'agent-1',
+          role: 'AGENT',
+          authorization: 'APPROVED_SEMANTIC_PROPOSAL',
+        },
+        draft: {
+          audience: 'PUBLIC',
+          evidence,
+          payload: { kind: 'SERVICE', name: 'Coat check', availability: 'Weekends' },
+        },
+      }),
+    ).rejects.toThrow(/atomic precondition and handoff receipt/)
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects agent retirement even when passed through an untyped caller', async () => {
+    await expect(
+      (retireUniversalContentAction as (input: unknown) => Promise<unknown>)({
+        db: client,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: 'module-1',
+        expectedLatestVersion: 1,
+        effectiveUntil: '2026-12-01T00:00:00.000Z',
+        evidence,
+        actor: {
+          type: 'AGENT',
+          id: 'agent-1',
+          role: 'AGENT',
+          authorization: 'APPROVED_SEMANTIC_PROPOSAL',
+        },
+      }),
+    ).rejects.toThrow(/human platform administrator/)
   })
 
   it('turns a repeated durable creation key into a conflict instead of a second identity', async () => {

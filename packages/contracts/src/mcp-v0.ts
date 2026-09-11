@@ -10,6 +10,12 @@ import {
 } from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
+import { GeneralizedContentRevisionDraft } from './universal-content-actions'
+import { CreateLegacyKnowledgeAdoptionDraftInput } from './legacy-knowledge-adoption'
+import {
+  AgentWorkflowPortableManifestSchema,
+  AgentWorkflowProvenanceSchema,
+} from './agent-workflow-registry'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -90,8 +96,11 @@ export const McpCapability = z.enum([
   'support:request-information',
   'support:complete',
   'intake:draft',
+  'intake-source:read',
   'updates:draft',
   'evaluations:request',
+  'characters:build',
+  'characters:execute',
 ])
 export type McpCapability = z.infer<typeof McpCapability>
 
@@ -148,8 +157,8 @@ export function assertMcpScope(
   })
   if (request.clientId !== credential.clientId) throw new McpScopeError('Client scope denied')
   if (!credential.capabilities.includes(capability)) throw new McpScopeError('Capability denied')
-  if (level === 'venue') {
-    if (!request.venueId) throw new McpScopeError('Venue scope is required')
+  if (level === 'venue' && !request.venueId) throw new McpScopeError('Venue scope is required')
+  if ((level === 'venue' || level === 'client-or-venue') && request.venueId) {
     if (!credential.venueIds.includes(request.venueId))
       throw new McpScopeError('Venue scope denied')
   }
@@ -356,6 +365,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'agent-runs:read',
   ],
   [
+    'agent-run-result',
+    'Agent run result',
+    'One exact venue-scoped run result manifest or indexed whole artifact without prompts, execution authority, or credential material.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/result',
+    'venue',
+    'agent-runs:read',
+  ],
+  [
     'events',
     'Operational events',
     'Venue-scoped operational attention events and recovery guidance.',
@@ -410,6 +427,22 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'pathfinder://clients/{clientId}/venues/{venueId}/agent-questions',
     'venue',
     'questions:read',
+  ],
+  [
+    'assigned-source',
+    'Assigned task source',
+    'One bounded page from the claimed Content run’s immutable source assignment, before a question exists.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/source',
+    'venue',
+    'intake-source:read',
+  ],
+  [
+    'question-source',
+    'Agent question source',
+    'One bounded, question-bound intake extraction source page for the claimed agent run.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-questions/{questionId}/source',
+    'venue',
+    'intake-source:read',
   ],
   [
     'outcomes',
@@ -475,23 +508,95 @@ const resultSchema = strictObject(
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
   agentRunId: Identifier.optional(),
+  questionId: Identifier.optional(),
+  artifactIndex: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  artifactOffset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(100).default(25),
+  sourceCursor: z.string().trim().min(1).max(1024).optional(),
+  pageSize: z.number().int().min(1).max(4000).optional(),
+  search: z.string().trim().min(1).max(200).optional(),
 })
   .strict()
   .superRefine((value, context) => {
-    if (value.resource === 'agent-run-trace' && !value.agentRunId) {
+    const exactRunResource = [
+      'agent-run-trace',
+      'agent-run-result',
+      'question-source',
+      'assigned-source',
+    ].includes(value.resource)
+    if (exactRunResource && !value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['agentRunId'],
-        message: 'agentRunId is required for an agent run trace.',
+        message: 'agentRunId is required for an exact agent run resource.',
       })
     }
-    if (value.resource !== 'agent-run-trace' && value.agentRunId) {
+    if (!exactRunResource && value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['agentRunId'],
-        message: 'agentRunId is only accepted for an agent run trace.',
+        message: 'agentRunId is only accepted for an exact agent run resource.',
+      })
+    }
+    const questionSource = value.resource === 'question-source'
+    const sourceResource = questionSource || value.resource === 'assigned-source'
+    if (questionSource && !value.questionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['questionId'],
+        message: 'questionId is required for a question source resource.',
+      })
+    }
+    if (!questionSource && value.questionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['questionId'],
+        message: 'questionId is only accepted for a question source resource.',
+      })
+    }
+    for (const field of ['sourceCursor', 'pageSize', 'search'] as const) {
+      if (!sourceResource && value[field] !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is only accepted for a worker source resource.`,
+        })
+      }
+    }
+    if (sourceResource && value.cursor !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cursor'],
+        message: 'Source pages do not accept a generic cursor.',
+      })
+    }
+    if (value.resource !== 'agent-run-result' && value.artifactIndex !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactIndex'],
+        message: 'artifactIndex is only accepted for an agent run result.',
+      })
+    }
+    if (value.resource === 'agent-run-result' && value.cursor !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cursor'],
+        message: 'agent-run-result does not accept a cursor.',
+      })
+    }
+    if (value.artifactOffset !== undefined && value.artifactIndex === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactOffset'],
+        message: 'artifactOffset requires artifactIndex.',
+      })
+    }
+    if (value.resource !== 'agent-run-result' && value.artifactOffset !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactOffset'],
+        message: 'artifactOffset is only accepted for an agent run result.',
       })
     }
   })
@@ -560,6 +665,7 @@ export const McpKnowledgeSearchInput = McpRequestedScope.extend({
     .default(['AUTHORITATIVE_CURRENT', 'DURABLE_CONTEXT']),
   includeHistorical: z.boolean().default(false),
   limit: z.number().int().min(1).max(20).default(5),
+  cursor: z.string().min(1).max(2000).optional(),
 }).strict()
 export type McpKnowledgeSearchInput = z.infer<typeof McpKnowledgeSearchInput>
 
@@ -635,6 +741,40 @@ export const McpSupportKnowledgeProposalInput = McpRequestedScope.extend({
   confidence: z.number().min(0).max(1),
 }).strict()
 export type McpSupportKnowledgeProposalInput = z.infer<typeof McpSupportKnowledgeProposalInput>
+
+export const McpSemanticUniversalContentDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  proposalId: z.string().uuid(),
+  expectedProposalUpdatedAt: z.string().datetime({ offset: true }),
+  expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
+  desired: z
+    .object({
+      title: z.string().trim().min(1).max(200),
+      category: z.string().trim().min(1).max(100),
+      content: z.string().trim().min(1).max(5000),
+      isEnabled: z.boolean(),
+    })
+    .strict(),
+  draft: GeneralizedContentRevisionDraft,
+}).strict()
+export type McpSemanticUniversalContentDraftInput = z.infer<
+  typeof McpSemanticUniversalContentDraftInput
+>
+
+export const McpLegacyKnowledgeAdoptionDraftInput = CreateLegacyKnowledgeAdoptionDraftInput.extend({
+  clientId: Identifier,
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+}).strict()
+export type McpLegacyKnowledgeAdoptionDraftInput = z.infer<
+  typeof McpLegacyKnowledgeAdoptionDraftInput
+>
 
 export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
@@ -972,8 +1112,39 @@ export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   hypothesis: z.string().trim().min(10).max(2000),
   proposedChange: z.string().trim().min(10).max(10000),
   validationPlan: z.string().trim().min(10).max(5000),
+  generalization: z
+    .object({
+      rationale: z.string().trim().min(10).max(2000),
+      counterexampleObservationIds: z
+        .array(Identifier)
+        .min(1)
+        .max(20)
+        .refine((ids) => new Set(ids).size === ids.length, 'IDs must be unique.'),
+      exclusions: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
+    })
+    .strict()
+    .optional(),
 }).strict()
 export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
+
+export const McpAgentWorkflowVersionsReadInput = McpRequestedScope.extend({
+  registryKeys: z.array(z.string().min(1).max(191)).min(1).max(5),
+}).strict()
+export type McpAgentWorkflowVersionsReadInput = z.infer<typeof McpAgentWorkflowVersionsReadInput>
+
+export const McpAgentWorkflowVersionRegistrationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  manifest: AgentWorkflowPortableManifestSchema,
+  portableText: z.string().trim().min(1).max(50_000),
+  provenance: AgentWorkflowProvenanceSchema,
+  supersedesVersionId: z.string().uuid().optional(),
+}).strict()
+export type McpAgentWorkflowVersionRegistrationInput = z.infer<
+  typeof McpAgentWorkflowVersionRegistrationInput
+>
 
 export const McpAgentImprovementValidationInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
@@ -1068,11 +1239,72 @@ export const McpPackageDraftInput = McpRequestedScope.extend({
 }).strict()
 export type McpPackageDraftInput = z.infer<typeof McpPackageDraftInput>
 
+export const McpIntakeV1PackagePreviewInput = McpRequestedScope.extend({
+  submissionId: Identifier,
+  revision: z.number().int().min(1),
+  selectedMemberIds: z.array(Identifier).min(1).max(50),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.selectedMemberIds).size !== value.selectedMemberIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['selectedMemberIds'],
+        message: 'Selected V1 member IDs must be unique.',
+      })
+    }
+  })
+export type McpIntakeV1PackagePreviewInput = z.infer<typeof McpIntakeV1PackagePreviewInput>
+
+const McpIntakeV1PackageIdentityFields = {
+  submissionId: Identifier,
+  revision: z.number().int().min(1),
+  selectedMemberIds: z.array(Identifier).min(1).max(50),
+  expectedManifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedCandidateHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedSelectionHash: z.string().regex(/^[a-f0-9]{64}$/),
+  partialAcknowledged: z.boolean(),
+  draftOperationId: z.string().uuid(),
+}
+export const McpIntakeV1PackageDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  executionLeaseToken: z.string().uuid(),
+  ...McpIntakeV1PackageIdentityFields,
+  reason: z.string().trim().min(3).max(2_000),
+})
+  .strict()
+  .refine((value) => new Set(value.selectedMemberIds).size === value.selectedMemberIds.length, {
+    path: ['selectedMemberIds'],
+    message: 'Selected V1 member IDs must be unique.',
+  })
+export type McpIntakeV1PackageDraftProposalInput = z.infer<
+  typeof McpIntakeV1PackageDraftProposalInput
+>
+export const McpIntakeV1PackageDraftApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  executionLeaseToken: z.string().uuid(),
+  ...McpIntakeV1PackageIdentityFields,
+})
+  .strict()
+  .refine((value) => new Set(value.selectedMemberIds).size === value.selectedMemberIds.length, {
+    path: ['selectedMemberIds'],
+    message: 'Selected V1 member IDs must be unique.',
+  })
+export type McpIntakeV1PackageDraftApplyInput = z.infer<typeof McpIntakeV1PackageDraftApplyInput>
+
 export const McpUpdateDraftInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160),
   body: z.string().trim().min(1).max(4_000),
   startsAt: z.string().datetime({ offset: true }),
@@ -1095,6 +1327,7 @@ export const McpSupportDraftInput = McpRequestedScope.extend({
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(20_000),
   category: z.enum([
@@ -1123,6 +1356,7 @@ export const McpSupportInternalNoteInput = McpRequestedScope.extend({
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   requestId: Identifier,
   expectedVersion: z.number().int().positive(),
   body: z.string().trim().min(1).max(20_000),
@@ -1176,16 +1410,83 @@ export const McpEvaluationRequestInput = McpRequestedScope.extend({
   })
 export type McpEvaluationRequestInput = z.infer<typeof McpEvaluationRequestInput>
 
-export const McpAskOperatorInput = McpRequestedScope.extend({
+export const McpSourceClarification = z
+  .object({
+    runId: z.string().trim().min(1).max(191),
+    receiptId: z.string().uuid(),
+    expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    fieldPath: z.string().trim().min(1).max(500),
+    reason: z.enum(['CONTRADICTION', 'DATE_SENSITIVE', 'LOW_CONFIDENCE', 'MISSING_CONTEXT']),
+    blockerScope: z.enum(['LOCAL', 'FOUNDATIONAL']),
+    evidenceExcerpt: z.string().trim().min(1).max(1000),
+  })
+  .strict()
+
+const McpGenericOperatorQuestion = McpRequestedScope.extend({
+  sourceClarification: z.undefined().optional(),
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
   agentRunId: Identifier.optional(),
   question: z.string().trim().min(1).max(2_000),
   context: z.string().trim().min(1).max(2_000).optional(),
   choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+  expiresAt: z.string().datetime({ offset: true }).optional(),
   blocking: z.boolean().default(true),
 }).strict()
+
+const McpSourceOperatorQuestion = McpRequestedScope.extend({
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  question: z.string().trim().min(1).max(2_000),
+  sourceClarification: McpSourceClarification,
+})
+  .strict()
+  .transform((value) => ({
+    ...value,
+    operationId: undefined,
+    context: undefined,
+    choices: [] as string[],
+    expiresAt: undefined,
+    blocking: value.sourceClarification.blockerScope === 'FOUNDATIONAL',
+  }))
+
+// Source replay identity is derived canonically from exact source/question/run data.
+// Generic operation IDs and lifecycle overrides must not override that identity.
+export const McpAskOperatorInput = z.union([McpGenericOperatorQuestion, McpSourceOperatorQuestion])
 export type McpAskOperatorInput = z.infer<typeof McpAskOperatorInput>
+
+export const McpResolveSourceClarificationInput = McpRequestedScope.extend({
+  venueId: Identifier,
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  requestId: z.string().uuid(),
+  runId: z.string().trim().min(1).max(191),
+  receiptId: z.string().uuid(),
+  expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  questionId: Identifier,
+  expectedAnsweredAt: z.string().datetime({ offset: true }),
+  kind: z.enum(['REPLACE_EXCERPT', 'EXCLUDE_EVIDENCE']),
+  amendedExcerpt: z.string().trim().min(1).max(2_000).optional(),
+  rationale: z.string().trim().min(1).max(500),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (value.kind === 'REPLACE_EXCERPT' && value.amendedExcerpt === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amendedExcerpt'],
+        message: 'amendedExcerpt is required when replacing source evidence.',
+      })
+    }
+    if (value.kind === 'EXCLUDE_EVIDENCE' && value.amendedExcerpt !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amendedExcerpt'],
+        message: 'amendedExcerpt is only accepted when replacing source evidence.',
+      })
+    }
+  })
+export type McpResolveSourceClarificationInput = z.infer<typeof McpResolveSourceClarificationInput>
 
 export const McpDelegateSpecialistInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
@@ -1194,6 +1495,8 @@ export const McpDelegateSpecialistInput = McpRequestedScope.extend({
   specialistAgentIdentityId: Identifier,
   instructions: z.string().trim().min(1).max(10_000),
   reason: z.string().trim().min(1).max(1_000),
+  executionLeaseToken: z.string().uuid().optional(),
+  waitForResult: z.boolean().default(false),
 }).strict()
 export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
 
@@ -1256,6 +1559,8 @@ export type PathfinderMcpToolName =
   | 'torchiko.quality.preview_answer_attribution_agreement'
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.knowledge.prepare_from_support'
+  | 'torchiko.knowledge.create_typed_draft'
+  | 'torchiko.knowledge.adopt_legacy_draft'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
@@ -1274,14 +1579,20 @@ export type PathfinderMcpToolName =
   | 'pathfinder.propose_support_package_handoff_supersession'
   | 'pathfinder.apply_support_package_handoff_supersession'
   | 'torchiko.agent_improvements.propose'
+  | 'torchiko.agent_workflows.register_version'
+  | 'torchiko.agent_workflows.get_compatible_versions'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
   | 'torchiko.reports.get_lifecycle'
   | 'pathfinder.ask_operator'
+  | 'pathfinder.resolve_source_clarification'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
+  | 'pathfinder.preview_intake_v1_package_draft'
+  | 'pathfinder.propose_intake_v1_package_draft'
+  | 'pathfinder.apply_intake_v1_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.open_support_request'
@@ -1514,6 +1825,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         authorities: { type: 'array', maxItems: 5, items: { type: 'string' } },
         includeHistorical: { type: 'boolean', default: false },
         limit: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+        cursor: { type: 'string', minLength: 1, maxLength: 2000 },
       },
       ['clientId', 'query'],
     ),
@@ -1711,6 +2023,150 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'proposedChange',
         'reason',
         'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.create_typed_draft',
+    title: 'Create a typed draft from an approved proposal',
+    description:
+      'Create one append-only universal-content draft from an exact human-approved semantic proposal and preview. This never publishes, withdraws, or changes guest-visible knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', format: 'uuid' },
+        expectedProposalUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedPreviewHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        relation: { type: 'string', enum: ['NEW_FACT', 'CORRECTS', 'SUPERSEDES'] },
+        desired: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'category', 'content', 'isEnabled'],
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            category: { type: 'string', minLength: 1, maxLength: 100 },
+            content: { type: 'string', minLength: 1, maxLength: 5000 },
+            isEnabled: { type: 'boolean' },
+          },
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['audience', 'evidence', 'payload'],
+          properties: {
+            audience: { type: 'string', enum: ['PUBLIC', 'CLIENT', 'OPERATOR'] },
+            effectiveFrom: { type: ['string', 'null'], format: 'date-time' },
+            effectiveUntil: { type: ['string', 'null'], format: 'date-time' },
+            evidence: {
+              type: 'array',
+              maxItems: 100,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['sourceId', 'capturedAt'],
+                properties: {
+                  sourceId: { type: 'string', minLength: 1, maxLength: 500 },
+                  locator: { type: 'string', minLength: 1, maxLength: 2000 },
+                  capturedAt: { type: 'string', format: 'date-time' },
+                  excerptHash: { type: 'string', pattern: '^[a-fA-F0-9]{64}$' },
+                },
+              },
+            },
+            payload: {
+              type: 'object',
+              description:
+                'A complete ITEM, SERVICE, POLICY, EVENT, OPERATIONAL_FACT, or RELATIONSHIP payload as defined by the universal-content contract.',
+              required: ['kind'],
+              properties: {
+                kind: {
+                  type: 'string',
+                  enum: ['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'],
+                },
+              },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'expectedProposalUpdatedAt',
+        'expectedPreviewHash',
+        'relation',
+        'desired',
+        'draft',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.adopt_legacy_draft',
+    title: 'Adopt an exact legacy knowledge source as a native draft',
+    description:
+      'Create one native v1 draft and immutable source receipt for an exact unlinked legacy row targeted by a human-approved semantic proposal. The legacy row remains public until a separate approved publication action.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', format: 'uuid' },
+        legacyKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 191 },
+        expectedProposalUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedPreviewHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedLegacyUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedLegacySnapshotHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        relation: { type: 'string', enum: ['CORRECTS', 'SUPERSEDES'] },
+        desired: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'category', 'content', 'isEnabled'],
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['audience', 'evidence', 'payload'],
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'legacyKnowledgeEntryId',
+        'expectedProposalUpdatedAt',
+        'expectedPreviewHash',
+        'expectedLegacyUpdatedAt',
+        'expectedLegacySnapshotHash',
+        'relation',
+        'desired',
+        'draft',
       ],
     ),
     outputSchema: resultSchema,
@@ -2782,6 +3238,29 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         hypothesis: { type: 'string', minLength: 10, maxLength: 2000 },
         proposedChange: { type: 'string', minLength: 10, maxLength: 10000 },
         validationPlan: { type: 'string', minLength: 10, maxLength: 5000 },
+        generalization: {
+          ...strictObject(
+            {
+              rationale: { type: 'string', minLength: 10, maxLength: 2000 },
+              counterexampleObservationIds: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 20,
+                uniqueItems: true,
+                items: { type: 'string', minLength: 1, maxLength: 120 },
+              },
+              exclusions: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 10,
+                items: { type: 'string', minLength: 1, maxLength: 500 },
+              },
+            },
+            ['rationale', 'counterexampleObservationIds', 'exclusions'],
+          ),
+          description:
+            'Required when selected outcome evidence has question provenance. Counterexamples must be selected same-scope observations distinct from source-linked mixed or negative corrections.',
+        },
       },
       [
         ...scopeRequired,
@@ -2798,6 +3277,71 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'hypothesis',
         'proposedChange',
         'validationPlan',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:propose', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.agent_workflows.get_compatible_versions',
+    title: 'Read scoped registered workflow versions',
+    description:
+      'Inspect the latest registered version of up to five named workflows or skills and current tool compatibility. Returned text is an unactivated artifact, not execution authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        registryKeys: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 5,
+          items: { type: 'string', minLength: 1, maxLength: 191 },
+        },
+      },
+      [...scopeRequired, 'registryKeys'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'resources:read', 'read') },
+  },
+  {
+    name: 'torchiko.agent_workflows.register_version',
+    title: 'Register an unactivated portable workflow version',
+    description:
+      'Store one immutable portable skill or workflow version with declared provenance and current tool compatibility. Registration grants no activation authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        manifest: { type: 'object' },
+        portableText: { type: 'string', minLength: 1, maxLength: 50000 },
+        provenance: { type: 'object' },
+        supersedesVersionId: { type: 'string', format: 'uuid' },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'manifest',
+        'portableText',
+        'provenance',
       ],
     ),
     outputSchema: resultSchema,
@@ -2961,10 +3505,48 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           type: 'string',
           minLength: 1,
           maxLength: 120,
-          description: 'Required only when resource is agent-run-trace.',
+          description:
+            'Required for agent-run-trace, agent-run-result, question-source, and assigned-source.',
+        },
+        questionId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 120,
+          description: 'Required only for question-source.',
+        },
+        artifactIndex: {
+          type: 'integer',
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: 'Optional zero-based whole-artifact selection for agent-run-result.',
+        },
+        artifactOffset: {
+          type: 'integer',
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: 'Optional UTF-8 byte offset for chunked agent-run-result artifact reads.',
         },
         cursor: { type: 'string', minLength: 1, maxLength: 500 },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+        sourceCursor: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 1024,
+          description: 'Question-source page cursor. It is separate from generic resource cursors.',
+        },
+        pageSize: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 4000,
+          description:
+            'Optional maximum character count for a question-source or assigned-source page.',
+        },
+        search: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: 'Optional bounded search text for question-source or assigned-source.',
+        },
       },
       ['clientId', 'resource'],
     ),
@@ -2982,24 +3564,69 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     title: 'Ask the operator',
     description:
       'Raise a durable, venue-scoped clarification in the Agent workspace. It does not approve or execute any action.',
-    inputSchema: strictObject(
-      {
-        ...scopeProperties,
-        operationId: { type: 'string', format: 'uuid' },
-        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
-        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
-        question: { type: 'string', minLength: 1, maxLength: 2000 },
-        context: { type: 'string', minLength: 1, maxLength: 2000 },
-        choices: {
-          type: 'array',
-          maxItems: 8,
-          items: { type: 'string', minLength: 1, maxLength: 200 },
-          default: [],
+    inputSchema: {
+      ...strictObject(
+        {
+          ...scopeProperties,
+          operationId: { type: 'string', format: 'uuid' },
+          agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+          agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+          question: { type: 'string', minLength: 1, maxLength: 2000 },
+          context: { type: 'string', minLength: 1, maxLength: 2000 },
+          expiresAt: {
+            type: 'string',
+            format: 'date-time',
+            description:
+              'Optional explicit response cutoff. Omit to keep the question open without automatic expiry.',
+          },
+          choices: {
+            type: 'array',
+            maxItems: 8,
+            items: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+          blocking: {
+            type: 'boolean',
+            description:
+              'Generic questions only; source questions derive blocking from blockerScope.',
+          },
+          sourceClarification: strictObject(
+            {
+              runId: { type: 'string', minLength: 1, maxLength: 191 },
+              receiptId: { type: 'string', format: 'uuid' },
+              expectedExtractedTextHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+              fieldPath: { type: 'string', minLength: 1, maxLength: 500 },
+              reason: {
+                type: 'string',
+                enum: ['CONTRADICTION', 'DATE_SENSITIVE', 'LOW_CONFIDENCE', 'MISSING_CONTEXT'],
+              },
+              blockerScope: { type: 'string', enum: ['LOCAL', 'FOUNDATIONAL'] },
+              evidenceExcerpt: { type: 'string', minLength: 1, maxLength: 1000 },
+            },
+            [
+              'runId',
+              'receiptId',
+              'expectedExtractedTextHash',
+              'fieldPath',
+              'reason',
+              'blockerScope',
+              'evidenceExcerpt',
+            ],
+          ),
         },
-        blocking: { type: 'boolean', default: true },
-      },
-      [...scopeRequired, 'operationId', 'agentIdentityId', 'question'],
-    ),
+        [...scopeRequired, 'agentIdentityId', 'question'],
+      ),
+      oneOf: [
+        { required: ['operationId'], not: { required: ['sourceClarification'] } },
+        {
+          required: ['sourceClarification', 'agentRunId'],
+          not: {
+            anyOf: ['operationId', 'context', 'choices', 'expiresAt', 'blocking'].map((key) => ({
+              required: [key],
+            })),
+          },
+        },
+      ],
+    },
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,
@@ -3008,6 +3635,61 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'questions:ask', 'interaction') },
+  },
+  {
+    name: 'pathfinder.resolve_source_clarification',
+    title: 'Resolve a source clarification',
+    description:
+      'Record one bounded amendment as retained evidence for an answered intake-source clarification. It does not review, approve, apply, or publish content.',
+    inputSchema: {
+      ...strictObject(
+        {
+          ...scopeProperties,
+          agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+          agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+          requestId: { type: 'string', format: 'uuid' },
+          runId: { type: 'string', minLength: 1, maxLength: 191 },
+          receiptId: { type: 'string', format: 'uuid' },
+          expectedExtractedTextHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          questionId: { type: 'string', minLength: 1, maxLength: 120 },
+          expectedAnsweredAt: { type: 'string', format: 'date-time' },
+          kind: { type: 'string', enum: ['REPLACE_EXCERPT', 'EXCLUDE_EVIDENCE'] },
+          amendedExcerpt: { type: 'string', minLength: 1, maxLength: 2000 },
+          rationale: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        [
+          ...scopeRequired,
+          'agentIdentityId',
+          'agentRunId',
+          'requestId',
+          'runId',
+          'receiptId',
+          'expectedExtractedTextHash',
+          'questionId',
+          'expectedAnsweredAt',
+          'kind',
+          'rationale',
+        ],
+      ),
+      oneOf: [
+        {
+          properties: { kind: { const: 'REPLACE_EXCERPT' } },
+          required: ['amendedExcerpt'],
+        },
+        {
+          properties: { kind: { const: 'EXCLUDE_EVIDENCE' } },
+          not: { required: ['amendedExcerpt'] },
+        },
+      ],
+    },
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'intake:draft', 'interaction') },
   },
   {
     name: 'pathfinder.delegate_specialist',
@@ -3023,6 +3705,18 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         specialistAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         instructions: { type: 'string', minLength: 1, maxLength: 10000 },
         reason: { type: 'string', minLength: 1, maxLength: 1000 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Exact current parent-run lease token required for workflow-bound delegation.',
+        },
+        waitForResult: {
+          type: 'boolean',
+          default: false,
+          description:
+            'Pause the current parent lease until this exact child reaches a terminal state.',
+        },
       },
       [
         ...scopeRequired,
@@ -3042,6 +3736,149 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'delegations:create', 'interaction') },
+  },
+  {
+    name: 'pathfinder.propose_intake_v1_package_draft',
+    title: 'Propose an exact V1 package draft',
+    description:
+      'Request human approval for one exact server-derived V1 package candidate. No package or public change is created.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: { type: 'string', format: 'uuid' },
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        expectedManifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedCandidateHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedPayloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedSelectionHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        partialAcknowledged: { type: 'boolean' },
+        draftOperationId: { type: 'string', format: 'uuid' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'executionLeaseToken',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+        'expectedManifestHash',
+        'expectedCandidateHash',
+        'expectedPayloadHash',
+        'expectedSelectionHash',
+        'partialAcknowledged',
+        'draftOperationId',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_intake_v1_package_draft',
+    title: 'Create an approved exact V1 package draft',
+    description:
+      'Consume one exact human approval to create one inactive package DRAFT and V1 handoff. It cannot approve, apply, or publish.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: { type: 'string', format: 'uuid' },
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        expectedManifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedCandidateHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedPayloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedSelectionHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        partialAcknowledged: { type: 'boolean' },
+        draftOperationId: { type: 'string', format: 'uuid' },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'executionLeaseToken',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+        'expectedManifestHash',
+        'expectedCandidateHash',
+        'expectedPayloadHash',
+        'expectedSelectionHash',
+        'partialAcknowledged',
+        'draftOperationId',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'draft') },
+  },
+  {
+    name: 'pathfinder.preview_intake_v1_package_draft',
+    title: 'Preview an exact V1 intake package',
+    description:
+      'Build a bounded, server-derived preview for an exact submitted V1 revision and member selection. This read-only tool creates no package, handoff, approval, application, or publication.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+      },
+      [...scopeRequired, 'submissionId', 'revision', 'selectedMemberIds'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:read', 'read') },
   },
   {
     name: 'pathfinder.create_package_draft',
@@ -3082,6 +3919,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         title: { type: 'string', minLength: 1, maxLength: 160 },
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         startsAt: { type: 'string', format: 'date-time' },
@@ -3120,6 +3963,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         subject: { type: 'string', minLength: 1, maxLength: 200 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },
         category: {
@@ -3202,6 +4051,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         requestId: { type: 'string', minLength: 1, maxLength: 120 },
         expectedVersion: { type: 'integer', minimum: 1 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },

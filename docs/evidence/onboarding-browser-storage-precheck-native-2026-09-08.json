@@ -1,0 +1,495 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "baseRevision": "305c3934872ba42da0f7b38528af521b58db5572",
+  "requirements": ["V2-P01-06", "V2-P01-07", "V2-P01-08", "V2-P03-04"],
+  "status": "LOCAL_BROWSER_STORAGE_PRECHECK_PENDING_PASS",
+  "implemented": "Guarded fourth connected case drives actual browser reserve, presigned HTTP PUT to versioned disposable MinIO, production Head/Get/hash/format verification, durable PRECHECK_PASSED and registered verification job failure without an available scanner. Existing three connected draft/reader/submission/support/QR cases preserved; no product runtime modification required.",
+  "proof": {
+    "database": "pathfinder_disposable_onboarding_e3cec767e331",
+    "pgPort": "55491",
+    "nextPort": 3002,
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331",
+    "distDir": ".next-onboarding-connected-e3cec767e331",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 238,
+      "publicTableCount": 258
+    },
+    "nextReady": true,
+    "sourceHashes": [
+      {
+        "source": "apps/dashboard/tests/browser/onboarding-connected.spec.ts",
+        "sha256": "299b8ea2b8434fbcaf75cd1656ce5c5251687e7f67322671b83cd92b0d442698",
+        "bytes": 67741
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/connected-client-handoff/page.tsx",
+        "sha256": "7899eb6e08645b1b74fb5aa3e7944e9030e5f93f949c6e805cdbaf1ce921bd68",
+        "bytes": 836
+      },
+      {
+        "source": "apps/dashboard/components/ConnectedClientHandoffFixture.tsx",
+        "sha256": "f6f86469ba7cba953be8256ab3c73f6366a02a49fbdd049c245f415fdc42c9a5",
+        "bytes": 5932
+      },
+      {
+        "source": "apps/dashboard/components/VenueQrKitAvailability.tsx",
+        "sha256": "36d43c6498e8b8c36bbfe74db3cad08ae0864a683406fbb3853f3e9278282958",
+        "bytes": 2340
+      },
+      {
+        "source": "apps/dashboard/components/SupportWorkspace.tsx",
+        "sha256": "1e67c4b54297618d215f4e71d0db953db18888cd35f57f17ce1081ea27f33d6d",
+        "bytes": 57135
+      },
+      {
+        "source": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.tsx",
+        "sha256": "c207b2900ca2c49ac563297185743bd1929803aaf3c30783d22be77b4b64a536",
+        "bytes": 1773
+      },
+      {
+        "source": "apps/dashboard/lib/guest-chat-url.ts",
+        "sha256": "fa9a4b65596ab6dc35324244f3361a082564a2753a158b588c69d1a7d48bc575",
+        "bytes": 2930
+      },
+      {
+        "source": "packages/api/src/routers/portal.ts",
+        "sha256": "0347b835547ef28d7d6e5f40b2e100ff632be67ec8030d2a9f962c0ad3f65c55",
+        "bytes": 36979
+      },
+      {
+        "source": "apps/dashboard/playwright.onboarding-connected.config.ts",
+        "sha256": "693b50424aa279327094e4092b4f1617b909de59aef8d0d477cc41facccf9ea2",
+        "bytes": 1576
+      },
+      {
+        "source": "apps/dashboard/next.config.ts",
+        "sha256": "e42b27369aa81e78e4fd94ede74f0b3144b7febbac4cd49b3e5a7c91ade00c2b",
+        "bytes": 1505
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/remote-onboarding/page.tsx",
+        "sha256": "de62155b6372bf7d00337178363426731de790e155b9ca58ab0f4b51e8879ce1",
+        "bytes": 13022
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/connected-intake-reader/page.tsx",
+        "sha256": "0517bdccf169a720b021578823c1edbd72bef6a47b22a5e589bbe4325dfbbf9a",
+        "bytes": 1565
+      },
+      {
+        "source": "apps/dashboard/components/RemoteOnboardingJourney.tsx",
+        "sha256": "c5eba97adb41278b34f5e48ffdb58c4f587ee6e6109d47ac433b79ca577a5765",
+        "bytes": 21191
+      },
+      {
+        "source": "apps/dashboard/components/IntakeProposalWorkspace.tsx",
+        "sha256": "57e618ae951e4924fe5f394cce4f4b39d83cc6c1a42991f0d08c0c80929ef4f5",
+        "bytes": 30268
+      },
+      {
+        "source": "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.tsx",
+        "sha256": "7787be5357097c4791b8d636dcdc2b15f16b9555dc71ea0e05d54b6e8b194326",
+        "bytes": 87728
+      },
+      {
+        "source": "apps/dashboard/components/TorchikoCore.tsx",
+        "sha256": "ba802dda5b63fb91423a2dab5314db4b32f859d7eda85eb7e58e5b4f73fb237f",
+        "bytes": 653
+      },
+      {
+        "source": "apps/dashboard/components/TorchikoClientPrimitives.module.css",
+        "sha256": "32142c770bea3e7966c261304a551f85aa6efb89a213ed2e3c365a2d961df667",
+        "bytes": 6865
+      },
+      {
+        "source": "apps/dashboard/lib/trpc.tsx",
+        "sha256": "2835af903f2a1045cef112cdde82acf27d0d0fc2bc1ea0297480b700f8fa73fe",
+        "bytes": 1976
+      },
+      {
+        "source": "packages/contracts/src/client-portal-lifecycle.ts",
+        "sha256": "c8f720ebed31d2c4f976ec7610f6300943698083e9f7af4eade146a880279c71",
+        "bytes": 5052
+      },
+      {
+        "source": "packages/contracts/src/remote-onboarding.ts",
+        "sha256": "df666b0ce38f2252a1a9b6e2b6b2d03240197b30e214e8874c84156856ef0f04",
+        "bytes": 13820
+      },
+      {
+        "source": "packages/api/src/index.ts",
+        "sha256": "7097079e6f7e0067f44d812f7e33f91aad4807377973d58f0263f7aec4b97c3a",
+        "bytes": 3393
+      },
+      {
+        "source": "packages/api/src/root.ts",
+        "sha256": "715c585b97797954ef05965b9ed2e1830169ec1169e8b12df097928297b74db6",
+        "bytes": 2266
+      },
+      {
+        "source": "packages/api/src/trpc.ts",
+        "sha256": "854e3f6c21ca21884d25f9e87d8f3465f8345bc38b384ec533f20d0e4d440da7",
+        "bytes": 724
+      },
+      {
+        "source": "packages/api/src/routers/intake.ts",
+        "sha256": "adc53986a87b6211dd162f419e6bf27086cb0b0493b08ca9da4af5d26e773c64",
+        "bytes": 13010
+      },
+      {
+        "source": "packages/api/src/routers/admin/intake-operations.ts",
+        "sha256": "ad33742b22c6b5bf1b74a32954dbf18fefa31622dc6847bff36c8767c3573c15",
+        "bytes": 12041
+      },
+      {
+        "source": "packages/api/src/routers/admin/intake-file-extraction.ts",
+        "sha256": "2bee22469f262eca1bc09ac26fff3b0c68b566d283bbf87b2ff0b663087121e2",
+        "bytes": 5338
+      },
+      {
+        "source": "packages/api/src/lib/intake-builder-lifecycle-service.ts",
+        "sha256": "2f0dc9e2e7d5a896f3fb712e08472059ee26c3f704e41ea03b236a6e2ee1e927",
+        "bytes": 26223
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+        "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc",
+        "bytes": 8875
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "sha256": "7fdfd5e96b4ee0ff8590e3339f17e2ae8972ebdd339c8ff6f476e693682c526d",
+        "bytes": 48345
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+        "bytes": 1809
+      },
+      {
+        "source": "packages/db/src/helpers/intake-submission-draft-actions.ts",
+        "sha256": "c8316fe34bf3e44b5c4a66905a021152feedc6176b1750e2d8bdadbf1d4eda38",
+        "bytes": 7685
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e",
+        "bytes": 63064
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+        "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979",
+        "bytes": 14963
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-review-actions.ts",
+        "sha256": "38fd983d103722c9a7369577957e850233f6e38371df26a628eaa7316d5d958f",
+        "bytes": 17591
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-submission-actions.ts",
+        "sha256": "8a09b3baa45b7ba99f610751b786904837f6aa7f74a538639b10b491f56f50a3",
+        "bytes": 25346
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+        "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e",
+        "bytes": 13508
+      },
+      {
+        "source": "packages/api/src/lib/intake-v1-package-candidate.ts",
+        "sha256": "662749add0b3499c11b3a2c4d9df7258d094906cd7b0cdcda0db403f7f198c14",
+        "bytes": 17245
+      },
+      {
+        "source": "packages/api/src/lib/intake-v1-package-draft.ts",
+        "sha256": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d",
+        "bytes": 8536
+      },
+      {
+        "source": "packages/api/src/routers/support.ts",
+        "sha256": "87a08b1eeda074b5c7fdaf54e11903c43b3fcec41bfbe44fc4d36f46a8f4a4a4",
+        "bytes": 22181
+      },
+      {
+        "source": "apps/workers/src/intake-v1-file-extraction-runtime.ts",
+        "sha256": "5c14fe149b2d7dde882c2498df5fcd00d0e368a2f682023ac1378c570539ecf6",
+        "bytes": 3662
+      },
+      {
+        "source": "apps/workers/src/processors/intake-v1-file-extraction.ts",
+        "sha256": "367f28a6ec2005be6b7612587d20de6e99818d6e4219d9f695113cd68e8b3af2",
+        "bytes": 6216
+      },
+      {
+        "source": "packages/auth/src/permissions.ts",
+        "sha256": "6fbadca65c173dd0a74d943ac808f44da60064166b5ccd75eef4d422e3f7b074",
+        "bytes": 921
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+        "bytes": 6270
+      },
+      {
+        "source": "packages/jobs/src/enqueue.ts",
+        "sha256": "86e3b24f46d04c438f4b187195840f657456fc51868aff28b4c77042730331fa",
+        "bytes": 32866
+      },
+      {
+        "source": "packages/jobs/src/queues.ts",
+        "sha256": "f72c81275392f0069794580ffae95da4b9eec7ef27ba8d616a9affa32473c513",
+        "bytes": 8035
+      },
+      {
+        "source": "packages/jobs/src/connection.ts",
+        "sha256": "69c3a629922e20e426ae9d64f16173821ab26fb51eb17da3f824b7c9e8f38b9f",
+        "bytes": 2292
+      },
+      {
+        "source": "apps/workers/src/lib/job-execution.ts",
+        "sha256": "7bd4314266805c5fe1c6a6b4e09969032ba9a5b3ad5767551787569b8e904f4e",
+        "bytes": 3957
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+        "bytes": 598067
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+        "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3",
+        "bytes": 25133
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-service.ts",
+        "sha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454",
+        "bytes": 13686
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-storage.ts",
+        "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298",
+        "bytes": 15826
+      },
+      {
+        "source": "packages/api/src/lib/pdf-text-extraction.ts",
+        "sha256": "dcd1bc1aad8dd14e25b81362de3425cbbb63e5c93f109444a86d044db79fd807",
+        "bytes": 7626
+      },
+      {
+        "source": "packages/api/src/routers/intake-upload.ts",
+        "sha256": "d15153166f10594b8f1814aa03dcb72763b724b64ff9541645c8eedbf7562f75",
+        "bytes": 25087
+      },
+      {
+        "source": "packages/api/src/intake-upload-verification.ts",
+        "sha256": "7364a8b9a331af507124a330ab53d43dfaceec6aa750e1a42256be9375c72324",
+        "bytes": 2263
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-byte-verifier.ts",
+        "sha256": "5d08af0dbe53a25710cc23360c9650d587ecfdf5515528af412df9f55da1ae02",
+        "bytes": 16092
+      },
+      {
+        "source": "apps/workers/src/intake-upload-verification-runtime.ts",
+        "sha256": "6d90e7ddb2580ba4a3ac75f3979fde3675317e838c82ce545752facc6ecbf805",
+        "bytes": 3325
+      },
+      {
+        "source": "apps/workers/src/processors/intake-upload-verification.ts",
+        "sha256": "d92697f88ca46655262a31e77ad98e5afe95aef59ade18531ddd180bceaa6a78",
+        "bytes": 2438
+      },
+      {
+        "source": "apps/dashboard/components/IntakeFileUpload.tsx",
+        "sha256": "a79e46c8abfd9addf9bb72555fe53d4264a0025f65a08d4c4c4221826b237c50",
+        "bytes": 49324
+      },
+      {
+        "source": "apps/dashboard/components/IntakeFileUpload.module.css",
+        "sha256": "c172a33d6d4fa36602409cee60a7d14d574f6db4ce1a9a41bb734546e04f9589",
+        "bytes": 15284
+      },
+      {
+        "source": "apps/dashboard/lib/bounded-upload.ts",
+        "sha256": "63235573eaad8d6449509e412f63aef25b21d42619e79dc9a9bf8f2b75958b3d",
+        "bytes": 2316
+      },
+      {
+        "source": "apps/dashboard/lib/intake-file-identity.ts",
+        "sha256": "1709b31aeee6ef9698b1c5859333282f5676552a04f43fe9bf5a31506181c87e",
+        "bytes": 2460
+      },
+      {
+        "source": "packages/contracts/src/intake-upload.ts",
+        "sha256": "d408c6c79250cf85b104c7ee35e8adb37e0a1f28482946254a1791778fd214fb",
+        "bytes": 7920
+      }
+    ],
+    "browserPassed": true,
+    "browserCounts": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nextStopped": true,
+    "nextPortAvailableAfterTeardown": true,
+    "nextPortReleaseAfterTeardown": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T00:12:04.855Z",
+          "available": true
+        }
+      ]
+    },
+    "pgStopped": true,
+    "redisStopped": true,
+    "redisConfigSha256": "f2db8b1615f0d7beb66dd6b770e8f6e56bdc6ccbdb47f95bbb2c3e47c97548b9",
+    "redisWrapperPid": 62896,
+    "minioWrapperPid": 39984,
+    "minioReady": true,
+    "redisPort": "16393",
+    "runnerSha256": "881e4c88f11a7125c3024fe8e5ee9c630d75a9429f5163a07277e1d602bb4e94",
+    "browserStorageIdentity": {
+      "uploadId": "cmttcg3jf001i8tow2ncd1fqr",
+      "sourceSha256": "e29af295962c15bae20d9b51ebedc58e6a6c7302c27146234e416168d7f9c940",
+      "storageVersionId": "d74986f9-66bb-4f59-b6d4-609f21f5967e",
+      "uploadStatus": "PRECHECK_PASSED",
+      "precheckPassed": true,
+      "authoritativeReceiptCount": 0,
+      "scannerConfigured": false,
+      "directProcessorScannerUnavailable": true,
+      "workerError": {
+        "name": "Error",
+        "message": "WORKER_JOB_FAILED"
+      },
+      "workerAttemptsMade": 1,
+      "actualPutCount": 1
+    },
+    "minioPortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T00:12:07.043Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T00:12:07.245Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T00:12:07.447Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T00:12:07.649Z",
+          "available": false,
+          "error": "Error"
+        },
+        {
+          "at": "2026-09-09T00:12:07.852Z",
+          "available": true
+        }
+      ]
+    },
+    "minioConsolePortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T00:12:07.853Z",
+          "available": true
+        }
+      ]
+    },
+    "minioStopped": true
+  },
+  "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-onboarding-browser-storage-connected-proof.mjs",
+  "storageVersion": "MinIO RELEASE.2025-09-07T16-13-09Z, go1.24.6 linux/amd64; retained startup log",
+  "checks": [
+    "One observed successful browser PUT. Actual stored object version, byte count, SHA256 checksum and generation metadata match the verified upload.",
+    "Actual precheck receipt records PASSED and exact version/hash; registered verification job attempt1 emits intentional sanitized WORKER_JOB_FAILED.",
+    "Configured scanner is false; separate same-payload actual processor rejects IntakeUploadScannerUnavailableError before claim. No sanitizer bypass.",
+    "After worker and direct control, upload remains PRECHECK_PASSED, intakeRunIdnull, no MALWARE receipt and no public knowledge entry.",
+    "Phone390/desktop1440 browser show Security check pending and retain no horizontal overflow.",
+    "Minio shutdown validates complete executable/server/API address/console address/data-directory argv and retained owned PID before TERM; bounded port forwarding release recorded. PG/Redis/Next also stopped."
+  ],
+  "verification": {
+    "browserPassed": 4,
+    "browserFailed": 0,
+    "browserSkipped": 0,
+    "freshDashboardTypes": "PASS",
+    "configuredScopedLint": "PASS",
+    "sourceAndRetainedPairsVerified": 62,
+    "runnerHashVerified": true,
+    "logIdentities": [
+      {
+        "path": "artifacts/w01-browser-storage-connected-types-final-20260908.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "artifacts/w01-browser-storage-connected-lint-final-20260908.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "artifactIdentities": [
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\result.json",
+        "sha256": "6d2a1638b2af0bb9810821a62774a8cb1cda463234b5a9e32e5789f352968af3"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\playwright.json",
+        "sha256": "d8a869641e8a5bcabe89f6ccee4966b9c132c70b198027c04d025cfe78440f6c"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\playwright.log",
+        "sha256": "9b6830e88166918afa9e48e21b5542aa9df6106bb689c19f084abae59a52b722"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\minio.log",
+        "sha256": "7843ea23b5772167e6e6358e4268a86cfd1c735f35c4d8dc45221eedc4f6fbd6"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\minio-process-readback.json",
+        "sha256": "f81f2af413e67ff31e0f1b35fdc1aa7bba34a31540f919d2bb1ce1e39fa6f0e9"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\database-readback.log",
+        "sha256": "f97c7677c8263912344607a935f9f74fa3a49fd3fc1853af1f594fbbbe9e329b"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-browser-storage-connected-e3cec767e331\\redis-server-readback.log",
+        "sha256": "1bbc32dc1ff57f392a307e792d219789584a3ee9d9ad35a3d9c4d7939ca5dffe"
+      }
+    ]
+  },
+  "visualReview": {
+    "viewports": [390, 1440],
+    "rootInspected": true,
+    "assessment": "Existing stacked phone and desktop layout retained; pending label and Check status control readable/reachable, filename truncates within its row. No new decoration or artwork. Whole page initial counts/source props are synthetic fixture data and do not prove production server-rendered library refresh."
+  },
+  "historicalAttempt": {
+    "id": "8dc9f985055e",
+    "browser": "3passed1failed",
+    "reason": "Test incorrectly expected raw scanner error from intentionally sanitized registered queue. Preserved sanitizer and added separate real processor control.",
+    "cleanup": "Minio exact process terminated on SIGTERM; immediate Windows port release check saw forwarding lag. Later root port readback and next run startup proved release. Final runner records bounded port-release attempts. PG/Redis/Next stopped."
+  },
+  "limits": [
+    "Scanner configuration is absent; no actual ClamAV clean/infected verdict or authoritative review eligibility proved. Docker daemon unavailable and clamd/clamscan not installed at checked paths.",
+    "This uploaded file intentionally does not join V1 or fresh extraction while pending. Fresh registered extraction is separate305c3934/5e66ddd492c6 proof with synthetic verified-upload setup.",
+    "Synthetic authentication and fixture page initial props remain; earlier reviewed DRAFT uses synthetic embeddings and inherited receipt.",
+    "Single small text file only: no full mixed-batch/multipart/network-loss/live storage/provider/customer/device/physical QR acceptance.",
+    "No publication, activation, billing change or external send. Original128 requirements32QA/ABC and all external/provider/device/release gates remain."
+  ]
+}

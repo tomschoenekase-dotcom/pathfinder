@@ -5,6 +5,8 @@ import type { AgentDelegationClient, AgentQuestionClient } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import type { PathfinderMcpDomainActions } from './registry'
+import { writeSourceClarificationQuestion } from './source-question-writer'
+import { writeSourceClarificationAmendment } from './source-amendment-writer'
 
 /** Adds the first durable agent-to-operator interaction without adding transport or execution. */
 export function createPathfinderMcpAgentActions(
@@ -13,6 +15,14 @@ export function createPathfinderMcpAgentActions(
 ): PathfinderMcpDomainActions {
   return {
     ...remainingActions,
+    async resolveSourceClarification(input, context) {
+      const result = await writeSourceClarificationAmendment(db as never, input, context)
+      return {
+        kind: 'pathfinder.source-clarification-resolution',
+        summary: 'Source amendment retained for terminal human review.',
+        data: { ...result, createdAt: result.createdAt.toISOString() },
+      }
+    },
     async proposeBillingAction(input, context) {
       const payload =
         input.action === 'CREATE_NEGOTIATED_CHECKOUT'
@@ -70,6 +80,8 @@ export function createPathfinderMcpAgentActions(
           specialistAgentIdentityId: input.specialistAgentIdentityId,
           instructions: input.instructions,
           reason: input.reason,
+          ...(input.executionLeaseToken ? { executionLeaseToken: input.executionLeaseToken } : {}),
+          waitForResult: input.waitForResult,
         },
         db,
       )
@@ -91,13 +103,57 @@ export function createPathfinderMcpAgentActions(
           status: result.run.status,
           replayed: result.replayed,
           executionTriggered: dispatch.enqueued,
+          parentWaitingForResult: result.parentWaitingForResult,
         },
       }
     },
     async askOperator(input, context) {
+      if (input.sourceClarification) {
+        const result = await writeSourceClarificationQuestion(
+          db,
+          {
+            clientId: input.clientId,
+            venueId: input.venueId!,
+            agentRunId: input.agentRunId!,
+            agentIdentityId: input.agentIdentityId,
+            question: input.question,
+            sourceClarification: input.sourceClarification,
+          },
+          context,
+        )
+        return {
+          kind: 'pathfinder.agent-question',
+          summary: result.replayed
+            ? 'Existing operator question returned.'
+            : result.question.blocking
+              ? 'Agent run is waiting for an operator answer.'
+              : 'Operator question was recorded.',
+          data: {
+            id: result.question.id,
+            questionId: result.question.id,
+            agentRunId: result.question.agentRunId,
+            status: result.question.status,
+            questionStatus: result.question.status,
+            blocking: result.question.blocking,
+            blockerScope: input.sourceClarification.blockerScope,
+            blocksTerminalReview: input.sourceClarification.blockerScope === 'FOUNDATIONAL',
+            replayed: result.replayed,
+            consolidated: result.consolidated,
+            sourceAmendmentRequired: true,
+            executionTriggered: false,
+            approvalGranted: false,
+            canonicalVenueChanged: false,
+            packageDraftCreated: false,
+            publicationTriggered: false,
+            venueContactTriggered: false,
+            updatedAt: result.question.updatedAt.toISOString(),
+            expiresAt: result.question.expiresAt?.toISOString() ?? null,
+          },
+        }
+      }
       const result = await askAgentQuestionAction(
         {
-          operationId: input.operationId,
+          operationId: input.operationId!,
           tenantId: context.credential.tenantId,
           venueId: input.venueId!,
           agentIdentityId: input.agentIdentityId,
@@ -105,6 +161,7 @@ export function createPathfinderMcpAgentActions(
           question: input.question,
           ...(input.context ? { context: input.context } : {}),
           choices: input.choices,
+          ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
           blocking: input.blocking,
         },
         db,
@@ -122,7 +179,9 @@ export function createPathfinderMcpAgentActions(
           status: result.question.status,
           blocking: result.question.blocking,
           replayed: result.replayed,
+          consolidated: result.consolidated,
           updatedAt: result.question.updatedAt.toISOString(),
+          expiresAt: result.question.expiresAt?.toISOString() ?? null,
         },
       }
     },

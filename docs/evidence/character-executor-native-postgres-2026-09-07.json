@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-character-executor-in-process-http-core",
+  "measuredAt": "2026-09-07T23:30:49.275627+00:00",
+  "baseProductRevision": "1efeb3c1",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "manifestHash": "821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19",
+  "result": {
+    "database": "pathfinder_disposable_character_executor_91e2bd8bd044",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "assertions": [
+    "Real bridge HTTP client and in-process HTTP core invoke canonical DB lifecycle actions",
+    "Explicit INSPECT request is claimed, heartbeat-fenced, completed and read back",
+    "Repeat executor call accepts canonical redacted not-claimed result",
+    "Cancelled request does not reach completion"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\measured-agent-bridge-runner.ts",
+      "sha256": "2143b71279b5349475f566bda4f1d9428916ec49221973c34c14f768faa5f555"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\measured-character-factory-executor.disposable.integration.test.ts",
+      "sha256": "bce0cd5ee95d43754e3ee9a9b1ffe95b291bcfdea2e40581195f230fade1efbf"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\measured-character-factory-executor.ts",
+      "sha256": "cc05c19affeddc4d2cbea053468219f6621b047d2329436cae7fe5b4c87abc45"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\measured-custom-character-factory-actions.ts",
+      "sha256": "4466884a90a631bd12326a5846578419776ee3b56f67bd28e3045861ede2ff7f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\measured-http-core.ts",
+      "sha256": "ff4b65d8a95e3d8abc51d68a6c2c76d1b37a140c621313d9b76da57d0cb16835"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\vitest.json",
+      "sha256": "8938c6ab7aeb0a36fd3a25132cd5323e49dbc09e71dc45bda847585beeb76f65"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\migrations.log",
+      "sha256": "f2176accd08ce0d213328b2c554d60b84ecc24025d4b1e58adeee21dfd5e0585"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-executor-91e2bd8bd044\\result.json",
+      "sha256": "478ba52721a526a974062857a71b593f7578f6300d1fbc6d4c06667d14bb6d93"
+    }
+  ],
+  "limitations": [
+    "HTTP core runs in-process through a fetch adapter; no network socket or deployed transport was tested.",
+    "Credential verification and registry wiring are fixture adapters; canonical DB actions and database persistence are real.",
+    "No provider inference, generation, artifact storage upload/verification or final artwork is exercised.",
+    "This is a bounded retained-result executor, not automatic request discovery or a generative character worker."
+  ]
+}

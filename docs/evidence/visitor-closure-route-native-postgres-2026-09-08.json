@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "e9fdb332",
+  "scope": ["V2-P02-02", "V2-P02-03", "V2-P02-07", "V2-P10-06"],
+  "behavior": "Current public linked-place closures exclude selected destinations and route traversal; a closed origin remains usable for departure. Canonical expiry restores eligibility.",
+  "proofDirectory": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-read-combined-ff089efea8d1",
+  "native": {
+    "passed": 3,
+    "failed": 0,
+    "migrations": 237,
+    "tables": 256,
+    "postgresStopped": true
+  },
+  "focusedLocationTestsPassed": 29,
+  "limits": [
+    "Scoped production read/public router fixture inside tenant isolation bypass; not middleware enforcement proof.",
+    "Media derivative READY metadata is synthetic; no actual media bytes or derivative execution.",
+    "No browser/provider/device/current Mini Museum or release acceptance."
+  ],
+  "supersedesDiagnosticProof": "proof-native-guest-read-combined-5e223bac06b4",
+  "sourceSha256": {
+    "packages/api/src/routers/location.ts": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4",
+    "packages/api/src/routers/location-route.ts": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f",
+    "packages/api/src/routers/location-reachable.ts": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c",
+    "packages/api/src/native-guest-read.disposable.integration.test.ts": "65410cac452d08b4113ba929af1fb66fc2ed6249169c5aae079118ea3dab2ec5"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-v1-package-journey",
+  "measuredAt": "2026-09-07T22:59:15.080610+00:00",
+  "baseProductRevision": "9276d4c0",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 226,
+  "publicTableCount": 253,
+  "manifestHash": "033233483cdf5c89f5afecd2eb622f93802b228b0b5b9f11400e05f7254b4bbd",
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_package_64a737358000",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "assertions": [
+    "Real typed onboarding bootstrap and V1 submission feed exact aggregate candidate",
+    "Independent pending website does not block explicitly selected reviewed source",
+    "Partial selection requires acknowledgement",
+    "Injected handoff-create failure rolls back canonical package and receipt",
+    "Concurrent same-operation calls and retry retain one package and one handoff",
+    "Stale candidate and foreign tenant/venue fail closed",
+    "Database immutable member mutation rejected"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\measured-intake-v1-package-candidate.ts",
+      "sha256": "148d6f7824da99b176686eac434439b7e2b9963298cf0df6b9b83e305e3d1529"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\measured-intake-v1-package-disposable.integration.test.ts",
+      "sha256": "ee9f119665ee7664494129fd12a12ca864018d7fbfbc8770e376dea52e2ba5f8"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\measured-intake-v1-package-draft.ts",
+      "sha256": "31eb3a7f69abdcf07b448ddbf35694e78169d1050c1164ab93593d0c7149e4b2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\measured-intake-v1-package-handoff.ts",
+      "sha256": "884f3a985a2b64f228a148e53577daddb0936286c13e09c961d524b504b15d9a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\measured-migration.sql",
+      "sha256": "dcd1761604cb5e4ba84446dec40ae36e8e520cc853051c3f0532289a76dd83c3"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\vitest.json",
+      "sha256": "5f0805b0df0a287f02e09267d03ad7a2b1f2f760b47bc1e37dd58c46232b9b6a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\database-readback.log",
+      "sha256": "875635191a9dd86cfb8cb99dbc2c1e055c056b6d4ab2871166d9a8b6ac4e1993"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\migrations.log",
+      "sha256": "a2c5677f11b2d3c1fc0565107f432e2b4af7f2237f01c6409afc31501d022f8c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-package-64a737358000\\result.json",
+      "sha256": "598f4c52cc324ac4bba550d6ace877c5b8753004fb002288d1952756c375438e"
+    }
+  ],
+  "limitations": [
+    "Local disposable database and deterministic embedding adapter only; no provider or hosted action.",
+    "This proves canonical DRAFT creation, not approval, application, publication or customer delivery.",
+    "Generic notes and website reviewed mappings still require explicit downstream adapters/review.",
+    "MCP read-only preview is covered separately; machine create approval adapter remains to implement."
+  ]
+}

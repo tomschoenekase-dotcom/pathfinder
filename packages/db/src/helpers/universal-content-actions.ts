@@ -5,12 +5,17 @@ import type {
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { lockVenueContentMutation } from './venue-content-lock'
 
-export type UniversalContentHumanActor = {
-  type: 'HUMAN'
-  id: string
-  role: 'PLATFORM_ADMIN'
-}
+export type UniversalContentHumanActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
+export type UniversalContentDraftActor =
+  | UniversalContentHumanActor
+  | {
+      type: 'AGENT'
+      id: string
+      role: 'AGENT'
+      authorization: 'APPROVED_SEMANTIC_PROPOSAL'
+    }
 
 export type UniversalContentActionErrorCode = 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT'
 
@@ -44,7 +49,42 @@ export type UniversalContentActionResult = {
   preview: UniversalContentPreview
 }
 
-function assertActor(actor: UniversalContentHumanActor): void {
+export type UniversalContentDraftFinalizer = (
+  tx: Parameters<Parameters<UniversalContentActionClient['$transaction']>[0]>[0],
+  result: UniversalContentActionResult,
+) => Promise<void>
+export type UniversalContentDraftPrecondition = (
+  tx: Parameters<Parameters<UniversalContentActionClient['$transaction']>[0]>[0],
+) => Promise<void>
+
+function assertActor(actor: UniversalContentDraftActor): void {
+  const human = actor.type === 'HUMAN' && actor.role === 'PLATFORM_ADMIN'
+  const approvedSemanticAgent =
+    actor.type === 'AGENT' &&
+    actor.role === 'AGENT' &&
+    actor.authorization === 'APPROVED_SEMANTIC_PROPOSAL'
+  if ((!human && !approvedSemanticAgent) || !actor.id) {
+    throw new UniversalContentActionError(
+      'INVALID_INPUT',
+      'A platform administrator or an agent executing an approved semantic proposal is required.',
+    )
+  }
+}
+
+function assertAgentHandoffFences(
+  actor: UniversalContentDraftActor,
+  precondition: UniversalContentDraftPrecondition | undefined,
+  finalizer: UniversalContentDraftFinalizer | undefined,
+): void {
+  if (actor.type === 'AGENT' && (!precondition || !finalizer)) {
+    throw new UniversalContentActionError(
+      'INVALID_INPUT',
+      'An approved semantic agent draft requires an atomic precondition and handoff receipt.',
+    )
+  }
+}
+
+function assertHumanActor(actor: UniversalContentHumanActor): void {
   if (actor.type !== 'HUMAN' || actor.role !== 'PLATFORM_ADMIN' || !actor.id) {
     throw new UniversalContentActionError(
       'INVALID_INPUT',
@@ -217,7 +257,7 @@ async function insertRevision(
     moduleId: string
     version: number
     draft: GeneralizedContentRevisionDraft
-    actor: UniversalContentHumanActor
+    actor: UniversalContentDraftActor
   },
 ): Promise<UniversalContentActionResult> {
   await assertPayloadReferences(tx, input, input.draft.payload)
@@ -265,11 +305,16 @@ export async function createUniversalContentAction(input: {
   venueId: string
   moduleId: string
   draft: GeneralizedContentRevisionDraft
-  actor: UniversalContentHumanActor
+  actor: UniversalContentDraftActor
+  finalizer?: UniversalContentDraftFinalizer
+  precondition?: UniversalContentDraftPrecondition
 }): Promise<UniversalContentActionResult> {
   assertActor(input.actor)
+  assertAgentHandoffFences(input.actor, input.precondition, input.finalizer)
   try {
     return await (input.db ?? db).$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, input)
+      await input.precondition?.(tx)
       await assertVenueScope(tx, input.tenantId, input.venueId)
       const identity = await tx.contentModuleIdentity.create({
         data: {
@@ -281,6 +326,7 @@ export async function createUniversalContentAction(input: {
         select: { id: true },
       })
       const result = await insertRevision(tx, { ...input, moduleId: identity.id, version: 1 })
+      await input.finalizer?.(tx, result)
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -295,7 +341,8 @@ export async function createUniversalContentAction(input: {
             version: result.version,
             kind: result.kind,
             audience: input.draft.audience,
-            source: 'HUMAN_OPERATOR',
+            source:
+              input.actor.type === 'AGENT' ? 'APPROVED_SEMANTIC_PROPOSAL_AGENT' : 'HUMAN_OPERATOR',
             publication: 'NOT_PUBLISHED',
             requestKey: input.moduleId,
           },
@@ -322,11 +369,16 @@ export async function addUniversalContentRevisionAction(input: {
   moduleId: string
   expectedLatestVersion: number
   draft: GeneralizedContentRevisionDraft
-  actor: UniversalContentHumanActor
+  actor: UniversalContentDraftActor
+  finalizer?: UniversalContentDraftFinalizer
+  precondition?: UniversalContentDraftPrecondition
 }): Promise<UniversalContentActionResult> {
   assertActor(input.actor)
+  assertAgentHandoffFences(input.actor, input.precondition, input.finalizer)
   try {
     return await (input.db ?? db).$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, input)
+      await input.precondition?.(tx)
       await assertVenueScope(tx, input.tenantId, input.venueId)
       const identity = await tx.contentModuleIdentity.findFirst({
         where: { id: input.moduleId, tenantId: input.tenantId, venueId: input.venueId },
@@ -351,6 +403,7 @@ export async function addUniversalContentRevisionAction(input: {
         ...input,
         version: input.expectedLatestVersion + 1,
       })
+      await input.finalizer?.(tx, result)
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -366,7 +419,8 @@ export async function addUniversalContentRevisionAction(input: {
             latestVersion: result.version,
             kind: result.kind,
             audience: input.draft.audience,
-            source: 'HUMAN_OPERATOR',
+            source:
+              input.actor.type === 'AGENT' ? 'APPROVED_SEMANTIC_PROPOSAL_AGENT' : 'HUMAN_OPERATOR',
             publication: 'NOT_PUBLISHED',
           },
         },
@@ -457,7 +511,7 @@ export async function retireUniversalContentAction(input: {
   evidence: GeneralizedContentRevisionDraft['evidence']
   actor: UniversalContentHumanActor
 }): Promise<UniversalContentActionResult> {
-  assertActor(input.actor)
+  assertHumanActor(input.actor)
   try {
     return await (input.db ?? db).$transaction(async (tx) => {
       await assertVenueScope(tx, input.tenantId, input.venueId)

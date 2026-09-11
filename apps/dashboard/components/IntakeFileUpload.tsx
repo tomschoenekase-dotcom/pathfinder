@@ -55,6 +55,7 @@ const INTAKE_UPLOAD_LIST_TIMEOUT_MS = 15_000
 
 export function IntakeFileUploadWorkspace({
   venueId,
+  venueCategory,
   uploads,
   categoryCounts,
   nextCursor,
@@ -63,6 +64,7 @@ export function IntakeFileUploadWorkspace({
   checkWaitingCount,
 }: {
   venueId: string
+  venueCategory?: string | null | undefined
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
@@ -75,6 +77,7 @@ export function IntakeFileUploadWorkspace({
   return (
     <IntakeFileUpload
       venueId={venueId}
+      venueCategory={venueCategory}
       uploads={uploads}
       categoryCounts={categoryCounts}
       nextCursor={nextCursor}
@@ -276,6 +279,7 @@ class ClientIntakeFileError extends Error {}
 
 export function IntakeFileUpload({
   venueId,
+  venueCategory,
   uploads,
   categoryCounts,
   nextCursor = null,
@@ -298,6 +302,7 @@ export function IntakeFileUpload({
   checkWaitingCount,
 }: {
   venueId: string
+  venueCategory?: string | null | undefined
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
@@ -352,7 +357,10 @@ export function IntakeFileUpload({
   const [savedNextCursor, setSavedNextCursor] = useState(nextCursor)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
-  const [savedChecks, setSavedChecks] = useState<Record<string, 'busy' | 'error'>>({})
+  const [savedChecksState, setSavedChecksState] = useState<{
+    venueId: string
+    checks: Record<string, 'busy' | 'error'>
+  }>({ venueId, checks: {} })
   const identitiesRef = useRef(
     new Map<string, { fingerprint: string; requestId: string; claimId: string }>(),
   )
@@ -371,6 +379,8 @@ export function IntakeFileUpload({
     setLoadMoreError(null)
   }, [uploads, nextCursor, venueId])
 
+  useEffect(() => setSavedChecksState({ venueId, checks: {} }), [venueId])
+
   if (scopeRef.current !== venueId) {
     scopeRef.current = venueId
     generationRef.current += 1
@@ -384,6 +394,7 @@ export function IntakeFileUpload({
   }
 
   const queue = queueState.venueId === venueId ? queueState.items : []
+  const savedChecks = savedChecksState.venueId === venueId ? savedChecksState.checks : {}
   const visibleSelectionError = queueState.venueId === venueId ? selectionError : null
   const visibleUploads =
     visibleCategory === null
@@ -411,6 +422,7 @@ export function IntakeFileUpload({
 
   useEffect(
     () => () => {
+      generationRef.current += 1
       paginationControllerRef.current?.abort()
       for (const controller of abortControllersRef.current.values()) controller.abort()
     },
@@ -464,24 +476,43 @@ export function IntakeFileUpload({
 
   async function checkSavedUpload(saved: SafeUpload) {
     if (savedChecks[saved.id] === 'busy') return
-    setSavedChecks((current) => ({ ...current, [saved.id]: 'busy' }))
+    const submittedScope = venueId
+    const generation = generationRef.current
+    const isCurrent = () =>
+      scopeRef.current === submittedScope && generationRef.current === generation
+    setSavedChecksState((current) => ({
+      venueId: submittedScope,
+      checks: {
+        ...(current.venueId === submittedScope ? current.checks : {}),
+        [saved.id]: 'busy',
+      },
+    }))
     try {
       const result = await verify({
-        venueId,
+        venueId: submittedScope,
         uploadId: saved.id,
         claimId: browserUuid(),
       })
+      if (!isCurrent()) return
       setSavedUploads((current) =>
         current.map((upload) => (upload.id === saved.id ? result.upload : upload)),
       )
-      setSavedChecks((current) => {
-        const next = { ...current }
-        delete next[saved.id]
-        return next
+      setSavedChecksState((current) => {
+        if (current.venueId !== submittedScope) return current
+        const checks = { ...current.checks }
+        delete checks[saved.id]
+        return { venueId: submittedScope, checks }
       })
       onCommitted?.()
     } catch {
-      setSavedChecks((current) => ({ ...current, [saved.id]: 'error' }))
+      if (!isCurrent()) return
+      setSavedChecksState((current) => ({
+        venueId: submittedScope,
+        checks: {
+          ...(current.venueId === submittedScope ? current.checks : {}),
+          [saved.id]: 'error',
+        },
+      }))
     }
   }
 
@@ -823,6 +854,30 @@ export function IntakeFileUpload({
           </select>
         </label>
       </div>
+
+      {venueCategory?.trim().toLocaleLowerCase() === 'museum' ? (
+        <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
+          <h3 id="capture-guidance-title">A useful museum walkthrough, if you have one</h3>
+          <p>
+            A short optional video from the entrance to a key gallery can show the visitor route,
+            useful signs, and amenities. No fixed number of files is required.
+          </p>
+          <p>
+            Entrance, route, amenity, gallery, exhibit plaque, or label photos work well instead of
+            video. An existing visitor map or guide, or a short staff answer, is useful too. Please
+            avoid filming visitors or sharing private details.
+          </p>
+        </div>
+      ) : (
+        <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
+          <h3 id="capture-guidance-title">A useful walkthrough, if you have one</h3>
+          <p>A short optional video of the entrance, visitor route, and useful signs is plenty.</p>
+          <p>
+            Photos of those spots, a map or guide, or a short staff answer work well too. Please
+            avoid filming visitors or sharing private details.
+          </p>
+        </div>
+      )}
 
       {hasMaterialAttention ? (
         <section

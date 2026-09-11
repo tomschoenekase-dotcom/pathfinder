@@ -1,8 +1,13 @@
 export const dynamic = 'force-dynamic'
 
-import { AgentOperationsOverview } from '../../../../../../../../components/admin/AgentOperationsOverview'
+import {
+  AgentOperationsOverview,
+  agentQuestionStatusFilters,
+  type AgentQuestionStatusFilter,
+} from '../../../../../../../../components/admin/AgentOperationsOverview'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 import { env } from '@pathfinder/config'
+import { auth } from '@clerk/nextjs/server'
 
 type Props = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -14,9 +19,16 @@ function cursor(query: Record<string, string | undefined>, prefix: string) {
   return createdAt && id ? { createdAt, id } : undefined
 }
 
+function questionStatus(query: Record<string, string | undefined>): AgentQuestionStatusFilter {
+  const candidate = query.questionStatus
+  return agentQuestionStatusFilters.find((status) => status === candidate) ?? 'PENDING'
+}
+
 export default async function AgentOperationsPage({ params, searchParams }: Props) {
   const { tenantId, venueId } = await params
   const query = await searchParams
+  const selectedQuestionStatus = questionStatus(query)
+  const { userId } = await auth()
   const caller = await createAdminCaller()
   try {
     const [
@@ -28,6 +40,8 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       outcomeObservations,
       bridgeSessions,
       questionRecipients,
+      workflowActivations,
+      workflowActivationReview,
     ] = await Promise.all([
       caller.admin.listAgentIdentities({
         tenantId,
@@ -51,7 +65,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       caller.admin.listAgentQuestions({
         tenantId,
         venueId,
-        status: 'PENDING',
+        status: selectedQuestionStatus,
         limit: 20,
         ...(cursor(query, 'questionCursor') ? { cursor: cursor(query, 'questionCursor') } : {}),
       }),
@@ -59,20 +73,26 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       caller.admin.listAgentOutcomeObservations({ tenantId, venueId, limit: 100 }),
       caller.admin.listAgentBridgeSessions({ tenantId, venueId }),
       caller.admin.listOnboardingQuestionRecipients({ tenantId, venueId }),
+      caller.admin.listAgentWorkflowActivations({ tenantId, venueId, limit: 20 }),
+      caller.admin.getAgentWorkflowActivationReview({ tenantId, venueId, limit: 20 }),
     ])
     return (
       <AgentOperationsOverview
+        actorId={userId}
         tenantId={tenantId}
         venueId={venueId}
         identities={identities}
         runs={runs}
         approvals={approvals}
         questions={questions}
+        questionStatus={selectedQuestionStatus}
         approvalPolicies={approvalPolicies}
         outcomeObservations={outcomeObservations.items}
         questionRecipients={questionRecipients}
         runtime={{ agentRunnerEnabled: env.AGENT_RUNNER_ENABLED }}
         bridgeSessions={bridgeSessions}
+        workflowActivations={workflowActivations}
+        workflowActivationReview={workflowActivationReview}
       />
     )
   } catch {

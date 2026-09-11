@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "kind": "intake-v1-coordinated-client-browser-proof",
+  "measuredAt": "2026-09-07T22:02:20.068478+00:00",
+  "baseProductRevision": "24823a30",
+  "surface": "Authenticated remote onboarding coordinator, using development fixtures and intercepted synthetic TRPC responses.",
+  "browser": "Playwright Chromium",
+  "viewports": ["390x844", "320x568", "820x1180", "1440x900"],
+  "matrix": {
+    "passed": 9,
+    "failed": 0,
+    "scenarios": [
+      "existing source review and exact receipt",
+      "actual private website draft save flushed into selected revision",
+      "server-saved response interrupted then reload and exact operation replay"
+    ]
+  },
+  "assertions": [
+    "Keyboard preparation and explicit unchecked partial acknowledgement",
+    "Exact selected IDs and saved draft revision in submission payload",
+    "Interrupted response preserves identical request across reload",
+    "Saved receipt resumes and full-replacement amendment carries members forward",
+    "Axe violations zero and horizontal overflow absent",
+    "320px review and action screenshots inspected"
+  ],
+  "componentProof": {
+    "passed": 58,
+    "files": [
+      "IntakeV1SubmissionWorkspace.test.tsx",
+      "IntakeProposalWorkspace.test.tsx",
+      "RemoteOnboardingJourney.test.tsx",
+      "PacketAccessibility.test.tsx"
+    ],
+    "finalCoordinatorRegression": {
+      "passed": 17,
+      "failed": 0,
+      "note": "Includes deferred initial receipt read versus restored retry, after the broader58-test pass."
+    }
+  },
+  "visualReview": "Inspected rendered phone and desktop review plus narrow amendment actions. Existing portal ink/blue typography and simple grouped source rows provide clear hierarchy. No decorative mascot, generic metrics grid, or new ornamental SaaS composition. Technical source enum labels were replaced with client wording.",
+  "limitations": [
+    "Synthetic intercepted browser transport does not establish hosted auth, real device, or live provider behavior.",
+    "Database atomicity and isolation are covered separately by the retained native PostgreSQL fixture.",
+    "One earlier phone run was interrupted by development hot reload; final nine-case run passed with stable UI source.",
+    "No publication, live research, or commercial authority is granted by the UI."
+  ],
+  "screenshots": [
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-desktop-1440x900/intake-v1-receipt.png",
+      "sha256": "f0ccd3f934e60e6d7c770665a31c7901557ec58023651cc503e3a4ab651cb379"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-desktop-1440x900/intake-v1-review.png",
+      "sha256": "fdea6332e966daecc2d53cc511c21676d77a2e1a25e3958864dc34f7bf3d92d5"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844/intake-v1-amendment-320.png",
+      "sha256": "a5def8ff4d70860596fee715c7aa090a35e00f5539d99d1af79d7adda29f2455"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844/intake-v1-amendment-actions-320.png",
+      "sha256": "74f7f3c35868ebf680a9b6269aebb5dab0755489ca7d65bdabf547dcd865d4e8"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844/intake-v1-receipt.png",
+      "sha256": "72c6e10c3073a8e0f218fba2e3e39370d8c79813c67c1240778790aeda8fa57e"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-phone-390x844/intake-v1-review.png",
+      "sha256": "2f7ae477e65a60fa7e5e0dcc9e19b1606cb6c03c25f54624a52625fe451b773d"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-tablet-820x1180/intake-v1-receipt.png",
+      "sha256": "175f5704a8e03da432b6a690d9af87ce0d77974b94bc110cc49092c135f11f1a"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-22080-ith-a-flushed-private-draft-tablet-820x1180/intake-v1-review.png",
+      "sha256": "6b5da549ffbe21c423c28442ebd898d6564a4d69ae7d0ffe209cc29eb614d22c"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-desktop-1440x900/intake-v1-receipt.png",
+      "sha256": "4f929656b603e9abb761fd172b2878b40d16b2d5e9abadd3e98afa059e6892bb"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-desktop-1440x900/intake-v1-review.png",
+      "sha256": "696408b189060dfded2ab06fec5e05dd63a5f53cbe8b8f8f9971251372c44c61"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-amendment-320.png",
+      "sha256": "07891125fcf7c3d250c85fce40db80cfe1d9b8288333b374e63f5e130712fd21"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-amendment-actions-320.png",
+      "sha256": "3bec594c99567e3bf1de6bd4f9a1e76cf4bfb24f4438a7c831becdac91f01d35"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-receipt.png",
+      "sha256": "2639882abddd3016756077dcae0d245ff5ae312ff1c0b49f58a88da34f5a4e52"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-review.png",
+      "sha256": "e8bc50519d6a2cd2897c7145333f634c6c7c2f55a0e598c52726bce06cbde6d2"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-tablet-820x1180/intake-v1-receipt.png",
+      "sha256": "2fe88f791feb84c6b4f0ff7f2203df60dc01785e45bd36e168f0902a220f756e"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-tablet-820x1180/intake-v1-review.png",
+      "sha256": "362b90bc4312c4bcb78dd7870d8bdd8fa3bc4a1cbcdca38d976e2f7163485914"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-desktop-1440x900/intake-v1-receipt.png",
+      "sha256": "4f929656b603e9abb761fd172b2878b40d16b2d5e9abadd3e98afa059e6892bb"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-desktop-1440x900/intake-v1-review.png",
+      "sha256": "696408b189060dfded2ab06fec5e05dd63a5f53cbe8b8f8f9971251372c44c61"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844/intake-v1-amendment-320.png",
+      "sha256": "07891125fcf7c3d250c85fce40db80cfe1d9b8288333b374e63f5e130712fd21"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844/intake-v1-amendment-actions-320.png",
+      "sha256": "3bec594c99567e3bf1de6bd4f9a1e76cf4bfb24f4438a7c831becdac91f01d35"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844/intake-v1-receipt.png",
+      "sha256": "2639882abddd3016756077dcae0d245ff5ae312ff1c0b49f58a88da34f5a4e52"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-phone-390x844/intake-v1-review.png",
+      "sha256": "e8bc50519d6a2cd2897c7145333f634c6c7c2f55a0e598c52726bce06cbde6d2"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-tablet-820x1180/intake-v1-receipt.png",
+      "sha256": "69576531050674a083082cd513227b3b5e07e076076567c51a44c2b83d0051e2"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-browser/core-surfaces-V1-onboardin-d3e51-and-reads-its-saved-receipt-tablet-820x1180/intake-v1-review.png",
+      "sha256": "362b90bc4312c4bcb78dd7870d8bdd8fa3bc4a1cbcdca38d976e2f7163485914"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-retry-guard/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-amendment-320.png",
+      "sha256": "07891125fcf7c3d250c85fce40db80cfe1d9b8288333b374e63f5e130712fd21"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-retry-guard/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-amendment-actions-320.png",
+      "sha256": "3bec594c99567e3bf1de6bd4f9a1e76cf4bfb24f4438a7c831becdac91f01d35"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-retry-guard/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-receipt.png",
+      "sha256": "2639882abddd3016756077dcae0d245ff5ae312ff1c0b49f58a88da34f5a4e52"
+    },
+    {
+      "path": "artifacts/intake-v1-ui-20260907/final-retry-guard/core-surfaces-V1-onboardin-968bc-rrupted-response-and-reload-phone-390x844/intake-v1-review.png",
+      "sha256": "e8bc50519d6a2cd2897c7145333f634c6c7c2f55a0e598c52726bce06cbde6d2"
+    }
+  ],
+  "finalRetryGuardBrowser": {
+    "passed": 1,
+    "failed": 0,
+    "viewport": "390x844 plus320x568",
+    "path": "artifacts/intake-v1-ui-20260907/final-retry-guard"
+  },
+  "typecheck": "Dashboard TypeScript passed after integration.",
+  "lint": "Scoped ESLint passed on changed UI and browser tests.",
+  "measuredUiSources": [
+    {
+      "path": "apps/dashboard/components/IntakeV1SubmissionWorkspace.tsx",
+      "sha256": "fd4b964e95f3b9413b40bb7ac84643162cb9e3580da86d29269bd54bca06335e"
+    },
+    {
+      "path": "apps/dashboard/components/IntakeV1ReviewPanel.tsx",
+      "sha256": "05c4181f5ba7291ad7a16c87ad83e7941a2aeb83af097633aa077486fd14b928"
+    },
+    {
+      "path": "apps/dashboard/components/IntakeV1ReviewPanel.module.css",
+      "sha256": "62808be5788fd06cacd8bb85b1ce8249b1696ceed2d66dc06f7bb7edefce5b7b"
+    },
+    {
+      "path": "apps/dashboard/components/IntakeProposalWorkspace.tsx",
+      "sha256": "3b35c8d190859364843ee3736faf13be56a95d0ed622b195fe94e9477b67810c"
+    },
+    {
+      "path": "apps/dashboard/tests/visual/core-surfaces.spec.ts",
+      "sha256": "3c21126f54c9bec03c170c9d62915a5744d454251ac1f8a11a6d05f6e142976a"
+    }
+  ]
+}

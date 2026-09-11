@@ -77,15 +77,19 @@ describe('company knowledge retrieval', () => {
       { companyKnowledgeItem: { findMany } } as never,
     )
 
-    const query = findMany.mock.calls[0]?.[0]
-    expect(JSON.stringify(query.where)).toContain('customerRelationships')
-    expect(JSON.stringify(query.where)).not.toContain('PLATFORM')
-    expect(JSON.stringify(query.where)).toContain('AUTHORITATIVE_CURRENT')
-    expect(JSON.stringify(query.where)).toContain('custom')
-    expect(JSON.stringify(query.where)).toContain('character')
-    expect(JSON.stringify(query.where)).toContain('pricing')
-    expect(JSON.stringify(query.where)).not.toContain('custom character pricing')
-    expect(query.take).toBe(20)
+    const exactQuery = findMany.mock.calls[0]?.[0]
+    const strictQuery = findMany.mock.calls[1]?.[0]
+    expect(JSON.stringify(strictQuery.where)).toContain('customerRelationships')
+    expect(JSON.stringify(strictQuery.where)).not.toContain('PLATFORM')
+    expect(JSON.stringify(strictQuery.where)).toContain('AUTHORITATIVE_CURRENT')
+    expect(JSON.stringify(strictQuery.where)).toContain('custom')
+    expect(JSON.stringify(strictQuery.where)).toContain('character')
+    expect(JSON.stringify(strictQuery.where)).toContain('pricing')
+    expect(JSON.stringify(strictQuery.where)).not.toContain('custom character pricing')
+    expect(JSON.stringify(exactQuery.where)).toContain('custom character pricing')
+    expect(exactQuery.take).toBe(20)
+    expect(strictQuery.take).toBe(80)
+    expect(findMany.mock.calls[2]?.[0].take).toBe(20)
     expect(result.retrieval.permissionFilteredBeforeSelection).toBe(true)
     expect(result.results[0]).toMatchObject({
       id: 'knowledge_1',
@@ -114,7 +118,11 @@ describe('company knowledge retrieval', () => {
         item({ id: 'allowed_1', title: 'Outdoor venue lesson', summary: 'Weather resilience.' }),
         item({ id: 'allowed_2', title: 'Another lesson', summary: 'Operational context.' }),
       ])
-    const semanticSearch = vi.fn().mockResolvedValue([{ id: 'allowed_2', distance: 0.1 }])
+    const semanticSearch = vi.fn().mockResolvedValue([
+      { id: 'private_stronger_match', distance: 0.01 },
+      { id: 'allowed_2', distance: 0.1 },
+      { id: 'allowed_2', distance: 0.2 },
+    ])
     const result = await searchCompanyKnowledge(
       { query: 'what did we learn outdoors', clientId: 'tenant_1', limit: 5 },
       { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
@@ -124,9 +132,19 @@ describe('company knowledge retrieval', () => {
     expect(semanticSearch).toHaveBeenCalledWith(
       expect.objectContaining({ authorizedCandidateIds: ['allowed_1', 'allowed_2'] }),
     )
-    expect(findMany.mock.calls[0]?.[0].take).toBe(500)
+    expect(findMany.mock.calls[2]?.[0].take).toBe(20)
+    expect(JSON.stringify(findMany.mock.calls[2]?.[0].where)).toContain('outdoors')
+    expect(findMany.mock.calls[3]?.[0]).toMatchObject({ take: 501, select: { id: true } })
+    expect(findMany.mock.calls[4]?.[0]).toMatchObject({
+      take: 40,
+      where: expect.objectContaining({
+        AND: expect.arrayContaining([{ id: { in: ['allowed_2'] } }]),
+      }),
+    })
     expect(result.retrieval.mode).toBe('HYBRID_STRUCTURED_SEMANTIC')
+    expect(result.retrieval.semanticCandidates).toBe(1)
     expect(result.results[0]?.id).toBe('allowed_2')
+    expect(result.results.some((row) => row.id === 'private_stronger_match')).toBe(false)
   })
 
   it('inherits only applicable shared knowledge after verifying the requested venue', async () => {
@@ -153,6 +171,152 @@ describe('company knowledge retrieval', () => {
     expect(where).toContain('"accessScope":"TENANT"')
     expect(where).toContain('"accessScope":"ORGANIZATION"')
     expect(where).toContain('"accessScope":"VENUE"')
+  })
+
+  it('recovers an older all-term commitment beyond the broad recency cap', async () => {
+    const olderCommitment = item({
+      id: 'older_commitment',
+      title: 'Early partner launch commitment',
+      summary: 'The early partner launch commitment includes custom characters through renewal.',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastConfirmedAt: new Date('2026-01-01T00:00:00.000Z'),
+    })
+    const distractors = Array.from({ length: 500 }, (_, index) =>
+      item({
+        id: `recent_distractor_${index}`,
+        title: index % 2 === 0 ? 'Recent launch note' : 'Recent partner note',
+        summary: index % 3 === 0 ? 'Commitment discussion.' : 'Unrelated current context.',
+      }),
+    )
+    const findMany = vi.fn(async (query: { where: { AND: unknown[] }; take: number }) => {
+      if (JSON.stringify(query.where).includes('early partner launch commitment'))
+        return [olderCommitment]
+      const strictAllTerms = query.where.AND.length > 4
+      return strictAllTerms ? [olderCommitment] : distractors.slice(0, query.take)
+    })
+
+    const result = await searchCompanyKnowledge(
+      { query: 'early partner launch commitment', clientId: 'tenant_1', limit: 5 },
+      { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+      { companyKnowledgeItem: { findMany } } as never,
+    )
+
+    expect(result.results[0]?.id).toBe('older_commitment')
+    expect(result.retrieval.candidateCoverage).toMatchObject({
+      strictAllTerms: 1,
+      exactPhrase: 1,
+      broad: 20,
+      broadLimit: 20,
+      partial: true,
+    })
+    expect(findMany).toHaveBeenCalledTimes(3)
+  })
+
+  it('pages semantic authorization windows and binds cursors to query, scope, roles, and embedding', async () => {
+    const firstIds = Array.from({ length: 501 }, (_, index) => ({ id: `recent_${index}` }))
+    const critical = item({
+      id: 'older_critical',
+      title: 'Older critical fact',
+      summary: 'The exact long-tail answer.',
+      updatedAt: new Date('2020-01-01T00:00:00.000Z'),
+      lastConfirmedAt: new Date('2020-01-01T00:00:00.000Z'),
+    })
+    const recent = item({ id: 'recent_0', title: 'Recent distractor', summary: 'Weak match.' })
+    const findFirst = vi.fn().mockResolvedValue({ id: 'recent_499' })
+    const findMany = vi.fn(async (query: Record<string, unknown>) => {
+      if (JSON.stringify(query.select) === JSON.stringify({ id: true }))
+        return query.cursor ? [{ id: 'older_critical' }] : firstIds
+      const ids = JSON.stringify(query.where)
+      if (ids.includes('older_critical')) return [critical]
+      if (ids.includes('recent_0')) return [recent]
+      return []
+    })
+    const semanticSearch = vi.fn(
+      async ({ authorizedCandidateIds }: { authorizedCandidateIds: string[] }) =>
+        authorizedCandidateIds.includes('older_critical')
+          ? [{ id: 'older_critical', distance: 0.001 }]
+          : [{ id: 'recent_0', distance: 0.4 }],
+    )
+    const request = { query: 'critical long tail', clientId: 'tenant_1', limit: 5 }
+    const access = { kind: 'CLIENT' as const, clientId: 'tenant_1', roles: ['OWNER', 'EDITOR'] }
+    const client = { companyKnowledgeItem: { findMany, findFirst } } as never
+    const first = await searchCompanyKnowledge(request, access, client, {
+      queryEmbedding: [0.1, 0.2],
+      semanticSearch,
+    })
+    expect(first.results.some((result) => result.id === 'older_critical')).toBe(false)
+    expect(first.retrieval.candidateCoverage).toMatchObject({
+      semanticAuthorized: 500,
+      semanticAuthorizationLimit: 500,
+      semanticRanking: 'PER_WINDOW',
+      semanticWindowsExhausted: false,
+      consistency: 'BEST_EFFORT_CURRENT_STATE',
+    })
+    const cursor = first.retrieval.candidateCoverage.nextCursor!
+    const second = await searchCompanyKnowledge(
+      { ...request, cursor },
+      { ...access, roles: [...access.roles].reverse() },
+      client,
+      {
+        queryEmbedding: [0.1, 0.2],
+        semanticSearch,
+      },
+    )
+    expect(second.results[0]?.id).toBe('older_critical')
+    expect(second.retrieval.candidateCoverage).toMatchObject({
+      semanticAuthorized: 1,
+      nextCursor: null,
+      semanticWindowsExhausted: true,
+    })
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ AND: expect.any(Array) }) }),
+    )
+
+    const corrupted = `${cursor.slice(0, -1)}${cursor.endsWith('a') ? 'b' : 'a'}`
+    await expect(
+      searchCompanyKnowledge({ ...request, cursor: corrupted }, access, client, {
+        queryEmbedding: [0.1, 0.2],
+        semanticSearch,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_CURSOR' })
+    const changedBindings: Array<[typeof request & { cursor: string }, typeof access, number[]]> = [
+      [{ ...request, query: 'different query', cursor }, access, [0.1, 0.2]],
+      [{ ...request, cursor }, { ...access, clientId: 'tenant_2' }, [0.1, 0.2]],
+      [{ ...request, cursor }, { ...access, roles: ['OWNER'] }, [0.1, 0.2]],
+      [{ ...request, cursor }, access, [0.1, 0.3]],
+    ]
+    for (const [changedRequest, changedAccess, embedding] of changedBindings) {
+      await expect(
+        searchCompanyKnowledge(changedRequest, changedAccess, client, {
+          queryEmbedding: [...embedding],
+          semanticSearch,
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_CURSOR' })
+    }
+  })
+
+  it('rejects a valid continuation when its authorized anchor was deleted or left scope', async () => {
+    const ids = Array.from({ length: 501 }, (_, index) => ({ id: `candidate_${index}` }))
+    const findMany = vi.fn(async (query: Record<string, unknown>) =>
+      JSON.stringify(query.select) === JSON.stringify({ id: true }) ? ids : [],
+    )
+    const client = {
+      companyKnowledgeItem: { findMany, findFirst: vi.fn().mockResolvedValue(null) },
+    } as never
+    const request = { query: 'long tail fact', clientId: 'tenant_1', limit: 5 }
+    const access = { kind: 'CLIENT' as const, clientId: 'tenant_1', roles: [] }
+    const first = await searchCompanyKnowledge(request, access, client, {
+      queryEmbedding: [0.1],
+      semanticSearch: vi.fn().mockResolvedValue([]),
+    })
+    await expect(
+      searchCompanyKnowledge(
+        { ...request, cursor: first.retrieval.candidateCoverage.nextCursor! },
+        access,
+        client,
+        { queryEmbedding: [0.1], semanticSearch: vi.fn().mockResolvedValue([]) },
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_CURSOR' })
   })
 
   it('rejects a foreign venue before selecting any knowledge candidates', async () => {

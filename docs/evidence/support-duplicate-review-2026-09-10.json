@@ -1,0 +1,179 @@
+{
+  "date": "2026-09-10",
+  "implementationCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+  "scope": "Explicit duplicate review, bounded historical receipt reads, symmetric duplicate/content outcome arbitration",
+  "proofs": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-semantic-duplicate-resolution-246-f461639aad8f\\result.json",
+      "resultSha256": "4d72ffd25e75783eb5288d6d921883f6627168cdd77c329126c111c1a96b74d5",
+      "capturedSourceHead": "10d7a2d9a0cd3e4ca4272b26491d387243912c1a",
+      "measuredSources": 52,
+      "measuredBytesMatchCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+      "passed": true,
+      "ownedServersStopped": true,
+      "tests": {
+        "main": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        },
+        "completion": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        }
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-completion-5fe6600e3401\\result.json",
+      "resultSha256": "4d22563501657f86d3338bf86ed24a5502a9d9b5da25492e8937e68a7bcf45e8",
+      "capturedSourceHead": "10d7a2d9a0cd3e4ca4272b26491d387243912c1a",
+      "measuredSources": 54,
+      "measuredBytesMatchCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+      "passed": true,
+      "ownedServersStopped": true,
+      "tests": {
+        "main": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        },
+        "completion": null
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-content-completion-243-0c5b7cba4dfb\\result.json",
+      "resultSha256": "adf830f650e6d1759a098bfd6b3364724b0bdbacb174e0442eebdaf99092cb7f",
+      "capturedSourceHead": "10d7a2d9a0cd3e4ca4272b26491d387243912c1a",
+      "measuredSources": 49,
+      "measuredBytesMatchCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+      "passed": true,
+      "ownedServersStopped": true,
+      "tests": {
+        "main": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        },
+        "completion": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        }
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-temporal-completion-243-fae82caa6126\\result.json",
+      "resultSha256": "d7c96cba9c1f9673eafb9d8724c315e122bd5eaf13b919e52813414672acefdf",
+      "capturedSourceHead": "10d7a2d9a0cd3e4ca4272b26491d387243912c1a",
+      "measuredSources": 52,
+      "measuredBytesMatchCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+      "passed": true,
+      "ownedServersStopped": true,
+      "tests": {
+        "main": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        },
+        "completion": {
+          "numPassedTests": 1,
+          "numFailedTests": 0,
+          "numPendingTests": 0,
+          "numTotalTests": 1
+        }
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-duplicate-review-browser-79a8f5c8c5f2\\result.json",
+      "resultSha256": "5dc66dc247f133d9495070036f2e61461d9ca2863c37078393a815ab58ec0968",
+      "capturedSourceHead": "10d7a2d9a0cd3e4ca4272b26491d387243912c1a",
+      "measuredSources": 9,
+      "measuredBytesMatchCommit": "1f116b636790d094b04c6bfeaf475ff9c40f8781",
+      "passed": true,
+      "ownedServersStopped": true,
+      "tests": {
+        "startTime": "2026-09-10T15:04:50.084Z",
+        "duration": 8602.698,
+        "expected": 4,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "targetedChecks": {
+    "api": 64,
+    "dashboard": 37,
+    "total": 101,
+    "typechecks": ["api", "dashboard"],
+    "configuredLint": "passed"
+  },
+  "native": {
+    "postgres": "16.15",
+    "pgvector": "0.8.6",
+    "migrations": 246,
+    "tables": 263,
+    "distinctCases": 5,
+    "executions": 7,
+    "coverage": [
+      "Reviewed duplicate/no-change completion and exact replay",
+      "Valid reverse package handoff insertion refused",
+      "Actual competing package writer and duplicate insert lock wait under ReadCommitted and RepeatableRead; only one outcome survives",
+      "Canonical target lock race",
+      "Existing conflict KEEP_CANONICAL, replacement/adoption, universal addition/receipt chain/guest retrieval, temporal/expiry and completion lifecycle"
+    ]
+  },
+  "rendered": {
+    "transport": "synthetic intercepted tRPC; separate from native proof",
+    "widths": [390, 768, 1280, 1440],
+    "cases": 4,
+    "screenshots": 12,
+    "coverage": [
+      "Explicit note and checkbox",
+      "Keyboard Enter/Space",
+      "Held pending request",
+      "Unknown response with byte-identical retry",
+      "Terminal parent controls and no reopened action",
+      "Current/stale historical receipt cards suppress drafting",
+      "Zero axe violations/no horizontal overflow/reduced motion"
+    ],
+    "visualReview": "390 final and 1280 unknown/final receipt-history renders inspected; existing admin form language retained. Dev issue badge reflects intentional transport failure."
+  },
+  "architecture": {
+    "arbiter": "SQL-internal immutable semantic_proposal_outcome_claims, unique proposal/tenant/venue, DUPLICATE or CONTENT, no Prisma delegate",
+    "reason": "Row locking alone missed competing inserts under old RepeatableRead snapshots; unique arbitration now fails closed. Existing multiple CONTENT receipt semantics remain allowed.",
+    "reverseTables": [
+      "knowledge_proposal_package_handoffs",
+      "knowledge_proposal_operational_update_handoffs",
+      "knowledge_proposal_universal_content_handoffs",
+      "legacy_knowledge_universal_content_adoptions",
+      "semantic_conflict_resolutions"
+    ],
+    "review": "Independent review found and verified fixes for RepeatableRead gap and terminal UI question-write escape. Final review found no material blocker."
+  },
+  "retainedAttempts": {
+    "nativeBeforeUniqueArbiter": ["4e78fb247d2b", "7374acd2a0b7", "72dc3ccc24ad", "32d9a27eca57"],
+    "browserFailed": ["f86f5a1ce8d3", "5dfc729e1cc6"],
+    "browserEarlierPass": "110ffd3768e5",
+    "allOwnedServersStopped": true,
+    "notes": "Browser failures were encoded-ellipsis and label-lookup selectors; fixed with role-based selectors. Earlier passing browser predates retained cards. Owned fixture line endings restored after commit hook normalization; measured source bytes match."
+  },
+  "limits": [
+    "Native persistence and rendered synthetic transport are distinct layers, not full connected customer/provider acceptance.",
+    "Migration fresh-install and concurrency paths executed; seeded upgrade/backfill and contradictory-history refusal still need a disposable upgrade fixture.",
+    "Historical receipt proposalRevisionCurrent is only revision binding; currentFulfillmentVerified remains false.",
+    "Original 128 requirements, 32 QA cases, A/B/C, external reservations and provider/device/release gates remain intact."
+  ],
+  "next": [
+    "Prove seeded upgrade/backfill and contradictory-history refusal on a new disposable copy; preserve retained proof databases.",
+    "Implement explicit reviewed-decline evidence before removing bare-REJECTED exemption.",
+    "Continue remaining campaign; broad handoff refresh deferred."
+  ]
+}

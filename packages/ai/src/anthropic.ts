@@ -88,6 +88,8 @@ export type AiUsageRecord = {
   requestType?: string
   routeModelKey?: string
   fallbackUsed?: boolean
+  /** Absent is reserved for legacy producers and must never be interpreted as observed. */
+  usageObservationStatus?: 'OBSERVED' | 'UNKNOWN' | 'NOT_DISPATCHED'
 }
 
 export type AiUsageSink = (record: AiUsageRecord) => Promise<void>
@@ -118,6 +120,7 @@ export class AiGatewayError extends Error {
 }
 
 const responseSchema = z.object({
+  stop_reason: z.string().nullable().optional(),
   content: z.array(
     z
       .object({
@@ -154,6 +157,14 @@ export function setAnthropicClientForTesting(client: AnthropicMessagesClient | n
   anthropicClient = client
 }
 
+function isIncompleteAnthropicResponse(stopReason: string | null | undefined): boolean {
+  // Legacy response fixtures omit this metadata. An explicit non-terminal
+  // reason (including null) must never be accepted as a completed text answer.
+  return (
+    stopReason !== undefined && !['end_turn', 'stop_sequence', 'refusal'].includes(stopReason ?? '')
+  )
+}
+
 async function createProviderResponse(params: {
   spec: ReturnType<typeof getAiModelSpec>
   system: AiSystemBlock[]
@@ -162,7 +173,7 @@ async function createProviderResponse(params: {
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
   if (params.spec.provider === 'openai') {
     return params.onTextDelta
@@ -201,6 +212,7 @@ async function createProviderResponse(params: {
     }
     const response = responseSchema.parse(await stream.finalMessage())
     return {
+      incomplete: isIncompleteAnthropicResponse(response.stop_reason),
       text: response.content
         .filter(
           (block): block is typeof block & { text: string } =>
@@ -229,6 +241,7 @@ async function createProviderResponse(params: {
   )
   const response = responseSchema.parse(raw)
   return {
+    incomplete: isIncompleteAnthropicResponse(response.stop_reason),
     text: response.content
       .filter(
         (block): block is typeof block & { text: string } =>
@@ -349,6 +362,7 @@ export async function generateText<TParsed = string>(params: {
     } catch (admissionError) {
       if (lastError !== undefined) {
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'NOT_DISPATCHED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -436,13 +450,19 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       const text = response.text
-      if (!text) {
-        const gatewayError = new AiGatewayError('Provider response contained no text block', {
-          attempts: attempt,
-          code: 'missing-text-block',
-          usageRecorded: true,
-        })
+      if (response.incomplete || !text) {
+        const gatewayError = new AiGatewayError(
+          response.incomplete
+            ? 'Provider response did not complete'
+            : 'Provider response contained no text block',
+          {
+            attempts: attempt,
+            code: response.incomplete ? 'provider-incomplete-response' : 'missing-text-block',
+            usageRecorded: true,
+          },
+        )
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -470,6 +490,7 @@ export async function generateText<TParsed = string>(params: {
           },
         )
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -494,6 +515,7 @@ export async function generateText<TParsed = string>(params: {
         attempts: attempt,
       }
       await recordUsageBestEffort(params.usageSink, {
+        usageObservationStatus: 'OBSERVED',
         provider: result.provider,
         model: result.model,
         pricingVersion: result.pricingVersion,
@@ -527,6 +549,7 @@ export async function generateText<TParsed = string>(params: {
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
           await recordUsageBestEffort(params.usageSink, {
+            usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
             pricingVersion: spec.pricingVersion,
@@ -557,6 +580,7 @@ export async function generateText<TParsed = string>(params: {
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
           await recordUsageBestEffort(params.usageSink, {
+            usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
             pricingVersion: spec.pricingVersion,
@@ -574,6 +598,25 @@ export async function generateText<TParsed = string>(params: {
           })
         }
         throw gatewayError
+      }
+      if (!(error instanceof AiGatewayError && error.usageRecorded)) {
+        await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'UNKNOWN',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: error instanceof AiGatewayError ? error.code : errorCode(error),
+        })
       }
       await wait((params.retryDelayMs ?? 100) * 2 ** (attempt - 1))
     }

@@ -1,0 +1,58 @@
+{
+  "status": "LOCAL_FALSE_FACTUAL_CANDIDATE_GAP_FIXED",
+  "date": "2026-09-08",
+  "baseCommit": "e1bb6601",
+  "fieldRequirement": "FM09",
+  "classification": "partially solved",
+  "confirmedGap": "Recognized purely evaluative sentences were captured as factual additions, including The display is ugly.",
+  "change": "Suppress only recognized simple English copular evaluations before factual candidate capture; retain permissive discovery when explicit source, numeric, material, construction, correction, alias, location or temporary cues exist. No new reporting write, transcript copy or authority.",
+  "redEvidence": [
+    {
+      "log": "artifacts/w02-opinion-material-red-20260908.log",
+      "description": "Root reproduced over-suppression of a material clause before final repair."
+    }
+  ],
+  "tests": {
+    "command": "pnpm --dir packages/api exec vitest run src/lib/conversation-learning-candidate.test.ts src/lib/capture-conversation-learning.test.ts src/routers/chat.test.ts src/routers/admin/conversation-learning.test.ts",
+    "exitCode": 0,
+    "passed": 143,
+    "log": "artifacts/w02-opinion-root-final-tests-20260908.log",
+    "coverage": [
+      "Pure display/exhibit/guide opinions produce no candidate and no capture database call",
+      "Mixed negative sentiment with placard facts, measurements, material/construction, dates, source attribution, correction or location remains eligible and UNVERIFIED",
+      "Existing chat124, admin3 and employee/policy capture behavior retained"
+    ]
+  },
+  "sourceHashes": [
+    {
+      "source": "packages/api/src/lib/conversation-learning-candidate.ts",
+      "sha256": "09051568a55793f12269ff21b7f9c48265b184d517c84718ac14c9716ef00b62"
+    },
+    {
+      "source": "packages/api/src/lib/conversation-learning-candidate.test.ts",
+      "sha256": "b59e9ec4d431ac0b039a84581386b61e88cb14d684308c693539d5d85a0afd3e"
+    },
+    {
+      "source": "packages/api/src/lib/capture-conversation-learning.ts",
+      "sha256": "09e0d2d60744c600881c28af882bc90957ac6bd49395f989b2fd2ab586128b1f"
+    },
+    {
+      "source": "packages/api/src/lib/capture-conversation-learning.test.ts",
+      "sha256": "67cefb9f9f03d075dd190cd23dc1693f223c777065a1873927a417b3165a2a4a"
+    },
+    {
+      "source": "packages/api/src/routers/chat.ts",
+      "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c"
+    }
+  ],
+  "limits": [
+    "Small conservative English heuristic; not exhaustive abuse, sentiment or multilingual detection",
+    "Unrecognized opinions can still enter human review; no claim that all abuse is suppressed",
+    "Automatic aggregate sentiment behavior and closure corroboration/expiry remain distinct FM09 requirements; this patch does not add or prove their routing",
+    "No current museum/provider reproduction, canonical overwrite, private transcript retention expansion, customer send or live acceptance"
+  ],
+  "validation": {
+    "configuredLintExit": 0,
+    "agentApiTypecheckExit": 0
+  }
+}

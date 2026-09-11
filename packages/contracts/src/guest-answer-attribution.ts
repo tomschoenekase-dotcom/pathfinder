@@ -8,6 +8,24 @@ export const GUEST_ANSWER_ATTRIBUTION_VERSION = 'guest-answer-attribution-v1' as
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/u)
 const sourceId = z.string().trim().min(1).max(240)
 
+// Evidence was introduced with v5. Retained answers keep their original prompt
+// identity; deploying a new prompt must not invalidate immutable replay data.
+const evidencePromptVersion = z.union([
+  z.literal(GUEST_CHAT_PROMPT_VERSION),
+  z.enum([
+    'guest-chat-prompt-v5',
+    'guest-chat-prompt-v6',
+    'guest-chat-prompt-v7',
+    'guest-chat-prompt-v8',
+    'guest-chat-prompt-v9',
+    'guest-chat-prompt-v10',
+    'guest-chat-prompt-v11',
+    'guest-chat-prompt-v12',
+    'guest-chat-prompt-v13',
+    'guest-chat-prompt-v14',
+  ]),
+])
+
 export const GuestAnswerEvidenceSourceSchema = z
   .object({
     sourceId,
@@ -17,6 +35,7 @@ export const GuestAnswerEvidenceSourceSchema = z
       'KNOWLEDGE',
       'OPERATIONAL_UPDATE',
       'PUBLISHED_CONTENT',
+      'GENERAL_WEB_REFERENCE',
     ]),
     label: z.string().trim().min(1).max(500),
     rank: z.number().int().min(0).max(100).nullable(),
@@ -28,7 +47,7 @@ export const GuestAnswerEvidenceSourceSchema = z
 export const GuestAnswerEvidenceBundleSchema = z
   .object({
     schemaVersion: z.literal(GUEST_ANSWER_EVIDENCE_VERSION),
-    promptContractVersion: z.literal(GUEST_CHAT_PROMPT_VERSION),
+    promptContractVersion: evidencePromptVersion,
     answerHash: sha256,
     systemPromptHash: sha256,
     evidenceSetHash: sha256,

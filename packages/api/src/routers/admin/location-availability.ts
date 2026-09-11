@@ -48,6 +48,7 @@ export const adminLocationAvailabilityRouter = router({
               venueId: input.venueId,
               floorId: before.floorId,
               parentLocationId: before.parentLocationId,
+              primaryPlaceId: before.primaryPlaceId,
               locationId: before.id,
             })
           if (!input.active) {

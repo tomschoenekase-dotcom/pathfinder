@@ -20,7 +20,11 @@ const validArgs = [
   '--actor-id',
   'operator-1',
 ]
-const staging = { RAILWAY_ENVIRONMENT: 'staging', EMBEDDING_DISPATCH_ENABLED: 'false' }
+const staging = {
+  NODE_ENV: 'test',
+  RAILWAY_ENVIRONMENT: 'staging',
+  EMBEDDING_DISPATCH_ENABLED: 'false',
+} as const
 
 describe('embedding claim repair CLI', () => {
   it('accepts one exact, explicitly confirmed staging entity', () => {

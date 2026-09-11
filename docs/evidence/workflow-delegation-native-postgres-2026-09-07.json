@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-disposable-fixture-proof",
+  "measuredAt": "2026-09-07T20:58:55.671074+00:00",
+  "baseProductRevision": "fd11a712",
+  "workingTreeChanges": "Workflow delegation and terminal revocation fix; schema224 intake tables present but not exercised by this journey. Exact source hashes below.",
+  "sourceTest": "packages/db/src/helpers/agent-improvement-proposal-disposable.integration.test.ts",
+  "testSha256": "3f7c0ec61e0df14165070568b027b097ce34bb6bcea1fb538e90653c09e7de0b",
+  "backend": "PostgreSQL16.15 pgvector0.8.6 native Windows",
+  "timezone": "UTC",
+  "migrationCount": 224,
+  "result": {
+    "database": "pathfinder_disposable_agent_improvement_15bf8479ca08",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "retainedArtifacts": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\migrations.log",
+      "sha256": "2a7563f1fc2047a601d1b909b58cb19123acd18b37cb15dc8883da6fdacdd35f"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\database-readback.log",
+      "sha256": "916a0b3e17d6ddc00f4619ff44e639b0703626ab8e0b22613a24d76b2f2f8de0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\vitest.json",
+      "sha256": "36dd5c15892897dcd7459b01a8b813546c1fd6c6265ccc0c2cea2f24a9d63f07"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\vitest.log",
+      "sha256": "f1574e5d2d876cdb49124d1b14bfcb4505c9514f45beda3afd024bab8a9dec0a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\result.json",
+      "sha256": "52d482831ee395a826d946dafe70cfa4db933445cdece1e0dd8521e89ef18b42"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-improvement-15bf8479ca08\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "launcher": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-improvement-proof.mjs",
+    "sha256": "5ec1a0addd91661c180c5aa48422e7aed1fd9dcb84ac6a3e6d44f9bb0e1d446a"
+  },
+  "sourceHashes": {
+    "packages/db/src/helpers/agent-delegation-actions.ts": "b69db46a497700d3fc11053336428cadf9e8c7459ec9d3351d9279aeeefbe443",
+    "packages/db/src/helpers/agent-workflow-run-binding.ts": "9f459f955473d83b4b5a56a554acc8b0588578079d0a65a9dba297dd21a72aa4",
+    "packages/db/src/helpers/agent-workflow-activation-actions.ts": "e60ef6de7f67cdacaa70bace609599bf86f8c0c148b8e58b792df19ef37734e8",
+    "packages/db/prisma/migrations/20260907022400_add_intake_v1_submissions/migration.sql": "f4c1a669bdb3225a85951b3011d090f00fd6e3e4daf1904c913b6b7f0a9c4b5e"
+  },
+  "limits": [
+    "Synthetic identities, credentials, workers, approvals and run leases; no live model or external provider.",
+    "Native server stopped; data and logs retained. Earlier Docker cleanup remains unknown.",
+    "Earlier fixture runs exposed expired worker setup and a production terminal cancellation constraint violation; final UTC fixture includes corrected production transition and running/queued regression."
+  ]
+}

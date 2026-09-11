@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "baseRevision": "3af4eefe540bf909a3346bb477b284ff5d8e3013",
+  "requirements": ["FM09", "V2-P08-03", "V2-P08-05"],
+  "classification": "partially solved",
+  "implemented": "Scoped immutable reviewed-source listing and bounded human selection connect dated knowledge proposals to existing preview and inactive operational DRAFT. Selection carries exact receipt/hash/claim and timestamp precision. Edits, page refresh, scope changes and close/reopen invalidate prior selection; no automatic draft or publication.",
+  "native": {
+    "result": {
+      "database": "pathfinder_disposable_native_guest_read_7e159da655ea",
+      "port": "55491",
+      "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-knowledge-proposal-temporal-options-7e159da655ea",
+      "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+      "migrationsPassed": true,
+      "testPassed": true,
+      "stopped": true,
+      "migrations": 238,
+      "tables": 258
+    },
+    "passed": 1,
+    "sourceIdentities": [
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-learning.disposable.integration.test.ts",
+        "retained": "measured-knowledge-proposal-learning.disposable.integration.test.ts",
+        "sha256": "c5445eb95b11e0f68007339a4b842d6c72b36fbe6c136bbab3caebcccce91191"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-review.ts",
+        "retained": "measured-knowledge-proposal-review.ts",
+        "sha256": "abc8c6110e860a7f3d19545a40ff559b17e41ef5b4c9ee577b9294e717507f93"
+      },
+      {
+        "source": "packages/db/src/helpers/conversation-learning-actions.ts",
+        "retained": "measured-conversation-learning-actions.ts",
+        "sha256": "d46cdfbc66df405b636549e09f2ea1beee5743d2689ba8ee459a4ed4bad6c4a4"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
+        "retained": "measured-knowledge-proposal-temporal-evidence.ts",
+        "sha256": "4586cab108d7f12ef6b10d3936b3ead8dec765123b30f8bc28e8a0053813009b"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence-options.ts",
+        "retained": "measured-knowledge-proposal-temporal-evidence-options.ts",
+        "sha256": "f36b0bcd842367cb2649cd76c9c68620392f0aa3b072448ad555877b4cdabbdf"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.ts",
+        "retained": "measured-semantic-venue-updater-service.ts",
+        "sha256": "753c4aba7b82e4e18ac92a2e84794c5b6799038c8e63c39df4764c2252766db4"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater.ts",
+        "retained": "measured-semantic-venue-updater.ts",
+        "sha256": "fa3b0befdd7b2301826f2bdf2ffaa06c62005374b6ac099d6ef2abda1b140caf"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-operational-update-finalizer.ts",
+        "retained": "measured-semantic-operational-update-finalizer.ts",
+        "sha256": "a64b9825cf917a10b5e34e3c803074156dc9c1664653fac20c7897474adc3ff4"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
+        "retained": "measured-knowledge-proposal-drafts.ts",
+        "sha256": "7de7d0e508c67fc4965d805a2103737b8c96dfeb2edb4c2584ef897def6ed43b"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "retained": "measured-knowledge-proposal-preview.ts",
+        "sha256": "448c63ff6262e5c55068728c5749e75366a55aa4c6df4c7b7c6b4e9ead547d41"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-operational-draft.ts",
+        "retained": "measured-media-temporal-operational-draft.ts",
+        "sha256": "22c4783ea690ad437a0192ec0dba390d565b094b6a90c7c8b97b2b90141ec9e1"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-reconciliation.ts",
+        "retained": "measured-media-temporal-reconciliation.ts",
+        "sha256": "bc1044385677f9a6f3f2db6d1d0d4f95818f05aa4fc9bf4ef0e96a765c021ee3"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-receipt.ts",
+        "retained": "measured-media-temporal-review-receipt.ts",
+        "sha256": "e3fdfed7c2c450109cfbb2f47225ce98663f95d8ba8145146349c9beb636ca19"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-service.ts",
+        "retained": "measured-media-temporal-review-service.ts",
+        "sha256": "16e94a3d8c817334067d9b3ed7bcdb913fecd28c7889522c6455f60705874df0"
+      },
+      {
+        "source": "packages/api/src/lib/media-temporal-review-capture.ts",
+        "retained": "measured-media-temporal-review-capture.ts",
+        "sha256": "d47834676f3d6b026bed1f6211f1917fe03566a3fb498d5c1bcbeca38287a077"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-update-actions.ts",
+        "retained": "measured-operational-update-actions.ts",
+        "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e"
+      }
+    ],
+    "checks": [
+      "Actual proposal/receipt lookup, exact scope and stale proposal rejection, bounded cursor ending empty.",
+      "Actual preview and inactive DRAFT/replay, finalizer expiry rolls back update, handoff, audit and content version."
+    ]
+  },
+  "browser": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-semantic-temporal-evidence-browser-abacd09d0935",
+    "port": 3002,
+    "ready": true,
+    "browserPassed": true,
+    "stopped": true,
+    "portReleased": true,
+    "pid": 38280,
+    "sources": [
+      {
+        "source": "apps/dashboard/components/admin/SemanticUpdatePreview.tsx",
+        "retained": "measured-apps__dashboard__components__admin__SemanticUpdatePreview.tsx",
+        "sha256": "cfc7298ef7283d2eb63d4a027f2b4bf228bf5a60abdb10fa2beb160f76655360"
+      },
+      {
+        "source": "apps/dashboard/components/admin/TemporalEvidenceSelector.tsx",
+        "retained": "measured-apps__dashboard__components__admin__TemporalEvidenceSelector.tsx",
+        "sha256": "0f97ea94c9a686186999b6dd2e6ab0526af49014697c20e142b706d0b9e088fd"
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/semantic-temporal-evidence/page.tsx",
+        "retained": "measured-apps__dashboard__app__dev-fixtures__semantic-temporal-evidence__page.tsx",
+        "sha256": "02438cf58af5df0bfd24281148a0e9b49e985337b0a08df7ea31cf327d45d18d"
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/semantic-temporal-evidence/FixtureClient.tsx",
+        "retained": "measured-apps__dashboard__app__dev-fixtures__semantic-temporal-evidence__FixtureClient.tsx",
+        "sha256": "f12cd858d8ebcfa7ea95aa5eb5c7af9997d0e0ead8b07a6a0384fae905e23399"
+      },
+      {
+        "source": "apps/dashboard/tests/browser/semantic-temporal-evidence.spec.ts",
+        "retained": "measured-apps__dashboard__tests__browser__semantic-temporal-evidence.spec.ts",
+        "sha256": "c0e9fb903bb60d9afaa72de1644bda356065ef92ec4c9a058c9dd6b833add5dd"
+      },
+      {
+        "source": "apps/dashboard/lib/trpc.tsx",
+        "retained": "measured-apps__dashboard__lib__trpc.tsx",
+        "sha256": "2835af903f2a1045cef112cdde82acf27d0d0fc2bc1ea0297480b700f8fa73fe"
+      },
+      {
+        "source": "apps/dashboard/lib/bounded-client-request.ts",
+        "retained": "measured-apps__dashboard__lib__bounded-client-request.ts",
+        "sha256": "484db7ac9e0f45f34f19b7e3d2fe15fdbb427d7ef14ffcbad4dda82c274b1f77"
+      }
+    ],
+    "runnerSha256": "2e66bd98355f2de9b7600db5d688e5969a21f0c1da3a67b62420d656e49d1b00",
+    "counts": {
+      "startTime": "2026-09-08T23:36:23.598Z",
+      "duration": 9653.02,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "verification": {
+    "apiUnitPassed": 62,
+    "dashboardUnitPassed": 14,
+    "apiTypes": "PASS",
+    "dashboardTypes": "PASS",
+    "dashboardLint": "PASS",
+    "adminProcedureInventoryPassed": 2,
+    "aiBoundary": {
+      "sourceFiles": 5165,
+      "exceptions": 0
+    },
+    "logIdentities": [
+      {
+        "source": "artifacts/fm09-temporal-selector-api-unit-20260908.log",
+        "sha256": "5481d54ff7fcc9ad30bbe139772f49f8248868b97964bc62f8858889cf778f57"
+      },
+      {
+        "source": "artifacts/fm09-selector-dashboard-unit-final2-20260908.log",
+        "sha256": "c8c200a73b8b8bb100e8d6bc5c543f8603e5041f74d782d7f189720bc91bf145"
+      },
+      {
+        "source": "artifacts/fm09-selector-api-types-20260908.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "source": "artifacts/fm09-selector-dashboard-types-final2-20260908.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "source": "artifacts/fm09-selector-dashboard-lint-final-20260908.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "source": "artifacts/fm09-selector-ai-boundary-20260908.log",
+        "sha256": "dd3360f02e3233385d4ec309484a5c37ec7311d9ced20185ba26f24e971e3bc1"
+      },
+      {
+        "source": "artifacts/fm09-selector-tenant-procedures-20260908.log",
+        "sha256": "1c6c81b6c81e7c0ddea015d9fb85ccc65bcc560a343fcc6a78c53850b4878f69"
+      }
+    ],
+    "tenantProceduresCovered": 114
+  },
+  "sourceIdentities": [
+    {
+      "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence-options.ts",
+      "sha256": "f36b0bcd842367cb2649cd76c9c68620392f0aa3b072448ad555877b4cdabbdf"
+    },
+    {
+      "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence-options.test.ts",
+      "sha256": "b8630258f19d93a036754c676927b0d056bd792f1279da11233033126241f426"
+    },
+    {
+      "source": "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+      "sha256": "448c63ff6262e5c55068728c5749e75366a55aa4c6df4c7b7c6b4e9ead547d41"
+    },
+    {
+      "source": "packages/api/src/routers/admin/knowledge-proposal-learning.disposable.integration.test.ts",
+      "sha256": "c5445eb95b11e0f68007339a4b842d6c72b36fbe6c136bbab3caebcccce91191"
+    },
+    {
+      "source": "scripts/admin-router-modularity.test.mjs",
+      "sha256": "3d4833576a2d38d23f3f011d4226d77adff04752c156ac1ae83a8ec8b133a127"
+    },
+    {
+      "source": "apps/dashboard/components/admin/SemanticUpdatePreview.tsx",
+      "sha256": "cfc7298ef7283d2eb63d4a027f2b4bf228bf5a60abdb10fa2beb160f76655360"
+    },
+    {
+      "source": "apps/dashboard/components/admin/SemanticUpdatePreview.test.tsx",
+      "sha256": "fedf458131c96af4222da550e84c2b7bc2fe5919847d2eb1ca96189d8e058464"
+    },
+    {
+      "source": "apps/dashboard/components/admin/TemporalEvidenceSelector.tsx",
+      "sha256": "0f97ea94c9a686186999b6dd2e6ab0526af49014697c20e142b706d0b9e088fd"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/semantic-temporal-evidence/page.tsx",
+      "sha256": "02438cf58af5df0bfd24281148a0e9b49e985337b0a08df7ea31cf327d45d18d"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/semantic-temporal-evidence/FixtureClient.tsx",
+      "sha256": "f12cd858d8ebcfa7ea95aa5eb5c7af9997d0e0ead8b07a6a0384fae905e23399"
+    },
+    {
+      "source": "apps/dashboard/tests/browser/semantic-temporal-evidence.spec.ts",
+      "sha256": "c0e9fb903bb60d9afaa72de1644bda356065ef92ec4c9a058c9dd6b833add5dd"
+    }
+  ],
+  "visualReview": {
+    "viewports": [390, 820, 1440],
+    "inspected": ["selected at all widths", "expiry and empty at390"],
+    "assessment": "Existing desktop-first admin form retained; readable stacked phone controls, exact local dates, wrapped filenames, visible keyboard selection. Plain form hierarchy without decorative marketing composition. Development Next diagnostic badge overlaps the phone expiry message in retained dev capture; it is not production product UI.",
+    "automated": [
+      "keyboard selection",
+      "axe selected and expired states",
+      "horizontal overflow",
+      "explicit draft action",
+      "close/reopen and edit invalidation",
+      "expired preview and empty sources"
+    ]
+  },
+  "historicalAttempts": [
+    "36d708c3bf52 failed contrast/title; fixed fixture copy contrast and document metadata.",
+    "85b528c37915 failed ambiguous alert locator; scoped to main.",
+    "1ba0553ea72c passed before close/reopen repair; superseded by abacd09d0935.",
+    "Close regression reproduced before fix; final14 units and3 browser cases pass.",
+    "Final typecheck rejected testing-library unsupported exact option; replaced with anchored name regex and typecheck passed."
+  ],
+  "limits": [
+    "Browser tRPC responses are intercepted synthetic fixtures; native API/database proof is separate, not browser-to-real-database proof.",
+    "Reviewed assertion and distinct source bytes do not authenticate official authority or independent witnesses.",
+    "No scheduling, publication, live provider, customer delivery, physical device or current museum reproduction.",
+    "Original128 requirements,32 QA/ABC and provider/device/field/release gates remain."
+  ]
+}

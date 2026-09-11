@@ -380,6 +380,49 @@
   line-height: 1.65;
 }
 
+.questionContext {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.8rem 0 0;
+}
+
+.questionContext div {
+  min-width: 0;
+  border-left: 2px solid rgba(142, 214, 212, 0.8);
+  padding-left: 0.7rem;
+}
+
+.questionContext dt {
+  color: var(--portal-blue);
+  font-size: 0.67rem;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.questionContext dd,
+.questionGuidance {
+  margin: 0.2rem 0 0;
+  color: rgba(16, 45, 72, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.questionGuidance {
+  max-width: 42rem;
+  margin-top: 0.75rem;
+}
+
+.questionRemainder {
+  max-width: 30rem;
+  margin: 0.8rem 0 0;
+  color: rgba(16, 45, 72, 0.72);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .sourceList {
   margin-top: 1.5rem;
 }

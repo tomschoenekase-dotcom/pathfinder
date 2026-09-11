@@ -9,6 +9,9 @@ import {
 import type { TRPCContext } from '../context'
 import {
   buildWebsiteIntakeProposal,
+  websiteIntakeEngineeringCostUnits,
+  WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
+  WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION,
   WebsiteIntakePolicyError,
   type WebsiteIntakeDependencies,
 } from './website-intake'
@@ -172,18 +175,36 @@ export async function executeWebsiteIntakeResearch(input: {
     publishMode: 'DRAFT_ONLY' as const,
   }
   const sourceUriHash = hash(run.websiteUri)
+  const requestMaterial = {
+    tenantId: input.request.tenantId,
+    venueId: input.request.venueId,
+    runId: input.request.runId,
+    sourceUriHash,
+    bounds,
+    maxDurationMs: input.request.maxDurationMs,
+    maxCostUnits: input.request.maxCostUnits,
+    userAgent: input.request.userAgent,
+  }
+  // New receipts commit the cost semantics. Old receipts retain their historical
+  // accounting and may still be replayed only for the identical legacy request.
   const requestHash = hash(
     stableJson({
-      tenantId: input.request.tenantId,
-      venueId: input.request.venueId,
-      runId: input.request.runId,
-      sourceUriHash,
-      bounds,
-      maxDurationMs: input.request.maxDurationMs,
-      maxCostUnits: input.request.maxCostUnits,
-      userAgent: input.request.userAgent,
+      ...requestMaterial,
+      engineeringCostModelVersion: WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION,
+      collectionPolicyVersion: WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
     }),
   )
+  const collectionV1RequestHash = hash(
+    stableJson({ ...requestMaterial, engineeringCostModelVersion: 2, collectionPolicyVersion: 1 }),
+  )
+  const costV2RequestHash = hash(
+    stableJson({
+      ...requestMaterial,
+      // Historical v2 replay identity must remain frozen if current cost semantics advance.
+      engineeringCostModelVersion: 2,
+    }),
+  )
+  const legacyRequestHash = hash(stableJson(requestMaterial))
   const existing = await input.db.intakeWebsiteResearchReceipt.findUnique({
     where: {
       id: input.request.operationId,
@@ -210,7 +231,9 @@ export async function executeWebsiteIntakeResearch(input: {
       existing.venueId !== input.request.venueId ||
       existing.runId !== input.request.runId ||
       existing.priorReceiptId !== (input.request.priorReceiptId ?? null) ||
-      existing.requestHash !== requestHash ||
+      ![requestHash, collectionV1RequestHash, costV2RequestHash, legacyRequestHash].includes(
+        existing.requestHash,
+      ) ||
       existing.sourceUriHash !== sourceUriHash ||
       existing.createdBy !== input.request.createdBy
     ) {
@@ -256,26 +279,51 @@ export async function executeWebsiteIntakeResearch(input: {
   let attemptedFetches = 0
   let fetchedPages = 0
   let fetchedBytes = 0
+  const estimatedCostUnits = () =>
+    websiteIntakeEngineeringCostUnits({
+      attemptedFetches,
+      observedBodyBytes: fetchedBytes,
+    })
+  const reserveFetchAttempt = () => {
+    const nextCostUnits = websiteIntakeEngineeringCostUnits({
+      attemptedFetches: attemptedFetches + 1,
+      observedBodyBytes: fetchedBytes,
+    })
+    if (nextCostUnits > input.request.maxCostUnits) {
+      throw new WebsiteIntakePolicyError('Website intake exceeded its cost-unit limit')
+    }
+    attemptedFetches += 1
+  }
   const meteredDependencies: WebsiteIntakeDependencies = {
     ...input.dependencies,
     fetchPage: async (request) => {
-      attemptedFetches += 1
+      reserveFetchAttempt()
       const response = await input.dependencies.fetchPage(request)
       if (response.status >= 200 && response.status < 300) {
         fetchedBytes +=
           typeof response.body === 'string'
             ? Buffer.byteLength(response.body, 'utf8')
             : response.body.byteLength
+        if (estimatedCostUnits() > input.request.maxCostUnits) {
+          throw new WebsiteIntakePolicyError('Website intake exceeded its cost-unit limit')
+        }
       }
       return response
     },
+    ...(input.dependencies.extractPdfPage
+      ? {
+          extractPdfPage: async (
+            page: Parameters<NonNullable<WebsiteIntakeDependencies['extractPdfPage']>>[0],
+          ) => {
+            const extracted = await input.dependencies.extractPdfPage!(page)
+            if (extracted.outcome === 'SUCCEEDED') fetchedPages += 1
+            return extracted
+          },
+        }
+      : {}),
     extractPage: async (page) => {
       const extracted = await input.dependencies.extractPage(page)
       fetchedPages += 1
-      const units = fetchedPages + Math.ceil(fetchedBytes / 100_000)
-      if (units > input.request.maxCostUnits) {
-        throw new WebsiteIntakePolicyError('Website intake exceeded its cost-unit limit')
-      }
       return extracted
     },
   }
@@ -305,12 +353,13 @@ export async function executeWebsiteIntakeResearch(input: {
           sourceUriHash,
           bounds,
           outcome: 'INACCESSIBLE',
+          discoverySnapshot: website.intermediate.discovery,
           evidence: [],
           discrepancies: [],
           attemptedFetches,
           fetchedPages: 0,
           fetchedBytes,
-          estimatedCostUnits: Math.ceil(fetchedBytes / 100_000),
+          estimatedCostUnits: estimatedCostUnits(),
           latencyMs: Math.max(0, clock().getTime() - startedAt.getTime()),
           errorCode: 'NO_ACCESSIBLE_PAGES',
           createdBy: input.request.createdBy,
@@ -318,6 +367,7 @@ export async function executeWebsiteIntakeResearch(input: {
         input.db,
       )
     }
+    const { discovery, ...extractedResearchSnapshot } = website.intermediate
     return await recordWebsiteResearchReceiptAction(
       {
         operationId: input.request.operationId,
@@ -329,7 +379,8 @@ export async function executeWebsiteIntakeResearch(input: {
         sourceUriHash,
         bounds,
         outcome: 'SUCCEEDED',
-        researchSnapshot: website.intermediate,
+        researchSnapshot: extractedResearchSnapshot,
+        discoverySnapshot: discovery,
         candidateSnapshot: website.packageBinding,
         evidence: [...website.intermediate.evidence],
         discrepancies: [...website.intermediate.discrepancies],
@@ -367,7 +418,7 @@ export async function executeWebsiteIntakeResearch(input: {
           attemptedFetches,
           fetchedPages,
           fetchedBytes,
-          estimatedCostUnits: fetchedPages + Math.ceil(fetchedBytes / 100_000),
+          estimatedCostUnits: estimatedCostUnits(),
           latencyMs: Math.max(0, clock().getTime() - startedAt.getTime()),
           errorCode: failure.errorCode,
           createdBy: input.request.createdBy,

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-approval-grant-post-lock-expiry",
+  "measuredAt": "2026-09-07T23:37:37.545118+00:00",
+  "baseProductRevision": "6a3b35d5",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "manifestHash": "821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19",
+  "result": {
+    "database": "pathfinder_disposable_approval_grant_expiry_333f1347514f",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "reproducedBeforeFix": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-9110ac19a9cd",
+    "observed": "Consumption fulfilled after grant expiration during an observed PostgreSQL row-lock wait.",
+    "stopped": true
+  },
+  "assertions": [
+    "A concurrent transaction holds the real grant row lock",
+    "pg_stat_activity confirms the consumer waits on a database lock",
+    "Grant expires before lock release",
+    "Consumption rejects EXPIRED after acquiring the lock",
+    "Grant useCount remains zero and no consumption row exists"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\measured-approval-grant-expiry-lock.disposable.integration.test.ts",
+      "sha256": "7b43554919a3a80d13a028be612a0dc38045120c9d3a8ddc7892da0b969b3948"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\measured-approval-grants.ts",
+      "sha256": "8b0a382ba59b41209c9c7090510d9cc5f1e2d9609254dfcc14c35d531e694651"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\vitest.json",
+      "sha256": "43a695d521951bf1565a6a0403ee3e1c8e82bb4f2d2bef3fdb84fdc4771649ec"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\migrations.log",
+      "sha256": "3a2ce5f6538402cbf96e31676ab079c3c9ef898df3331eb5fe0ac0c3fb99d9ca"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-333f1347514f\\result.json",
+      "sha256": "bfc831ab9be3a6a2e79bdc4444877dd81b3296ba3b1cc7b2966a2bb0d8d45b1c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-9110ac19a9cd\\measured-approval-grants.ts",
+      "sha256": "19a619499aeb7d97358b7acfdf205660bbacec7987368756ed6f6c9992d7edf4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-9110ac19a9cd\\vitest.json",
+      "sha256": "19fd710b76e741a40e58ba90e8e6350ef3e8211d09d624114264722190ce0dbb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-approval-grant-expiry-9110ac19a9cd\\result.json",
+      "sha256": "e3f081a9e97c61cc2491d172f80530373b5cb2f557dd43eff7633373cfbeb1c1"
+    }
+  ],
+  "limitations": [
+    "Local disposable database only; no live grant, provider, customer action or deployment.",
+    "Earlier ee418f421fe9 fixture attempt used invalid policy parameters and did not reproduce this race.",
+    "Proof covers expiry during grant lock wait; other identity/worker/credential fences have separate validation."
+  ]
+}

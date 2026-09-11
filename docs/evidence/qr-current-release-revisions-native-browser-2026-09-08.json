@@ -1,0 +1,380 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "baseRevision": "01f007121d087c1842f1f3f5d79dc46017561f53",
+  "requirements": ["V2-P01-07", "V2-P01-08"],
+  "status": "LOCAL_CURRENT_RELEASE_QR_REVISIONS_PASS",
+  "implemented": [
+    "Expose existing current-release evidence from getVenueLifecycles in its same RepeatableRead snapshot.",
+    "Count only PUBLIC active places/enabled knowledge in both portal lifecycle projections.",
+    "Require current release plus READY/LIVE/REVISIONS for QR; preserve paused/offboarding/unknown/unreleased denial and lazy same-venue PUBLIC active place read.",
+    "Canonical local package draft/approve/apply followed by newer DRAFT retains existing QR cards without exposing draft exhibit; private-only sibling remains unavailable."
+  ],
+  "proof": {
+    "database": "pathfinder_disposable_onboarding_4101a60bf2df",
+    "pgPort": "55491",
+    "nextPort": 3002,
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-onboarding-qr-release-connected-4101a60bf2df",
+    "distDir": ".next-onboarding-connected-4101a60bf2df",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 238,
+      "publicTableCount": 258
+    },
+    "nextReady": true,
+    "sourceHashes": [
+      {
+        "source": "apps/dashboard/tests/browser/onboarding-connected.spec.ts",
+        "sha256": "760463727d62129cfa699c0961b66297c3c33b471e01900a7999274592668b3b",
+        "bytes": 90254
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/connected-client-handoff/page.tsx",
+        "sha256": "7899eb6e08645b1b74fb5aa3e7944e9030e5f93f949c6e805cdbaf1ce921bd68",
+        "bytes": 836
+      },
+      {
+        "source": "apps/dashboard/components/ConnectedClientHandoffFixture.tsx",
+        "sha256": "9ad0673ed6fea3b3adb2a75f19622e106f4750cb3ae0195ee3e5e90cbe306a2b",
+        "bytes": 6142
+      },
+      {
+        "source": "apps/dashboard/components/VenueQrKitAvailability.tsx",
+        "sha256": "f1b2b0502f619d1ffd22b20bc006433b4eca6a20d0c5c88fe349f060b9ad8c8f",
+        "bytes": 2511
+      },
+      {
+        "source": "apps/dashboard/components/SupportWorkspace.tsx",
+        "sha256": "1e67c4b54297618d215f4e71d0db953db18888cd35f57f17ce1081ea27f33d6d",
+        "bytes": 57135
+      },
+      {
+        "source": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.tsx",
+        "sha256": "c434fbe2505b7082cff35c9d344620228202adb9c6759c099b312e1c4c2f8acf",
+        "bytes": 1816
+      },
+      {
+        "source": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.test.tsx",
+        "sha256": "e22d626482b0aaa4e268e3a76d545595331827dcf23b160a32db366f0075fc46",
+        "bytes": 7922
+      },
+      {
+        "source": "apps/dashboard/lib/guest-chat-url.ts",
+        "sha256": "fa9a4b65596ab6dc35324244f3361a082564a2753a158b588c69d1a7d48bc575",
+        "bytes": 2930
+      },
+      {
+        "source": "packages/api/src/routers/portal.ts",
+        "sha256": "185161652dbf69b10c7a85dcc844bf1a5e7c313b30d7b744892a92f438d76e8c",
+        "bytes": 37202
+      },
+      {
+        "source": "apps/dashboard/playwright.onboarding-connected.config.ts",
+        "sha256": "693b50424aa279327094e4092b4f1617b909de59aef8d0d477cc41facccf9ea2",
+        "bytes": 1576
+      },
+      {
+        "source": "apps/dashboard/next.config.ts",
+        "sha256": "e42b27369aa81e78e4fd94ede74f0b3144b7febbac4cd49b3e5a7c91ade00c2b",
+        "bytes": 1505
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/remote-onboarding/page.tsx",
+        "sha256": "de62155b6372bf7d00337178363426731de790e155b9ca58ab0f4b51e8879ce1",
+        "bytes": 13022
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/connected-intake-reader/page.tsx",
+        "sha256": "0517bdccf169a720b021578823c1edbd72bef6a47b22a5e589bbe4325dfbbf9a",
+        "bytes": 1565
+      },
+      {
+        "source": "apps/dashboard/components/RemoteOnboardingJourney.tsx",
+        "sha256": "c5eba97adb41278b34f5e48ffdb58c4f587ee6e6109d47ac433b79ca577a5765",
+        "bytes": 21191
+      },
+      {
+        "source": "apps/dashboard/components/IntakeProposalWorkspace.tsx",
+        "sha256": "57e618ae951e4924fe5f394cce4f4b39d83cc6c1a42991f0d08c0c80929ef4f5",
+        "bytes": 30268
+      },
+      {
+        "source": "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.tsx",
+        "sha256": "7787be5357097c4791b8d636dcdc2b15f16b9555dc71ea0e05d54b6e8b194326",
+        "bytes": 87728
+      },
+      {
+        "source": "apps/dashboard/components/TorchikoCore.tsx",
+        "sha256": "ba802dda5b63fb91423a2dab5314db4b32f859d7eda85eb7e58e5b4f73fb237f",
+        "bytes": 653
+      },
+      {
+        "source": "apps/dashboard/components/TorchikoClientPrimitives.module.css",
+        "sha256": "32142c770bea3e7966c261304a551f85aa6efb89a213ed2e3c365a2d961df667",
+        "bytes": 6865
+      },
+      {
+        "source": "apps/dashboard/lib/trpc.tsx",
+        "sha256": "2835af903f2a1045cef112cdde82acf27d0d0fc2bc1ea0297480b700f8fa73fe",
+        "bytes": 1976
+      },
+      {
+        "source": "packages/contracts/src/client-portal-lifecycle.ts",
+        "sha256": "c8f720ebed31d2c4f976ec7610f6300943698083e9f7af4eade146a880279c71",
+        "bytes": 5052
+      },
+      {
+        "source": "packages/contracts/src/remote-onboarding.ts",
+        "sha256": "df666b0ce38f2252a1a9b6e2b6b2d03240197b30e214e8874c84156856ef0f04",
+        "bytes": 13820
+      },
+      {
+        "source": "packages/api/src/index.ts",
+        "sha256": "7097079e6f7e0067f44d812f7e33f91aad4807377973d58f0263f7aec4b97c3a",
+        "bytes": 3393
+      },
+      {
+        "source": "packages/api/src/root.ts",
+        "sha256": "715c585b97797954ef05965b9ed2e1830169ec1169e8b12df097928297b74db6",
+        "bytes": 2266
+      },
+      {
+        "source": "packages/api/src/trpc.ts",
+        "sha256": "854e3f6c21ca21884d25f9e87d8f3465f8345bc38b384ec533f20d0e4d440da7",
+        "bytes": 724
+      },
+      {
+        "source": "packages/api/src/routers/intake.ts",
+        "sha256": "adc53986a87b6211dd162f419e6bf27086cb0b0493b08ca9da4af5d26e773c64",
+        "bytes": 13010
+      },
+      {
+        "source": "packages/api/src/routers/admin/intake-operations.ts",
+        "sha256": "ad33742b22c6b5bf1b74a32954dbf18fefa31622dc6847bff36c8767c3573c15",
+        "bytes": 12041
+      },
+      {
+        "source": "packages/api/src/routers/admin/intake-file-extraction.ts",
+        "sha256": "2bee22469f262eca1bc09ac26fff3b0c68b566d283bbf87b2ff0b663087121e2",
+        "bytes": 5338
+      },
+      {
+        "source": "packages/api/src/lib/intake-builder-lifecycle-service.ts",
+        "sha256": "2f0dc9e2e7d5a896f3fb712e08472059ee26c3f704e41ea03b236a6e2ee1e927",
+        "bytes": 26223
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+        "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc",
+        "bytes": 8875
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "sha256": "7fdfd5e96b4ee0ff8590e3339f17e2ae8972ebdd339c8ff6f476e693682c526d",
+        "bytes": 48345
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+        "bytes": 1809
+      },
+      {
+        "source": "packages/db/src/helpers/intake-submission-draft-actions.ts",
+        "sha256": "c8316fe34bf3e44b5c4a66905a021152feedc6176b1750e2d8bdadbf1d4eda38",
+        "bytes": 7685
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e",
+        "bytes": 63064
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+        "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979",
+        "bytes": 14963
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-review-actions.ts",
+        "sha256": "38fd983d103722c9a7369577957e850233f6e38371df26a628eaa7316d5d958f",
+        "bytes": 17591
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-submission-actions.ts",
+        "sha256": "8a09b3baa45b7ba99f610751b786904837f6aa7f74a538639b10b491f56f50a3",
+        "bytes": 25346
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+        "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e",
+        "bytes": 13508
+      },
+      {
+        "source": "packages/api/src/lib/intake-v1-package-candidate.ts",
+        "sha256": "662749add0b3499c11b3a2c4d9df7258d094906cd7b0cdcda0db403f7f198c14",
+        "bytes": 17245
+      },
+      {
+        "source": "packages/api/src/lib/intake-v1-package-draft.ts",
+        "sha256": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d",
+        "bytes": 8536
+      },
+      {
+        "source": "packages/api/src/routers/support.ts",
+        "sha256": "87a08b1eeda074b5c7fdaf54e11903c43b3fcec41bfbe44fc4d36f46a8f4a4a4",
+        "bytes": 22181
+      },
+      {
+        "source": "apps/workers/src/intake-v1-file-extraction-runtime.ts",
+        "sha256": "5c14fe149b2d7dde882c2498df5fcd00d0e368a2f682023ac1378c570539ecf6",
+        "bytes": 3662
+      },
+      {
+        "source": "apps/workers/src/processors/intake-v1-file-extraction.ts",
+        "sha256": "367f28a6ec2005be6b7612587d20de6e99818d6e4219d9f695113cd68e8b3af2",
+        "bytes": 6216
+      },
+      {
+        "source": "packages/auth/src/permissions.ts",
+        "sha256": "6fbadca65c173dd0a74d943ac808f44da60064166b5ccd75eef4d422e3f7b074",
+        "bytes": 921
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+        "bytes": 6270
+      },
+      {
+        "source": "packages/jobs/src/enqueue.ts",
+        "sha256": "86e3b24f46d04c438f4b187195840f657456fc51868aff28b4c77042730331fa",
+        "bytes": 32866
+      },
+      {
+        "source": "packages/jobs/src/queues.ts",
+        "sha256": "f72c81275392f0069794580ffae95da4b9eec7ef27ba8d616a9affa32473c513",
+        "bytes": 8035
+      },
+      {
+        "source": "packages/jobs/src/connection.ts",
+        "sha256": "69c3a629922e20e426ae9d64f16173821ab26fb51eb17da3f824b7c9e8f38b9f",
+        "bytes": 2292
+      },
+      {
+        "source": "apps/workers/src/lib/job-execution.ts",
+        "sha256": "7bd4314266805c5fe1c6a6b4e09969032ba9a5b3ad5767551787569b8e904f4e",
+        "bytes": 3957
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+        "bytes": 598067
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+        "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3",
+        "bytes": 25133
+      }
+    ],
+    "browserPassed": true,
+    "browserCounts": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nextStopped": true,
+    "nextPortAvailableAfterTeardown": true,
+    "nextPortReleaseAfterTeardown": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T00:41:45.170Z",
+          "available": true
+        }
+      ]
+    },
+    "pgStopped": true,
+    "redisStopped": true,
+    "redisConfigSha256": "2eecc4586d7c720c54bdc9905d0b5a7557bfc5d5b680df6962f286a6cffec5f5",
+    "redisWrapperPid": 52968,
+    "redisPort": "16393",
+    "runnerSha256": "01d175023fa3330b1f7d197b268b03f9d6c9a50a573a0cdefb482b6057c1b19f",
+    "qrCurrentReleaseIdentity": {
+      "tenantId": "fixture-remote-onboarding-tenant",
+      "venueId": "cmttdi6iq001h8tfw9sznc230",
+      "appliedPackageId": "cmttdi6jw001n8tfwqfwe4epb",
+      "appliedStatus": "APPLIED",
+      "draftPackageId": "cmttdi6ll001t8tfwidy8jpnf",
+      "lifecycleState": "REVISIONS",
+      "released": true,
+      "providerProof": false,
+      "publicActivePlaceIds": ["cmttdi6kt001q8tfw7cuw4xdz"]
+    }
+  },
+  "ownedSourceHashes": [
+    {
+      "source": "packages/api/src/routers/portal.ts",
+      "sha256": "185161652dbf69b10c7a85dcc844bf1a5e7c313b30d7b744892a92f438d76e8c"
+    },
+    {
+      "source": "packages/api/src/routers/portal.test.ts",
+      "sha256": "531366c92a4da7d5c34251b22c2ac35f3e967b2c632344dabd96b158affbcdc4"
+    },
+    {
+      "source": "packages/api/src/routers/portal-onboarding.test.ts",
+      "sha256": "068859ec3e4ecad2c2e06b02596fd25eec8e3955be237d5f48ec90f10bbb6b90"
+    },
+    {
+      "source": "apps/dashboard/components/VenueQrKitAvailability.tsx",
+      "sha256": "f1b2b0502f619d1ffd22b20bc006433b4eca6a20d0c5c88fe349f060b9ad8c8f"
+    },
+    {
+      "source": "apps/dashboard/components/ConnectedClientHandoffFixture.tsx",
+      "sha256": "9ad0673ed6fea3b3adb2a75f19622e106f4750cb3ae0195ee3e5e90cbe306a2b"
+    },
+    {
+      "source": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.tsx",
+      "sha256": "c434fbe2505b7082cff35c9d344620228202adb9c6759c099b312e1c4c2f8acf"
+    },
+    {
+      "source": "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.test.tsx",
+      "sha256": "e22d626482b0aaa4e268e3a76d545595331827dcf23b160a32db366f0075fc46"
+    },
+    {
+      "source": "apps/dashboard/tests/browser/onboarding-connected.spec.ts",
+      "sha256": "760463727d62129cfa699c0961b66297c3c33b471e01900a7999274592668b3b"
+    }
+  ],
+  "validation": {
+    "dashboardFocused": "15/15 page/component tests PASS",
+    "apiFocused": "16/16 portal and onboarding tests PASS",
+    "apiTypes": "exit0; artifacts/qr-current-release-api-types-20260908.log",
+    "dashboardTypes": "exit0; artifacts/qr-current-release-dashboard-types-candidate-20260908.log",
+    "lint": "Configured API/dashboard owned-file lint passed; final browser spec lint exit0: artifacts/qr-current-release-browser-lint-candidate-20260908.log",
+    "visual": "Root inspected retained390/1440 connected captures. Existing QR cards/actions readable; no horizontal overflow. Existing design preserved; no new generic decorative composition. Next development badge visible; fixture support/header is not production page layout."
+  },
+  "limits": [
+    "Synthetic authenticated session and embedding client; actual disposable DB/router/canonical approval/apply and local browser rendering only.",
+    "Production QR page covered by scoped unit caller tests; connected browser uses shared component and real API in development fixture.",
+    "This case does not decode downloaded SVG or perform physical/device scanning; prior QR decode proof remains separately revision bounded.",
+    "No provider/customer/deployment claim. No draft publication. No scanner/storage-to-live-guide claim.",
+    "All128 original requirements32QA/ABC, four external reservations and field/provider/device/release gates remain."
+  ],
+  "preliminaryProofs": [
+    {
+      "id": "f0e8adcf19a5",
+      "result": "3PASS1FAIL; older fixture nonCUID rejected by canonical API; newcase isolated generatedvenue."
+    },
+    {
+      "id": "9477df98483a",
+      "result": "3PASS1FAIL; canonical LOCATION_REQUIRED rejected fictional exhibit; added explicit fixture coordinates."
+    },
+    {
+      "id": "2defb275deff",
+      "result": "3PASS1FAIL; canonical APPLIED/newDRAFT/release passed; oldrunner missing publicURL correctly kept QR unavailable; added fictional guide.example.test origin."
+    }
+  ]
+}

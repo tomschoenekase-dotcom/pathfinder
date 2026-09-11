@@ -26,12 +26,33 @@ function fixture(direction: 'INBOUND' | 'OUTBOUND' = 'INBOUND') {
       findUnique: vi.fn().mockResolvedValue({
         id: 'message-1',
         organizationId: 'organization-1',
+        venueId: 'venue-1',
+        contactId: 'contact-1',
+        fromAddress: 'guide@example.test',
         direction,
         sourceReference: 'gmail://message/message-1',
         inboundReplyDisposition: null,
         inboundReplyReviewId: null,
+        organization: { canonicalName: 'Museum Group' },
+        venue: { id: 'venue-1', name: 'North Museum' },
+        contact: {
+          id: 'contact-1',
+          organizationId: 'organization-1',
+          venueId: null,
+          normalizedEmail: 'guide@example.test',
+        },
       }),
       update: vi.fn().mockResolvedValue({}),
+    },
+    prospectOnboardingDeliveryAttempt: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(({ data }) => ({
+        id: 'attempt-1',
+        ...data,
+        createdAt,
+        updatedAt: createdAt,
+      })),
     },
     platformOperationalEvent: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -54,6 +75,7 @@ describe('reviewProspectInboundReplyAction', () => {
     await expect(reviewProspectInboundReplyAction(input, client as never)).resolves.toMatchObject({
       replayed: false,
       review: { disposition: 'POSITIVE_INTEREST', revision: 2 },
+      deliveryAttempt: { id: 'attempt-1', status: 'DRAFT' },
     })
     expect(tx.prospectEmailMessage.update).toHaveBeenCalledWith({
       where: { id: 'message-1' },
@@ -75,6 +97,10 @@ describe('reviewProspectInboundReplyAction', () => {
           inferredFromMessageText: false,
           emailSent: false,
           pipelineStageChanged: false,
+          onboardingDeliveryAttemptId: 'attempt-1',
+          onboardingInvitationStatus: 'DRAFT',
+          providerCalled: false,
+          invitationSent: false,
         }),
       }),
     })
@@ -88,14 +114,59 @@ describe('reviewProspectInboundReplyAction', () => {
       ...first.review,
       inputHash: retainedInputHash,
     })
+    tx.prospectOnboardingDeliveryAttempt.findFirst.mockResolvedValue(first.deliveryAttempt)
     tx.prospectInboundReplyReview.create.mockClear()
     tx.prospectEmailMessage.update.mockClear()
+    tx.prospectOnboardingDeliveryAttempt.create.mockClear()
 
     await expect(reviewProspectInboundReplyAction(input, client as never)).resolves.toMatchObject({
       replayed: true,
     })
     expect(tx.prospectInboundReplyReview.create).not.toHaveBeenCalled()
     expect(tx.prospectEmailMessage.update).not.toHaveBeenCalled()
+    expect(tx.prospectOnboardingDeliveryAttempt.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects positive interest without an exact venue instead of selecting an organization venue', async () => {
+    const { tx, client, input } = fixture()
+    tx.prospectEmailMessage.findUnique.mockResolvedValue({
+      ...(await tx.prospectEmailMessage.findUnique()),
+      venueId: null,
+      venue: null,
+    })
+
+    await expect(reviewProspectInboundReplyAction(input, client as never)).rejects.toThrow(
+      'explicitly matched venue and contact',
+    )
+    expect(tx.prospectOnboardingDeliveryAttempt.create).not.toHaveBeenCalled()
+  })
+
+  it('reuses the same message and venue delivery draft after a duplicate classification', async () => {
+    const { tx, client, input, createdAt } = fixture()
+    tx.prospectOnboardingDeliveryAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-existing',
+      idempotencyKey: 'a'.repeat(64),
+      status: 'DRAFT',
+      organizationId: 'organization-1',
+      prospectVenueId: 'venue-1',
+      contactId: 'contact-1',
+      sourceMessageId: 'message-1',
+      sourceReviewId: 'earlier-review',
+      sourceReference: 'gmail://message/message-1',
+      recipientEmailSnapshot: 'guide@example.test',
+      recipientIdentityHash: 'a5ba568c368a3a32a409ab37abe0850587a1eac046960378e002309dd50b6091',
+      templateVersion: 'positive-interest-onboarding-v1',
+      subject: 'subject',
+      textBody: 'body',
+      createdBy: 'founder-1',
+      createdAt,
+      updatedAt: createdAt,
+    })
+
+    await expect(reviewProspectInboundReplyAction(input, client as never)).resolves.toMatchObject({
+      deliveryAttempt: { id: 'attempt-existing' },
+    })
+    expect(tx.prospectOnboardingDeliveryAttempt.create).not.toHaveBeenCalled()
   })
 
   it('rejects outbound messages without recording a classification', async () => {

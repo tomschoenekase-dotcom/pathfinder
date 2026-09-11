@@ -268,7 +268,16 @@ export async function publishWeeklyReportAction(
     }
     const existing = await tx.weeklyReport.findFirst({
       where: { id: input.reportId, tenantId: input.tenantId, venueId: input.venueId },
-      select: { status: true, content: true, updatedAt: true },
+      select: {
+        status: true,
+        content: true,
+        updatedAt: true,
+        generatedAt: true,
+        weekStart: true,
+        weekEnd: true,
+        answerCount: true,
+        sessionCount: true,
+      },
     })
     if (!existing) throw new WeeklyReportActionError('NOT_FOUND', 'Report not found')
     if (existing.status !== 'DRAFT') {
@@ -276,6 +285,17 @@ export async function publishWeeklyReportAction(
     }
     if (!existing.content) {
       throw new WeeklyReportActionError('INVALID_INPUT', 'Report has no content to publish.')
+    }
+    if (
+      !existing.generatedAt ||
+      existing.weekEnd.getTime() < existing.weekStart.getTime() ||
+      existing.answerCount < 0 ||
+      existing.sessionCount < 0
+    ) {
+      throw new WeeklyReportActionError(
+        'PRECONDITION_FAILED',
+        'Report generation evidence is incomplete. Generate the report again before publishing.',
+      )
     }
     if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
       conflict('This report changed after review. Reload it before publishing.')

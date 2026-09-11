@@ -33,6 +33,83 @@ export class FileClarificationError extends Error {
   }
 }
 
+/**
+ * Builds the canonical persisted question shape for an exact retained file extraction.
+ * Both the admin route and the authenticated worker adapter use this so v3/v4 operation
+ * identities and source metadata cannot drift.
+ */
+export function fileExtractionClarificationQuestionPayload(input: {
+  tenantId: string
+  venueId: string
+  runId: string
+  receiptId: string
+  extractedTextHash: string
+  fieldPath: string
+  reason: (typeof FILE_CLARIFICATION_REASONS)[number]
+  blockerScope: (typeof FILE_CLARIFICATION_BLOCKER_SCOPES)[number]
+  question: string
+  evidenceExcerpt: string
+  agentIdentityId: string
+  agentRunId?: string
+}) {
+  const excerptHash = sha256(input.evidenceExcerpt)
+  const runlessOperationIdentity = `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${input.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`
+  const operationId = deterministicUuid(
+    input.agentRunId
+      ? `pathfinder:file-extraction-clarification:v4:${JSON.stringify([
+          input.tenantId,
+          input.venueId,
+          input.runId,
+          input.receiptId,
+          input.extractedTextHash,
+          input.fieldPath,
+          input.reason,
+          input.blockerScope,
+          sha256(input.question),
+          excerptHash,
+          input.agentRunId,
+        ])}`
+      : runlessOperationIdentity,
+  )
+
+  return {
+    operationId,
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    agentIdentityId: input.agentIdentityId,
+    ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    question: input.question,
+    context:
+      input.blockerScope === 'FOUNDATIONAL'
+        ? 'Founder/admin clarification is required for exact retained file evidence. This foundational uncertainty blocks terminal acceptance until answered. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.'
+        : 'Founder/admin clarification is required for exact retained file evidence. This local uncertainty blocks only the affected field/topic; unrelated reviewed proposal work may continue while the ticket remains visible. Its evidence must be excluded until answered, and the answer grants no approval, apply, publication, provider, or venue-contact authority.',
+    questionType: 'LONG_TEXT' as const,
+    category: 'builder-file-clarification',
+    urgency: input.reason === 'DATE_SENSITIVE' ? ('HIGH' as const) : ('NORMAL' as const),
+    evidence: [
+      {
+        kind: 'DOCUMENT_EXCERPT' as const,
+        label: `${input.fieldPath} (${input.reason.replaceAll('_', ' ').toLowerCase()})`,
+        reference: `intake-file-extraction:${input.receiptId}:sha256:${input.extractedTextHash}`,
+        summary: input.evidenceExcerpt,
+      },
+    ],
+    callbackMetadata: {
+      workflow: 'intake-file-extraction-clarification',
+      runId: input.runId,
+      receiptId: input.receiptId,
+      extractedTextHash: input.extractedTextHash,
+      fieldPath: input.fieldPath,
+      reason: input.reason,
+      blockerScope: input.blockerScope,
+      excerptHash,
+      sourceAmendmentRequired: true,
+      ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    },
+    blocking: input.blockerScope === 'FOUNDATIONAL',
+  }
+}
+
 export async function createFileExtractionClarificationQuestion(input: {
   db: TRPCContext['db']
   tenantId: string
@@ -46,6 +123,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   question: string
   evidenceExcerpt: string
   agentIdentityId: string
+  agentRunId?: string
 }) {
   const receipt = await input.db.intakeFileExtractionReceipt.findFirst({
     where: {
@@ -95,47 +173,13 @@ export async function createFileExtractionClarificationQuestion(input: {
       'Choose an enabled in-scope Content identity with draft capability.',
     )
   }
-  const excerptHash = sha256(input.evidenceExcerpt)
-  const operationId = deterministicUuid(
-    `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`,
-  )
-
   try {
     const result = await askAgentQuestionAction(
-      {
-        operationId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
+      fileExtractionClarificationQuestionPayload({
+        ...input,
+        extractedTextHash: receipt.extractedTextHash,
         agentIdentityId: identity.id,
-        question: input.question,
-        context:
-          input.blockerScope === 'FOUNDATIONAL'
-            ? 'Founder/admin clarification is required for exact retained file evidence. This foundational uncertainty blocks terminal acceptance until answered. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.'
-            : 'Founder/admin clarification is required for exact retained file evidence. This local uncertainty blocks only the affected field/topic; unrelated reviewed proposal work may continue while the ticket remains visible. Its evidence must be excluded until answered, and the answer grants no approval, apply, publication, provider, or venue-contact authority.',
-        questionType: 'LONG_TEXT',
-        category: 'builder-file-clarification',
-        urgency: input.reason === 'DATE_SENSITIVE' ? 'HIGH' : 'NORMAL',
-        evidence: [
-          {
-            kind: 'DOCUMENT_EXCERPT',
-            label: `${input.fieldPath} (${input.reason.replaceAll('_', ' ').toLowerCase()})`,
-            reference: `intake-file-extraction:${input.receiptId}:sha256:${receipt.extractedTextHash}`,
-            summary: input.evidenceExcerpt,
-          },
-        ],
-        callbackMetadata: {
-          workflow: 'intake-file-extraction-clarification',
-          runId: input.runId,
-          receiptId: input.receiptId,
-          extractedTextHash: receipt.extractedTextHash,
-          fieldPath: input.fieldPath,
-          reason: input.reason,
-          blockerScope: input.blockerScope,
-          excerptHash,
-          sourceAmendmentRequired: true,
-        },
-        blocking: input.blockerScope === 'FOUNDATIONAL',
-      },
+      }),
       input.db,
     )
     return {
@@ -163,8 +207,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   }
 }
 
-export async function resolveFileExtractionClarification(input: {
-  db: TRPCContext['db']
+export type FileClarificationResolutionInput = {
   tenantId: string
   venueId: string
   runId: string
@@ -177,7 +220,29 @@ export async function resolveFileExtractionClarification(input: {
   amendedExcerpt?: string
   rationale: string
   actorId: string
-}) {
+}
+
+export type FileClarificationResolutionTransaction = Parameters<
+  Parameters<TRPCContext['db']['$transaction']>[0]
+>[0]
+
+export async function resolveFileExtractionClarification(
+  input: FileClarificationResolutionInput & { db: TRPCContext['db'] },
+) {
+  return input.db.$transaction((transaction) =>
+    resolveFileExtractionClarificationInTransaction(transaction, input),
+  )
+}
+
+/** Caller-owned transaction; admission executes under the receipt review lock,
+ * before replay or mutation. Never accept this callback from transport input. */
+export async function resolveFileExtractionClarificationInTransaction(
+  transaction: FileClarificationResolutionTransaction,
+  input: FileClarificationResolutionInput,
+  options: {
+    admitResolution?: (transaction: FileClarificationResolutionTransaction) => Promise<void>
+  } = {},
+) {
   const amendedExcerpt = input.amendedExcerpt?.trim()
   if (
     (input.kind === 'REPLACE_EXCERPT' && !amendedExcerpt) ||
@@ -191,161 +256,162 @@ export async function resolveFileExtractionClarification(input: {
     )
   }
 
-  return input.db.$transaction(async (transaction) => {
-    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${input.receiptId}`}, 0))`
+  await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${input.receiptId}`}, 0))`
+  await options.admitResolution?.(transaction)
 
-    const priorRequest = await transaction.intakeFileClarificationResolution.findUnique({
-      where: {
-        tenantId_requestId: { tenantId: input.tenantId, requestId: input.requestId },
-      },
-    })
-    if (priorRequest) {
-      const replayed =
-        priorRequest.tenantId === input.tenantId &&
-        priorRequest.venueId === input.venueId &&
-        priorRequest.runId === input.runId &&
-        priorRequest.receiptId === input.receiptId &&
-        priorRequest.questionId === input.questionId &&
-        priorRequest.expectedExtractedTextHash === input.expectedExtractedTextHash &&
-        priorRequest.answeredAt.getTime() === input.expectedAnsweredAt.getTime() &&
-        priorRequest.kind === input.kind &&
-        priorRequest.amendedExcerpt === (amendedExcerpt ?? null) &&
-        priorRequest.amendedExcerptHash === (amendedExcerpt ? sha256(amendedExcerpt) : null) &&
-        priorRequest.rationale === input.rationale.trim() &&
-        priorRequest.createdBy === input.actorId
-      if (!replayed) {
-        throw new FileClarificationError(
-          'CONFLICT',
-          'The request ID is already bound to a different file amendment.',
-        )
-      }
-      return fileResolutionResult(priorRequest, true)
-    }
-
-    const receipt = await transaction.intakeFileExtractionReceipt.findFirst({
-      where: {
-        id: input.receiptId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        outcome: 'SUCCEEDED',
-        extractedTextHash: input.expectedExtractedTextHash,
-        run: { sourceKind: 'FILE_UPLOAD', status: 'AWAITING_REVIEW' },
-      },
-      select: {
-        extractedText: true,
-        extractedTextHash: true,
-        review: { select: { id: true } },
-      },
-    })
-    if (!receipt?.extractedText || !receipt.extractedTextHash) {
-      throw new FileClarificationError('NOT_FOUND', 'Successful exact file extraction not found.')
-    }
-    if (receipt.review) {
-      throw new FileClarificationError(
-        'CONFLICT',
-        'The terminal extraction review is already recorded; no source amendment can be attached.',
-      )
-    }
-
-    const question = await transaction.agentQuestion.findFirst({
-      where: {
-        id: input.questionId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        category: 'builder-file-clarification',
-        status: 'ANSWERED',
-      },
-      select: {
-        id: true,
-        answer: true,
-        answeredAt: true,
-        callbackMetadata: true,
-        evidence: true,
-      },
-    })
-    if (
-      !question?.answer ||
-      !question.answeredAt ||
-      question.answeredAt.getTime() !== input.expectedAnsweredAt.getTime()
-    ) {
-      throw new FileClarificationError(
-        'PRECONDITION_FAILED',
-        'An exact retained founder answer is required before source amendment.',
-      )
-    }
-    const metadata =
-      question.callbackMetadata &&
-      typeof question.callbackMetadata === 'object' &&
-      !Array.isArray(question.callbackMetadata)
-        ? (question.callbackMetadata as Record<string, unknown>)
-        : {}
-    const evidence = Array.isArray(question.evidence) ? question.evidence : []
-    const excerpt = evidence.flatMap((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-      const record = item as Record<string, unknown>
-      return record.kind === 'DOCUMENT_EXCERPT' && typeof record.summary === 'string'
-        ? [record.summary]
-        : []
-    })[0]
-    const fieldPath = metadata.fieldPath
-    const reason = metadata.reason
-    const blockerScope = metadata.blockerScope
-    const excerptHash = metadata.excerptHash
-    if (
-      metadata.workflow !== 'intake-file-extraction-clarification' ||
-      metadata.runId !== input.runId ||
-      metadata.receiptId !== input.receiptId ||
-      metadata.extractedTextHash !== input.expectedExtractedTextHash ||
-      typeof fieldPath !== 'string' ||
-      !(FILE_CLARIFICATION_REASONS as readonly unknown[]).includes(reason) ||
-      !(FILE_CLARIFICATION_BLOCKER_SCOPES as readonly unknown[]).includes(blockerScope) ||
-      typeof excerptHash !== 'string' ||
-      typeof excerpt !== 'string' ||
-      sha256(excerpt) !== excerptHash ||
-      !receipt.extractedText.includes(excerpt)
-    ) {
-      throw new FileClarificationError(
-        'PRECONDITION_FAILED',
-        'The retained clarification no longer matches the exact extraction evidence.',
-      )
-    }
-
-    const existingQuestionResolution =
-      await transaction.intakeFileClarificationResolution.findUnique({
-        where: { questionId: question.id },
-      })
-    if (existingQuestionResolution) {
-      throw new FileClarificationError(
-        'CONFLICT',
-        'This answered clarification already has an immutable source amendment.',
-      )
-    }
-    const resolution = await transaction.intakeFileClarificationResolution.create({
-      data: {
-        id: input.requestId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        receiptId: input.receiptId,
-        questionId: question.id,
-        requestId: input.requestId,
-        expectedExtractedTextHash: input.expectedExtractedTextHash,
-        fieldPath,
-        reason: reason as (typeof FILE_CLARIFICATION_REASONS)[number],
-        blockerScope: blockerScope as (typeof FILE_CLARIFICATION_BLOCKER_SCOPES)[number],
-        excerptHash,
-        answerHash: sha256(question.answer),
-        answeredAt: question.answeredAt,
-        kind: input.kind,
-        amendedExcerpt: amendedExcerpt ?? null,
-        amendedExcerptHash: amendedExcerpt ? sha256(amendedExcerpt) : null,
-        rationale: input.rationale.trim(),
-        createdBy: input.actorId,
-      },
-    })
-    return fileResolutionResult(resolution, false)
+  const priorRequest = await transaction.intakeFileClarificationResolution.findUnique({
+    where: {
+      tenantId: input.tenantId,
+      tenantId_requestId: { tenantId: input.tenantId, requestId: input.requestId },
+    },
   })
+  if (priorRequest) {
+    const replayed =
+      priorRequest.tenantId === input.tenantId &&
+      priorRequest.venueId === input.venueId &&
+      priorRequest.runId === input.runId &&
+      priorRequest.receiptId === input.receiptId &&
+      priorRequest.questionId === input.questionId &&
+      priorRequest.expectedExtractedTextHash === input.expectedExtractedTextHash &&
+      priorRequest.answeredAt.getTime() === input.expectedAnsweredAt.getTime() &&
+      priorRequest.kind === input.kind &&
+      priorRequest.amendedExcerpt === (amendedExcerpt ?? null) &&
+      priorRequest.amendedExcerptHash === (amendedExcerpt ? sha256(amendedExcerpt) : null) &&
+      priorRequest.rationale === input.rationale.trim() &&
+      priorRequest.createdBy === input.actorId
+    if (!replayed) {
+      throw new FileClarificationError(
+        'CONFLICT',
+        'The request ID is already bound to a different file amendment.',
+      )
+    }
+    return fileResolutionResult(priorRequest, true)
+  }
+
+  const receipt = await transaction.intakeFileExtractionReceipt.findFirst({
+    where: {
+      id: input.receiptId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      runId: input.runId,
+      outcome: 'SUCCEEDED',
+      extractedTextHash: input.expectedExtractedTextHash,
+      run: { sourceKind: 'FILE_UPLOAD', status: 'AWAITING_REVIEW' },
+    },
+    select: {
+      extractedText: true,
+      extractedTextHash: true,
+      review: { select: { id: true } },
+    },
+  })
+  if (!receipt?.extractedText || !receipt.extractedTextHash) {
+    throw new FileClarificationError('NOT_FOUND', 'Successful exact file extraction not found.')
+  }
+  if (receipt.review) {
+    throw new FileClarificationError(
+      'CONFLICT',
+      'The terminal extraction review is already recorded; no source amendment can be attached.',
+    )
+  }
+
+  const question = await transaction.agentQuestion.findFirst({
+    where: {
+      id: input.questionId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      category: 'builder-file-clarification',
+      status: 'ANSWERED',
+    },
+    select: {
+      id: true,
+      answer: true,
+      answeredAt: true,
+      callbackMetadata: true,
+      evidence: true,
+    },
+  })
+  if (
+    !question?.answer ||
+    !question.answeredAt ||
+    question.answeredAt.getTime() !== input.expectedAnsweredAt.getTime()
+  ) {
+    throw new FileClarificationError(
+      'PRECONDITION_FAILED',
+      'An exact retained founder answer is required before source amendment.',
+    )
+  }
+  const metadata =
+    question.callbackMetadata &&
+    typeof question.callbackMetadata === 'object' &&
+    !Array.isArray(question.callbackMetadata)
+      ? (question.callbackMetadata as Record<string, unknown>)
+      : {}
+  const evidence = Array.isArray(question.evidence) ? question.evidence : []
+  const excerpt = evidence.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Record<string, unknown>
+    return record.kind === 'DOCUMENT_EXCERPT' && typeof record.summary === 'string'
+      ? [record.summary]
+      : []
+  })[0]
+  const fieldPath = metadata.fieldPath
+  const reason = metadata.reason
+  const blockerScope = metadata.blockerScope
+  const excerptHash = metadata.excerptHash
+  if (
+    metadata.workflow !== 'intake-file-extraction-clarification' ||
+    metadata.runId !== input.runId ||
+    metadata.receiptId !== input.receiptId ||
+    metadata.extractedTextHash !== input.expectedExtractedTextHash ||
+    typeof fieldPath !== 'string' ||
+    !(FILE_CLARIFICATION_REASONS as readonly unknown[]).includes(reason) ||
+    !(FILE_CLARIFICATION_BLOCKER_SCOPES as readonly unknown[]).includes(blockerScope) ||
+    typeof excerptHash !== 'string' ||
+    typeof excerpt !== 'string' ||
+    sha256(excerpt) !== excerptHash ||
+    !receipt.extractedText.includes(excerpt)
+  ) {
+    throw new FileClarificationError(
+      'PRECONDITION_FAILED',
+      'The retained clarification no longer matches the exact extraction evidence.',
+    )
+  }
+
+  const existingQuestionResolution = await transaction.intakeFileClarificationResolution.findUnique(
+    {
+      where: { questionId: question.id, tenantId: input.tenantId, venueId: input.venueId },
+    },
+  )
+  if (existingQuestionResolution) {
+    throw new FileClarificationError(
+      'CONFLICT',
+      'This answered clarification already has an immutable source amendment.',
+    )
+  }
+  const resolution = await transaction.intakeFileClarificationResolution.create({
+    data: {
+      id: input.requestId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      runId: input.runId,
+      receiptId: input.receiptId,
+      questionId: question.id,
+      requestId: input.requestId,
+      expectedExtractedTextHash: input.expectedExtractedTextHash,
+      fieldPath,
+      reason: reason as (typeof FILE_CLARIFICATION_REASONS)[number],
+      blockerScope: blockerScope as (typeof FILE_CLARIFICATION_BLOCKER_SCOPES)[number],
+      excerptHash,
+      answerHash: sha256(question.answer),
+      answeredAt: question.answeredAt,
+      kind: input.kind,
+      amendedExcerpt: amendedExcerpt ?? null,
+      amendedExcerptHash: amendedExcerpt ? sha256(amendedExcerpt) : null,
+      rationale: input.rationale.trim(),
+      createdBy: input.actorId,
+    },
+  })
+  return fileResolutionResult(resolution, false)
 }
 
 function fileResolutionResult(

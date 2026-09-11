@@ -13,11 +13,12 @@ import type { ClientJourneyStage, TorchikoCoreState } from './ClientPortalPrimit
 import { IntakeFileUploadWorkspace } from './IntakeFileUpload'
 import { IntakeCorrectionForm } from './IntakeCorrectionForm'
 import { IntakeProposalReview } from './IntakeProposalReview'
-import { IntakeProposalWorkspace, type IntakeProposalSummary } from './IntakeProposalWorkspace'
+import type { IntakeProposalSummary } from './IntakeProposalWorkspace'
+import { IntakeV1SubmissionWorkspace } from './IntakeV1SubmissionWorkspace'
 import styles from './RemoteOnboardingJourney.module.css'
 
 type JourneyData = {
-  venue: { id: string; name: string }
+  venue: { id: string; name: string; category: string | null }
   lifecycle: ClientPortalLifecycleView
   projection: RemoteOnboardingProjection
   materials: {
@@ -38,6 +39,12 @@ type JourneyData = {
       subject: string
       prompts: string[]
       additionalPromptCount: number
+      context?: {
+        version: 1
+        why: string
+        whatWasFound?: string | undefined
+        effect: string
+      }
     }>
     additionalQuestionCount: number
   }
@@ -174,11 +181,13 @@ function clientJourney(data: JourneyData): {
 }
 
 export function RemoteOnboardingJourney({
+  ownerId,
   data,
   uploads = [],
   nextCursor = null,
   proposals = [],
 }: {
+  ownerId: string
   data: JourneyData
   uploads?: SafeUpload[]
   nextCursor?: { createdAt: string; id: string } | null
@@ -188,6 +197,11 @@ export function RemoteOnboardingJourney({
   const supportHref = `/support?${new URLSearchParams({
     venue: data.venue.id,
     returnTo: onboardingHref,
+  })}`
+  const themePreferenceHref = `/support?${new URLSearchParams({
+    venue: data.venue.id,
+    new: 'theme-preference',
+    returnTo: `${onboardingHref}#review`,
   })}`
   const previewHref =
     data.preview.state === 'AVAILABLE' && data.preview.packageId
@@ -247,7 +261,7 @@ export function RemoteOnboardingJourney({
               {data.projection.primaryAction.required
                 ? 'The action above still needs your attention, and Torchiko will bring you back to it.'
                 : 'Nothing else is required right now. You can close this page and return later.'}{' '}
-              Unfinished entries are not saved until you share them.
+              Unfinished website, staff, and note entries save privately while you work.
             </p>
           </section>
         ) : null}
@@ -255,6 +269,7 @@ export function RemoteOnboardingJourney({
         <div id="materials" className={styles.materials}>
           <IntakeFileUploadWorkspace
             venueId={data.venue.id}
+            venueCategory={data.venue.category}
             uploads={uploads}
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}
@@ -268,7 +283,11 @@ export function RemoteOnboardingJourney({
               A website, a few staff answers, or a plain-language note can give Torchiko useful
               context. Sharing them does not publish anything to visitors.
             </p>
-            <IntakeProposalWorkspace venueId={data.venue.id} proposals={proposals} />
+            <IntakeV1SubmissionWorkspace
+              ownerId={ownerId}
+              venueId={data.venue.id}
+              proposals={proposals}
+            />
           </section>
         </div>
 
@@ -284,11 +303,35 @@ export function RemoteOnboardingJourney({
               <p className={styles.reviewIntro}>
                 Torchiko asks only when a missing detail would materially improve a visitor answer.
               </p>
+              {data.questions.additionalQuestionCount ? (
+                <p className={styles.questionRemainder}>
+                  {data.questions.additionalQuestionCount} more focused question
+                  {data.questions.additionalQuestionCount === 1 ? ' is' : 's are'} waiting.
+                </p>
+              ) : null}
             </div>
             <ul className={styles.questionList}>
               {data.questions.items.map((question) => (
                 <li key={question.requestId} className={styles.questionItem}>
                   <h3>{question.subject}</h3>
+                  {question.context ? (
+                    <dl className={styles.questionContext}>
+                      <div>
+                        <dt>Why we’re asking</dt>
+                        <dd>{question.context.why}</dd>
+                      </div>
+                      {question.context.whatWasFound ? (
+                        <div>
+                          <dt>What Torchiko found</dt>
+                          <dd>{question.context.whatWasFound}</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt>What your answer helps</dt>
+                        <dd>{question.context.effect}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
                   <ul>
                     {question.prompts.map((prompt) => (
                       <li key={prompt}>{prompt}</li>
@@ -300,6 +343,9 @@ export function RemoteOnboardingJourney({
                       {question.additionalPromptCount === 1 ? '' : 's'} in this conversation
                     </p>
                   ) : null}
+                  <p className={styles.questionGuidance}>
+                    If you are not sure, say so in the conversation so Torchiko can follow up.
+                  </p>
                   <Link
                     href={`/support?${new URLSearchParams({
                       venue: data.venue.id,
@@ -419,6 +465,13 @@ export function RemoteOnboardingJourney({
                 you to review yet; you can leave this page and return later.
               </p>
             )}
+            <p className={styles.reviewIntro}>
+              Have a color or style preference for the visitor guide? You can share it for review;
+              requesting a preference does not change the guide.
+            </p>
+            <Link href={themePreferenceHref} className={styles.supportLink}>
+              <MessageCircle aria-hidden="true" /> Request guide appearance
+            </Link>
           </section>
         ) : null}
 

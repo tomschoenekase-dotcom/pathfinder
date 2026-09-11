@@ -6,6 +6,10 @@ import {
   IntakeEvidence,
   IntakeProposal,
   type IntakeDiscrepancy,
+  WebsiteSourceDiscovery,
+  WebsitePageTextEvidenceCollection,
+  type WebsitePageTextEvidence,
+  type WebsitePdfExtractionFailure,
   type WebsiteIntakeBounds,
   WebsiteIntakeBounds as WebsiteIntakeBoundsSchema,
 } from '@pathfinder/contracts/intake-engine'
@@ -23,6 +27,14 @@ const DEFAULT_MAX_REDIRECTS = 5
 const MAX_RESOLVED_ADDRESSES = 64
 const MAX_EXTRACTED_LINKS_PER_PAGE = 500
 const MAX_EXTRACTED_FACTS_PER_PAGE = 500
+const MAX_DISCOVERY_REFERENCES = 1_000
+export const WEBSITE_INTAKE_COLLECTION_POLICY_VERSION = 2
+/**
+ * Engineering work estimate only: one unit for each dispatched HTTP fetch plus
+ * one unit for each started 100 kB of successfully observed response body.
+ * It is neither a provider charge nor a claim about bytes in unread redirects.
+ */
+export const WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION = 2
 const SENSITIVE_QUERY_KEY =
   /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
 
@@ -60,6 +72,9 @@ export type ExtractedWebsiteFact = {
 export type ExtractedWebsitePage = {
   links: readonly string[]
   facts: readonly ExtractedWebsiteFact[]
+  readableText?: string
+  extractionProfile?: WebsitePageTextEvidence['extractionProfile']
+  pdfPageCount?: number
 }
 
 export type WebsiteIntakeDependencies = {
@@ -73,7 +88,20 @@ export type WebsiteIntakeDependencies = {
     }) => Promise<boolean>
   }
   fetchPage: (request: WebsiteIntakeFetchRequest) => Promise<WebsiteIntakeFetchResponse>
-  extractPage: (input: { url: string; body: string }) => Promise<ExtractedWebsitePage>
+  extractPage: (input: {
+    url: string
+    body: string
+    contentType?: string
+  }) => Promise<ExtractedWebsitePage>
+  extractPdfPage?: (input: {
+    url: string
+    bytes: Uint8Array
+    timeoutMs: number
+    signal?: AbortSignal
+  }) => Promise<
+    | { outcome: 'SUCCEEDED'; readableText: string; pdfPageCount: number }
+    | { outcome: 'FAILED'; errorCode: WebsitePdfExtractionFailure }
+  >
   mapToVenuePackage?: (input: WebsiteIntakeIntermediate) => Promise<VenuePackagePayloadType>
   now?: () => Date
 }
@@ -108,6 +136,8 @@ export type WebsiteIntakeIntermediate = {
   citations: readonly WebsiteIntakeCitation[]
   evidence: readonly IntakeEvidence[]
   discrepancies: readonly IntakeDiscrepancy[]
+  pageTextEvidence?: WebsitePageTextEvidence[]
+  discovery?: WebsiteSourceDiscovery
 }
 
 export type WebsiteIntakeResult = {
@@ -130,7 +160,95 @@ export type WebsiteIntakeResult = {
   }
 }
 
+export function websiteIntakeEngineeringCostUnits(input: {
+  attemptedFetches: number
+  observedBodyBytes: number
+}) {
+  return input.attemptedFetches + Math.ceil(input.observedBodyBytes / 100_000)
+}
+
 type AdmittedUrl = { canonicalUrl: string; hostname: string }
+
+type DiscoveryDisposition = WebsiteSourceDiscovery['items'][number]['disposition']
+
+const DOCUMENT_EXTENSIONS = new Set([
+  '.doc',
+  '.docx',
+  '.epub',
+  '.odt',
+  '.pdf',
+  '.ppt',
+  '.pptx',
+  '.rtf',
+  '.xls',
+  '.xlsx',
+])
+const VIDEO_EXTENSIONS = new Set([
+  '.aac',
+  '.avi',
+  '.flac',
+  '.m4a',
+  '.m4v',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.mpeg',
+  '.mpg',
+  '.ogg',
+  '.ogv',
+  '.wav',
+  '.webm',
+])
+const IMAGE_EXTENSIONS = new Set([
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.heic',
+  '.heif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.tif',
+  '.tiff',
+  '.webp',
+])
+
+function extensionDisposition(url: string): DiscoveryDisposition | null {
+  const pathname = new URL(url).pathname.toLowerCase()
+  const extension = pathname.match(/\.[a-z0-9]{1,8}$/u)?.[0]
+  if (!extension) return null
+  if (DOCUMENT_EXTENSIONS.has(extension)) return 'UNSUPPORTED_DOCUMENT'
+  if (VIDEO_EXTENSIONS.has(extension)) return 'UNSUPPORTED_VIDEO'
+  if (IMAGE_EXTENSIONS.has(extension)) return 'UNSUPPORTED_IMAGE'
+  return null
+}
+
+function mimeDisposition(contentType: string): DiscoveryDisposition {
+  const normalized = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  if (
+    !normalized ||
+    normalized === 'text/html' ||
+    normalized === 'application/xhtml+xml' ||
+    normalized === 'text/plain'
+  )
+    return 'FETCHED_TEXT'
+  if (
+    normalized === 'application/pdf' ||
+    /(?:msword|officedocument|opendocument|epub|rtf)/u.test(normalized)
+  )
+    return 'UNSUPPORTED_DOCUMENT'
+  if (normalized.startsWith('video/') || normalized.startsWith('audio/')) return 'UNSUPPORTED_VIDEO'
+  if (normalized.startsWith('image/')) return 'UNSUPPORTED_IMAGE'
+  return 'UNSUPPORTED_OTHER'
+}
+
+function normalizedContentType(contentType: string) {
+  const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  return mediaType.length <= 255 && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(mediaType)
+    ? mediaType
+    : undefined
+}
 
 function sha256(value: string | Uint8Array) {
   return createHash('sha256').update(value).digest('hex')
@@ -215,7 +333,11 @@ function canonicalizeUrl(raw: string, base: string | undefined, allowedHosts: Re
   url.port = ''
   url.hash = ''
   url.searchParams.sort()
-  return { canonicalUrl: url.toString(), hostname } satisfies AdmittedUrl
+  const canonicalUrl = url.toString()
+  if (canonicalUrl.length > 2_048) {
+    throw new WebsiteIntakePolicyError('Website URL exceeded its length limit')
+  }
+  return { canonicalUrl, hostname } satisfies AdmittedUrl
 }
 
 function ipv4Bytes(address: string) {
@@ -401,22 +523,105 @@ export async function buildWebsiteIntakeProposal(
   const startedAt = now().getTime()
   const allowedHosts = normalizeAllowedHosts(bounds.allowedHosts)
   const start = canonicalizeUrl(request.startUrl, undefined, allowedHosts)
+  if (
+    isPrivateHostname(start.hostname) ||
+    (isIP(start.hostname) !== 0 && !isPublicWebsiteAddress(start.hostname))
+  ) {
+    throw new WebsiteIntakePolicyError('Private and metadata hostnames are not allowed')
+  }
   const dedupeMaterial = stableJson({
     tenantId: request.tenantId,
     venueId: request.venueId,
     sourceId: request.sourceId,
     startUrl: start.canonicalUrl,
     bounds,
+    collectionPolicyVersion: WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
   })
   const dedupeKey = sha256(dedupeMaterial)
   const runId = `website_${dedupeKey.slice(0, 24)}`
   const draftKey = deterministicUuid(sha256(`draft:${dedupeKey}`))
-  const queue: Array<{ admitted: AdmittedUrl; depth: number }> = [{ admitted: start, depth: 0 }]
+  const queue: Array<{ admitted: AdmittedUrl; depth: number; parentUrl: string | null }> = [
+    { admitted: start, depth: 0, parentUrl: null },
+  ]
+  const admittedReferences = new Set([start.canonicalUrl])
   const seen = new Set<string>()
+  const pageTextEvidence: WebsitePageTextEvidence[] = []
+  let retainedTextCodePoints = 0
   const pages: Array<{ url: string; depth: number; byteSize: number; normalizedHash: string }> = []
   const citations: WebsiteIntakeCitation[] = []
   let attemptedFetches = 0
   let fetchedBytes = 0
+  let networkCandidates = 0
+  let omittedDiscoveryCount = 0
+  const discoveryObservedAt = now().toISOString()
+  const discoveryItems: WebsiteSourceDiscovery['items'][number][] = []
+  const discoveredItemUrls = new Set<string>()
+  const firstUrlByExactHash = new Map<string, string>()
+
+  const observe = (
+    queued: { admitted: AdmittedUrl; depth: number; parentUrl: string | null },
+    disposition: DiscoveryDisposition,
+    received?: {
+      contentType: string
+      byteSize: number
+      exactByteHash: string
+      duplicateOf?: string
+      extractionFailureCode?: WebsitePdfExtractionFailure
+    },
+  ) => {
+    if (discoveredItemUrls.has(queued.admitted.canonicalUrl)) return
+    discoveredItemUrls.add(queued.admitted.canonicalUrl)
+    discoveryItems.push({
+      url: queued.admitted.canonicalUrl,
+      parentUrl: queued.parentUrl,
+      depth: queued.depth,
+      observedAt: now().toISOString(),
+      disposition,
+      ...(received
+        ? {
+            ...(normalizedContentType(received.contentType)
+              ? { contentType: normalizedContentType(received.contentType) }
+              : {}),
+            byteSize: received.byteSize,
+            exactByteHash: received.exactByteHash,
+            ...(received.duplicateOf ? { duplicateOf: received.duplicateOf } : {}),
+            ...(received.extractionFailureCode
+              ? { extractionFailureCode: received.extractionFailureCode }
+              : {}),
+          }
+        : {}),
+    })
+  }
+
+  const unsupportedExtension = (url: string) =>
+    dependencies.extractPdfPage && new URL(url).pathname.toLowerCase().endsWith('.pdf')
+      ? null
+      : extensionDisposition(url)
+
+  const safelyAdmitChild = (raw: string, parent: AdmittedUrl, depth: number) => {
+    let child: AdmittedUrl
+    try {
+      child = canonicalizeUrl(raw, parent.canonicalUrl, allowedHosts)
+      if (
+        isPrivateHostname(child.hostname) ||
+        (isIP(child.hostname) !== 0 && !isPublicWebsiteAddress(child.hostname))
+      )
+        return
+    } catch (error) {
+      if (error instanceof WebsiteIntakePolicyError) return
+      throw error
+    }
+    if (admittedReferences.has(child.canonicalUrl)) return
+    if (admittedReferences.size >= MAX_DISCOVERY_REFERENCES) {
+      omittedDiscoveryCount += 1
+      return
+    }
+    admittedReferences.add(child.canonicalUrl)
+    const reference = { admitted: child, depth, parentUrl: parent.canonicalUrl }
+    const unsupported = unsupportedExtension(child.canonicalUrl)
+    if (unsupported) observe(reference, unsupported)
+    else queue.push(reference)
+  }
 
   const remainingTime = () => {
     if (request.signal?.aborted) throw new WebsiteIntakePolicyError('Website intake was cancelled')
@@ -425,11 +630,20 @@ export async function buildWebsiteIntakeProposal(
     return remaining
   }
 
-  while (queue.length > 0 && pages.length < bounds.maxPages) {
+  let pdfExhaustedTime = false
+  while (queue.length > 0 && networkCandidates < bounds.maxPages) {
     const queued = queue.shift()
     if (!queued || seen.has(queued.admitted.canonicalUrl)) continue
     seen.add(queued.admitted.canonicalUrl)
+    remainingTime()
+    const knownUnsupported = unsupportedExtension(queued.admitted.canonicalUrl)
+    if (knownUnsupported) {
+      observe(queued, knownUnsupported)
+      continue
+    }
+    networkCandidates += 1
     let admitted = queued.admitted
+    let observationReference = queued
     const redirects = new Set<string>()
     let response: WebsiteIntakeFetchResponse | null = null
 
@@ -449,7 +663,10 @@ export async function buildWebsiteIntakeProposal(
         timeoutMs,
       })
       remainingTime()
-      if (!robotsAllowed) break
+      if (!robotsAllowed) {
+        observe(observationReference, 'ROBOTS_DENIED')
+        break
+      }
       attemptedFetches += 1
       response = await dependencies.fetchPage({
         url: admitted.canonicalUrl,
@@ -466,7 +683,37 @@ export async function buildWebsiteIntakeProposal(
         if (redirectCount === maxRedirects) {
           throw new WebsiteIntakePolicyError('Website exceeded its redirect limit')
         }
-        admitted = canonicalizeUrl(location, admitted.canonicalUrl, allowedHosts)
+        const redirectSourceUrl = admitted.canonicalUrl
+        admitted = canonicalizeUrl(location, redirectSourceUrl, allowedHosts)
+        if (
+          isPrivateHostname(admitted.hostname) ||
+          (isIP(admitted.hostname) !== 0 && !isPublicWebsiteAddress(admitted.hostname))
+        ) {
+          throw new WebsiteIntakePolicyError('Website redirect targeted a non-public host')
+        }
+        if (!admittedReferences.has(admitted.canonicalUrl)) {
+          if (admittedReferences.size >= MAX_DISCOVERY_REFERENCES) {
+            omittedDiscoveryCount += 1
+            response = null
+            break
+          }
+          admittedReferences.add(admitted.canonicalUrl)
+        } else if (discoveredItemUrls.has(admitted.canonicalUrl)) {
+          response = null
+          break
+        }
+        observationReference = {
+          admitted,
+          depth: queued.depth,
+          parentUrl: redirectSourceUrl,
+        }
+        const unsupported = unsupportedExtension(admitted.canonicalUrl)
+        if (unsupported) {
+          observe(observationReference, unsupported)
+          response = null
+          break
+        }
+        seen.add(admitted.canonicalUrl)
         response = null
         continue
       }
@@ -480,17 +727,100 @@ export async function buildWebsiteIntakeProposal(
     const body = responseBody(response, bounds.maxBytesPerPage)
     fetchedBytes += body.byteLength
     const normalizedHash = sha256(body)
+    const contentType = header(response, 'content-type') ?? ''
+    const disposition = mimeDisposition(contentType)
+    const duplicateOf = firstUrlByExactHash.get(normalizedHash)
+    if (!duplicateOf) firstUrlByExactHash.set(normalizedHash, admitted.canonicalUrl)
+    const received = {
+      contentType,
+      byteSize: body.byteLength,
+      exactByteHash: normalizedHash,
+      ...(duplicateOf ? { duplicateOf } : {}),
+    }
+    let extracted: ExtractedWebsitePage
+    if (normalizedContentType(contentType) === 'application/pdf' && dependencies.extractPdfPage) {
+      let result: Awaited<ReturnType<NonNullable<WebsiteIntakeDependencies['extractPdfPage']>>>
+      try {
+        result = await dependencies.extractPdfPage({
+          url: admitted.canonicalUrl,
+          bytes: body,
+          timeoutMs: Math.min(15_000, remainingTime()),
+          ...(request.signal ? { signal: request.signal } : {}),
+        })
+      } catch {
+        result = { outcome: 'FAILED', errorCode: 'PDF_PARSE_FAILED' }
+      }
+      if (request.signal?.aborted)
+        throw new WebsiteIntakePolicyError('Website intake was cancelled')
+      if (now().getTime() - startedAt >= maxDurationMs) {
+        result = { outcome: 'FAILED', errorCode: 'PDF_EXTRACTION_TIMEOUT' }
+      }
+      if (result.outcome === 'FAILED') {
+        observe(observationReference, 'PDF_EXTRACTION_FAILED', {
+          ...received,
+          extractionFailureCode: result.errorCode,
+        })
+        if (now().getTime() - startedAt >= maxDurationMs) {
+          pdfExhaustedTime = true
+          break
+        }
+        continue
+      }
+      observe(observationReference, 'PDF_TEXT_EXTRACTED', received)
+      extracted = {
+        links: [],
+        facts: [],
+        readableText: result.readableText,
+        extractionProfile: 'pdfjs-document-v1',
+        pdfPageCount: result.pdfPageCount,
+      }
+    } else {
+      observe(observationReference, disposition, received)
+      if (disposition !== 'FETCHED_TEXT') continue
+      extracted = await dependencies.extractPage({
+        url: admitted.canonicalUrl,
+        body: body.toString('utf8'),
+        contentType,
+      })
+    }
     pages.push({
       url: admitted.canonicalUrl,
       depth: queued.depth,
       byteSize: body.byteLength,
       normalizedHash,
     })
-    const extracted = await dependencies.extractPage({
-      url: admitted.canonicalUrl,
-      body: body.toString('utf8'),
-    })
     remainingTime()
+    if ((extracted.readableText === undefined) !== (extracted.extractionProfile === undefined)) {
+      throw new WebsiteIntakePolicyError('Extractor text requires its extraction profile')
+    }
+    if (extracted.readableText !== undefined && extracted.extractionProfile !== undefined) {
+      if (extracted.readableText.length > 20_000_000) {
+        throw new WebsiteIntakePolicyError('Extractor text exceeded its size limit')
+      }
+      const retained: string[] = []
+      const retentionLimit = Math.min(20_000, 100_000 - retainedTextCodePoints)
+      let fullCodePointCount = 0
+      for (const codePoint of extracted.readableText) {
+        if (fullCodePointCount < retentionLimit) retained.push(codePoint)
+        fullCodePointCount += 1
+      }
+      const text = retained.join('')
+      const retainedCodePointCount = retained.length
+      pageTextEvidence.push({
+        sourceUrl: admitted.canonicalUrl,
+        exactByteHash: normalizedHash,
+        capturedAt: now().toISOString(),
+        extractionProfile: extracted.extractionProfile,
+        ...(extracted.pdfPageCount !== undefined ? { pdfPageCount: extracted.pdfPageCount } : {}),
+        text,
+        normalizedTextHash: sha256(extracted.readableText),
+        retainedTextHash: sha256(text),
+        fullCodePointCount,
+        retainedCodePointCount,
+        truncated: retainedCodePointCount < fullCodePointCount,
+      })
+      retainedTextCodePoints += retainedCodePointCount
+    }
     if (extracted.links.length > MAX_EXTRACTED_LINKS_PER_PAGE) {
       throw new WebsiteIntakePolicyError('Extractor returned too many links')
     }
@@ -535,15 +865,41 @@ export async function buildWebsiteIntakeProposal(
     }
     if (queued.depth < bounds.maxDepth) {
       for (const link of extracted.links) {
+        remainingTime()
+        safelyAdmitChild(link, admitted, queued.depth + 1)
+      }
+    } else {
+      for (const link of extracted.links) {
+        remainingTime()
+        let child: AdmittedUrl
         try {
-          const child = canonicalizeUrl(link, admitted.canonicalUrl, allowedHosts)
-          if (!seen.has(child.canonicalUrl))
-            queue.push({ admitted: child, depth: queued.depth + 1 })
+          child = canonicalizeUrl(link, admitted.canonicalUrl, allowedHosts)
+          if (
+            isPrivateHostname(child.hostname) ||
+            (isIP(child.hostname) !== 0 && !isPublicWebsiteAddress(child.hostname))
+          )
+            continue
         } catch (error) {
-          if (!(error instanceof WebsiteIntakePolicyError)) throw error
+          if (error instanceof WebsiteIntakePolicyError) continue
+          throw error
         }
+        if (admittedReferences.has(child.canonicalUrl)) continue
+        if (admittedReferences.size >= MAX_DISCOVERY_REFERENCES) {
+          omittedDiscoveryCount += 1
+          continue
+        }
+        admittedReferences.add(child.canonicalUrl)
+        observe(
+          { admitted: child, depth: queued.depth + 1, parentUrl: admitted.canonicalUrl },
+          unsupportedExtension(child.canonicalUrl) ?? 'DEPTH_LIMIT',
+        )
       }
     }
+  }
+
+  for (const queued of queue) {
+    if (!pdfExhaustedTime) remainingTime()
+    observe(queued, pdfExhaustedTime ? 'TIME_LIMIT' : 'PAGE_LIMIT')
   }
 
   const uniqueCitations = [
@@ -560,13 +916,23 @@ export async function buildWebsiteIntakeProposal(
     }),
   )
   const discrepancies = discrepanciesFor(uniqueCitations)
+  const discovery = WebsiteSourceDiscovery.parse({
+    policyVersion: WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
+    observedAt: discoveryObservedAt,
+    items: discoveryItems,
+    omittedCount: omittedDiscoveryCount,
+  })
   const intermediate: WebsiteIntakeIntermediate = {
     schemaVersion: 1,
     sourceId: request.sourceId,
     pages,
+    ...(pageTextEvidence.length > 0
+      ? { pageTextEvidence: WebsitePageTextEvidenceCollection.parse(pageTextEvidence) }
+      : {}),
     citations: uniqueCitations,
     evidence,
     discrepancies,
+    discovery,
   }
   const payload = dependencies.mapToVenuePackage
     ? VenuePackagePayload.parse(await dependencies.mapToVenuePackage(intermediate))
@@ -603,7 +969,10 @@ export async function buildWebsiteIntakeProposal(
       attemptedFetches,
       fetchedPages: pages.length,
       fetchedBytes,
-      estimatedCostUnits: pages.length + Math.ceil(fetchedBytes / 100_000),
+      estimatedCostUnits: websiteIntakeEngineeringCostUnits({
+        attemptedFetches,
+        observedBodyBytes: fetchedBytes,
+      }),
     },
   }
 }

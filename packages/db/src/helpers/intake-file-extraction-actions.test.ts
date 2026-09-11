@@ -125,6 +125,32 @@ describe('intake file extraction receipt action', () => {
     })
   })
 
+  it('authorizes a fenced new receipt immediately before creating it', async () => {
+    const authorizeNewReceipt = vi.fn(async () => undefined)
+    await recordIntakeFileExtractionReceiptAction(
+      input() as never,
+      client as never,
+      authorizeNewReceipt,
+    )
+    expect(authorizeNewReceipt).toHaveBeenCalledWith(client)
+    expect(authorizeNewReceipt.mock.invocationCallOrder[0]).toBeLessThan(
+      createReceipt.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('does not create a receipt when the lease fence rejects authorization', async () => {
+    const authorizeNewReceipt = vi.fn(async () => Promise.reject(new Error('stale lease')))
+    await expect(
+      recordIntakeFileExtractionReceiptAction(
+        input() as never,
+        client as never,
+        authorizeNewReceipt,
+      ),
+    ).rejects.toThrow('stale lease')
+    expect(createReceipt).not.toHaveBeenCalled()
+    expect(createEvent).not.toHaveBeenCalled()
+  })
+
   it('admits exact verified PDF terminal evidence through the PDF extractor only', async () => {
     findUpload.mockResolvedValueOnce({
       ...(await findUpload()),

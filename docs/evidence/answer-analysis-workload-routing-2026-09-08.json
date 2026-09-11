@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "135f542468d492e0edc940ba15d2271bd7def7ff",
+  "proved": [
+    "Answer analysis resolves scoped configuration and routes EXTRACTION through the central gateway with its existing execution lease heartbeat.",
+    "Configured primary503/fallback, output and timeout run through the real gateway with a dark provider seam.",
+    "Changed configuration before dispatch or fallback and an unadmittable request ceiling defer the owned lease; existing lease loss, malformed output and ordinary provider failure paths remain distinct."
+  ],
+  "checks": {
+    "focusedTestsPassed": 22,
+    "freshNonIncrementalTypes": "passed with direct process exit0",
+    "scopedLint": "passed",
+    "scriptGates": {
+      "passed": 451,
+      "skipped": 1,
+      "failed": 0
+    }
+  },
+  "artifacts": [
+    "artifacts/answer-analysis-configuration-before-20260908.log",
+    "artifacts/answer-analysis-configuration-final-20260908.log",
+    "artifacts/w06-worker-types-final-20260908.log",
+    "artifacts/w06-worker-lint-final-20260908.log",
+    "artifacts/w06-script-gates-final-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/processors/answer-analysis.ts",
+      "sha256": "dbd554dbbe2f04ac4cfe67ca5c11d9729914611e488c19fdf6f47ea8eee20cea"
+    },
+    {
+      "path": "apps/workers/src/processors/answer-analysis.test.ts",
+      "sha256": "2ff112392f660b3b05d67e14e64e3abd825fb0527dc81561a6a1f5a06704900b"
+    }
+  ],
+  "limits": [
+    "Provider-dark composition and unit proof; no live provider, tenant configuration change, spending or deployment.",
+    "Configuration is compared at the existing admission boundary; no atomic transaction across provider I/O or rollback of already-dispatched work is claimed.",
+    "Native lease/deferral proof, where retained separately, proves the canonical persistence helper rather than complete worker/provider execution."
+  ],
+  "nativePersistenceProof": {
+    "artifact": "docs/evidence/generation-lease-config-deferral-native-postgres-2026-09-08.json",
+    "proofId": "aa3e3a79e124",
+    "passedTests": 26,
+    "scope": "Canonical PostgreSQL lease/defer helper persistence; separate from dark-provider worker composition.",
+    "postgresStopped": true
+  }
+}

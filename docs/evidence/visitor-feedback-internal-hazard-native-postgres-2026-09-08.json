@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "kind": "public-feedback-internal-hazard-review-native-postgresql",
+  "measuredAt": "2026-09-08T02:37:39.914448+00:00",
+  "baseProductRevision": "ed06ba0a3695e05a922b68fd5a3a6c2758b6e3f5",
+  "result": {
+    "database": "pathfinder_disposable_visitor_feedback_a1a10166b042",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focusedTests": {
+    "passed": 12,
+    "failed": 0
+  },
+  "measurement": {
+    "eventIds": ["71ed1fab-3542-4c90-98ce-c68d1125f738", "076d9da0-9db3-4a2b-ad1e-0dc29cbc91a3"],
+    "feedbackId": "cmts24eck000j8tugc6mcxy1e",
+    "providerEvidence": "synthetic-provider-dark-receipts",
+    "groups": 2,
+    "occurrences": [1, 2],
+    "unchangedAttraction": {
+      "id": "cmts24eb000028tug62xftyhi",
+      "name": "East Garden",
+      "isActive": true,
+      "visibility": "PUBLIC"
+    },
+    "effects": {
+      "operationalUpdates": 0,
+      "venueKnowledgeEntries": 0
+    }
+  },
+  "measuredSources": [
+    {
+      "path": "packages/api/src/visitor-feedback.disposable.integration.test.ts",
+      "sha256": "8be5a33f8e390008d6837d5c90ed7aa621cc642e2bf3d226a7b2afef9db2ff40",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/feedback.ts",
+      "sha256": "db0be381a3ae3c20eb5828a305f7b170ae84036c51f5e3c87d7989564da80a2e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/visitor-signal-candidate.ts",
+      "sha256": "5ee4a1f4029ffbfc65a0cbe48280380008510dec61b9de00af8c2a58d8fdf1c6",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-events.ts",
+      "sha256": "ddeaee7b969ccc3ec8486e44fb97089769ef01cd54edac7c38057238253c89c9",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/conversation-insights.ts",
+      "sha256": "fb69aa8b6a715c0723bb81bdd56c27734c65cc87ea5ede4e4db1ff94211f0dae",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\measured-conversation-insights.ts",
+      "sha256": "fb69aa8b6a715c0723bb81bdd56c27734c65cc87ea5ede4e4db1ff94211f0dae"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\measured-feedback.ts",
+      "sha256": "db0be381a3ae3c20eb5828a305f7b170ae84036c51f5e3c87d7989564da80a2e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\measured-operational-events.ts",
+      "sha256": "ddeaee7b969ccc3ec8486e44fb97089769ef01cd54edac7c38057238253c89c9"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\measured-visitor-feedback.disposable.integration.test.ts",
+      "sha256": "8be5a33f8e390008d6837d5c90ed7aa621cc642e2bf3d226a7b2afef9db2ff40"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\measured-visitor-signal-candidate.ts",
+      "sha256": "5ee4a1f4029ffbfc65a0cbe48280380008510dec61b9de00af8c2a58d8fdf1c6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\result.json",
+      "sha256": "f8ab2a8162d4b2baa53bbee06b9f9ab2100a0d3d17e727b8f8eb20629497b318"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\vitest.json",
+      "sha256": "c0e6136eed390a74dfb9d48212ce5a00cd3ba4e9e62f1d42ab56ed2ad75b825b"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-a1a10166b042\\vitest.log",
+      "sha256": "7e464d728bee401a08d4c2143580689e7020c765d70cd8f82177486d8e5e28ca"
+    }
+  ],
+  "limits": [
+    "Limited English report-shaped keyword triage; not general hazard detection, emergency response, or independent verification.",
+    "Only an internal unverified review event is created. Attraction and venue content remain unchanged; no external delivery is exercised.",
+    "Feedback reason is mutable; event retains generic unverified text and links current feedback, not an immutable original report.",
+    "Repeated feedback is one event group with incremented occurrence count, not multiple independent corroborating witnesses.",
+    "Chat turn provider receipts are synthetic fixtures; feedback route and PostgreSQL event persistence are real. Rate limiting is mocked."
+  ]
+}

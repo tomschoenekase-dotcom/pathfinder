@@ -9,12 +9,27 @@ import { useTRPCClient } from '../lib/trpc'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
+import { getVisitorRestroomCopy } from './visitor-restroom-copy'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type LocationCatalog = RouterOutputs['location']['catalog']['locations']
 type LocationRoute = RouterOutputs['location']['route']
+type DestinationMedia = NonNullable<
+  RouterOutputs['location']['reachableDestination']['destination']
+>['media']
 
 export type LocationRoutePlannerDataSource = {
+  reachableDestination?: (
+    input: {
+      venueId: string
+      anonymousToken: string
+      fromLocationId: string
+      kind: 'RESTROOM'
+      accessibleOnly: boolean
+    },
+    signal: AbortSignal,
+  ) => Promise<RouterOutputs['location']['reachableDestination']>
+
   catalog: (
     input: { venueId: string; anonymousToken: string },
     signal: AbortSignal,
@@ -53,6 +68,7 @@ export function LocationRoutePlanner({
   language?: SupportedChatLanguage
 }) {
   const { route: copy } = getVisitorUiCopy(language)
+  const [findRestroomLabel, alreadyHereLabel] = getVisitorRestroomCopy(language)
   const [
     toggleLabel,
     startLabel,
@@ -73,12 +89,17 @@ export function LocationRoutePlanner({
   const client = useTRPCClient()
   const requestGeneration = useRef(0)
   const activeRequest = useRef<AbortController | null>(null)
+  const scopeKey = JSON.stringify([venueId, anonymousToken])
+  const [dataScopeKey, setDataScopeKey] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [locations, setLocations] = useState<LocationCatalog | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [fromLocationId, setFromLocationId] = useState('')
   const [toLocationId, setToLocationId] = useState('')
   const [accessibleOnly, setAccessibleOnly] = useState(false)
   const [route, setRoute] = useState<LocationRoute | null>(null)
+  const [destinationMedia, setDestinationMedia] = useState<DestinationMedia>(undefined)
+  const [failedPhotoUrl, setFailedPhotoUrl] = useState<string | null>(null)
   const [isRouting, setIsRouting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,8 +109,13 @@ export function LocationRoutePlanner({
     activeRequest.current = controller
     const generation = ++requestGeneration.current
     setLocations(null)
+    setDataScopeKey(null)
+    setNotice(null)
+    setIsRouting(false)
     setExpanded(false)
     setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
     setError(null)
     if (!anonymousToken) {
       activeRequest.current = null
@@ -106,6 +132,7 @@ export function LocationRoutePlanner({
     })
       .then((result) => {
         if (generation !== requestGeneration.current) return
+        setDataScopeKey(scopeKey)
         setLocations(result.locations)
         setFromLocationId(result.locations[0]?.id ?? '')
         setToLocationId(result.locations[1]?.id ?? '')
@@ -122,37 +149,105 @@ export function LocationRoutePlanner({
       controller.abort()
       requestGeneration.current += 1
     }
-  }, [anonymousToken, client, dataSource, venueId])
+  }, [anonymousToken, client, dataSource, venueId, scopeKey])
 
-  if (!anonymousToken || !locations || locations.length < 2) return null
+  if (!anonymousToken || dataScopeKey !== scopeKey || !locations || locations.length < 2)
+    return null
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!anonymousToken || !fromLocationId || !toLocationId || fromLocationId === toLocationId)
+    await findRoute()
+  }
+
+  function invalidateRoute() {
+    activeRequest.current?.abort()
+    requestGeneration.current += 1
+    setIsRouting(false)
+    setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
+    setNotice(null)
+    setError(null)
+  }
+
+  async function findRoute(kind?: 'RESTROOM') {
+    if (
+      disabled ||
+      isRouting ||
+      !anonymousToken ||
+      !fromLocationId ||
+      (!kind && (!toLocationId || fromLocationId === toLocationId))
+    )
       return
     const generation = ++requestGeneration.current
     activeRequest.current?.abort()
     const controller = new AbortController()
     activeRequest.current = controller
     setIsRouting(true)
+    setNotice(null)
     setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
     setError(null)
     try {
+      let destinationId = toLocationId
+      let selectedMedia: DestinationMedia = undefined
+      if (kind) {
+        const suggestion = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: LOCATION_READ_TIMEOUT_MS,
+          request: (signal) =>
+            dataSource?.reachableDestination
+              ? dataSource.reachableDestination(
+                  { venueId, anonymousToken, fromLocationId, kind, accessibleOnly },
+                  signal,
+                )
+              : client.location.reachableDestination.query(
+                  { venueId, anonymousToken, fromLocationId, kind, accessibleOnly },
+                  { signal },
+                ),
+        })
+        if (generation !== requestGeneration.current) return
+        if (!suggestion.destination) throw new Error('No reviewed reachable destination')
+        destinationId = suggestion.destination.id
+        selectedMedia = suggestion.destination.media
+        setToLocationId(destinationId)
+        if (suggestion.ranking?.alreadyHere) {
+          setDestinationMedia(selectedMedia)
+          setNotice(alreadyHereLabel)
+          return
+        }
+      }
       const result = await runBoundedClientRequest({
         parentSignal: controller.signal,
         timeoutMs: LOCATION_READ_TIMEOUT_MS,
         request: (signal) =>
           dataSource
             ? dataSource.route(
-                { venueId, anonymousToken, fromLocationId, toLocationId, accessibleOnly },
+                {
+                  venueId,
+                  anonymousToken,
+                  fromLocationId,
+                  toLocationId: destinationId,
+                  accessibleOnly,
+                },
                 signal,
               )
             : client.location.route.query(
-                { venueId, anonymousToken, fromLocationId, toLocationId, accessibleOnly },
+                {
+                  venueId,
+                  anonymousToken,
+                  fromLocationId,
+                  toLocationId: destinationId,
+                  accessibleOnly,
+                },
                 { signal },
               ),
       })
-      if (generation === requestGeneration.current) setRoute(result)
+      if (generation === requestGeneration.current) {
+        setRoute(result)
+        setDestinationMedia(selectedMedia)
+      }
     } catch {
       if (generation === requestGeneration.current)
         setError(accessibleOnly ? noAccessibleRouteMessage : noRouteMessage)
@@ -180,6 +275,8 @@ export function LocationRoutePlanner({
       </button>
       {expanded ? (
         <form
+          tabIndex={0}
+          aria-label={toggleLabel}
           className="max-h-[min(36rem,70svh)] overflow-y-auto border-t border-[var(--chat-border)] px-4 pb-4 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
           onSubmit={handleSubmit}
         >
@@ -190,9 +287,8 @@ export function LocationRoutePlanner({
                 className="mt-1 min-h-11 w-full rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 text-sm text-[var(--chat-text)]"
                 value={fromLocationId}
                 onChange={(event) => {
+                  invalidateRoute()
                   setFromLocationId(event.target.value)
-                  setRoute(null)
-                  setError(null)
                 }}
               >
                 {locations.map((location) => (
@@ -209,9 +305,8 @@ export function LocationRoutePlanner({
                 className="mt-1 min-h-11 w-full rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 text-sm text-[var(--chat-text)]"
                 value={toLocationId}
                 onChange={(event) => {
+                  invalidateRoute()
                   setToLocationId(event.target.value)
-                  setRoute(null)
-                  setError(null)
                 }}
               >
                 {locations.map((location) => (
@@ -228,9 +323,8 @@ export function LocationRoutePlanner({
               type="checkbox"
               checked={accessibleOnly}
               onChange={(event) => {
+                invalidateRoute()
                 setAccessibleOnly(event.target.checked)
-                setRoute(null)
-                setError(null)
               }}
             />
             {accessibleOnlyLabel}
@@ -242,7 +336,23 @@ export function LocationRoutePlanner({
           >
             {isRouting ? findingLabel : findLabel}
           </button>
-          {fromLocationId === toLocationId ? (
+          {locations.some((location) => location.kind === 'RESTROOM') &&
+          (!dataSource || dataSource.reachableDestination) ? (
+            <button
+              type="button"
+              className="mt-2 min-h-11 w-full rounded-xl border border-[var(--chat-border)] px-4 py-2 text-sm font-semibold text-[var(--chat-text)] disabled:opacity-50"
+              disabled={disabled || isRouting}
+              onClick={() => void findRoute('RESTROOM')}
+            >
+              {findRestroomLabel}
+            </button>
+          ) : null}
+          {notice ? (
+            <p className="mt-2 text-sm text-[var(--chat-text-muted)]" role="status">
+              {notice}
+            </p>
+          ) : null}
+          {fromLocationId === toLocationId && !notice ? (
             <p className="mt-2 text-sm text-[var(--chat-text-muted)]" role="status">
               {chooseDifferentLabel}
             </p>
@@ -277,15 +387,50 @@ export function LocationRoutePlanner({
                 {route.segments.map((segment, index) => (
                   <li
                     key={`${segment.connectionId}:${index}`}
-                    className="rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] p-3 text-sm"
+                    className="flex gap-2 rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] p-3 text-sm"
                   >
-                    <span className="font-semibold">{index + 1}. </span>
-                    {segment.directions ??
-                      continueTo(segment.to.displayName, connectionLabel(segment.kind))}
+                    <span className="shrink-0 font-semibold" dir="ltr" aria-hidden="true">
+                      {index + 1}.
+                    </span>
+                    <span dir="auto">
+                      {segment.directions ??
+                        continueTo(segment.to.displayName, connectionLabel(segment.kind))}
+                    </span>
                   </li>
                 ))}
               </ol>
             </div>
+          ) : null}
+          {destinationMedia && destinationMedia.photoUrl !== failedPhotoUrl ? (
+            <figure className="mt-4 min-w-0">
+              {/* Same-origin delivery rechecks current approved media. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={destinationMedia.photoUrl}
+                alt={destinationMedia.photoAttribution.altText}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={() => setFailedPhotoUrl(destinationMedia.photoUrl)}
+                className="max-h-52 w-full rounded-xl object-contain"
+              />
+              <figcaption className="mt-2 break-words text-xs leading-5 text-[var(--chat-text-muted)]">
+                {destinationMedia.photoAttribution.caption
+                  ? `${destinationMedia.photoAttribution.caption} · `
+                  : null}
+                {destinationMedia.photoAttribution.sourceUrl ? (
+                  <a
+                    href={destinationMedia.photoAttribution.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]"
+                  >
+                    {destinationMedia.photoAttribution.sourceName}
+                  </a>
+                ) : (
+                  destinationMedia.photoAttribution.sourceName
+                )}
+              </figcaption>
+            </figure>
           ) : null}
         </form>
       ) : null}

@@ -95,6 +95,55 @@ function context(isPlatformAdmin = true): TRPCContext {
 }
 
 describe('admin attention console', () => {
+  it('carries exact action scope into recommendation-only evidence without pooling venues', async () => {
+    const identity = { id: 'agent-scoped', name: 'Scoped worker' }
+    const action = {
+      id: 'action-scoped',
+      tenantId: 'tenant-scoped',
+      venueId: 'venue-a',
+      agentRunId: 'run-scoped',
+      agentIdentityId: identity.id,
+      agentIdentity: identity,
+      actionName: 'support.draft',
+      status: 'SUCCEEDED',
+      createdAt: new Date(),
+    }
+    mocks.actions.mockResolvedValue([action, { ...action, id: 'other-action', venueId: 'venue-b' }])
+    mocks.outcomes.mockResolvedValue([
+      {
+        id: 'outcome-scoped',
+        tenantId: action.tenantId,
+        venueId: action.venueId,
+        agentRunId: action.agentRunId,
+        agentIdentityId: identity.id,
+        agentIdentity: identity,
+        relatedAgentActionId: action.id,
+        signalKind: 'QUALITY_EVALUATION',
+        verdict: 'POSITIVE',
+        taskClass: 'support',
+        summary: 'Reviewed draft result.',
+        createdAt: new Date(),
+      },
+    ])
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+    const projection = result.agentTrustEvidence.actionClassEvidence
+    expect(projection).toMatchObject({ recommendationOnly: true, authorityChange: false })
+    expect(projection?.groups.find((group) => group.venueId === 'venue-a')).toMatchObject({
+      recommendation: 'REVIEW_SCOPED_CANARY_EVIDENCE',
+      linkedOutcomeIds: ['outcome-scoped'],
+    })
+    expect(projection?.groups.find((group) => group.venueId === 'venue-b')).toMatchObject({
+      recommendation: 'COLLECT_MORE_EVIDENCE',
+      linkedOutcomeIds: [],
+    })
+    expect(mocks.actions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 11,
+        select: expect.objectContaining({ tenantId: true, venueId: true, agentRunId: true }),
+      }),
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.jobs.mockResolvedValue([])
@@ -232,7 +281,187 @@ describe('admin attention console', () => {
     ])
     expect(mocks.agents.mock.calls[3]![0].where.status).toBe('COMPLETED')
     expect(mocks.questions.mock.calls[0]![0].where.status).toBe('PENDING')
+    expect(mocks.questions).toHaveBeenCalledTimes(2)
+    expect(mocks.questions.mock.calls[1]![0]).toMatchObject({
+      where: {
+        status: 'PENDING',
+        OR: [{ blocking: true }, { urgency: 'URGENT' }],
+      },
+      take: 8,
+      select: expect.objectContaining({ venue: { select: { name: true } } }),
+      orderBy: [{ urgency: 'desc' }, { blocking: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    })
   })
+
+  it('returns an independently bounded priority projection beyond the chronological page', async () => {
+    const createdAt = new Date('2025-01-01T00:00:00.000Z')
+    const urgent = {
+      id: 'old-urgent',
+      tenantId: 'tenant-500',
+      venueId: 'venue-500',
+      agentRunId: null,
+      question: 'Visitor answers are unavailable',
+      context: null,
+      questionType: 'YES_NO',
+      category: 'availability',
+      urgency: 'URGENT',
+      choices: [],
+      dueAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      blocking: true,
+      createdAt,
+      updatedAt: createdAt,
+      agentIdentity: { name: 'Availability observer' },
+      agentRun: null,
+    }
+    const recentNormalBlockers = Array.from({ length: 25 }, (_, index) => ({
+      ...urgent,
+      id: `recent-normal-blocker-${index}`,
+      question: `Normal blocker ${index}`,
+      urgency: 'NORMAL',
+      createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
+    }))
+    mocks.questions
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([urgent, ...recentNormalBlockers])
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 25 })
+
+    expect(result.questions.items).toHaveLength(25)
+    expect(result.questions.items[0]?.id).toBe('old-urgent')
+    expect(result.questions.items.some((item) => item.id === 'recent-normal-blocker-24')).toBe(
+      false,
+    )
+    expect(result.questions.nextCursor).toBeNull()
+    expect(mocks.questions.mock.calls[1]![0].take).toBe(26)
+  })
+
+  it.each([5, 50, 500])(
+    'keeps one old urgent event visible through the actual bounded attention read across %s synthetic venues',
+    async (size) => {
+      const routine = Array.from({ length: size }, (_, index) => ({
+        id: `routine-${size}-${index}`,
+        tenantId: `tenant-${index}`,
+        venueId: `venue-${index}`,
+        eventType: 'fixture.routine-review',
+        sourceSubsystem: 'synthetic-scale-fixture',
+        severity: 'INFO',
+        title: `Routine synthetic review ${index}`,
+        summary: 'Synthetic load evidence only.',
+        actionRequired: true,
+        linkedObjectType: null,
+        linkedObjectId: null,
+        recommendedAction: 'Review when capacity permits.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: new Date(Date.UTC(2026, 8, 7, 12, index % 60)),
+        createdAt: new Date(Date.UTC(2026, 8, 7, 12, index % 60)),
+      }))
+      const urgent = {
+        ...routine[0]!,
+        id: `urgent-${size}`,
+        tenantId: 'tenant-urgent',
+        venueId: 'venue-urgent',
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Synthetic urgent visitor availability failure',
+        recommendedAction: 'Inspect the synthetic failed visitor turns.',
+        lastOccurredAt: new Date('2025-01-01T00:00:00.000Z'),
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      }
+      const workload = [...routine, urgent]
+      mocks.events.mockImplementation(
+        async (query: { where: { severity?: string }; take: number }) => {
+          const rows = query.where.severity
+            ? workload.filter((event) => event.severity === query.where.severity)
+            : workload
+          return [...rows]
+            .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+            .slice(0, query.take)
+        },
+      )
+
+      const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+      expect(result.briefing.focus).toMatchObject({
+        kind: 'CUSTOMER_RISK',
+        urgency: 'CRITICAL',
+        source: { objectId: urgent.id, venueId: urgent.venueId },
+      })
+      expect(result.events.items[0]?.id).toBe(urgent.id)
+      expect(result.events.items.length).toBeLessThanOrEqual(11)
+      expect(result.events.nextCursor === null).toBe(size <= 10)
+      expect(mocks.events).toHaveBeenCalledTimes(3)
+      expect(mocks.events.mock.calls[1]![0].where).toEqual({
+        state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+        actionRequired: true,
+        severity: 'CRITICAL',
+      })
+      expect(mocks.events.mock.calls[2]![0].where).toEqual({
+        state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+        actionRequired: true,
+        severity: 'ERROR',
+      })
+      expect(mocks.updateEvent).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['tenant', 'platform'] as const)(
+    'keeps an old CRITICAL %s event ahead of more than one page of recent ERROR events',
+    async (scope) => {
+      const recentErrors = Array.from({ length: 15 }, (_, index) => ({
+        id: `${scope}-error-${index}`,
+        ...(scope === 'tenant' ? { tenantId: `tenant-${index}`, venueId: `venue-${index}` } : {}),
+        eventType: 'fixture.recent-error',
+        sourceSubsystem: 'synthetic-scale-fixture',
+        severity: 'ERROR',
+        title: `Recent synthetic error ${index}`,
+        summary: 'Synthetic load evidence only.',
+        actionRequired: true,
+        linkedObjectType: null,
+        linkedObjectId: null,
+        recommendedAction: 'Review the synthetic error.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: new Date(Date.UTC(2026, 8, 7, 12, index)),
+        createdAt: new Date(Date.UTC(2026, 8, 7, 12, index)),
+      }))
+      const critical = {
+        ...recentErrors[0]!,
+        id: `${scope}-old-critical`,
+        ...(scope === 'tenant' ? { tenantId: 'tenant-critical', venueId: 'venue-critical' } : {}),
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Old synthetic critical visitor outage',
+        lastOccurredAt: new Date('2025-01-01T00:00:00.000Z'),
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      }
+      const workload = [...recentErrors, critical]
+      const queryImplementation = async (query: { where: { severity?: string }; take: number }) => {
+        const rows = query.where.severity
+          ? workload.filter((event) => event.severity === query.where.severity)
+          : workload
+        return [...rows]
+          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+          .slice(0, query.take)
+      }
+      if (scope === 'tenant') mocks.events.mockImplementation(queryImplementation)
+      else mocks.platformEvents.mockImplementation(queryImplementation)
+
+      const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+      const events = scope === 'tenant' ? result.events : result.platformEvents
+
+      expect(result.briefing.focus).toMatchObject({
+        kind: scope === 'tenant' ? 'CUSTOMER_RISK' : 'PLATFORM_RISK',
+        source: { objectId: critical.id },
+      })
+      expect(events.items[0]?.id).toBe(critical.id)
+      expect(events.items.length).toBeLessThanOrEqual(20)
+      expect(events.nextCursor).not.toBeNull()
+      expect(scope === 'tenant' ? mocks.events : mocks.platformEvents).toHaveBeenCalledTimes(3)
+    },
+  )
 
   it('classifies expired leases and approvals and emits deterministic cursors', async () => {
     const old = new Date('2026-08-10T12:00:00.000Z')

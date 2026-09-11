@@ -6,9 +6,42 @@ import {
 } from '@pathfinder/contracts'
 
 import { db } from '../client'
+import {
+  readSupportProposalResolutionEvidence,
+  finalizeSupportProposalResolutionFulfillment,
+  SupportProposalResolutionError,
+  type SupportProposalResolutionReader,
+} from './support-proposal-resolution-fulfillment'
+import {
+  readSupportNoChangeFulfillment,
+  SupportNoChangeFulfillmentError,
+  type SupportNoChangeFulfillmentReader,
+} from './support-no-change-fulfillment'
+import { lockVenueContentMutation } from './venue-content-lock'
+import { lockSupportRequest } from './support-request-lock'
+import {
+  readSupportTemporalFulfillment,
+  SupportTemporalFulfillmentError,
+  type SupportTemporalFulfillmentReader,
+} from './support-temporal-fulfillment'
+import {
+  readSupportContentFulfillment,
+  SupportContentFulfillmentError,
+  type SupportContentFulfillmentReader,
+} from './support-content-fulfillment'
+import {
+  readSupportPackageGuestObservability,
+  SupportPackageObservabilityError,
+  type SupportPackageObservabilityReader,
+} from './support-package-observability'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
-type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff'>
+type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff' | '$executeRaw'> &
+  SupportPackageObservabilityReader &
+  SupportContentFulfillmentReader &
+  SupportTemporalFulfillmentReader &
+  SupportNoChangeFulfillmentReader &
+  SupportProposalResolutionReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -29,9 +62,40 @@ function canonicalJson(value: unknown): string {
 }
 
 export function supportPackageFulfillmentDigest(
-  value: Omit<SupportCompletionPackageFulfillmentValue, 'digest'>,
+  value:
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 1 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 3 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 4 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 5 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 6 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 7 }>, 'digest'>,
 ): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+  const normalized =
+    value.contractVersion !== 1
+      ? {
+          ...value,
+          ...('proposalResolutionFulfillment' in value
+            ? {
+                proposalResolutionFulfillment: {
+                  ...value.proposalResolutionFulfillment,
+                  verifiedAt: null,
+                },
+              }
+            : {}),
+          ...('noChangeFulfillment' in value
+            ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
+            : {}),
+          ...('temporalFulfillment' in value
+            ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
+            : {}),
+          guestObservability: { ...value.guestObservability, verifiedAt: null },
+          ...('contentFulfillment' in value
+            ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
+            : {}),
+        }
+      : value
+  return createHash('sha256').update(canonicalJson(normalized)).digest('hex')
 }
 
 /** Reads the exact current package fulfillment for one support request. Immutable
@@ -43,6 +107,9 @@ export async function readSupportPackageFulfillment(
   client: FulfillmentReader,
   input: { tenantId: string; venueId: string; supportRequestId: string },
 ): Promise<SupportCompletionPackageFulfillmentValue> {
+  // Same order for preparation, MCP execution and manual completion: request -> venue -> entities.
+  await lockSupportRequest(client, input.tenantId, input.supportRequestId)
+  await lockVenueContentMutation(client, input)
   const handoffs = await client.supportPackageHandoff.findMany({
     where: {
       tenantId: input.tenantId,
@@ -63,6 +130,8 @@ export async function readSupportPackageFulfillment(
           appliedBy: true,
           appliedCommandKey: true,
           updatedAt: true,
+          schemaVersion: true,
+          appliedEntities: true,
         },
       },
     },
@@ -92,14 +161,89 @@ export async function readSupportPackageFulfillment(
     appliedCommandKey: venuePackage.appliedCommandKey!,
     packageUpdatedAt: venuePackage.updatedAt.toISOString(),
   }))
+  let guestObservability
+  let contentFulfillment
+  let temporalFulfillment
+  let noChangeFulfillment
+  let proposalResolutionFulfillment
+  try {
+    guestObservability = await readSupportPackageGuestObservability({
+      client,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      packages: handoffs.map(({ venuePackageId, venuePackage }) => ({
+        packageId: venuePackageId,
+        schemaVersion: venuePackage.schemaVersion,
+        appliedEntities: venuePackage.appliedEntities,
+      })),
+    })
+    temporalFulfillment = await readSupportTemporalFulfillment(client, input)
+    noChangeFulfillment = await readSupportNoChangeFulfillment(client, input)
+    const resolutionEvidence = await readSupportProposalResolutionEvidence(client, input)
+    contentFulfillment = await readSupportContentFulfillment(client, {
+      verifiedReviewedDeclineProposalIds: resolutionEvidence.declines.map(
+        ({ proposalId }) => proposalId,
+      ),
+      verifiedReplacementOriginalProposalIds: resolutionEvidence.replacements.map(
+        ({ proposalId }) => proposalId,
+      ),
+      ...input,
+      verifiedNoChangeProposalIds: noChangeFulfillment.receipts.map(({ proposalId }) => proposalId),
+      verifiedPackageIds: packages.map(({ packageId }) => packageId),
+      verifiedTemporalProposalIds: temporalFulfillment.receipts.map(({ proposalId }) => proposalId),
+    })
+    proposalResolutionFulfillment = finalizeSupportProposalResolutionFulfillment(
+      resolutionEvidence,
+      [
+        ...contentFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'CONTENT' as const,
+        })),
+        ...temporalFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'TEMPORAL' as const,
+        })),
+        ...noChangeFulfillment.receipts.map(({ proposalId }) => ({
+          proposalId,
+          kind: 'NO_CHANGE' as const,
+        })),
+        ...resolutionEvidence.sources
+          .filter(
+            (source) =>
+              source.packageHandoffVenuePackageId &&
+              packages.some(({ packageId }) => packageId === source.packageHandoffVenuePackageId),
+          )
+          .map(({ proposalId }) => ({ proposalId, kind: 'PACKAGE' as const })),
+      ],
+    )
+  } catch (error) {
+    if (
+      error instanceof SupportPackageObservabilityError ||
+      error instanceof SupportContentFulfillmentError ||
+      error instanceof SupportTemporalFulfillmentError ||
+      error instanceof SupportNoChangeFulfillmentError ||
+      error instanceof SupportProposalResolutionError
+    )
+      throw new SupportPackageFulfillmentError(error.message)
+    throw error
+  }
   const identity = {
-    contractVersion: 1 as const,
+    contractVersion: 6 as const,
     linkedPackageCount: packages.length,
     packages,
+    guestObservability,
+    contentFulfillment,
+    temporalFulfillment,
+    noChangeFulfillment,
   }
+  const currentIdentity =
+    proposalResolutionFulfillment.declines.length ||
+    proposalResolutionFulfillment.replacements.length
+      ? { ...identity, contractVersion: 7 as const, proposalResolutionFulfillment }
+      : identity
   return SupportCompletionPackageFulfillment.parse({
-    ...identity,
-    digest: supportPackageFulfillmentDigest(identity),
+    ...currentIdentity,
+    digest: supportPackageFulfillmentDigest(currentIdentity),
   })
 }
 
@@ -107,5 +251,102 @@ export function sameSupportPackageFulfillment(
   left: SupportCompletionPackageFulfillmentValue,
   right: SupportCompletionPackageFulfillmentValue,
 ): boolean {
-  return left.digest === right.digest && canonicalJson(left) === canonicalJson(right)
+  if (left.contractVersion === 1 || right.contractVersion === 1) {
+    return (
+      left.linkedPackageCount === 0 &&
+      right.linkedPackageCount === 0 &&
+      (!('proposalResolutionFulfillment' in left) ||
+        (left.proposalResolutionFulfillment.declines.length === 0 &&
+          left.proposalResolutionFulfillment.replacements.length === 0)) &&
+      (!('proposalResolutionFulfillment' in right) ||
+        (right.proposalResolutionFulfillment.declines.length === 0 &&
+          right.proposalResolutionFulfillment.replacements.length === 0)) &&
+      (!('noChangeFulfillment' in left) || left.noChangeFulfillment.receipts.length === 0) &&
+      (!('noChangeFulfillment' in right) || right.noChangeFulfillment.receipts.length === 0) &&
+      (!('contentFulfillment' in left) || left.contentFulfillment.receipts.length === 0) &&
+      (!('temporalFulfillment' in left) || left.temporalFulfillment.receipts.length === 0) &&
+      (!('contentFulfillment' in right) || right.contentFulfillment.receipts.length === 0) &&
+      (!('temporalFulfillment' in right) || right.temporalFulfillment.receipts.length === 0)
+    )
+  }
+  const withoutVerificationTime = (
+    value: Extract<
+      SupportCompletionPackageFulfillmentValue,
+      {
+        contractVersion: 2 | 3 | 4 | 5 | 6 | 7
+      }
+    >,
+  ) => ({
+    ...value,
+    ...('proposalResolutionFulfillment' in value
+      ? {
+          proposalResolutionFulfillment: {
+            ...value.proposalResolutionFulfillment,
+            verifiedAt: null,
+          },
+        }
+      : {}),
+    ...('noChangeFulfillment' in value
+      ? { noChangeFulfillment: { ...value.noChangeFulfillment, verifiedAt: null } }
+      : {}),
+    ...('temporalFulfillment' in value
+      ? { temporalFulfillment: { ...value.temporalFulfillment, verifiedAt: null } }
+      : {}),
+    guestObservability: { ...value.guestObservability, verifiedAt: null },
+    ...('contentFulfillment' in value
+      ? { contentFulfillment: { ...value.contentFulfillment, verifiedAt: null } }
+      : {}),
+  })
+  return (
+    left.digest === right.digest &&
+    canonicalJson(withoutVerificationTime(left)) === canonicalJson(withoutVerificationTime(right))
+  )
+}
+
+/** Natural expiry is not prevented by locks; recheck immediately before the completion write. */
+export function assertSupportFulfillmentEffectiveAt(
+  value: SupportCompletionPackageFulfillmentValue,
+  now: Date,
+): void {
+  if (!Number.isFinite(now.getTime()))
+    throw new SupportPackageFulfillmentError('Invalid completion time.')
+  if (
+    (value.contractVersion === 5 || value.contractVersion === 6 || value.contractVersion === 7) &&
+    value.contentFulfillment.receipts.some(
+      (receipt) =>
+        receipt.state === 'CURRENT' &&
+        ((receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > now.getTime()) ||
+          (receipt.effectiveUntil !== null &&
+            Date.parse(receipt.effectiveUntil) <= now.getTime()) ||
+          (receipt.operationalFactExpiresAt !== null &&
+            Date.parse(receipt.operationalFactExpiresAt) <= now.getTime())),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'Content fulfillment is no longer currently effective; refresh completion evidence.',
+    )
+  if (
+    'noChangeFulfillment' in value &&
+    value.noChangeFulfillment.receipts.some(
+      (receipt) =>
+        (receipt.effectiveFrom !== null && Date.parse(receipt.effectiveFrom) > now.getTime()) ||
+        (receipt.effectiveUntil !== null && Date.parse(receipt.effectiveUntil) <= now.getTime()) ||
+        (receipt.operationalFactExpiresAt !== null &&
+          Date.parse(receipt.operationalFactExpiresAt) <= now.getTime()),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'No-change guidance is no longer effective; refresh completion evidence.',
+    )
+  if (!('temporalFulfillment' in value)) return
+  if (
+    value.temporalFulfillment.receipts.some(
+      (receipt) =>
+        Date.parse(receipt.startsAt) > now.getTime() ||
+        Date.parse(receipt.expiresAt) <= now.getTime(),
+    )
+  )
+    throw new SupportPackageFulfillmentError(
+      'Temporal fulfillment is no longer currently effective; refresh completion evidence.',
+    )
 }

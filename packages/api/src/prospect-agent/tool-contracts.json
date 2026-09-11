@@ -6,7 +6,10 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "query": { "type": "string", "maxLength": 200 },
+          "query": {
+            "type": "string",
+            "maxLength": 200
+          },
           "stage": {
             "type": "string",
             "enum": [
@@ -26,7 +29,12 @@
               "DO_NOT_CONTACT"
             ]
           },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 }
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25
+          }
         }
       },
       "outputSchema": {
@@ -37,21 +45,45 @@
           "additionalProperties": false,
           "required": ["id", "canonicalName", "venues", "contacts"],
           "properties": {
-            "id": { "type": "string" },
-            "canonicalName": { "type": "string" },
-            "organizationType": { "type": ["string", "null"] },
-            "relationshipTier": { "type": ["string", "null"] },
-            "priority": { "type": ["integer", "null"] },
-            "territory": { "type": ["object", "null"] },
-            "opportunity": { "type": ["object", "null"] },
-            "venues": { "type": "array", "maxItems": 3 },
-            "contacts": { "type": "array", "maxItems": 3 }
+            "id": {
+              "type": "string"
+            },
+            "canonicalName": {
+              "type": "string"
+            },
+            "organizationType": {
+              "type": ["string", "null"]
+            },
+            "relationshipTier": {
+              "type": ["string", "null"]
+            },
+            "priority": {
+              "type": ["integer", "null"]
+            },
+            "territory": {
+              "type": ["object", "null"]
+            },
+            "opportunity": {
+              "type": ["object", "null"]
+            },
+            "venues": {
+              "type": "array",
+              "maxItems": 3
+            },
+            "contacts": {
+              "type": "array",
+              "maxItems": 3
+            }
           }
         }
       },
       "examples": [
         {
-          "input": { "query": "science museum", "stage": "RESEARCHED", "limit": 10 },
+          "input": {
+            "query": "science museum",
+            "stage": "RESEARCHED",
+            "limit": 10
+          },
           "output": [
             {
               "id": "org_example",
@@ -77,27 +109,44 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["organizationId"],
-        "properties": { "organizationId": { "type": "string", "minLength": 1, "maxLength": 191 } }
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          }
+        }
       },
       "outputSchema": {
         "oneOf": [
-          { "type": "null" },
+          {
+            "type": "null"
+          },
           {
             "type": "object",
             "additionalProperties": false,
             "required": ["prospect", "liveVenue"],
             "properties": {
-              "prospect": { "type": "object" },
-              "liveVenue": { "type": ["object", "null"] }
+              "prospect": {
+                "type": "object"
+              },
+              "liveVenue": {
+                "type": ["object", "null"]
+              }
             }
           }
         ]
       },
       "examples": [
         {
-          "input": { "organizationId": "org_example" },
+          "input": {
+            "organizationId": "org_example"
+          },
           "output": {
-            "prospect": { "id": "org_example", "canonicalName": "Example Science Museum" },
+            "prospect": {
+              "id": "org_example",
+              "canonicalName": "Example Science Museum"
+            },
             "liveVenue": null
           }
         }
@@ -114,8 +163,17 @@
         "additionalProperties": false,
         "required": ["campaignId"],
         "properties": {
-          "campaignId": { "type": "string", "minLength": 1, "maxLength": 191 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          "campaignId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
         }
       },
       "outputSchema": {
@@ -125,15 +183,34 @@
           "type": "object",
           "required": ["id", "organization"],
           "properties": {
-            "id": { "type": "string" },
-            "organization": { "type": "object" },
-            "venue": { "type": ["object", "null"] },
-            "contact": { "type": ["object", "null"] },
-            "drafts": { "type": "array", "maxItems": 1 }
+            "id": {
+              "type": "string"
+            },
+            "organization": {
+              "type": "object"
+            },
+            "venue": {
+              "type": ["object", "null"]
+            },
+            "contact": {
+              "type": ["object", "null"]
+            },
+            "drafts": {
+              "type": "array",
+              "maxItems": 1
+            }
           }
         }
       },
-      "examples": [{ "input": { "campaignId": "campaign_example", "limit": 25 }, "output": [] }],
+      "examples": [
+        {
+          "input": {
+            "campaignId": "campaign_example",
+            "limit": 25
+          },
+          "output": []
+        }
+      ],
       "relatedTools": [
         "torchiko.prospects.search",
         "torchiko.prospects.get_intelligence",
@@ -145,27 +222,53 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "leaseSeconds": { "type": "integer", "minimum": 60, "maximum": 1800, "default": 900 }
+          "leaseSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 1800,
+            "default": 900
+          }
         }
       },
       "outputSchema": {
         "oneOf": [
-          { "type": "null" },
+          {
+            "type": "null"
+          },
           {
             "type": "object",
             "additionalProperties": false,
             "required": ["jobId", "claimToken", "leaseExpiresAt", "attemptId", "organization"],
             "properties": {
-              "jobId": { "type": "string" },
-              "claimToken": { "type": "string", "format": "uuid" },
-              "leaseExpiresAt": { "type": "string", "format": "date-time" },
-              "attemptId": { "type": "string" },
-              "organization": { "type": "object" }
+              "jobId": {
+                "type": "string"
+              },
+              "claimToken": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "leaseExpiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "attemptId": {
+                "type": "string"
+              },
+              "organization": {
+                "type": "object"
+              }
             }
           }
         ]
       },
-      "examples": [{ "input": { "leaseSeconds": 900 }, "output": null }],
+      "examples": [
+        {
+          "input": {
+            "leaseSeconds": 900
+          },
+          "output": null
+        }
+      ],
       "relatedTools": [
         "torchiko.prospects.complete_research_job",
         "torchiko.prospects.release_research_job",
@@ -178,21 +281,37 @@
         "additionalProperties": false,
         "required": ["claimToken", "outcome", "reason"],
         "properties": {
-          "claimToken": { "type": "string", "format": "uuid" },
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
+          },
           "outcome": {
             "type": "string",
             "enum": ["RESEARCHED", "NEEDS_REVIEW", "BLOCKED", "CAP_REACHED", "SKIPPED"]
           },
-          "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
-          "usage": { "type": "object", "default": {} },
-          "costUsd": { "type": "number", "minimum": 0, "maximum": 10000 }
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "usage": {
+            "type": "object",
+            "default": {}
+          },
+          "costUsd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          }
         }
       },
       "outputSchema": {
         "type": "object",
         "required": ["id", "status"],
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "status": {
             "type": "string",
             "enum": ["RESEARCHED", "NEEDS_REVIEW", "BLOCKED", "CAP_REACHED", "SKIPPED"]
@@ -205,9 +324,14 @@
             "claimToken": "00000000-0000-4000-8000-000000000001",
             "outcome": "NEEDS_REVIEW",
             "reason": "Official contact role remains ambiguous",
-            "usage": { "searches": 4 }
+            "usage": {
+              "searches": 4
+            }
           },
-          "output": { "id": "job_example", "status": "NEEDS_REVIEW" }
+          "output": {
+            "id": "job_example",
+            "status": "NEEDS_REVIEW"
+          }
         }
       ],
       "relatedTools": [
@@ -222,14 +346,28 @@
         "additionalProperties": false,
         "required": ["claimToken", "reason"],
         "properties": {
-          "claimToken": { "type": "string", "format": "uuid" },
-          "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
         }
       },
       "outputSchema": {
         "type": "object",
         "required": ["id", "status"],
-        "properties": { "id": { "type": "string" }, "status": { "const": "QUEUED" } }
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "const": "QUEUED"
+          }
+        }
       },
       "examples": [
         {
@@ -237,7 +375,10 @@
             "claimToken": "00000000-0000-4000-8000-000000000001",
             "reason": "Bounded research window ended"
           },
-          "output": { "id": "job_example", "status": "QUEUED" }
+          "output": {
+            "id": "job_example",
+            "status": "QUEUED"
+          }
         }
       ],
       "relatedTools": [
@@ -251,10 +392,25 @@
         "additionalProperties": false,
         "required": ["memberId", "subject", "textBody", "evidence", "template", "prompt"],
         "properties": {
-          "memberId": { "type": "string", "minLength": 1, "maxLength": 191 },
-          "subject": { "type": "string", "minLength": 1, "maxLength": 998 },
-          "textBody": { "type": "string", "minLength": 1, "maxLength": 50000 },
-          "htmlBody": { "type": "string", "maxLength": 100000 },
+          "memberId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 998
+          },
+          "textBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          },
+          "htmlBody": {
+            "type": "string",
+            "maxLength": 100000
+          },
           "evidence": {
             "type": "array",
             "minItems": 1,
@@ -268,8 +424,16 @@
                   "type": "string",
                   "enum": ["CRM_FIELD", "SOURCE_EVIDENCE", "WEBSITE_RESEARCH", "CORRESPONDENCE"]
                 },
-                "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
-                "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                }
               }
             }
           },
@@ -277,19 +441,85 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["id", "version"],
-            "properties": { "id": { "type": "string" }, "version": { "type": "string" } }
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
           },
           "prompt": {
             "type": "object",
             "additionalProperties": false,
             "required": ["id", "version"],
-            "properties": { "id": { "type": "string" }, "version": { "type": "string" } }
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
           },
           "warnings": {
             "type": "array",
             "maxItems": 25,
             "default": [],
-            "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "claims": {
+            "type": "array",
+            "maxItems": 25,
+            "default": [],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text", "evidenceReferences"],
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "evidenceReferences": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          },
+          "copySources": {
+            "type": "array",
+            "maxItems": 20,
+            "default": [],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "version"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 191
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d{1,9}$"
+                }
+              }
+            }
           }
         }
       },
@@ -297,9 +527,15 @@
         "type": "object",
         "required": ["id"],
         "properties": {
-          "id": { "type": "string" },
-          "status": { "type": "string" },
-          "version": { "type": "integer" }
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
         }
       },
       "examples": [
@@ -308,12 +544,27 @@
             "memberId": "member_example",
             "subject": "A visitor guide for Example Museum",
             "textBody": "Draft body for human review.",
-            "evidence": [{ "kind": "CRM_FIELD", "reference": "organization.canonicalName" }],
-            "template": { "id": "intro", "version": "1" },
-            "prompt": { "id": "prospect-draft", "version": "1" },
+            "evidence": [
+              {
+                "kind": "CRM_FIELD",
+                "reference": "organization.canonicalName"
+              }
+            ],
+            "template": {
+              "id": "intro",
+              "version": "1"
+            },
+            "prompt": {
+              "id": "prospect-draft",
+              "version": "1"
+            },
             "warnings": []
           },
-          "output": { "id": "draft_example", "status": "DRAFT", "version": 1 }
+          "output": {
+            "id": "draft_example",
+            "status": "DRAFT",
+            "version": 1
+          }
         }
       ],
       "relatedTools": [
@@ -328,16 +579,34 @@
         "additionalProperties": false,
         "required": ["operationId", "question"],
         "properties": {
-          "operationId": { "type": "string", "format": "uuid" },
-          "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
-          "context": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "context": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
           "urgency": {
             "type": "string",
             "enum": ["LOW", "NORMAL", "HIGH", "URGENT"],
             "default": "NORMAL"
           },
-          "blocking": { "type": "boolean", "default": true },
-          "evidence": { "type": "array", "maxItems": 20, "default": [] }
+          "blocking": {
+            "type": "boolean",
+            "default": true
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 20,
+            "default": []
+          }
         }
       },
       "outputSchema": {
@@ -348,9 +617,15 @@
           "question": {
             "type": "object",
             "required": ["id"],
-            "properties": { "id": { "type": "string" } }
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            }
           },
-          "replayed": { "type": "boolean" }
+          "replayed": {
+            "type": "boolean"
+          }
         }
       },
       "examples": [
@@ -362,7 +637,12 @@
             "blocking": true,
             "evidence": []
           },
-          "output": { "question": { "id": "question_example" }, "replayed": false }
+          "output": {
+            "question": {
+              "id": "question_example"
+            },
+            "replayed": false
+          }
         }
       ],
       "relatedTools": [

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import { resolveAiWorkloadConfiguration, type AnthropicMessagesClient } from '@pathfinder/ai'
 
 const mocks = vi.hoisted(() => ({
   venueFindMany: vi.fn(),
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   assertGlobalAiAvailable: vi.fn(),
   recordOrReplayOnboardingMilestoneEvent: vi.fn(),
   materializeDueFirstWeekAccountReviews: vi.fn(),
+  resolveRuntimeAiWorkloadConfiguration: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -84,6 +85,7 @@ vi.mock('@pathfinder/db', () => ({
   updateJobRecord: mocks.updateJobRecord,
   recordOrReplayOnboardingMilestoneEvent: mocks.recordOrReplayOnboardingMilestoneEvent,
   materializeDueFirstWeekAccountReviews: mocks.materializeDueFirstWeekAccountReviews,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveRuntimeAiWorkloadConfiguration,
 }))
 
 import {
@@ -166,6 +168,9 @@ describe('processAnalyticsEnrichmentJob', () => {
       replayed: false,
     })
     mocks.materializeDueFirstWeekAccountReviews.mockResolvedValue([])
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockImplementation(({ workloadId }) =>
+      Promise.resolve(resolveAiWorkloadConfiguration({ workloadId })),
+    )
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         dailyRollup: { deleteMany: mocks.rollupDeleteMany, createMany: mocks.rollupCreateMany },
@@ -299,6 +304,9 @@ describe('processAnalyticsEnrichmentJob', () => {
             tenantId: 'tenant_1',
             venueId: 'venue_1',
             userMessageId: { not: null },
+            session: {
+              is: { tenantId: 'tenant_1', venueId: 'venue_1', experienceScope: 'PUBLIC' },
+            },
             userMessage: { is: { role: 'user' } },
           }),
           select: { userMessage: { select: { content: true } } },
@@ -318,6 +326,115 @@ describe('processAnalyticsEnrichmentJob', () => {
         success: true,
       }),
     })
+    expect(mocks.resolveRuntimeAiWorkloadConfiguration).toHaveBeenCalledWith(
+      {
+        workloadId: 'analytics-topic-classifier',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+      expect.any(Object),
+    )
+  })
+
+  it('uses the effective classifier configuration for a successful routed call', async () => {
+    const configuration = {
+      ...resolveAiWorkloadConfiguration({ workloadId: 'analytics-topic-classifier' }),
+      maxOutputTokens: 73,
+      timeoutMs: 4_321,
+      maxAttempts: 1,
+    }
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(configuration)
+
+    await processAnalyticsEnrichmentJob({
+      tenantId: 'tenant_1',
+      date: '2026-06-18T00:00:00.000Z',
+    })
+
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: configuration.model.model,
+        max_tokens: 73,
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it('skips classification without dispatch when its effective configuration changes', async () => {
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'analytics-topic-classifier',
+    })
+    mocks.resolveRuntimeAiWorkloadConfiguration
+      .mockResolvedValueOnce(configuration)
+      .mockResolvedValueOnce({ ...configuration, timeoutMs: configuration.timeoutMs - 1 })
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('redacts common identifiers from classifier, theme, embedding, and cluster inputs', async () => {
+    const rawQuestions = [
+      'Where is the north gallery? Email jane@example.test',
+      'Call 312-555-0101 for accessibility help',
+      'More details at https://example.test/visit',
+      'Where is the north gallery?',
+      'Where is the north gallery?',
+    ].map((content) => ({ userMessage: { content } }))
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce(rawQuestions)
+      .mockResolvedValueOnce(rawQuestions)
+      .mockResolvedValueOnce(rawQuestions)
+    mocks.messageFindMany.mockResolvedValue([
+      {
+        id: 'm1',
+        content:
+          'ordinary venue question jane@example.test 312-555-0101 https://example.test/visit',
+      },
+    ])
+    anthropicCreate
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '[{"index":0,"topic":"other"}]' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"title":"Gallery access","explanation":"Guests ask where to enter."}]',
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+
+    await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
+
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.generateEmbeddings).toHaveBeenCalledTimes(2)
+    expect(mocks.clusterCreateMany).toHaveBeenCalledOnce()
+    const providerText = anthropicCreate.mock.calls
+      .map((call) => JSON.stringify(call[0]))
+      .join('\n')
+    const embeddingText = mocks.generateEmbeddings.mock.calls
+      .map((call) => JSON.stringify(call[0]?.texts))
+      .join('\n')
+    const clusterText = JSON.stringify(mocks.clusterCreateMany.mock.calls)
+    for (const raw of ['jane@example.test', '312-555-0101', 'https://example.test/visit']) {
+      expect(providerText).not.toContain(raw)
+      expect(embeddingText).not.toContain(raw)
+      expect(clusterText).not.toContain(raw)
+    }
+    expect(providerText).toContain('ordinary venue question')
+    expect(embeddingText).toContain('Where is the north gallery?')
+    expect(rawQuestions[0]?.userMessage.content).toContain('jane@example.test')
   })
 
   it('emits bounded sanitized stale-fact signals once per content review revision', async () => {
@@ -417,6 +534,18 @@ describe('processAnalyticsEnrichmentJob', () => {
         usage: { input_tokens: 30, output_tokens: 15 },
       })
     mocks.themeUpsert.mockResolvedValue({})
+    const themeConfiguration = {
+      ...resolveAiWorkloadConfiguration({ workloadId: 'analytics-weekly-themes' }),
+      maxOutputTokens: 81,
+      timeoutMs: 5_432,
+    }
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockImplementation(({ workloadId }) =>
+      Promise.resolve(
+        workloadId === 'analytics-weekly-themes'
+          ? themeConfiguration
+          : resolveAiWorkloadConfiguration({ workloadId }),
+      ),
+    )
 
     await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
 
@@ -452,6 +581,69 @@ describe('processAnalyticsEnrichmentJob', () => {
         }),
       }),
     )
+    expect(mocks.resolveRuntimeAiWorkloadConfiguration).toHaveBeenCalledWith(
+      {
+        workloadId: 'analytics-weekly-themes',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+      expect.any(Object),
+    )
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        model: themeConfiguration.model.model,
+        max_tokens: 81,
+      }),
+      { timeout: 5_432 },
+    )
+  })
+
+  it('keeps classifier output but skips themes when the themes configuration changes', async () => {
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(
+        Array.from({ length: 5 }, (_, index) => ({
+          userMessage: { content: `question ${index}` },
+        })),
+      )
+    const classifierConfiguration = resolveAiWorkloadConfiguration({
+      workloadId: 'analytics-topic-classifier',
+    })
+    const themeConfiguration = resolveAiWorkloadConfiguration({
+      workloadId: 'analytics-weekly-themes',
+    })
+    let themeResolution = 0
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockImplementation(({ workloadId }) => {
+      if (workloadId === 'analytics-topic-classifier') {
+        return Promise.resolve(classifierConfiguration)
+      }
+      themeResolution += 1
+      return Promise.resolve(
+        themeResolution === 1
+          ? themeConfiguration
+          : { ...themeConfiguration, timeoutMs: themeConfiguration.timeoutMs - 1 },
+      )
+    })
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(mocks.messageUpdateMany).toHaveBeenCalled()
+    expect(mocks.themeUpsert).not.toHaveBeenCalled()
+    expect(mocks.aiUsageEventCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ feature: 'analytics-weekly-themes', success: true }),
+      }),
+    )
+    expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
   it('records malformed classifier output as failure and continues the job', async () => {

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import React from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 
 import { RequestDemoForm } from '../../components/RequestDemoForm'
@@ -17,9 +16,8 @@ export default function RequestDemoPage() {
       <div className="mx-auto max-w-5xl">
         <Link
           href="/"
-          className="inline-flex items-center gap-3 text-sm font-semibold text-pf-primary"
+          className="inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary"
         >
-          <Image src="/torchiko-logo.svg" alt="" aria-hidden="true" width={40} height={40} />
           Torchiko
         </Link>
         <div className="mt-8 grid w-full min-w-0 overflow-hidden rounded-[2.25rem] border border-pf-light bg-white shadow-xl lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">

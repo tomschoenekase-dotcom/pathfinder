@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
 import { WebsiteIntakeBounds } from '@pathfinder/contracts/intake-engine'
@@ -63,7 +64,7 @@ describe('website intake URL and network policy', () => {
         }),
         deps,
       ),
-    ).rejects.toThrow('non-public address')
+    ).rejects.toThrow(/private|non-public/iu)
     expect(deps.fetchPage).toHaveBeenCalledOnce()
   })
 
@@ -84,7 +85,7 @@ describe('website intake URL and network policy', () => {
         }),
         deps,
       ),
-    ).rejects.toThrow('non-public address')
+    ).rejects.toThrow(/private|non-public/iu)
     expect(deps.fetchPage).not.toHaveBeenCalled()
   })
 
@@ -142,6 +143,14 @@ describe('website intake URL and network policy', () => {
     )
     expect(deps.fetchPage).not.toHaveBeenCalled()
     expect(result.job.fetchedPages).toBe(0)
+    expect(result.intermediate.discovery?.items).toEqual([
+      expect.objectContaining({
+        url: 'https://example.org/',
+        parentUrl: null,
+        depth: 0,
+        disposition: 'ROBOTS_DENIED',
+      }),
+    ])
   })
 
   it('enforces the wall-clock budget even when an injected dependency returns late', async () => {
@@ -156,6 +165,271 @@ describe('website intake URL and network policy', () => {
 })
 
 describe('website intake proposal foundation', () => {
+  it('retains known binary references without fetching them or starving useful text pages', async () => {
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) => ({
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+        body: url,
+      })),
+      extractPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? {
+              links: ['/guide.pdf', '/tour.mp4', '/map.jpg', '/visit'],
+              facts: [],
+            }
+          : { links: [], facts: [] },
+      ),
+    })
+
+    const result = await buildWebsiteIntakeProposal(
+      request({
+        bounds: WebsiteIntakeBounds.parse({
+          allowedHosts: ['example.org'],
+          maxPages: 2,
+          maxDepth: 1,
+        }),
+      }),
+      deps,
+    )
+
+    expect(deps.fetchPage).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(deps.fetchPage).mock.calls.map(([input]) => input.url)).toEqual([
+      'https://example.org/',
+      'https://example.org/visit',
+    ])
+    expect(result.intermediate.discovery?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: 'https://example.org/guide.pdf',
+          disposition: 'UNSUPPORTED_DOCUMENT',
+          parentUrl: 'https://example.org/',
+        }),
+        expect.objectContaining({ disposition: 'UNSUPPORTED_VIDEO' }),
+        expect.objectContaining({ disposition: 'UNSUPPORTED_IMAGE' }),
+      ]),
+    )
+  })
+
+  it('meters and retains unknown non-text responses while continuing independent text pages', async () => {
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) =>
+        url.endsWith('/download')
+          ? {
+              status: 200,
+              headers: { 'content-type': 'application/pdf' },
+              body: new Uint8Array([1, 2, 3]),
+            }
+          : { status: 200, headers: { 'content-type': 'text/html' }, body: url },
+      ),
+      extractPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? { links: ['/download', '/visit'], facts: [] }
+          : { links: [], facts: [] },
+      ),
+    })
+
+    const result = await buildWebsiteIntakeProposal(
+      request({
+        bounds: WebsiteIntakeBounds.parse({
+          allowedHosts: ['example.org'],
+          maxPages: 3,
+          maxDepth: 1,
+        }),
+      }),
+      deps,
+    )
+
+    expect(deps.extractPage).toHaveBeenCalledTimes(2)
+    expect(result.job).toMatchObject({ attemptedFetches: 3, fetchedPages: 2 })
+    expect(result.intermediate.discovery?.items).toContainEqual(
+      expect.objectContaining({
+        url: 'https://example.org/download',
+        disposition: 'UNSUPPORTED_DOCUMENT',
+        contentType: 'application/pdf',
+        byteSize: 3,
+        exactByteHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+    )
+  })
+
+  it('groups only exact received-byte duplicates and never labels them as corroboration', async () => {
+    const binary = new Uint8Array([9, 8, 7])
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? {
+              status: 200,
+              headers: { 'content-type': 'text/html' },
+              body: '<a href="/asset-a"><a href="/asset-b">',
+            }
+          : {
+              status: 200,
+              headers: { 'content-type': 'application/octet-stream' },
+              body: binary,
+            },
+      ),
+      extractPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? { links: ['/asset-a', '/asset-b'], facts: [] }
+          : { links: [], facts: [] },
+      ),
+    })
+
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    const assetB = result.intermediate.discovery?.items.find((item) =>
+      item.url.endsWith('/asset-b'),
+    )
+
+    expect(assetB).toMatchObject({
+      disposition: 'UNSUPPORTED_OTHER',
+      duplicateOf: 'https://example.org/asset-a',
+    })
+    expect(JSON.stringify(result.intermediate.discovery)).not.toMatch(
+      /corroborat|official|verified/iu,
+    )
+  })
+
+  it('never inventories unsafe references even when their extensions are known', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async () => ({
+        links: [
+          'http://127.0.0.1/private.pdf',
+          'https://example.org/private.pdf?token=secret',
+          'https://other.example/video.mp4',
+          '/safe-guide.pdf',
+        ],
+        facts: [],
+      })),
+    })
+
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    const serialized = JSON.stringify(result.intermediate.discovery)
+
+    expect(serialized).toContain('https://example.org/safe-guide.pdf')
+    expect(serialized).not.toMatch(/127\.0\.0\.1|secret|other\.example/u)
+  })
+
+  it('isolates overlong URL and MIME metadata while retaining a useful sibling page', async () => {
+    const overlongDocument = `/${'x'.repeat(2_100)}.pdf`
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) =>
+        url.endsWith('/asset')
+          ? {
+              status: 200,
+              headers: { 'content-type': `application/${'x'.repeat(300)}` },
+              body: new Uint8Array([1]),
+            }
+          : { status: 200, headers: { 'content-type': 'text/html' }, body: url },
+      ),
+      extractPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? { links: [overlongDocument, '/asset', '/visit'], facts: [] }
+          : { links: [], facts: [] },
+      ),
+    })
+
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+
+    expect(deps.fetchPage).toHaveBeenCalledTimes(3)
+    expect(result.intermediate.pages.map((page) => page.url)).toEqual([
+      'https://example.org/',
+      'https://example.org/visit',
+    ])
+    expect(JSON.stringify(result.intermediate.discovery)).not.toContain('x'.repeat(2_100))
+    expect(result.intermediate.discovery?.items).toContainEqual(
+      expect.objectContaining({
+        url: 'https://example.org/asset',
+        disposition: 'UNSUPPORTED_OTHER',
+      }),
+    )
+    expect(
+      result.intermediate.discovery?.items.find((item) => item.url.endsWith('/asset')),
+    ).not.toHaveProperty('contentType')
+  })
+
+  it('caps admitted references globally and reports omissions at the page budget', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async ({ url }) => ({
+        links: Array.from({ length: 500 }, (_item, index) =>
+          url.endsWith('/') ? `/first-${index}` : `/nested-${index}`,
+        ),
+        facts: [],
+      })),
+    })
+
+    const result = await buildWebsiteIntakeProposal(
+      request({
+        bounds: WebsiteIntakeBounds.parse({
+          allowedHosts: ['example.org'],
+          maxPages: 2,
+          maxDepth: 2,
+        }),
+      }),
+      deps,
+    )
+
+    expect(deps.fetchPage).toHaveBeenCalledTimes(2)
+    expect(result.intermediate.discovery?.items).toHaveLength(1_000)
+    expect(result.intermediate.discovery?.omittedCount).toBe(1)
+    expect(
+      result.intermediate.discovery?.items.filter((item) => item.disposition === 'PAGE_LIMIT'),
+    ).toHaveLength(998)
+  })
+
+  it('applies the global reference cap to redirect targets', async () => {
+    const rootLinks = Array.from({ length: 499 }, (_item, index) => `/root-${index}.pdf`)
+    const childLinks = Array.from({ length: 498 }, (_item, index) => `/child-${index}.pdf`)
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) =>
+        url.endsWith('/alias')
+          ? { status: 302, headers: { location: '/redirected' }, body: '' }
+          : { status: 200, headers: { 'content-type': 'text/html' }, body: url },
+      ),
+      extractPage: vi.fn(async ({ url }) => {
+        if (url.endsWith('/')) return { links: [...rootLinks, '/page-2'], facts: [] }
+        if (url.endsWith('/page-2')) return { links: [...childLinks, '/alias'], facts: [] }
+        return { links: [], facts: [] }
+      }),
+    })
+
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+
+    expect(deps.fetchPage).toHaveBeenCalledTimes(3)
+    expect(result.intermediate.discovery?.items).toHaveLength(999)
+    expect(result.intermediate.discovery?.omittedCount).toBe(1)
+    expect(JSON.stringify(result.intermediate.discovery)).not.toContain('/redirected')
+  })
+
+  it('records a shared redirect target once with redirect provenance', async () => {
+    const deps = dependencies({
+      fetchPage: vi.fn(async ({ url }) => {
+        if (url.endsWith('/alias-a') || url.endsWith('/alias-b')) {
+          return { status: 302, headers: { location: '/final' }, body: '' }
+        }
+        return { status: 200, headers: { 'content-type': 'text/html' }, body: url }
+      }),
+      extractPage: vi.fn(async ({ url }) =>
+        url.endsWith('/')
+          ? { links: ['/alias-a', '/alias-b'], facts: [] }
+          : { links: [], facts: [] },
+      ),
+    })
+
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    const finalItems = result.intermediate.discovery?.items.filter(
+      (item) => item.url === 'https://example.org/final',
+    )
+
+    expect(finalItems).toEqual([
+      expect.objectContaining({
+        parentUrl: 'https://example.org/alias-a',
+        disposition: 'FETCHED_TEXT',
+      }),
+    ])
+    expect(deps.fetchPage).toHaveBeenCalledTimes(4)
+  })
+
   it('deduplicates canonical URLs and ignores links outside the exact host allowlist', async () => {
     const fetched: string[] = []
     const deps = dependencies({
@@ -205,6 +479,12 @@ describe('website intake proposal foundation', () => {
 
     expect(result.job.fetchedPages).toBe(2)
     expect(result.intermediate.pages.map((page) => page.depth)).toEqual([0, 1])
+    expect(result.intermediate.discovery?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ url: 'https://example.org/two', disposition: 'PAGE_LIMIT' }),
+        expect.objectContaining({ url: 'https://example.org/deeper', disposition: 'DEPTH_LIMIT' }),
+      ]),
+    )
   })
 
   it('creates deterministic evidence citations and date-sensitive contradictions', async () => {
@@ -283,5 +563,92 @@ describe('website intake proposal foundation', () => {
 
     expect(result.packageBinding).toEqual({ kind: 'TYPED_INTERMEDIATE', draftInput: null })
     expect(result.proposal.packageDraftId).toBeUndefined()
+  })
+})
+
+describe('website page text retention', () => {
+  const hash = (value: string) => createHash('sha256').update(value).digest('hex')
+
+  it('retains bounded Unicode prose with crawler-owned provenance without inventing claims', async () => {
+    const fullText = '🌿'.repeat(20_001)
+    const deps = dependencies({
+      fetchPage: vi.fn(async () => ({
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+        body: 'raw source',
+      })),
+      extractPage: vi.fn(async () => ({
+        links: [],
+        facts: [],
+        readableText: fullText,
+        extractionProfile: 'plain-text-v1' as const,
+      })),
+    })
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    expect(deps.extractPage).toHaveBeenCalledWith({
+      url: 'https://example.org/',
+      body: 'raw source',
+      contentType: 'text/plain',
+    })
+    expect(result.intermediate.pageTextEvidence).toEqual([
+      {
+        sourceUrl: 'https://example.org/',
+        exactByteHash: hash('raw source'),
+        capturedAt: NOW.toISOString(),
+        extractionProfile: 'plain-text-v1',
+        text: '🌿'.repeat(20_000),
+        normalizedTextHash: hash(fullText),
+        retainedTextHash: hash('🌿'.repeat(20_000)),
+        fullCodePointCount: 20_001,
+        retainedCodePointCount: 20_000,
+        truncated: true,
+      },
+    ])
+    expect(result.intermediate.citations).toEqual([])
+    expect(result.intermediate.evidence).toEqual([])
+    expect(result.intermediate.discrepancies).toEqual([])
+    expect(result.packageBinding).toEqual({ kind: 'TYPED_INTERMEDIATE', draftInput: null })
+    expect(result.execution).toEqual({
+      autoPublish: false,
+      autoApply: false,
+      lifecycleCommands: [],
+    })
+  })
+
+  it('caps a run at 100,000 code points and retains explicit omission metadata for later pages', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async ({ url }) => ({
+        links:
+          url === 'https://example.org/'
+            ? Array.from({ length: 5 }, (_, index) => `https://example.org/page-${index}`)
+            : [],
+        facts: [],
+        readableText: 'x'.repeat(21_000),
+        extractionProfile: 'static-html-v1' as const,
+      })),
+    })
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    const pages = result.intermediate.pageTextEvidence!
+    expect(pages).toHaveLength(6)
+    expect(pages.reduce((total, page) => total + page.retainedCodePointCount, 0)).toBe(100_000)
+    expect(pages[5]).toMatchObject({
+      text: '',
+      fullCodePointCount: 21_000,
+      retainedCodePointCount: 0,
+      truncated: true,
+      retainedTextHash: hash(''),
+    })
+  })
+
+  it('preserves legacy extractors without fabricating page text', async () => {
+    const result = await buildWebsiteIntakeProposal(request(), dependencies())
+    expect(result.intermediate).not.toHaveProperty('pageTextEvidence')
+  })
+
+  it('rejects unversioned extracted prose', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async () => ({ links: [], facts: [], readableText: 'unversioned' })),
+    })
+    await expect(buildWebsiteIntakeProposal(request(), deps)).rejects.toThrow('extraction profile')
   })
 })

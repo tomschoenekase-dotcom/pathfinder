@@ -4,25 +4,31 @@ import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interv
 
 import {
   createIntakeProposal,
+  createIntakeProposalInTransaction,
   IntakeActionError,
+  listIntakeProposals,
   type IntakeActionClient,
   type IntakeProposalInput,
+  type IntakeProposalTransaction,
 } from './intake-actions'
 
 const venueFindFirst = vi.fn()
 const runCreate = vi.fn()
 const runFindFirst = vi.fn()
+const runFindMany = vi.fn()
+const queryRaw = vi.fn()
 const executeRaw = vi.fn()
 const evidenceCreate = vi.fn()
 const eventCreate = vi.fn()
 const auditCreate = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
-  intakeRun: { create: runCreate, findFirst: runFindFirst },
+  intakeRun: { create: runCreate, findFirst: runFindFirst, findMany: runFindMany },
   intakeEvidenceRecord: { create: evidenceCreate },
   intakeRunEvent: { create: eventCreate },
   auditLog: { create: auditCreate },
   $executeRaw: executeRaw,
+  $queryRaw: queryRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as IntakeActionClient
 
@@ -41,6 +47,37 @@ describe('canonical intake actions', () => {
       displayName: 'Operations interview',
       createdAt: new Date(),
     })
+  })
+
+  it('keeps composed failures inside the caller transaction without outside replay recovery', async () => {
+    const conflict = Object.assign(new Error('unique'), { code: 'P2002' })
+    const outsideRead = vi.fn(() => {
+      throw new Error('Outside transaction read')
+    })
+    const outsideTransaction = vi.fn(() => {
+      throw new Error('Nested transaction')
+    })
+    const outside = {
+      venue: { findFirst: outsideRead },
+      intakeRun: { findFirst: outsideRead },
+      $transaction: outsideTransaction,
+    } as unknown as IntakeActionClient
+    runCreate.mockRejectedValueOnce(conflict)
+    await expect(
+      createIntakeProposalInTransaction({
+        db: outside,
+        transaction: db as unknown as IntakeProposalTransaction,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        actor: { type: 'HUMAN', id: 'operator-a', role: 'MANAGER' },
+        requestId: '56d3ed81-d294-4051-abd2-0e1a77f61ec7',
+        proposal: { kind: 'NOTES', notes: 'Shared source' },
+      }),
+    ).rejects.toBe(conflict)
+    expect(venueFindFirst).toHaveBeenCalledTimes(1)
+    expect(runFindFirst).toHaveBeenCalledTimes(1)
+    expect(outsideRead).not.toHaveBeenCalled()
+    expect(outsideTransaction).not.toHaveBeenCalled()
   })
 
   it('pins venue scope and never passes private answer text to persistence', async () => {
@@ -176,6 +213,38 @@ describe('canonical intake actions', () => {
     expect(JSON.stringify(auditCreate.mock.calls[0]?.[0]?.data)).not.toContain(
       'The east entrance is step-free.',
     )
+  })
+
+  it('never bulk-selects a retained media snapshot and returns bounded metadata instead', async () => {
+    runFindMany.mockResolvedValueOnce([
+      {
+        id: 'media-run',
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        status: 'AWAITING_REVIEW',
+        displayName: 'Media review',
+        websiteUri: null,
+        interviewRole: null,
+        createdAt: new Date(),
+        _count: { evidence: 101, events: 2 },
+        packageHandoff: null,
+      },
+    ])
+    queryRaw.mockResolvedValueOnce([])
+    const result = await listIntakeProposals({
+      db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      limit: 50,
+    })
+    expect(runFindMany.mock.calls[0]![0].select).not.toHaveProperty('structuredBootstrap')
+    expect(queryRaw).toHaveBeenCalledOnce()
+    expect(queryRaw.mock.calls[0]![0].join(' ')).toContain(
+      "COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'",
+    )
+    expect(result[0]!.structuredBootstrap).toEqual({
+      kind: 'MEDIA_PROJECT_REVIEW',
+      retainedEvidenceCount: 101,
+    })
   })
 
   it('stores complete machine lineage for a NOTES-only proposal and rejects broader intake kinds', async () => {

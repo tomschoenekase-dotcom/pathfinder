@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   sessionUpsert: vi.fn(),
   sessionUpdate: vi.fn(),
   runFindMany: vi.fn(),
-  runUpdate: vi.fn(),
   workerFind: vi.fn(),
   claim: vi.fn(),
   complete: vi.fn(),
@@ -21,7 +20,7 @@ vi.mock('../client', () => ({
       upsert: mocks.sessionUpsert,
       updateMany: mocks.sessionUpdate,
     },
-    agentRun: { findMany: mocks.runFindMany, update: mocks.runUpdate },
+    agentRun: { findMany: mocks.runFindMany },
     agentWorker: { findFirst: mocks.workerFind },
   },
 }))
@@ -68,6 +67,13 @@ describe('agent bridge actions', () => {
       credential: credential as never,
     })
     const call = mocks.sessionUpsert.mock.calls[0]![0]
+    expect(call.where).toEqual({
+      id_tenantId: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        tenantId: 'tenant-1',
+      },
+      tenantId: 'tenant-1',
+    })
     expect(call.create).toMatchObject({ credentialId: 'credential-1', provider: 'HERMES' })
     expect(JSON.stringify(call)).not.toMatch(/secret|token|browser/i)
   })
@@ -92,6 +98,36 @@ describe('agent bridge actions', () => {
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
+      executionContext:
+        '{"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}',
+      workflowExecutionContext: JSON.stringify([
+        {
+          registryKey: 'visitor-review',
+          outcome: 'SELECTED',
+          bindingHash: 'b'.repeat(64),
+          requiredCapabilities: ['knowledge.read'],
+          workflowVersion: {
+            id: 'workflow-version-1',
+            contentHash: 'c'.repeat(64),
+            portableText: 'Use the reviewed visitor evidence.',
+          },
+        },
+      ]),
+      executionPrompt: `Build it\n\nSelected workflow instructions and provenance:\n${JSON.stringify(
+        [
+          {
+            registryKey: 'visitor-review',
+            outcome: 'SELECTED',
+            bindingHash: 'b'.repeat(64),
+            requiredCapabilities: ['knowledge.read'],
+            workflowVersion: {
+              id: 'workflow-version-1',
+              contentHash: 'c'.repeat(64),
+              portableText: 'Use the reviewed visitor evidence.',
+            },
+          },
+        ],
+      )}\n\nBounded persisted execution context:\n{"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}`,
       initiatedByType: 'HUMAN',
       initiatedById: 'operator-1',
       agentIdentity: {
@@ -123,6 +159,7 @@ describe('agent bridge actions', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           modelProvider: 'codex-bridge',
+          cancelRequestedAt: null,
           AND: [
             {
               OR: [
@@ -146,9 +183,16 @@ describe('agent bridge actions', () => {
       expect.objectContaining({
         runId: 'run-1',
         bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        workflowContextMaxChars: 6_000,
+        executionPromptMaxChars: 10_000,
       }),
     )
     expect(result.task?.id).toBe('run-1')
+    expect(result.task?.prompt).toContain('The approved visitor capacity is exactly 137.')
+    expect(result.task?.prompt).toContain('Use the reviewed visitor evidence.')
+    expect(result.task?.prompt).toContain('workflow-version-1')
+    expect(result.task?.prompt).toContain('knowledge.read')
+    expect(result.task?.prompt).toContain('b'.repeat(64))
   })
 
   it('skips incompatible role-bound work and claims the first compatible task', async () => {
@@ -185,6 +229,9 @@ describe('agent bridge actions', () => {
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
+      executionContext: '{}',
+      workflowExecutionContext: '[]',
+      executionPrompt: 'review_sources\n\nBounded persisted execution context:\n{}',
       initiatedByType: 'SYSTEM',
       initiatedById: 'scheduler',
       agentIdentity: {
@@ -203,7 +250,9 @@ describe('agent bridge actions', () => {
       credential: credential as never,
     })
     expect(mocks.claim).toHaveBeenCalledTimes(1)
-    expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ runId: 'research-run' }))
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'research-run', executionWorkerId: 'worker-1' }),
+    )
     expect(result.task?.id).toBe('research-run')
   })
 
@@ -234,6 +283,9 @@ describe('agent bridge actions', () => {
         leaseExpiresAt: new Date(),
         attemptNumber: 1,
         scopeSnapshot: {},
+        executionContext: '{}',
+        workflowExecutionContext: '[]',
+        executionPrompt: 'Build it\n\nBounded persisted execution context:\n{}',
         initiatedByType: 'SYSTEM',
         initiatedById: 'scheduler',
         agentIdentity: {
@@ -261,5 +313,69 @@ describe('agent bridge actions', () => {
       expect.objectContaining({ runId: 'available-run' }),
     )
     expect(result.task?.id).toBe('available-run')
+  })
+  it('derives source requirements for older snapshots without allowing unsuitable workers to claim', async () => {
+    mocks.sessionFind.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      provider: 'CODEX_SUBSCRIPTION',
+      supportedModels: ['subscription-default'],
+    })
+    const sourceAssignment = {
+      version: 1,
+      kind: 'FILE_EXTRACTION',
+      intakeRunId: 'intake-1',
+      receiptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      extractedTextHash: 'a'.repeat(64),
+    }
+    mocks.runFindMany.mockResolvedValue([{ id: 'source-run', scopeSnapshot: { sourceAssignment } }])
+    const required = ['agent-runs:execute', 'intake-source:read', 'resources:read']
+    for (const worker of [
+      null,
+      { id: 'worker-1', capabilities: required, agentRoles: ['OPERATIONS'] },
+      { id: 'worker-1', capabilities: ['agent-runs:execute'], agentRoles: ['CONTENT'] },
+    ]) {
+      mocks.workerFind.mockResolvedValue(worker)
+      const result = await claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        ...(worker ? { workerKey: 'worker-1' } : {}),
+        credential: credential as never,
+      })
+      expect(result.task).toBeNull()
+      expect(mocks.claim).not.toHaveBeenCalled()
+    }
+    mocks.workerFind.mockResolvedValue({
+      id: 'worker-1',
+      capabilities: required,
+      agentRoles: ['CONTENT'],
+    })
+    mocks.claim.mockRejectedValue(new Error('selected-compatible-source-run'))
+    await expect(
+      claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        workerKey: 'worker-1',
+        credential: credential as never,
+      }),
+    ).rejects.toThrow('selected-compatible-source-run')
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'source-run', executionWorkerId: 'worker-1' }),
+    )
+    mocks.claim.mockClear()
+    mocks.runFindMany.mockResolvedValue([
+      {
+        id: 'corrupt-source-run',
+        scopeSnapshot: { sourceAssignment: { ...sourceAssignment, extractedTextHash: 'wrong' } },
+      },
+    ])
+    await expect(
+      claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        workerKey: 'worker-1',
+        credential: credential as never,
+      }),
+    ).resolves.toEqual({ task: null })
+    expect(mocks.claim).not.toHaveBeenCalled()
   })
 })

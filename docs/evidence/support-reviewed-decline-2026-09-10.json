@@ -1,0 +1,194 @@
+{
+  "recordedAt": "2026-09-10",
+  "implementationCommit": "ddf8edf2bcadaf84df3165ed0e2dde09f9d9c360",
+  "scope": "Explicit source-bound reviewed decline, replacement-original qualification, V7 support fulfillment and truthful operator/founder review; no canonical mutation by decline.",
+  "migration": {
+    "path": "packages/db/prisma/migrations/20260910140000_add_semantic_reviewed_decline/migration.sql",
+    "sha256": "6147eccf58473797b5880586f5c81c134fb6e45a74a9d43722eec95d7ebae020",
+    "freshMigrations": 247,
+    "freshTables": 264,
+    "backfill": "None; historical REJECTED requires explicit fresh attestation."
+  },
+  "targetedTests": {
+    "api": 123,
+    "contracts": 33,
+    "dbFulfillmentAndActions": 94,
+    "dbTenantIsolation": 342,
+    "dashboard": 45,
+    "total": 637,
+    "allPassed": true
+  },
+  "staticChecks": {
+    "types": ["api", "contracts", "db", "dashboard"],
+    "ownedConfiguredLint": "pass",
+    "dashboardWarnings": "Existing callback dependency pattern includes two exhaustive-deps warnings in the new form; configured lint exit 0.",
+    "unrelatedFullApiLint": "Five unused-variable errors in media-resolution.disposable.integration.test.ts and routers/admin/agent-questions.ts; not edited in this slice."
+  },
+  "proofs": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-semantic-reviewed-decline-247-a4eadf85310b",
+      "resultSha256": "6d94029551c62e41960c65f2049a49cc675fa561290b7bc8128026a1a43e1e4c",
+      "recordedHead": "ddf8edf2bcadaf84df3165ed0e2dde09f9d9c360",
+      "sourceCount": 57,
+      "worktreeBytesMatchManifest": true,
+      "gitContentMatchesIgnoringCheckoutLineEndings": true,
+      "runnerSha256": "896b9eca1a1c3a972d67dc4a52e8b6d1255214a5e9de16ea73d8da169ab9d60f",
+      "testPassed": true,
+      "stopped": true,
+      "cases": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "completionRegression": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-resolution-completion-8760cf8d024d",
+      "resultSha256": "a143b9aeb20fae2540a4df817aefd6bcd8e565154ae8cd7baf0a2e3cdacdfab3",
+      "recordedHead": "1c92208a4abaa24fe11d28d12851461d8d3d74bd",
+      "sourceCount": 56,
+      "worktreeBytesMatchManifest": true,
+      "gitContentMatchesIgnoringCheckoutLineEndings": true,
+      "runnerSha256": "43de9630fb33ebb953316e533b0532e8c87a7999b72d5abbadf18abbbfa6f448",
+      "testPassed": true,
+      "stopped": true,
+      "cases": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "completionRegression": null
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-temporal-completion-cutover-247-cad14f7fdba6",
+      "resultSha256": "f77af34663de8a9bb944ba8abe86c82468ea8d0469828fc67f4d27bc8566347b",
+      "recordedHead": "1c92208a4abaa24fe11d28d12851461d8d3d74bd",
+      "sourceCount": 56,
+      "worktreeBytesMatchManifest": true,
+      "gitContentMatchesIgnoringCheckoutLineEndings": true,
+      "runnerSha256": "96d7d446763f4f5bc7d08f0b768c557bd442cd6fc14132eaab55f1664ef11949",
+      "testPassed": true,
+      "stopped": true,
+      "cases": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "completionRegression": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-content-completion-cutover-247-3661c4bf05fa",
+      "resultSha256": "69b8f8b761b6d85f91419d017382fd7d93778a0b39946c5acc9f58bc28e30711",
+      "recordedHead": "ddf8edf2bcadaf84df3165ed0e2dde09f9d9c360",
+      "sourceCount": 53,
+      "worktreeBytesMatchManifest": true,
+      "gitContentMatchesIgnoringCheckoutLineEndings": true,
+      "runnerSha256": "144fa6b07a1a10e4220c9ae8994ee97f09f0f5d80920a59f20b3c46326fd69e7",
+      "testPassed": true,
+      "stopped": true,
+      "cases": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      },
+      "completionRegression": {
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTotalTests": 1
+      }
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-reviewed-decline-browser-bab974a9afd0",
+      "resultSha256": "0a6d7c3886e5fc903a475b4fb32e298ee578e070243a307bea26eafdeefda198",
+      "recordedHead": "1c92208a4abaa24fe11d28d12851461d8d3d74bd",
+      "sourceCount": 10,
+      "worktreeBytesMatchManifest": true,
+      "gitContentMatchesIgnoringCheckoutLineEndings": true,
+      "runnerSha256": "10deea8ddf4622ee88f9eb7fce8571840b36a52966d3df5d8d42f393ffe62e53",
+      "testPassed": true,
+      "stopped": true,
+      "cases": {
+        "startTime": "2026-09-10T15:56:14.570Z",
+        "duration": 9109.789,
+        "expected": 4,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "completionRegression": null
+    }
+  ],
+  "nativeSummary": {
+    "distinctCases": 5,
+    "executions": 7,
+    "layers": [
+      "Fresh native PostgreSQL 16.15 / pgvector 0.8.6",
+      "Actual services, fulfillment readers, immutable receipts and completion/replay",
+      "Read Committed and Repeatable Read independently valid candidate races; exact backend PID lock waits and specific arbiter/serialization loser errors"
+    ],
+    "notProven": [
+      "Hosted incremental migration",
+      "Every race winner scheduling permutation",
+      "Provider output or customer delivery"
+    ]
+  },
+  "browserSummary": {
+    "widths": [390, 768, 1280, 1440],
+    "cases": 4,
+    "screenshots": 12,
+    "keyboard": true,
+    "reducedMotion": true,
+    "axeViolations": 0,
+    "horizontalOverflow": 0,
+    "transport": "Synthetic intercepted tRPC, separate from native service proof",
+    "rootVisualReview": "390px and 1280px final renders inspected: readable review facts before confirmation; current and stale receipts distinguished; existing admin visual language, no new decorative SaaS layout."
+  },
+  "excludedAttempts": [
+    {
+      "id": "ad32171489ca",
+      "reason": "Fixture venue identity typo; failed."
+    },
+    {
+      "id": "bb6571d616bd",
+      "reason": "Source changed during proof; runner rejected final source identity."
+    },
+    {
+      "id": "bcf8fea8483e",
+      "reason": "Race candidate lacked source linkage; one-winner assertion did not prove arbitration. Do not count race despite aggregate passing flag."
+    },
+    {
+      "id": "e15620da0595",
+      "reason": "Corrected race passed, then commit formatting changed fixture bytes; final a4eadf85310b supersedes exact-candidate identity."
+    },
+    {
+      "id": "1b726566cac7",
+      "reason": "Browser locator ambiguity; failed."
+    },
+    {
+      "id": "e231b80c48e0",
+      "reason": "Browser a11y heading/landmark check failed; fixed before final browser run."
+    }
+  ],
+  "remainingGates": [
+    "Original 128 requirements, 32 QA cases and A/B/C remain at their proper proof layers.",
+    "External four packets remain reserved awaiting exact returned results; no integration claimed.",
+    "Current Mini Museum package/deployed model/full September 8 chat logs unavailable; July observations are not current reproductions.",
+    "Provider/device/release/customer authority gates unchanged; photo default-off; final artwork and marketing held.",
+    "Broader handoff refresh deferred by Tom; campaign remains active."
+  ]
+}

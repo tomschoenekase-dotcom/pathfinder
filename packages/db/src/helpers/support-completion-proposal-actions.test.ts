@@ -27,6 +27,7 @@ const input = {
 
 function harness(missingInformation: string[] = []) {
   const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(0),
     approvalRequest: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi
@@ -46,6 +47,7 @@ function harness(missingInformation: string[] = []) {
         missingInformation,
       }),
     },
+    knowledgeChangeProposal: { findMany: vi.fn().mockResolvedValue([]) },
     supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     agentAction: { create: vi.fn().mockResolvedValue({ id: 'action_1' }) },
     agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline_1' }) },
@@ -77,6 +79,7 @@ describe('support completion proposal action', () => {
               linkedPackageCount: 0,
               packages: [],
             }),
+            completionOutcome: 'RESOLVED',
             allLinkedPackagesApplied: true,
             clientVisibleMessageCreated: false,
             customerContacted: false,

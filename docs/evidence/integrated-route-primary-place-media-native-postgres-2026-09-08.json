@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:26:27.143787+00:00",
+  "baseProductRevision": "e24cbd551f9daf8e3da2a40b36b5c2c38ca35c3c",
+  "result": {
+    "database": "pathfinder_disposable_visitor_media_route_063281b7dfc3",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "migrationCount": 229,
+  "publicTableCount": 254,
+  "timezone": "UTC",
+  "tests": {
+    "nativePassed": 1,
+    "nativeFailed": 0,
+    "nativeSkipped": 0,
+    "apiFocusedPassed": 47,
+    "dbFocusedPassed": 10,
+    "contractsFocusedPassed": 2,
+    "visitorComponentPassed": 12,
+    "adminComponentPassed": 7,
+    "browserProjectsPassed": 6
+  },
+  "implemented": [
+    "Nullable exact-scope primary Place relationship with no inferred backfill; multiple anchors may share one Place.",
+    "Reviewed location authoring preserves omitted mapping updates and allows explicit clear; current public active scoped Place validation applies.",
+    "Canonical media registration now writes asset and scoped Place/knowledge links within one transaction, fixing a real Prisma nested-write rejection.",
+    "Reachable accessible restroom selection includes approved destination media only after final current mapping and Place revalidation.",
+    "Visitor directions precede optional image and attribution; image failure preserves route; changed route input clears old media."
+  ],
+  "nativeControls": [
+    "Canonical upload reserve, precheck, authoritative malware receipt settlement, media registration, rights review and derivative request.",
+    "Closer disconnected restroom is not selected; two anchors may share one Place.",
+    "Direct database composite-FK rejection for wrong venue and wrong tenant, independently of API validation.",
+    "Place SECOND_LAYER, inactive Place and withdrawn media are tested independently; all suppress image metadata while route survives."
+  ],
+  "limits": [
+    "Storage verification receipts and derivative byte metadata are synthetic; derivative completion uses scoped database transition. No live storage, provider, malware scanner or image-byte delivery is proved.",
+    "Browser imagery is an intercepted synthetic SVG; actual product components, layout and image-failure behavior are exercised.",
+    "Visitor screenshots inspected at320/820/1024/1440px; admin desktop composition and basic responsive controls inspected. Axe, keyboard focus and no horizontal overflow checks passed.",
+    "Visual critique retained existing venue green route surface and restrained admin fields. Moved imagery after directions to avoid dominating phone guidance. No decorative cards or fake venue photography introduced.",
+    "No physical-device, live geolocation, provider synthesis or deployment claim."
+  ],
+  "retainedFailedRuns": {
+    "e736e6b5e7e6": "Invalid direct upload-state fixture seed rejected.",
+    "385bba14b833": "Invalid trusted upload key format rejected.",
+    "fb912ddbc45b": "Reproduced production media registration nested-write defect.",
+    "48cbf877b1e8": "Invalid PRIVATE fixture visibility rejected; corrected to canonical SECOND_LAYER."
+  },
+  "measuredSources": [
+    {
+      "path": "packages/api/src/integrated-visitor-media-route-disposable.integration.test.ts",
+      "sha256": "2a424a58231149b99a95203b162ebb9296d19116a7459e400937f96e936e7f65",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/guest-place-media.ts",
+      "sha256": "82a7b4383aadd9a9215c80b91bcaaafa056df3d9a07441e9abe023a1eb8e0d80",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/admin/location-authoring-contract.ts",
+      "sha256": "e6bea39aa98777a7c91b4d31137b09c05966fc5df83a00ad181d4826a5ac76c7",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/admin/location-authoring.ts",
+      "sha256": "7881248a36598e7bdd51e56a544a3ef013f4823e294a79a7638f601396155308",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/location.ts",
+      "sha256": "5bd990666b3cff7ecb59e50cf4a77084facf86a69c555a96d38349a933c0f7ec",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/contracts/src/location-authoring.ts",
+      "sha256": "3749f0a6c3235db9c3727050c3e586b6c1ee26155f1828c15e10e2f5d0e2dd3a",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260907190000_add_venue_location_primary_place/migration.sql",
+      "sha256": "d7db40a032b0ad00d0098f4b60d9e16761f806fd47db68469af0cb6de69ac587",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/venue-media-actions.ts",
+      "sha256": "f5be54c93ae8bde180265b0f4c562fcec20c0e1568b525871c4f54b441e61070",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "visualArtifacts": [
+    {
+      "path": "artifacts/reachable-route-media-final-20260908/reachable-route-media-reac-04bc6--to-usable-route-directions-desktop-1440x900/route-media-1024.png",
+      "sha256": "a2fb0619d744f85edd821e4f7c949142e73552ad505473f3828b97f20f274b9a"
+    },
+    {
+      "path": "artifacts/reachable-route-media-final-20260908/reachable-route-media-reac-04bc6--to-usable-route-directions-desktop-1440x900/route-media-1440.png",
+      "sha256": "1c916d58c5d49508599a1f16e3118a2a28c3ce4569af04b178a491f8fd08c7c4"
+    },
+    {
+      "path": "artifacts/reachable-route-media-final-20260908/reachable-route-media-reac-04bc6--to-usable-route-directions-phone-390x844/route-media-320.png",
+      "sha256": "b1d95f30efe486c3eac47c965c8ad757a4113b3d33cd93a0037bdd7c0b88e18b"
+    },
+    {
+      "path": "artifacts/reachable-route-media-final-20260908/reachable-route-media-reac-04bc6--to-usable-route-directions-tablet-820x1180/route-media-820.png",
+      "sha256": "47593e09cf767ef482aa00568c2c5f81a5a5eccab6c07d5b9f8b3c7c40686099"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-desktop-1440x900/location-place-1440.png",
+      "sha256": "6c78c91ce04669fe18c3f18226a09007c4dff536ef6cd09e6cd7e7c62314d7d7"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-desktop-1440x900/place-selector-1024.png",
+      "sha256": "aaab0061894103710f4f23a93cda23e99f5702ecf6a565ee76d9182e3a279810"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-desktop-1440x900/place-selector-1440.png",
+      "sha256": "a6e036f0084b4127931d44bd61084dccabaab40f014089fb660ff8af6072e2ec"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-phone-390x844/location-place-320.png",
+      "sha256": "28934bc454509fb6f67b70b86189b1c2b0f9494c0b729ac7a58a18357ce4f164"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-phone-390x844/place-selector-320.png",
+      "sha256": "e1434f2a5674fb6d541de73ba9f2486b35240ac848dd6777ca2a908ef7c5724a"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-tablet-820x1180/location-place-820.png",
+      "sha256": "c59c90f7070b4135c3b57a641984b8d472d077524a09fa10e845ab701023638e"
+    },
+    {
+      "path": "artifacts/location-place-authoring-final-20260908/location-place-authoring-p-b8426-able-during-location-review-tablet-820x1180/place-selector-820.png",
+      "sha256": "4a5d796db3320c50097e1024ca30a867ec25d215f0273b0015d441ad5265b2b7"
+    }
+  ],
+  "retainedFiles": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3\\result.json",
+      "sha256": "c5e6335a10cdf5068756865a4114aa158deeff26538fad2d41f52695aa3c26b9"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3\\vitest.json",
+      "sha256": "3e06aec4ba022028f06a8e5ac7f35d603caa1b75485ab081d34027b818e4e8bc"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3\\vitest.log",
+      "sha256": "125fb305cd348714d695772ef163fd6d1805b8deca15902031f2b2b92a57d2b2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3\\database-readback.log",
+      "sha256": "69c45df7f1fa2dee4879d1a01157a28625f35fb011d56d0cfd9cab7a7215778a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-integrated-route-media-063281b7dfc3\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ]
+}

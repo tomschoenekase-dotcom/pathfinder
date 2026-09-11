@@ -1,6 +1,8 @@
 export { CharacterPresence } from './CharacterPresence'
 export { CharacterRenderer } from './CharacterRenderer'
 export { LayeredSvgRenderer } from './LayeredSvgRenderer'
+export { FamilyRigRenderer, resolveFamilyRigMotion } from './FamilyRigRenderer'
+export type { FamilyRigLayerRole, FamilyRigName, FamilyRigRendererProps } from './FamilyRigRenderer'
 export type { LayeredSvgRendererProps } from './LayeredSvgRenderer'
 export { PublicCharacterPresence } from './PublicCharacterPresence'
 export { StaticCharacterFallback } from './StaticCharacterFallback'

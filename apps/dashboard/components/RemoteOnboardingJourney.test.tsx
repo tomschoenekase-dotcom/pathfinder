@@ -7,12 +7,17 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./IntakeFileUpload', () => ({
-  IntakeFileUploadWorkspace: () => (
-    <div>Types of data to submit · Videos or audio · 50 GB total</div>
+  IntakeFileUploadWorkspace: ({ venueCategory }: { venueCategory?: string | null }) => (
+    <div data-venue-category={venueCategory ?? 'generic'}>
+      Types of data to submit · Videos or audio · 50 GB total
+    </div>
   ),
 }))
 vi.mock('./IntakeProposalWorkspace', () => ({
   IntakeProposalWorkspace: () => <div>Website or staff contribution form</div>,
+}))
+vi.mock('./IntakeV1SubmissionWorkspace', () => ({
+  IntakeV1SubmissionWorkspace: () => <div>Website or staff contribution form</div>,
 }))
 vi.mock('./IntakeCorrectionForm', () => ({
   IntakeCorrectionForm: ({ sourceLabel }: { sourceLabel: string }) => (
@@ -26,7 +31,7 @@ vi.mock('./IntakeProposalReview', () => ({
 import { RemoteOnboardingJourney } from './RemoteOnboardingJourney'
 
 const data = {
-  venue: { id: 'venue-1', name: 'Museum' },
+  venue: { id: 'venue-1', name: 'Museum', category: null },
   lifecycle: {
     version: 1 as const,
     state: 'COLLECTING' as const,
@@ -97,6 +102,25 @@ function markupRoot(html: string) {
 }
 
 describe('RemoteOnboardingJourney', () => {
+  it('passes the saved venue category to capture guidance without inferring from its name', () => {
+    const museum = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          ownerId="test-owner"
+          data={{ ...data, venue: { ...data.venue, category: 'Museum' } }}
+        />,
+      ),
+    )
+    const unnamed = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
+    expect(museum.querySelector('[data-venue-category]')?.getAttribute('data-venue-category')).toBe(
+      'Museum',
+    )
+    expect(
+      unnamed.querySelector('[data-venue-category]')?.getAttribute('data-venue-category'),
+    ).toBe('generic')
+  })
   it('keeps disclosed source links touch-sized', () => {
     const css = readFileSync(
       resolve(process.cwd(), 'components/RemoteOnboardingJourney.module.css'),
@@ -108,6 +132,7 @@ describe('RemoteOnboardingJourney', () => {
   it('keeps upload primary while progressively disclosing the durable journey', () => {
     const html = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={data}
         proposals={[
           {
@@ -147,6 +172,7 @@ describe('RemoteOnboardingJourney', () => {
     expect(html).toContain('Where this came from')
     expect(html).toContain('Review cited staff answers')
     expect(html).toContain('Suggest a correction to Front desk interview')
+    expect(html).toContain('Request guide appearance')
     expect(html).toContain('Source confidence')
     expect(html).toContain('View full journey status')
     expect(html).toContain(
@@ -154,8 +180,47 @@ describe('RemoteOnboardingJourney', () => {
     )
   })
 
+  it('links an optional appearance request to the exact venue and review return point', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          ownerId="test-owner"
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'REVIEW_SOURCES' as const,
+                stage: 'REVIEW' as const,
+                label: 'Review organized information',
+                reason: 'Your saved information is ready for review.',
+                required: false,
+              },
+            },
+            review: { proposedSources: 1, draftPackages: 0 },
+          }}
+        />,
+      ),
+    )
+    const link = Array.from(root.querySelectorAll<HTMLAnchorElement>('a')).find((item) =>
+      item.textContent?.includes('Request guide appearance'),
+    )
+    const href = new URL(link?.getAttribute('href') ?? '', 'https://portal.invalid')
+
+    expect(href.pathname).toBe('/support')
+    expect(href.searchParams.get('venue')).toBe('venue-1')
+    expect(href.searchParams.get('new')).toBe('theme-preference')
+    expect(href.searchParams.get('returnTo')).toBe('/venues/venue-1/onboarding#review')
+    expect(root.querySelector('#review')?.textContent).toContain('share it for review')
+    expect(root.querySelector('#review')?.textContent).toContain(
+      'requesting a preference does not change the guide',
+    )
+  })
+
   it('renders the five-stage client journey with one truthful current step', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
     const rail = root.querySelector('section[aria-label="Onboarding progress"]')
 
     expect(rail).not.toBeNull()
@@ -170,7 +235,9 @@ describe('RemoteOnboardingJourney', () => {
   })
 
   it('does not spend client attention on an empty questions section', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
 
     expect(root.querySelector('#questions')).toBeNull()
     expect(root.textContent).not.toContain('Focused questions')
@@ -181,6 +248,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -207,6 +275,10 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain(
       'Nothing else is required right now. You can close this page and return later.',
     )
+    expect(root.textContent).toContain(
+      'Unfinished website, staff, and note entries save privately while you work.',
+    )
+    expect(root.textContent).not.toContain('Unfinished entries are not saved until you share them.')
     const activity = root.querySelector('[aria-label="Current onboarding activity"]')
     expect(activity?.textContent).toContain('Shared2')
     expect(activity?.textContent).toContain('Ready for Torchiko1')
@@ -216,6 +288,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -244,6 +317,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -271,6 +345,7 @@ describe('RemoteOnboardingJourney', () => {
   it('links a focused question to its exact durable discussion and return point', () => {
     const html = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
           ...data,
           questions: {
@@ -281,6 +356,12 @@ describe('RemoteOnboardingJourney', () => {
                 subject: 'Saturday hours',
                 prompts: ['What time do you close?'],
                 additionalPromptCount: 0,
+                context: {
+                  version: 1,
+                  why: 'The current visitor information gives two closing times.',
+                  whatWasFound: 'The public calendar says 4 p.m.; the guide says 5 p.m.',
+                  effect: 'Your answer lets Torchiko keep Saturday guidance accurate.',
+                },
               },
             ],
             additionalQuestionCount: 0,
@@ -296,12 +377,71 @@ describe('RemoteOnboardingJourney', () => {
     expect(href.searchParams.get('venue')).toBe('venue-1')
     expect(href.searchParams.get('request')).toBe('request-7')
     expect(href.searchParams.get('returnTo')).toBe('/venues/venue-1/onboarding#questions')
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'The current visitor information gives two closing times.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'The public calendar says 4 p.m.; the guide says 5 p.m.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'Your answer lets Torchiko keep Saturday guidance accurate.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'If you are not sure, say so in the conversation so Torchiko can follow up.',
+    )
+  })
+
+  it('makes a bounded hidden-question remainder transparent with singular and plural copy', () => {
+    const questions = [
+      {
+        requestId: 'request-1',
+        subject: 'Entrance',
+        prompts: ['Which entrance is step-free?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'request-2',
+        subject: 'Hours',
+        prompts: ['Which days are you open?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'request-3',
+        subject: 'Restrooms',
+        prompts: ['Where are accessible restrooms?'],
+        additionalPromptCount: 0,
+      },
+    ]
+
+    const singular = renderToStaticMarkup(
+      <RemoteOnboardingJourney
+        ownerId="test-owner"
+        data={{
+          ...data,
+          questions: { open: 4, items: questions, additionalQuestionCount: 1 },
+        }}
+      />,
+    )
+    const plural = renderToStaticMarkup(
+      <RemoteOnboardingJourney
+        ownerId="test-owner"
+        data={{
+          ...data,
+          questions: { open: 28, items: questions, additionalQuestionCount: 25 },
+        }}
+      />,
+    )
+
+    expect(singular).toContain('1 more focused question is waiting.')
+    expect(plural).toContain('25 more focused questions are waiting.')
+    expect(plural.match(/Answer this question/g)).toHaveLength(3)
   })
 
   it('offers only an available exact preview and keeps release outside client control', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -342,6 +482,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             preview: { state: 'SUPERSEDED' as const, packageId: 'stale-package' },
@@ -359,6 +500,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -399,6 +541,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -446,7 +589,9 @@ describe('RemoteOnboardingJourney', () => {
   })
 
   it('keeps internal workflow jargon out of the primary client journey', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
     const clientCopy = root.textContent ?? ''
 
     expect(clientCopy).not.toMatch(

@@ -1,5 +1,40 @@
 export { db } from './client'
 export {
+  claimMediaProviderOperation,
+  confirmMediaProviderOperationCleanup,
+  heartbeatMediaProviderOperation,
+  markMediaProviderOperationAmbiguous,
+  markMediaProviderOperationDispatched,
+  MEDIA_PROVIDER_OPERATION_LEASE_MS,
+  prepareMediaProviderOperation,
+  recordMediaProviderOperationOutput,
+  releaseMediaProviderOperation,
+  settleMediaProviderOperationAccounting,
+  type MediaProviderOperationIdentity,
+} from './helpers/media-provider-operations'
+export {
+  cancelCharacterFactoryJobAction,
+  CHARACTER_FACTORY_JOB_LEASE_MS,
+  claimCharacterFactoryJobAction,
+  completeCharacterFactoryJobAction,
+  compareAndSwapCustomCharacterFactoryAction,
+  createCustomCharacterFactoryAction,
+  CustomCharacterFactoryActionError,
+  failCharacterFactoryJobAction,
+  heartbeatCharacterFactoryJobAction,
+  prepareCharacterFactoryJobAction,
+  prepareCharacterFactoryJobInTransaction,
+  type CharacterFactoryJobPreparationInput,
+  readCharacterFactoryJobAction,
+  readCustomCharacterFactoryAction,
+} from './helpers/custom-character-factory-actions'
+export {
+  characterCandidateArtifactFingerprint,
+  decideCharacterCandidateReview,
+  readCharacterCandidateReviewBrief,
+  submitCharacterCandidateReviewBrief,
+} from './helpers/character-candidate-reviews'
+export {
   applyNativeGuestContentRead,
   assessNativeGuestReadActivationAction,
   resolveNativeGuestReadSnapshotAction,
@@ -14,6 +49,17 @@ export {
   recordConversationInsightSignals,
   type ConversationInsightSignal,
 } from './helpers/conversation-insights'
+export {
+  ConversationLearningActionError,
+  getConversationLearningPolicy,
+  listConversationLearningCandidates,
+  recordConversationLearningCandidate,
+  reviewConversationLearningCandidate,
+  updateConversationLearningPolicy,
+  type ConversationLearningCandidate,
+  type ConversationLearningPolicy,
+  type ConversationLearningReviewResult,
+} from './helpers/conversation-learning-actions'
 export {
   KnowledgeCorrectionActionError,
   listConversationKnowledgeGaps,
@@ -124,10 +170,12 @@ export {
   GuestChatPreDispatchFailureCode,
   GuestChatProviderOutcomeCode,
   GuestChatReplayMetadata,
+  GuestPlaceIdentityPending,
   GuestChatTurnActionError,
   guestChatRequestHash,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
+  readAdjacentGuestPlaceIdentityPendingAction,
   reserveGuestChatTurnAction,
   skipGuestChatProviderOperationAction,
 } from './helpers/guest-chat-turn-actions'
@@ -167,6 +215,7 @@ export type {
   GuestChatRequest,
   GuestChatTurnActionClient,
   GuestChatTurnActionErrorCode,
+  GuestPlaceIdentityPending as GuestPlaceIdentityPendingType,
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export {
@@ -558,13 +607,16 @@ export type { SupportStatusTransitionActor } from './helpers/support-status-tran
 export {
   ApprovalDecisionActionError,
   recordApprovalDecisionAction,
+  recordApprovalDecisionInTransaction,
 } from './helpers/approval-decisions'
 export type { ApprovalDecisionActor } from './helpers/approval-decisions'
 export {
   approvalParameterHash,
   ApprovalGrantActionError,
   consumeApprovalGrantAction,
+  consumeApprovalGrantInTransaction,
   issueApprovalGrantAction,
+  issueApprovalGrantInTransaction,
   revokeApprovalGrantAction,
 } from './helpers/approval-grants'
 export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
@@ -804,14 +856,40 @@ export {
   AgentQuestionActionError,
   answerAgentQuestionAction,
   askAgentQuestionAction,
+  askAgentQuestionActionInTransaction,
 } from './helpers/agent-question-actions'
-export { AgentTaskActionError, createAgentTaskAction } from './helpers/agent-task-actions'
+export {
+  AgentTaskActionError,
+  createAgentTaskAction,
+  createSystemSourceAgentTaskInTransaction,
+} from './helpers/agent-task-actions'
 export type { AgentTaskClient, CreateAgentTaskInput } from './helpers/agent-task-actions'
 export type {
+  AgentQuestionTransaction,
   AgentQuestionClient,
   AnswerAgentQuestionInput,
+  AskAgentQuestionActionOptions,
+  AskAgentQuestionAdmission,
   AskAgentQuestionInput,
+  ParsedAskAgentQuestionInput,
 } from './helpers/agent-question-actions'
+export {
+  expireAgentQuestionIfDue,
+  expireAgentQuestionsAction,
+} from './helpers/agent-question-expiration-actions'
+export type {
+  AgentQuestionExpirationClient,
+  AgentQuestionExpirationResult,
+  AgentQuestionExpirationTransaction,
+} from './helpers/agent-question-expiration-actions'
+export {
+  AgentQuestionDiscussionActionError,
+  appendAgentQuestionDiscussionAction,
+} from './helpers/agent-question-discussion-actions'
+export type {
+  AgentQuestionDiscussionClient,
+  AppendAgentQuestionDiscussionInput,
+} from './helpers/agent-question-discussion-actions'
 export {
   AiConfigurationActionError,
   configurationOverrideFromRow,
@@ -850,6 +928,7 @@ export type {
 } from './helpers/operational-update-actions'
 export {
   createIntakeProposal,
+  createIntakeProposalInTransaction,
   getIntakeProposalReview,
   IntakeActionError,
   intakeProposalInput,
@@ -861,6 +940,7 @@ export {
 } from './helpers/intake-actions'
 export type {
   IntakeActionClient,
+  CreateIntakeProposalInput,
   IntakeActionErrorCode,
   IntakeProposalInput,
 } from './helpers/intake-actions'
@@ -1327,8 +1407,54 @@ export {
 export { recordProspectInboundReplyAction } from './helpers/prospect-inbound-reply-actions'
 export { reviewProspectInboundReplyAction } from './helpers/prospect-inbound-reply-review-actions'
 export {
+  getIntakeSubmissionDraft,
+  IntakeSubmissionDraftError,
+  markIntakeSubmissionDraftSubmitted,
+  saveIntakeSubmissionDraft,
+  intakeSubmissionDraftContent,
+  intakeSubmissionDraftSourceKind,
+} from './helpers/intake-submission-draft-actions'
+export {
+  getIntakeV1SubmissionAction,
+  getLatestIntakeV1SubmissionAction,
+  IntakeV1SubmissionError,
+  intakeV1ManifestHash,
+  intakeV1SubmissionSelection,
+  listIntakeV1CandidatesAction,
+  listIntakeV1UploadCandidatesAction,
+  submitIntakeV1Action,
+} from './helpers/intake-v1-submission-actions'
+export * from './helpers/intake-v1-processing-dispatch-actions'
+export * from './helpers/intake-v1-processing-read'
+export * from './helpers/intake-source-mapping-review-actions'
+export * from './helpers/intake-v1-package-handoff'
+export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,
   reviewProspectContactReadinessAction,
   restoreProspectContactabilityAction,
 } from './helpers/prospect-contactability-actions'
+export * from './helpers/agent-workflow-registry-actions'
+export * from './helpers/agent-workflow-promotion-assessment-actions'
+export * from './helpers/agent-workflow-run-lease'
+export * from './helpers/agent-current-worker-claim'
+export * from './helpers/agent-workflow-activation-actions'
+export * from './helpers/agent-workflow-activation-approval-requests'
+export * from './helpers/agent-workflow-run-binding'
+export * from './helpers/intake-v1-package-draft-proposal-actions'
+export * from './helpers/intake-v1-package-machine-authority'
+
+export * from './helpers/intake-v1-file-extraction-dispatch-actions'
+
+export {
+  configureIntakeSourceAgentRouting,
+  IntakeSourceAgentRoutingInput,
+  IntakeSourceAgentRoutingError,
+  assertIntakeSourceAgentRoutingInTransaction,
+} from './helpers/intake-source-agent-routing-actions'
+
+export {
+  listPendingIntakeSourceAgentDispatches,
+  recoverMissingIntakeSourceAgentDispatches,
+  dispatchIntakeSourceAgentTask,
+} from './helpers/intake-source-agent-dispatch-actions'

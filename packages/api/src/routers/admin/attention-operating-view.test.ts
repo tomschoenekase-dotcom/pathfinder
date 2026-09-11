@@ -165,8 +165,16 @@ describe('founder operating view', () => {
         },
         ai: {
           estimatedCostUsd: '12.00000000',
+          observedEstimatedCostUsd: '12.00000000',
           requestCount: 4,
           attributedTenantCount: 1,
+          usageCoverage: {
+            observedRequestCount: 4,
+            unknownRequestCount: 0,
+            notDispatchedRequestCount: 0,
+            legacyUnclassifiedRequestCount: 0,
+          },
+          observationCompleteness: 'COMPLETE_RECORDED_USAGE',
           completeness: 'PROVIDER_PRICING_ESTIMATE',
         },
         nonAi: {

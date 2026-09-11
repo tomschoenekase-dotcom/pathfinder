@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { recordApprovalDecisionAction } from './approval-decisions'
+import {
+  recordApprovalDecisionAction,
+  recordApprovalDecisionInTransaction,
+} from './approval-decisions'
 
 const actor = { actorType: 'HUMAN', actorId: 'admin_1', auditRole: 'PLATFORM_ADMIN' } as const
 const decidedAt = new Date('2030-01-01T12:00:00.000Z')
@@ -54,6 +57,15 @@ function input(overrides: Partial<Parameters<typeof recordApprovalDecisionAction
 }
 
 describe('approval decision domain action', () => {
+  it('propagates a native transaction failure without attempting recovery in an aborted transaction', async () => {
+    const { tx, client } = harness()
+    const conflict = Object.assign(new Error('unique conflict'), { code: 'P2002' })
+    tx.approvalDecision.create.mockRejectedValueOnce(conflict)
+    await expect(recordApprovalDecisionInTransaction(tx as never, input())).rejects.toBe(conflict)
+    expect(client.$transaction).not.toHaveBeenCalled()
+    expect(tx.approvalRequest.findFirst).toHaveBeenCalledTimes(1)
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
   it('records decision and immutable audit evidence without execution side effects', async () => {
     const { tx, actionClient } = harness()
     await recordApprovalDecisionAction(input(), actionClient)

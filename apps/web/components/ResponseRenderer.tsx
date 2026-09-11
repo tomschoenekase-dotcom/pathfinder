@@ -82,6 +82,9 @@ function PlaceGrid({
           name={place.name}
           type={place.type}
           photoUrl={place.photoUrl}
+          {...(place.photoAttribution !== undefined
+            ? { photoAttribution: place.photoAttribution }
+            : {})}
           shortDescription={place.shortDescription}
           areaName={place.areaName}
           hours={place.hours}

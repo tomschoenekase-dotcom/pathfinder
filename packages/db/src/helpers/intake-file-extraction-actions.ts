@@ -207,6 +207,7 @@ function result(receipt: { id: string; outcome: string; createdAt: Date }, repla
 export async function recordIntakeFileExtractionReceiptAction(
   rawInput: RecordIntakeFileExtractionReceiptInput,
   client: IntakeFileExtractionActionClient = db,
+  authorizeNewReceipt?: (tx: Parameters<Parameters<typeof db.$transaction>[0]>[0]) => Promise<void>,
 ) {
   const parsed = terminalInput.safeParse(rawInput)
   if (!parsed.success) {
@@ -329,6 +330,7 @@ export async function recordIntakeFileExtractionReceiptAction(
       )
     }
 
+    if (authorizeNewReceipt) await authorizeNewReceipt(tx)
     const receipt = await tx.intakeFileExtractionReceipt.create({
       data: {
         id: input.operationId,

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import {
+  NOOP_AI_BUDGET_GATE,
+  resolveAiWorkloadConfiguration,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
 import type { WeeklyDigestJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
+  resolveRuntimeAiWorkloadConfiguration: vi.fn(),
   createTenantWideWorkerAiUsageSink: vi.fn(() => vi.fn()),
   createTenantWideWorkerAiBudgetGate: vi.fn(() => ({
     reserve: vi.fn().mockResolvedValue(null),
@@ -41,6 +46,7 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveRuntimeAiWorkloadConfiguration,
   GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
     name = 'GlobalAiAdmissionError'
     constructor(readonly code: string) {
@@ -112,6 +118,9 @@ describe('processWeeklyDigestJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({ workloadId: 'weekly-digest' }),
+    )
     mocks.digestUpdateMany.mockResolvedValue({ count: 1 })
     mocks.tenantFindUnique.mockResolvedValue({ name: 'Example Tenant' })
     mocks.sessionFindMany.mockResolvedValue(makeSessions(5))
@@ -158,6 +167,111 @@ describe('processWeeklyDigestJob', () => {
     })
     expect(mocks.updateJobRecord).not.toHaveBeenCalled()
     expect(anthropicCreate).not.toHaveBeenCalled()
+  })
+
+  it('restores PENDING when the tenant configuration changes before dispatch', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'weekly-digest' })
+    mocks.resolveRuntimeAiWorkloadConfiguration
+      .mockResolvedValueOnce(configuration)
+      .mockResolvedValue({ ...configuration, maxOutputTokens: 100 })
+
+    await expect(processWeeklyDigestJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'digest_1', tenantId: 'tenant_1', status: 'PROCESSING' },
+      data: { status: 'PENDING' },
+    })
+    expect(mocks.resolveRuntimeAiWorkloadConfiguration).toHaveBeenLastCalledWith(
+      { workloadId: 'weekly-digest', tenantId: 'tenant_1' },
+      expect.anything(),
+    )
+  })
+
+  it('uses configured tenant-wide fallback and gateway limits', async () => {
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({
+        workloadId: 'weekly-digest',
+        overrides: [
+          {
+            activation: 'ENABLED',
+            scope: { level: 'WORKLOAD', workloadId: 'weekly-digest' },
+            values: {
+              fallback: { enabled: true, modelKeys: ['analytics-weekly-themes'] },
+              maxAttempts: 1,
+              maxOutputTokens: 321,
+              timeoutMs: 4321,
+              requestBudgetCeilingE8Usd: '1000000000',
+            },
+            unsafeChangesEnabled: true,
+            reason: 'Synthetic weekly digest fallback',
+          },
+        ],
+      }),
+    )
+    anthropicCreate
+      .mockRejectedValueOnce(Object.assign(new Error('primary unavailable'), { status: 503 }))
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: JSON.stringify({ insights: validInsights }) }],
+        usage: { input_tokens: 120, output_tokens: 50 },
+      })
+
+    await processWeeklyDigestJob(payload)
+
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: 'claude-sonnet-4-6', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: 'claude-haiku-4-5-20251001', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+  })
+
+  it('releases a reservation and restores PENDING when configuration changes after reserve', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'weekly-digest' })
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(configuration)
+    const releaseUndispatched = vi.fn().mockResolvedValue(undefined)
+    mocks.createTenantWideWorkerAiBudgetGate.mockReturnValue({
+      reserve: vi.fn().mockImplementation(async (attempt) => {
+        mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue({
+          ...configuration,
+          requestBudgetCeilingE8Usd: '1',
+        })
+        return { id: 'digest-reservation', reservedUnits: attempt.reservedUnits }
+      }),
+      markDispatched: vi.fn(NOOP_AI_BUDGET_GATE.markDispatched),
+      settleExact: vi.fn(NOOP_AI_BUDGET_GATE.settleExact),
+      settleAmbiguous: vi.fn(NOOP_AI_BUDGET_GATE.settleAmbiguous),
+      releaseUndispatched,
+    })
+
+    await expect(processWeeklyDigestJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(releaseUndispatched).toHaveBeenCalledOnce()
+    expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'digest_1', tenantId: 'tenant_1', status: 'PROCESSING' },
+      data: { status: 'PENDING' },
+    })
+  })
+
+  it('restores PENDING when the configured request ceiling denies dispatch', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'weekly-digest' })
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue({
+      ...configuration,
+      requestBudgetCeilingE8Usd: '1',
+    })
+
+    await expect(processWeeklyDigestJob(payload)).rejects.toMatchObject({
+      code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+    })
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'digest_1', tenantId: 'tenant_1', status: 'PROCESSING' },
+      data: { status: 'PENDING' },
+    })
   })
 
   it('accepts a valid structured response and completes the digest', async () => {

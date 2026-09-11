@@ -93,6 +93,10 @@ describe('admin agent outcomes router', () => {
       verdict: 'MIXED',
       summary: ' Useful after one correction. ',
       evidenceRef: ' decision-42 ',
+      sourceQuestion: {
+        questionId: 'question-1',
+        expectedUpdatedAt: new Date('2026-08-20T12:00:00.000Z'),
+      },
     })
 
     expect(result).toEqual({ id: 'outcome-1', replayed: false })
@@ -105,6 +109,10 @@ describe('admin agent outcomes router', () => {
         verdict: 'MIXED',
         summary: 'Useful after one correction.',
         evidenceRef: 'decision-42',
+        sourceQuestion: {
+          questionId: 'question-1',
+          expectedUpdatedAt: new Date('2026-08-20T12:00:00.000Z'),
+        },
         actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
       },
       expect.anything(),
@@ -183,6 +191,12 @@ describe('admin agent outcomes router', () => {
           signalKind: 'HUMAN_REVIEW',
         }),
         take: 26,
+        select: expect.objectContaining({
+          sourceQuestionId: true,
+          sourceQuestionUpdatedAt: true,
+          sourceAnsweredAt: true,
+          sourceAnswerSha256: true,
+        }),
       }),
     )
   })
@@ -202,12 +216,22 @@ describe('admin agent outcomes router', () => {
       hypothesis: 'Retrieval misses are causing unsupported recommendations.',
       proposedChange: 'Require current-source retrieval before each recommendation.',
       validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+      generalization: {
+        rationale: 'A separate control bounds when this retrieval rule should apply.',
+        counterexampleObservationIds: ['outcome-2'],
+        exclusions: ['Exclude answers already grounded in a current approved source.'],
+      },
     })
 
     expect(result).toEqual({ id: 'proposal-1', replayed: false })
     expect(mocks.prepareProposal).toHaveBeenCalledWith(
       expect.objectContaining({
         proposalKey: 'research-source-grounding',
+        generalization: {
+          rationale: 'A separate control bounds when this retrieval rule should apply.',
+          counterexampleObservationIds: ['outcome-2'],
+          exclusions: ['Exclude answers already grounded in a current approved source.'],
+        },
         actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
       }),
       expect.anything(),
@@ -256,6 +280,22 @@ describe('admin agent outcomes router', () => {
           targetKind: 'RETRIEVAL',
         }),
         take: 26,
+        select: expect.objectContaining({
+          baselineSnapshot: true,
+          evidence: {
+            orderBy: { outcomeObservation: { createdAt: 'desc' } },
+            select: {
+              outcomeObservation: {
+                select: expect.objectContaining({
+                  sourceQuestionId: true,
+                  sourceQuestionUpdatedAt: true,
+                  sourceAnsweredAt: true,
+                  sourceAnswerSha256: true,
+                }),
+              },
+            },
+          },
+        }),
       }),
     )
   })
@@ -283,6 +323,7 @@ describe('admin agent outcomes router', () => {
         actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
       }),
       expect.anything(),
+      expect.any(Set),
     )
   })
 

@@ -32,6 +32,7 @@ const runCreate = vi.fn()
 const handoffFindFirst = vi.fn()
 const eventCreate = vi.fn()
 const executeRaw = vi.fn()
+const queryRaw = vi.fn()
 const auditCreate = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
@@ -40,6 +41,7 @@ const db = {
   intakeRunEvent: { create: eventCreate },
   auditLog: { create: auditCreate },
   $executeRaw: executeRaw,
+  $queryRaw: queryRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as TRPCContext['db']
 
@@ -153,6 +155,7 @@ describe('platform admin intake operations', () => {
     runFindFirst.mockResolvedValue(null)
     handoffFindFirst.mockResolvedValue(null)
     executeRaw.mockResolvedValue(1)
+    queryRaw.mockResolvedValue([])
     runCreate.mockResolvedValue({
       id: 'run-1',
       venueId: 'venue-a',
@@ -631,16 +634,24 @@ describe('platform admin intake operations', () => {
   })
 
   it('exposes private onboarding payload only through exact platform review scope', async () => {
-    runFindMany.mockResolvedValue([
-      {
-        id: 'run-1',
-        venueId: 'venue-a',
-        status: 'AWAITING_REVIEW',
-        displayName: 'Museum onboarding information',
-        structuredBootstrap: { version: 1, content: { kind: 'knowledge' } },
-        createdAt: new Date(),
-      },
-    ])
+    const createdAt = new Date('2026-09-08T12:00:00.000Z')
+    queryRaw
+      .mockResolvedValueOnce([
+        {
+          id: 'run-1',
+          venueId: 'venue-a',
+          status: 'AWAITING_REVIEW',
+          displayName: 'Museum onboarding information',
+          createdAt,
+          evidenceCount: 2n,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'run-1',
+          structuredBootstrap: { version: 1, content: { kind: 'knowledge' } },
+        },
+      ])
     const result = await testRouter
       .createCaller(context())
       .operations.listOnboardingBootstrapDetails({
@@ -648,18 +659,17 @@ describe('platform admin intake operations', () => {
         venueId: 'venue-a',
         limit: 10,
       })
-    expect(runFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          tenantId: 'tenant-a',
-          venueId: 'venue-a',
-          sourceKind: 'STRUCTURED_BOOTSTRAP',
-          NOT: {
-            structuredBootstrap: { path: ['kind'], equals: 'OPTIONAL_NOTES' },
-          },
-        },
-      }),
-    )
+    expect(queryRaw).toHaveBeenCalledTimes(2)
+    expect(queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-a', 'venue-a', 10])
+    expect(queryRaw.mock.calls[1]?.slice(1)).toEqual(['tenant-a', 'venue-a', ['run-1']])
+    expect(runFindMany).not.toHaveBeenCalled()
+    expect(result[0]).toMatchObject({
+      id: 'run-1',
+      venueId: 'venue-a',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Museum onboarding information',
+      createdAt,
+    })
     expect(result[0]?.structuredBootstrap).toEqual({
       version: 1,
       content: { kind: 'knowledge' },

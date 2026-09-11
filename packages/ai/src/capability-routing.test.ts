@@ -38,6 +38,23 @@ describe('AI capability routing', () => {
     ).toThrow(new AiRoutingError('CAPABILITY_NOT_ENTITLED', 'PREMIUM_CONVERSATION is not entitled'))
   })
 
+  it('rejects an effective configuration from another workload before routing', () => {
+    const agentConfiguration = resolveAiWorkloadConfiguration({ workloadId: 'agent-run' })
+
+    expect(() =>
+      routeAiCapability({
+        capability: 'STANDARD',
+        workloadId: 'guest-chat',
+        configuration: agentConfiguration,
+      }),
+    ).toThrow(
+      new AiRoutingError(
+        'CAPABILITY_MISMATCH',
+        'Configuration for agent-run cannot route guest-chat',
+      ),
+    )
+  })
+
   it('filters disabled providers and enforces economy mode', () => {
     const configuration = resolveAiWorkloadConfiguration({
       workloadId: 'guest-chat',

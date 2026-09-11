@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "media-fusion-v1",
+  "split": "development",
+  "synthetic": true,
+  "fictionalVenueNotice": "All names, facts, diagrams, and media were generated for this benchmark.",
+  "providerStatus": "NOT_RUN",
+  "providerStatusMeaning": "No model or external provider has processed these source bytes.",
+  "generator": {
+    "version": "media-fusion-fixture-generator/1.0.0",
+    "seed": 1007,
+    "command": "python scripts/generate-media-fusion-fixtures.py",
+    "toolchain": {
+      "python": "3.12.14",
+      "pillow": "12.3.0",
+      "reportlab": "4.4.9",
+      "ffmpeg": "8.1.2-full_build-www.gyan.dev"
+    }
+  },
+  "measurementBoundary": {
+    "proves": [
+      "fixture byte integrity",
+      "expected evidence locator bounds",
+      "deterministic provider-dark reducer inputs"
+    ],
+    "doesNotProve": [
+      "model vision, OCR, or extraction accuracy",
+      "provider cost, latency, or repeatability",
+      "complete video-frame coverage"
+    ]
+  },
+  "cases": [
+    {
+      "caseId": "mf-d01-exact-exhibit-cross-media",
+      "title": "Exact exhibit identity across image, document, and video",
+      "scope": {
+        "tenantId": "synthetic-dev-tenant",
+        "venueId": "juniper-gallery",
+        "projectId": "mf-dev-project",
+        "sourceGeneration": "10000000-0000-4000-8000-000000000001"
+      },
+      "assets": [
+        {
+          "path": "development/sources/bot-014-overview.png",
+          "mediaType": "IMAGE",
+          "sha256": "612166753157ee3a430de6f7228caed7ee219820e2ddce21e3a67d3d9d384c13",
+          "bytes": 14449,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "png",
+          "width": 640,
+          "height": 360
+        },
+        {
+          "path": "development/sources/bot-014-inventory.pdf",
+          "mediaType": "DOCUMENT",
+          "sha256": "b207ffbd9f13e83dda126c6144e69c3aeb88ebe770c9ed69c9779d940b5297d5",
+          "bytes": 2202,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "pdf",
+          "pages": 1
+        },
+        {
+          "path": "development/sources/bot-014-walkthrough.mp4",
+          "mediaType": "VIDEO",
+          "sha256": "dda32369aa1526fa531a52d0f4fca88a24ba0d9bb25f49a68b042cdefab5f511",
+          "bytes": 11425,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "mp4",
+          "durationSeconds": 2.0,
+          "hasAudio": false
+        }
+      ],
+      "expected": {
+        "observations": [
+          {
+            "observationId": "bot-image-id",
+            "kind": "visible_text",
+            "statement": "BOT-014",
+            "evidenceChannel": "visible_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "development/sources/bot-014-overview.png",
+              "locator": {
+                "type": "image_region",
+                "x": 0.04,
+                "y": 0.22,
+                "width": 0.32,
+                "height": 0.12
+              }
+            }
+          },
+          {
+            "observationId": "bot-pdf-id",
+            "kind": "visible_text",
+            "statement": "BOT-014",
+            "evidenceChannel": "document_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "development/sources/bot-014-inventory.pdf",
+              "locator": {
+                "type": "document_page",
+                "page": 1
+              }
+            }
+          },
+          {
+            "observationId": "bot-video-id",
+            "kind": "entity_candidate",
+            "statement": "Copper Service Automaton BOT-014",
+            "evidenceChannel": "visual",
+            "directness": "observed",
+            "confidence": "probable",
+            "evidence": {
+              "source": "development/sources/bot-014-walkthrough.mp4",
+              "locator": {
+                "type": "video_interval",
+                "startSeconds": 0,
+                "endSeconds": 2
+              }
+            }
+          }
+        ],
+        "entities": {
+          "candidateIds": ["bot-image", "bot-document", "bot-video"],
+          "assessment": "PROPOSE_MERGE",
+          "requiredIdentifier": {
+            "scheme": "inventory_id",
+            "value": "BOT-014"
+          },
+          "automaticMerge": false
+        },
+        "relations": [],
+        "temporal": {
+          "outcome": "NO_HOLDS",
+          "heldTargetKeys": []
+        },
+        "evidence": {
+          "expectedLocatorCount": 3,
+          "staleGenerationAccepted": false,
+          "allSourceHashesRequired": true
+        },
+        "privacy": {
+          "publicAssetPaths": [],
+          "privateEvidenceOnly": true
+        }
+      }
+    },
+    {
+      "caseId": "mf-d04-doorway-missing-geometry",
+      "title": "Visible doorway with unobserved route geometry",
+      "scope": {
+        "tenantId": "synthetic-dev-tenant",
+        "venueId": "juniper-gallery",
+        "projectId": "mf-dev-project",
+        "sourceGeneration": "10000000-0000-4000-8000-000000000001"
+      },
+      "assets": [
+        {
+          "path": "development/sources/east-doorway-frame.png",
+          "mediaType": "IMAGE",
+          "sha256": "438c28a63d3a7fa137006e2421e397e042d218b5aee442c02805e0fcb6393163",
+          "bytes": 16454,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "png",
+          "width": 640,
+          "height": 360
+        },
+        {
+          "path": "development/sources/east-doorway-coverage.pdf",
+          "mediaType": "DOCUMENT",
+          "sha256": "5c196f302e92da58262c9ae78c0de9cdada6bfe958601beaac239e969f1ae576",
+          "bytes": 2191,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "pdf",
+          "pages": 1
+        },
+        {
+          "path": "development/sources/east-doorway-walkthrough.mp4",
+          "mediaType": "VIDEO",
+          "sha256": "f59b7fefe546124e808bd09f18e22e08dcf2fb26b3a264ffcdf2b405a0b1a8c1",
+          "bytes": 12219,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "mp4",
+          "durationSeconds": 2.0,
+          "hasAudio": false
+        }
+      ],
+      "expected": {
+        "observations": [
+          {
+            "observationId": "door-image",
+            "kind": "entity_candidate",
+            "statement": "Doorway at East Room edge",
+            "evidenceChannel": "visual",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "development/sources/east-doorway-frame.png",
+              "locator": {
+                "type": "image_region",
+                "x": 0.61,
+                "y": 0.3,
+                "width": 0.22,
+                "height": 0.54
+              }
+            }
+          },
+          {
+            "observationId": "door-coverage",
+            "kind": "spatial_relation",
+            "statement": "Route beyond doorway was not observed",
+            "evidenceChannel": "document_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "development/sources/east-doorway-coverage.pdf",
+              "locator": {
+                "type": "document_page",
+                "page": 1
+              }
+            }
+          },
+          {
+            "observationId": "door-video",
+            "kind": "spatial_relation",
+            "statement": "East Room and doorway are co-visible",
+            "evidenceChannel": "visual",
+            "directness": "observed",
+            "confidence": "probable",
+            "evidence": {
+              "source": "development/sources/east-doorway-walkthrough.mp4",
+              "locator": {
+                "type": "video_interval",
+                "startSeconds": 0,
+                "endSeconds": 2
+              }
+            }
+          }
+        ],
+        "entities": {
+          "candidateIds": ["east-room", "east-doorway"],
+          "assessment": "KEEP_DISTINCT",
+          "automaticMerge": false
+        },
+        "relations": [
+          {
+            "fromCandidateId": "east-room",
+            "toCandidateId": "east-doorway",
+            "kind": "COVISIBLE",
+            "reviewStatus": "PENDING",
+            "mustNotPropose": ["TRAVERSABLE"],
+            "accessibility": "UNKNOWN"
+          }
+        ],
+        "temporal": {
+          "outcome": "NO_HOLDS",
+          "heldTargetKeys": []
+        },
+        "evidence": {
+          "expectedLocatorCount": 3,
+          "staleGenerationAccepted": false,
+          "allSourceHashesRequired": true
+        },
+        "privacy": {
+          "publicAssetPaths": [],
+          "privateEvidenceOnly": true
+        }
+      }
+    }
+  ]
+}

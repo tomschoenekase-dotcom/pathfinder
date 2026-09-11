@@ -2,19 +2,30 @@ import { createHash } from 'node:crypto'
 
 import {
   IntakeFileExtractionActionError,
+  assertIntakeV1FileExtractionReceiptLeaseInTransaction,
+  type IntakeV1FileExtractionLease,
   recordIntakeFileExtractionReceiptAction,
 } from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
 import { readIntakeUploadVersion, type IntakeUploadStorageTransport } from './intake-upload-storage'
+import {
+  extractPdfDocumentText,
+  PDF_EXTRACTION_MAX_BYTES,
+  PDF_EXTRACTION_MAX_PAGES,
+  PDF_EXTRACTION_TIMEOUT_MS,
+  type PdfTextExtractionResult,
+} from './pdf-text-extraction'
+
+export { createPdfLoadingTaskCleanup } from './pdf-text-extraction'
 
 export const INTAKE_TEXT_EXTRACTION_MAX_BYTES = 2 * 1024 * 1024
 export const INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS = 500_000
 export const INTAKE_TEXT_EXTRACTOR = 'pathfinder-utf8-document'
 export const INTAKE_TEXT_EXTRACTOR_VERSION = '1'
-export const INTAKE_PDF_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024
-export const INTAKE_PDF_EXTRACTION_MAX_PAGES = 200
-export const INTAKE_PDF_EXTRACTION_TIMEOUT_MS = 15_000
+export const INTAKE_PDF_EXTRACTION_MAX_BYTES = PDF_EXTRACTION_MAX_BYTES
+export const INTAKE_PDF_EXTRACTION_MAX_PAGES = PDF_EXTRACTION_MAX_PAGES
+export const INTAKE_PDF_EXTRACTION_TIMEOUT_MS = PDF_EXTRACTION_TIMEOUT_MS
 export const INTAKE_PDF_EXTRACTOR = 'pathfinder-pdfjs-document'
 export const INTAKE_PDF_EXTRACTOR_VERSION = '1'
 export const INTAKE_TEXT_MIME_TYPES = [
@@ -221,84 +232,23 @@ function normalizeText(bytes: Uint8Array): ExtractionResult {
   })
 }
 
-function appendPdfTextItem(line: string, value: string) {
-  if (!value) return line
-  if (!line || /\s$/u.test(line) || /^[,.;:!?)}\]]/u.test(value)) return `${line}${value}`
-  return `${line} ${value}`
-}
-
-export function createPdfLoadingTaskCleanup(loadingTask: {
-  destroy(): Promise<void>
-}): () => Promise<void> {
-  let cleanup: Promise<void> | undefined
-  return () => {
-    cleanup ??= Promise.resolve()
-      .then(() => loadingTask.destroy())
-      .catch(() => undefined)
-    return cleanup
+function toUploadExtractionResult(result: PdfTextExtractionResult): ExtractionResult {
+  if (result.outcome === 'SUCCEEDED') return result
+  if (result.errorCode === 'PDF_EXTRACTION_CANCELLED') {
+    return { outcome: 'FAILED', errorCode: 'PDF_EXTRACTION_TIMEOUT' }
   }
-}
-
-async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
-  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  const loadingTask = getDocument({
-    data: new Uint8Array(bytes),
-    disableFontFace: true,
-    stopAtErrors: true,
-    useSystemFonts: false,
-    useWorkerFetch: false,
-    verbosity: 0,
-  })
-  const destroyLoadingTask = createPdfLoadingTaskCleanup(loadingTask)
-  let timedOut = false
-  const timeout = setTimeout(() => {
-    timedOut = true
-    void destroyLoadingTask()
-  }, INTAKE_PDF_EXTRACTION_TIMEOUT_MS)
-  try {
-    const document = await loadingTask.promise
-    if (document.numPages > INTAKE_PDF_EXTRACTION_MAX_PAGES) {
-      return {
-        outcome: 'FAILED',
-        errorCode: 'PDF_TOO_MANY_PAGES',
-      }
-    }
-    const pages: string[] = []
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber)
-      try {
-        const content = await page.getTextContent()
-        const lines: string[] = []
-        let line = ''
-        for (const item of content.items) {
-          if (!('str' in item)) continue
-          line = appendPdfTextItem(line, item.str)
-          if (item.hasEOL) {
-            lines.push(line.trimEnd())
-            line = ''
-          }
-        }
-        if (line) lines.push(line.trimEnd())
-        pages.push(lines.join('\n').trim())
-      } finally {
-        page.cleanup()
-      }
-    }
-    return normalizeExtractedText(pages.filter(Boolean).join('\n\n'), {
-      errorCode: 'PDF_NO_EXTRACTABLE_TEXT',
-    })
-  } catch (error) {
-    return {
-      outcome: 'FAILED',
-      errorCode: timedOut
-        ? 'PDF_EXTRACTION_TIMEOUT'
-        : error instanceof Error && error.name === 'PasswordException'
-          ? 'PDF_PASSWORD_REQUIRED'
-          : 'PDF_PARSE_FAILED',
-    }
-  } finally {
-    clearTimeout(timeout)
-    await destroyLoadingTask()
+  if (result.errorCode === 'PDF_TOO_LARGE') {
+    return { outcome: 'FAILED', errorCode: 'TEXT_TOO_LARGE' }
+  }
+  switch (result.errorCode) {
+    case 'UNSAFE_TEXT_CONTROL':
+    case 'TEXT_TOO_LARGE':
+    case 'PDF_TOO_MANY_PAGES':
+    case 'PDF_NO_EXTRACTABLE_TEXT':
+    case 'PDF_EXTRACTION_TIMEOUT':
+    case 'PDF_PASSWORD_REQUIRED':
+    case 'PDF_PARSE_FAILED':
+      return { outcome: 'FAILED', errorCode: result.errorCode }
   }
 }
 
@@ -310,7 +260,59 @@ export async function executeIntakeFileExtraction(input: {
   operationId: string
   createdBy: string
   storage?: IntakeUploadStorageTransport
+  /** Internal worker lease; checked again atomically before a new receipt is written. */
+  fileDispatchLease?: IntakeV1FileExtractionLease
 }) {
+  if (
+    input.fileDispatchLease &&
+    (input.fileDispatchLease.tenantId !== input.tenantId ||
+      input.fileDispatchLease.venueId !== input.venueId ||
+      input.fileDispatchLease.operationId !== input.operationId)
+  )
+    throw new IntakeFileExtractionError(
+      'CONFLICT',
+      'File dispatch lease scope does not match extraction.',
+    )
+  // An operation identifies immutable historical extraction evidence. Recover it before
+  // touching storage or requiring the source to remain in its pre-review lifecycle state.
+  const replay = await input.db.intakeFileExtractionReceipt.findUnique({
+    where: { tenantId_requestId: { tenantId: input.tenantId, requestId: input.operationId } },
+    select: {
+      id: true,
+      tenantId: true,
+      venueId: true,
+      runId: true,
+      requestId: true,
+      createdBy: true,
+      outcome: true,
+      createdAt: true,
+    },
+  })
+  if (replay) {
+    if (
+      replay.tenantId !== input.tenantId ||
+      replay.venueId !== input.venueId ||
+      replay.runId !== input.runId ||
+      replay.requestId !== input.operationId ||
+      replay.createdBy !== input.createdBy
+    ) {
+      throw new IntakeFileExtractionError(
+        'CONFLICT',
+        'The operation ID is already bound to another extraction request.',
+      )
+    }
+    return {
+      receiptId: replay.id,
+      outcome: replay.outcome,
+      createdAt: replay.createdAt,
+      replayed: true,
+      reviewRequired: replay.outcome === 'SUCCEEDED',
+      packageDraftCreated: false as const,
+      autoApproved: false as const,
+      autoApplied: false as const,
+      autoPublished: false as const,
+    }
+  }
   const run = await input.db.intakeRun.findFirst({
     where: {
       id: input.runId,
@@ -385,30 +387,43 @@ export async function executeIntakeFileExtraction(input: {
   }
   const extraction =
     upload.mimeType === 'application/pdf'
-      ? await extractPdfText(read.bytes)
+      ? toUploadExtractionResult(await extractPdfDocumentText(read.bytes))
       : normalizeText(read.bytes)
   try {
-    return await recordIntakeFileExtractionReceiptAction({
-      operationId: input.operationId,
-      ...identity,
-      requestHash: requestHash({ ...identity, profile }),
-      outcome: extraction.outcome,
-      extractor: profile.extractor,
-      extractorVersion: profile.extractorVersion,
-      ...(extraction.outcome === 'SUCCEEDED'
-        ? {
-            extractedText: extraction.text,
-            extractedTextHash: extraction.textHash,
-            extractedCharacterCount: extraction.characterCount,
-            extractedLineCount: extraction.lineCount,
-          }
-        : {
-            extractedCharacterCount: 0,
-            extractedLineCount: 0,
-            errorCode: extraction.errorCode,
-          }),
-      createdBy: input.createdBy,
-    })
+    return await recordIntakeFileExtractionReceiptAction(
+      {
+        operationId: input.operationId,
+        ...identity,
+        requestHash: requestHash({ ...identity, profile }),
+        outcome: extraction.outcome,
+        extractor: profile.extractor,
+        extractorVersion: profile.extractorVersion,
+        ...(extraction.outcome === 'SUCCEEDED'
+          ? {
+              extractedText: extraction.text,
+              extractedTextHash: extraction.textHash,
+              extractedCharacterCount: extraction.characterCount,
+              extractedLineCount: extraction.lineCount,
+            }
+          : {
+              extractedCharacterCount: 0,
+              extractedLineCount: 0,
+              errorCode: extraction.errorCode,
+            }),
+        createdBy: input.createdBy,
+      },
+      input.db,
+      ...(input.fileDispatchLease
+        ? ([
+            (tx: Parameters<typeof assertIntakeV1FileExtractionReceiptLeaseInTransaction>[0]) =>
+              assertIntakeV1FileExtractionReceiptLeaseInTransaction(tx, {
+                ...input.fileDispatchLease!,
+                intakeRunId: input.runId,
+                uploadId: upload.id,
+              }),
+          ] as const)
+        : []),
+    )
   } catch (error) {
     if (error instanceof IntakeFileExtractionActionError) {
       throw new IntakeFileExtractionError(

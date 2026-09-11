@@ -92,7 +92,7 @@ export async function registerAgentWorkerAction(
       throw new AgentWorkerActionError('REVOKED', 'Verified credential is no longer active')
     }
     const existing = await tx.agentWorker.findUnique({
-      where: { workerKey: input.workerKey },
+      where: { workerKey: input.workerKey, tenantId: credential.tenantId },
       select: { id: true, tenantId: true, credentialId: true, status: true },
     })
     if (
@@ -119,7 +119,11 @@ export async function registerAgentWorkerAction(
     }
     const worker = existing
       ? await tx.agentWorker.update({
-          where: { id: existing.id },
+          where: {
+            id: existing.id,
+            tenantId: credential.tenantId,
+            credentialId: credential.credentialId,
+          },
           data,
           select: { id: true, workerKey: true, status: true, leaseExpiresAt: true },
         })

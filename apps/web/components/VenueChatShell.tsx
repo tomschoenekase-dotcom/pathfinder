@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import type { ReactNode } from 'react'
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
-import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
 import { ChatWindow } from './ChatWindow'
+import styles from './visitor-chat.module.css'
 import { ConnectionStatusBanner } from './ConnectionStatusBanner'
 import {
   LANGUAGE_FALLBACK_DESCRIPTIONS,
@@ -22,10 +22,12 @@ import { LocationBanner } from './LocationBanner'
 import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
-import { VoiceControl } from './VoiceControl'
+import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
 import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { useChatViewportHeight } from '../hooks/useChatViewportHeight'
 
 const LazyVenueCharacterStage = dynamic(
   () => import('./VenueCharacterStage').then((module) => module.VenueCharacterStage),
@@ -38,6 +40,26 @@ const LazyVenueCharacterStage = dynamic(
 function fontFamily(chatFont: string | null): string {
   const option = CHAT_FONT_OPTIONS.find((font) => font.value === chatFont) ?? CHAT_FONT_OPTIONS[0]!
   return `var(${option.cssVar})`
+}
+
+function ChatLogo({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  const inspectCachedImage = useCallback((image: HTMLImageElement | null) => {
+    if (image?.complete && image.naturalWidth === 0) setFailed(true)
+  }, [])
+
+  if (failed) return null
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={inspectCachedImage}
+      src={src}
+      alt=""
+      className="h-8 w-8 rounded-lg object-contain"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export function VenueChatShell(props: {
@@ -65,14 +87,20 @@ export function VenueChatShell(props: {
   onDraftChange?: (draft: string) => void
   onRetry?: (() => void) | null
   retryLabel?: string
+  onStopResponse?: () => void
+  stopResponseLabel?: string
+  conversationLocked?: boolean
   onNewConversation: () => void
   onPlaceView: (placeId: string) => void
   onPlaceClick: (placeId: string) => void
   onDirections: (placeId: string) => void
   onVoiceCharacterState?: (state: CharacterState) => void
+  onVoiceTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
+  visitContext?: GuestVisitContextInput
+  visitPreferences?: ReactNode
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
 }) {
@@ -96,18 +124,25 @@ export function VenueChatShell(props: {
     onDraftChange,
     onRetry,
     retryLabel,
+    onStopResponse,
+    stopResponseLabel,
+    conversationLocked = false,
     onNewConversation,
     onPlaceView,
     onPlaceClick,
     onDirections,
     onVoiceCharacterState,
+    onVoiceTranscriptLine,
     onVisitorAction,
     onMessageFeedback,
     voiceControl,
+    visitContext,
+    visitPreferences,
     routePlanner,
     connectionState = 'online',
   } = props
   const isOnline = connectionState !== 'offline'
+  const viewportHeight = useChatViewportHeight()
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
   const [
@@ -129,7 +164,23 @@ export function VenueChatShell(props: {
   const hasLocation =
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
-  const banner = Boolean(venue.chatBannerUrl)
+  const [bannerLoad, setBannerLoad] = useState<{
+    src: string | null
+    status: 'loading' | 'ready' | 'failed'
+  }>({ src: null, status: 'loading' })
+  const bannerUrl = venue.chatBannerUrl
+  const bannerStatus = bannerLoad.src === bannerUrl ? bannerLoad.status : 'loading'
+  const banner = Boolean(bannerUrl && bannerStatus === 'ready')
+  const inspectCachedBanner = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image?.complete || !bannerUrl) return
+      setBannerLoad({
+        src: bannerUrl,
+        status: image.naturalWidth > 0 ? 'ready' : 'failed',
+      })
+    },
+    [bannerUrl],
+  )
   const publicCharacter = venue.venueBotPresentation?.character
   const characterPresentation =
     venue.venueBotPresentation?.mode === 'CHARACTER' && publicCharacter
@@ -141,41 +192,62 @@ export function VenueChatShell(props: {
     <div
       lang={languagePresentation.code}
       dir={languagePresentation.direction}
-      className="flex min-h-svh flex-col overflow-x-hidden"
-      style={{ backgroundColor: palette.bg, fontFamily: fontFamily(venue.chatFont) }}
+      className={`${styles.shell} flex flex-col`}
+      data-keyboard-open={viewportHeight !== undefined || undefined}
+      style={
+        {
+          backgroundColor: palette.bg,
+          height: viewportHeight,
+          '--chat-keyboard-composer-max':
+            viewportHeight !== undefined
+              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight * 0.2)))}px`
+              : undefined,
+          fontFamily: fontFamily(venue.chatFont),
+          '--chat-accent': palette.accent,
+          '--chat-accent-text': palette.accentText,
+          '--chat-accent-contrast': palette.accentContrast,
+          '--chat-surface': palette.bg,
+          '--chat-bg': palette.bg,
+          '--chat-card': palette.card,
+          '--chat-border': palette.border,
+          '--chat-text': palette.text,
+          '--chat-text-muted': palette.textMuted,
+        } as CSSProperties
+      }
     >
-      <style>{`:root{--chat-accent:${palette.accent};--chat-accent-text:${palette.accentText};--chat-accent-contrast:${palette.accentContrast};--chat-surface:${palette.bg};--chat-bg:${palette.bg};--chat-card:${palette.card};--chat-border:${palette.border};--chat-text:${palette.text};--chat-text-muted:${palette.textMuted};}`}</style>
       <header
-        className="border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
-        style={
-          venue.chatBannerUrl
-            ? {
-                backgroundImage: `linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url(${venue.chatBannerUrl})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }
-            : undefined
-        }
+        className={`${styles.header} relative overflow-hidden border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6`}
+        data-branding-banner-state={bannerUrl ? bannerStatus : 'none'}
       >
-        <div className="mx-auto max-w-2xl py-4">
+        {bannerUrl && bannerStatus !== 'failed' ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={bannerUrl}
+            ref={inspectCachedBanner}
+            src={bannerUrl}
+            alt=""
+            className={`absolute inset-0 h-full w-full object-cover ${banner ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setBannerLoad({ src: bannerUrl, status: 'ready' })}
+            onError={() => setBannerLoad({ src: bannerUrl, status: 'failed' })}
+          />
+        ) : null}
+        {banner ? <span aria-hidden="true" className="absolute inset-0 bg-black/65" /> : null}
+        <div className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}>
           {presentation === 'standalone' ? (
             <Link
               href={`/${venueSlug}`}
               lang={languagePresentation.code}
               dir={languagePresentation.direction}
-              className={`inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
+              className={`${styles.back} inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
             >
               <span aria-hidden="true">{languagePresentation.direction === 'rtl' ? '→' : '←'}</span>{' '}
               {backLabel}
             </Link>
           ) : null}
-          <div className={`${presentation === 'standalone' ? 'mt-2 ' : ''}flex items-center gap-3`}>
+          <div className={`${styles.identity} flex items-center`}>
             {venue.chatLogoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
-            ) : (
-              <TorchikoIcon className="h-7 w-7 flex-shrink-0" />
-            )}
+              <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
+            ) : null}
             <h1
               lang=""
               dir="auto"
@@ -191,13 +263,13 @@ export function VenueChatShell(props: {
               </span>
             ) : null}
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
+          <div className={`${styles.toolbar} flex items-center justify-between`}>
             <LanguagePicker value={language} onChange={setLanguage} />
             <button
               type="button"
               onClick={onNewConversation}
-              disabled={!isOnline || isSending || !anonymousToken}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!isOnline || isSending || !anonymousToken || conversationLocked}
+              className={`inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 ${banner ? 'text-white' : 'text-[var(--chat-text)]'}`}
             >
               {newConversationLabel}
             </button>
@@ -205,9 +277,9 @@ export function VenueChatShell(props: {
         </div>
       </header>
       <ConnectionStatusBanner state={connectionState} language={language} />
-      <main className="flex min-h-[24rem] flex-1 flex-col">
+      <main className={`${styles.main} flex flex-1 flex-col`}>
         {characterPresentation ? (
-          <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+          <div className={`${styles.character} mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6`}>
             <VenueCharacterBoundary
               resetKey={`${characterPresentation.character.characterId}:${characterPresentation.character.assetPackId}:${characterPresentation.character.assetPackVersion}`}
               compact={!characterExpanded}
@@ -223,30 +295,37 @@ export function VenueChatShell(props: {
             </VenueCharacterBoundary>
           </div>
         ) : null}
-        <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-          <LocationBanner
-            permission={location.permission}
-            onRefresh={location.refresh}
-            show={venue.guideMode !== 'non_location'}
-            language={language}
-          />
-        </div>
-        <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
-          {routePlanner}
-          {voiceControl === undefined ? (
-            isOnline ? (
-              <VoiceControl
-                venueId={venue.id}
-                anonymousToken={anonymousToken}
-                language={language}
-                disabled={isSending}
-                {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
-              />
-            ) : null
-          ) : (
-            voiceControl
-          )}
+        <div className={`${styles.body} mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}>
           <ChatWindow
+            conversationTools={
+              <>
+                {routePlanner}
+                {visitPreferences}
+                <LocationBanner
+                  permission={location.permission}
+                  onRefresh={location.refresh}
+                  show={venue.guideMode !== 'non_location'}
+                  language={language}
+                />
+              </>
+            }
+            persistentVoiceControl={
+              voiceControl === undefined ? (
+                isOnline ? (
+                  <VoiceControl
+                    venueId={venue.id}
+                    anonymousToken={anonymousToken}
+                    language={language}
+                    disabled={isSending}
+                    {...(visitContext ? { visitContext } : {})}
+                    {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+                    {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
+                  />
+                ) : null
+              ) : (
+                voiceControl
+              )
+            }
             messages={messages}
             language={language}
             assistantLabel={guideName}
@@ -256,6 +335,9 @@ export function VenueChatShell(props: {
             {...(onDraftChange ? { onDraftChange } : {})}
             {...(onRetry ? { onRetry } : {})}
             {...(retryLabel ? { retryLabel } : {})}
+            {...(onStopResponse ? { onStopResponse } : {})}
+            {...(stopResponseLabel ? { stopResponseLabel } : {})}
+            conversationLocked={conversationLocked}
             isLoading={isSending}
             isOnline={isOnline}
             errorMessage={localizeVisitorShellError(sendError, language)}
@@ -265,7 +347,7 @@ export function VenueChatShell(props: {
             initialDraft={initialDraft}
             emptyState={
               <div lang={languagePresentation.code} dir={languagePresentation.direction}>
-                <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
+                <div className={styles.welcome}>
                   <h2 className="text-xl font-semibold text-[var(--chat-text)]">
                     {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
                   </h2>
@@ -285,7 +367,7 @@ export function VenueChatShell(props: {
                   venueCategory={venue.category ?? undefined}
                   guideMode={venue.guideMode}
                   locationAvailable={hasLocation}
-                  disabled={!isOnline}
+                  disabled={!isOnline || conversationLocked}
                   onSend={onSend}
                 />
               </div>
@@ -298,31 +380,37 @@ export function VenueChatShell(props: {
           />
         </div>
       </main>
-      <footer className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
-        <p
-          className="mx-auto max-w-2xl px-4 text-[11px] leading-4 text-[var(--chat-text-muted)] sm:px-6"
-          role="note"
-          aria-label={aiGuidanceLabel}
-          lang={languagePresentation.code}
-          dir={languagePresentation.direction}
-        >
-          {aiGuidance}
-        </p>
-        {presentation !== 'webview' ? (
-          <p className="text-[10px] text-[var(--chat-text-muted)]">
-            {poweredByLabel}{' '}
-            {presentation === 'standalone' ? (
-              <a
-                href="https://torchiko.com"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[var(--chat-accent-text)]"
-              >
-                Torchiko
-              </a>
-            ) : (
-              <span>Torchiko</span>
-            )}
-          </p>
-        ) : null}
+      <footer className={styles.footer}>
+        <div className={styles.footerRow}>
+          {presentation !== 'webview' ? (
+            <span>
+              {poweredByLabel}{' '}
+              {presentation === 'standalone' ? (
+                <a
+                  href="https://torchiko.com"
+                  className="inline-flex min-h-11 min-w-11 items-center font-medium hover:underline"
+                >
+                  Torchiko
+                </a>
+              ) : (
+                <span>Torchiko</span>
+              )}
+            </span>
+          ) : null}
+          <details className={styles.guidance}>
+            <summary lang={languagePresentation.code} dir={languagePresentation.direction}>
+              {aiGuidanceLabel}
+            </summary>
+            <p
+              role="note"
+              aria-label={aiGuidanceLabel}
+              lang={languagePresentation.code}
+              dir={languagePresentation.direction}
+            >
+              {aiGuidance}
+            </p>
+          </details>
+        </div>
       </footer>
     </div>
   )

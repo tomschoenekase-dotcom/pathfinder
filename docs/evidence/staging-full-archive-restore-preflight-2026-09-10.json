@@ -1,0 +1,256 @@
+{
+  "schemaVersion": 1,
+  "scope": "actual-staging-full-archive-local-restore-preflight",
+  "proofLayer": "E2",
+  "selectedSourceRevision": "83cd0aa9e4f9b7c9f4a93a9eac300e793e983721",
+  "archiveSource": {
+    "environment": "staging",
+    "databaseResourceId": "7bd81064-588f-48a5-b138-1fc86691a09b",
+    "databaseName": "pathfinder_staging",
+    "completedAt": "2026-09-10T20:46:11Z",
+    "archiveSha256": "71e1ea6a06fabab392ccb8c9ec496b9a70bd43a6bfc659e8abe9850b4b6c9ea7",
+    "schemaSha256": "43bdb04fbd6bc24c109e89c0862a748bf06f3cf20292d1e9022a67f21beeaf50",
+    "retainsOwnershipAndPrivileges": true,
+    "drained": false
+  },
+  "retainedResult": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-staging-full-restore-proof-20260910\\proof-aa3617668125\\result.json",
+    "sha256": "ae6bbe8390ec1f1e2fd0cb5642c6184c86de3010d4beb8b7c519218764f86497",
+    "startedAt": "2026-09-10T21:06:34.084106+00:00",
+    "finishedAt": "2026-09-10T21:07:25.626808+00:00",
+    "runnerSha256": "c24b72f43470f9ad4ca124c453b0d78e2e341287cc55ff119a9818204e347740"
+  },
+  "canonicalAdmissionSourceSha256": "6194b5badeea6f9b24ef280065e0f45c0654ed234e04203f2be7ae3ae03351ff",
+  "canonicalAdmissionExecutedSha256": "e71f2fb1a7da0cd0ed5798634d5928bdd7252be7a1ab6aa70cebf2e45d6f16f6",
+  "executedModuleDelta": "Append only export { assertVerifiedBaselineSchema } to private copied module for its existing read-only fingerprint check.",
+  "migrationCount": 247,
+  "expectedPublicTables": 264,
+  "normalizedMigrationManifestSha256": "accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c",
+  "gitByteMigrationChainSha256": "9a2b03aac0a4cadc52c2a7cdebde845f0da854406b09266e5679fe5ee79f57e7",
+  "suffixSql": [
+    {
+      "path": "packages/db/prisma/migrations/20260908170000_add_conversation_learning_review/migration.sql",
+      "sha256": "a8fc52781301a307e98928af97d5cb8af9ff4b280ec36cd27ab159977a352f26"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260908180000_add_character_candidate_reviews/migration.sql",
+      "sha256": "717975f143d763ca3a24433b15690e7721f776e594682a9153db4f99a1a42d8f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260909190000_sync_character_credential_capabilities/migration.sql",
+      "sha256": "64d30b1659b88ed1258010afa740664524c430c0be247be13bd5b7656444e942"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260909230000_add_intake_source_read_capability/migration.sql",
+      "sha256": "05d0af249da2241ccf64dfb3b2ff8c45d4c60ef89b581d2b34210d0a124e0a42"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910080000_add_intake_source_agent_routing_policy/migration.sql",
+      "sha256": "bef16b3c11239585a0abc63345352bcd015c2451ba6528778ae53f3e28c0fff2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910090000_add_intake_source_agent_dispatch/migration.sql",
+      "sha256": "25626e6340c76d63aec2d9319b6ea72388e054e2d87f87185e346dd8656aeb75"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910100000_add_semantic_conflict_resolution/migration.sql",
+      "sha256": "7112da9f399112b831b2dd4d4ef0572690d3894307948ce12c072f9ba8aabd9b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910110000_add_semantic_duplicate_resolution/migration.sql",
+      "sha256": "f6b3a083d0e89c1c46e1aa96e85835ef6f8d6236f36e4ef70634a09981c325e5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910120000_add_support_message_completion_outcome/migration.sql",
+      "sha256": "bf81684da231225fc921106ae3062d683944bff18b33abdb34044b6100910026"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910130000_support_duplicate_outcome_exclusion/migration.sql",
+      "sha256": "be97360895162a71575fee82aba6a46f0bf888503de2192044971e47b4d2bb5d"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910140000_add_semantic_reviewed_decline/migration.sql",
+      "sha256": "780cfbf035cd204a2547f24986b4829ada705744e40080dda9cdd96e6455fdee"
+    }
+  ],
+  "phases": {
+    "sourceSidecar": {
+      "databaseMappingStatementCount": 3,
+      "identicalSessionPreambleStatementsDeduplicated": 11,
+      "databasePropertiesExplicitlyRecreated": true,
+      "sourceObjectSchemaSha256": "6bc65e65ddf622f21fd1f87a764557559ef89133712b54476890db5afba81a95",
+      "archiveObjectSchemaSha256": "6bc65e65ddf622f21fd1f87a764557559ef89133712b54476890db5afba81a95",
+      "exactObjectSchemaMatch": true
+    },
+    "archiveSchema": {
+      "archiveNormalizedSha256": "6bc65e65ddf622f21fd1f87a764557559ef89133712b54476890db5afba81a95",
+      "restoredNormalizedSha256": "e43d255cc6f80be676ffccd51d4ff6b2fecf81af1f85c023706c0438e2c1b15b",
+      "exactNormalizedMatch": false,
+      "sameEngineConstraintReparseCount": 22,
+      "allArchivedConstraintsReparseIdentically": true,
+      "otherDDLExactMatch": true,
+      "probeTransactionsRolledBack": true
+    },
+    "baseline": {
+      "catalogueSha256": "c72d8ad82caa7e2bbe6a09d7646daaac08490709ca583167e89153ee034e43af",
+      "ledger": {
+        "count": 207,
+        "sha256": "1e2185f8fbcb0ed6ef7b9ce09a63bded27677a74cc2cac296170abf55dc18f43",
+        "unfinished": 0
+      },
+      "tables": 232,
+      "applicationTables": 231,
+      "populatedTables": 65,
+      "logicalRowsSha256": "e6dd2644b534fcbba243a42502e834677fc07f96e60e684df9f11ea3e991566f",
+      "sequenceCount": 2,
+      "sequenceSha256": "d3a577114ef2be28d916e5c41aa4ff66ba62228ce7aff8abdfa88287852e8df1",
+      "categoryCounts": {
+        "types": 894,
+        "objects": 1308,
+        "schemas": 8,
+        "policies": 0,
+        "routines": 299,
+        "settings": 0,
+        "extensions": 5,
+        "columnPrivileges": 0,
+        "defaultPrivileges": 0
+      }
+    },
+    "canonicalPredecessorAdmission": {
+      "canonicalLedgerState": "campaign-predecessor",
+      "ledgerCount": 207,
+      "weeklyDigestFingerprintPassed": true,
+      "unknownHistoricalChecksumsRejected": 2,
+      "historicalChecksums": [
+        {
+          "ordinal": 10,
+          "category": "canonical-weekly-digest-with-schema-fingerprint",
+          "observedSha256": "88e85794d89206b53ed0d6d9a915ebd7a0393afb05dbfda6e19f19941e509e70",
+          "candidateSha256": "83ed7d3eadcc758e4a7f80fe9adfe13b387fdcfd555c7f022276f19b1578da63"
+        },
+        {
+          "ordinal": 11,
+          "category": "proven-crlf",
+          "observedSha256": "bf7604b3b637b44b79d0a707f1634a6b77166047835e61de8f47ea878f1da5bc",
+          "candidateSha256": "99ad787cbb4ea4895a63575ef1d27993e744a99a01079c9d8f5c9dca6509ee3b"
+        },
+        {
+          "ordinal": 16,
+          "category": "proven-crlf",
+          "observedSha256": "ea926dcdbb82a6fcec63eb5d5fedca2bb4fd68380de5b20ac049975cef494156",
+          "candidateSha256": "5e8d54cb2f40cc754a5e04f301fb03f309b2341755857cd19cdb4b8474a8bf53"
+        },
+        {
+          "ordinal": 135,
+          "category": "proven-crlf",
+          "observedSha256": "b8998c3d420bd6d6bc61bb9fb20a6d0fe2744472fb337b4a079871be5e754a7e",
+          "candidateSha256": "29aaa6ab7845b675eb168ea607d1bdb770016cff91bb30a36f2c5f7f6af964fd"
+        },
+        {
+          "ordinal": 136,
+          "category": "proven-crlf",
+          "observedSha256": "2d9d6ae8e9ff9b388efaa3d94b66be4ab044ae258b0c540735bad0b79c62c437",
+          "candidateSha256": "df16d58653704bb838f38c487b07619a2f1e6968aa5917a4d6d49418936b1c2f"
+        },
+        {
+          "ordinal": 137,
+          "category": "proven-crlf",
+          "observedSha256": "2c9f2901ee23f4b52aef86de002e51703024205120bd84be19f82d1098056b63",
+          "candidateSha256": "e6316bd90e8187750a0b34ecbee8619b973b857455fa153e222d8b57d8149bfc"
+        },
+        {
+          "ordinal": 138,
+          "category": "proven-crlf",
+          "observedSha256": "73c20f108b5b7a256341b32c30a73393c6692158f66cd95fd6dfa514461d2a40",
+          "candidateSha256": "f4f7b737cd03c7f0668b00114f6576eebede0d8a0bfc46b3f671c1d693c8a230"
+        },
+        {
+          "ordinal": 139,
+          "category": "proven-crlf",
+          "observedSha256": "88a9354d4e16af4bdda49a9753647534b1e37732ca56c73b478749019459bc1b",
+          "candidateSha256": "dec40f9222ede4ace259d5160578b47a7823beb1e3154e91ac67e64fcbc2eeab"
+        },
+        {
+          "ordinal": 140,
+          "category": "proven-crlf",
+          "observedSha256": "a4d42b49196e1a40b5201957146263bd366df28333e0c75440dde783fd719137",
+          "candidateSha256": "bb677603349f1da6c460d9e503bfd71f7308ea9e5a771de23f9fbb96792ac46e"
+        },
+        {
+          "ordinal": 141,
+          "category": "proven-crlf",
+          "observedSha256": "b3026891d5e03efc5bf3430650cc10120c2b733be59f4e43e76a7f660fa472ff",
+          "candidateSha256": "0c85ce1c971a9d54a9f20df8fe2d2417b61d6a297498c08aaae74a2468cd8a1e"
+        },
+        {
+          "ordinal": 142,
+          "category": "proven-crlf",
+          "observedSha256": "14783930c3271dbdbf5dedec9bb143f0c8d18ca66b44a6ce8e3f2082085ce805",
+          "candidateSha256": "128fe982cb434672676aa11f9f224f4309b73220ccc7e65ce053403363b7b579"
+        },
+        {
+          "ordinal": 143,
+          "category": "proven-crlf",
+          "observedSha256": "0cc4d6537b06510b8033a16253aea8280794d8dc66e54da0348b94ab375f74dc",
+          "candidateSha256": "95bceaf1a9daa916a0da73b4c57a0f9d89c3f8a6b609f3ac29b8cc7ed80cdc17"
+        },
+        {
+          "ordinal": 144,
+          "category": "proven-crlf",
+          "observedSha256": "53247388a6a2ee912b56fc1e394e73cd11c2f1cbb7a27973d5ea503e67633a6d",
+          "candidateSha256": "33fa00c86e40b89d5d8e1c48a27a4d6bfe1825134e906089ef40b381efc5675f"
+        },
+        {
+          "ordinal": 145,
+          "category": "proven-crlf",
+          "observedSha256": "da6ccf537fa590e830b79e052f1fef40a0e0eb4286f91e88255a978d64212b52",
+          "candidateSha256": "e206d6d95f10937ff25bc7fa0b40caff41ef3afe3f01777e685507c7e496ba88"
+        },
+        {
+          "ordinal": 146,
+          "category": "proven-crlf",
+          "observedSha256": "d2bcf91bed3d4fcf00c89efc8ad874d36f52bbb0278db762bae97a0098131c75",
+          "candidateSha256": "d9433711599f7097f16d8f5bbb05e33e58f78a158b2416e91c90f6cc86c99e13"
+        },
+        {
+          "ordinal": 147,
+          "category": "proven-crlf",
+          "observedSha256": "f15d4a69dee1d542da8a6ee1e57c314539e2104e6bd7d965407dfd1dadf114f1",
+          "candidateSha256": "12c2cc1437af132f59ae4bec0c77e2bdb16087395ae08fb5ccd6db734355f604"
+        }
+      ]
+    },
+    "upgrade": {
+      "ledger": {
+        "count": 247,
+        "sha256": "4ac90f2bbfb7a5736986e192dbf2548ab6768063b7f838d69c4103ae6cfbd712",
+        "unfinished": 0
+      },
+      "tables": 264,
+      "predecessorLedgerPreserved": true,
+      "predecessorLogicalRowsPreserved": true,
+      "predecessorOwnershipPrivilegesPreserved": true,
+      "sequenceStateAndPropertiesPreserved": true,
+      "catalogueSha256": "97a4155bad13b9679aab91534a11fe3e5714ffa45337eeed25e0be7d41374ec8",
+      "newlyApplied40ExactCandidateChecksums": true,
+      "canonicalPredecessorAdmissionPassed": true
+    },
+    "recoveryReadback": {
+      "untouchedBaselinePreserved": true
+    }
+  },
+  "independentReviewSha256": "9be65bcbf5d89890395d919942858f43e2c0195992d8e823582b6286085f8da3",
+  "hostedMetadataRootAttestationSha256": "966eb9264a3fdfd80e0b463d395e61c8eb135295597f4c14597e86ffd97f6a66",
+  "limits": [
+    "Source metadata is root transcription of authenticated console readback; no separately saved screenshots.",
+    "Local PostgreSQL17.11/vector0.8.6 differs from hosted17.6/vector0.8.0; both recorded/actual libc collation2.36.",
+    "Installed Prisma runtime is reused through a local junction; final clean-candidate runtime binding remains required.",
+    "All88 command logs were independently hash-verified; raw schema, archive, ledger and application data remain outside Git.",
+    "Container stopped and port released; exit137 does not establish graceful shutdown or restart durability.",
+    "Preflight predates final write drain and candidate. Fresh final backup/restore, concrete hosted recovery approval and canonical candidate admission remain required."
+  ],
+  "localProofPassed": true,
+  "hostedMigrationPerformed": false,
+  "stagingReleaseAdmitted": false,
+  "productionAuthorized": false
+}

@@ -30,16 +30,19 @@ describe('client portal primitives', () => {
     expect(rail.querySelector('[aria-current="step"]')?.textContent).toContain('Share')
   })
 
-  it('keeps the signature core decorative while exposing its truthful visual state to styling', () => {
-    const { container } = render(<TorchikoCore state="processing" />)
-    const core = container.firstElementChild
-    const svg = core?.querySelector('svg')
+  it.each(['welcome', 'share', 'processing', 'questions', 'ready', 'live'] as const)(
+    'keeps the neutral %s fallback decorative while exposing state to layout hooks',
+    (state) => {
+      const { container } = render(<TorchikoCore state={state} />)
+      const core = container.firstElementChild
 
-    expect(core?.getAttribute('data-state')).toBe('processing')
-    expect(svg?.getAttribute('aria-hidden')).toBe('true')
-    expect(svg?.getAttribute('focusable')).toBe('false')
-    expect(screen.queryByRole('img')).toBeNull()
-  })
+      expect(core?.getAttribute('data-state')).toBe(state)
+      expect(core?.querySelector('[aria-hidden="true"]')?.textContent).toBe('Torchiko')
+      expect(core?.querySelector('svg')).toBeNull()
+      expect(core?.querySelector('path')).toBeNull()
+      expect(screen.queryByRole('img')).toBeNull()
+    },
+  )
 
   it('provides one primary heading and plain navigation actions around the visual', () => {
     render(
@@ -87,9 +90,6 @@ describe('client portal primitives', () => {
     expect(mobileCss).toMatch(/\.journeyList\s*\{[\s\S]*?width:\s*100%;/u)
     expect(primitiveCss).toMatch(
       /\.journeyList\s*\{[\s\S]*?grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/u,
-    )
-    expect(reducedCss).toMatch(
-      /\.core::before,[\s\S]*?\.coreStrand,[\s\S]*?\.coreEmber[\s\S]*?animation:\s*none;/u,
     )
     expect(reducedCss).toMatch(/\.primaryLink,[\s\S]*?\.secondaryLink[\s\S]*?transition:\s*none;/u)
     expect(reducedUploadCss).toMatch(

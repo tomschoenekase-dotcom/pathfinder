@@ -57,13 +57,22 @@ describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v9')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v22')
     expect(GUEST_CHAT_PROMPT_CONTRACT_HASH).toBe(
-      '9243a01c585a472c98134cc99b585cb95de64a683f77348468d6391a8081d183',
+      'f18deb6657f4c6ec6094cc7d35bf07017771e7a544791c6df735d358ce4dde41',
     )
     expect(evaluationRunIdentityHash(identity())).toBe(
-      'e223ec6b02d538e998c03f08187279e3c01626a7305a790d0d24e3489ea87b4d',
+      'cf765dff88c1ef6ec7b866cb52cb16b3b2c3ec70c5b2b5629760a092ae64f935',
     )
+    // New evaluation requests cannot silently use the retired prompt contract.
+    expect(() =>
+      evaluationRunIdentityHash(
+        identity({
+          promptContractVersion: 'guest-chat-prompt-v15',
+          promptContractHash: '5dae56d5e4765c104c95e56c1e2e46cc01ca6f85cfdc0f1c01e0c4e6c3d0f9d5',
+        }),
+      ),
+    ).toThrow('promptContractVersion is not the production contract')
     const client = mockClient()
     client.evalRun.findFirst.mockResolvedValueOnce(null)
     client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))

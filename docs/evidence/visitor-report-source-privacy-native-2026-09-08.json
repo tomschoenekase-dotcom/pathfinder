@@ -1,0 +1,125 @@
+{
+  "status": "LOCAL_VISITOR_REPORT_SOURCE_BOUNDARIES_PASS",
+  "date": "2026-09-08",
+  "baseCommit": "1061a5d1",
+  "changes": [
+    "Answer analysis now loads only exact tenant/venue PUBLIC session sources and excludes structured response messages from ordinary chat input.",
+    "Weekly report excludes non-AI structured answers in its own reporting range from ordinary evidence; AI-invented answers remain ordinary evidence because that report omits them from the captured-answer domain. Existing sampling caps remain.",
+    "Existing loaders are exported for direct native source-boundary proof; no new report writer, provider, registry or transcript store."
+  ],
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-visitor-report-sources-8e999c162447",
+  "runner": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-native-visitor-report-sources-proof-port55491.mjs",
+  "runnerSha256": "e4a916e424812eeb07368523af117c41f13895f2a88154721cf706554c5238c0",
+  "database": {
+    "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+    "timezone": "UTC",
+    "vectorVersion": "0.8.6",
+    "migrationCount": 238,
+    "publicTableCount": 258
+  },
+  "native": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "stopped": true,
+    "measurement": {
+      "publicOrdinaryCount": 2,
+      "publicStructuredCount": 1,
+      "noStructuredDoubleCount": true,
+      "weeklyInventedAnswerRetained": true,
+      "weeklyConfiguredAnswerCountedOnce": true,
+      "privateScopePositiveControl": true,
+      "siblingAndForeignPositiveControls": true,
+      "noProviderOrSnapshotWrite": true,
+      "seededSessionId": "cmtt98aqi00008tjo6fm31ycu"
+    },
+    "coverage": [
+      "Ordinary public opinion remains available to aggregate report input, with structured answer represented once",
+      "Exact private rows excluded from both answer-analysis sources; changing only synthetic session scope to PUBLIC exposes them as positive control, then restoring scope excludes again",
+      "Sibling venue and foreign tenant rows remain readable in their own scope, excluded from primary scope",
+      "Assistant/out-of-range messages excluded",
+      "Distinct immutable AI-invented and configured answer records prove weekly source partition without rewriting provenance",
+      "Source readers create no answer-analysis snapshot and invoke no provider"
+    ]
+  },
+  "sourceHashes": [
+    {
+      "source": "apps/workers/src/answer-analysis-sources.disposable.integration.test.ts",
+      "sha256": "82566d948cf9fb9145b299ef26a2b5e3dd47884c6b6e1112320d15978c781282"
+    },
+    {
+      "source": "apps/workers/src/processors/answer-analysis.ts",
+      "sha256": "401a4342699d3a4f8c6129bd7c15c45b31c7e5d78c691087d8f8fc7aa012029c"
+    },
+    {
+      "source": "apps/workers/src/processors/weekly-report.ts",
+      "sha256": "4350ce3be35b0a2fcc51b140e4a20db357507434c0a8a12e393a0ab419476bf3"
+    },
+    {
+      "source": "packages/db/src/client.ts",
+      "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237"
+    },
+    {
+      "source": "packages/db/prisma/schema.prisma",
+      "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    {
+      "source": "scripts/lib/disposable-prisma-migration.mjs",
+      "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e"
+    }
+  ],
+  "unitSourceHashes": [
+    {
+      "source": "apps/workers/src/processors/answer-analysis.test.ts",
+      "sha256": "f2988373b0ff6d117961001c23413ce9d14bf2174ab188626530951a9f65669b"
+    },
+    {
+      "source": "apps/workers/src/processors/weekly-report.test.ts",
+      "sha256": "ac4b33ace8cfd9cf2f674031643a7d2e058c8e79539516bfc2aea63c99783227"
+    }
+  ],
+  "artifactHashes": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-visitor-report-sources-8e999c162447\\result.json",
+      "sha256": "313bd6f534bf54b0321d924a58d6ff27da5b22e19fd1357811179c0349f9a30a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-visitor-report-sources-8e999c162447\\vitest.json",
+      "sha256": "01152bbe651456a43fde364e6c1e4f4bfeec77ac75ff3859fa5c753cacddaf36"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-visitor-report-sources-8e999c162447\\measurement.json",
+      "sha256": "50f5cf37bd53afae38d00d1a91ae2f0cbd849299686de45c6a60a345cf76557b"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-visitor-report-sources-8e999c162447\\database-readback.log",
+      "sha256": "f97c7677c8263912344607a935f9f74fa3a49fd3fc1853af1f594fbbbe9e329b"
+    }
+  ],
+  "validation": {
+    "focusedTests": 57,
+    "focusedTestLog": "artifacts/w02-report-source-root-tests-20260908.log",
+    "freshWorkerTypecheckExit": 0,
+    "configuredLintExit": 0
+  },
+  "preliminaryAttempts": [
+    {
+      "id": "f4d8ebb341a1",
+      "result": "Auth-config import required synthetic placeholders; no provider/auth call. Database stopped."
+    },
+    {
+      "id": "17f6ef96c1fc",
+      "result": "Answer-analysis-only native proof passed; database stopped."
+    },
+    {
+      "id": "7929b55afc63",
+      "result": "Database correctly rejected fixture attempt to mutate immutable engagement provenance; fixture changed to separate immutable examples. Database stopped."
+    }
+  ],
+  "limits": [
+    "Synthetic database rows and actual read queries, not complete report generation or provider sentiment quality",
+    "No hosted authentication, customer report/send, current museum reproduction or full FM09 acceptance",
+    "Closure corroboration receipt binding and expiry workflow remain separate remaining work",
+    "Existing source sampling limits remain; this is not proof of exhaustive reporting coverage"
+  ]
+}

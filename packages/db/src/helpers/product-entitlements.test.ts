@@ -20,6 +20,21 @@ const client = {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('product entitlement resolution', () => {
+  it('does not suspend access from an unapproved default recovery policy', async () => {
+    vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+    vi.stubEnv('BILLING_RECOVERY_POLICY_APPROVED', 'false')
+    plan.mockResolvedValue({ id: 'launch-widget', enabled: true, settings: {} })
+    const decision = await resolveProductEntitlement({
+      client: {
+        ...client,
+        billingAccount: { findUnique: billingAccount },
+      } as ProductEntitlementClient,
+      tenantId: 'tenant-a',
+      capability: 'widget',
+    })
+    expect(decision).toMatchObject({ enabled: true, source: 'PLAN' })
+    expect(billingAccount).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     tenant.mockResolvedValue({ planTier: 'launch' })
@@ -105,8 +120,32 @@ describe('product entitlement resolution', () => {
     ).rejects.toEqual(new ProductEntitlementError('CAPABILITY_DENIED', 'voice'))
   })
 
+  it.each([undefined, '', '0', '91', '1.5', 'invalid'])(
+    'does not suspend access without a valid explicit grace period: %s',
+    async (days) => {
+      vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+      vi.stubEnv('BILLING_RECOVERY_POLICY_APPROVED', 'true')
+      vi.stubEnv('BILLING_GRACE_PERIOD_DAYS', days)
+      plan.mockResolvedValue({ id: 'launch-widget', enabled: true, settings: {} })
+      await expect(
+        resolveProductEntitlement({
+          client: {
+            ...client,
+            billingAccount: { findUnique: billingAccount },
+            tenantFeatureFlag: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+          },
+          tenantId: 'tenant-a',
+          capability: 'widget',
+        }),
+      ).resolves.toMatchObject({ enabled: true, source: 'PLAN' })
+      expect(billingAccount).not.toHaveBeenCalled()
+    },
+  )
+
   it('enforces the central billing policy only behind the launch kill switch', async () => {
     vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+    vi.stubEnv('BILLING_RECOVERY_POLICY_APPROVED', 'true')
+    vi.stubEnv('BILLING_GRACE_PERIOD_DAYS', '14')
     const enforcingClient = {
       ...client,
       billingAccount: { findUnique: billingAccount },

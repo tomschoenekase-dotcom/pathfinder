@@ -82,6 +82,39 @@ describe('website research clarifications', () => {
     expect(first.clarifications[0]?.context).toContain('grants no approval')
   })
 
+  it('accepts additive page prose without turning it into questions or mapping claims', () => {
+    const input = {
+      ...scope,
+      researchSnapshot,
+      candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+    }
+    const legacy = buildWebsiteClarificationReview(input)
+    const withText = buildWebsiteClarificationReview({
+      ...input,
+      researchSnapshot: {
+        ...researchSnapshot,
+        pageTextEvidence: [
+          {
+            sourceUrl: 'https://example.org/',
+            exactByteHash: 'a'.repeat(64),
+            capturedAt: '2026-09-08T10:00:00.000Z',
+            extractionProfile: 'static-html-v1',
+            text: 'Unreviewed source text',
+            normalizedTextHash: 'b'.repeat(64),
+            retainedTextHash: 'b'.repeat(64),
+            fullCodePointCount: 22,
+            retainedCodePointCount: 22,
+            truncated: false,
+          },
+        ],
+      },
+    })
+    expect(withText.citations).toEqual(legacy.citations)
+    expect(withText.clarifications).toHaveLength(legacy.clarifications.length)
+    expect(withText.researchHash).not.toBe(legacy.researchHash)
+    expect(buildWebsiteClarificationReview(input)).toEqual(legacy)
+  })
+
   it('binds operation identity to the full tenant, venue, run, receipt, evidence, and discrepancy scope', () => {
     const base = websiteResearchClarificationOperationId({
       ...scope,

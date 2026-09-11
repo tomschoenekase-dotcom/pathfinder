@@ -3,6 +3,8 @@ export const WORKER_EXECUTION_FLAGS = [
   'OUTBOUND_PROVIDER_WORKERS_ENABLED',
   'CRM_BACKGROUND_WORKERS_ENABLED',
   'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
+  'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
+  'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
   'EMBEDDING_DISPATCH_ENABLED',
   'GENERATION_DISPATCH_ENABLED',
   'GENERATION_RECOVERY_ENABLED',
@@ -16,6 +18,8 @@ const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
     flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
     flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
+    flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
+    flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&
     flag !== 'EVALUATION_RUNNER_ENABLED' &&
     flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
     flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',
@@ -30,6 +34,8 @@ export type WorkerStartupPolicy = {
     | 'provider-enabled'
     | 'crm-only'
     | 'intake-upload-verification-only'
+    | 'intake-v1-website-research-only'
+    | 'intake-v1-file-extraction-only'
     | 'evaluation-only'
     | 'venue-media-derivative-only'
     | 'founder-absence-observer-only'
@@ -60,14 +66,25 @@ export function resolveWorkerStartupPolicy(
   const crmBackgroundEnabled = environment.CRM_BACKGROUND_WORKERS_ENABLED === 'true'
   const intakeUploadVerificationEnabled =
     environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
+  const intakeV1WebsiteResearchEnabled =
+    environment.INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED === 'true'
+  const intakeV1FileExtractionEnabled =
+    environment.INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED === 'true'
   const evaluationRunnerEnabled = environment.EVALUATION_RUNNER_ENABLED === 'true'
   const venueMediaDerivativeEnabled = environment.VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED === 'true'
   const founderAbsenceObserverEnabled = environment.FOUNDER_ABSENCE_OBSERVER_ENABLED === 'true'
+  if (providerEnabled && intakeV1FileExtractionEnabled) {
+    throw new Error(
+      'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED requires the isolated provider-disabled runtime',
+    )
+  }
   if (
     founderAbsenceObserverEnabled &&
     (providerEnabled ||
       crmBackgroundEnabled ||
       intakeUploadVerificationEnabled ||
+      intakeV1WebsiteResearchEnabled ||
+      intakeV1FileExtractionEnabled ||
       evaluationRunnerEnabled)
   ) {
     throw new Error(
@@ -84,6 +101,8 @@ export function resolveWorkerStartupPolicy(
     const isolatedModesEnabled = [
       crmBackgroundEnabled,
       intakeUploadVerificationEnabled,
+      intakeV1WebsiteResearchEnabled,
+      intakeV1FileExtractionEnabled,
       evaluationRunnerEnabled,
       venueMediaDerivativeEnabled,
     ].filter(Boolean).length
@@ -99,7 +118,7 @@ export function resolveWorkerStartupPolicy(
           'REDIS_URL',
           'ANTHROPIC_API_KEY',
           'OPENAI_API_KEY',
-          ...(intakeUploadVerificationEnabled
+          ...(intakeUploadVerificationEnabled || intakeV1FileExtractionEnabled
             ? [
                 'DATABASE_URL',
                 'DIRECT_DATABASE_URL',
@@ -129,6 +148,7 @@ export function resolveWorkerStartupPolicy(
                   'INTAKE_CLAMAV_HOST',
                 ]
               : []),
+            ...(intakeV1WebsiteResearchEnabled ? ['DATABASE_URL', 'DIRECT_DATABASE_URL'] : []),
           ],
           intakeUploadVerificationEnabled,
         }
@@ -147,20 +167,15 @@ export function resolveWorkerStartupPolicy(
             ],
             intakeUploadVerificationEnabled: true,
           }
-        : evaluationRunnerEnabled
+        : intakeV1WebsiteResearchEnabled
           ? {
-              mode: 'evaluation-only',
-              requiredEnvironmentKeys: [
-                'REDIS_URL',
-                'DATABASE_URL',
-                'DIRECT_DATABASE_URL',
-                'OPENAI_API_KEY',
-              ],
+              mode: 'intake-v1-website-research-only',
+              requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
               intakeUploadVerificationEnabled: false,
             }
-          : venueMediaDerivativeEnabled
+          : intakeV1FileExtractionEnabled
             ? {
-                mode: 'venue-media-derivative-only',
+                mode: 'intake-v1-file-extraction-only',
                 requiredEnvironmentKeys: [
                   'REDIS_URL',
                   'DATABASE_URL',
@@ -172,15 +187,40 @@ export function resolveWorkerStartupPolicy(
                 ],
                 intakeUploadVerificationEnabled: false,
               }
-            : founderAbsenceObserverEnabled
+            : evaluationRunnerEnabled
               ? {
-                  mode: 'founder-absence-observer-only',
-                  requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+                  mode: 'evaluation-only',
+                  requiredEnvironmentKeys: [
+                    'REDIS_URL',
+                    'DATABASE_URL',
+                    'DIRECT_DATABASE_URL',
+                    'OPENAI_API_KEY',
+                  ],
                   intakeUploadVerificationEnabled: false,
                 }
-              : {
-                  mode: 'provider-disabled',
-                  requiredEnvironmentKeys: ['REDIS_URL'],
-                  intakeUploadVerificationEnabled: false,
-                }
+              : venueMediaDerivativeEnabled
+                ? {
+                    mode: 'venue-media-derivative-only',
+                    requiredEnvironmentKeys: [
+                      'REDIS_URL',
+                      'DATABASE_URL',
+                      'DIRECT_DATABASE_URL',
+                      'STORAGE_BUCKET',
+                      'STORAGE_REGION',
+                      'STORAGE_ACCESS_KEY_ID',
+                      'STORAGE_SECRET_ACCESS_KEY',
+                    ],
+                    intakeUploadVerificationEnabled: false,
+                  }
+                : founderAbsenceObserverEnabled
+                  ? {
+                      mode: 'founder-absence-observer-only',
+                      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+                      intakeUploadVerificationEnabled: false,
+                    }
+                  : {
+                      mode: 'provider-disabled',
+                      requiredEnvironmentKeys: ['REDIS_URL'],
+                      intakeUploadVerificationEnabled: false,
+                    }
 }

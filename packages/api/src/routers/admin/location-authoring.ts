@@ -31,7 +31,7 @@ export const adminLocationAuthoringRouter = router({
           select: { id: true, name: true },
         })
         if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found.' })
-        const [floors, locations, connections, proposals] = await Promise.all([
+        const [floors, locations, connections, proposals, places] = await Promise.all([
           db.venueFloor.findMany({
             where: { tenantId: input.tenantId, venueId: input.venueId },
             orderBy: [{ sortOrder: 'asc' }, { stableKey: 'asc' }],
@@ -72,12 +72,24 @@ export const adminLocationAuthoringRouter = router({
               },
             },
           }),
+          db.place.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              isActive: true,
+              visibility: 'PUBLIC',
+            },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            take: 501,
+            select: { id: true, name: true },
+          }),
         ])
         if (
           floors.length > 500 ||
           locations.length > 500 ||
           connections.length > 500 ||
-          proposals.length > 100
+          proposals.length > 100 ||
+          places.length > 500
         )
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
@@ -85,6 +97,7 @@ export const adminLocationAuthoringRouter = router({
           })
         return {
           venue,
+          places,
           floors: floors.map((floor) => ({
             id: floor.id,
             stableKey: floor.stableKey,
@@ -168,6 +181,7 @@ export const adminLocationAuthoringRouter = router({
                 visibility: input.visibility,
                 floorId: input.floorId,
                 parentLocationId: input.parentLocationId,
+                primaryPlaceId: input.primaryPlaceId ?? null,
                 latitude: input.coordinates?.latitude ?? null,
                 longitude: input.coordinates?.longitude ?? null,
                 mapX: input.mapAnchor?.x ?? null,
@@ -192,6 +206,7 @@ export const adminLocationAuthoringRouter = router({
                   venueId: input.venueId,
                   stableKey: input.stableKey,
                   visibility: input.visibility,
+                  primaryPlaceId: input.primaryPlaceId ?? null,
                   isActive: false,
                 },
               },
@@ -246,6 +261,9 @@ export const adminLocationAuthoringRouter = router({
                 visibility: input.visibility,
                 floorId: input.floorId,
                 parentLocationId: input.parentLocationId,
+                ...(input.primaryPlaceId !== undefined
+                  ? { primaryPlaceId: input.primaryPlaceId }
+                  : {}),
                 latitude: input.coordinates?.latitude ?? null,
                 longitude: input.coordinates?.longitude ?? null,
                 mapX: input.mapAnchor?.x ?? null,
@@ -273,11 +291,16 @@ export const adminLocationAuthoringRouter = router({
                 beforeState: {
                   stableKey: before.stableKey,
                   displayName: before.displayName,
+                  primaryPlaceId: before.primaryPlaceId,
                   updatedAt: before.updatedAt.toISOString(),
                 },
                 afterState: {
                   stableKey: input.stableKey,
                   displayName: input.displayName,
+                  primaryPlaceId:
+                    input.primaryPlaceId === undefined
+                      ? before.primaryPlaceId
+                      : input.primaryPlaceId,
                   updatedAt: updatedAt.toISOString(),
                   reason: input.reason,
                 },

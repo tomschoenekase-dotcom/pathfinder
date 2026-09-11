@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import {
   AI_CENTRAL_MODEL_REGISTRY,
+  AI_INVENTORY_OMISSIONS,
+  buildAiWorkloadInventory,
   resolveAiWorkloadConfiguration,
   type AiConfigurationOverride,
   type AiWorkloadId,
@@ -168,12 +170,19 @@ export const adminAiWorkloadConfigurationRouter = router({
       const workloadMap = byWorkload(workloadRows)
       const clientMap = byWorkload(clientRows)
       const venueMap = byWorkload(venueRows)
+      const operationalInventory = buildAiWorkloadInventory()
 
       return {
         scope: { tenantId: input.tenantId, venueId: input.venueId },
         readOnly: false as const,
         stagedControlPlane: true as const,
         providerExecution: false as const,
+        operationalInventory: {
+          entries: operationalInventory,
+          omissions: AI_INVENTORY_OMISSIONS,
+          measurementStatus:
+            'Provider configuration, provider latency, estimated provider cost, and invoice cost are unknown on this read surface.' as const,
+        },
         layers: [
           {
             level: 'PLATFORM' as const,

@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 1,
+  "kind": "current-source-guest-retrieval-native-postgresql",
+  "measuredAt": "2026-09-08T02:09:34.433579+00:00",
+  "baseProductRevision": "812dc95ea944150f2c32aa3c709b213065a644bd",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "result": {
+    "database": "pathfinder_disposable_native_guest_read_4ee3b633ebe5",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focusedUnitTests": {
+    "passed": 140,
+    "failed": 0
+  },
+  "measurement": {
+    "version": "native-guest-integrated-visitor-holdout-v1",
+    "corpus": {
+      "releaseId": "7242bce0-6d7a-49d6-bedd-18126ab5686f",
+      "manifestHash": "77bdfed71aabc88447beb40f5d8d3c0f962d9eb695f77cb32cf3a8493ead8f91",
+      "desiredStateHash": "bc692095b3cae363d65d42184c0fe48900291da9d5216e534792a999975a3f13",
+      "operationalUpdatesHash": "a17c1fc328f86aba8ac9ba92e66f47ac77bf4f6381def75accbe72ed6299b80c",
+      "asOf": "2026-09-08T02:05:03.019Z"
+    },
+    "configuration": {
+      "evaluationRunIdentityHash": "ef3adfdab0dcc236ef601be73b9e9e9e36c2232d7e6201c8c783b5cf95403c27",
+      "runConfigVersion": "pathfinder-native-evaluation-run-config-v1",
+      "contentSnapshotVersion": "pathfinder-native-evaluation-content-v1"
+    },
+    "prompt": {
+      "version": "guest-chat-prompt-v13",
+      "hash": "708cc224b864c4b4d9d8532541c7349792d40afa0c3a62fb24c89b5b0df70881"
+    },
+    "identityHash": "a909d943229dff078ec49c6d70fd9739758c701f9df0d9b74d43894c83f920fb",
+    "cases": [
+      {
+        "id": "english-current-correction-expiry",
+        "query": "What is the native public arrival gallery update?",
+        "retrievedSourceIds": [
+          "update:update-public-d7c3f8cc",
+          "81ab3dac-fe77-402e-897d-83cd2b999ed6",
+          "place:place-public-d7c3f8cc"
+        ],
+        "includedSourceIds": [
+          "update:update-public-d7c3f8cc",
+          "81ab3dac-fe77-402e-897d-83cd2b999ed6",
+          "place:place-public-d7c3f8cc"
+        ],
+        "omittedSourceIds": [],
+        "exclusions": [
+          {
+            "sourceId": "2b37c5f2-aefe-44e0-b38f-728c432907e9",
+            "reason": "second-layer-not-public"
+          },
+          {
+            "sourceId": "update:update-internal-d7c3f8cc",
+            "reason": "private-place-update"
+          },
+          {
+            "sourceId": "update:update-expired-d7c3f8cc",
+            "reason": "expired-before-as-of"
+          }
+        ],
+        "knowledgeRetrieval": {
+          "path": "lexical-fallback",
+          "retrievedSourceIds": ["81ab3dac-fe77-402e-897d-83cd2b999ed6"],
+          "retrievedSources": [
+            {
+              "id": "81ab3dac-fe77-402e-897d-83cd2b999ed6",
+              "version": "2026-09-08T02:05:02.960Z"
+            }
+          ],
+          "excludedSourceIds": [],
+          "candidateCounts": {
+            "strict": 0,
+            "broad": 1,
+            "semantic": 0
+          },
+          "limits": {
+            "strict": 20,
+            "broad": 60,
+            "result": 5
+          },
+          "partialCoverage": false,
+          "truncatedSourceIds": [],
+          "publicationAuthority": [],
+          "retrievalMs": 7.428100000000086
+        },
+        "measurements": {
+          "retrievalMs": 7.428100000000086,
+          "retrievalAndAssemblyMs": 10.251499999999396,
+          "providerLatencyMs": null
+        },
+        "assertions": {
+          "correctedNativeValueIncluded": true,
+          "replacedLegacyValueExcluded": true,
+          "activeUpdateIncluded": true,
+          "expiredUpdateExcluded": true,
+          "privateUpdateExcluded": true
+        }
+      },
+      {
+        "id": "spanish-grounded-retrieval",
+        "query": "\u00bfQu\u00e9 debo saber sobre la llegada a la galer\u00eda p\u00fablica?",
+        "retrievedSourceIds": [
+          "update:update-public-d7c3f8cc",
+          "81ab3dac-fe77-402e-897d-83cd2b999ed6"
+        ],
+        "includedSourceIds": [
+          "update:update-public-d7c3f8cc",
+          "81ab3dac-fe77-402e-897d-83cd2b999ed6"
+        ],
+        "omittedSourceIds": [],
+        "exclusions": [
+          {
+            "sourceId": "2b37c5f2-aefe-44e0-b38f-728c432907e9",
+            "reason": "second-layer-not-public"
+          },
+          {
+            "sourceId": "update:update-internal-d7c3f8cc",
+            "reason": "private-place-update"
+          },
+          {
+            "sourceId": "update:update-expired-d7c3f8cc",
+            "reason": "expired-before-as-of"
+          }
+        ],
+        "knowledgeRetrieval": {
+          "path": "lexical-fallback",
+          "retrievedSourceIds": ["81ab3dac-fe77-402e-897d-83cd2b999ed6"],
+          "retrievedSources": [
+            {
+              "id": "81ab3dac-fe77-402e-897d-83cd2b999ed6",
+              "version": "2026-09-08T02:05:02.960Z"
+            }
+          ],
+          "excludedSourceIds": [],
+          "candidateCounts": {
+            "strict": 0,
+            "broad": 1,
+            "semantic": 0
+          },
+          "limits": {
+            "strict": 20,
+            "broad": 60,
+            "result": 5
+          },
+          "partialCoverage": false,
+          "truncatedSourceIds": [],
+          "publicationAuthority": [],
+          "retrievalMs": 13.525500000000648
+        },
+        "measurements": {
+          "retrievalMs": 13.525500000000648,
+          "retrievalAndAssemblyMs": 16.144999999999527,
+          "providerLatencyMs": null
+        },
+        "assertions": {
+          "supportedLanguageQueryRetrievedPublicKnowledge": true,
+          "correctedNativeValueIncluded": true,
+          "activeUpdateIncluded": true,
+          "expiredUpdateExcluded": true,
+          "privateUpdateExcluded": true
+        }
+      }
+    ],
+    "provider": {
+      "called": false,
+      "synthesisQualityVerified": false,
+      "reason": "Retrieval and prompt preparation only; no real-provider observation."
+    },
+    "unresolvedCapabilities": [
+      "visitor-media-selection-not-integrated-with-voice-grounding-context",
+      "accessible-spatial-routing-not-integrated-with-voice-grounding-context"
+    ]
+  },
+  "measuredSources": [
+    {
+      "path": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+      "sha256": "e0477653d47532cfd4f50a18167ae3ec1c191cc030d7e7f52197e0e66f2e1a1d",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+      "sha256": "142f2456280e68670ac0a3631b5cfda514db7403d1ad17cf7eac30e3e271d5c1",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/voice-grounding-context.ts",
+      "sha256": "bd22965f7f16609da5dae3727bbd863ea38faa9afe2e01c4dda22d65ceeb2e9c",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/chat.ts",
+      "sha256": "53a36bf95573d3ddb1ae5badfd04ba0a16f869cf402e821b7b95e74bde356c7c",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/semantic-search.ts",
+      "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\measured-chat.ts",
+      "sha256": "53a36bf95573d3ddb1ae5badfd04ba0a16f869cf402e821b7b95e74bde356c7c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\measured-guest-knowledge-retrieval.ts",
+      "sha256": "142f2456280e68670ac0a3631b5cfda514db7403d1ad17cf7eac30e3e271d5c1"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\measured-native-guest-read.disposable.integration.test.ts",
+      "sha256": "e0477653d47532cfd4f50a18167ae3ec1c191cc030d7e7f52197e0e66f2e1a1d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\measured-semantic-search.ts",
+      "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\measured-voice-grounding-context.ts",
+      "sha256": "bd22965f7f16609da5dae3727bbd863ea38faa9afe2e01c4dda22d65ceeb2e9c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\result.json",
+      "sha256": "aeab682ec0205fd8702360a3d3cd0b23d997781872078da34c90b127a41de1f4"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\vitest.json",
+      "sha256": "178fcf1d8acbe3c1b8a34f162c41d6f12e7dfcf38f45dc6b4e04169104d7a460"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-4ee3b633ebe5\\vitest.log",
+      "sha256": "ad7c096373de39b1cdd8643334fcaa66986de1eaeac1d03a1b4ecbb4babfb7c0"
+    }
+  ],
+  "priorRuns": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-654beca84a6e",
+      "result": "withdrawal passed; Spanish arrival holdout failed before concept correction; stopped"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-f01d1307f902",
+      "result": "2 passed and stopped; superseded by final category-input validation run"
+    }
+  ],
+  "limits": [
+    "Synthetic disposable tenant/database only.",
+    "Delayed semantic result is captured pre-withdrawal data injected through the search callback; publication and withdrawal actions use real PostgreSQL.",
+    "Holdouts measure retrieval and prompt assembly, not real-provider answer quality.",
+    "Visitor media selection, accessible spatial route integration, hosted/device validation remain unproven."
+  ]
+}

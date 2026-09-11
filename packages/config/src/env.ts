@@ -39,6 +39,15 @@ const rawEnvSchema = z
     CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Canonical V1 website research is a separately dark worker capability.
+    // It uses only fixed server policy and remains disabled until an operator
+    // explicitly enables both consumption and the recurring recovery scan.
+    INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+
+    // Canonical V1 file extraction is independently dark from website research.
+    // It remains off until an operator explicitly enables its worker capability.
+    INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Stripe Billing is an independently dark integration. Environment gates
     // never replace tenant pilot admission or server-side authorization.
     STRIPE_BILLING_UI_ENABLED: z.enum(['true', 'false']).optional(),
@@ -48,6 +57,7 @@ const rawEnvSchema = z
     STRIPE_WEBHOOK_PROCESSING_ENABLED: z.enum(['true', 'false']).optional(),
     STRIPE_RECONCILIATION_ENABLED: z.enum(['true', 'false']).optional(),
     BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).optional(),
+    BILLING_RECOVERY_POLICY_APPROVED: z.enum(['true', 'false']).optional(),
     STRIPE_LIVE_MODE_ALLOWED: z.enum(['true', 'false']).optional(),
     STRIPE_MODE: z.enum(['test', 'live']).default('test'),
     STRIPE_ACCOUNT_NAMESPACE: z
@@ -279,6 +289,10 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
   INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED:
     values.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true',
+  INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED:
+    values.INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED === 'true',
+  INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED:
+    values.INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED === 'true',
   STRIPE_BILLING_UI_ENABLED: values.STRIPE_BILLING_UI_ENABLED === 'true',
   STRIPE_CHECKOUT_ENABLED: values.STRIPE_CHECKOUT_ENABLED === 'true',
   STRIPE_CUSTOMER_PORTAL_ENABLED: values.STRIPE_CUSTOMER_PORTAL_ENABLED === 'true',
@@ -287,6 +301,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   STRIPE_RECONCILIATION_ENABLED: values.STRIPE_RECONCILIATION_ENABLED === 'true',
   BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED:
     values.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true',
+  BILLING_RECOVERY_POLICY_APPROVED: values.BILLING_RECOVERY_POLICY_APPROVED === 'true',
   STRIPE_LIVE_MODE_ALLOWED: values.STRIPE_LIVE_MODE_ALLOWED === 'true',
   EMBEDDING_DISPATCH_ENABLED: values.EMBEDDING_DISPATCH_ENABLED === 'true',
   GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',

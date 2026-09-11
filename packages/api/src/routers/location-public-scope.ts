@@ -7,9 +7,18 @@ export async function loadPublicLocationScope(
   // Deliberate public cross-tenant lookup: venue and anonymous token are joined
   // before any tenant-scoped structured location lookup is attempted.
   const [scope] = await db.$queryRaw<
-    Array<{ tenantId: string; venueId: string; experienceScope: string }>
+    Array<{
+      tenantId: string
+      venueId: string
+      experienceScope: string
+      venueSlug: string
+      showPhotos: boolean
+      showLinks: boolean
+    }>
   >`
-    SELECT s.tenant_id AS "tenantId", s.venue_id AS "venueId", s.experience_scope AS "experienceScope"
+    SELECT s.tenant_id AS "tenantId", s.venue_id AS "venueId",
+           s.experience_scope AS "experienceScope", v.slug AS "venueSlug",
+           v.chat_show_photos AS "showPhotos", v.chat_show_links AS "showLinks"
       FROM visitor_sessions s
       JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
      WHERE s.anonymous_token = ${input.anonymousToken}

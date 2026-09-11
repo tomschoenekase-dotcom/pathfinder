@@ -16,6 +16,8 @@ const tx = {
   place: { findMany: vi.fn() },
   venueKnowledgeEntry: { findMany: vi.fn() },
   venueMediaAsset: { create: vi.fn(), findFirst: vi.fn() },
+  venueMediaPlaceLink: { createMany: vi.fn() },
+  venueMediaKnowledgeLink: { createMany: vi.fn() },
   venueMediaReview: { findFirst: vi.fn(), create: vi.fn() },
   venueMediaDerivative: { findMany: vi.fn(), createMany: vi.fn() },
 }
@@ -100,12 +102,29 @@ describe('governed venue media actions', () => {
           intakeUploadId: 'upload-1',
           sourceUrl: null,
           createdBy: 'admin-1',
-          placeLinks: {
-            create: [{ tenantId: 'tenant-1', venueId: 'venue-1', placeId: 'place-1' }],
-          },
         }),
       }),
     )
+    expect(tx.venueMediaPlaceLink.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          assetId: registration.assetId,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          placeId: 'place-1',
+        },
+      ],
+    })
+    expect(tx.venueMediaKnowledgeLink.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          assetId: registration.assetId,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          knowledgeEntryId: 'knowledge-1',
+        },
+      ],
+    })
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'venue_media.registered',

@@ -12,6 +12,32 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'platform-intake-source-agent-recovery',
+  'tenant-intake-source-routing-lock',
+  'tenant-agent-task-operation-lock',
+  'tenant-intake-v1-package-authority-share-lock',
+  'tenant-approval-grant-consumption-lock',
+  'tenant-intake-source-mapping-operation-lock',
+  'tenant-intake-source-mapping-source-lock',
+  'tenant-intake-v1-package-proposal-operation-lock',
+  'platform-intake-v1-processing-discovery',
+  'platform-intake-v1-source-lease',
+  'tenant-intake-v1-processing-exact-lease',
+
+  'tenant-intake-v1-operation-lock',
+  'tenant-intake-v1-owner-revision-lock',
+  'tenant-intake-v1-selected-source-snapshot',
+  'tenant-agent-delegation-operation-lock',
+  'tenant-workflow-approval-request-lock',
+  'tenant-workflow-execution-lease',
+  'tenant-workflow-authority-share-lock',
+  'tenant-workflow-activation-revoke',
+  'tenant-agent-outcome-source-provenance-lock',
+
+  'tenant-media-identity-request-lock',
+  'tenant-media-identity-exact-receipt',
+  'tenant-media-project-source-lock',
+  'tenant-media-temporal-request-lock',
   'system-probe',
   'public-venue-slug',
   'public-venue-id',
@@ -28,6 +54,8 @@ const approvedPolicies = new Set([
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
   'platform-expired-voice-session-recovery',
+  'platform-due-agent-question-discovery',
+  'tenant-agent-question-operation-lock',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -51,6 +79,7 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-multipart-lock',
   'tenant-intake-file-extraction-lock',
   'tenant-intake-file-extraction-review-lock',
+  'platform-intake-v1-file-extraction-discovery',
   'tenant-intake-interview-clarification-resolution-lock',
   'tenant-intake-proposal-request-lock',
   'tenant-intake-website-research-lock',
@@ -61,6 +90,7 @@ const approvedPolicies = new Set([
   'tenant-client-assistant-completion-lock',
   'tenant-client-assistant-handoff-lock',
   'tenant-customer-access-request-lock',
+  'tenant-billing-effect-lock',
   'tenant-first-week-review-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
@@ -74,7 +104,755 @@ const approvedPolicies = new Set([
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
+// An omitted count permits exactly one occurrence. Reviewed repeated templates must declare
+// their exact positive count; adding or removing a call remains an inventory review event.
 const approvedOperations = [
+  // Human-admin adjudication locks exact proposal, answered question and canonical target; no publication.
+  {
+    file: 'packages/api/src/lib/semantic-conflict-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '4500bf4b402bad7181d178d8cdb216eebcbae652653850b77a642edc1ca98f9e',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/semantic-conflict-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'b28a6fa0efa60e3c850b616585834d29ab8d7ae83bc27c4ba2f6b1ec7267e0de',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/semantic-conflict-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'd17de739c620d48fc43a5951fd1b5ef27c2551bd1040832b6cb6757cfe9c94b6',
+    policy: 'tenant-and-venue',
+  },
+  // Human-admin duplicate evidence locks exact proposal and matched target through immutable receipt.
+  {
+    file: 'packages/api/src/lib/semantic-duplicate-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '4500bf4b402bad7181d178d8cdb216eebcbae652653850b77a642edc1ca98f9e',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/semantic-duplicate-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '5d261c4084fe0e99488dd31e6dca66dced26e7e822321235008a91fcdffeafba',
+    policy: 'tenant-and-venue',
+  },
+  // Human-admin decline locks tenant/venue/proposal before revision-checked rejection and audit.
+  {
+    file: 'packages/api/src/lib/semantic-reviewed-decline-service.ts',
+    method: '$queryRaw',
+    hash: '4500bf4b402bad7181d178d8cdb216eebcbae652653850b77a642edc1ca98f9e',
+    policy: 'tenant-and-venue',
+  },
+  // Capability-gated reader locks credential tenant/venue/receipt before current worker admission.
+  {
+    file: 'packages/api/src/mcp/question-source-reader.ts',
+    method: '$executeRaw',
+    hash: '4a5dcd847e45a88332be5cd0bd9f34a98e2f7904d15494aad412f5b1042f622f',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  // Lock exact run/lease, scoped identity, worker, credential and session; grants and post-lock expiry remain checked.
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: 'f53865604b46e68acc0ee3c0a4e7b19c8933ee159022d01da3c87b1ed6509f82',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: 'aedebf90c6cd851fcbf6914ea7d02a86f34f81e44ad74adb3a29f7fd6f7520f0',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: '5f511e9efe727652c74d9652c9110666a6bec11977dd2e7a1ead6ef9c3becbb6',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: 'a17e17cc1738b51962a177f1cba108dc52d56669ca12c755e29062ff945cc83c',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: '0a9efb82eda3c4ea6ff23fabfb40dd996c760a9fa365c6dbfe65859af3ffe78f',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  // Post-lock database time rejects expired worker/run/credential/session authority.
+  {
+    file: 'packages/db/src/helpers/agent-current-worker-claim.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Source run claim locks exact tenant/venue/run and current Content identity authority through CAS.
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '8bac01d46c0c0b79c331b18ab4888ddf53259cb67fe375df420db7c75e734d1f',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: 'd49e59454415cc2faf74d70bf2b667e537f6627e3316c43f80890b879d704759',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  // Exactly one receipt lock in HUMAN creation and one in trusted SYSTEM admission; no arbitrary repetition.
+  {
+    file: 'packages/db/src/helpers/agent-task-actions.ts',
+    method: '$executeRaw',
+    hash: '4c77d7ce1d6d0c5ff6e67c3eca67b2eca60d7151bb114a4d1c994cd87776d5b3',
+    policy: 'tenant-intake-file-extraction-review-lock',
+    count: 2,
+  },
+  // Exactly one tenant/operation lock in each HUMAN and SYSTEM path; SYSTEM admission precedes replay.
+  {
+    file: 'packages/db/src/helpers/agent-task-actions.ts',
+    method: '$executeRaw',
+    hash: 'e8cfcc6a6d01c8fccf5d6fdd587f5d70c0ddac12c64970eb4c86f9073db54122',
+    policy: 'tenant-agent-task-operation-lock',
+    count: 2,
+  },
+  // Bounded platform discovery/backfill joins exact tenant/venue/run/receipt, inserts metadata only and deduplicates.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '0c0868cae679b924672ef332a56e5a16178e8596a7d20ba914f79ac334b3d1de',
+    policy: 'platform-intake-source-agent-recovery',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$executeRaw',
+    hash: '156bed656dc71c87a83a6a4a7afef0c9713ff0fe02f02391b62603b23fa7bf3c',
+    policy: 'platform-intake-source-agent-recovery',
+  },
+  // Lock exact tenant/venue/receipt before source state and dispatch decisions.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$executeRaw',
+    hash: '0861976d66413ceeaef51c6ff09efa1a37a65daabcdc40d64a8b2364ed166f6e',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  // Lock exact dispatch; advance only its retry timestamp when recovering its immutable completed task.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'cfce72dd0299249fc61cf6b63eb1135b37b866b3c00be6928860e7eb044a6df7',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$executeRaw',
+    hash: '24286a7c6d35c112414910e2af6a60c040a7a1785b6777c52463ac1510ef486c',
+    policy: 'tenant-and-venue',
+  },
+  // Database time bounds retry delays.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Serialize one scoped source task operation before trusted system admission.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$executeRaw',
+    hash: '2b0fd752e8e23e2a14dd0f6c4308c57356a2fe276217a7c38d7916a00dee6440',
+    policy: 'tenant-agent-task-operation-lock',
+  },
+  // Serialize exact routing policy with dispatch admission.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-dispatch-actions.ts',
+    method: '$executeRaw',
+    hash: '3ef120582fa0ffe10b2d7cfbff2bc986e98ea7f91d64ebb603f4378ddc7402d8',
+    policy: 'tenant-intake-source-routing-lock',
+  },
+  // Scoped configuration and admission locks keep routing revision coherent; no provider work.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-routing-actions.ts',
+    method: '$executeRaw',
+    hash: '14976f2a0c1d5e5fea2e17a0204154470516dfaa8c4d480b42ca99834e5deb0d',
+    policy: 'tenant-intake-source-routing-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-routing-actions.ts',
+    method: '$executeRaw',
+    hash: '6d7fbbf9e55216698bb8acf5911043d8a262af4d51ac133755b4575013b94fee',
+    policy: 'tenant-intake-source-routing-lock',
+  },
+  // Lock exact tenant identity; subsequent scoped Content query and capability checks decide eligibility.
+  {
+    file: 'packages/db/src/helpers/intake-source-agent-routing-actions.ts',
+    method: '$queryRaw',
+    hash: '5b1692321497e60173601a9a7be12f006b43058078f7003876f0516f1acba976',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  // Revalidate exact proposal and canonical target under SHARE locks before current fulfillment readback.
+  {
+    file: 'packages/db/src/helpers/support-no-change-fulfillment.ts',
+    method: '$queryRaw',
+    hash: '54666e4dfa8d57d5505b5e124fa8de18e42a9983425ddd55ece0f41e7d707e9e',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/support-no-change-fulfillment.ts',
+    method: '$queryRaw',
+    hash: '0a6e837ec57e9513cccd2c1dbe66c11e31796c63e46dc89125a57f366435310f',
+    policy: 'tenant-and-venue',
+  },
+  // Scoped immutable decline/replacement fulfillment locks the exact referenced proposal.
+  {
+    file: 'packages/db/src/helpers/support-proposal-resolution-fulfillment.ts',
+    method: '$queryRaw',
+    hash: 'c04ca8673535932ee16d637fb98e5d2e1a66e8bea001022f46602f7e9a6a5301',
+    policy: 'tenant-and-venue',
+  },
+  // Serialize founder review against art revision writes on the exact scoped candidate.
+  {
+    file: 'packages/db/src/helpers/character-candidate-reviews.ts',
+    method: '$queryRaw',
+    hash: 'e9ef58d166c85dab962bafbcbd5b692ef9a07173e1646635ae69420b8abf71db',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/conversation-learning-actions.ts',
+    method: '$executeRaw',
+    hash: '56c1814d0b991854fb97fb6d05a1b2d8f88f2106ee565bb76db483f696757012',
+    policy: 'system-probe',
+  },
+  // Source-backed outcome observations share-lock the exact terminal run before
+  // its exact tenant/venue question so the immutable answer revision is coherent.
+  {
+    file: 'packages/db/src/helpers/agent-outcome-actions.ts',
+    method: '$queryRaw',
+    hash: '747a09e0973eb2382f014a79eefb5ea9dac86600ae1d130fa24d478d3407c40d',
+    policy: 'tenant-agent-outcome-source-provenance-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-outcome-actions.ts',
+    method: '$queryRaw',
+    hash: 'e5904b160d247d3933516ced688b94c7769b81ba123b08bfb816d8a83addc6ae',
+    policy: 'tenant-agent-outcome-source-provenance-lock',
+  },
+  // Machine V1 finalization shares exact identity/worker/credential authority
+  // locks and checks all retained expiry values against post-lock database time.
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '466fa3cc0db23a3b88f3f7007be33e73a33cfd28720f6403dab3f6de34ad94e6',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '65a9e01ca737230678b0700b87b724af4de1e11e453cb65673cfc00afd10202b',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: 'aeae117e9963cc1334c40fbe940451075ecab07921494bc98997bb934737257f',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Exact immutable grant scope is locked before replay and a separate database
+  // clock sample prevents authority from surviving expiration during a lock wait.
+  {
+    file: 'packages/db/src/helpers/approval-grants.ts',
+    method: '$queryRaw',
+    hash: 'c2c7db1d51af0ed92337b4995852b12032a3c00e69c57f64f748c19a49424223',
+    policy: 'tenant-approval-grant-consumption-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/approval-grants.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Exact tenant-operation locks serialize immutable proposal/review replay;
+  // source mapping holds the exact tenant+venue source row through projection.
+  {
+    file: 'packages/db/src/helpers/intake-source-mapping-review-actions.ts',
+    method: '$executeRaw',
+    hash: 'bfb6f758d0b92268d708d29ba3a632ea700b8ec162b0a1e64ddc46012a75671b',
+    policy: 'tenant-intake-source-mapping-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-source-mapping-review-actions.ts',
+    method: '$queryRaw',
+    hash: 'ec529e098ed9b6a869685c1eb08a97b21687c399dc33e4743133bee371733bae',
+    policy: 'tenant-intake-source-mapping-source-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-draft-proposal-actions.ts',
+    method: '$executeRaw',
+    hash: '969f4b326032d80274d75d4b5145d342870e4b05b3ba60f95237b69611d8a521',
+    policy: 'tenant-intake-v1-package-proposal-operation-lock',
+  },
+  // Bounded internal discovery yields opaque IDs; claim locks the canonical source
+  // before exact dispatch mutation. Receipt transitions lock exact tenant/venue rows,
+  // use the post-lock database clock, and retain immutable member/run/hash scope.
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '7a2a36db16086e38e986b473a4681c9a8db52de1bb3342ec65e2ecf0b0df5aec',
+    policy: 'platform-intake-v1-processing-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '04b6d025360a303ba039f70c14852f62af38d595a824e7452e57d76c8989cfa2',
+    policy: 'platform-intake-v1-source-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'a1369122a40b9d061924bb7cd33f7dac2c1278fc890303a270b4e345ec332683',
+    policy: 'platform-intake-v1-source-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '9b1a314bedad8d1fb89be3a932b704ac562cf8495ea3b9141e9840586dc3e181',
+    policy: 'tenant-intake-v1-processing-exact-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '12ac824e00b1e48d4f904be1aa2a0f4441b5db7ca2a4fa00b2e09ac4b00ad485',
+    policy: 'tenant-intake-v1-processing-exact-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+
+  // V1 uses READ COMMITTED: operation replay precedes current material reads.
+  // Amendment locks exact owner/venue aggregate; bounded selected sources and
+  // their scoped receipt rows stay SHARE-locked through immutable snapshot writes.
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$executeRaw',
+    hash: '6d191475b0fd6dd5f56e5e85b837a67498ac245cabf14bdc8d0377a0649a37d6',
+    policy: 'tenant-intake-v1-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '474c35ad5c49c9666ffbc3df0691f3c32ef3eaceba38d3374bb6f9c36f8fc4ba',
+    policy: 'tenant-intake-v1-owner-revision-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '565578e189c0e5df7374d8da7f8c515b969329039e0e050df467e4a5418598e1',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '63b030e633418c27f17f3984e7ff0b30b0f87791c8044454875d33af6e48dc21',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: 'f295f89e8de246ce3f99cb2e3d1082dbbc72c8cdcf605168cc337d501d9da302',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
+  // Exact tenant/operation replay is serialized before parent authority checks.
+  // This grants no delegation authority; bound parents still require a live lease.
+  // Parent and ancestor row locks fence cancellation with exact tenant+venue+run IDs.
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$queryRaw',
+    hash: '96aa37a4aa208f76b23391db55eca095086b68f01a85e1a0253981a106deaa07',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$queryRaw',
+    hash: 'd91c35addea1f6a15ccaa99669dd517a296e60f0d3d1e6265b8b7e6d2c2bc254',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$executeRaw',
+    hash: 'f9b34b15bd77ea8df1b9751db50a427912d8a679cb2c869861dacf04636d2af4',
+    policy: 'tenant-agent-delegation-operation-lock',
+  },
+  // Serialize immutable approval-request retries by exact tenant and operation UUID.
+  // This lock grants no activation authority; canonical apply still checks approval.
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-approval-requests.ts',
+    method: '$executeRaw',
+    hash: 'eb5d16c6a962a5f7484f72522cfa390740984f4d869601f29746efbeffafcba8',
+    policy: 'tenant-workflow-approval-request-lock',
+  },
+  // Checkout reserves under an exact tenant-keyed transaction advisory lock;
+  // the transaction commits its pending agreement before external provider work.
+  {
+    file: 'packages/billing/src/service.ts',
+    method: '$executeRaw',
+    hash: '7b38aa25cd1def5b224727e4c592a17c80ad0ed7c2651152b5e6bcd9eff93264',
+    policy: 'tenant-billing-effect-lock',
+  },
+  // Reviewed workflow activation: sorted scoped heads precede exact leased runs;
+  // SHARE-locked authority is rechecked with PostgreSQL time after locks. Revoke
+  // touches only effective bindings of one scoped activation; clocks read no data.
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '82699e7ac0ed8ab5c7c185f5a172fa8e17fcf973330fc8e1c1e2b67d27009d47',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '4b92f5672746aa13786582e9916bd33a42f201517639607b9d136188c35573cc',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '7086af287fd812bcc8249640510fe18a0e63afce3c6a72848dd021c87ec815d4',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '47ed31eefb6ae4cffb2461299c36659acdcf08ec834364dadf20725ea02effad',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '96016eb58000a4a2f98fe91bf601e052fb9cf9770450e6c53c6c768f5626f80a',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '5090f953102fe80ae5c5102351db598a95fa21d6e3b2b3cc467a0c31e08d9739',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: 'e1cdea708ae6e588875c34ce0d590300a395cef38ea0fe5df20c3e249a6b18f6',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
+    method: '$queryRaw',
+    hash: '36f9a1731ba9589cae5e734475d2123bfc5cae5fae3d83eb8f29a5e49e781ec0',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
+    method: '$executeRaw',
+    hash: 'd857e9c52d5df15c314f29e530d26311f067b741d1ca034f192180d6b1a3b7ff',
+    policy: 'tenant-workflow-activation-revoke',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-promotion-assessment-actions.ts',
+    method: '$queryRaw',
+    hash: '516577282936e1ce33a4dda8ea9fdceba95974887691e3836a95678c3b7ab189',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: 'e060f48e58c4b3a646b235175e35f7a9f051a8c8baa8ea75fa6fea980e1ba100',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: '46269797090cef44dd9ad0a8889461022a9113836c5cea2cae7552e11eca7d02',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '78d80b823c8d1599f99fe0a43a736a734e7e02c25aa2bc0064b1cd6d3b9cb78e',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '2355e0b6fb70275ad24b7c1ad687c8cacf646fef89976f60b34bcc9caee0ddb4',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: 'e31cc90439ba273289b5f87bdbf68e03e0581fa601afb106b7381523c7c560c8',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '475d11139e965652f52e42fa44267a5d41c9c418614b2f9de2973f2003c02701',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '44296a1afaaf2c1ee40110d1edf9e267a591dd2b7f58f8532d4076e3dd869332',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+
+  // Expiry reads and locks use exact question/run + tenant + venue scope. The
+  // maintenance-only global discovery returns at most 400 due IDs; each candidate
+  // is rechecked under run-before-question locks before any canonical mutation.
+  ...[
+    '89c052291c34fdf450c70ddf9768a7257df2032e1415ab94b99078571e5cbf50',
+    'b19b9a954e9640377e6703143db1763e3aae6676e218d564f345460134eb5155',
+    'd0899a9a28fbf80bd8e8f0a3269480c95c3d57ba32c8c9e73cc962be7e65afa6',
+    '5c1cf2f7068b6c5fbbbfeb1de7953950036972077dc12e082cd59d1dfcd5aa39',
+    '304879535e5a827827ae47f48da3fe6c97dba2125ad97cae34eedb840ba82234',
+    'f238aa770dd1e06b16b78a88bc3de7a67389bff06731e5414b64be944364ece8',
+  ].map((hash) => ({
+    file: 'packages/db/src/helpers/agent-question-expiration-actions.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-and-venue',
+  })),
+  {
+    file: 'packages/db/src/helpers/agent-question-expiration-actions.ts',
+    method: '$queryRaw',
+    hash: '661cfc305660418646f172fb820658fc5fa03eba5005d8fb3b86eb8bf2650760',
+    policy: 'platform-due-agent-question-discovery',
+  },
+  // Initial client resumption and exact replay serialize the scoped run and read
+  // cancellation intent before determining whether remaining blockers permit work.
+  ...[
+    '6e9121087729ce13c540262ef95dbe26a73d4acf7513509304fd23f3b0f7e1ab',
+    '2f8d286d17e0e4c25ccee1dd5040d6ee13a39e04022171900bc970aea0692768',
+  ].map((hash) => ({
+    file: 'packages/db/src/helpers/onboarding-question-actions.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-and-venue',
+  })),
+  // Serialize question creation/resolution on the exact tenant+venue run so
+  // simultaneous final answers cannot strand an otherwise resumable run.
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$queryRaw',
+    hash: '1df6ea64e4eec249ead41436d458f0e4c30ac605ee3b18f0702f9b51add6a27a',
+    policy: 'tenant-and-venue',
+  },
+  // Exact tenant/operation replay is serialized before creating or resolving a
+  // question, so concurrent retries retain one immutable question outcome.
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$executeRaw',
+    hash: '1ca95f06f2d57599907e39d171d2b5eb0185396c0fbcfdfc72417c47de4168fb',
+    policy: 'tenant-agent-question-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$queryRaw',
+    hash: '9719ce3dac8ab21ca2d891e58ac74e3aa020bd9d5cad8d41fd23c66422291323',
+    policy: 'tenant-and-venue',
+  },
+  // Compact temporal review receipts serialize one tenant request, lock the exact current
+  // tenant+venue+project generation, and retain only source rows from that scoped project.
+  {
+    file: 'packages/api/src/lib/media-temporal-review-service.ts',
+    method: '$executeRaw',
+    hash: 'ffa3be9ceadb182b9c4dd6d21ae60b7fa586eb9a8951cb15427cabefc4861e15',
+    policy: 'tenant-media-temporal-request-lock',
+  },
+  ...[
+    '364897d03a112883c8ef9ac72214842fed1d7de44053dfc2cfe9b0fde2313ad6',
+    '4292d8fc0cc921fe8e03abd50990e32f3cccb13f0a5970c4b85b2db5b1622e42',
+  ].map((hash) => ({
+    file: 'packages/api/src/lib/media-temporal-review-service.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-venue-revision-source',
+  })),
+  // Reviewed relation application: exact request replay, scoped revision/source reads,
+  // and a transaction lock fence one tenant+venue canonical inactive draft.
+  ...[
+    ['b627491e5b8425d8eb591069bf62585da275a87cd54f603024cb1844ab0be929', '$executeRaw'],
+    ['0c6d1caaeb6d5dfbf70100c6e396f4e1e173b716cfcf847483d3c9d679d44105', '$queryRaw'],
+    ['218a6f246feaac82d923756927fb740d0c7af42fd765cee64d2f9b6f396de03e', '$queryRaw'],
+    ['40c98988471c833ed0b8ac3c23afc156176474c53e8cdc81201853255fd65d8f', '$queryRaw'],
+    ['45a70a947acc0b88bec8571a4acfb5b18b42842a88bad8de8413e9b73702b1d9', '$queryRaw'],
+    ['555774db49c3c795f2c23b3c062685357a6a97cb6d9dd637d91a9480afae2d06', '$queryRaw'],
+    ['8578a5f4879bfff11a6977fc6b40ee6cdbc502a60f867f73ed882dbac0fbc1cc', '$queryRaw'],
+    ['bd160997d939f10173fe6f64c40b4c1b6e25a60ba33481ad483f0ba47d85ae32', '$queryRaw'],
+    ['ea272b8468ec7204808150792da482777988e0206256d6ff3a5e20b028d2e8a7', '$queryRaw'],
+  ].map(([hash, method]) => ({
+    file: 'packages/api/src/lib/media-relation-application-service.ts',
+    method,
+    hash,
+    policy:
+      method === '$executeRaw'
+        ? 'tenant-venue-content-mutation-lock'
+        : 'tenant-venue-revision-source',
+  })),
+  {
+    file: 'packages/api/src/lib/media-temporal-review.ts',
+    method: '$queryRaw',
+    hash: '80f9460a454d56ce1304b770a18a86b5128ed59a3d13646d8e78c9ed145389f1',
+    policy: 'tenant-venue-revision-source',
+  },
+  ...[
+    '094b270122668dfd13b2f63a7fcb0bbc20aec66cd951bd9deef04dcd06b10038',
+    '4c5e89a67cc067eb5da334883f56c24a2240b2e59267479a6a458d8d939a1b12',
+    'aa1860d6671c060c3f4d7028e57b25a7bc7cf4e28fbac8202b525a366e0283f2',
+    'fb3e50a1d03f5a741c2b7b9f76aeb8be2d6ab3173042b671f9069d219057ec46',
+  ].map((hash) => ({
+    file: 'packages/api/src/lib/media-relation-route-loader.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-venue-revision-source',
+  })),
+  // Reviewed identity ledger: tenant-wide request replay checks exact input+actor hash;
+  // project/generation row locks and source hashes fence every new immutable revision.
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$executeRaw',
+    hash: 'f04dbe5b35ba6b83006c1a06beecf695cbab2ea49f02fc0a8158411725182fd6',
+    policy: 'tenant-media-identity-request-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'f9150aa473bef501a5120aec080cbcffe3c33f2640751d8d2eb8cb1eb4fbfe86',
+    policy: 'tenant-media-identity-exact-receipt',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '4873d82c5b58bbfc8d385b5d10355eef6b82795d50c1b349150544ebc07d4858',
+    policy: 'tenant-media-identity-exact-receipt',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '932a9adea7500915f17755d2b4b47783c3c714d7da886a72270670568e52db27',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'c641196769779465e9f36622a1ab2c7bb35f012b7eb66c2fd619beffb1d893f0',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '767bbb2da1c9ea66a6637812b1f0b29cc293b002e6bd1d00da7c997f88c2a024',
+    policy: 'tenant-media-project-source-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '336c5118208bd5dab565a796804e6aad38aabd7691c74d04345df58c165e6d6f',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/routers/admin/media-ingestion-resolution.ts',
+    method: '$queryRaw',
+    hash: 'cb1cea67ccfb589572408255efb6995c098ae8b9a08645328d04fcc640779519',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '19b46d35139a3cfaf644efbc6f9b2980f9910d3cc163b2dc69c7a14e71f20c73',
+    policy: 'tenant-venue-revision-source',
+  },
+
+  // Reviewed canonical media handoff and legacy adoption: exact scoped receipts,
+  // transaction locks, and bounded metadata reads excluding large media snapshots.
+  {
+    file: 'packages/api/src/lib/legacy-knowledge-adoption-service.ts',
+    method: '$executeRaw',
+    hash: '5ca1c7f89ae929c4cea16ff527a04b8d124ad0af2797ac3dd52c5bdd62f6eabb',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/legacy-knowledge-adoption-service.ts',
+    method: '$queryRaw',
+    hash: '4de97d6f2aa6c63290ea8d36d386adc8dac2decefcf78d6ba90f079a5030abf8',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$executeRaw',
+    hash: '5598666b25b310169d74eefba5f79ecbf981d0c88b29347cd4e0ac52aa9f005e',
+    policy: 'tenant-intake-proposal-request-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '7dd3562c8d5b1ad58e70358d8d9e9271dea90b042066687a5450487cb63c0007',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '8c79ad7491613a903db3f120c58da90d6dfdd4e68fa0572b4b8e3045b54e4530',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-actions.ts',
+    method: '$queryRaw',
+    hash: 'c534db8c52d4a5d5808d3389bda56b54886b55d5520b245dfe0a1444372609ae',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$queryRaw',
+    hash: '81a8946c8cdc85cbf0ffcc10d7513c09a994e58eb6b0a4a9f535c7d8be762f2d',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$queryRaw',
+    hash: 'c0e3460f24ed42fdc8dbae7b23923f8af30044153a8d711e8da0ef221671f197',
+    policy: 'tenant-and-venue',
+  },
+
+  {
+    file: 'packages/billing/src/service.ts',
+    method: '$executeRaw',
+    hash: 'bf3421dfb1b691819b8baed107ec5de13a07d17407153a1b3738a8b12e631d00',
+    policy: 'tenant-billing-effect-lock',
+  },
   {
     file: 'packages/db/src/helpers/prospect-inbound-reply-review-actions.ts',
     method: '$executeRaw',
@@ -110,6 +888,32 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '1b537add52a7e067453bc3d075c4bd9caf9a6a6702e146f6493231b40dc64a10',
     policy: 'tenant-intake-file-extraction-lock',
+  },
+  // File-extraction workers discover bounded opaque dispatch IDs, then lock the
+  // immutable upload and exact dispatch before validating the scoped lease.
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '498eafbaec739130949bf88d5a4479096f1d3db9f871665424d30de503ab1205',
+    policy: 'platform-intake-v1-file-extraction-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'e48c5a59da51066ef897ab6a3446b522ad69e951c915ec8fcce277cb138b0831',
+    policy: 'tenant-intake-file-extraction-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'c071b70fe93232e12c50af37d6def83122eb164f8f7952b2074ab5db950c1676',
+    policy: 'tenant-intake-file-extraction-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
   },
   {
     file: 'packages/db/src/helpers/intake-website-research-actions.ts',
@@ -303,10 +1107,12 @@ const approvedOperations = [
     hash: '46303d6622b41aff5fc44f7d2d9201ba9b6cfada52486596296c0ce5784a8056',
     policy: 'public-venue-id',
   },
+  // Public chat bootstrap is exact-venue scoped; slug and presentation/photo toggles do not grant
+  // tenant discovery or media approval authority.
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'faa1ef0aa5d4570ff4b33d05ac666ef03b8229afe03e94dec0e1980049012e36',
+    hash: '0ff40061b6629a12113dd50a970a6a4188af21409137ff429984df9c2ed2bd2d',
     policy: 'public-venue-id',
   },
   {
@@ -324,7 +1130,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: '08e5613e8e664eff6ce54816cb84b07d58e875a62eb9efc57ba62e35decb3a36',
+    hash: 'cffc7451aea5e65d6206c8818bd2fa09bfd43cee708ede3cb002892911a2032d',
     policy: 'public-venue-slug',
   },
   {
@@ -478,7 +1284,7 @@ const approvedOperations = [
     policy: 'tenant-support-operation-lock',
   },
   {
-    file: 'packages/db/src/helpers/support-actions.ts',
+    file: 'packages/db/src/helpers/support-request-lock.ts',
     method: '$executeRaw',
     hash: '9a55ebe92ba434f21b836c16d41ce54bd9c7c28b8f0b4f2bf6b7d10cc26963f9',
     policy: 'tenant-support-operation-lock',
@@ -644,7 +1450,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '432e3793aad3435f27b780e999a8548b1d34e3c42ea130ef26a2af7a4b0f3993',
+    hash: 'a6719fdd8a8d63e206a4a7740f1b318841ec3bae33b60812ac37b6204873f191',
     policy: 'tenant-and-venue',
   },
   {
@@ -692,7 +1498,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/location-public-scope.ts',
     method: '$queryRaw',
-    hash: '0b6d3752a65471da430efad03bc0c607efbca8e5717da33575f662f71472d0b3',
+    hash: '6861d67dbba1a0831a9f7d62730e387416e47a06caa1c1a7acee11f145f029ad',
     policy: 'public-venue-session-token',
   },
   {
@@ -704,7 +1510,8 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/voice.ts',
     method: '$queryRaw',
-    hash: '1d4774bf0591eae85be4d3405f95da8fc6f21a6cd51df44276160ca6eb2e97cf',
+    // Same public session-token/venue join; includes current server photo/link policy.
+    hash: '8db9374c8142930b79f5f20fd00d554105c96ebc45c546b7e0f450c95b30def6',
     policy: 'public-venue-session-token',
   },
   {
@@ -845,11 +1652,67 @@ function collectDbAliases(sourceFile) {
   return aliases
 }
 
+function hasDirectRuntimePrismaImport(sourceFile) {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      return false
+    if (statement.moduleSpecifier.text !== '@prisma/client') return false
+    const clause = statement.importClause
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      return false
+    return clause.namedBindings.elements.some(
+      (element) => !element.isTypeOnly && element.name.text === 'Prisma' && !element.propertyName,
+    )
+  })
+}
+
+function hasRuntimePrismaAliasImport(sourceFile) {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      return false
+    if (statement.moduleSpecifier.text !== '@prisma/client') return false
+    const clause = statement.importClause
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      return false
+    return clause.namedBindings.elements.some(
+      (element) =>
+        !element.isTypeOnly &&
+        element.propertyName?.text === 'Prisma' &&
+        element.name.text !== 'Prisma',
+    )
+  })
+}
+
+function isDirectRuntimePrismaAnyNull(node, hasPrismaImport) {
+  return (
+    hasPrismaImport &&
+    ts.isIdentifier(node) &&
+    node.text === 'Prisma' &&
+    ts.isPropertyAccessExpression(node.parent) &&
+    node.parent.expression === node &&
+    node.parent.name.text === 'AnyNull'
+  )
+}
+
 function analyzeSource(source, fileName) {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
   const operations = []
   const violations = []
   const dbAliases = collectDbAliases(sourceFile)
+  const hasPrismaImport = hasDirectRuntimePrismaImport(sourceFile)
+  if (hasRuntimePrismaAliasImport(sourceFile)) {
+    violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
+  }
 
   const isTypeOnlyReference = (node) => {
     let current = node
@@ -863,7 +1726,13 @@ function analyzeSource(source, fileName) {
   }
 
   const visit = (node) => {
-    if (ts.isIdentifier(node) && node.text === 'Prisma' && !isTypeOnlyReference(node)) {
+    if (
+      ts.isIdentifier(node) &&
+      node.text === 'Prisma' &&
+      !isTypeOnlyReference(node) &&
+      !ts.isImportSpecifier(node.parent) &&
+      !isDirectRuntimePrismaAnyNull(node, hasPrismaImport)
+    ) {
       violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
     }
 
@@ -914,7 +1783,15 @@ function analyzeSource(source, fileName) {
     if (
       ts.isElementAccessExpression(node) &&
       ts.isCallExpression(node.parent) &&
-      node.parent.expression === node
+      node.parent.expression === node &&
+      !(
+        fileName === 'packages/api/src/lib/character-artifact-storage.ts' &&
+        ts.isPropertyAccessExpression(node.argumentExpression) &&
+        ts.isIdentifier(node.argumentExpression.expression) &&
+        node.argumentExpression.expression.text === 'Symbol' &&
+        node.argumentExpression.name.text === 'asyncIterator' &&
+        !isDbReceiver(node.expression, dbAliases)
+      )
     ) {
       violations.push(`${fileName}: computed method calls are prohibited in production source`)
     }
@@ -946,6 +1823,7 @@ function analyzeSource(source, fileName) {
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
       rawMethods.has(node.text) &&
+      !isTypeOnlyReference(node) &&
       !(ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node)
     ) {
       violations.push(`${fileName}: computed raw SQL reference ${node.text} is prohibited`)
@@ -965,11 +1843,18 @@ function auditInventory(files, approved) {
   const violations = []
   const operations = []
   const approvedKeys = new Set()
+  const approvedCounts = new Map()
 
   for (const entry of approved) {
     const key = operationKey(entry)
     if (approvedKeys.has(key)) violations.push(`duplicate raw SQL allowlist entry: ${key}`)
     approvedKeys.add(key)
+    const count = entry.count === undefined ? 1 : entry.count
+    if (!Number.isSafeInteger(count) || count < 1) {
+      violations.push(`${entry.file}: invalid raw SQL occurrence count for ${entry.hash}`)
+    } else {
+      approvedCounts.set(key, count)
+    }
     if (!approvedPolicies.has(entry.policy)) {
       violations.push(`${entry.file}: invalid or missing raw SQL policy '${entry.policy}'`)
     }
@@ -982,13 +1867,14 @@ function auditInventory(files, approved) {
     violations.push(...result.violations)
   }
 
-  const observedKeys = new Set()
+  const observedCounts = new Map()
   for (const operation of operations) {
     const key = operationKey(operation)
-    if (observedKeys.has(key)) {
+    const count = (observedCounts.get(key) ?? 0) + 1
+    if (count > (approvedCounts.get(key) ?? 1)) {
       violations.push(`${operation.file}: duplicate raw SQL operation signature ${operation.hash}`)
     }
-    observedKeys.add(key)
+    observedCounts.set(key, count)
     if (!approvedKeys.has(key)) {
       violations.push(
         `${operation.file}: unapproved ${operation.method} signature ${operation.hash}`,
@@ -996,8 +1882,14 @@ function auditInventory(files, approved) {
     }
   }
   for (const entry of approved) {
-    if (!observedKeys.has(operationKey(entry))) {
+    const key = operationKey(entry)
+    const observed = observedCounts.get(key) ?? 0
+    if (observed === 0) {
       violations.push(`${entry.file}: stale ${entry.method} signature ${entry.hash}`)
+    } else if (approvedCounts.has(key) && observed !== approvedCounts.get(key)) {
+      violations.push(
+        `${entry.file}: expected ${approvedCounts.get(key)} occurrence(s), observed ${observed} for ${entry.hash}`,
+      )
     }
   }
 
@@ -1019,6 +1911,49 @@ function runSelfTests() {
     throw new Error('Raw SQL verifier failed its clean parser self-test')
   }
   const approved = [{ ...analyzed.operations[0], policy: 'tenant-and-venue' }]
+  const repeatedSource = `${source};\n${source.replace('const rows', 'const repeatedRows')}`
+  const repeatedApproval = [{ ...approved[0], count: 2 }]
+  if (auditInventory([{ fileName, source: repeatedSource }], repeatedApproval).violations.length) {
+    throw new Error('Raw SQL verifier failed its exact repeated count self-test')
+  }
+  expectFixtureFailure(
+    'undeclared repeated count',
+    [{ fileName, source: repeatedSource }],
+    approved,
+    'duplicate raw SQL operation signature',
+  )
+  expectFixtureFailure(
+    'missing repeated occurrence',
+    [{ fileName, source }],
+    repeatedApproval,
+    'expected 2 occurrence(s), observed 1',
+  )
+  expectFixtureFailure(
+    'excess repeated occurrence',
+    [{ fileName, source: `${repeatedSource};\n${source.replace('const rows', 'const extraRows')}` }],
+    repeatedApproval,
+    'expected 2 occurrence(s), observed 3',
+  )
+  for (const count of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '2', null]) {
+    expectFixtureFailure(
+      'invalid occurrence count',
+      [{ fileName, source }],
+      [{ ...approved[0], count }],
+      'invalid raw SQL occurrence count',
+    )
+  }
+  expectFixtureFailure(
+    'duplicate counted allowlist row',
+    [{ fileName, source: repeatedSource }],
+    [...repeatedApproval, ...repeatedApproval],
+    'duplicate raw SQL allowlist entry',
+  )
+  expectFixtureFailure(
+    'new signature beside counted operation',
+    [{ fileName, source: `${repeatedSource};\n${source.replace('tenantId', 'foreignTenantId')}` }],
+    repeatedApproval,
+    'unapproved $queryRaw signature',
+  )
   if (auditInventory([{ fileName, source }], approved).violations.length > 0) {
     throw new Error('Raw SQL verifier failed its clean inventory self-test')
   }
@@ -1135,6 +2070,74 @@ function runSelfTests() {
   if (typeOnlyPrisma.violations.length > 0) {
     throw new Error('Raw SQL verifier rejected a type-only Prisma namespace self-test')
   }
+  const directAnyNull = analyzeSource(
+    "import { Prisma } from '@prisma/client'; const value = Prisma.AnyNull",
+    fileName,
+  )
+  if (directAnyNull.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected direct runtime Prisma.AnyNull self-test')
+  }
+  expectFixtureFailure(
+    'aliased Prisma.AnyNull',
+    [
+      {
+        fileName,
+        source: "import { Prisma as P } from '@prisma/client'; const value = P.AnyNull",
+      },
+    ],
+    [],
+    'Prisma namespace access is prohibited',
+  )
+  expectFixtureFailure(
+    'Prisma raw helper after AnyNull allowance',
+    [
+      {
+        fileName,
+        source: "import { Prisma } from '@prisma/client'; const fragment = Prisma.raw('SELECT 1')",
+      },
+    ],
+    [],
+    'Prisma.raw raw SQL fragments are prohibited',
+  )
+  expectFixtureFailure(
+    'computed Prisma.AnyNull',
+    [
+      {
+        fileName,
+        source: "import { Prisma } from '@prisma/client'; const value = Prisma['AnyNull']",
+      },
+    ],
+    [],
+    'Prisma namespace access is prohibited',
+  )
+  const typeOnlyClient = analyzeSource("type Client = Pick<typeof db, '$queryRaw'>", fileName)
+  if (typeOnlyClient.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected a type-only client method selection')
+  }
+  const artifactIterator = analyzeSource(
+    'const iterator = body[Symbol.asyncIterator]()',
+    'packages/api/src/lib/character-artifact-storage.ts',
+  )
+  if (artifactIterator.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected reviewed artifact stream iteration')
+  }
+  expectFixtureFailure(
+    'runtime method string remains prohibited',
+    [{ fileName, source: "const method = '$queryRaw'; client[method](query)" }],
+    [],
+    'computed raw SQL reference',
+  )
+  expectFixtureFailure(
+    'symbol does not bypass database receiver checks',
+    [
+      {
+        fileName: 'packages/api/src/lib/character-artifact-storage.ts',
+        source: 'db[Symbol.asyncIterator]()',
+      },
+    ],
+    [],
+    'computed method calls are prohibited',
+  )
   expectFixtureFailure(
     'dynamic Prisma access',
     [{ fileName, source: "const p = await import('@prisma/client')" }],

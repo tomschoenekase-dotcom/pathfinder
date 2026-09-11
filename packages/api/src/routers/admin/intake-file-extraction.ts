@@ -11,9 +11,55 @@ import {
   executeIntakeFileExtraction,
   IntakeFileExtractionError,
 } from '../../lib/intake-file-extraction-service'
+import {
+  IntakeFileExtractionReaderError,
+  readIntakeFileExtractionSource,
+} from '../../lib/intake-file-extraction-reader'
 import { adminProcedure } from '../../trpc'
 
 export const adminIntakeFileExtractionRouter = router({
+  readIntakeFileExtractionSource: adminProcedure
+    .input(
+      z
+        .object({
+          tenantId: z.string().trim().min(1).max(191),
+          venueId: z.string().trim().min(1).max(191),
+          runId: z.string().trim().min(1).max(191),
+          receiptId: z.string().uuid(),
+          expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+          cursor: z.string().min(1).max(1_024).optional(),
+          pageSize: z.number().int().min(1).max(4_000).optional(),
+          search: z.string().trim().min(1).max(200).optional(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await readIntakeFileExtractionSource(input, ctx.db)
+      } catch (error) {
+        if (error instanceof IntakeFileExtractionReaderError) {
+          logger.warn({
+            action: 'intake.file-extraction-source-reader.rejected',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: input.runId,
+            receiptId: input.receiptId,
+            errorCode: error.code,
+            error: error.message,
+          })
+          throw publicTRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'CONFLICT'
+                  ? 'CONFLICT'
+                  : 'BAD_REQUEST',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
   executeIntakeFileExtraction: adminProcedure
     .input(
       z

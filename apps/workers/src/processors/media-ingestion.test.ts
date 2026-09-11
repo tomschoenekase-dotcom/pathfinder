@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
+import { UnrecoverableError } from 'bullmq'
 
 const mocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
@@ -69,6 +70,7 @@ import {
   cleanupMediaWorkDir,
   downloadAndExtract,
   assertMediaSourceFilename,
+  audioTranscriptAnalysis,
   failedMediaAssetAnalysis,
   MEDIA_ASSET_ANALYSIS_FAILURE_CODE,
   mediaSynthesisToVenuePackage,
@@ -78,11 +80,17 @@ import {
   parseMediaSynthesisResponse,
   persistMediaIngestionAsset,
   processMediaIngestionJob,
+  MediaProviderOperationRecoveryError,
   shouldPropagateFullVideoFailure,
+  sourceObservationsForAnalysis,
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
-import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
-import { AiRequestBudgetCeilingExceededError } from '@pathfinder/ai'
+import { MediaSourceObservationSchema, VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import {
+  AiRequestBudgetCeilingExceededError,
+  GeminiVideoAccountingPendingError,
+  GeminiVideoDeletionUnconfirmedError,
+} from '@pathfinder/ai'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -102,11 +110,35 @@ const project = {
 }
 
 describe('media ingestion provider output validation', () => {
+  it('labels a truncated audio observation as a bounded transcript prefix', () => {
+    const analysis = audioTranscriptAnalysis('a'.repeat(10_001))
+    expect(analysis.sourceObservations?.[0]?.statement).toHaveLength(10_000)
+    expect(analysis.uncertainties).toEqual([
+      'The retained speech observation is a bounded transcript prefix, not exhaustive audio coverage.',
+    ])
+    expect(analysis.sourceObservations?.[0]).toMatchObject({
+      evidenceChannel: 'speech',
+      confidence: 'unverified',
+      locator: { type: 'whole_source' },
+    })
+  })
   it('never falls back around the invocation budget ceiling', () => {
+    expect(shouldPropagateFullVideoFailure(new UnrecoverableError('operation limit'))).toBe(true)
     expect(shouldPropagateFullVideoFailure(new AiRequestBudgetCeilingExceededError(10n, 11n))).toBe(
       true,
     )
     expect(shouldPropagateFullVideoFailure(new Error('ordinary provider failure'))).toBe(false)
+    expect(shouldPropagateFullVideoFailure(new GeminiVideoAccountingPendingError())).toBe(true)
+    expect(
+      shouldPropagateFullVideoFailure(
+        new GeminiVideoDeletionUnconfirmedError('files/exact-fixture'),
+      ),
+    ).toBe(true)
+    expect(
+      shouldPropagateFullVideoFailure(
+        new MediaProviderOperationRecoveryError([new Error('cleanup pending')]),
+      ),
+    ).toBe(true)
   })
 
   it('uses code-owned asset failure findings without exception detail', () => {
@@ -148,6 +180,231 @@ describe('media ingestion provider output validation', () => {
       spatialClues: ['Sign is above the entrance'],
       uncertainties: [],
     })
+  })
+
+  it('retains structured video observations with source channel, time, inference, and region', () => {
+    expect(
+      parseMediaAnalysisResponse(
+        JSON.stringify({
+          summary: 'A guide names the north entrance.',
+          visibleText: ['NORTH HALL'],
+          objects: [{ name: 'entrance sign', confidence: 'confirmed' }],
+          spatialClues: ['The sign appears above a doorway.'],
+          uncertainties: ['The route beyond the doorway is not covered.'],
+          observations: [
+            {
+              kind: 'visible_text',
+              statement: 'NORTH HALL is visible.',
+              evidenceChannel: 'visible_text',
+              directness: 'observed',
+              confidence: 'confirmed',
+              startSeconds: 12.4,
+              endSeconds: 14.1,
+              region: { x: 0.2, y: 0.1, width: 0.4, height: 0.2 },
+            },
+            {
+              kind: 'narrated_fact',
+              statement: 'The speaker calls this the north entrance.',
+              evidenceChannel: 'speech',
+              directness: 'observed',
+              confidence: 'probable',
+              startSeconds: 13,
+              endSeconds: 15,
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      observations: [
+        { kind: 'visible_text', evidenceChannel: 'visible_text', directness: 'observed' },
+        { kind: 'narrated_fact', evidenceChannel: 'speech', directness: 'observed' },
+      ],
+    })
+  })
+
+  it('normalizes legacy timed video output into the shared source observation contract', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'A sign is visible.',
+        visibleText: ['NORTH HALL'],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        observations: [
+          {
+            kind: 'visible_text',
+            statement: 'NORTH HALL',
+            evidenceChannel: 'visible_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            startSeconds: 2,
+            endSeconds: 3,
+          },
+        ],
+      }),
+    )
+    analysis.videoAnalysisMethod = 'GOOGLE_STATIC_VIDEO_1FPS'
+
+    expect(sourceObservationsForAnalysis('VIDEO', analysis)).toEqual([
+      {
+        kind: 'visible_text',
+        statement: 'NORTH HALL',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        processingMethod: 'provider_video_static_1fps',
+        locator: { type: 'video_interval', startSeconds: 2, endSeconds: 3 },
+      },
+    ])
+  })
+
+  it('does not invent a processing method for legacy timed observations without a known route', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Legacy video finding.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        observations: [
+          {
+            kind: 'entity_candidate',
+            statement: 'A doorway is visible.',
+            evidenceChannel: 'visual',
+            directness: 'observed',
+            confidence: 'probable',
+            startSeconds: 1,
+            endSeconds: 2,
+          },
+        ],
+      }),
+    )
+    expect(sourceObservationsForAnalysis('VIDEO', analysis)).toBeUndefined()
+  })
+
+  it('parses source-native image evidence without requiring fabricated coordinates', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'A sign is visible.',
+        visibleText: ['NORTH HALL'],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'visible_text',
+            statement: 'NORTH HALL',
+            evidenceChannel: 'visible_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            processingMethod: 'provider_image_analysis',
+            locator: { type: 'whole_source' },
+          },
+        ],
+      }),
+    )
+
+    expect(sourceObservationsForAnalysis('IMAGE', analysis)).toEqual(analysis.sourceObservations)
+    expect(
+      MediaSourceObservationSchema.array().parse(sourceObservationsForAnalysis('IMAGE', analysis)),
+    ).toEqual(analysis.sourceObservations)
+  })
+
+  it('rejects a provider observation whose method or locator contradicts its source type', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Invalid image precision.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'visible_text',
+            statement: 'Page heading',
+            evidenceChannel: 'document_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            processingMethod: 'text_extraction',
+            locator: { type: 'document_page', page: 1 },
+          },
+        ],
+      }),
+    )
+    expect(() => sourceObservationsForAnalysis('IMAGE', analysis)).toThrow(
+      'Media source observation does not match its source type.',
+    )
+  })
+
+  it('rejects a speech channel declared for an image observation', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Invalid image channel.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'narrated_fact',
+            statement: 'A speaker says the entrance is north.',
+            evidenceChannel: 'speech',
+            directness: 'observed',
+            confidence: 'unverified',
+            processingMethod: 'provider_image_analysis',
+            locator: { type: 'whole_source' },
+          },
+        ],
+      }),
+    )
+    expect(() => sourceObservationsForAnalysis('IMAGE', analysis)).toThrow(
+      'Media source observation does not match its source type.',
+    )
+  })
+
+  it('rejects video observations with reversed time intervals or out-of-bounds regions', () => {
+    const base = {
+      summary: 'Invalid observation',
+      visibleText: [],
+      objects: [],
+      spatialClues: [],
+      uncertainties: [],
+    }
+    for (const observation of [
+      {
+        kind: 'entity_candidate',
+        statement: 'Object',
+        evidenceChannel: 'visual',
+        directness: 'observed',
+        confidence: 'probable',
+        startSeconds: 9,
+        endSeconds: 2,
+      },
+      {
+        kind: 'visible_text',
+        statement: 'Sign',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        startSeconds: 1,
+        endSeconds: 2,
+        region: { x: 1.1, y: 0, width: 0.2, height: 0.2 },
+      },
+      {
+        kind: 'visible_text',
+        statement: 'Sign',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        startSeconds: 1,
+        endSeconds: 2,
+        region: { x: 0.9, y: 0.9, width: 0.2, height: 0.2 },
+      },
+    ]) {
+      expect(() =>
+        parseMediaAnalysisResponse(JSON.stringify({ ...base, observations: [observation] })),
+      ).toThrow(/^Media analysis provider output/u)
+    }
   })
 
   it.each([

@@ -175,8 +175,14 @@ export const adminClientAnalyticsRouter = router({
               requestCount: true,
               successfulRequestCount: true,
               failedRequestCount: true,
+              observedUsageRequestCount: true,
+              unknownUsageRequestCount: true,
+              notDispatchedRequestCount: true,
+              legacyUnclassifiedRequestCount: true,
               totalTokens: true,
               estimatedCostUsd: true,
+              observedTotalTokens: true,
+              observedEstimatedCostUsd: true,
               venue: { select: { name: true } },
             },
           }),
@@ -185,10 +191,15 @@ export const adminClientAnalyticsRouter = router({
         if (!tenant) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
 
         let totalCostUnits = 0n
+        let observedCostUnits = 0n
         let requestCount = 0
         let successfulRequestCount = 0
         let failedRequestCount = 0
         let totalTokens = 0
+        let observedUsageRequestCount = 0
+        let unknownUsageRequestCount = 0
+        let notDispatchedRequestCount = 0
+        let legacyUnclassifiedRequestCount = 0
         const byVenue = new Map<
           string,
           {
@@ -197,9 +208,24 @@ export const adminClientAnalyticsRouter = router({
             requestCount: number
             totalTokens: number
             costUnits: bigint
+            observedCostUnits: bigint
+            observedRequestCount: number
+            unknownRequestCount: number
+            notDispatchedRequestCount: number
+            legacyUnclassifiedRequestCount: number
             features: Map<
               string,
-              { feature: string; requestCount: number; totalTokens: number; costUnits: bigint }
+              {
+                feature: string
+                requestCount: number
+                totalTokens: number
+                costUnits: bigint
+                observedCostUnits: bigint
+                observedRequestCount: number
+                unknownRequestCount: number
+                notDispatchedRequestCount: number
+                legacyUnclassifiedRequestCount: number
+              }
             >
           }
         >()
@@ -207,10 +233,15 @@ export const adminClientAnalyticsRouter = router({
           const costUnits = aiCostDecimalToUnits(row.estimatedCostUsd)
           const estimatedCostUsd = aiCostUnitsToDecimal(costUnits)
           totalCostUnits += costUnits
+          observedCostUnits += aiCostDecimalToUnits(row.observedEstimatedCostUsd)
           requestCount += row.requestCount
           successfulRequestCount += row.successfulRequestCount
           failedRequestCount += row.failedRequestCount
           totalTokens += row.totalTokens
+          observedUsageRequestCount += row.observedUsageRequestCount
+          unknownUsageRequestCount += row.unknownUsageRequestCount
+          notDispatchedRequestCount += row.notDispatchedRequestCount
+          legacyUnclassifiedRequestCount += row.legacyUnclassifiedRequestCount
 
           const venueKey = row.venueId === null ? 'tenant-wide' : `venue:${row.venueId}`
           const venue = byVenue.get(venueKey) ?? {
@@ -219,34 +250,97 @@ export const adminClientAnalyticsRouter = router({
             requestCount: 0,
             totalTokens: 0,
             costUnits: 0n,
+            observedCostUnits: 0n,
+            observedRequestCount: 0,
+            unknownRequestCount: 0,
+            notDispatchedRequestCount: 0,
+            legacyUnclassifiedRequestCount: 0,
             features: new Map(),
           }
           venue.requestCount += row.requestCount
           venue.totalTokens += row.totalTokens
           venue.costUnits += costUnits
+          venue.observedCostUnits += aiCostDecimalToUnits(row.observedEstimatedCostUsd)
+          venue.observedRequestCount += row.observedUsageRequestCount
+          venue.unknownRequestCount += row.unknownUsageRequestCount
+          venue.notDispatchedRequestCount += row.notDispatchedRequestCount
+          venue.legacyUnclassifiedRequestCount += row.legacyUnclassifiedRequestCount
           const feature = venue.features.get(row.feature) ?? {
             feature: row.feature,
             requestCount: 0,
             totalTokens: 0,
             costUnits: 0n,
+            observedCostUnits: 0n,
+            observedRequestCount: 0,
+            unknownRequestCount: 0,
+            notDispatchedRequestCount: 0,
+            legacyUnclassifiedRequestCount: 0,
           }
           feature.requestCount += row.requestCount
           feature.totalTokens += row.totalTokens
           feature.costUnits += costUnits
+          feature.observedCostUnits += aiCostDecimalToUnits(row.observedEstimatedCostUsd)
+          feature.observedRequestCount += row.observedUsageRequestCount
+          feature.unknownRequestCount += row.unknownUsageRequestCount
+          feature.notDispatchedRequestCount += row.notDispatchedRequestCount
+          feature.legacyUnclassifiedRequestCount += row.legacyUnclassifiedRequestCount
           venue.features.set(row.feature, feature)
           byVenue.set(venueKey, venue)
 
-          return { ...row, estimatedCostUsd }
+          const classified =
+            row.observedUsageRequestCount +
+            row.unknownUsageRequestCount +
+            row.notDispatchedRequestCount +
+            row.legacyUnclassifiedRequestCount
+          return {
+            ...row,
+            estimatedCostUsd,
+            observedEstimatedCostUsd: aiCostUnitsToDecimal(
+              aiCostDecimalToUnits(row.observedEstimatedCostUsd),
+            ),
+            usageCoverageStatus:
+              row.unknownUsageRequestCount === 0 &&
+              row.legacyUnclassifiedRequestCount === 0 &&
+              classified === row.requestCount
+                ? ('COMPLETE_RECORDED_USAGE' as const)
+                : ('PARTIAL_RECORDED_USAGE' as const),
+          }
         })
 
-        const breakdown = [...byVenue.values()].map(({ costUnits, features, ...venue }) => ({
-          ...venue,
-          estimatedCostUsd: aiCostUnitsToDecimal(costUnits),
-          features: [...features.values()].map(({ costUnits: featureCostUnits, ...feature }) => ({
-            ...feature,
-            estimatedCostUsd: aiCostUnitsToDecimal(featureCostUnits),
-          })),
-        }))
+        const coverageStatus = (requests: number, unknown: number, legacy: number) =>
+          requests === 0
+            ? ('NO_RECORDED_USAGE' as const)
+            : unknown === 0 && legacy === 0
+              ? ('COMPLETE_RECORDED_USAGE' as const)
+              : ('PARTIAL_RECORDED_USAGE' as const)
+        const breakdown = [...byVenue.values()].map(
+          ({ costUnits, observedCostUnits, features, ...venue }) => ({
+            ...venue,
+            estimatedCostUsd: aiCostUnitsToDecimal(costUnits),
+            observedEstimatedCostUsd: aiCostUnitsToDecimal(observedCostUnits),
+            usageCoverageStatus: coverageStatus(
+              venue.requestCount,
+              venue.unknownRequestCount,
+              venue.legacyUnclassifiedRequestCount,
+            ),
+            features: [...features.values()].map(
+              ({
+                costUnits: featureCostUnits,
+                observedCostUnits: featureObservedCostUnits,
+                ...feature
+              }) => ({
+                ...feature,
+                estimatedCostUsd: aiCostUnitsToDecimal(featureCostUnits),
+                observedEstimatedCostUsd: aiCostUnitsToDecimal(featureObservedCostUnits),
+                usageCoverageStatus: coverageStatus(
+                  feature.requestCount,
+                  feature.unknownRequestCount,
+                  feature.legacyUnclassifiedRequestCount,
+                ),
+              }),
+            ),
+          }),
+        )
 
         return {
           tenant,
@@ -258,7 +352,22 @@ export const adminClientAnalyticsRouter = router({
             successfulRequestCount,
             failedRequestCount,
             totalTokens,
+            usageCoverage: {
+              observedRequestCount: observedUsageRequestCount,
+              unknownRequestCount: unknownUsageRequestCount,
+              notDispatchedRequestCount,
+              legacyUnclassifiedRequestCount,
+              status:
+                requestCount === 0
+                  ? ('NO_RECORDED_USAGE' as const)
+                  : unknownUsageRequestCount === 0 &&
+                      legacyUnclassifiedRequestCount === 0 &&
+                      observedUsageRequestCount + notDispatchedRequestCount === requestCount
+                    ? ('COMPLETE_RECORDED_USAGE' as const)
+                    : ('PARTIAL_RECORDED_USAGE' as const),
+            },
             estimatedCostUsd: aiCostUnitsToDecimal(totalCostUnits),
+            observedEstimatedCostUsd: aiCostUnitsToDecimal(observedCostUnits),
           },
           breakdown,
           costs,

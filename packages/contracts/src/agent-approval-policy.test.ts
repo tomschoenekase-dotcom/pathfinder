@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  IntakeV1PackageDraftApplyParameters,
+  IntakeV1PackageDraftProposalApprovalSnapshot,
   defaultIntakeNotesProposalPolicyConstraints,
   IntakeNotesProposalPolicyConstraints,
   IntakeNotesProposalPolicyParameters,
@@ -18,7 +20,12 @@ import {
   SupportInformationRequestApplyParameters,
   SupportInformationRequestProposalApprovalSnapshot,
   SupportCompletionApplyParameters,
+  SupportCompletionContentFulfillment,
+  SupportCompletionContentFulfillmentV2,
+  SupportCompletionTemporalFulfillment,
   SupportCompletionProposalApprovalSnapshot,
+  SupportCompletionPackageFulfillment,
+  SupportCompletionProposalResolutionFulfillment,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
   SupportPackageApplicationApplyParameters,
@@ -31,7 +38,7 @@ import {
 } from './agent-approval-policy'
 
 describe('support completion fulfillment contract', () => {
-  const packageFulfillment = {
+  const legacyPackageFulfillment = {
     contractVersion: 1 as const,
     linkedPackageCount: 1,
     packages: [
@@ -49,8 +56,33 @@ describe('support completion fulfillment contract', () => {
     ],
     digest: 'b'.repeat(64),
   }
+  const packageFulfillment = {
+    ...legacyPackageFulfillment,
+    contractVersion: 2 as const,
+    guestObservability: {
+      contractVersion: 1 as const,
+      configuredPath: 'LEGACY' as const,
+      reason: 'SERVER_DISABLED' as const,
+      releaseId: null,
+      nativeStateHash: null,
+      effects: [
+        {
+          packageId: 'package_1',
+          applyVersionId: '22222222-2222-4222-8222-222222222222',
+          entityType: 'KNOWLEDGE_ENTRY' as const,
+          entityId: 'knowledge_1',
+          operation: 'UPDATE' as const,
+          readPath: 'LEGACY' as const,
+          expectedGuestStateHash: 'c'.repeat(64),
+          observedGuestStateHash: 'c'.repeat(64),
+        },
+      ],
+      verifiedAt: '2030-01-02T00:00:02.000Z',
+      digest: 'd'.repeat(64),
+    },
+  }
 
-  it('requires exact fully applied package evidence in the grant and proposal snapshot', () => {
+  it('requires observable package evidence in new grants while retaining legacy history parsing', () => {
     const parameters = {
       clientId: 'tenant_1',
       venueId: 'venue_1',
@@ -60,6 +92,7 @@ describe('support completion fulfillment contract', () => {
       toStatus: 'COMPLETED' as const,
       body: 'Your requested update is complete.',
       packageFulfillment,
+      completionOutcome: 'UPDATED' as const,
     }
     expect(SupportCompletionApplyParameters.parse(parameters)).toEqual(parameters)
     const snapshot = {
@@ -73,6 +106,7 @@ describe('support completion fulfillment contract', () => {
       body: parameters.body,
       missingInformationCount: 0 as const,
       packageFulfillment,
+      completionOutcome: 'UPDATED' as const,
       allLinkedPackagesApplied: true as const,
       supportRequestChanged: false as const,
       clientActivityChanged: false as const,
@@ -82,10 +116,247 @@ describe('support completion fulfillment contract', () => {
       executionAuthorized: false as const,
     }
     expect(SupportCompletionProposalApprovalSnapshot.parse(snapshot)).toEqual(snapshot)
+    const { completionOutcome: _completionOutcome, ...historicalParameters } = parameters
+    expect(_completionOutcome).toBe('UPDATED')
+    expect(SupportCompletionApplyParameters.parse(historicalParameters)).toEqual(
+      historicalParameters,
+    )
+    expect(
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: legacyPackageFulfillment,
+      }).packageFulfillment.contractVersion,
+    ).toBe(1)
     expect(() =>
       SupportCompletionApplyParameters.parse({
         ...parameters,
         packageFulfillment: { ...packageFulfillment, linkedPackageCount: 0 },
+      }),
+    ).toThrow()
+    expect(() =>
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: {
+          ...packageFulfillment,
+          guestObservability: {
+            ...packageFulfillment.guestObservability,
+            effects: [
+              {
+                ...packageFulfillment.guestObservability.effects[0],
+                observedGuestStateHash: 'e'.repeat(64),
+              },
+            ],
+          },
+        },
+      }),
+    ).toThrow('Observed guest state does not match')
+    expect(() =>
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: {
+          ...packageFulfillment,
+          guestObservability: {
+            ...packageFulfillment.guestObservability,
+            configuredPath: 'NOT_APPLICABLE',
+            reason: 'NO_LINKED_PACKAGES',
+            effects: [],
+          },
+        },
+      }),
+    ).toThrow('Package-free observability')
+    expect(() =>
+      SupportCompletionApplyParameters.parse({ ...parameters, completionOutcome: 'FORGED' }),
+    ).toThrow()
+  })
+})
+
+describe('support completion proposal resolution fulfillment', () => {
+  const decline = {
+    resolutionId: '11111111-1111-4111-8111-111111111111',
+    proposalId: '22222222-2222-4222-8222-222222222222',
+    sourceProposalId: '33333333-3333-4333-8333-333333333333',
+    sourceRequestVersion: 2,
+    replacementOfProposalId: null,
+    proposalUpdatedAt: '2030-01-02T00:00:00.000Z',
+    reviewedProposalUpdatedAt: '2030-01-02T00:00:01.000Z',
+    reviewedAt: '2030-01-02T00:00:02.000Z',
+    reviewNoteHash: 'a'.repeat(64),
+    reviewNote: 'The requested change is not approved.',
+    proposalSummary: 'Add free parking.',
+    sourceEvidenceHash: 'b'.repeat(64),
+    createdBy: 'admin-1',
+    decisionCreatedAt: '2030-01-02T00:00:03.000Z',
+  }
+  const replacement = {
+    resolutionId: '44444444-4444-4444-8444-444444444444',
+    proposalId: '55555555-5555-4555-8555-555555555555',
+    sourceRequestVersion: 2,
+    replacementProposalId: '66666666-6666-4666-8666-666666666666',
+    proposalUpdatedAt: '2030-01-02T00:00:00.000Z',
+    decisionProposalUpdatedAt: '2030-01-02T00:00:01.000Z',
+    questionId: 'question-1',
+    questionUpdatedAt: '2030-01-02T00:00:02.000Z',
+    answeredAt: '2030-01-02T00:00:03.000Z',
+    answerHash: 'c'.repeat(64),
+    createdBy: 'admin-1',
+    decisionCreatedAt: '2030-01-02T00:00:04.000Z',
+    replacementFulfillmentKind: 'CONTENT' as const,
+  }
+  const value = {
+    contractVersion: 1 as const,
+    declines: [decline],
+    replacements: [replacement],
+    verifiedAt: '2030-01-02T00:00:05.000Z',
+    digest: 'd'.repeat(64),
+  }
+
+  it('accepts bounded strict resolution evidence and rejects forged fields and identities', () => {
+    expect(SupportCompletionProposalResolutionFulfillment.parse(value)).toEqual(value)
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({ ...value, forged: true }),
+    ).toThrow()
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        declines: [{ ...decline, reviewNoteHash: 'A'.repeat(64) }],
+      }),
+    ).toThrow()
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [{ ...replacement, resolutionId: decline.resolutionId }],
+      }),
+    ).toThrow('duplicate resolution identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [{ ...replacement, proposalId: decline.proposalId }],
+      }),
+    ).toThrow('duplicate proposal identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        replacements: [
+          replacement,
+          {
+            ...replacement,
+            resolutionId: '77777777-7777-4777-8777-777777777777',
+            proposalId: decline.sourceProposalId,
+          },
+        ],
+      }),
+    ).toThrow('duplicate replacement identities')
+    expect(() =>
+      SupportCompletionProposalResolutionFulfillment.parse({
+        ...value,
+        declines: Array.from({ length: 51 }, (_, index) => ({
+          ...decline,
+          resolutionId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          proposalId: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        })),
+        replacements: Array.from({ length: 50 }, (_, index) => ({
+          ...replacement,
+          resolutionId: `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          proposalId: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          replacementProposalId: `40000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        })),
+      }),
+    ).toThrow('limited to 100')
+  })
+
+  it('adds V7 without changing the accepted V6 shape', () => {
+    const base = {
+      linkedPackageCount: 0,
+      packages: [],
+      digest: 'a'.repeat(64),
+      guestObservability: {
+        contractVersion: 1,
+        configuredPath: 'NOT_APPLICABLE',
+        reason: 'NO_LINKED_PACKAGES',
+        releaseId: null,
+        nativeStateHash: null,
+        effects: [],
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'b'.repeat(64),
+      },
+      contentFulfillment: {
+        contractVersion: 2,
+        receipts: [],
+        guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'c'.repeat(64),
+      },
+      temporalFulfillment: {
+        contractVersion: 1,
+        receipts: [],
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'd'.repeat(64),
+      },
+      noChangeFulfillment: {
+        contractVersion: 1,
+        receipts: [],
+        guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+        verifiedAt: '2030-01-02T00:00:00.000Z',
+        digest: 'e'.repeat(64),
+      },
+    }
+    const v6 = { contractVersion: 6, ...base }
+    expect(SupportCompletionPackageFulfillment.parse(v6)).toEqual(v6)
+    const v7 = { contractVersion: 7, ...base, proposalResolutionFulfillment: value }
+    expect(SupportCompletionPackageFulfillment.parse(v7)).toEqual(v7)
+    expect(() =>
+      SupportCompletionPackageFulfillment.parse({
+        ...v6,
+        proposalResolutionFulfillment: value,
+      }),
+    ).toThrow()
+  })
+})
+
+describe('V1 package draft approval contract', () => {
+  const parameters = {
+    clientId: 'tenant_1',
+    venueId: 'venue_1',
+    submissionId: 'submission_1',
+    revision: 2,
+    manifestHash: 'a'.repeat(64),
+    candidateHash: 'b'.repeat(64),
+    payloadHash: 'c'.repeat(64),
+    selectionHash: 'd'.repeat(64),
+    selectedMemberIds: ['member_1'],
+    partialAcknowledged: true,
+    draftOperationId: '11111111-1111-4111-8111-111111111111',
+  }
+  it('binds one exact server-derived selection without lifecycle authority', () => {
+    expect(IntakeV1PackageDraftApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(
+      IntakeV1PackageDraftProposalApprovalSnapshot.parse({
+        contractVersion: 1,
+        tenantId: parameters.clientId,
+        venueId: parameters.venueId,
+        submissionId: parameters.submissionId,
+        revision: parameters.revision,
+        manifestHash: parameters.manifestHash,
+        candidateHash: parameters.candidateHash,
+        payloadHash: parameters.payloadHash,
+        selectionHash: parameters.selectionHash,
+        selectedMemberIds: parameters.selectedMemberIds,
+        partialAcknowledged: parameters.partialAcknowledged,
+        draftOperationId: parameters.draftOperationId,
+        packageDraftCreated: false,
+        packageApproved: false,
+        packageApplied: false,
+        packagePublished: false,
+        executionAuthorized: false,
+      }),
+    ).toMatchObject({ submissionId: 'submission_1', packageDraftCreated: false })
+    expect(() =>
+      IntakeV1PackageDraftApplyParameters.parse({ ...parameters, payload: {} }),
+    ).toThrow()
+    expect(() =>
+      IntakeV1PackageDraftApplyParameters.parse({
+        ...parameters,
+        selectedMemberIds: ['member_1', 'member_1'],
       }),
     ).toThrow()
   })
@@ -496,5 +767,206 @@ describe('intake notes proposal policy contract', () => {
     expect(() =>
       IntakeNotesProposalPolicyParameters.parse({ ...parameters, autoApply: true }),
     ).toThrow()
+  })
+})
+
+describe('support completion content receipt contract', () => {
+  const empty = {
+    contractVersion: 1,
+    receipts: [],
+    guestRead: { path: 'NOT_APPLICABLE', releaseId: null, nativeStateHash: null },
+    verifiedAt: '2026-09-10T12:00:00.000Z',
+    digest: 'a'.repeat(64),
+  }
+  const receipt = {
+    receiptKind: 'UNIVERSAL',
+    receiptId: 'receipt',
+    proposalId: 'proposal',
+    sourceProposalId: 'source',
+    sourceRequestVersion: 1,
+    moduleId: 'module',
+    revisionId: 'revision',
+    publicationId: 'publication',
+    projectionId: 'projection',
+    observedStateHash: 'b'.repeat(64),
+  }
+  it('requires applicable observable paths and rejects duplicate receipt evidence', () => {
+    expect(SupportCompletionContentFulfillment.safeParse(empty).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({ ...empty, receipts: [receipt] }).success,
+    ).toBe(false)
+    const published = {
+      ...empty,
+      receipts: [receipt],
+      guestRead: { ...empty.guestRead, path: 'LEGACY' },
+    }
+    expect(SupportCompletionContentFulfillment.safeParse(published).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({ ...published, receipts: [receipt, receipt] })
+        .success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillment.safeParse({
+        ...published,
+        guestRead: { ...published.guestRead, path: 'NATIVE' },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('temporal completion evidence contract', () => {
+  const receipt = {
+    handoffId: 'handoff',
+    proposalId: 'proposal',
+    sourceProposalId: 'source',
+    sourceRequestVersion: 1,
+    operationalUpdateId: 'update',
+    updatedAt: '2026-09-10T12:00:00.000Z',
+    publishedAt: '2026-09-10T12:00:00.000Z',
+    startsAt: '2026-09-10T12:00:00.000Z',
+    expiresAt: '2026-09-10T13:00:00.000Z',
+    observedStateHash: 'a'.repeat(64),
+  }
+  const current = {
+    contractVersion: 1,
+    receipts: [receipt],
+    verifiedAt: '2026-09-10T12:30:00.000Z',
+    digest: 'b'.repeat(64),
+  }
+  it('accepts only evidence effective at verification and rejects duplicate updates', () => {
+    expect(SupportCompletionTemporalFulfillment.safeParse(current).success).toBe(true)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({ ...current, verifiedAt: receipt.expiresAt })
+        .success,
+    ).toBe(false)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({
+        ...current,
+        verifiedAt: '2026-09-10T11:59:59.000Z',
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionTemporalFulfillment.safeParse({
+        ...current,
+        receipts: [receipt, { ...receipt, handoffId: 'other' }],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('source-bound supersession receipt contract', () => {
+  const root = {
+    receiptKind: 'UNIVERSAL',
+    receiptId: 'root',
+    proposalId: 'proposal1',
+    sourceProposalId: 'proposal1',
+    sourceRequestVersion: 1,
+    replacementOfProposalId: null,
+    moduleId: 'module',
+    moduleKind: 'POLICY',
+    effectiveFrom: null,
+    effectiveUntil: null,
+    operationalFactExpiresAt: null,
+    revisionId: 'revision1',
+    revisionVersion: 1,
+    classification: 'ADDITION',
+    relation: 'NEW_FACT',
+    expectedBaseRevisionId: null,
+    expectedBaseVersion: null,
+    state: 'SUPERSEDED',
+    supersededByReceiptId: 'next',
+    publicationId: null,
+    projectionId: null,
+    observedStateHash: null,
+  }
+  const next = {
+    ...root,
+    receiptId: 'next',
+    proposalId: 'proposal2',
+    sourceProposalId: 'proposal2',
+    sourceRequestVersion: 2,
+    revisionId: 'revision2',
+    revisionVersion: 2,
+    classification: 'SUPERSESSION',
+    relation: 'SUPERSEDES',
+    expectedBaseRevisionId: 'revision1',
+    expectedBaseVersion: 1,
+    state: 'CURRENT',
+    supersededByReceiptId: null,
+    publicationId: 'publication',
+    projectionId: 'projection',
+    observedStateHash: 'a'.repeat(64),
+  }
+  const evidence = {
+    contractVersion: 2,
+    receipts: [root, next],
+    guestRead: { path: 'LEGACY', releaseId: null, nativeStateHash: null },
+    verifiedAt: '2026-09-10T13:00:00.000Z',
+    digest: 'b'.repeat(64),
+  }
+  it('preserves history with an explicit successor and one current terminal', () => {
+    expect(SupportCompletionContentFulfillmentV2.safeParse(evidence).success).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [{ ...root, effectiveUntil: '2026-09-10T12:00:00.000Z' }, next],
+      }).success,
+    ).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, effectiveUntil: evidence.verifiedAt }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, operationalFactExpiresAt: evidence.verifiedAt }],
+      }).success,
+    ).toBe(false)
+
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [{ ...root, publicationId: 'old-publication' }, next],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({ ...evidence, receipts: [root] }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, expectedBaseRevisionId: 'unrelated' }],
+      }).success,
+    ).toBe(false)
+  })
+  it('rejects source reversal and accepts equal version only through explicit replacement lineage', () => {
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, sourceRequestVersion: 1 }],
+      }).success,
+    ).toBe(false)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [
+          root,
+          {
+            ...next,
+            sourceRequestVersion: 1,
+            replacementOfProposalId: 'proposal1',
+            sourceProposalId: 'proposal1',
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      SupportCompletionContentFulfillmentV2.safeParse({
+        ...evidence,
+        receipts: [root, { ...next, classification: 'ADDITION', relation: 'NEW_FACT' }],
+      }).success,
+    ).toBe(false)
   })
 })

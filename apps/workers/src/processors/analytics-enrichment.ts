@@ -4,8 +4,10 @@ import { z } from 'zod'
 import {
   AI_EMBEDDING_MODEL_KEYS,
   AI_MODEL_KEYS,
+  AiRoutingError,
   generateEmbeddings,
-  generateText,
+  generateTextForCapability,
+  routeAiCapability,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
@@ -17,6 +19,7 @@ import {
   isAiAdmissionControlError,
   materializeDueFirstWeekAccountReviews,
   recordOrReplayOnboardingMilestoneEvent,
+  resolveRuntimeAiWorkloadConfiguration,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -28,6 +31,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import { redactCommonIdentifiers } from '../lib/common-identifier-redaction'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -219,13 +223,41 @@ async function classifyTopicBatch(params: {
     '',
     'Questions:',
     ...questions.map(
-      (question, index) => `${index}. ${question.replace(/\s+/g, ' ').slice(0, 300)}`,
+      (question, index) =>
+        `${index}. ${redactCommonIdentifiers(question).replace(/\s+/g, ' ').slice(0, 300)}`,
     ),
   ].join('\n')
 
-  const response = await generateText({
-    admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId }),
-    modelKey: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
+  const configurationScope = {
+    workloadId: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
+    tenantId,
+    venueId,
+  }
+  const configuration = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+  const route = routeAiCapability({
+    capability: 'CLASSIFICATION',
+    workloadId: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
+    configuration,
+  })
+  const configurationSnapshot = JSON.stringify(configuration)
+  const response = await generateTextForCapability({
+    route,
+    timeoutMs: configuration.timeoutMs,
+    maxAttempts: configuration.maxAttempts,
+    requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+    ...(configuration.maxOutputTokens !== null
+      ? { maxOutputTokens: configuration.maxOutputTokens }
+      : {}),
+    admissionGuard: async () => {
+      await assertVenueAiAvailable(db, { tenantId, venueId })
+      const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+      if (JSON.stringify(current) !== configurationSnapshot) {
+        throw new AiRoutingError(
+          'CAPABILITY_UNAVAILABLE',
+          'Analytics topic classifier configuration changed',
+        )
+      }
+    },
     system: [],
     messages: [{ role: 'user', content: prompt }],
     parseResponse: (text) => parseTopicAssignments(text, questions.length),
@@ -285,7 +317,7 @@ async function synthesizeWeeklyThemes(params: {
   venueId: string
 }): Promise<WeeklyTheme[]> {
   const { questions, tenantId, venueId } = params
-  const trimmed = questions.slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
+  const trimmed = questions.map(redactCommonIdentifiers).slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
 
   const prompt = [
     'You are analyzing a week of guest questions asked to a venue guide chatbot.',
@@ -299,9 +331,36 @@ async function synthesizeWeeklyThemes(params: {
     JSON.stringify(trimmed),
   ].join('\n')
 
-  const response = await generateText({
-    admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId }),
-    modelKey: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
+  const configurationScope = {
+    workloadId: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
+    tenantId,
+    venueId,
+  }
+  const configuration = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+  const route = routeAiCapability({
+    capability: 'BACKGROUND_ANALYSIS',
+    workloadId: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
+    configuration,
+  })
+  const configurationSnapshot = JSON.stringify(configuration)
+  const response = await generateTextForCapability({
+    route,
+    timeoutMs: configuration.timeoutMs,
+    maxAttempts: configuration.maxAttempts,
+    requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+    ...(configuration.maxOutputTokens !== null
+      ? { maxOutputTokens: configuration.maxOutputTokens }
+      : {}),
+    admissionGuard: async () => {
+      await assertVenueAiAvailable(db, { tenantId, venueId })
+      const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+      if (JSON.stringify(current) !== configurationSnapshot) {
+        throw new AiRoutingError(
+          'CAPABILITY_UNAVAILABLE',
+          'Analytics weekly themes configuration changed',
+        )
+      }
+    },
     system: [],
     messages: [{ role: 'user', content: prompt }],
     parseResponse: parseWeeklyThemes,
@@ -407,7 +466,7 @@ async function buildClusters(params: {
 }): Promise<QuestionCluster[]> {
   const { questions, tenantId, venueId } = params
   const trimmed = questions
-    .map((question) => question.trim())
+    .map((question) => redactCommonIdentifiers(question).trim())
     .filter((question) => question.length > 0)
     .slice(0, CLUSTER_MAX_QUESTIONS)
 
@@ -584,6 +643,7 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
+      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
       eventType: 'message.sent',
       occurredAt: { gte: windowStart, lt: dayEnd },
       userMessageId: { not: null },
@@ -603,6 +663,7 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
+      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
       eventType: 'message.low_confidence',
       occurredAt: { gte: windowStart, lt: dayEnd },
       userMessageId: { not: null },
@@ -627,6 +688,7 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
+      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
       eventType: 'message.sent',
       occurredAt: { gte: themeWindowStart, lt: dayEnd },
       userMessageId: { not: null },

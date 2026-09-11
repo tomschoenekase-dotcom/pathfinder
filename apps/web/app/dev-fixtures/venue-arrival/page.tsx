@@ -28,23 +28,27 @@ const FIXTURE_MEDIA: PublicVenueMediaItem[] = [
   height: height as number,
   byteSize: 260_000,
   mimeType: 'image/webp' as const,
-  deliveryPath: `/api/venue-media/${id}?venue=great-lakes-museum`,
+  deliveryPath: `/dev-fixtures/visitor-media-${index + 1}.svg`,
 }))
 
 export default async function VenueArrivalFixturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string }>
+  searchParams: Promise<{ state?: string; theme?: string; accent?: string; branding?: string }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const { state = 'media' } = await searchParams
+  const { state = 'media', theme, accent, branding } = await searchParams
   return (
     <VenueArrival
       venue={{
         name: 'Great Lakes Discovery Museum',
         description: 'Explore lake ecology, shipping history, and hands-on family exhibits.',
         category: 'Museum',
+        chatTheme: theme ?? null,
+        chatAccentColor: accent ?? null,
+        chatLogoUrl: branding ? '/dev-fixtures/visitor-brand-logo.svg' : null,
+        chatBannerUrl: branding ? '/dev-fixtures/visitor-brand-banner.svg' : null,
       }}
       venueSlug="great-lakes-museum"
       media={state === 'media' ? FIXTURE_MEDIA : []}

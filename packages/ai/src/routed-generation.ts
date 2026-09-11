@@ -22,12 +22,18 @@ export type RoutedAiTextResult<TParsed = string> = AiTextResult<TParsed> & {
 }
 
 function textModelKey(candidate: AiRouteCandidate): AiModelKey {
+  // Validate each candidate immediately before it can reach admission, budget,
+  // or provider dispatch. A stale fallback must fail closed after an earlier
+  // candidate fails rather than silently substituting the registry's model.
   if (!(candidate.modelKey in AI_MODEL_REGISTRY)) {
     throw new Error(`No text provider adapter is registered for ${candidate.modelKey}`)
   }
   const modelKey = candidate.modelKey as AiModelKey
   if (AI_MODEL_REGISTRY[modelKey].provider !== candidate.provider) {
     throw new Error(`Text provider identity mismatch for ${candidate.modelKey}`)
+  }
+  if (AI_MODEL_REGISTRY[modelKey].model !== candidate.model) {
+    throw new Error(`Text model identity mismatch for ${candidate.modelKey}`)
   }
   return modelKey
 }
@@ -111,7 +117,12 @@ export async function generateTextForCapability<TParsed = string>(params: {
       // Route fallbacks are for provider/model failures. Admission, budget,
       // policy, accounting, and dispatch-fence failures must fail closed so a
       // second candidate cannot bypass the rejected control.
-      if (!(error instanceof AiGatewayError) || error.textEmitted) throw error
+      if (
+        !(error instanceof AiGatewayError) ||
+        error.textEmitted ||
+        error.code === 'provider-incomplete-response'
+      )
+        throw error
       budgetAttemptNumberOffset += error.attempts
     }
   }

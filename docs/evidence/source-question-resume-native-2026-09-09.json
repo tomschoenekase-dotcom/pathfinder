@@ -1,0 +1,249 @@
+{
+  "database": "pathfinder_disposable_source_question_ef89fba1d2a0",
+  "port": "55491",
+  "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-question-ef89fba1d2a0",
+  "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+  "targetCase": "binds retained source questions to the exact resumable worker context",
+  "expectedTests": 1,
+  "migrationsPassed": true,
+  "testPassed": true,
+  "stopped": true,
+  "preflightPortWasFree": true,
+  "sourceManifest": [
+    {
+      "source": "packages/api/src/lib/intake-upload-storage.ts",
+      "retained": "measured-packages__api__src__lib__intake-upload-storage.ts",
+      "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-extraction-service.ts",
+      "retained": "measured-packages__api__src__lib__intake-file-extraction-service.ts",
+      "sha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+      "retained": "measured-packages__db__src__helpers__intake-file-extraction-actions.ts",
+      "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+      "retained": "measured-packages__db__src__helpers__intake-v1-file-extraction-dispatch-actions.ts",
+      "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+      "retained": "measured-packages__db__src__helpers__intake-v1-processing-dispatch-actions.ts",
+      "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-upload-actions.ts",
+      "retained": "measured-packages__db__src__helpers__intake-upload-actions.ts",
+      "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+      "retained": "measured-packages__api__src__lib__intake-file-extraction-reader.ts",
+      "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+    },
+    {
+      "source": "packages/db/src/index.ts",
+      "retained": "measured-packages__db__src__index.ts",
+      "sha256": "22390115cb4513a754e866ab71a39a2a47252f2ea4ecad6129849a26418c4d4f"
+    },
+    {
+      "source": "packages/api/src/source-question-resume.disposable.integration.test.ts",
+      "retained": "measured-packages__api__src__source-question-resume.disposable.integration.test.ts",
+      "sha256": "405ad7b54b124d2b0beb422e0b67add3b672dde10b63d5e6a8269179bffeee05"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-clarifications.ts",
+      "retained": "measured-packages__api__src__lib__intake-file-clarifications.ts",
+      "sha256": "e4ff263cef896c937d5570059deb41eff0c3ac01fa52b88f99a2adf629cc3846"
+    },
+    {
+      "source": "packages/api/src/lib/intake-file-clarifications.test.ts",
+      "retained": "measured-packages__api__src__lib__intake-file-clarifications.test.ts",
+      "sha256": "4d4db0603ae8bdd6b29a3d34addbdfeca900251709b0229f2b2596cfde16f0d8"
+    },
+    {
+      "source": "packages/api/src/routers/admin/intake-file-clarifications.ts",
+      "retained": "measured-packages__api__src__routers__admin__intake-file-clarifications.ts",
+      "sha256": "71d0b1ae5826b24e0ed447cde6f7cef70ae9f01b0293e6661e9e5924a61d1b2c"
+    },
+    {
+      "source": "packages/db/src/helpers/agent-question-actions.ts",
+      "retained": "measured-packages__db__src__helpers__agent-question-actions.ts",
+      "sha256": "e1416c1d11ff8e80127a29021380af1499f9892cc1686baf33bb546b433241f2"
+    },
+    {
+      "source": "packages/db/prisma/schema.prisma",
+      "retained": "measured-packages__db__prisma__schema.prisma",
+      "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+    },
+    {
+      "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+      "retained": "measured-packages__db__src__helpers__agent-run-execution-actions.ts",
+      "sha256": "8c4fb77cac6a2b3ec2d292f2d6f24393b0b0e45131f1e2f1562f34c3a05df23b"
+    },
+    {
+      "source": "packages/db/src/helpers/agent-run-execution-context.ts",
+      "retained": "measured-packages__db__src__helpers__agent-run-execution-context.ts",
+      "sha256": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea"
+    }
+  ],
+  "runnerSha256": "dfede5d4a31408d8b341e715cfb54ff3310f3b561f7800a032f113b268178a1d",
+  "vitest": {
+    "numPassedTests": 1,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTotalTests": 1
+  },
+  "sourceHashesStable": true,
+  "scope": "E2 disposable PostgreSQL and canonical helper proof; simulated byte transport and disabled credential metadata; no authenticated external worker, queue dispatch, browser, provider, hosted, device, customer or whole CaseA/QA18 acceptance.",
+  "changes": [
+    "Admin-explicit optional AgentRun binding; runless v3 identity preserved; linked v4 identity includes exact run",
+    "Question operation lookup adds explicit tenantId for tenant isolation middleware"
+  ],
+  "targetedTests": {
+    "api": 21,
+    "db": 29,
+    "failed": 0,
+    "apiAndDbTypes": "PASS",
+    "configuredLint": "PASS"
+  },
+  "priorAttempts": [
+    {
+      "proof": "proof-source-question-9fe919d6878e",
+      "passed": false,
+      "stopped": true
+    },
+    {
+      "proof": "proof-source-question-a60baf67bc23",
+      "passed": false,
+      "stopped": true
+    },
+    {
+      "proof": "proof-source-question-a9f57e2a38c0",
+      "passed": false,
+      "stopped": true
+    },
+    {
+      "proof": "proof-source-question-aacec50dd81a",
+      "passed": false,
+      "stopped": true
+    },
+    {
+      "proof": "proof-source-question-b3b7d74ea50d",
+      "passed": false,
+      "stopped": true
+    },
+    {
+      "proof": "proof-source-question-cd37503ecb80",
+      "passed": false,
+      "stopped": true
+    }
+  ],
+  "remaining": "Registered source-question interaction and scoped source-read resource are absent; follow Sol packet21. Saved answer and direct persisted source reads are not full worker tool restart proof.",
+  "sharedQuestionRegression": {
+    "sourceHead": "2fd69d3dd598cea37594023ed5fe093ab63f3b76",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-source-question-regression-c9cb866c5a23",
+    "targetCase": "retains replies, serializes all blockers, releases leases, and does not revive cancelled work",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTotalTests": 1
+    },
+    "stopped": true,
+    "sourceHashesStable": true,
+    "sourceManifest": [
+      {
+        "source": "packages/db/src/helpers/onboarding-question-resume.disposable.integration.test.ts",
+        "retained": "measured-packages__db__src__helpers__onboarding-question-resume.disposable.integration.test.ts",
+        "sha256": "1f8f7faceda4d1ae80a0460473c7c8336332c5b36a4e04dbd20c734d0d10444d"
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-storage.ts",
+        "retained": "measured-packages__api__src__lib__intake-upload-storage.ts",
+        "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-service.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-service.ts",
+        "sha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-file-extraction-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-file-extraction-actions.ts",
+        "sha256": "bd53dde18c7e4e5cbd4d244d72f2a70a5c9bcebc827aeff37965cade930d1979"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-file-extraction-dispatch-actions.ts",
+        "sha256": "8afb55825a7768b0ae60ce7e345e106fc53ba179241ad3332bc3b8258f00d36e"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-v1-processing-dispatch-actions.ts",
+        "sha256": "666b48beecf526e80829ab38057904c37d12a7a586402bef53c4716cd1c1e5f3"
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "retained": "measured-packages__db__src__helpers__intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-extraction-reader.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-extraction-reader.ts",
+        "sha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "retained": "measured-packages__db__src__index.ts",
+        "sha256": "22390115cb4513a754e866ab71a39a2a47252f2ea4ecad6129849a26418c4d4f"
+      },
+      {
+        "source": "packages/api/src/source-question-resume.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__source-question-resume.disposable.integration.test.ts",
+        "sha256": "405ad7b54b124d2b0beb422e0b67add3b672dde10b63d5e6a8269179bffeee05"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-clarifications.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-clarifications.ts",
+        "sha256": "e4ff263cef896c937d5570059deb41eff0c3ac01fa52b88f99a2adf629cc3846"
+      },
+      {
+        "source": "packages/api/src/lib/intake-file-clarifications.test.ts",
+        "retained": "measured-packages__api__src__lib__intake-file-clarifications.test.ts",
+        "sha256": "4d4db0603ae8bdd6b29a3d34addbdfeca900251709b0229f2b2596cfde16f0d8"
+      },
+      {
+        "source": "packages/api/src/routers/admin/intake-file-clarifications.ts",
+        "retained": "measured-packages__api__src__routers__admin__intake-file-clarifications.ts",
+        "sha256": "71d0b1ae5826b24e0ed447cde6f7cef70ae9f01b0293e6661e9e5924a61d1b2c"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-question-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-question-actions.ts",
+        "sha256": "e1416c1d11ff8e80127a29021380af1499f9892cc1686baf33bb546b433241f2"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-actions.ts",
+        "sha256": "8c4fb77cac6a2b3ec2d292f2d6f24393b0b0e45131f1e2f1562f34c3a05df23b"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-context.ts",
+        "retained": "measured-packages__db__src__helpers__agent-run-execution-context.ts",
+        "sha256": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea"
+      }
+    ],
+    "runnerSha256": "af025baa766b240354dba7eb440226cb2513609de88ab1e6c9c1713ec20d3e47",
+    "limit": "Existing canonical disposable helper regression for concurrent blockers, answer replay, cancellation and lease release; no actual external worker transport."
+  }
+}

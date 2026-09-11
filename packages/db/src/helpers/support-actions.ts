@@ -1,3 +1,5 @@
+import { lockSupportRequest } from './support-request-lock'
+export { lockSupportRequest } from './support-request-lock'
 import { createHash, randomUUID } from 'node:crypto'
 
 import type {
@@ -14,7 +16,10 @@ import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
 import {
+  deriveSupportCompletionOutcome,
+  SupportCompletionOutcome,
   SupportCompletionPackageFulfillment,
+  type SupportCompletionOutcome as SupportCompletionOutcomeValue,
   type SupportCompletionPackageFulfillment as SupportCompletionPackageFulfillmentValue,
 } from '@pathfinder/contracts'
 
@@ -24,6 +29,7 @@ import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-e
 import { canTenantActorAccessSupportRequest } from './support-request-access'
 import {
   readSupportPackageFulfillment,
+  assertSupportFulfillmentEffectiveAt,
   sameSupportPackageFulfillment,
   SupportPackageFulfillmentError,
 } from './support-package-fulfillment'
@@ -268,6 +274,11 @@ const operatorConversationInput = z
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
     packageFulfillment: SupportCompletionPackageFulfillment.optional(),
+    expectedCompletionOutcome: z.enum(SupportCompletionOutcome).optional(),
+    expectedFulfillmentDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
     actor: z.union([
       operatorConversationActor,
       approvedClientVisibleSupportAgentActor.refine(
@@ -344,6 +355,7 @@ const messageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  completionOutcome: true,
   clientVersion: true,
   createdAt: true,
   attachments: {
@@ -391,14 +403,6 @@ async function lockSupportOperation(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-operation:${tenantId}:${operationId}`}, 0))`
 }
 
-export async function lockSupportRequest(
-  tx: Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0],
-  tenantId: string,
-  requestId: string,
-) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-request:${tenantId}:${requestId}`}, 0))`
-}
-
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value !== null && typeof value === 'object') {
@@ -443,6 +447,7 @@ function safeReplayMessage(message: {
   authorId: string
   visibility: string
   body: string
+  completionOutcome: string | null
   createdAt: Date
   submissionRequestId: string | null
   submissionInputHash: string | null
@@ -464,6 +469,7 @@ function safeReplayMessage(message: {
     authorId: message.authorId,
     visibility: message.visibility,
     body: message.body,
+    completionOutcome: message.completionOutcome,
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => ({
       id: attachment.id,
@@ -1162,18 +1168,31 @@ async function appendSupportMessageActionOnce(
       }
       return {
         message: safeReplayMessage(existingMessage),
-        requestVersion:
-          parsed.actor.participantKind === 'CLIENT' ? request.version : parsed.expectedVersion! + 1,
-        clientVersion:
-          parsed.actor.participantKind === 'CLIENT'
-            ? existingMessage.clientVersion!
-            : request.clientVersion,
+        requestVersion: request.version,
+        clientVersion: request.clientVersion,
+        status: request.status,
+        currentProjection: {
+          requestVersion: request.version,
+          clientVersion: request.clientVersion,
+          status: request.status,
+        },
+        operationVersion: {
+          requestVersion: existingMessage.requestVersion,
+          clientVersion: existingMessage.clientVersion,
+        },
         replayed: true as const,
       }
     }
+    if (parsed.actor.participantKind !== 'OPERATOR' && request.status === 'CANCELLED')
+      throw new SupportActionError('CONFLICT', 'This support request is closed')
+    const reopensCompletedRequest =
+      parsed.actor.participantKind === 'CLIENT' &&
+      parsed.visibility === 'CLIENT_VISIBLE' &&
+      request.status === 'COMPLETED'
     if (
+      request.status === 'COMPLETED' &&
       parsed.actor.participantKind !== 'OPERATOR' &&
-      (request.status === 'COMPLETED' || request.status === 'CANCELLED')
+      !reopensCompletedRequest
     )
       throw new SupportActionError('CONFLICT', 'This support request is closed')
     if (
@@ -1192,9 +1211,11 @@ async function appendSupportMessageActionOnce(
         ...(parsed.actor.participantKind === 'CLIENT'
           ? { clientVersion: parsed.expectedClientVersion!, version: request.version }
           : { version: parsed.expectedVersion! }),
+        ...(reopensCompletedRequest ? { status: 'COMPLETED' } : {}),
       },
       data: {
         version: nextVersion,
+        ...(reopensCompletedRequest ? { status: 'IN_REVIEW', statusChangedAt: new Date() } : {}),
         ...(parsed.visibility === 'CLIENT_VISIBLE'
           ? { clientVersion: request.clientVersion + 1, clientActivityAt: new Date() }
           : {}),
@@ -1216,6 +1237,7 @@ async function appendSupportMessageActionOnce(
         submissionRequestId: parsed.operationId,
         submissionInputHash,
         clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
+        requestVersion: nextVersion,
         attachments: {
           create: attachmentCreates(attachments),
         },
@@ -1232,8 +1254,8 @@ async function appendSupportMessageActionOnce(
         eventType: evidence.eventType,
         actorKind: parsed.actor.participantKind,
         actorId: parsed.actor.actorId,
-        fromStatus: null,
-        toStatus: null,
+        fromStatus: reopensCompletedRequest ? 'COMPLETED' : null,
+        toStatus: reopensCompletedRequest ? 'IN_REVIEW' : null,
       },
       select: { id: true },
     })
@@ -1242,9 +1264,11 @@ async function appendSupportMessageActionOnce(
       action: evidence.action,
       targetType: 'SupportRequest',
       targetId: request.id,
-      beforeState: { version: request.version },
+      beforeState: { version: request.version, status: request.status },
       afterState: {
         version: nextVersion,
+        status: reopensCompletedRequest ? 'IN_REVIEW' : request.status,
+        statusChanged: reopensCompletedRequest,
         attachmentCount: attachments.length,
         ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
         ...(parsed.actor.participantKind === 'AGENT'
@@ -1297,6 +1321,19 @@ async function appendSupportMessageActionOnce(
       requestVersion: nextVersion,
       clientVersion:
         parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : request.clientVersion,
+      status: reopensCompletedRequest ? ('IN_REVIEW' as const) : request.status,
+      currentProjection: {
+        requestVersion: nextVersion,
+        clientVersion:
+          parsed.visibility === 'CLIENT_VISIBLE'
+            ? request.clientVersion + 1
+            : request.clientVersion,
+        status: reopensCompletedRequest ? ('IN_REVIEW' as const) : request.status,
+      },
+      operationVersion: {
+        requestVersion: nextVersion,
+        clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
+      },
       replayed: false as const,
     }
   })
@@ -1332,6 +1369,8 @@ type ManualLoopParsed = {
   missingInformation?: string[]
   attachments?: SupportAttachmentDraft[]
   packageFulfillment?: SupportCompletionPackageFulfillmentValue
+  expectedCompletionOutcome?: SupportCompletionOutcomeValue
+  expectedFulfillmentDigest?: string
   actor: SupportActionActor
 }
 
@@ -1350,6 +1389,19 @@ async function manualSupportLoopActionOnce(
   const isClient = kind === 'RESPOND_INFORMATION'
   const attachments: SupportAttachmentDraft[] = isClient ? (parsed.attachments ?? []) : []
   const requestedItems = kind === 'REQUEST_INFORMATION' ? (parsed.missingInformation ?? []) : []
+  if (
+    (parsed.expectedCompletionOutcome === undefined) !==
+    (parsed.expectedFulfillmentDigest === undefined)
+  )
+    throw new SupportActionError(
+      'INVALID_INPUT',
+      'Expected completion outcome and fulfillment digest must be supplied together',
+    )
+  if (kind !== 'COMPLETE_REQUEST' && parsed.expectedCompletionOutcome !== undefined)
+    throw new SupportActionError(
+      'INVALID_INPUT',
+      'Completion outcome evidence is only valid for request completion',
+    )
   const expectedVersion = 'expectedVersion' in parsed ? parsed.expectedVersion : undefined
   const expectedClientVersion =
     'expectedClientVersion' in parsed ? parsed.expectedClientVersion : undefined
@@ -1370,6 +1422,12 @@ async function manualSupportLoopActionOnce(
     body: parsed.body,
     ...(parsed.packageFulfillment
       ? { packageFulfillmentDigest: parsed.packageFulfillment.digest }
+      : {}),
+    ...(parsed.expectedCompletionOutcome !== undefined
+      ? {
+          expectedCompletionOutcome: parsed.expectedCompletionOutcome,
+          expectedFulfillmentDigest: parsed.expectedFulfillmentDigest,
+        }
       : {}),
     missingInformation: requestedItems,
     intakeUploadIds: attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
@@ -1431,15 +1489,25 @@ async function manualSupportLoopActionOnce(
         throw new SupportActionError('CONFLICT', 'Support operation evidence is incomplete')
       return {
         message: safeReplayMessage(replay),
-        status: targetStatus,
-        missingInformation: requestedItems,
-        requestVersion: replay.requestVersion,
-        clientVersion: replay.clientVersion,
+        status: request.status,
+        missingInformation: request.missingInformation,
+        requestVersion: request.version,
+        clientVersion: request.clientVersion,
+        currentProjection: {
+          requestVersion: request.version,
+          clientVersion: request.clientVersion,
+          status: request.status,
+        },
+        operationVersion: {
+          requestVersion: replay.requestVersion,
+          clientVersion: replay.clientVersion,
+        },
         replayed: true as const,
       }
     }
 
     let completionPackageFulfillment: SupportCompletionPackageFulfillmentValue | null = null
+    let completionOutcome: SupportCompletionOutcomeValue | null = null
     if (kind === 'REQUEST_INFORMATION') {
       if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
         throw new SupportActionError('CONFLICT', 'Request is not ready for an information prompt')
@@ -1486,11 +1554,41 @@ async function manualSupportLoopActionOnce(
           'Linked package fulfillment changed after founder review; refresh completion evidence.',
         )
       }
+      const currentCompletionOutcome = deriveSupportCompletionOutcome(currentPackageFulfillment)
+      if (
+        parsed.expectedCompletionOutcome !== undefined &&
+        (parsed.expectedCompletionOutcome !== currentCompletionOutcome ||
+          parsed.expectedFulfillmentDigest !== currentPackageFulfillment.digest)
+      )
+        throw new SupportActionError(
+          'CONFLICT',
+          'Completion outcome or fulfillment changed; refresh completion evidence.',
+        )
+      if (
+        (currentCompletionOutcome === 'NO_CHANGE' ||
+          currentCompletionOutcome === 'MIXED' ||
+          currentPackageFulfillment.contractVersion === 7) &&
+        parsed.expectedCompletionOutcome === undefined
+      )
+        throw new SupportActionError(
+          'CONFLICT',
+          'Verified decision completion requires the exact reviewed outcome and fulfillment digest.',
+        )
       completionPackageFulfillment = currentPackageFulfillment
+      completionOutcome = currentCompletionOutcome
     }
 
     const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
     const now = new Date()
+    if (completionPackageFulfillment) {
+      try {
+        assertSupportFulfillmentEffectiveAt(completionPackageFulfillment, now)
+      } catch (error) {
+        if (error instanceof SupportPackageFulfillmentError)
+          throw new SupportActionError('CONFLICT', error.message)
+        throw error
+      }
+    }
     const nextVersion = request.version + 1
     const nextClientVersion = request.clientVersion + 1
     const changed = await tx.supportRequest.updateMany({
@@ -1524,6 +1622,7 @@ async function manualSupportLoopActionOnce(
         authorId: parsed.actor.actorId,
         visibility: 'CLIENT_VISIBLE',
         body: parsed.body,
+        ...(completionOutcome ? { completionOutcome } : {}),
         submissionRequestId: parsed.operationId,
         submissionInputHash: operationHash,
         clientVersion: nextClientVersion,
@@ -1631,6 +1730,15 @@ async function manualSupportLoopActionOnce(
       missingInformation: requestedItems,
       requestVersion: nextVersion,
       clientVersion: nextClientVersion,
+      currentProjection: {
+        requestVersion: nextVersion,
+        clientVersion: nextClientVersion,
+        status: targetStatus,
+      },
+      operationVersion: {
+        requestVersion: nextVersion,
+        clientVersion: nextClientVersion,
+      },
       ...(completionPackageFulfillment ? { packageFulfillment: completionPackageFulfillment } : {}),
       replayed: false as const,
     }

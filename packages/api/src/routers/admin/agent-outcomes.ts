@@ -16,6 +16,11 @@ import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-operations-shared'
 import { adminAgentTrustSignalsRouter } from './agent-trust-signals'
+import { adminAgentWorkflowPromotionAssessmentsRouter } from './agent-workflow-promotion-assessments'
+import { adminAgentWorkflowActivationsRouter } from './agent-workflow-activations'
+import { adminAgentWorkflowActivationReviewRouter } from './agent-workflow-activation-review'
+import { currentCallableCapabilities } from './agent-workflow-capabilities'
+import { adminAgentWorkflowVersionsRouter } from './agent-workflow-version-router'
 
 const adminAgentOutcomeCoreRouter = router({
   listAgentImprovementProposals: adminProcedure
@@ -87,6 +92,10 @@ const adminAgentOutcomeCoreRouter = router({
                     verdict: true,
                     summary: true,
                     evidenceRef: true,
+                    sourceQuestionId: true,
+                    sourceQuestionUpdatedAt: true,
+                    sourceAnsweredAt: true,
+                    sourceAnswerSha256: true,
                     modelProvider: true,
                     modelName: true,
                     createdAt: true,
@@ -160,6 +169,10 @@ const adminAgentOutcomeCoreRouter = router({
             verdict: true,
             summary: true,
             evidenceRef: true,
+            sourceQuestionId: true,
+            sourceQuestionUpdatedAt: true,
+            sourceAnsweredAt: true,
+            sourceAnswerSha256: true,
             relatedAgentActionId: true,
             policyCode: true,
             severity: true,
@@ -189,6 +202,13 @@ const adminAgentOutcomeCoreRouter = router({
         verdict: z.enum(['POSITIVE', 'MIXED', 'NEGATIVE', 'INCONCLUSIVE']),
         summary: z.string().trim().min(1).max(2000),
         evidenceRef: z.string().trim().min(1).max(500).optional(),
+        sourceQuestion: z
+          .object({
+            questionId: z.string().trim().min(1).max(191),
+            expectedUpdatedAt: z.date(),
+          })
+          .strict()
+          .optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -246,6 +266,18 @@ const adminAgentOutcomeCoreRouter = router({
         hypothesis: z.string().trim().min(10).max(2000),
         proposedChange: z.string().trim().min(10).max(10000),
         validationPlan: z.string().trim().min(10).max(5000),
+        generalization: z
+          .object({
+            rationale: z.string().trim().min(10).max(2000),
+            counterexampleObservationIds: z
+              .array(z.string().trim().min(1))
+              .min(1)
+              .max(20)
+              .refine((ids) => new Set(ids).size === ids.length, 'IDs must be unique.'),
+            exclusions: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
+          })
+          .strict()
+          .optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -319,6 +351,7 @@ const adminAgentOutcomeCoreRouter = router({
               },
             },
             db,
+            currentCallableCapabilities(),
           )
         } catch (error) {
           if (error instanceof AgentImprovementValidationActionError) {
@@ -340,5 +373,9 @@ const adminAgentOutcomeCoreRouter = router({
 
 export const adminAgentOutcomesRouter = mergeRouters(
   adminAgentOutcomeCoreRouter,
+  adminAgentWorkflowVersionsRouter,
   adminAgentTrustSignalsRouter,
+  adminAgentWorkflowPromotionAssessmentsRouter,
+  adminAgentWorkflowActivationsRouter,
+  adminAgentWorkflowActivationReviewRouter,
 )

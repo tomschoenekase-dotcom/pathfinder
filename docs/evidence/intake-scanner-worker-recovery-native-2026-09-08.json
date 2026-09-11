@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseHead": "46a55ef66194b3a0194b8a13600d7e0dd7d6861d",
+  "slice": "W01 existing registered scanner retry and expired-lease reconciliation",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-scanner-worker-recovery-b47a59d29589",
+  "proofResultSha256": "230cd5059829d5226bc74ec6a84f8bf6c5a49e05384a779c0ef82fb8b0664eb5",
+  "runnerPath": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-intake-scanner-worker-recovery-proof.mjs",
+  "result": {
+    "database": "pathfinder_disposable_intake_worker_b47a59d29589",
+    "pgPort": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-scanner-worker-recovery-b47a59d29589",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "postgresVersion": "PostgreSQL 16.15, compiled by Visual C++ build 1944, 64-bit",
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 238,
+      "publicTableCount": 258
+    },
+    "sourceHashes": [
+      {
+        "source": "apps/workers/src/intake-upload-verification.disposable.integration.test.ts",
+        "sha256": "68a83f8b822b7a22d8c2e6a0549db8022a3886d74b47244174493b9c8e348c91",
+        "bytes": 16673
+      },
+      {
+        "source": "apps/workers/src/intake-upload-verification-runtime.ts",
+        "sha256": "6d90e7ddb2580ba4a3ac75f3979fde3675317e838c82ce545752facc6ecbf805",
+        "bytes": 3325
+      },
+      {
+        "source": "apps/workers/src/processors/intake-upload-verification.ts",
+        "sha256": "d92697f88ca46655262a31e77ad98e5afe95aef59ade18531ddd180bceaa6a78",
+        "bytes": 2438
+      },
+      {
+        "source": "apps/workers/src/lib/job-execution.ts",
+        "sha256": "7bd4314266805c5fe1c6a6b4e09969032ba9a5b3ad5767551787569b8e904f4e",
+        "bytes": 3957
+      },
+      {
+        "source": "packages/db/src/index.ts",
+        "sha256": "7fdfd5e96b4ee0ff8590e3339f17e2ae8972ebdd339c8ff6f476e693682c526d",
+        "bytes": 48345
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+        "bytes": 1809
+      },
+      {
+        "source": "packages/db/src/helpers/intake-upload-actions.ts",
+        "sha256": "77b359fef35b905ee7aa934f020a23df02343372f3fe95ffe9b0cb6fd713245e",
+        "bytes": 63064
+      },
+      {
+        "source": "packages/api/src/intake-upload-verification.ts",
+        "sha256": "7364a8b9a331af507124a330ab53d43dfaceec6aa750e1a42256be9375c72324",
+        "bytes": 2263
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-byte-verifier.ts",
+        "sha256": "5d08af0dbe53a25710cc23360c9650d587ecfdf5515528af412df9f55da1ae02",
+        "bytes": 16092
+      },
+      {
+        "source": "packages/api/src/lib/intake-upload-storage.ts",
+        "sha256": "35b3ac6c58545b7ca5e6aa649f9836a2bb25d1cf4175a5ad1a40af4a0dde6298",
+        "bytes": 15826
+      },
+      {
+        "source": "packages/jobs/src/queues.ts",
+        "sha256": "f72c81275392f0069794580ffae95da4b9eec7ef27ba8d616a9affa32473c513",
+        "bytes": 8035
+      },
+      {
+        "source": "packages/jobs/src/connection.ts",
+        "sha256": "69c3a629922e20e426ae9d64f16173821ab26fb51eb17da3f824b7c9e8f38b9f",
+        "bytes": 2292
+      },
+      {
+        "source": "packages/jobs/src/enqueue.ts",
+        "sha256": "86e3b24f46d04c438f4b187195840f657456fc51868aff28b4c77042730331fa",
+        "bytes": 32866
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+        "bytes": 598067
+      },
+      {
+        "source": "scripts/lib/disposable-prisma-migration.mjs",
+        "sha256": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+        "bytes": 6270
+      }
+    ],
+    "pgStopped": true,
+    "redisStopped": true,
+    "redisConfigSha256": "ee347bbc98fa1e7bf287807c981fcc8d93f3ddcea9d814c5253e9c903f89cc87",
+    "redisWrapperPid": 48732,
+    "minioWrapperPid": 43568,
+    "minioReady": true,
+    "clamdPid": 63340,
+    "clamdReady": true,
+    "redisPort": "16393",
+    "runnerSha256": "239bcc361fc442eb0066800359c6d98a70770dc5382cb4bbc8aca2c0eb0b4168",
+    "testCounts": {
+      "suites": 2,
+      "passedSuites": 2,
+      "tests": 1,
+      "passedTests": 1
+    },
+    "clamFixture": {
+      "runtimeVersion": "ClamAV 1.5.4",
+      "archiveSha256": "0d9e0228b2674137ea1a2853566c98a0278ad52ab2582c3d6dbd75373848c395",
+      "signatureSha256": "0df0dbee9b3bb9155b744c963d4c41ff7cca0b208af81d68c205d13ad54de125",
+      "matchedExistingTestLiteralSha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+      "clamdExeSha256": "d052be9cb42b3798e7a7a65c48a51a4253d8685d7720679b4279007fd6a1aa3f",
+      "receiptEngineVersion": "daemon",
+      "fixtureOnly": true
+    },
+    "scannerInputs": [
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\clamav-fixture-runtime-20260908\\extract\\clamav-1.5.4.win.x64\\clamd.exe",
+        "sha256": "d052be9cb42b3798e7a7a65c48a51a4253d8685d7720679b4279007fd6a1aa3f"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\scanner-worker-recovery-fixtures-20260908\\torchiko-worker-eicar.ndb",
+        "sha256": "0df0dbee9b3bb9155b744c963d4c41ff7cca0b208af81d68c205d13ad54de125"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\scanner-worker-recovery-fixtures-20260908\\identity.json",
+        "sha256": "1a854476d2e5036b6fbeef95f6689a99f682b7bfad61dbb07e00ca7cec439a06"
+      },
+      {
+        "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\clamav-fixture-runtime-20260908\\runtime-provenance.json",
+        "sha256": "b1092cb9fbd97c031abeb21a583889fd2139f8a43c2e75260a1cc285e09c02ac"
+      }
+    ],
+    "scannerInputsStable": true,
+    "sourceHashesStable": true,
+    "workerRecoveryPassed": true,
+    "clamdExitCode": null,
+    "clamdSignalCode": "SIGTERM",
+    "clamdPortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T03:03:37.510Z",
+          "available": true
+        }
+      ]
+    },
+    "clamdStopped": true,
+    "minioPortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T03:03:38.000Z",
+          "available": true
+        }
+      ]
+    },
+    "minioConsolePortRelease": {
+      "available": true,
+      "attempts": [
+        {
+          "at": "2026-09-09T03:03:38.001Z",
+          "available": true
+        }
+      ]
+    },
+    "minioStopped": true
+  },
+  "assertions": [
+    "Clean synthetic PDF accepted; harmless EICAR marker PDF rejected/no intake run.",
+    "Injected loopback storage outage produces delayed first attempt; same job retry retains claim and succeeds after storage restoration.",
+    "Unexpired lost-job lease not rediscovered; explicitly expired lease reconciled once and succeeds under a new claim.",
+    "System audit actor/job identity, scoped immutable version/hash receipts and unavailable/takeover audit evidence asserted by original existing test."
+  ],
+  "limitations": [
+    "Actual disposable PostgreSQL16.15/vector0.8.6, Redis, MinIO, registered worker and ClamAV1.5.4 engine; fixture-only EICAR body signature, not live malware definitions.",
+    "Lease expiry is explicitly advanced in disposable database; not an elapsed ten-minute production observation.",
+    "No product code changed for this proof; unrelated in-progress voice-media edits are outside measured scanner scope.",
+    "No production/provider/device/customer/release or full32QA/A-B-C acceptance claim."
+  ]
+}

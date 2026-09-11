@@ -8,6 +8,7 @@
     "embedding:claim-repair": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-claim-repair.ts",
     "jobs:terminal-redrive": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/terminal-redrive.ts",
     "agent-bridge:run": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/agent-bridge-runner.ts",
+    "character:complete-request": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/character-factory-executor.ts",
     "lint": "eslint --config ../../packages/config/eslint/base.js \"src/**/*.ts\"",
     "start": "node --require ./dist/sentry.js dist/bootstrap.js",
     "typecheck": "tsc --noEmit --project tsconfig.json",
@@ -29,7 +30,7 @@
     "ffmpeg-static": "^5.3.0",
     "ioredis": "^5.8.1",
     "resend": "^4.0.0",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "unzipper": "^0.12.5",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.0.0"

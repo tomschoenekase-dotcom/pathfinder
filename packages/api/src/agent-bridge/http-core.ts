@@ -15,6 +15,17 @@ const Method = z.enum([
   'completeTask',
   'failTask',
   'callProspectTool',
+  'listCharacterFactoryActions',
+  'submitCharacterCandidateReview',
+  'readCharacterCandidateReview',
+  'prepareCharacterFactoryJob',
+  'getCharacterFactoryJob',
+  'cancelCharacterFactoryJob',
+  'claimCharacterFactoryJob',
+  'heartbeatCharacterFactoryJob',
+  'beginCharacterArtifactUpload',
+  'completeCharacterFactoryJob',
+  'failCharacterFactoryJob',
 ])
 const Envelope = z.object({ method: Method, params: z.unknown() }).strict()
 const RouteScope = z
@@ -186,6 +197,42 @@ export async function handleAgentBridgeHttpRequestCore(
         break
       case 'callProspectTool':
         result = await dependencies.registry.callProspectTool(envelope.params, context)
+        break
+      case 'listCharacterFactoryActions':
+        result = await dependencies.registry.listCharacterFactoryActions(envelope.params, context)
+        break
+      case 'prepareCharacterFactoryJob':
+        result = await dependencies.registry.prepareCharacterFactoryJob(envelope.params, context)
+        break
+      case 'submitCharacterCandidateReview':
+        result = await dependencies.registry.submitCharacterCandidateReview(
+          envelope.params,
+          context,
+        )
+        break
+      case 'readCharacterCandidateReview':
+        result = await dependencies.registry.readCharacterCandidateReview(envelope.params, context)
+        break
+      case 'getCharacterFactoryJob':
+        result = await dependencies.registry.getCharacterFactoryJob(envelope.params, context)
+        break
+      case 'cancelCharacterFactoryJob':
+        result = await dependencies.registry.cancelCharacterFactoryJob(envelope.params, context)
+        break
+      case 'claimCharacterFactoryJob':
+        result = await dependencies.registry.claimCharacterFactoryJob(envelope.params, context)
+        break
+      case 'heartbeatCharacterFactoryJob':
+        result = await dependencies.registry.heartbeatCharacterFactoryJob(envelope.params, context)
+        break
+      case 'beginCharacterArtifactUpload':
+        result = await dependencies.registry.beginCharacterArtifactUpload(envelope.params, context)
+        break
+      case 'completeCharacterFactoryJob':
+        result = await dependencies.registry.completeCharacterFactoryJob(envelope.params, context)
+        break
+      case 'failCharacterFactoryJob':
+        result = await dependencies.registry.failCharacterFactoryJob(envelope.params, context)
         break
     }
     return json(200, { ok: true, result }, requestId)

@@ -130,9 +130,9 @@ describe('VenueChatFixture', () => {
       (screen.getByRole('button', { name: 'Reconnect to send message' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true)
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
 
     view.rerender(
       <VenueChatFixture
@@ -152,6 +152,39 @@ describe('VenueChatFixture', () => {
     ).toBe(false)
   })
 
+  it('removes failed chat branding and restores the unbranded header treatment', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        branding="approved"
+      />,
+    )
+
+    const header = container.querySelector('header')!
+    const images = header.querySelectorAll('img')
+    expect(images).toHaveLength(2)
+
+    fireEvent.load(images[0]!)
+    expect(header.getAttribute('data-branding-banner-state')).toBe('ready')
+    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain('text-white')
+    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('text-white')
+
+    fireEvent.error(images[0]!)
+    fireEvent.error(images[1]!)
+    expect(header.querySelectorAll('img')).toHaveLength(0)
+    expect(header.getAttribute('data-branding-banner-state')).toBe('failed')
+    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain(
+      'text-[var(--chat-text)]',
+    )
+    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain(
+      'text-[var(--chat-text)]',
+    )
+  })
+
   it('exercises the production route planner with deterministic reviewed locations', async () => {
     render(
       <VenueChatFixture
@@ -160,11 +193,28 @@ describe('VenueChatFixture', () => {
         conversation="long"
         asset="ok"
         motion="reduced"
+        voice="idle"
         route="ready"
       />,
     )
 
     const plannerToggle = await screen.findByRole('button', { name: 'Plan a route' })
+    const voiceToggle = screen.getByRole('button', { name: 'Start voice conversation' })
+    const voiceControls = screen.getByRole('region', { name: 'Voice controls' })
+    const conversationLog = screen.getByRole('log', { name: 'Conversation' })
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect(conversationLog.contains(plannerToggle)).toBe(true)
+    expect(conversationLog.contains(voiceToggle)).toBe(false)
+    expect(voiceControls.contains(voiceToggle)).toBe(true)
+    expect(voiceControls.tabIndex).toBe(0)
+    expect(conversationLog.contains(composer)).toBe(false)
+    expect(
+      plannerToggle.compareDocumentPosition(voiceToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+    expect(
+      voiceToggle.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+
     fireEvent.click(plannerToggle)
     fireEvent.click(screen.getByLabelText('Use only connections marked accessible'))
     fireEvent.click(screen.getByRole('button', { name: 'Find route' }))

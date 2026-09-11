@@ -1,0 +1,130 @@
+{
+  "recordedAt": "2026-09-08T14:01:28.036855+00:00",
+  "scope": "P04-02 exact same-run operator-question deduplication",
+  "baseCommit": "b1554796",
+  "nativeProof": {
+    "database": "pathfinder_disposable_agent_question_dedup_1772f68dfadb",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-question-dedup-1772f68dfadb",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "expectedMigrations": 236,
+    "expectedTables": 256,
+    "migrationsPassed": true,
+    "databaseReadbackPassed": true,
+    "testPassed": true,
+    "testCounts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "sourceHashes": {
+      "docs/agent-question-deduplication.md": "ab5e1d58a9fecc487bcb937e17ef19c03c036a0e1381ed0839d5ca9fd6a58842",
+      "packages/api/src/mcp/agent-actions.test.ts": "e3575c04ddf8e2ebf0ea1b65b2683ac3ba81ef8d2a58d8362e8d0d778abdb419",
+      "packages/db/src/middleware/tenant-isolation.test.ts": "7a2570d6858f25f2f7474e260a592e6a6423c3d9ad04689193a45c3483021472",
+      "Dockerfile.web.staging": "5057bf191e2f1d6cdec52bf9d9062b2bf31daec727bb11a94f71f53b53f95440",
+      "docs/railway-staging.md": "4c7dc4657c2c40a0b989285fec5e85e3752ceb5690cc19e704550512e908ccf3",
+      "scripts/staging-migration-predeploy.test.mjs": "f144242c91b47fb01777aba8b02ea108979800b5e6f5a7b6dc3d1401cf9e1efd",
+      "packages/db/prisma/schema.prisma": "c7de2a8fffc1ba4f7ed877149cfad0ea49ee3bec8737cfa8a5b7747edbdae963",
+      "packages/db/prisma/migrations/20260908160000_add_agent_question_operations/migration.sql": "7f357f871858b2413b83368dece3110c2e7652ad8122058a2e3446858ab6f5c4",
+      "packages/db/src/agent-question-dedup.disposable.integration.test.ts": "289d70c7dbcadda85987a89fbeb0d6ca4c083c4e73e9d3e31ffa6aacd040c5e9",
+      "packages/db/src/helpers/agent-question-actions.ts": "6138fbb5df436186f049a596d5ecdb8027c730f193849c01177586ad5fc0bf6c",
+      "packages/db/src/helpers/agent-question-actions.test.ts": "fdfb7cbf8478fec3ee73ae936e7d0e0fd6cb142bcc19dbfacfc8d67d6085ed1e",
+      "packages/db/src/helpers/agent-question-expiration-actions.ts": "dced50d2840de7089a7a4e69161311f816baf934691704215f24766cc325e9d0",
+      "packages/db/src/helpers/audit.ts": "a9033dc1bcc66238ebe6b5089e3cbfd0f3879f5f349cde932bebde9e549793c5",
+      "packages/db/src/client.ts": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237",
+      "packages/db/src/tenanted-tables.ts": "9975a5cf170d6917161a0cb13596063d297c614ccf16a3ef31c4e880d008e43a",
+      "packages/db/src/middleware/tenant-isolation.ts": "5529f95b22be7e3496fd1fe72f1ec087989ba700dbd9ce511ad68e159aaac6b2",
+      "packages/api/src/mcp/agent-actions.ts": "cbec7ecc1b7aa1a39d91136a9d08c0d8ce8f353a7bb86d24013878db96aed04e",
+      "packages/api/src/prospect-agent/registry.ts": "949eafdaa334406b30825c675b3cca87fae52831f9dcfb0c06e97c5ac3a49831",
+      "scripts/lib/disposable-prisma-migration.mjs": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e",
+      "scripts/lib/staging-migration-admission.mjs": "3c57498faccf46b31cb7930bdc2eed463b56c846a21bdfb19b5efaff003903fb",
+      "scripts/run-staging-migration-predeploy.mjs": "599a24b119093d943f68a2765b0b3f6776d3bc0a1f90773d4b9bc7aa88cf8ddc",
+      "pnpm-lock.yaml": "3542a66b4ff94ad33fad494066a83074ebd4f491d358452073f6dc039433da44"
+    },
+    "stopped": true
+  },
+  "nativeSession": 3882,
+  "nativePort55489Absent": true,
+  "focusedTests": [
+    {
+      "command": "pnpm --filter @pathfinder/db exec vitest run src/helpers/agent-question-actions.test.ts src/middleware/tenant-isolation.test.ts",
+      "passed": 341,
+      "breakdown": {
+        "helper": 14,
+        "middleware": 327
+      }
+    },
+    {
+      "command": "pnpm --filter @pathfinder/api exec vitest run src/mcp/agent-actions.test.ts src/prospect-agent/registry.test.ts",
+      "passed": 14,
+      "breakdown": {
+        "mcp": 2,
+        "prospect": 12
+      }
+    },
+    {
+      "command": "node --test scripts/staging-migration-predeploy.test.mjs",
+      "passed": 11
+    }
+  ],
+  "otherChecks": [
+    "DB and API typechecks passed after narrow projection review.",
+    "Targeted implementation and final native-fixture ESLint passed.",
+    "Prisma format/generate/validate passed; native migration applied all236 and read back256tables.",
+    "Independent review led to immutable alias database triggers; native SQLSTATE55000 rejection verified."
+  ],
+  "migrationBoundary": {
+    "count": 236,
+    "tables": 256,
+    "finalMigration": "20260908160000_add_agent_question_operations",
+    "lfNormalizedManifestSha256": "f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9",
+    "retainedPredecessor": {
+      "count": 235,
+      "tables": 255,
+      "manifestSha256": "968270ab6d65dd64e9b3027e3c6d6b906d4805d7312190eecaa3b269cc34d0e5"
+    }
+  },
+  "diagnostics": [
+    {
+      "proof": "e0136119e8e7",
+      "stopped": true,
+      "reason": "Fixture seeded RUNNING run without required startedAt; corrected fixture."
+    },
+    {
+      "proof": "cb1244783735",
+      "stopped": true,
+      "reason": "Raw fixture UUID predicate needed explicit cast to reach the immutable trigger; corrected fixture SQL."
+    }
+  ],
+  "limitations": [
+    "Native fixture uses tenant-isolation bypass; middleware boundaries covered separately by unit tests, no live account/authbrowser proof.",
+    "Backfill proof replays exact migration INSERT against a predecessor-style row before aliases exist; not a full populated235-to236 upgrade.",
+    "Exact immutable payload within same non-null run only; broader semantic deduplication and full founder workload remain.",
+    "No deployment, live provider, customer contact or branding changes."
+  ],
+  "sourceHashesLfNormalized": {
+    "docs/agent-question-deduplication.md": "34525d196289ddf4f5dca09ff4c0a4c2b3966c05ff4d2a1e77b2a6f8207bf7da",
+    "packages/api/src/mcp/agent-actions.test.ts": "e3575c04ddf8e2ebf0ea1b65b2683ac3ba81ef8d2a58d8362e8d0d778abdb419",
+    "packages/db/src/middleware/tenant-isolation.test.ts": "7a2570d6858f25f2f7474e260a592e6a6423c3d9ad04689193a45c3483021472",
+    "Dockerfile.web.staging": "c88487630c8afe9f0b1ab077d099c91b6f71be753cfca1b940f35d6fb4ae1ccd",
+    "docs/railway-staging.md": "ae6807b8c87eef2a66f83368dceb819255a20988b50799d882cb8f8418304326",
+    "scripts/staging-migration-predeploy.test.mjs": "f144242c91b47fb01777aba8b02ea108979800b5e6f5a7b6dc3d1401cf9e1efd",
+    "packages/db/prisma/schema.prisma": "c7de2a8fffc1ba4f7ed877149cfad0ea49ee3bec8737cfa8a5b7747edbdae963",
+    "packages/db/prisma/migrations/20260908160000_add_agent_question_operations/migration.sql": "7f357f871858b2413b83368dece3110c2e7652ad8122058a2e3446858ab6f5c4",
+    "packages/db/src/agent-question-dedup.disposable.integration.test.ts": "289d70c7dbcadda85987a89fbeb0d6ca4c083c4e73e9d3e31ffa6aacd040c5e9",
+    "packages/db/src/helpers/agent-question-actions.ts": "6138fbb5df436186f049a596d5ecdb8027c730f193849c01177586ad5fc0bf6c",
+    "packages/db/src/helpers/agent-question-actions.test.ts": "fdfb7cbf8478fec3ee73ae936e7d0e0fd6cb142bcc19dbfacfc8d67d6085ed1e",
+    "packages/db/src/helpers/agent-question-expiration-actions.ts": "dced50d2840de7089a7a4e69161311f816baf934691704215f24766cc325e9d0",
+    "packages/db/src/helpers/audit.ts": "218dd5809e6e7c9c8becdfd2b666c6cc912988a0c76011cd03417d59502d44f9",
+    "packages/db/src/client.ts": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869",
+    "packages/db/src/tenanted-tables.ts": "9975a5cf170d6917161a0cb13596063d297c614ccf16a3ef31c4e880d008e43a",
+    "packages/db/src/middleware/tenant-isolation.ts": "5529f95b22be7e3496fd1fe72f1ec087989ba700dbd9ce511ad68e159aaac6b2",
+    "packages/api/src/mcp/agent-actions.ts": "cbec7ecc1b7aa1a39d91136a9d08c0d8ce8f353a7bb86d24013878db96aed04e",
+    "packages/api/src/prospect-agent/registry.ts": "949eafdaa334406b30825c675b3cca87fae52831f9dcfb0c06e97c5ac3a49831",
+    "scripts/lib/disposable-prisma-migration.mjs": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7",
+    "scripts/lib/staging-migration-admission.mjs": "3c57498faccf46b31cb7930bdc2eed463b56c846a21bdfb19b5efaff003903fb",
+    "scripts/run-staging-migration-predeploy.mjs": "6194b5badeea6f9b24ef280065e0f45c0654ed234e04203f2be7ae3ae03351ff",
+    "pnpm-lock.yaml": "3542a66b4ff94ad33fad494066a83074ebd4f491d358452073f6dc039433da44"
+  }
+}

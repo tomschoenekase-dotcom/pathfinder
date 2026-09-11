@@ -251,6 +251,10 @@ jobs:
       - name: Verify Packet 2 automated accessibility contracts
         run: pnpm test:accessibility
       - run: pnpm turbo run typecheck
+      - name: Prove billing command races and recovery on disposable PostgreSQL
+        env:
+          RUN_BILLING_COMMAND_DB_INTEGRATION: '1'
+        run: pnpm --filter @pathfinder/billing exec vitest run src/agent-commands-disposable.integration.test.ts
       - run: pnpm turbo run lint
       - name: Verify workspace test graph
         run: node scripts/run-ci-workspace-tests.mjs

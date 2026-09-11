@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   proposalFind: vi.fn(),
+  proposalList: vi.fn(),
   insightFind: vi.fn(),
   targetFind: vi.fn(),
+  messageFind: vi.fn(),
   proposalCreate: vi.fn(),
   transaction: vi.fn(),
   audit: vi.fn(),
@@ -15,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   createOperationalUpdate: vi.fn(),
   operationalFinalizer: vi.fn(),
   operationalHandoffFind: vi.fn(),
+  createUniversalDraft: vi.fn(),
   askQuestion: vi.fn(),
   identityFind: vi.fn(),
   identitiesFind: vi.fn(),
@@ -29,11 +32,12 @@ const transactionClient = {
   },
   conversationInsight: { findFirst: mocks.insightFind },
   venueKnowledgeEntry: { findFirst: mocks.targetFind },
+  message: { findMany: mocks.messageFind },
 }
 
 vi.mock('@pathfinder/db', () => ({
   db: {
-    knowledgeChangeProposal: { findMany: vi.fn() },
+    knowledgeChangeProposal: { findMany: mocks.proposalList },
     $transaction: (callback: (client: typeof transactionClient) => Promise<unknown>) =>
       mocks.transaction(callback, transactionClient),
   },
@@ -69,6 +73,9 @@ vi.mock('../../lib/semantic-venue-update-finalizer', () => ({
 }))
 vi.mock('../../lib/semantic-operational-update-finalizer', () => ({
   semanticOperationalUpdateDraftFinalizer: mocks.operationalFinalizer,
+}))
+vi.mock('../../lib/semantic-universal-content-handoff-service', () => ({
+  createSemanticUniversalContentDraftService: mocks.createUniversalDraft,
 }))
 vi.mock('../venue-package', () => ({
   createVenuePackageDraftService: mocks.createVenuePackageDraft,
@@ -122,7 +129,9 @@ describe('admin knowledge proposals', () => {
       id: input.conversationInsightId,
       sessionId: 'session-1',
     })
+    mocks.proposalFind.mockResolvedValue(null)
     mocks.targetFind.mockResolvedValue(null)
+    mocks.messageFind.mockResolvedValue(input.evidenceMessageIds.map((id) => ({ id })))
     mocks.proposalCreate.mockResolvedValue({ id: operationId, status: 'PENDING_REVIEW' })
     mocks.audit.mockResolvedValue(undefined)
     mocks.publish.mockResolvedValue(undefined)
@@ -148,6 +157,14 @@ describe('admin knowledge proposals', () => {
     mocks.createOperationalUpdate.mockResolvedValue({
       update: { id: '44444444-4444-4444-8444-444444444444', status: 'DRAFT' },
       preview: { lifecycle: 'DRAFT' },
+    })
+    mocks.createUniversalDraft.mockResolvedValue({
+      moduleId: '44444444-4444-4444-8444-444444444444',
+      revisionId: 'revision-2',
+      version: 2,
+      classification: 'CORRECTION',
+      draftHash: 'd'.repeat(64),
+      replayed: false,
     })
     mocks.semanticPreview.mockResolvedValue({
       proposalStatus: 'APPROVED',
@@ -224,6 +241,70 @@ describe('admin knowledge proposals', () => {
       app.createCaller(context()).admin.createKnowledgeProposal(input),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.proposalCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['another tenant', [{ id: input.evidenceMessageIds[0] }]],
+    ['another venue', [{ id: input.evidenceMessageIds[0] }]],
+    ['another session', [{ id: input.evidenceMessageIds[0] }]],
+    ['a nonexistent message', [{ id: input.evidenceMessageIds[0] }]],
+  ])('rejects %s evidence instead of persisting unverified IDs', async (_label, evidence) => {
+    mocks.messageFind.mockResolvedValueOnce(evidence)
+
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal(input),
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(mocks.proposalCreate).not.toHaveBeenCalled()
+    expect(mocks.messageFind).toHaveBeenCalledWith({
+      where: {
+        id: { in: input.evidenceMessageIds },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        sessionId: 'session-1',
+      },
+      select: { id: true },
+    })
+  })
+
+  it('allows repeated valid evidence IDs while retaining their ordered audit payload', async () => {
+    const repeatedEvidenceMessageIds = [input.evidenceMessageIds[0]!, input.evidenceMessageIds[0]!]
+    mocks.messageFind.mockResolvedValueOnce([{ id: repeatedEvidenceMessageIds[0] }])
+
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal({
+        ...input,
+        operationId: '44444444-4444-4444-8444-444444444444',
+        evidenceMessageIds: repeatedEvidenceMessageIds,
+      }),
+    ).resolves.toMatchObject({ status: 'PENDING_REVIEW', replayed: false })
+
+    expect(mocks.messageFind).toHaveBeenCalledWith({
+      where: {
+        id: { in: [repeatedEvidenceMessageIds[0]] },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        sessionId: 'session-1',
+      },
+      select: { id: true },
+    })
+    expect(mocks.proposalCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ evidenceMessageIds: repeatedEvidenceMessageIds }),
+      }),
+    )
+  })
+
+  it('allows the existing empty-evidence generic proposal path without a message lookup', async () => {
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal({
+        ...input,
+        operationId: '33333333-3333-4333-8333-333333333333',
+        evidenceMessageIds: [],
+      }),
+    ).resolves.toMatchObject({ status: 'PENDING_REVIEW', replayed: false })
+    expect(mocks.messageFind).not.toHaveBeenCalled()
   })
 
   it('maps a concurrent active-proposal uniqueness race to a stable conflict', async () => {
@@ -584,6 +665,7 @@ describe('admin knowledge proposals', () => {
         id: 'question-1',
         status: 'ANSWERED',
         answer: 'Use the signed hours sheet.',
+        answerHash: 'd4e4c404ef4019636ad420aefe855ec91174b0e8267a4341101f972b6807f424',
       },
       questionAgentIdentities: [
         { id: 'content-agent-1', identityKey: 'content-steward', name: 'Content Steward' },
@@ -759,5 +841,300 @@ describe('admin knowledge proposals', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.createVenuePackageDraft).not.toHaveBeenCalled()
+  })
+
+  it('routes a full typed semantic draft without granting publication authority', async () => {
+    const desired = {
+      title: 'Museum hours',
+      category: 'POLICY',
+      content: 'Open 9–5 daily.',
+      isEnabled: true,
+    }
+    await expect(
+      app.createCaller(context()).admin.createSemanticUniversalContentDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedProposalUpdatedAt: '2026-08-25T13:00:00.000Z',
+        expectedPreviewHash: 'a'.repeat(64),
+        relation: 'CORRECTS',
+        desired,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: desired.title,
+            rule: desired.content,
+            appliesTo: [],
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      revisionId: 'revision-2',
+      requiresExplicitPublication: true,
+      autoPublished: false,
+    })
+    expect(mocks.createUniversalDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'admin-1',
+        input: expect.objectContaining({
+          desired,
+          draft: expect.objectContaining({ audience: 'PUBLIC' }),
+        }),
+      }),
+    )
+  })
+  it('returns the saved replacement wording and relation without exposing the resolution record', async () => {
+    const desired = {
+      title: 'Gallery access',
+      category: 'ACCESS',
+      content: 'Use the east door.',
+      isEnabled: false,
+    }
+    mocks.proposalList.mockResolvedValueOnce([
+      {
+        id: operationId,
+        supportRequestId: null,
+        supportRequestVersion: null,
+        targetKnowledgeEntry: {
+          contentModuleId: 'native-module',
+          contentRevisionId: 'native-revision',
+          contentPublicationId: 'native-publication',
+        },
+        producedByConflictResolution: {
+          desired,
+          relation: 'SUPERSEDES',
+          proposal: { supportRequestId: 'support-original', supportRequestVersion: 4 },
+        },
+      },
+      {
+        id: 'direct',
+        supportRequestId: 'support-direct',
+        supportRequestVersion: 3,
+        targetKnowledgeEntry: {
+          contentModuleId: null,
+          contentRevisionId: null,
+          contentPublicationId: null,
+        },
+        producedByConflictResolution: null,
+      },
+      {
+        id: 'ordinary',
+        supportRequestId: null,
+        supportRequestVersion: null,
+        targetKnowledgeEntry: null,
+        producedByConflictResolution: null,
+      },
+    ])
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows).toEqual([
+      {
+        id: operationId,
+        supportRequestId: null,
+        supportRequestVersion: null,
+        duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
+        hasSupportProvenance: true,
+        hasLegacyTarget: false,
+        resolutionDraft: { desired, relation: 'SUPERSEDES' },
+      },
+      {
+        id: 'direct',
+        supportRequestId: 'support-direct',
+        supportRequestVersion: 3,
+        duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
+        hasSupportProvenance: true,
+        hasLegacyTarget: true,
+        resolutionDraft: null,
+      },
+      {
+        id: 'ordinary',
+        supportRequestId: null,
+        supportRequestVersion: null,
+        duplicateResolution: null,
+        canRecordReviewedDecline: false,
+        reviewedDecline: null,
+        hasSupportProvenance: false,
+        hasLegacyTarget: false,
+        resolutionDraft: null,
+      },
+    ])
+    expect(mocks.proposalList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: 'venue-1' },
+        select: expect.objectContaining({
+          producedByConflictResolution: {
+            select: {
+              desired: true,
+              relation: true,
+              proposal: { select: { supportRequestId: true, supportRequestVersion: true } },
+            },
+          },
+          targetKnowledgeEntry: {
+            select: {
+              contentModuleId: true,
+              contentRevisionId: true,
+              contentPublicationId: true,
+            },
+          },
+          duplicateResolution: {
+            select: {
+              id: true,
+              proposalUpdatedAt: true,
+              targetKnowledgeEntryId: true,
+              relation: true,
+              createdAt: true,
+            },
+          },
+        }),
+      }),
+    )
+  })
+
+  it('projects a durable duplicate receipt separately from current fulfillment', async () => {
+    const current = new Date('2026-09-10T12:00:00.000Z')
+    mocks.proposalList.mockResolvedValueOnce([
+      {
+        id: 'current-duplicate',
+        status: 'APPROVED',
+        updatedAt: current,
+        duplicateResolution: {
+          id: 'resolution-current',
+          proposalUpdatedAt: current,
+          targetKnowledgeEntryId: 'target-current',
+          relation: 'CORRECTS',
+          createdAt: new Date('2026-09-10T11:00:00.000Z'),
+        },
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+      {
+        id: 'historical-duplicate',
+        status: 'PUBLISHED',
+        updatedAt: current,
+        duplicateResolution: {
+          id: 'resolution-historical',
+          proposalUpdatedAt: new Date('2026-09-10T11:59:59.000Z'),
+          targetKnowledgeEntryId: 'target-historical',
+          relation: 'SUPERSEDES',
+          createdAt: new Date('2026-09-10T11:00:00.000Z'),
+        },
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+      {
+        id: 'no-duplicate',
+        status: 'APPROVED',
+        updatedAt: current,
+        duplicateResolution: null,
+        producedByConflictResolution: null,
+        targetKnowledgeEntry: null,
+      },
+    ])
+
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows).toMatchObject([
+      {
+        id: 'current-duplicate',
+        duplicateResolution: {
+          resolutionId: 'resolution-current',
+          outcome: 'DUPLICATE_NOOP',
+          targetKnowledgeEntryId: 'target-current',
+          relation: 'CORRECTS',
+          proposalRevisionCurrent: true,
+          currentFulfillmentVerified: false,
+        },
+      },
+      {
+        id: 'historical-duplicate',
+        duplicateResolution: {
+          resolutionId: 'resolution-historical',
+          proposalRevisionCurrent: false,
+          currentFulfillmentVerified: false,
+        },
+      },
+      { id: 'no-duplicate', duplicateResolution: null },
+    ])
+    expect(rows[0]?.duplicateResolution).not.toHaveProperty('proposalUpdatedAt')
+  })
+  it('projects exact decline eligibility and bounded historical receipt metadata', async () => {
+    const updatedAt = new Date('2026-09-10T12:00:00.000Z')
+    const base = {
+      id: operationId,
+      status: 'REJECTED',
+      updatedAt,
+      supportRequestId: 'request-1',
+      supportRequestVersion: 2,
+      producedByConflictResolution: null,
+      targetKnowledgeEntry: null,
+      conflictResolutions: [],
+      reviewedDecline: null,
+    }
+    mocks.proposalList.mockResolvedValueOnce([
+      base,
+      { ...base, id: 'retired', conflictResolutions: [{ id: 'conflict' }] },
+      {
+        ...base,
+        id: 'recorded',
+        reviewedDecline: {
+          id: 'decline',
+          reviewedProposalUpdatedAt: updatedAt,
+          createdAt: updatedAt,
+        },
+      },
+      {
+        ...base,
+        id: 'changed',
+        reviewedDecline: {
+          id: 'decline-stale',
+          reviewedProposalUpdatedAt: new Date(0),
+          createdAt: updatedAt,
+        },
+      },
+      { ...base, id: 'not-support', supportRequestId: null, supportRequestVersion: null },
+    ])
+    const rows = await app
+      .createCaller(context())
+      .admin.listKnowledgeProposals({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(rows.map((row) => row.canRecordReviewedDecline)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+    ])
+    expect(rows[2]?.reviewedDecline).toEqual({
+      resolutionId: 'decline',
+      outcome: 'REVIEWED_DECLINE',
+      createdAt: updatedAt,
+      proposalRevisionCurrent: true,
+      currentFulfillmentVerified: false,
+    })
+    expect(rows[3]?.reviewedDecline?.proposalRevisionCurrent).toBe(false)
+    expect(rows[1]).not.toHaveProperty('conflictResolutions')
+    expect(rows[2]?.reviewedDecline).not.toHaveProperty('reviewedProposalUpdatedAt')
+  })
+
+  it('denies non-admin access to the explicit decline action', async () => {
+    const ctx = context()
+    const nonAdmin = { ...ctx, session: { ...ctx.session!, isPlatformAdmin: false } } as TRPCContext
+    await expect(
+      app.createCaller(nonAdmin).admin.recordSupportReviewedDecline({
+        operationId,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedProposalUpdatedAt: '2026-09-10T12:00:00.000Z',
+        resolutionNote: 'Do not apply this change.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })

@@ -13,6 +13,7 @@ type GuestPlaceCardCandidate = {
   areaName?: string | null
   hours?: string | null
   photoUrl?: string | null
+  photoAttribution?: GuestPlaceCard['photoAttribution']
   lat?: number | null
   lng?: number | null
   distanceMeters?: number | undefined
@@ -26,6 +27,12 @@ export type GuestPlaceCard = {
   areaName: string | null
   hours: string | null
   photoUrl: string | null
+  photoAttribution?: {
+    altText: string
+    caption: string | null
+    sourceName: string
+    sourceUrl: string | null
+  } | null
   distanceMeters: number | undefined
   lat: number | null
   lng: number | null
@@ -70,17 +77,6 @@ function hasValidCoordinatePair(
     lng >= -180 &&
     lng <= 180
   )
-}
-
-function safePhotoUrl(value: string | null | undefined): string | null {
-  if (!value || value.length > 2_000) return null
-
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
-  } catch {
-    return null
-  }
 }
 
 export function buildGuestPlaceCards({
@@ -132,7 +128,10 @@ export function buildGuestPlaceCards({
         shortDescription: boundedText(place.shortDescription, DESCRIPTION_LIMIT),
         areaName: boundedText(place.areaName, AREA_LIMIT),
         hours: boundedText(place.hours, HOURS_LIMIT),
-        photoUrl: hasLiveLocation ? safePhotoUrl(place.photoUrl) : null,
+        // Legacy Place.photoUrl is not bound to the revocable, rights-reviewed derivative ledger.
+        // Keep the grounded card text and location while the approved place-media binding is absent.
+        photoUrl: place.photoAttribution ? (place.photoUrl ?? null) : null,
+        ...(place.photoAttribution ? { photoAttribution: place.photoAttribution } : {}),
         distanceMeters,
         lat: hasCoordinates ? place.lat! : null,
         lng: hasCoordinates ? place.lng! : null,

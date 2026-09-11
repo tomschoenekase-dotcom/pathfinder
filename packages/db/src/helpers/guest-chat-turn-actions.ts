@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 
 import { db } from '../client'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
@@ -22,11 +23,13 @@ const requestObjectSchema = scopeSchema
   .extend({
     visitorId: z.string().uuid().nullable(),
     message: z.string().trim().min(1).max(1000),
+    entryPlaceId: z.string().trim().min(1).max(191).optional(),
     language: z.string().trim().min(1).max(64).nullable(),
     lat: z.number().finite().min(-90).max(90).nullable(),
     lng: z.number().finite().min(-180).max(180).nullable(),
     retainLocation: z.boolean(),
     experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
+    visitContext: GuestVisitContextInput.optional(),
   })
   .strict()
 
@@ -105,6 +108,27 @@ const citationSchema = z
   })
   .strict()
 
+export const GuestPlaceIdentityPending = z
+  .object({
+    version: z.literal('guest-place-identity-pending-v1'),
+    requestedName: z.string().trim().min(1).max(300),
+    candidates: z
+      .array(
+        z
+          .object({
+            id: z.string().trim().min(1).max(191),
+            name: z.string().trim().min(1).max(300),
+            floor: z.string().trim().max(300).nullable(),
+            location: z.string().trim().max(300).nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(65),
+  })
+  .strict()
+export type GuestPlaceIdentityPending = z.infer<typeof GuestPlaceIdentityPending>
+
 export const GuestChatReplayMetadata = z
   .object({
     places: z.array(placeCardSchema).max(20),
@@ -112,6 +136,7 @@ export const GuestChatReplayMetadata = z
     // Internal-only, content-addressed evidence for later bounded answer evaluation. Public replay
     // projections deliberately return only places and citations.
     answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
+    pendingPlaceIdentity: GuestPlaceIdentityPending.optional(),
   })
   .strict()
 
@@ -144,6 +169,10 @@ export type GuestChatRequest = z.input<typeof requestSchema>
 export type GuestChatClaim = z.infer<typeof claimSchema>
 export type GuestChatProviderOperationClaim = z.infer<typeof providerOperationSchema>
 export type GuestChatFinalize = z.input<typeof finalizeSchema>
+
+const adjacentPendingReadSchema = claimSchema
+  .extend({ experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']) })
+  .strict()
 
 export type GuestChatTurnActionErrorCode =
   | 'INVALID_INPUT'
@@ -178,6 +207,20 @@ function isP2002(error: unknown): boolean {
 }
 
 function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>): string {
+  const visitContext = value.visitContext
+  const visitedPlaceIds = visitContext?.visitedPlaceIds ?? []
+  const interests = visitContext?.interests ?? []
+  const canonicalVisitContext =
+    visitContext &&
+    (visitedPlaceIds.length > 0 || interests.length > 0 || visitContext.remainingMinutes != null)
+      ? {
+          visitedPlaceIds,
+          interests,
+          ...(visitContext.remainingMinutes != null
+            ? { remainingMinutes: visitContext.remainingMinutes }
+            : {}),
+        }
+      : undefined
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -187,11 +230,13 @@ function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>):
         anonymousToken: value.anonymousToken,
         visitorId: value.visitorId,
         message: value.message,
+        ...(value.entryPlaceId ? { entryPlaceId: value.entryPlaceId } : {}),
         language: value.language,
         lat: value.lat,
         lng: value.lng,
         retainLocation: value.retainLocation,
         experienceScope: value.experienceScope ?? 'PUBLIC',
+        ...(canonicalVisitContext ? { visitContext: canonicalVisitContext } : {}),
       }),
     )
     .digest('hex')
@@ -199,6 +244,31 @@ function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>):
 
 export function guestChatRequestHash(input: unknown): string {
   return hashParsedGuestChatRequest(parse(requestSchema, input))
+}
+
+function guestChatResponseHash(
+  response: string,
+  rawMetadata: unknown,
+  metadata: z.infer<typeof GuestChatReplayMetadata>,
+): string {
+  const hasMetadataField = (field: keyof z.infer<typeof GuestChatReplayMetadata>) =>
+    typeof rawMetadata === 'object' &&
+    rawMetadata !== null &&
+    Object.prototype.hasOwnProperty.call(rawMetadata, field)
+
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        response,
+        places: metadata.places,
+        ...(hasMetadataField('citations') ? { citations: metadata.citations } : {}),
+        ...(hasMetadataField('answerEvidence') ? { answerEvidence: metadata.answerEvidence } : {}),
+        ...(hasMetadataField('pendingPlaceIdentity')
+          ? { pendingPlaceIdentity: metadata.pendingPlaceIdentity }
+          : {}),
+      }),
+    )
+    .digest('hex')
 }
 
 const turnSelect = {
@@ -300,24 +370,11 @@ async function projectExistingTurn(
     if (!assistant || !metadata.success) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
-    const responseHash = createHash('sha256')
-      .update(
-        JSON.stringify({
-          response: assistant.content,
-          places: metadata.data.places,
-          ...(typeof turn.replayMetadata === 'object' &&
-          turn.replayMetadata !== null &&
-          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'citations')
-            ? { citations: metadata.data.citations }
-            : {}),
-          ...(typeof turn.replayMetadata === 'object' &&
-          turn.replayMetadata !== null &&
-          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'answerEvidence')
-            ? { answerEvidence: metadata.data.answerEvidence }
-            : {}),
-        }),
-      )
-      .digest('hex')
+    const responseHash = guestChatResponseHash(
+      assistant.content,
+      turn.replayMetadata,
+      metadata.data,
+    )
     if (responseHash !== turn.responseHash) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
@@ -836,6 +893,77 @@ export async function claimGuestChatTurnAction(args: {
   })
 }
 
+export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
+  client?: GuestChatTurnActionClient
+  claim: GuestChatClaim
+  experienceScope: 'PUBLIC' | 'SECOND_LAYER'
+  now?: Date
+}): Promise<GuestPlaceIdentityPending | null> {
+  const input = parse(adjacentPendingReadSchema, {
+    ...args?.claim,
+    experienceScope: args?.experienceScope,
+  })
+  const client = args.client ?? db
+
+  return client.$transaction(
+    async (tx) => {
+      await lockGuestChatTurnMutation(tx, { tenantId: input.tenantId, lockId: input.turnId })
+      const now = args.now ?? new Date()
+      const current = await tx.guestChatTurn.findFirst({
+        where: {
+          id: input.turnId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          requestId: input.requestId,
+          status: 'GENERATING',
+          leaseToken: input.claimId,
+          leaseExpiresAt: { gt: now },
+          session: {
+            anonymousToken: input.anonymousToken,
+            experienceScope: input.experienceScope,
+          },
+        },
+        select: { sessionId: true, turnSequence: true },
+      })
+      if (!current || current.turnSequence <= 1) return null
+
+      const previous = await tx.guestChatTurn.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          sessionId: current.sessionId,
+          turnSequence: current.turnSequence - 1,
+          status: 'COMPLETE',
+          userMessageId: { not: null },
+          assistantMessageId: { not: null },
+          completedAt: { not: null },
+          session: { experienceScope: input.experienceScope },
+        },
+        select: {
+          replayMetadata: true,
+          responseHash: true,
+          assistantMessage: { select: { content: true } },
+        },
+      })
+      if (!previous) return null
+      const metadata = GuestChatReplayMetadata.safeParse(previous.replayMetadata)
+      if (
+        !metadata.success ||
+        !previous.assistantMessage ||
+        guestChatResponseHash(
+          previous.assistantMessage.content,
+          previous.replayMetadata,
+          metadata.data,
+        ) !== previous.responseHash
+      ) {
+        return null
+      }
+      return metadata.data.pendingPlaceIdentity ?? null
+    },
+    { isolationLevel: 'Serializable' },
+  )
+}
+
 export async function markGuestChatProviderDispatchedAction(args: {
   client?: GuestChatTurnActionClient
   operation: GuestChatProviderOperationClaim
@@ -1090,16 +1218,11 @@ export async function finalizeGuestChatTurnAction(args: {
   const replayMetadata = JSON.parse(JSON.stringify(input.replayMetadata)) as z.infer<
     typeof GuestChatReplayMetadata
   >
-  const responseHash = createHash('sha256')
-    .update(
-      JSON.stringify({
-        response: input.assistantResponse,
-        places: replayMetadata.places,
-        citations: replayMetadata.citations,
-        ...(replayMetadata.answerEvidence ? { answerEvidence: replayMetadata.answerEvidence } : {}),
-      }),
-    )
-    .digest('hex')
+  const responseHash = guestChatResponseHash(
+    input.assistantResponse,
+    replayMetadata,
+    replayMetadata,
+  )
 
   const run = () =>
     client.$transaction(

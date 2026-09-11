@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-09",
+  "baseCommit": "9ec86417260cdffeec61f148d829ae5a90f4aca0",
+  "fieldRequirement": "FM02",
+  "classification": "partially solved",
+  "scope": "Shared gallery/floor identity compatibility and local prompt behavior, not current museum or live provider reproduction",
+  "implementation": [
+    "One compatibility function shared by identity projection and bounded fact selection",
+    "Explicit supplied floor and gallery constraints apply independently; null and blank remain unknown",
+    "Same-floor East/West gallery clarification resolves instead of repeating",
+    "Contradictory supplied clues producing zero compatible candidates remain unresolved and require clarification",
+    "Comparison/recommendation behavior and scope/budget boundaries retained",
+    "Voice prioritizes compatible identity facts before incompatible place facts; text still selects8",
+    "Known-incompatible same-name facts are excluded for identity intent, including when the resolved source is oversized; comparison ordering retained",
+    "Blank floor/gallery/area metadata normalizes to unknown",
+    "Grounded identity does not confirm unsupported user-supplied location descriptions; arbitrary clue parsing remains unimplemented"
+  ],
+  "promptIdentity": {
+    "version": "guest-chat-prompt-v20",
+    "contractHash": "02fa075cb3b072c23e89ecc1a675b10cb00302e1bd2aa9bf1b1ad9c0f0d4c6e8",
+    "previousVersion": "guest-chat-prompt-v19",
+    "limits": "Older prompt evaluations retain their prior revision/hash; no backfilled provider proof"
+  },
+  "unitProof": {
+    "passed": 247,
+    "failed": 0,
+    "report": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\gallery-identity-units-final.json",
+    "reportSha256": "40a4cef94af41a4d7769c571a891be48e88f8a0710fd5f074bbe73b43ac72147"
+  },
+  "checks": {
+    "apiTypecheck": "PASS",
+    "affectedConfiguredLint": "PASS",
+    "prettier": "PASS after formatting two files before native proof"
+  },
+  "nativeProof": {
+    "database": "pathfinder_disposable_native_guest_read_gallery_c0a5f89c2cfc",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-gallery-identity-c0a5f89c2cfc",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior",
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "retained": "measured-native-guest-read.disposable.integration.test.ts",
+        "sha256": "5201c50a720c3685cb6c91910de0e74e7a6400735d8270050d6e6ba16a89ca83"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.ts",
+        "retained": "measured-guest-place-media.ts",
+        "sha256": "5d921af24b29d8f53278e2225359254546d265cd961d9a36dd9f20456369079b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-media.test.ts",
+        "retained": "measured-guest-place-media.test.ts",
+        "sha256": "73c84de5ccf7a309b4d705368af5a7ea42bd4405b4016ec9912800e03d7717ee"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.ts",
+        "retained": "measured-voice-grounding-context.ts",
+        "sha256": "4cd98a339550303f5093b12d352d8af70c4f403fa411a16350d0bde14a1be895"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.ts",
+        "retained": "measured-guest-place-identity.ts",
+        "sha256": "967dfd3e26757aab6b5198b08966491fb82d94098de180d27d0548f61a209fea"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity.test.ts",
+        "retained": "measured-guest-place-identity.test.ts",
+        "sha256": "8ab5ff9c50fa423763cf84ad82bf4ba6d4af5aa37f1518b845ed114124ee019e"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.tsx",
+        "retained": "measured-VoiceControl.tsx",
+        "sha256": "132f2c228e22962924859b137ae6146bd8f7caa6ba2ad7ccb5b28ab9cb10514b"
+      },
+      {
+        "source": "apps/web/components/VoiceControl.test.tsx",
+        "retained": "measured-VoiceControl.test.tsx",
+        "sha256": "181533d26c57390b06dba5f19db3b934ca24ad5c606d7b0bd885895ccd7dedda"
+      },
+      {
+        "source": "packages/api/src/lib/voice-grounding-context.test.ts",
+        "retained": "measured-voice-grounding-context.test.ts",
+        "sha256": "9243f448ca07615d2170624254c3192405fc804f436eaa6411b1ded5f901cea1"
+      },
+      {
+        "source": "packages/api/src/routers/voice.ts",
+        "retained": "measured-voice.ts",
+        "sha256": "4b5e178f660eaa571e9d823190580f2552479369dacbee5609f2a6c623907cfd"
+      },
+      {
+        "source": "packages/api/src/routers/voice.test.ts",
+        "retained": "measured-voice.test.ts",
+        "sha256": "9744ee1be0b16b943269a62c4a43f947b0557f56da1947802fb9e2739dfdf146"
+      },
+      {
+        "source": "packages/api/src/routers/chat.ts",
+        "retained": "measured-chat.ts",
+        "sha256": "5950e3986a75e86902cc57e0c47e583be252dbd22267d2b3bdbbadee28a30a48"
+      },
+      {
+        "source": "packages/api/src/routers/chat.test.ts",
+        "retained": "measured-chat.test.ts",
+        "sha256": "445ac8eb4e6f8722b371ca3628c21645ba6ef4b7f16046dd70a59597f1c9a4b5"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.ts",
+        "retained": "measured-guest-place-identity-discovery.ts",
+        "sha256": "d053580994d906a943cdd3fd0465e5973bfab9d7b7d6a28569c6b121fcda0370"
+      },
+      {
+        "source": "packages/api/src/lib/guest-place-identity-discovery.test.ts",
+        "retained": "measured-guest-place-identity-discovery.test.ts",
+        "sha256": "b0c6abdb6dd3c77ad12e8387d7d5dcf434ec0c920ef22171f9529a8466170806"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.ts",
+        "retained": "measured-venue-context.ts",
+        "sha256": "1aa7d9b9454dc02f746366e72264f59a8095018b3d1e5f1606c314f91f3a86fe"
+      },
+      {
+        "source": "packages/api/src/lib/venue-context.test.ts",
+        "retained": "measured-venue-context.test.ts",
+        "sha256": "a8b9753d557cc8c3d18b9af2f03de781a957b32a7c572f46ca5be53a88fb22ac"
+      },
+      {
+        "source": "packages/contracts/src/prompt-contract.ts",
+        "retained": "measured-prompt-contract.ts",
+        "sha256": "c202b52911d1b0e04c1a04b8da0af6f4c7e0204fe7448fb79792aef58ef658be"
+      },
+      {
+        "source": "packages/api/src/lib/evaluation/evaluation.test.ts",
+        "retained": "measured-evaluation.test.ts",
+        "sha256": "9567d53037bfd92a7fa40e314481fda47b2f7baf4016cf967dade742c334c1f6"
+      },
+      {
+        "source": "packages/api/src/routers/location.ts",
+        "retained": "measured-location.ts",
+        "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+      },
+      {
+        "source": "packages/api/src/routers/location-reachable.ts",
+        "retained": "measured-location-reachable.ts",
+        "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+      },
+      {
+        "source": "packages/api/src/routers/location-route.ts",
+        "retained": "measured-location-route.ts",
+        "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+      },
+      {
+        "source": "packages/db/src/helpers/semantic-search.ts",
+        "retained": "measured-semantic-search.ts",
+        "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+      },
+      {
+        "source": "packages/db/src/helpers/native-guest-content-read.ts",
+        "retained": "measured-native-guest-content-read.ts",
+        "sha256": "0b3a5178294abd1909e480212ff6c767a1ade58381e68cbd723b3101cbc74662"
+      },
+      {
+        "source": "packages/api/src/lib/guest-visit-retrieval-query.ts",
+        "retained": "measured-guest-visit-retrieval-query.ts",
+        "sha256": "3e973d87846e28a5163be718890d0d532e17b0917430bd070e7f5dbf0a297d9e"
+      }
+    ],
+    "runnerSha256": "3dc12996d06b991dcd9db0d4b7fda9eb8100f54e229089d6e814bed58d648f73",
+    "vitest": {
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 3
+    },
+    "sourceHashesStable": true
+  },
+  "nativeBoundaries": [
+    "Real PostgreSQL16.15/vector0.8.6;238migrations258tables;one selected testPASS,two intentionally unselected,ownedprocessstopped",
+    "Existing nativeguestread authorization/dark/fallback/isolation/kill-switch rehearsal retained",
+    "Temporarily changed fixture anchors to same floor East/West, exercised voice grounding and actual chat send/synthetic provider prompt capture, then restored exact original anchors",
+    "All26 measured source hashes match current files at readback"
+  ],
+  "remainingGates": [
+    "Current museum package/model/fullSeptember8 transcripts unavailable",
+    "Spoken follow-up and actual provider compliance not tested",
+    "Seed-bound exact labels do not claim arbitrary alias/clue discovery",
+    "Full32QA/A/B/C and human/device/customer proof remain separately gated"
+  ],
+  "preliminaryProof": {
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-gallery-identity-00fb05ee27c6",
+    "passed": true,
+    "stopped": true,
+    "limit": "Superseded after final review found voice ordering and blank-label defects"
+  },
+  "review": "Root architecture/integration and Sol gallery_final_review. Review issues repaired: voice ordering, oversized resolved candidate substitution, blank label formatting. Arbitrary unmatched clue extraction remains explicitly pending; nonconfirmation policy added, not advertised as parser or liveprovider proof."
+}

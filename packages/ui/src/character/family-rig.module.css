@@ -1,0 +1,321 @@
+.rig {
+  --family-rig-intensity: 0.6;
+  position: relative;
+  display: inline-block;
+  width: min(100%, 15rem);
+  aspect-ratio: 1;
+  contain: layout paint style;
+  pointer-events: none;
+}
+
+.stage {
+  position: absolute;
+  inset: 6%;
+  display: grid;
+  place-items: center;
+  transform-origin: 50% 88%;
+}
+
+.skin,
+.layerStack {
+  z-index: 1;
+  display: block;
+  width: 86%;
+  height: 86%;
+  object-fit: contain;
+  transform-origin: 50% 82%;
+  filter: drop-shadow(0 0.65rem 0.55rem rgb(15 23 42 / 16%));
+}
+
+.layerStack,
+.layer {
+  position: absolute;
+  inset: 7%;
+  width: 86%;
+  height: 86%;
+}
+
+.layer {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 82%;
+}
+
+.neutralFallback {
+  display: grid;
+  width: 44%;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 2px solid #946224;
+  border-radius: 50%;
+  color: #946224;
+  background: #fffaf0;
+  font:
+    500 3rem/1 Georgia,
+    serif;
+}
+
+.ground {
+  position: absolute;
+  bottom: 5%;
+  width: 58%;
+  height: 7%;
+  border-radius: 50%;
+  background: rgb(15 23 42 / 13%);
+  filter: blur(0.25rem);
+}
+
+.rig[data-rig-motion='reduced'] .skin,
+.rig[data-rig-motion='reduced'] .layer,
+.rig[data-rig-motion='reduced'] .stage {
+  animation: none !important;
+  transform: none;
+}
+
+.rig[data-rig-state='idle']:not([data-rig-motion='reduced']) .stage {
+  animation: family-breathe 3.2s ease-in-out infinite;
+}
+
+.rig[data-rig-state='processing']:not([data-rig-motion='reduced']) .stage,
+.rig[data-rig-state='uploadReceiving']:not([data-rig-motion='reduced']) .stage {
+  animation: family-breathe 1.15s ease-in-out infinite;
+}
+
+.rig[data-rig-state='uploadComplete']:not([data-rig-motion='reduced']) .stage {
+  animation: family-react 680ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.rig[data-rig-state='question']:not([data-rig-motion='reduced']) .stage {
+  animation: family-question 1.4s ease-in-out infinite;
+}
+
+.rig[data-rig-state='handoff']:not([data-rig-motion='reduced']) .stage {
+  animation: family-handoff 1.7s ease-in-out infinite;
+}
+
+.rig[data-rig-state='sleeping']:not([data-rig-motion='reduced']) .stage {
+  animation: family-sleep 3.5s ease-in-out infinite;
+  opacity: 0.72;
+}
+
+.rig[data-rig-state='minimized']:not([data-rig-motion='reduced']) .stage {
+  transform: scale(0.78) translateY(12%);
+  opacity: 0.82;
+}
+
+.compact-creature-v1[data-rig-state='attention']:not([data-rig-motion='reduced']) .skin,
+.compact-creature-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .skin {
+  animation: owl-head-read 1.25s ease-in-out infinite alternate;
+}
+
+.compact-creature-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .skin {
+  animation: owl-call 560ms ease-in-out infinite;
+}
+
+.compact-creature-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_wing {
+  animation: owl-wing 560ms ease-in-out infinite;
+}
+
+.compact-creature-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
+.compact-creature-v1[data-rig-state='success']:not([data-rig-motion='reduced']) .skin {
+  animation: owl-hop 680ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.humanoid-v1[data-rig-state='attention']:not([data-rig-motion='reduced']) .skin,
+.humanoid-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .skin {
+  animation: astronaut-lean 1.6s ease-in-out infinite alternate;
+}
+
+.humanoid-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .skin {
+  animation: astronaut-speak 920ms ease-in-out infinite;
+}
+
+.humanoid-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .layer_head,
+.humanoid-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_head {
+  animation: astronaut-head 920ms ease-in-out infinite alternate;
+}
+
+.humanoid-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
+.humanoid-v1[data-rig-state='success']:not([data-rig-motion='reduced']) .skin {
+  animation: astronaut-celebrate 760ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.morph-v1[data-rig-state='attention']:not([data-rig-motion='reduced']) .skin,
+.morph-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .skin {
+  animation: morph-focus 1.45s ease-in-out infinite alternate;
+}
+
+.morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .skin {
+  animation: morph-speak 650ms ease-in-out infinite;
+}
+
+.morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_body {
+  animation: morph-speak 650ms ease-in-out infinite;
+}
+
+.morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_face {
+  animation: morph-face 650ms ease-in-out infinite;
+}
+
+.morph-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
+.morph-v1[data-rig-state='success']:not([data-rig-motion='reduced']) .skin {
+  animation: morph-celebrate 720ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.customRig[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layerStack {
+  animation: custom-semantic-speak 720ms ease-in-out infinite;
+}
+
+.customRig[data-rig-state='attention']:not([data-rig-motion='reduced']) .layerStack,
+.customRig[data-rig-state='listening']:not([data-rig-motion='reduced']) .layerStack {
+  animation: custom-semantic-attention 1.4s ease-in-out infinite alternate;
+}
+
+.customRig[data-rig-state='happy']:not([data-rig-motion='reduced']) .layerStack,
+.customRig[data-rig-state='success']:not([data-rig-motion='reduced']) .layerStack {
+  animation: family-react 680ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@keyframes custom-semantic-speak {
+  50% {
+    transform: scale(1.02, 0.98);
+  }
+}
+@keyframes custom-semantic-attention {
+  to {
+    transform: translateY(-2%) rotate(1deg);
+  }
+}
+
+.rig[data-rig-state='thinking']:not([data-rig-motion='reduced']) .skin {
+  animation: family-think 1.5s ease-in-out infinite;
+}
+
+.rig[data-rig-state='sad']:not([data-rig-motion='reduced']) .skin {
+  animation: family-sad 1.8s ease-in-out both;
+}
+
+.rig[data-rig-state='error']:not([data-rig-motion='reduced']) .skin {
+  animation: family-error 420ms ease-in-out 2;
+}
+
+.rig[data-rig-state='reaction']:not([data-rig-motion='reduced']) .skin {
+  animation: family-react 480ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+@keyframes family-breathe {
+  50% {
+    transform: translateY(-2%) scale(1.015);
+  }
+}
+@keyframes family-think {
+  50% {
+    transform: translate(-2%, -1%) rotate(-2deg);
+  }
+}
+@keyframes family-sad {
+  to {
+    transform: translateY(3%) scale(0.97);
+    filter: saturate(0.72) drop-shadow(0 0.4rem 0.4rem rgb(15 23 42 / 12%));
+  }
+}
+@keyframes family-error {
+  33% {
+    transform: translateX(-3%);
+  }
+  66% {
+    transform: translateX(3%);
+  }
+}
+@keyframes family-react {
+  50% {
+    transform: translateY(-7%) scale(1.055);
+  }
+}
+@keyframes family-question {
+  50% {
+    transform: rotate(2deg) translateY(-1.5%);
+  }
+}
+@keyframes family-handoff {
+  50% {
+    transform: translateX(2%);
+  }
+}
+@keyframes family-sleep {
+  50% {
+    transform: scale(0.98) translateY(1.5%);
+  }
+}
+@keyframes owl-head-read {
+  to {
+    transform: rotate(3deg) translateY(-1%);
+  }
+}
+@keyframes owl-call {
+  50% {
+    transform: scaleX(1.025) scaleY(0.975);
+  }
+}
+@keyframes owl-wing {
+  50% {
+    transform: rotate(-3deg) translateY(-1%);
+  }
+}
+@keyframes owl-hop {
+  55% {
+    transform: translateY(-9%) rotate(-2deg);
+  }
+}
+@keyframes astronaut-lean {
+  to {
+    transform: translateX(2%) rotate(1.5deg);
+  }
+}
+@keyframes astronaut-speak {
+  50% {
+    transform: rotate(-1deg) translateY(-1.5%);
+  }
+}
+@keyframes astronaut-head {
+  to {
+    transform: rotate(1.5deg) translateY(-1%);
+  }
+}
+@keyframes astronaut-celebrate {
+  55% {
+    transform: translateY(-6%) rotate(2.5deg);
+  }
+}
+@keyframes morph-focus {
+  to {
+    transform: scaleX(0.97) scaleY(1.035) translateY(-2%);
+  }
+}
+@keyframes morph-speak {
+  50% {
+    transform: scaleX(calc(1 + var(--family-rig-intensity) * 0.035))
+      scaleY(calc(1 - var(--family-rig-intensity) * 0.025));
+  }
+}
+@keyframes morph-face {
+  50% {
+    transform: translateY(2%) scaleY(0.96);
+  }
+}
+@keyframes morph-celebrate {
+  55% {
+    transform: translateY(-7%) scaleX(1.07) scaleY(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rig[data-rig-motion='system'] .skin,
+  .rig[data-rig-motion='system'] .layer,
+  .rig[data-rig-motion='system'] .stage {
+    animation: none !important;
+    transform: none;
+  }
+}

@@ -51,7 +51,7 @@ export function ApprovalDecisionForm({
   const isSupportPackageHandoffSupersession =
     proposedAction === 'pathfinder.apply_support_package_handoff_supersession'
   const isFounderDirectiveTask = proposedAction === 'torchiko.founder-directive.materialize-task'
-  const scope = `${tenantId}:${venueId}:${approvalRequestId}`
+  const scope = JSON.stringify([tenantId, venueId, approvalRequestId, proposedAction])
   const currentScope = useRef(scope)
   currentScope.current = scope
 
@@ -61,7 +61,11 @@ export function ApprovalDecisionForm({
     activeRead.current = null
     active.current = false
     setPending(false)
-  }, [approvalRequestId, tenantId, venueId])
+    setDecision('REJECTED')
+    setReason('')
+    setRequiresRefresh(false)
+    setFeedback(null)
+  }, [scope])
 
   useEffect(
     () => () => {
@@ -75,6 +79,10 @@ export function ApprovalDecisionForm({
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (active.current || requiresRefresh) return
+    const startedSequence = ++readSequence.current
+    const startedScope = scope
+    const isCurrent = () =>
+      readSequence.current === startedSequence && currentScope.current === startedScope
     active.current = true
     setPending(true)
     setFeedback(null)
@@ -158,6 +166,7 @@ export function ApprovalDecisionForm({
                           decision,
                           ...(reason.trim() ? { reason: reason.trim() } : {}),
                         })
+      if (!isCurrent()) return
       if (result.executionTriggered !== false) throw new Error('Unexpected execution state')
       setFeedback({
         kind: 'success',
@@ -186,6 +195,7 @@ export function ApprovalDecisionForm({
       setRequiresRefresh(true)
       router.refresh()
     } catch (error) {
+      if (!isCurrent()) return
       setRequiresRefresh(true)
       setFeedback({
         kind: 'error',
@@ -195,8 +205,10 @@ export function ApprovalDecisionForm({
             : 'The decision outcome could not be confirmed. No execution was requested. Refresh its state before retrying.',
       })
     } finally {
-      active.current = false
-      setPending(false)
+      if (isCurrent()) {
+        active.current = false
+        setPending(false)
+      }
     }
   }
 

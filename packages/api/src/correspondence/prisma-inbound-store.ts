@@ -326,7 +326,7 @@ export function createPrismaInboundCorrespondenceStore(
     },
     async quarantine(input) {
       const accountId = input.message?.message.providerAccountId ?? null
-      const quarantine = await withTenantIsolationBypass(() =>
+      const quarantine = await withTenantIsolationBypass<{ id: string }>(() =>
         db.prospectInboundQuarantine.create({
           data: {
             receiptId: input.receiptId,
@@ -349,6 +349,7 @@ export function createPrismaInboundCorrespondenceStore(
             candidateThreadIds: [...(input.candidateThreadIds ?? [])],
             occurredAt: input.occurredAt,
           },
+          select: { id: true },
         }),
       )
       await publishCrmOperationalSignal({

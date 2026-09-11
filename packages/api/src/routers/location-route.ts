@@ -4,6 +4,12 @@ export type RouteLocation = {
   kind: string
   displayName: string
   floor: { id: string; stableKey: string; name: string; level: number | null } | null
+  primaryPlace?: {
+    id: string
+    isActive: boolean
+    visibility: string
+    operationalUpdates?: { id: string }[]
+  } | null
 }
 
 export type RouteConnection = {
@@ -26,6 +32,15 @@ type RouteStep = {
 export type DeterministicRoutePlan = {
   steps: RouteStep[]
   hasEquivalentRoute: boolean
+}
+
+export function isPublicRouteLocationClosed(location: RouteLocation) {
+  const place = location.primaryPlace
+  return (
+    place?.isActive === true &&
+    place.visibility === 'PUBLIC' &&
+    (place.operationalUpdates?.length ?? 0) > 0
+  )
 }
 
 function hasReviewedDirections(connection: RouteConnection) {

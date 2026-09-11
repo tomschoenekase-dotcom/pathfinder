@@ -52,7 +52,15 @@ export async function requestTenantCancellation(params: {
     const replay = await tx.billingCustomerRequest.findFirst({
       where: { tenantId: params.tenantId, operationId: params.operationId },
     })
-    if (replay) return { request: replay, agreement: null, replayed: true }
+    if (replay) {
+      if (
+        replay.kind !== 'CANCELLATION' ||
+        replay.requestedBy !== params.actorId ||
+        replay.reason !== params.reason
+      )
+        throw new BillingServiceError('CONFLICT', 'Operation belongs to another billing request.')
+      return { request: replay, agreement: null, replayed: true }
+    }
     const account = await tx.billingAccount.findUnique({
       where: { tenantId: params.tenantId },
       include: {
@@ -126,46 +134,6 @@ export async function requestTenantCancellation(params: {
       reason: params.reason,
       operationId: params.operationId,
     })
-    const request = await client.$transaction(async (tx) => {
-      const completed = await tx.billingCustomerRequest.update({
-        where: { id: reserved.request.id, tenantId: params.tenantId },
-        data: {
-          status: 'COMPLETED',
-          providerActionAt: new Date(),
-          resolvedAt: new Date(),
-          resolvedBy: params.actorId,
-        },
-      })
-      await writeAuditLogStrict(
-        {
-          tenantId: params.tenantId,
-          actorId: params.actorId,
-          actorRole: params.actorRole,
-          action: 'billing.cancellation.sent-to-provider',
-          targetType: 'BillingCustomerRequest',
-          targetId: completed.id,
-          afterState: { awaitingVerifiedSubscriptionWebhook: true },
-        },
-        tx,
-      )
-      return completed
-    })
-    await publishOperationalEvent({
-      event: {
-        tenantId: params.tenantId,
-        eventType: 'billing.subscription-ending',
-        sourceSubsystem: 'billing',
-        severity: 'WARNING',
-        title: 'Customer requested subscription cancellation',
-        summary: 'Stripe was asked to cancel at period end. Access remains through paid-through.',
-        actionRequired: true,
-        recommendedAction: 'Review the customer reason in Billing and follow up through the CRM.',
-        linkedObjectType: 'BillingCustomerRequest',
-        linkedObjectId: request.id,
-        deduplicationKey: `billing-cancellation:${request.id}`,
-      },
-    })
-    return { request, replayed: false, awaitingWebhook: true }
   } catch (error) {
     await client.billingCustomerRequest.update({
       where: { id: reserved.request.id, tenantId: params.tenantId },
@@ -173,6 +141,46 @@ export async function requestTenantCancellation(params: {
     })
     throw error
   }
+  const request = await client.$transaction(async (tx) => {
+    const completed = await tx.billingCustomerRequest.update({
+      where: { id: reserved.request.id, tenantId: params.tenantId },
+      data: {
+        status: 'COMPLETED',
+        providerActionAt: new Date(),
+        resolvedAt: new Date(),
+        resolvedBy: params.actorId,
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        tenantId: params.tenantId,
+        actorId: params.actorId,
+        actorRole: params.actorRole,
+        action: 'billing.cancellation.sent-to-provider',
+        targetType: 'BillingCustomerRequest',
+        targetId: completed.id,
+        afterState: { awaitingVerifiedSubscriptionWebhook: true },
+      },
+      tx,
+    )
+    return completed
+  })
+  await publishOperationalEvent({
+    event: {
+      tenantId: params.tenantId,
+      eventType: 'billing.subscription-ending',
+      sourceSubsystem: 'billing',
+      severity: 'WARNING',
+      title: 'Customer requested subscription cancellation',
+      summary: 'Stripe was asked to cancel at period end. Access remains through paid-through.',
+      actionRequired: true,
+      recommendedAction: 'Review the customer reason in Billing and follow up through the CRM.',
+      linkedObjectType: 'BillingCustomerRequest',
+      linkedObjectId: request.id,
+      deduplicationKey: `billing-cancellation:${request.id}`,
+    },
+  })
+  return { request, replayed: false, awaitingWebhook: true }
 }
 
 export async function recordTenantAddOnInterest(params: {
@@ -192,7 +200,17 @@ export async function recordTenantAddOnInterest(params: {
     const replay = await tx.billingCustomerRequest.findFirst({
       where: { tenantId: params.tenantId, operationId: params.operationId },
     })
-    if (replay) return replay
+    if (replay) {
+      if (
+        replay.kind !== 'ADD_ON_INTEREST' ||
+        replay.requestedBy !== params.actorId ||
+        replay.featureKey !== params.featureKey ||
+        replay.venueId !== (params.venueId ?? null) ||
+        replay.reason !== (params.note ?? null)
+      )
+        throw new BillingServiceError('CONFLICT', 'Operation belongs to another billing request.')
+      return replay
+    }
     const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
     if (!account) throw new BillingServiceError('NOT_FOUND', 'No billing account is linked.')
     if (params.venueId) {

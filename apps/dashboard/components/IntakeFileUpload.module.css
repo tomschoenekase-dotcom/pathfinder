@@ -36,6 +36,25 @@
   line-height: 1.65;
 }
 
+.captureGuidance {
+  max-width: 52rem;
+  margin: 1.5rem 0;
+  border-left: 3px solid var(--aqua);
+  padding: 0.25rem 0 0.25rem 1rem;
+}
+
+.captureGuidance h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.captureGuidance p {
+  margin: 0.38rem 0 0;
+  color: rgba(16, 45, 72, 0.72);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--blue);
@@ -436,6 +455,7 @@
 
 .fileCategory {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.55rem;
@@ -445,6 +465,8 @@
 }
 
 .fileCategory select {
+  min-width: 0;
+  max-width: 100%;
   min-height: 2.75rem;
   font-size: 0.72rem;
 }
@@ -825,6 +847,16 @@
 
   .fileActions {
     padding-left: 0;
+  }
+
+  .fileCategory {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .fileCategory select {
+    width: 100%;
   }
 
   .fileActions .primaryButton,

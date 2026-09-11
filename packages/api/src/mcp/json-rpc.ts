@@ -112,6 +112,15 @@ export async function dispatchMcpJsonRpc(
         issues: caught.issues.map((issue) => ({ path: issue.path, code: issue.code })),
       })
     }
+    if (
+      caught instanceof Error &&
+      'code' in caught &&
+      String((caught as Error & { code: unknown }).code) === 'INVALID_CURSOR'
+    ) {
+      return error(id, -32602, 'Invalid params', {
+        reason: 'INVALID_CURSOR',
+      })
+    }
     const code =
       caught instanceof Error && 'code' in caught
         ? String((caught as Error & { code: unknown }).code)

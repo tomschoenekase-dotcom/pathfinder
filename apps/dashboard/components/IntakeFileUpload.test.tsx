@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -86,6 +86,61 @@ describe('quarantined intake file upload', () => {
     fireEvent.change(screen.getByLabelText('Choose files'), { target: { files: [file] } })
     return file
   }
+
+  it('offers concise optional walkthrough guidance and usable non-video alternatives before file selection', () => {
+    render(<IntakeFileUpload venueId="venue-a" uploads={[]} reserve={reserve} verify={verify} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'A useful walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/optional video of the entrance, visitor route, and useful signs/i),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Photos of those spots, a map or guide, or a short staff answer/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/avoid filming visitors or sharing private details/i)).toBeTruthy()
+    expect(screen.getByLabelText('Choose files')).toBeTruthy()
+  })
+
+  it('uses the saved museum category for optional plaque guidance without mandatory counts', () => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        venueCategory=" Museum "
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+      />,
+    )
+    expect(
+      screen.getByRole('heading', { name: 'A useful museum walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/entrance to a key gallery/i)).toBeTruthy()
+    expect(screen.getByText(/No fixed number of files is required/i)).toBeTruthy()
+    expect(
+      screen.getByText(/exhibit plaque, or label photos work well instead of video/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/visitor map or guide, or a short staff answer/i)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/at least \d+|minimum of \d+/iu)
+    expect(screen.getByLabelText('Choose files')).toBeTruthy()
+  })
+
+  it.each([null, 'Hotel'])('keeps generic guidance for category %s', (venueCategory) => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        venueCategory={venueCategory}
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+      />,
+    )
+    expect(
+      screen.getByRole('heading', { name: 'A useful walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(screen.queryByText(/exhibit plaque/i)).toBeNull()
+  })
 
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
@@ -486,6 +541,95 @@ describe('quarantined intake file upload', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/at most 20/)
   })
 
+  it('preserves valid, invalid, and interrupted files while each recoverable item continues', async () => {
+    fetchMock.mockReset().mockResolvedValue({ ok: true, status: 200 })
+    const reserveRequests = new Map<string, string[]>()
+    reserve.mockImplementation(
+      async (input: {
+        fileName: string
+        requestId: string
+        mimeType: string
+        byteSize: number
+      }) => {
+        reserveRequests.set(input.fileName, [
+          ...(reserveRequests.get(input.fileName) ?? []),
+          input.requestId,
+        ])
+        return {
+          upload: {
+            id: `upload-${input.fileName}`,
+            displayName: input.fileName,
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            byteSize: input.byteSize,
+            status: 'AWAITING_REVIEW',
+            rejectionCode: null,
+          },
+          replayed: reserveRequests.get(input.fileName)!.length > 1,
+          nextAction: 'REVIEW_STATUS',
+          uploadRequest: null,
+        }
+      },
+    )
+    verify.mockImplementation(async ({ uploadId }: { uploadId: string }) => ({
+      upload: {
+        id: uploadId,
+        displayName: uploadId,
+        fileName: uploadId,
+        mimeType: 'application/octet-stream',
+        byteSize: 1,
+        status: 'AWAITING_REVIEW',
+      },
+      retryable: false,
+      nextAction: 'PATHFINDER_REVIEW',
+    }))
+    const photo = new File(['photo'], 'gallery-entry.png', { type: 'image/png' })
+    const documentFile = new File(['guide'], 'arrival-guide.pdf', { type: 'application/pdf' })
+    const invalid = new File(['binary'], 'installer.exe', { type: 'application/x-msdownload' })
+    const { container } = render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+        initialQueue={[
+          {
+            localId: 'interrupted-photo',
+            file: photo,
+            category: 'PHOTO',
+            phase: 'error',
+            error: 'The connection paused. Retry to continue.',
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Choose files'), {
+      target: { files: [documentFile, invalid] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(reserve).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByText('Cannot be added')).toBeTruthy()
+    expect(reserveRequests.has('installer.exe')).toBe(false)
+    expect(screen.getByText('Checks complete — awaiting review')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(reserve).toHaveBeenCalledTimes(2))
+    expect(reserve.mock.calls.map(([input]) => input.fileName)).toEqual([
+      'arrival-guide.pdf',
+      'gallery-entry.png',
+    ])
+    expect(screen.getAllByText('Checks complete — awaiting review')).toHaveLength(2)
+
+    document.documentElement.lang = 'en'
+    const accessibility = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(accessibility.violations).toEqual([])
+  })
+
   it('treats drag-and-drop like browse selection, including automatic material typing', () => {
     const dropped = new File(['map'], 'floor-plan.pdf', {
       type: 'application/pdf',
@@ -862,6 +1006,143 @@ describe('quarantined intake file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
     expect(await screen.findByText('Checks complete — awaiting review')).toBeTruthy()
     expect(onCommitted).toHaveBeenCalledOnce()
+  })
+
+  it.each(['completion', 'failure'] as const)(
+    'ignores a late saved-check %s after the venue changes',
+    async (outcome) => {
+      let resolveCheck: ((value: Awaited<ReturnType<typeof verify>>) => void) | undefined
+      let rejectCheck: ((reason: Error) => void) | undefined
+      verify.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveCheck = resolve
+            rejectCheck = reject
+          }),
+      )
+      const onCommitted = vi.fn()
+      const savedUpload = (venue: string) => ({
+        id: 'shared-upload-id',
+        displayName: `${venue}-map.pdf`,
+        fileName: `${venue}-map.pdf`,
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'PRECHECK_PASSED',
+        clientVerification: {
+          kind: 'RESUME_CHECK' as const,
+          required: true,
+          actionLabel: `Resume ${venue} check`,
+          reason: `The ${venue} file still needs its security check.`,
+          retrySameSubmission: true,
+        },
+      })
+      const view = render(
+        <IntakeFileUpload
+          venueId="venue-a"
+          reserve={reserve}
+          verify={verify}
+          onCommitted={onCommitted}
+          uploads={[savedUpload('venue-a')]}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+      fireEvent.click(screen.getAllByRole('button', { name: 'Resume venue-a check' })[0]!)
+      await waitFor(() => expect(verify).toHaveBeenCalledOnce())
+
+      view.rerender(
+        <IntakeFileUpload
+          venueId="venue-b"
+          reserve={reserve}
+          verify={verify}
+          onCommitted={onCommitted}
+          uploads={[savedUpload('venue-b')]}
+        />,
+      )
+      await waitFor(() =>
+        expect(screen.getAllByRole('button', { name: 'Resume venue-b check' })).toHaveLength(2),
+      )
+
+      await act(async () => {
+        if (outcome === 'completion') {
+          resolveCheck?.({
+            upload: {
+              ...savedUpload('venue-a'),
+              status: 'AWAITING_REVIEW',
+              clientVerification: undefined,
+            },
+            retryable: false,
+            nextAction: 'PATHFINDER_REVIEW',
+          })
+        } else {
+          rejectCheck?.(new Error('late venue-a failure'))
+        }
+        await Promise.resolve()
+      })
+
+      await waitFor(() => expect(screen.getAllByText('venue-b-map.pdf')).toHaveLength(2))
+      expect(screen.getAllByRole('button', { name: 'Resume venue-b check' })).toHaveLength(2)
+      expect(screen.queryByText('venue-a-map.pdf')).toBeNull()
+      expect(screen.queryByText(/could not resume this check/iu)).toBeNull()
+      expect(onCommitted).not.toHaveBeenCalled()
+    },
+  )
+
+  it('ignores a late saved-check completion after unmount', async () => {
+    let resolveCheck: ((value: Awaited<ReturnType<typeof verify>>) => void) | undefined
+    verify.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCheck = resolve
+        }),
+    )
+    const onCommitted = vi.fn()
+    const view = render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        onCommitted={onCommitted}
+        uploads={[
+          {
+            id: 'upload-pending',
+            displayName: 'map.pdf',
+            fileName: 'map.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 8,
+            status: 'PRECHECK_PASSED',
+            clientVerification: {
+              kind: 'RESUME_CHECK',
+              required: true,
+              actionLabel: 'Resume security check',
+              reason: 'The saved file still needs its security check.',
+              retrySameSubmission: true,
+            },
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Resume security check' })[0]!)
+    await waitFor(() => expect(verify).toHaveBeenCalledOnce())
+    view.unmount()
+    await act(async () => {
+      resolveCheck?.({
+        upload: {
+          id: 'upload-pending',
+          displayName: 'map.pdf',
+          fileName: 'map.pdf',
+          mimeType: 'application/pdf',
+          byteSize: 8,
+          status: 'AWAITING_REVIEW',
+        },
+        retryable: false,
+        nextAction: 'PATHFINDER_REVIEW',
+      })
+      await Promise.resolve()
+    })
+
+    expect(onCommitted).not.toHaveBeenCalled()
   })
 
   it('can retry a saved file left in format verification without selecting it again', async () => {

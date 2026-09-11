@@ -65,6 +65,37 @@ describe('ProspectCorrespondenceHistory', () => {
     expect(screen.getByRole('button', { name: 'Classify reply' })).toBeTruthy()
   })
 
+  it('passes the retained invitation draft into the reloaded review surface', () => {
+    render(
+      <ProspectCorrespondenceHistory
+        enableReplyReviewActions
+        threads={[
+          {
+            ...threads[0]!,
+            messages: [
+              {
+                ...threads[0]!.messages[0]!,
+                onboardingDeliveryAttempts: [
+                  {
+                    id: 'attempt-1',
+                    status: 'DRAFT' as const,
+                    recipientEmailSnapshot: 'owner@example.org',
+                    templateVersion: 'positive-interest-v1',
+                    subject: 'Private preview',
+                    textBody: 'A retained draft.',
+                    createdAt: '2026-09-07T12:00:00.000Z',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Invitation draft · DRAFT')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /send/iu })).toBeNull()
+  })
+
   it('fails closed when the source URL is unsafe', () => {
     render(
       <ProspectCorrespondenceHistory

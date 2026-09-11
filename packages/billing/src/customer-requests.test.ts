@@ -178,6 +178,73 @@ describe('customer billing requests', () => {
     expect(tx.billingCustomerRequest.create).not.toHaveBeenCalled()
   })
 
+  it.each(['completion', 'notification'])(
+    'does not relabel provider success or resend cancellation after %s fails',
+    async (stage) => {
+      const processing = {
+        id: 'request-1',
+        status: 'PROCESSING',
+        kind: 'CANCELLATION',
+        requestedBy: 'owner-1',
+        reason: 'Seasonal closure',
+      }
+      const completed = { ...processing, status: 'COMPLETED' }
+      const failure = new Error(`Internal ${stage} unavailable`)
+      const tx = {
+        billingCustomerRequest: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(processing),
+          update:
+            stage === 'completion'
+              ? vi.fn().mockRejectedValue(failure)
+              : vi.fn().mockResolvedValue(completed),
+        },
+        billingAccount: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'account-1',
+            commercialAgreements: [
+              {
+                id: 'agreement-1',
+                stripeSubscriptionId: 'sub_test',
+                minimumCommitmentEndsAt: null,
+                cancelAtPeriodEnd: false,
+                status: 'ACTIVE',
+              },
+            ],
+          }),
+        },
+      }
+      const markFailed = vi.fn()
+      const client = {
+        $transaction: (action: (value: typeof tx) => unknown) => action(tx),
+        billingCustomerRequest: { update: markFailed },
+      }
+      const provider = { cancelSubscriptionAtPeriodEnd: vi.fn().mockResolvedValue(undefined) }
+      if (stage === 'notification') mocks.event.mockRejectedValueOnce(failure)
+      const input = {
+        tenantId: 'tenant-1',
+        actorId: 'owner-1',
+        actorRole: 'OWNER',
+        operationId: '44a1e58c-670c-47d5-b02d-24c56b0e7747',
+        reason: 'Seasonal closure',
+        provider: provider as never,
+        environment,
+        client: client as never,
+      }
+      await expect(requestTenantCancellation(input)).rejects.toBe(failure)
+      expect(markFailed).not.toHaveBeenCalled()
+      tx.billingCustomerRequest.findFirst.mockResolvedValue(
+        stage === 'completion' ? processing : completed,
+      )
+      await expect(requestTenantCancellation(input)).resolves.toMatchObject({
+        replayed: true,
+        awaitingWebhook: true,
+        request: { status: stage === 'completion' ? 'PROCESSING' : 'COMPLETED' },
+      })
+      expect(provider.cancelSubscriptionAtPeriodEnd).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('records approved catalog interest without charging or sending an email', async () => {
     const request = { id: 'request-1', featureKey: 'premium-voice', status: 'OPEN' }
     const tx = {
@@ -211,5 +278,67 @@ describe('customer billing requests', () => {
         }),
       }),
     )
+  })
+
+  it.each([{ kind: 'ADD_ON_INTEREST' }, { requestedBy: 'owner-2' }, { reason: 'Changed reason' }])(
+    'rejects changed cancellation replay before contacting the provider: %j',
+    async (changed) => {
+      const replay = {
+        kind: 'CANCELLATION',
+        requestedBy: 'owner-1',
+        reason: 'Seasonal closure',
+        ...changed,
+      }
+      const tx = { billingCustomerRequest: { findFirst: vi.fn().mockResolvedValue(replay) } }
+      const provider = { cancelSubscriptionAtPeriodEnd: vi.fn() }
+      await expect(
+        requestTenantCancellation({
+          tenantId: 'tenant-1',
+          actorId: 'owner-1',
+          actorRole: 'OWNER',
+          operationId: 'operation-1',
+          reason: 'Seasonal closure',
+          environment,
+          provider: provider as never,
+          client: { $transaction: (action: (value: typeof tx) => unknown) => action(tx) } as never,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(provider.cancelSubscriptionAtPeriodEnd).not.toHaveBeenCalled()
+    },
+  )
+
+  it('replays exact add-on interest and rejects changed scope, feature, actor, note or kind', async () => {
+    const replay = {
+      id: 'request-1',
+      kind: 'ADD_ON_INTEREST',
+      requestedBy: 'owner-1',
+      featureKey: 'premium-voice',
+      venueId: 'venue-1',
+      reason: null,
+    }
+    const tx = { billingCustomerRequest: { findFirst: vi.fn().mockResolvedValue(replay) } }
+    const input = {
+      tenantId: 'tenant-1',
+      actorId: 'owner-1',
+      actorRole: 'OWNER',
+      operationId: 'operation-1',
+      featureKey: 'premium-voice',
+      venueId: 'venue-1',
+      client: { $transaction: (action: (value: typeof tx) => unknown) => action(tx) } as never,
+    }
+    await expect(recordTenantAddOnInterest(input)).resolves.toMatchObject({ request: replay })
+    for (const changed of [
+      { venueId: 'venue-2' },
+      { featureKey: 'custom-branding' },
+      { actorId: 'owner-2' },
+      { note: 'A different request' },
+    ]) {
+      await expect(recordTenantAddOnInterest({ ...input, ...changed })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      })
+    }
+    tx.billingCustomerRequest.findFirst.mockResolvedValue({ ...replay, kind: 'CANCELLATION' })
+    await expect(recordTenantAddOnInterest(input)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.event).toHaveBeenCalledTimes(1)
   })
 })

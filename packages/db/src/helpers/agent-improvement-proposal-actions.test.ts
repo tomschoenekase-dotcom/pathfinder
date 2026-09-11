@@ -180,6 +180,148 @@ describe('agent improvement proposal actions', () => {
     expect(tx.approvalRequest.create).not.toHaveBeenCalled()
   })
 
+  it('retains safe question provenance and bounded generalization with a distinct counterexample', async () => {
+    const sourced = [
+      {
+        ...observations[0],
+        sourceQuestionId: 'question-1',
+        sourceQuestionUpdatedAt: new Date('2026-08-20T11:00:00Z'),
+        sourceAnsweredAt: new Date('2026-08-20T10:00:00Z'),
+        sourceAnswerSha256: 'a'.repeat(64),
+      },
+      {
+        ...observations[1],
+        id: 'outcome-3',
+        verdict: 'POSITIVE' as const,
+        sourceQuestionId: null,
+        sourceQuestionUpdatedAt: null,
+        sourceAnsweredAt: null,
+        sourceAnswerSha256: null,
+      },
+    ]
+    const tx = transaction({
+      agentOutcomeObservation: { findMany: vi.fn().mockResolvedValue(sourced) },
+    })
+    const generalization = {
+      rationale: 'This rule is bounded by an observed successful counterexample.',
+      counterexampleObservationIds: ['outcome-3'],
+      exclusions: ['Do not apply when current retrieval already supports the answer.'],
+    }
+
+    await prepareAgentImprovementProposalAction(
+      {
+        ...input,
+        outcomeObservationIds: ['outcome-1', 'outcome-3'],
+        generalization,
+      },
+      client(tx) as never,
+    )
+
+    expect(tx.agentImprovementProposal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          baselineSnapshot: expect.objectContaining({
+            generalization,
+            questionSources: [
+              {
+                outcomeObservationId: 'outcome-1',
+                questionId: 'question-1',
+                questionUpdatedAt: '2026-08-20T11:00:00.000Z',
+                answeredAt: '2026-08-20T10:00:00.000Z',
+                answerSha256: 'a'.repeat(64),
+              },
+            ],
+          }),
+        }),
+      }),
+    )
+    expect(JSON.stringify(tx.agentImprovementProposal.create.mock.calls)).not.toContain(
+      'raw answer',
+    )
+  })
+
+  it('requires sourced corrections and rejects out-of-set or self-counterexample evidence', async () => {
+    const sourcedCorrection = {
+      ...observations[0],
+      sourceQuestionId: 'question-1',
+      sourceQuestionUpdatedAt: new Date(),
+      sourceAnsweredAt: new Date(),
+      sourceAnswerSha256: 'a'.repeat(64),
+    }
+    const positive = { ...observations[1], verdict: 'POSITIVE' as const }
+    const generalization = {
+      rationale: 'Bound the proposed rule using separately observed behavior.',
+      counterexampleObservationIds: ['outcome-2'],
+      exclusions: ['Exclude already-grounded answers.'],
+    }
+    for (const candidate of [
+      { ...input },
+      {
+        ...input,
+        generalization: { ...generalization, counterexampleObservationIds: ['outcome-1'] },
+      },
+      {
+        ...input,
+        generalization: { ...generalization, counterexampleObservationIds: ['outside-scope'] },
+      },
+    ]) {
+      const tx = transaction({
+        agentOutcomeObservation: {
+          findMany: vi.fn().mockResolvedValue([sourcedCorrection, positive]),
+        },
+      })
+      await expect(
+        prepareAgentImprovementProposalAction(candidate, client(tx) as never),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(tx.approvalRequest.create).not.toHaveBeenCalled()
+    }
+  })
+
+  it('normalizes counterexample IDs for replay and conflicts on changed generalization', async () => {
+    const generalization = {
+      rationale: 'Bound the proposed rule using two separate successful controls.',
+      counterexampleObservationIds: ['outcome-2', 'outcome-1'],
+      exclusions: ['Exclude already-grounded answers.'],
+    }
+    const existing = {
+      ...created(),
+      baselineSnapshot: {
+        generalization: {
+          exclusions: generalization.exclusions,
+          counterexampleObservationIds: ['outcome-1', 'outcome-2'],
+          rationale: generalization.rationale,
+        },
+      },
+    }
+    const tx = transaction({
+      agentImprovementProposal: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        create: vi.fn(),
+      },
+    })
+    await expect(
+      prepareAgentImprovementProposalAction({ ...input, generalization }, client(tx) as never),
+    ).resolves.toMatchObject({ replayed: true })
+
+    await expect(
+      prepareAgentImprovementProposalAction(
+        {
+          ...input,
+          generalization: { ...generalization, exclusions: ['A changed exclusion.'] },
+        },
+        client(tx) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    tx.agentImprovementProposal.findFirst.mockResolvedValue({
+      ...existing,
+      baselineSnapshot: { generalization: { rationale: 'malformed retained data' } },
+    })
+    await expect(
+      prepareAgentImprovementProposalAction({ ...input, generalization }, client(tx) as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
   it('requires an exact immediately preceding revision', async () => {
     const tx = transaction()
     tx.agentImprovementProposal.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null)

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   claim: vi.fn(),
@@ -10,19 +10,11 @@ const mocks = vi.hoisted(() => ({
   resolveConfiguration: vi.fn(),
   unhealthyProviders: vi.fn(),
   assertVenue: vi.fn(),
+  budgetGate: vi.fn(),
 }))
 
-vi.mock('@pathfinder/ai', () => ({
-  AiGatewayError: class AiGatewayError extends Error {
-    code: string
-
-    constructor(message: string, options: { code: string }) {
-      super(message)
-      this.code = options.code
-    }
-  },
-  AiRequestBudgetCeilingExceededError: class AiRequestBudgetCeilingExceededError extends Error {},
-  AiRoutingError: class AiRoutingError extends Error {},
+vi.mock('@pathfinder/ai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/ai')>()),
   generateTextForCapability: mocks.generateTextForCapability,
   routeAiCapability: mocks.route,
 }))
@@ -40,11 +32,16 @@ vi.mock('@pathfinder/db', () => ({
   resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
 }))
 vi.mock('../lib/ai-usage', () => ({
-  createWorkerAiBudgetGate: vi.fn(() => ({})),
+  createWorkerAiBudgetGate: mocks.budgetGate,
   createWorkerAiUsageSink: vi.fn(() => vi.fn()),
 }))
 
-import { AiGatewayError } from '@pathfinder/ai'
+import {
+  AiGatewayError,
+  NOOP_AI_BUDGET_GATE,
+  resolveAiWorkloadConfiguration,
+  setAnthropicClientForTesting,
+} from '@pathfinder/ai'
 
 import { processAgentRunJob } from './agent-run'
 
@@ -63,11 +60,17 @@ const run = {
     autonomyLevel: 'READ_ONLY',
     accessCapabilities: ['agents.read'],
   },
+  executionContext:
+    '{"contextVersion":1,"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}',
+  questions: [],
+  messages: [],
 }
 
 describe('agent run processor', () => {
+  afterEach(() => setAnthropicClientForTesting(null))
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.budgetGate.mockReturnValue(NOOP_AI_BUDGET_GATE)
     mocks.claim.mockResolvedValue(run)
     mocks.heartbeat.mockResolvedValue({ cancelRequested: false })
     mocks.fail.mockResolvedValue({ status: 'FAILED', completedAt: new Date() })
@@ -121,7 +124,12 @@ describe('agent run processor', () => {
         maxOutputTokens: 1_600,
         timeoutMs: 45_000,
         requestBudgetCeilingE8Usd: '50000000',
-        messages: [{ role: 'user', content: 'Coordinate this work.' }],
+        messages: [
+          {
+            role: 'user',
+            content: expect.stringContaining('The approved visitor capacity is exactly 137.'),
+          },
+        ],
       }),
     )
     expect(mocks.complete).toHaveBeenCalledWith(
@@ -140,6 +148,95 @@ describe('agent run processor', () => {
       }),
     )
   })
+
+  it.each([1, 2])(
+    'rejects changed effective configuration at admission check %s',
+    async (changedCheck) => {
+      const configuration = await mocks.resolveConfiguration()
+      mocks.resolveConfiguration.mockClear()
+      mocks.resolveConfiguration.mockResolvedValueOnce(configuration)
+      for (let index = 1; index < changedCheck; index += 1) {
+        mocks.resolveConfiguration.mockResolvedValueOnce(configuration)
+      }
+      mocks.resolveConfiguration.mockResolvedValue({ ...configuration, maxOutputTokens: 99 })
+      const dispatch = vi.fn()
+      mocks.generateTextForCapability.mockImplementationOnce(async ({ admissionGuard }) => {
+        for (let index = 0; index < changedCheck; index += 1) await admissionGuard()
+        dispatch()
+        throw new Error('Stale configuration reached provider dispatch')
+      })
+      await processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' })
+      expect(dispatch).not.toHaveBeenCalled()
+      expect(mocks.complete).not.toHaveBeenCalled()
+      expect(mocks.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          errorCode: 'CAPABILITY_UNAVAILABLE',
+          retryable: true,
+        }),
+      )
+      expect(mocks.resolveConfiguration).toHaveBeenLastCalledWith(
+        { workloadId: 'agent-run', tenantId: 'tenant-1', venueId: 'venue-1' },
+        {},
+      )
+    },
+  )
+
+  it.each(['after-reservation', 'after-primary-failure'] as const)(
+    'stops real gateway dispatch when configuration changes %s',
+    async (boundary) => {
+      const ai = await vi.importActual<typeof import('@pathfinder/ai')>('@pathfinder/ai')
+      const configuration = resolveAiWorkloadConfiguration({
+        workloadId: 'agent-run',
+        overrides: [
+          {
+            activation: 'ENABLED',
+            scope: { level: 'WORKLOAD', workloadId: 'agent-run' },
+            values: {
+              maxAttempts: 2,
+              maxOutputTokens: 321,
+              requestBudgetCeilingE8Usd: '1000000000',
+            },
+            reason: 'Disposable routing fixture',
+            unsafeChangesEnabled: true,
+          },
+        ],
+      })
+      mocks.resolveConfiguration.mockResolvedValue(configuration)
+      mocks.route.mockImplementationOnce(ai.routeAiCapability)
+      mocks.generateTextForCapability.mockImplementationOnce(ai.generateTextForCapability)
+      const change = () =>
+        mocks.resolveConfiguration.mockResolvedValue({
+          ...configuration,
+          requestBudgetCeilingE8Usd: '1',
+        })
+      const release = vi.fn().mockResolvedValue(undefined)
+      const reserve = vi.fn().mockImplementation(async (attempt) => {
+        if (boundary === 'after-reservation') change()
+        return { id: 'fixture-reservation', reservedUnits: attempt.reservedUnits }
+      })
+      mocks.budgetGate.mockReturnValue({
+        ...NOOP_AI_BUDGET_GATE,
+        reserve,
+        releaseUndispatched: release,
+      })
+      const create = vi.fn().mockImplementation(async () => {
+        change()
+        throw Object.assign(new Error('synthetic provider unavailable'), { status: 503 })
+      })
+      setAnthropicClientForTesting({ messages: { create } })
+      await processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' })
+      expect(create).toHaveBeenCalledTimes(boundary === 'after-reservation' ? 0 : 1)
+      expect(reserve).toHaveBeenCalledTimes(1)
+      if (boundary === 'after-reservation') expect(release).toHaveBeenCalledOnce()
+      expect(mocks.complete).not.toHaveBeenCalled()
+      expect(mocks.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          errorCode: 'CAPABILITY_UNAVAILABLE',
+          retryable: true,
+        }),
+      )
+    },
+  )
 
   it('fails a subscription provider truthfully when its local bridge is not connected', async () => {
     mocks.claim.mockResolvedValue({ ...run, modelProvider: 'codex-bridge' })

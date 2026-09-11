@@ -1,5 +1,9 @@
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import {
+  appendDelegatedTerminalResult,
+  validateDelegatedParent,
+} from './agent-run-execution-actions'
 
 export type AgentRunCancellationActor = {
   type: 'HUMAN'
@@ -21,6 +25,7 @@ export class AgentRunCancellationError extends Error {
 
 const cancellableStatuses = ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] as const
 const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
+const immediateCancellationStatuses = ['QUEUED', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] as const
 
 function invalid(message: string): never {
   throw new AgentRunCancellationError('INVALID_INPUT', message)
@@ -74,13 +79,23 @@ export async function requestAgentRunCancellationAction(
     const transaction = rawTransaction as unknown as typeof db
     const run = await transaction.agentRun.findFirst({
       where: { id: input.agentRunId, tenantId: input.tenantId, venueId: input.venueId },
-      select: { id: true, status: true, cancelRequestedAt: true },
+      select: {
+        id: true,
+        status: true,
+        cancelRequestedAt: true,
+        startedAt: true,
+        parentAgentRunId: true,
+        agentIdentityId: true,
+      },
     })
     if (!run) throw new AgentRunCancellationError('NOT_FOUND', 'Agent run not found.')
 
     // Cancellation intent is a run-level monotonic fact. Once present, every authorized
     // request converges on that fact regardless of the later caller or reason text.
-    if (run.cancelRequestedAt) {
+    const cancelImmediately = (immediateCancellationStatuses as readonly string[]).includes(
+      run.status,
+    )
+    if (run.cancelRequestedAt && !cancelImmediately) {
       return {
         id: run.id,
         status: run.status,
@@ -100,16 +115,30 @@ export async function requestAgentRunCancellationAction(
       throw new AgentRunCancellationError('CONFLICT', 'Agent run is not cancellable.')
     }
 
-    const requestedAt = new Date()
+    const finalizedAt = new Date()
+    const requestedAt = run.cancelRequestedAt ?? finalizedAt
+    if (cancelImmediately)
+      await validateDelegatedParent(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        parentAgentRunId: run.parentAgentRunId,
+      })
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.agentRunId,
         tenantId: input.tenantId,
         venueId: input.venueId,
         status: run.status,
-        cancelRequestedAt: null,
+        cancelRequestedAt: run.cancelRequestedAt,
       },
-      data: { cancelRequestedAt: requestedAt },
+      data: cancelImmediately
+        ? {
+            status: 'CANCELLED',
+            cancelRequestedAt: requestedAt,
+            startedAt: run.startedAt ?? finalizedAt,
+            completedAt: finalizedAt,
+          }
+        : { cancelRequestedAt: requestedAt },
     })
     if (changed.count !== 1) {
       const current = await transaction.agentRun.findFirst({
@@ -139,6 +168,17 @@ export async function requestAgentRunCancellationAction(
       )
     }
 
+    if (cancelImmediately)
+      await appendDelegatedTerminalResult(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        childAgentRunId: run.id,
+        parentAgentRunId: run.parentAgentRunId,
+        childAgentIdentityId: run.agentIdentityId,
+        outcome: 'CANCELLED',
+        summary: 'Cancellation was finalized by a platform administrator.',
+      })
+
     await transaction.agentTimelineEvent.create({
       data: {
         tenantId: input.tenantId,
@@ -146,8 +186,10 @@ export async function requestAgentRunCancellationAction(
         agentRunId: input.agentRunId,
         actorType: 'HUMAN',
         actorId: input.actor.id,
-        eventType: 'CANCELLATION_REQUESTED',
-        message: 'A platform administrator requested cancellation.',
+        eventType: cancelImmediately ? 'CANCELLED' : 'CANCELLATION_REQUESTED',
+        message: cancelImmediately
+          ? 'A platform administrator cancelled this task that was not running.'
+          : 'A platform administrator requested cancellation.',
         data: { reasonLength: reason.length },
       },
     })
@@ -156,14 +198,17 @@ export async function requestAgentRunCancellationAction(
         tenantId: input.tenantId,
         actorId: input.actor.id,
         actorRole: input.actor.role,
-        action: 'admin.agent-run.cancellation-requested',
+        action: cancelImmediately
+          ? 'admin.agent-run.cancelled'
+          : 'admin.agent-run.cancellation-requested',
         targetType: 'AgentRun',
         targetId: input.agentRunId,
-        beforeState: { status: run.status, cancelRequested: false },
+        beforeState: { status: run.status, cancelRequested: Boolean(run.cancelRequestedAt) },
         afterState: {
-          status: run.status,
+          status: cancelImmediately ? 'CANCELLED' : run.status,
           cancelRequested: true,
           requestedAt: requestedAt.toISOString(),
+          ...(cancelImmediately ? { completedAt: finalizedAt.toISOString() } : {}),
           reasonLength: reason.length,
         },
       },
@@ -171,7 +216,7 @@ export async function requestAgentRunCancellationAction(
     )
     return {
       id: run.id,
-      status: run.status,
+      status: cancelImmediately ? ('CANCELLED' as const) : run.status,
       cancelRequestedAt: requestedAt,
       outcome: 'REQUESTED' as const,
     }

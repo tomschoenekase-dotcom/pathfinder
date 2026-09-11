@@ -20,6 +20,7 @@ type Location = {
   visibility: string
   floorId: string | null
   parentLocationId: string | null
+  primaryPlaceId?: string | null
   coordinates: { latitude: number; longitude: number } | null
   mapAnchor: { x: number; y: number } | null
   externalMapReference: string | null
@@ -30,6 +31,7 @@ type Location = {
 }
 
 type Floor = TopologyFloor
+type PlaceOption = { id: string; name: string }
 
 type LocationProposal = {
   id: string
@@ -60,6 +62,42 @@ type Props = {
   connectionCount?: number
   connections?: TopologyConnection[]
   proposals?: LocationProposal[]
+  places?: PlaceOption[]
+}
+
+function PrimaryPlaceSelect({
+  places,
+  currentId = null,
+}: {
+  places: PlaceOption[]
+  currentId?: string | null
+}) {
+  const unavailable = currentId && !places.some((place) => place.id === currentId)
+  return (
+    <label className="text-sm font-semibold text-pf-deep">
+      Primary place (optional)
+      <select
+        aria-label="Primary place (optional)"
+        name="primaryPlaceId"
+        defaultValue={currentId ?? ''}
+        className="mt-1 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 text-sm"
+      >
+        <option value="">No linked place</option>
+        {unavailable ? (
+          <option value={currentId}>Current place is unavailable — clear or replace</option>
+        ) : null}
+        {places.map((place) => (
+          <option key={place.id} value={place.id}>
+            {place.name}
+          </option>
+        ))}
+      </select>
+      <span className="mt-1 block text-xs font-normal leading-5 text-pf-deep/75">
+        Choose the public place this anchor represents. Its approved photos may accompany the
+        destination. No match is chosen automatically.
+      </span>
+    </label>
+  )
 }
 
 const kinds = [
@@ -240,12 +278,14 @@ function DraftEditControl({
   location,
   floors,
   parentOptions,
+  places,
 }: {
   tenantId: string
   venueId: string
   location: Location
   floors: Floor[]
   parentOptions: Location[]
+  places: PlaceOption[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -279,6 +319,7 @@ function DraftEditControl({
         visibility: String(form.get('visibility') ?? 'PUBLIC') as 'PUBLIC' | 'SECOND_LAYER',
         floorId: String(form.get('floorId') ?? '').trim() || null,
         parentLocationId: String(form.get('parentLocationId') ?? '').trim() || null,
+        primaryPlaceId: String(form.get('primaryPlaceId') ?? '').trim() || null,
         coordinates: latitude !== null && longitude !== null ? { latitude, longitude } : null,
         mapAnchor: mapX !== null && mapY !== null ? { x: mapX, y: mapY } : null,
         externalMapReference: String(form.get('externalMapReference') ?? '').trim() || null,
@@ -300,6 +341,7 @@ function DraftEditControl({
         onSubmit={(event) => void updateDraft(event)}
         className="mt-4 grid gap-3 sm:grid-cols-2"
       >
+        <PrimaryPlaceSelect places={places} currentId={location.primaryPlaceId ?? null} />
         <label className="text-xs font-semibold text-pf-deep/75">
           Display name
           <input
@@ -486,6 +528,7 @@ export function VenueLocationAuthoring({
   connectionCount = 0,
   connections = [],
   proposals = [],
+  places = [],
 }: Props) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -518,6 +561,7 @@ export function VenueLocationAuthoring({
         visibility: String(form.get('visibility') ?? 'PUBLIC') as 'PUBLIC' | 'SECOND_LAYER',
         floorId: String(form.get('floorId') ?? '').trim() || null,
         parentLocationId: String(form.get('parentLocationId') ?? '').trim() || null,
+        primaryPlaceId: String(form.get('primaryPlaceId') ?? '').trim() || null,
         coordinates: latitude !== null && longitude !== null ? { latitude, longitude } : null,
         mapAnchor: mapX !== null && mapY !== null ? { x: mapX, y: mapY } : null,
         externalMapReference: String(form.get('externalMapReference') ?? '').trim() || null,
@@ -565,6 +609,7 @@ export function VenueLocationAuthoring({
           onSubmit={(event) => void createDraft(event)}
           className="mt-4 grid gap-4 md:grid-cols-2"
         >
+          <PrimaryPlaceSelect places={places} />
           <label className="text-sm font-semibold text-pf-deep">
             Display name
             <input
@@ -747,7 +792,7 @@ export function VenueLocationAuthoring({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-pf-deep">{location.displayName}</h4>
-                    <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
+                    <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/75">
                       {location.kind.replaceAll('_', ' ')} · {location.stableKey}
                     </p>
                   </div>
@@ -761,6 +806,15 @@ export function VenueLocationAuthoring({
                   <p className="mt-3 text-sm text-pf-deep/75">{location.description}</p>
                 ) : null}
                 <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-pf-deep/65">
+                  <div className="col-span-2 min-w-0">
+                    <dt className="font-semibold">Primary place</dt>
+                    <dd className="break-words">
+                      {location.primaryPlaceId
+                        ? (places.find((place) => place.id === location.primaryPlaceId)?.name ??
+                          'Linked place unavailable; guest photos are withheld.')
+                        : 'No linked place'}
+                    </dd>
+                  </div>
                   <div>
                     <dt className="font-semibold">Visibility</dt>
                     <dd>{location.visibility.replaceAll('_', ' ')}</dd>
@@ -803,6 +857,7 @@ export function VenueLocationAuthoring({
                     location={location}
                     floors={floors}
                     parentOptions={activeLocations}
+                    places={places}
                   />
                 ) : null}
                 <AvailabilityControl tenantId={tenantId} venueId={venueId} location={location} />
@@ -834,7 +889,7 @@ export function VenueLocationAuthoring({
                     <h4 className="font-semibold text-pf-deep">
                       {proposal.draft?.displayName ?? 'Unsupported proposal payload'}
                     </h4>
-                    <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
+                    <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/75">
                       {proposal.draft
                         ? `${proposal.draft.kind.replaceAll('_', ' ')} · ${proposal.draft.stableKey}`
                         : 'Cannot apply'}
@@ -845,7 +900,7 @@ export function VenueLocationAuthoring({
                   </span>
                 </div>
                 <p className="mt-3 text-sm text-pf-deep/75">{proposal.reason}</p>
-                <p className="mt-2 text-xs text-pf-deep/60">
+                <p className="mt-2 text-xs text-pf-deep/75">
                   Proposed by {proposal.proposedBy} ·{' '}
                   {new Date(proposal.createdAt).toLocaleDateString()}
                 </p>

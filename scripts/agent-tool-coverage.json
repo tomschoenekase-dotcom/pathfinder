@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 455,
-    "sha256": "a4bf69b2fd20ac11224596ac88e6241a56f5cfef6515442825bf20ea6e6746a9",
+    "count": 538,
+    "sha256": "3ae6017f4ae9f7a35b0d0da0003a8d4870b04f4aab0f1a7d13fc6545dfba67d2",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "a4bf69b2fd20ac11224596ac88e6241a56f5cfef6515442825bf20ea6e6746a9",
-      "sha256": "c905ac70f44c7b616f0c005b5c52b3d244a3b0e46ab3eaf6a981cffbc8bbdddf"
+      "operationInventorySha256": "3ae6017f4ae9f7a35b0d0da0003a8d4870b04f4aab0f1a7d13fc6545dfba67d2",
+      "sha256": "e43c87c990a177636bb49fcbf6fbcd58f26da18317f605cc0816b47c16ff18e1"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -120,6 +120,14 @@
         "surfaces": ["tool:torchiko.knowledge.prepare_from_support"],
         "decision": "The administrator and governed agent tool reuse the same exact-version support-to-knowledge proposal action. Both freeze immutable reviewed-request and message evidence into a separate PENDING_REVIEW proposal; neither changes canonical knowledge, support state, publication, or customer contact.",
         "evidence": "packages/db/src/helpers/support-knowledge-proposal-disposable.integration.test.ts"
+      },
+      {
+        "id": "legacy-knowledge-adoption-draft-action",
+        "kind": "direct-tool",
+        "operations": ["admin.createLegacyKnowledgeAdoptionDraft"],
+        "surfaces": ["tool:torchiko.knowledge.adopt_legacy_draft"],
+        "decision": "The administrator route and capability-gated machine tool both invoke the canonical createLegacyKnowledgeAdoptionDraftService for an exact approved proposal and legacy snapshot. The tool adds verified worker/run lineage; both create only a native draft and immutable adoption receipt, leaving publication separate.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-customer-access-preparation",
@@ -586,6 +594,38 @@
       "evidence": "docs/agents/CAPABILITY_MATRIX.md"
     },
     {
+      "id": "conversation-learning-review",
+      "pattern": "^adminConversationLearningRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The policy and candidate queries are human-admin review projections; policy changes and candidate decisions require the authenticated platform administrator and exact tenant+venue scope. No agent tool or autonomous canonical knowledge write is exposed.",
+      "evidence": "packages/api/src/routers/admin/conversation-learning.test.ts"
+    },
+    {
+      "id": "website-page-text-review",
+      "pattern": "^adminWebsitePageTextRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "These exact receipt and retained-page-text readers are platform-admin inspection procedures for bounded intake evidence. They expose no agent tool, mutation, publication, or canonical venue write.",
+      "evidence": "packages/api/src/lib/website-discovery.disposable.integration.test.ts"
+    },
+    {
+      "id": "character-candidate-review",
+      "pattern": "^adminCharacterCandidateReviewsRouter$",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "The characters:build bridge can submit a bounded scoped brief and read its exact candidate decision receipt. Only a human platform administrator can decide a candidate or read its private rasterized preview. No agent acceptance, venue activation, publication, or final Tochi selection is exposed; these admin operations remain unbound unless individually reviewed.",
+      "evidence": "packages/api/src/agent-bridge/registry.test.ts"
+    },
+    {
+      "id": "character-factory",
+      "pattern": "^adminCharacterFactoryRouter$",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "A capability-scoped bridge can prepare, inspect, cancel, claim, heartbeat, upload a retained artifact, and complete or fail one exact venue character-factory job. Build and executor capabilities are distinct and lease-fenced. This is durable retained-result lifecycle coverage, not automatic job discovery, provider generation, final-art approval, or unrestricted administrator parity.",
+      "evidence": "packages/api/src/agent-bridge/registry.test.ts"
+    },
+    {
       "id": "agent-evaluation",
       "pattern": "(?<!Support)Agent|AiWorkload|CostBudget|Evaluation",
       "agentCoverage": "partial",
@@ -635,7 +675,7 @@
     },
     {
       "id": "intake-media",
-      "pattern": "Intake|Media",
+      "pattern": "Intake(?!V1Package)|Media",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Readiness and job state are agent-readable; upload quarantine, malware, and review transitions retain canonical human/system gates.",

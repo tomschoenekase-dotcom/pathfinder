@@ -8,11 +8,14 @@ const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', 
 const ignoredDirectories = new Set(['.git', '.next', '.turbo', 'dist', 'node_modules'])
 const providers = ['@anthropic-ai/sdk', 'openai']
 
-// Temporary, explicit exceptions. Delete each entry when that processor moves
-// behind @pathfinder/ai; adding an exception requires code review in this file.
+// Explicit provider adapters inside @pathfinder/ai. Worker exceptions, if added,
+// must be removed when the processor moves behind that package. No directory-wide allowance.
 const sourceImportAllowlist = new Map([
   ['packages/ai/src/anthropic.test.ts', new Set(['@anthropic-ai/sdk'])],
   ['packages/ai/src/anthropic.ts', new Set(['@anthropic-ai/sdk'])],
+  // The bounded Responses adapter is dispatched through guest-web-search-accounting,
+  // which reserves durable cost and rechecks admission immediately before dispatch.
+  ['packages/ai/src/guest-web-search.ts', new Set(['openai'])],
   ['packages/ai/src/openai-embeddings.test.ts', new Set(['openai'])],
   ['packages/ai/src/openai-embeddings.ts', new Set(['openai'])],
   ['packages/ai/src/openai-media.ts', new Set(['openai'])],

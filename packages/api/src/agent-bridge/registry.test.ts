@@ -13,6 +13,15 @@ const mocks = vi.hoisted(() => ({
   prospectCall: vi.fn(),
   operationalList: vi.fn(),
   operationalCall: vi.fn(),
+  prepareCharacter: vi.fn(),
+  readCharacterJob: vi.fn(),
+  cancelCharacter: vi.fn(),
+  claimCharacter: vi.fn(),
+  heartbeatCharacter: vi.fn(),
+  completeCharacter: vi.fn(),
+  failCharacter: vi.fn(),
+  submitCharacterReview: vi.fn(),
+  readCharacterReview: vi.fn(),
 }))
 vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
@@ -27,6 +36,15 @@ vi.mock('@pathfinder/db', () => ({
   registerAgentWorkerAction: mocks.registerWorker,
   heartbeatAgentWorkerAction: mocks.heartbeatWorker,
   listAgentWorkerHealth: mocks.listWorkers,
+  prepareCharacterFactoryJobAction: mocks.prepareCharacter,
+  readCharacterFactoryJobAction: mocks.readCharacterJob,
+  cancelCharacterFactoryJobAction: mocks.cancelCharacter,
+  claimCharacterFactoryJobAction: mocks.claimCharacter,
+  heartbeatCharacterFactoryJobAction: mocks.heartbeatCharacter,
+  completeCharacterFactoryJobAction: mocks.completeCharacter,
+  failCharacterFactoryJobAction: mocks.failCharacter,
+  submitCharacterCandidateReviewBrief: mocks.submitCharacterReview,
+  readCharacterCandidateReviewBrief: mocks.readCharacterReview,
 }))
 
 import { createAgentBridgeRegistry } from './registry'
@@ -41,6 +59,123 @@ const credential = {
 
 describe('agent bridge registry', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('discovers character production only for an exact builder capability', () => {
+    const registry = createAgentBridgeRegistry()
+    expect(() => registry.listCharacterFactoryActions({}, { credential })).toThrow(
+      /characters:build/u,
+    )
+    expect(
+      registry.listCharacterFactoryActions(
+        {},
+        {
+          credential: { ...credential, capabilities: ['characters:build'] },
+        },
+      ),
+    ).toMatchObject({ capability: 'characters:build', actions: expect.arrayContaining(['EXPORT']) })
+  })
+
+  it('submits only a bounded agent review brief under the exact character-builder scope', async () => {
+    mocks.submitCharacterReview.mockResolvedValue({ brief: { id: 'brief-1' }, replayed: false })
+    const registry = createAgentBridgeRegistry()
+    const input = {
+      venueId: 'venue-1',
+      characterId: 'character-1',
+      brief: 'Review the imported candidate.',
+      rationale: 'Check the existing fixture against the requested traits.',
+      sourceProvenance: 'IMPORTED_FIXTURE' as const,
+    }
+    await expect(
+      registry.submitCharacterCandidateReview(input, {
+        credential: { ...credential, capabilities: ['characters:build'] },
+      }),
+    ).resolves.toMatchObject({ replayed: false })
+    expect(mocks.submitCharacterReview).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      ...input,
+      actor: { id: 'credential-1', role: 'AGENT', type: 'AGENT' },
+    })
+    expect(() =>
+      registry.submitCharacterCandidateReview(
+        { ...input, venueId: 'venue-2' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/exact tenant, venue/u)
+    expect(() =>
+      registry.submitCharacterCandidateReview(
+        { ...input, decision: 'ACCEPT' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow()
+  })
+
+  it('reads only the scoped review snapshot and immutable decision/job receipt', async () => {
+    mocks.readCharacterReview.mockResolvedValue({
+      id: 'brief-1',
+      brief: 'Review this imported candidate.',
+      sourceProvenance: 'IMPORTED_FIXTURE',
+      candidateVersion: 1,
+      candidateRevision: 2,
+      artifactFingerprint: 'a'.repeat(64),
+      decision: {
+        decision: 'REVISE',
+        resultingJob: { id: 'job-1', action: 'REVISE', status: 'QUEUED' },
+      },
+    })
+    const registry = createAgentBridgeRegistry()
+    await expect(
+      registry.readCharacterCandidateReview(
+        { venueId: 'venue-1', briefId: 'brief-1' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).resolves.toMatchObject({
+      id: 'brief-1',
+      candidateVersion: 1,
+      candidateRevision: 2,
+      artifactFingerprint: 'a'.repeat(64),
+      decision: { decision: 'REVISE', resultingJob: { id: 'job-1', action: 'REVISE' } },
+    })
+    expect(mocks.readCharacterReview).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      briefId: 'brief-1',
+    })
+    expect(() =>
+      registry.readCharacterCandidateReview(
+        { venueId: 'venue-2', briefId: 'brief-1' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/exact tenant, venue/u)
+  })
+
+  it('keeps character execution separate from builder authority and preserves machine identity', async () => {
+    mocks.claimCharacter.mockResolvedValue({ state: 'claimed' })
+    const registry = createAgentBridgeRegistry()
+    const params = {
+      venueId: 'venue-1',
+      requestId: 'request-1',
+    }
+    expect(() =>
+      registry.claimCharacterFactoryJob(params, {
+        credential: { ...credential, capabilities: ['characters:build'] },
+      }),
+    ).toThrow(/characters:execute/u)
+    const executor = { ...credential, capabilities: ['characters:execute'] as const }
+    await registry.claimCharacterFactoryJob(params, { credential: executor })
+    expect(mocks.claimCharacter).toHaveBeenCalledWith({ tenantId: 'tenant-1', ...params })
+    expect(() =>
+      registry.beginCharacterArtifactUpload(
+        {
+          venueId: 'venue-1',
+          characterId: 'character-1',
+          characterVersion: 1,
+          sha256: '0'.repeat(64),
+          byteLength: 100,
+        },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/characters:execute/u)
+  })
 
   it('validates bounded runner metadata before registering a session', async () => {
     mocks.register.mockResolvedValue({ id: 'session' })
@@ -205,7 +340,22 @@ describe('agent bridge registry', () => {
   })
 
   it('mounts operational discovery and derives client and venue scope from the credential', async () => {
-    mocks.operationalList.mockReturnValue([{ name: 'pathfinder.read' }])
+    mocks.operationalList.mockReturnValue([
+      {
+        name: 'pathfinder.read',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: true },
+        _meta: {
+          'com.pathfinder/security': { capability: 'resources:read', scope: 'client-or-venue' },
+        },
+      },
+      {
+        name: 'pathfinder.create_update_draft',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: false },
+        _meta: { 'com.pathfinder/security': { capability: 'updates:draft', scope: 'venue' } },
+      },
+    ])
     mocks.operationalCall.mockResolvedValue({ structuredContent: { kind: 'pathfinder.read' } })
     const registry = createAgentBridgeRegistry({
       operationalRegistry: {
@@ -213,7 +363,20 @@ describe('agent bridge registry', () => {
         callTool: mocks.operationalCall,
       } as never,
     })
-    expect(registry.listOperationalTools({}, { credential })).toEqual([{ name: 'pathfinder.read' }])
+    const discoveryCredential = {
+      ...credential,
+      capabilities: ['agent-runs:execute', 'resources:read'],
+    }
+    expect(registry.listOperationalTools({}, { credential: discoveryCredential })).toEqual([
+      expect.objectContaining({
+        name: 'pathfinder.read',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: true },
+        _meta: {
+          'com.pathfinder/security': { capability: 'resources:read', scope: 'client-or-venue' },
+        },
+      }),
+    ])
     await registry.callOperationalTool(
       {
         venueId: 'venue-1',
@@ -239,5 +402,133 @@ describe('agent bridge registry', () => {
       ),
     ).toThrow(/exact credential venue scope/u)
     expect(mocks.operationalCall).not.toHaveBeenCalled()
+  })
+
+  it('forwards outer execution claim keys with authenticated scope for source admission', async () => {
+    const executionClaim = {
+      agentRunId: 'run-1',
+      bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workerId: 'worker-1',
+      executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    await registry.callOperationalTool(
+      {
+        venueId: 'venue-1',
+        toolName: 'pathfinder.read',
+        executionClaim,
+        arguments: {
+          resource: 'question-source',
+          agentRunId: 'run-1',
+          questionId: 'question-1',
+          clientId: 'spoofed',
+        },
+      },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.read',
+      {
+        resource: 'question-source',
+        agentRunId: 'run-1',
+        questionId: 'question-1',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+      },
+      { credential, executionClaim },
+    )
+  })
+
+  it('does not derive source execution authority from arbitrary arguments or raw context', () => {
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    expect(() =>
+      registry.callOperationalTool(
+        {
+          venueId: 'venue-1',
+          toolName: 'pathfinder.read',
+          arguments: { resource: 'question-source', agentRunId: 'run-1', executionClaim: {} },
+        },
+        { credential, executionClaim: {} },
+      ),
+    ).toThrow(/exact worker execution claim/u)
+    expect(mocks.operationalCall).not.toHaveBeenCalled()
+  })
+  it('forwards source-question claims and rejects absent or mismatched run claims', async () => {
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    const executionClaim = {
+      agentRunId: 'run-1',
+      bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workerId: 'worker-1',
+      executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    const args = { agentRunId: 'run-1', sourceClarification: { runId: 'intake-run-1' } }
+    await registry.callOperationalTool(
+      { venueId: 'venue-1', toolName: 'pathfinder.ask_operator', arguments: args, executionClaim },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.ask_operator',
+      { ...args, venueId: 'venue-1', clientId: 'tenant-1' },
+      { credential, executionClaim },
+    )
+    for (const claim of [undefined, { ...executionClaim, agentRunId: 'other-run' }]) {
+      expect(() =>
+        registry.callOperationalTool(
+          {
+            venueId: 'venue-1',
+            toolName: 'pathfinder.ask_operator',
+            arguments: args,
+            executionClaim: claim,
+          },
+          { credential },
+        ),
+      ).toThrow(/exact worker execution claim/u)
+    }
+  })
+
+  it('forwards source-resolution claims and rejects absent or mismatched run claims', async () => {
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+    })
+    const executionClaim = {
+      agentRunId: 'run-1',
+      bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workerId: 'worker-1',
+      executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    }
+    const args = { agentRunId: 'run-1', requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }
+    await registry.callOperationalTool(
+      {
+        venueId: 'venue-1',
+        toolName: 'pathfinder.resolve_source_clarification',
+        arguments: args,
+        executionClaim,
+      },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.resolve_source_clarification',
+      { ...args, venueId: 'venue-1', clientId: 'tenant-1' },
+      { credential, executionClaim },
+    )
+    for (const claim of [undefined, { ...executionClaim, agentRunId: 'other-run' }]) {
+      expect(() =>
+        registry.callOperationalTool(
+          {
+            venueId: 'venue-1',
+            toolName: 'pathfinder.resolve_source_clarification',
+            arguments: args,
+            executionClaim: claim,
+          },
+          { credential },
+        ),
+      ).toThrow(/exact worker execution claim/u)
+    }
   })
 })

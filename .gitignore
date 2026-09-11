@@ -20,6 +20,7 @@ artifacts/hosted-dashboard-assets/
 artifacts/hosted-visitor-performance/
 artifacts/hosted-authenticated-surfaces/
 artifacts/ui-proof/
+artifacts/mobile-visual/
 apps/dashboard/public/characters/
 apps/web/public/characters/
 

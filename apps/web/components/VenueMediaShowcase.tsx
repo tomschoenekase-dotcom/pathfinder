@@ -5,9 +5,11 @@ import { selectVenueMediaForPresentation } from '../lib/venue-media-presentation
 export function VenueMediaShowcase({
   venueName,
   items,
+  compact = false,
 }: {
   venueName: string
   items: PublicVenueMediaItem[]
+  compact?: boolean
 }) {
   const selected = selectVenueMediaForPresentation(items)
   if (selected.length === 0) return null
@@ -16,9 +18,11 @@ export function VenueMediaShowcase({
 
   return (
     <section aria-label={`${venueName} venue media`} className="min-w-0">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-pf-deep/55">
-        A look inside
-      </p>
+      {!compact ? (
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-pf-deep/55">
+          A look inside
+        </p>
+      ) : null}
       <figure className="overflow-hidden rounded-[1.5rem] bg-pf-light/40">
         {/* Controlled WebP derivatives are already resized; bypassing Next optimization avoids a second transform. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -38,7 +42,7 @@ export function VenueMediaShowcase({
         ) : null}
       </figure>
 
-      {supporting.length > 0 ? (
+      {!compact && supporting.length > 0 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           {supporting.map((item) => (
             <figure
@@ -64,7 +68,9 @@ export function VenueMediaShowcase({
           ))}
         </div>
       ) : null}
-      <p className="mt-3 text-xs leading-5 text-pf-deep/50">Media approved for this venue.</p>
+      {!compact ? (
+        <p className="mt-3 text-xs leading-5 text-pf-deep/50">Media approved for this venue.</p>
+      ) : null}
     </section>
   )
 }

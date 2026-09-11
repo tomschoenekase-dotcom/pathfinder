@@ -1,0 +1,306 @@
+{
+  "date": "2026-09-10",
+  "requirements": ["V2-P08-02", "V2-P08-03"],
+  "candidateCommit": "3cfc4220676cc835f0139b37c5d0d1484b8ccbe0",
+  "proof": {
+    "database": "pathfinder_disposable_conflict_browser_022796c42f00",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-semantic-conflict-browser-022796c42f00",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "targetCase": "semantic conflict resolution connected browser",
+    "sourceHead": "3cfc4220676cc835f0139b37c5d0d1484b8ccbe0",
+    "nextStopped": true,
+    "expectedTests": 1,
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true,
+    "preflightPortWasFree": true,
+    "sourceManifest": [
+      {
+        "source": "packages/api/src/lib/semantic-conflict-resolution-contract.ts",
+        "retained": "measured-packages__api__src__lib__semantic-conflict-resolution-contract.ts",
+        "sha256": "384c7de79da4d0fefd564b8732e09454992a3e2c5a229ec9db33c1146378fa68"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-conflict-resolution-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-conflict-resolution-service.ts",
+        "sha256": "12d486d9ab1db6b4f5277a47a1e59b8d9e8e3373c98b459129e9ad463e7a6446"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260910100000_add_semantic_conflict_resolution/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260910100000_add_semantic_conflict_resolution__migration.sql",
+        "sha256": "e29e165d05b2abfbefd07b72a5a0f067833381e027f6a785df411646eca704b2"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-question-expiration-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-question-expiration-actions.ts",
+        "sha256": "dced50d2840de7089a7a4e69161311f816baf934691704215f24766cc325e9d0"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-conflicts.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-conflicts.ts",
+        "sha256": "c63e4c513c528839ee3db7dd826416af6ee5cf3e8aa96c3c4b116a4c81aa56a2"
+      },
+      {
+        "source": "packages/db/src/helpers/agent-question-actions.ts",
+        "retained": "measured-packages__db__src__helpers__agent-question-actions.ts",
+        "sha256": "7d54316c9bb84076c17b70700d1820e576fba91231af7f7b22bd073e3533cc9a"
+      },
+      {
+        "source": "packages/db/prisma/migrations/20260907021000_add_universal_content_search_projection/migration.sql",
+        "retained": "measured-packages__db__prisma__migrations__20260907021000_add_universal_content_search_projection__migration.sql",
+        "sha256": "d92b2c03ab00c2221c75690f0bf8825db8a52b824ecd5d0acc3a36057b27ff60"
+      },
+      {
+        "source": "packages/db/src/helpers/venue-content-lock.ts",
+        "retained": "measured-packages__db__src__helpers__venue-content-lock.ts",
+        "sha256": "ff85474fdba4a51fcf3cdb0e270f6322c5bdf714bdc3814bfb86fb381d441ab9"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-review.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-review.ts",
+        "sha256": "672578a6831da9650150678773540f63aa2ab0fef89acfc6f87ca30f537ef0ce"
+      },
+      {
+        "source": "packages/api/src/trpc.ts",
+        "retained": "measured-packages__api__src__trpc.ts",
+        "sha256": "854e3f6c21ca21884d25f9e87d8f3465f8345bc38b384ec533f20d0e4d440da7"
+      },
+      {
+        "source": "packages/api/src/core.ts",
+        "retained": "measured-packages__api__src__core.ts",
+        "sha256": "dbfb5b286419b401b43aa15bcfc725721bda98a6cf2c8169ac5a3713cdbb728b"
+      },
+      {
+        "source": "packages/db/src/helpers/operational-events.ts",
+        "retained": "measured-packages__db__src__helpers__operational-events.ts",
+        "sha256": "ddeaee7b969ccc3ec8486e44fb97089769ef01cd54edac7c38057238253c89c9"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-conflict-resolution.disposable.integration.test.ts",
+        "retained": "measured-packages__api__src__lib__semantic-conflict-resolution.disposable.integration.test.ts",
+        "sha256": "8451c4a2c39a113803ed5c2b74cced9a752226146351ddd023e2f8ea7a484f50"
+      },
+      {
+        "source": "packages/db/prisma/schema.prisma",
+        "retained": "measured-packages__db__prisma__schema.prisma",
+        "sha256": "a3adb945c7b0bfcbc9fc64f21fc63e42fa46454beb5169eb472f31aab92cd3f2"
+      },
+      {
+        "source": "packages/db/src/client.ts",
+        "retained": "measured-packages__db__src__client.ts",
+        "sha256": "9b6d8184e234b8d0dc8b657d9d591728c373675d8f764382c94c1ec3a1122237"
+      },
+      {
+        "source": "packages/db/src/middleware/tenant-isolation.ts",
+        "retained": "measured-packages__db__src__middleware__tenant-isolation.ts",
+        "sha256": "cfa1cc1d156631e3cca8acdc3536ff2a5f5c7d7536b2f79c473f41750a1b0b99"
+      },
+      {
+        "source": "packages/db/src/tenanted-tables.ts",
+        "retained": "measured-packages__db__src__tenanted-tables.ts",
+        "sha256": "2c3b6b4f38da0f0db1f4789e03292d67c67c3284957a055ea4627a940af6bf31"
+      },
+      {
+        "source": "packages/db/src/helpers/support-knowledge-proposal-actions.ts",
+        "retained": "measured-packages__db__src__helpers__support-knowledge-proposal-actions.ts",
+        "sha256": "134d85d1480492624a0d927fa654426a42c86b2252a153e124c14f48cc454d88"
+      },
+      {
+        "source": "packages/db/src/helpers/support-actions.ts",
+        "retained": "measured-packages__db__src__helpers__support-actions.ts",
+        "sha256": "179b66ba599586548c11017f7e27d83eea555255e0e7476c676514e1c2353b4d"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-actions.ts",
+        "sha256": "76c426a4361bc3f1e79682679eaeec49ba4bf54f1ab48ccd9ada0cef441192fd"
+      },
+      {
+        "source": "packages/db/src/helpers/universal-content-publication-actions.ts",
+        "retained": "measured-packages__db__src__helpers__universal-content-publication-actions.ts",
+        "sha256": "4b20c27a5f798a20668563978227eb0ad4576574ee6ccd21a3e3c1a6d8e5a8fb"
+      },
+      {
+        "source": "packages/db/src/helpers/audit.ts",
+        "retained": "measured-packages__db__src__helpers__audit.ts",
+        "sha256": "a9033dc1bcc66238ebe6b5089e3cbfd0f3879f5f349cde932bebde9e549793c5"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater.ts",
+        "sha256": "233e231ff5ef76e0823370e55c343181036098b29f2e553023362b73e50b694d"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-venue-updater-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-venue-updater-service.ts",
+        "sha256": "ddedc40e0582446ad6eb7672d060a8883f04af28e3e2ee254d309d1f8ce6a922"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-universal-content-handoff.ts",
+        "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff.ts",
+        "sha256": "505ff6b65bc3821b7fc0de65f2c4010258347874931666e821cf3538bb5639e3"
+      },
+      {
+        "source": "packages/api/src/lib/semantic-universal-content-handoff-service.ts",
+        "retained": "measured-packages__api__src__lib__semantic-universal-content-handoff-service.ts",
+        "sha256": "5f747ae623d998330bcba4c04df0a8c1e7cbc5c6fe98952276bb621a83eccec7"
+      },
+      {
+        "source": "packages/api/src/lib/knowledge-proposal-temporal-evidence.ts",
+        "retained": "measured-packages__api__src__lib__knowledge-proposal-temporal-evidence.ts",
+        "sha256": "4586cab108d7f12ef6b10d3936b3ead8dec765123b30f8bc28e8a0053813009b"
+      },
+      {
+        "source": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+        "retained": "measured-packages__api__src__lib__guest-knowledge-retrieval.ts",
+        "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+      },
+      {
+        "source": "packages/contracts/src/universal-content-actions.ts",
+        "retained": "measured-packages__contracts__src__universal-content-actions.ts",
+        "sha256": "ad91c8b4855d0e4d105e83f99aeba51f93a0b576d514cd411df246168a922c5b"
+      },
+      {
+        "source": "apps/dashboard/components/admin/SemanticConflictResolutionForm.tsx",
+        "retained": "measured-apps__dashboard__components__admin__SemanticConflictResolutionForm.tsx",
+        "sha256": "e145c4ddad9675a3ad999dbef9dfb13712403b9514497715bd42e9e71bef3c17"
+      },
+      {
+        "source": "apps/dashboard/components/admin/SemanticConflictResolutionForm.test.tsx",
+        "retained": "measured-apps__dashboard__components__admin__SemanticConflictResolutionForm.test.tsx",
+        "sha256": "3532df4bcf53699aa595ba5928183b89e3c193d204dfa7110e0e0f88cc3e4ee8"
+      },
+      {
+        "source": "apps/dashboard/components/admin/SemanticUpdatePreview.tsx",
+        "retained": "measured-apps__dashboard__components__admin__SemanticUpdatePreview.tsx",
+        "sha256": "3009eb9e91667214a4b8bea8b13f6fd331510b5d17f9e63238a69ba07617c2d1"
+      },
+      {
+        "source": "apps/dashboard/components/admin/SemanticUpdatePreview.test.tsx",
+        "retained": "measured-apps__dashboard__components__admin__SemanticUpdatePreview.test.tsx",
+        "sha256": "ff748523576daf59efb1d7717711b6bc22e40a132e73fae6bc67cef33263f594"
+      },
+      {
+        "source": "apps/dashboard/components/admin/KnowledgeProposalReview.tsx",
+        "retained": "measured-apps__dashboard__components__admin__KnowledgeProposalReview.tsx",
+        "sha256": "cc61b0a086a22cf3804ce5dc323fc8c97d7428758564ed230567a7bdae0fe0f1"
+      },
+      {
+        "source": "apps/dashboard/components/admin/KnowledgeProposalReview.test.tsx",
+        "retained": "measured-apps__dashboard__components__admin__KnowledgeProposalReview.test.tsx",
+        "sha256": "4cde56508ebc7ada8dd479629f18fb2f975b1dcfa3050403ad26f59bafcd6dae"
+      },
+      {
+        "source": "apps/dashboard/lib/bounded-client-request.ts",
+        "retained": "measured-apps__dashboard__lib__bounded-client-request.ts",
+        "sha256": "484db7ac9e0f45f34f19b7e3d2fe15fdbb427d7ef14ffcbad4dda82c274b1f77"
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/semantic-conflict-resolution/page.tsx",
+        "retained": "measured-apps__dashboard__app__dev-fixtures__semantic-conflict-resolution__page.tsx",
+        "sha256": "f0617281aed6a8f8a80852fcf8961ebbe2e798ecc5ceb8702e0e08bd069f0f2b"
+      },
+      {
+        "source": "apps/dashboard/app/dev-fixtures/semantic-conflict-resolution/FixtureClient.tsx",
+        "retained": "measured-apps__dashboard__app__dev-fixtures__semantic-conflict-resolution__FixtureClient.tsx",
+        "sha256": "ee36ef9a8d3dded28461f7d2a8a2bbac7aa7f1fb556bde00c72b584b92122908"
+      },
+      {
+        "source": "apps/dashboard/tests/browser/semantic-conflict-resolution.spec.ts",
+        "retained": "measured-apps__dashboard__tests__browser__semantic-conflict-resolution.spec.ts",
+        "sha256": "b306059598467bcac81125fdb71ff8007925200b1d7eec948e1993db03723ba1"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposal-preview.ts",
+        "sha256": "91ac695c2e1ef20c1955885c41582403b0e13d856b3b0c6fe7cc8196c2c91e23"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposals.test.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposals.test.ts",
+        "sha256": "bba62e6d9460b99f5999c4d16a730ac373cb894872a1d52a57e45ee613f49497"
+      },
+      {
+        "source": "apps/dashboard/tests/browser/semantic-conflict-resolution-connected.spec.ts",
+        "retained": "measured-apps__dashboard__tests__browser__semantic-conflict-resolution-connected.spec.ts",
+        "sha256": "7338d8c2bda1dbb5b0d8391b0d87bc5d48215ad5db326d5bf31d147eac17477e"
+      },
+      {
+        "source": "packages/api/src/routers/admin/knowledge-proposals.ts",
+        "retained": "measured-packages__api__src__routers__admin__knowledge-proposals.ts",
+        "sha256": "76fa3651b1f714f76c140728533adc2f4fd0f39c34c0af3435383964cc8a3a3b"
+      },
+      {
+        "source": "packages/api/src/middleware/require-platform-admin.ts",
+        "retained": "measured-packages__api__src__middleware__require-platform-admin.ts",
+        "sha256": "663f453f0ecedc24e77a852e2fe3b3d10e91348abe82e80ef09492f5d2bd3ce9"
+      },
+      {
+        "source": "packages/auth/src/permissions.ts",
+        "retained": "measured-packages__auth__src__permissions.ts",
+        "sha256": "6fbadca65c173dd0a74d943ac808f44da60064166b5ccd75eef4d422e3f7b074"
+      },
+      {
+        "source": "apps/dashboard/lib/trpc.tsx",
+        "retained": "measured-apps__dashboard__lib__trpc.tsx",
+        "sha256": "2835af903f2a1045cef112cdde82acf27d0d0fc2bc1ea0297480b700f8fa73fe"
+      }
+    ],
+    "runnerSha256": "6517973e0b3be47845800d6ec2e2d6e13613c30b7394472a560fd0adf60b0d3b",
+    "nextPid": 42768,
+    "browser": {
+      "startTime": "2026-09-10T10:54:57.443Z",
+      "duration": 19675.934,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "sourceHashesStable": true
+  },
+  "durableReadback": [
+    {
+      "proposalId": "ee760146-d30a-4351-966e-9797410cb370",
+      "replacementProposalId": "853040c8-11cc-4628-bf05-54492ac4e66e",
+      "committedBeforeRetry": {
+        "id": "da383302-c06e-410a-9ff1-ca41518b0ead",
+        "replacementProposalId": "853040c8-11cc-4628-bf05-54492ac4e66e"
+      },
+      "resolutionRequests": 2,
+      "exactRetryBodyHash": "1829b466937839b18fee30a3080c6c8f4e15a653adc1495b6a2a4ca5aa74e675",
+      "replacementStatus": "APPROVED",
+      "contentEffects": [0, 0, 0],
+      "canonical": {
+        "title": "Willow gallery hours",
+        "category": "Hours",
+        "content": "The Willow gallery closes at 5 PM.",
+        "isEnabled": true
+      },
+      "authentication": "synthetic platform admin; unauthenticated request denied"
+    }
+  ],
+  "targetedTests": {
+    "dashboard": 23,
+    "api": 22,
+    "typechecks": ["dashboard", "api"],
+    "configuredEslint": "pass"
+  },
+  "productGapFixed": "Replacement review now loads and locks the exact immutable resolution desired title/category/content/enabled state and relation. Operators no longer need to reconstruct hidden fields; new scope resets values.",
+  "verification": [
+    "Real scoped support proposal preparation/review, question creation, human answer, API preview answer hash",
+    "Actual tRPC HTTP handler, middleware and PostgreSQL; synthetic local platform-admin session, unauthenticated list denied",
+    "First successful response dropped after DB commit; one resolution observed before exact retry; same replacement recovered",
+    "Actual review UI separately approves replacement; restored fields produce CORRECTION preview",
+    "Canonical 5 PM hours unchanged, zero content modules/revisions/publications",
+    "Rendered native-backed saved-wording states at 1280 and 390; axe/overflow checks pass, screenshots inspected"
+  ],
+  "limitations": [
+    "Synthetic authentication; no live identity-provider verification.",
+    "Fixture-only Reload proposals stands in for production RSC list refresh; actual admin-page document routing is not asserted.",
+    "No draft creation or publication in this connected case. Approved legacy correction still needs the existing legacy-adoption/universal-content handoff exposed in the admin UI.",
+    "Reconstruct replacement support provenance through immutable resolution-to-original relation; do not duplicate unique support request/version keys.",
+    "All 128 requirements, 32 QA and A/B/C layers, external packets, provider/device/customer/release gates remain intact.",
+    "Earlier backend/UI evidence retains its exact historical source limits; knowledge-proposal-review.ts changed for saved-wording projection in this candidate."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "recordedAt": "2026-09-08T08:22:37.714912+00:00",
+  "scope": "Unique visual proof output per Playwright invocation",
+  "behavior": "One generated run ID is inherited by workers; results and HTML report use separate sibling directories. A later invocation cannot clear the earlier invocation output directory.",
+  "normalizedConfigSha256": "66ad8ca8b72a463eb1cb56a21c6a120b27121116b188cb3f685b5b91fef215e7",
+  "proof": {
+    "sequentialInvocationsPassed": 2,
+    "distinctRunIds": ["2026-09-08T08-18-58.862Z-4a2b4c08", "2026-09-08T08-19-08.263Z-26e89f8f"],
+    "firstArtifactPreserved": true,
+    "firstArtifactBeforeAndAfterSha256": "0b82a72fa9324d4f7155fef924b9b8859edef5e76c5d7f0d1b1914f48d17e5fa",
+    "reportAndResultsSiblings": true,
+    "formatter": "passed",
+    "lint": "passed",
+    "probeDirectory": "artifacts/visual-config-isolation-probe-330a06ac821443eb8634c3e740c8fa2c",
+    "limitations": [
+      "No browser, UI, database, server, or network was used; this verifies filesystem output retention.",
+      "Explicit CLI output overrides remain caller-owned. The inherited run-ID environment value must remain invocation-specific."
+    ]
+  },
+  "artifacts": {
+    "artifacts/mobile-visual/2026-09-08T08-18-58.862Z-4a2b4c08/results/probe-retains-a-per-invocation-artifact-local-no-browser/probe.txt": "0b82a72fa9324d4f7155fef924b9b8859edef5e76c5d7f0d1b1914f48d17e5fa",
+    "artifacts/mobile-visual/2026-09-08T08-18-58.862Z-4a2b4c08/report/index.html": "ddf4a9cc6bf05619f573ec65cdedcd4efdb02f6385a6b9f18746d86d2cd0ffc8",
+    "artifacts/mobile-visual/2026-09-08T08-19-08.263Z-26e89f8f/results/probe-retains-a-per-invocation-artifact-local-no-browser/probe.txt": "0b82a72fa9324d4f7155fef924b9b8859edef5e76c5d7f0d1b1914f48d17e5fa",
+    "artifacts/mobile-visual/2026-09-08T08-19-08.263Z-26e89f8f/report/index.html": "e348a8b93fe938e6d36856fcaf44fa071d6e29ab3dcbd3f151209b7c9feceee5"
+  }
+}

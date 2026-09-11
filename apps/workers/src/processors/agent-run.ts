@@ -81,6 +81,10 @@ function systemPrompt(run: Awaited<ReturnType<typeof claimAgentRunExecution>>): 
     run.agentIdentity.description ?? '',
     `Your autonomy level is ${run.agentIdentity.autonomyLevel}.`,
     `Your allowed capabilities are: ${run.agentIdentity.accessCapabilities.join(', ') || 'none'}.`,
+    ...(run.workflowBindings ?? []).map(
+      (binding) =>
+        `Reviewed workflow ${binding.registryKey} (${binding.outcome}, content ${binding.workflowVersion?.contentHash}):\n${binding.workflowVersion?.portableText}`,
+    ),
     run.runType === 'PRIMARY'
       ? 'You are the primary coordinator. When a connected bridge exposes pathfinder.delegate_specialist, assign bounded work to the best specialist and synthesize their evidence. If no tool is available, say which specialist should be assigned rather than pretending delegation occurred.'
       : '',
@@ -147,11 +151,13 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       error.name = 'AgentProviderConfigurationError'
       throw error
     }
+    const configurationScope = {
+      workloadId: 'agent-run' as const,
+      tenantId: run.tenantId,
+      venueId: run.venueId,
+    }
     const [configuration, unhealthyProviders] = await Promise.all([
-      resolveRuntimeAiWorkloadConfiguration(
-        { workloadId: 'agent-run', tenantId: run.tenantId, venueId: run.venueId },
-        db,
-      ),
+      resolveRuntimeAiWorkloadConfiguration(configurationScope, db),
       readActiveUnhealthyAiProviders(db),
     ])
     const route = routeAiCapability({
@@ -160,10 +166,21 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       configuration,
       unhealthyProviders,
     })
+    const configurationSnapshot = JSON.stringify(configuration)
     const result = await generateTextForCapability({
       route,
       system: [{ type: 'text', text: systemPrompt(run) }],
-      messages: [{ role: 'user', content: run.requestPrompt ?? run.requestedOperation }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            run.requestPrompt ?? run.requestedOperation,
+            '',
+            'Bounded persisted execution context:',
+            run.executionContext,
+          ].join('\n'),
+        },
+      ],
       ...(configuration.maxOutputTokens === null
         ? {}
         : { maxOutputTokens: configuration.maxOutputTokens }),
@@ -171,8 +188,13 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       maxAttempts: configuration.maxAttempts,
       requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
       signal: controller.signal,
-      admissionGuard: () =>
-        assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId! }),
+      admissionGuard: async () => {
+        await assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId! })
+        const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+        if (JSON.stringify(current) !== configurationSnapshot) {
+          throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Agent run configuration changed')
+        }
+      },
       usageSink: createWorkerAiUsageSink({
         tenantId: run.tenantId,
         venueId: run.venueId,

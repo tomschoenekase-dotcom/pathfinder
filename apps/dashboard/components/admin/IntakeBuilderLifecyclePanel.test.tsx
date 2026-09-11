@@ -14,6 +14,7 @@ const fileClarificationMutate = vi.fn()
 const fileResolutionMutate = vi.fn()
 const mappingQuery = vi.fn()
 const mappingMutate = vi.fn()
+const sourceReaderQuery = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
@@ -28,6 +29,7 @@ vi.mock('../../lib/trpc', () => ({
       resolveFileExtractionClarification: { mutate: fileResolutionMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
       createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
+      readIntakeFileExtractionSource: { query: sourceReaderQuery },
     },
   }),
 }))
@@ -987,5 +989,107 @@ describe('IntakeBuilderLifecyclePanel', () => {
     expect(await screen.findByText('Immutable file amendment recorded')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Record file amendment' })).toBeNull()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('reads, searches, pages, and safely reports a stale retained source', async () => {
+    const unicodePageText = '😀 fact after 4,000 characters'
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      fileUpload: null,
+      fileExtraction: null,
+      fileClarificationReview: null,
+      websiteClarificationReview: null,
+      interviewClarificationReview: null,
+      fileExtractionReview: {
+        receiptId: '975140d8-5af9-4c2d-9132-40b5cf6f5962',
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 8_500,
+        extractedLineCount: 6,
+        preview: 'A'.repeat(4_000),
+        previewTruncated: true,
+        createdAt: new Date('2026-09-06T00:00:00.000Z'),
+        reviewRequired: true,
+        review: null,
+        grantsAuthority: false,
+      },
+      currentStage: 'REVIEW',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_EXTRACTION',
+      requiresHumanApproval: true,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [{ stage: 'REVIEW', state: 'BLOCKED', evidenceRefs: [], blockers: [] }],
+    }
+    query.mockResolvedValue(lifecycle)
+    sourceReaderQuery
+      .mockResolvedValueOnce({
+        receiptId: lifecycle.fileExtractionReview.receiptId,
+        extractedTextHash: lifecycle.fileExtractionReview.extractedTextHash,
+        source: { sha256: 'c'.repeat(64), mimeType: 'text/plain' },
+        extractedCharacterCount: 8_500,
+        extractedLineCount: 6,
+        page: {
+          offset: 4_000,
+          limit: 4_000,
+          text: unicodePageText,
+          matchOffsets: [],
+        },
+        nextCursor: 'next-page',
+      })
+      .mockResolvedValueOnce({
+        receiptId: lifecycle.fileExtractionReview.receiptId,
+        extractedTextHash: lifecycle.fileExtractionReview.extractedTextHash,
+        source: { sha256: 'c'.repeat(64), mimeType: 'text/plain' },
+        extractedCharacterCount: 8_500,
+        extractedLineCount: 6,
+        page: { offset: 8_000, limit: 4_000, text: 'final page', matchOffsets: [] },
+        nextCursor: null,
+      })
+      .mockRejectedValueOnce(new Error('The file source changed after extraction.'))
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Read full extracted source' }))
+
+    expect(await screen.findByText(unicodePageText)).toBeTruthy()
+    expect(
+      screen.getByText(
+        `Characters 4,000–${(4_000 + [...unicodePageText].length).toLocaleString()} of 8,500`,
+      ),
+    ).toBeTruthy()
+    expect(sourceReaderQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-file',
+        receiptId: lifecycle.fileExtractionReview.receiptId,
+        expectedExtractedTextHash: lifecycle.fileExtractionReview.extractedTextHash,
+        pageSize: 4_000,
+      }),
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(screen.queryByText('originalUrl')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Find in extracted text'), {
+      target: { value: 'final page' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(await screen.findByText('final page')).toBeTruthy()
+    expect(sourceReaderQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'final page' }),
+      { signal: expect.any(AbortSignal) },
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(
+      await screen.findByText(/The source changed or this reading position is stale/),
+    ).toBeTruthy()
   })
 })

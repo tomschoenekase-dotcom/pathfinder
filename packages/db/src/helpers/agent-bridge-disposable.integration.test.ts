@@ -8,6 +8,7 @@ import {
   db,
   heartbeatAgentBridgeTask,
   issueExternalCredentialAction,
+  registerAgentWorkerAction,
   registerAgentBridgeSession,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
@@ -80,6 +81,32 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
         venueId,
         plaintext: issued.plaintextSecret!,
       })
+      const firstWorker = await registerAgentWorkerAction(
+        {
+          workerKey: 'bridge-smoke-worker-first',
+          runtimeType: 'CODEX',
+          label: 'First disposable bridge worker',
+          protocolVersion: 'mcp-2026-07-28',
+          softwareVersion: 'integration/1',
+          capabilities: ['agent-runs:execute'],
+          agentRoles: ['operations'],
+          safeHealth: {},
+        },
+        credential,
+      )
+      const replacementWorker = await registerAgentWorkerAction(
+        {
+          workerKey: 'bridge-smoke-worker-replacement',
+          runtimeType: 'CODEX',
+          label: 'Replacement disposable bridge worker',
+          protocolVersion: 'mcp-2026-07-28',
+          softwareVersion: 'integration/2',
+          capabilities: ['agent-runs:execute'],
+          agentRoles: ['operations'],
+          safeHealth: {},
+        },
+        credential,
+      )
       const sessionId = randomUUID()
       await registerAgentBridgeSession({
         sessionId,
@@ -107,17 +134,66 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
           initiatedById: actor.id,
         },
       })
-      const claimed = await claimAgentBridgeTask({ sessionId, venueId, credential })
-      expect(claimed.task?.id).toBe(run.id)
-      await heartbeatAgentBridgeTask({
+      await db.agentQuestion.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          agentRunId: run.id,
+          question: 'What is the approved visitor capacity?',
+          category: 'capacity',
+          status: 'ANSWERED',
+          answer: 'The approved capacity is 137 visitors.',
+          answeredById: actor.id,
+          answeredAt: new Date(),
+          evidence: [{ source: 'founder-answer' }],
+        },
+      })
+      const interrupted = await claimAgentBridgeTask({
         sessionId,
+        venueId,
+        workerKey: 'bridge-smoke-worker-first',
+        credential,
+      })
+      expect(interrupted.task?.id).toBe(run.id)
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: run.id },
+          select: { executionWorkerId: true },
+        }),
+      ).toEqual({ executionWorkerId: firstWorker.id })
+      await db.agentRun.update({
+        where: { id: run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      const replacementSessionId = randomUUID()
+      await registerAgentBridgeSession({
+        sessionId: replacementSessionId,
+        venueId,
+        provider: 'CODEX_SUBSCRIPTION',
+        label: 'Fresh replacement runner',
+        runnerVersion: 'integration/2',
+        supportedModels: ['subscription-default'],
+        credential,
+      })
+      const claimed = await claimAgentBridgeTask({
+        sessionId: replacementSessionId,
+        venueId,
+        workerKey: 'bridge-smoke-worker-replacement',
+        credential,
+      })
+      expect(claimed.task).toMatchObject({ id: run.id, attemptNumber: 2 })
+      expect(claimed.task?.prompt).toContain('The approved capacity is 137 visitors.')
+      await heartbeatAgentBridgeTask({
+        sessionId: replacementSessionId,
         venueId,
         runId: run.id,
         leaseToken: claimed.task!.leaseToken,
         credential,
       })
       await completeAgentBridgeTask({
-        sessionId,
+        sessionId: replacementSessionId,
         venueId,
         runId: run.id,
         leaseToken: claimed.task!.leaseToken,
@@ -130,11 +206,17 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
       })
       const evidence = await db.agentRun.findUniqueOrThrow({
         where: { id: run.id },
-        select: { status: true, artifacts: true, executionBridgeSessionId: true },
+        select: {
+          status: true,
+          artifacts: true,
+          executionBridgeSessionId: true,
+          executionWorkerId: true,
+        },
       })
       expect(evidence).toMatchObject({
         status: 'COMPLETED',
-        executionBridgeSessionId: sessionId,
+        executionBridgeSessionId: replacementSessionId,
+        executionWorkerId: replacementWorker.id,
         artifacts: [{ type: 'markdown', title: 'Proof', content: 'BRIDGE_E2E_OK' }],
       })
       expect(

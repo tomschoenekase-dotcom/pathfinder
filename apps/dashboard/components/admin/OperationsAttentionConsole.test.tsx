@@ -16,6 +16,9 @@ vi.mock('./OperationalEventActions', () => ({
 vi.mock('./FounderQuestionTriageBoard', () => ({
   FounderQuestionTriageBoard: () => <span>Founder question triage board</span>,
 }))
+vi.mock('./FounderTwoMinuteBoard', () => ({
+  FounderTwoMinuteBoard: () => <span>Founder two minute board</span>,
+}))
 vi.mock('./ApprovalDecisionForm', () => ({
   ApprovalDecisionForm: () => <span>Inline approval decision</span>,
 }))
@@ -27,6 +30,9 @@ vi.mock('./TerminalRedrivePreview', () => ({
 }))
 vi.mock('./GuestChatIncidentEvidence', () => ({
   GuestChatIncidentEvidence: () => <span>Guest chat incident evidence control</span>,
+}))
+vi.mock('./VisitorFeedbackHazardEvidence', () => ({
+  VisitorFeedbackHazardEvidence: () => <span>Visitor feedback hazard evidence control</span>,
 }))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
@@ -67,8 +73,16 @@ const empty: Data = {
     },
     ai: {
       estimatedCostUsd: '0.00000000',
+      observedEstimatedCostUsd: '0.00000000',
       requestCount: 0,
       attributedTenantCount: 0,
+      usageCoverage: {
+        observedRequestCount: 0,
+        unknownRequestCount: 0,
+        notDispatchedRequestCount: 0,
+        legacyUnclassifiedRequestCount: 0,
+      },
+      observationCompleteness: 'NO_RECORDED_USAGE',
       completeness: 'PROVIDER_PRICING_ESTIMATE',
     },
     nonAi: {
@@ -359,10 +373,76 @@ describe('operations attention console', () => {
     expect(screen.getByRole('heading', { name: 'Measured operational load' })).toBeTruthy()
     expect(screen.getByText(/No recent queue or declared-byte observations/)).toBeTruthy()
     expect(screen.getByText('Coverage incomplete')).toBeTruthy()
+    expect(screen.getByText('No recorded AI usage')).toBeTruthy()
+    expect(screen.getByText(/missing evidence, not a known zero cost/i)).toBeTruthy()
     expect(screen.getByText(/No anomaly threshold is settled/)).toBeTruthy()
     expect(
       screen.getByText(/No reliability score, trend claim, or permission change is inferred/),
     ).toBeTruthy()
+  })
+
+  it('labels partial and fully observed AI cost evidence without overstating coverage', () => {
+    const { rerender } = render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          unitEconomics: {
+            ...empty.unitEconomics,
+            ai: {
+              ...empty.unitEconomics.ai,
+              estimatedCostUsd: '8.50000000',
+              observedEstimatedCostUsd: '6.25000000',
+              requestCount: 12,
+              attributedTenantCount: 2,
+              usageCoverage: {
+                observedRequestCount: 8,
+                unknownRequestCount: 2,
+                notDispatchedRequestCount: 1,
+                legacyUnclassifiedRequestCount: 1,
+              },
+              observationCompleteness: 'PARTIAL_RECORDED_USAGE',
+            },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('Partial observed AI estimate')).toBeTruthy()
+    expect(screen.getByText('$6.25')).toBeTruthy()
+    expect(screen.getByText(/Totals are partial/)).toBeTruthy()
+    expect(screen.getByText('Coverage incomplete')).toBeTruthy()
+
+    rerender(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          unitEconomics: {
+            ...empty.unitEconomics,
+            coverage: { ...empty.unitEconomics.coverage, complete: true },
+            ai: {
+              ...empty.unitEconomics.ai,
+              estimatedCostUsd: '6.25000000',
+              observedEstimatedCostUsd: '6.25000000',
+              requestCount: 10,
+              attributedTenantCount: 2,
+              usageCoverage: {
+                observedRequestCount: 8,
+                unknownRequestCount: 0,
+                notDispatchedRequestCount: 2,
+                legacyUnclassifiedRequestCount: 0,
+              },
+              observationCompleteness: 'COMPLETE_RECORDED_USAGE',
+            },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('Observed AI estimate')).toBeTruthy()
+    expect(
+      screen.getByText(
+        /8 dispatched AI requests include observed usage metadata; 2 were not dispatched/,
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText('Coverage complete')).toBeTruthy()
   })
 
   it('surfaces negative trust evidence without recommending broader authority and passes axe', async () => {
@@ -409,6 +489,7 @@ describe('operations attention console', () => {
                 id: 'question_1',
                 tenantId: 'tenant_1',
                 venueId: 'venue_1',
+                venue: { name: 'North Museum' },
                 agentRunId: 'run_1',
                 question: 'Which pricing assumption should I use?',
                 context: 'Two sources disagree.',
@@ -417,6 +498,7 @@ describe('operations attention console', () => {
                 urgency: 'HIGH',
                 choices: ['Current list price', 'Last signed agreement'],
                 dueAt: null,
+                expiresAt: null,
                 evidence: [
                   {
                     label: 'Reviewed agreement',
@@ -481,6 +563,7 @@ describe('operations attention console', () => {
                 id: 'question_1',
                 tenantId: 'tenant_1',
                 venueId: 'venue_1',
+                venue: { name: 'North Museum' },
                 agentRunId: 'run_1',
                 question: 'Can this wait?',
                 context: null,
@@ -489,6 +572,7 @@ describe('operations attention console', () => {
                 urgency: 'NORMAL',
                 choices: ['Yes', 'No'],
                 dueAt: null,
+                expiresAt: null,
                 evidence: [],
                 proposedAnswer: null,
                 blocking: true,
@@ -769,6 +853,61 @@ describe('operations attention console', () => {
     expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/knowledge-proposals',
     )
+  })
+
+  it('offers on-demand evidence only for the exact visitor-feedback hazard alert', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          events: {
+            items: [
+              {
+                id: 'event_hazard',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'visitor-feedback.potential-urgent-hazard',
+                sourceSubsystem: 'visitor-feedback',
+                severity: 'CRITICAL',
+                title: 'Potential visitor-reported safety hazard',
+                summary:
+                  'An unverified visitor feedback report may describe an immediate venue safety hazard.',
+                recommendedAction:
+                  'Review the current feedback record and its cited public conversation.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'MessageFeedback',
+                linkedObjectId: 'feedback_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+              {
+                id: 'event_other',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'visitor-feedback.potential-urgent-hazard',
+                sourceSubsystem: 'visitor-feedback',
+                severity: 'CRITICAL',
+                title: 'Unlinked visitor feedback event',
+                summary: 'No exact feedback reference is present.',
+                recommendedAction: null,
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'ConversationInsight',
+                linkedObjectId: 'insight_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Visitor feedback hazard evidence control')).toHaveLength(1)
   })
 
   it('routes AI cost events to the tenant budget controls instead of chat logs', () => {

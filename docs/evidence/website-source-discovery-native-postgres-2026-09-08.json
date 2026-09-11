@@ -1,0 +1,214 @@
+{
+  "recordedAt": "2026-09-08T08:01:51.143590+00:00",
+  "baseHead": "76b5e8c29a966c0bbf0c5f842fc22f2e759de045",
+  "scope": "P01-02 bounded website source discovery, honest unsupported-source persistence and existing admin lifecycle review.",
+  "defect": "A successful non-text response previously threw at the runtime and aborted the crawl, losing independent extracted HTML evidence. Unsupported-only crawls could not persist a useful source inventory without violating terminal evidence invariants.",
+  "behavior": [
+    "Known document/video/audio/image extensions are retained as unsupported without DNS/robots/fetch and do not consume the text/network-candidate page budget.",
+    "Unknown MIME bodies use existing pinned transport and byte/time/cost guards, then core records unsupported type and continues independent text sources.",
+    "At most1000 admitted/queued references, including redirect targets; safe host/URL admission, bounded omissions and metadata, robots/depth/page dispositions and observed time.",
+    "Only actually received bytes get a hash/size; duplicateOf references earlier identical received bytes. No semantic corroboration, official ownership, publication/update date or verified-map inference.",
+    "Collection-policy identity1 distinguishes new receipts; exact historical pre-cost and cost-v2 receipts replay without fetch. Existing successful researchSnapshot shape remains unchanged; discovery is stored separately.",
+    "New nullable append-only receipt discoverySnapshot and SQL shape/terminal checks retain completed zero-text INACCESSIBLE inventory without extracted evidence or candidates. Failure candidate claims are rejected at canonical action boundary.",
+    "Existing exact-scope admin lifecycle projects only strict validated submitted-host inventory; invalid/missing states are explicit. Compact optional panel paginates20references with safe links/provenance and honest gaps."
+  ],
+  "nativeProof": {
+    "directory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-website-discovery-31b3681e55c6",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "sessionId": 42257,
+    "migrations": 231,
+    "publicTables": 254,
+    "timezone": "UTC",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "stopped": true,
+    "measuredSources": 13,
+    "runnerSha256": "f313d88370544cb47819b1de05b6bcc9c1abb8298a85c4b07359097ebe5cbb63",
+    "guard": "Explicit fixture flag and exact disposable database suffix; environment allowlist; no dotenv; unique data directory and owned process teardown.",
+    "coverage": "Actual execute service and canonical DB actions with tenant middleware enabled outside seeding, synthetic fetch/extractor; mixed text/PDF retention, all-PDF INACCESSIBLE nofetch, readback, replay/bounds conflicts, wrongvenue/wrongtenant nofetch, invalid JSON SQL insert and append-only UPDATE/DELETE denial."
+  },
+  "verification": {
+    "integratedApi": {
+      "passed": 65,
+      "files": 7
+    },
+    "contracts": 6,
+    "canonicalDbHelper": 9,
+    "dashboard": 17,
+    "migrationAdmission": 11,
+    "browser": {
+      "passed": 1,
+      "viewports": [320, 820, 1024, 1440],
+      "axeViolations": 0,
+      "overflow": false,
+      "keyboardAndPagination": true,
+      "pageErrors": 0
+    },
+    "types": "API/dashboard/contracts/DB passed",
+    "lint": "Owned files passed",
+    "runtimeTransport": "Additional actual pinned HTTP transport loopback fixture verifies PDF body pass-through and byte limit rejection,4runtime tests total. No external network/DNS.",
+    "visualReview": "Root inspected four inventory screenshots; existing admin dividers and text hierarchy retained. AI-default critique: no new branding, decorative cards, gradients or animation.",
+    "artifactRetention": "Four PNGs copied/read back in dedicated artifacts directory; shared Playwright output is temporary. All9 regenerated founder images match original reviewed hashes."
+  },
+  "manifest": {
+    "migrationCount": 231,
+    "finalMigration": "20260908080000_add_website_source_discovery",
+    "normalizedHash": "7a8e9ef5c88fea0e1812db9a86e7e0d60b912e952adcd788a936aa4a2439e1de",
+    "exactPredecessor230Admitted": true,
+    "unknown228Denied": true,
+    "publicTables": 254
+  },
+  "sourceHashes": [
+    {
+      "source": "packages/api/src/lib/website-discovery.disposable.integration.test.ts",
+      "sha256NormalizedLF": "32cd7cb22c03df10b9e66342735e95b82ab66b13ab0395701a0534f3eb51dc1a"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake-research-service.ts",
+      "sha256NormalizedLF": "8f013c69d775732a54a71d71483c618c294f23de5b52804c403a1bd26a5cb573"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake.ts",
+      "sha256NormalizedLF": "9a7751a609f6888c769e53b3864adacb410c08e6538da526a560b89618140f2b"
+    },
+    {
+      "source": "packages/contracts/src/intake-engine.ts",
+      "sha256NormalizedLF": "bf2a752c2d174befcc63e946bf661fef6cd49be7167ddb02c4e641e068cbb6cb"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-website-research-actions.ts",
+      "sha256NormalizedLF": "81b0ed616d1074b4ecb4d63f9d2dafd982232299d1e86bd65d1cfade62520dbd"
+    },
+    {
+      "source": "packages/db/src/helpers/audit.ts",
+      "sha256NormalizedLF": "218dd5809e6e7c9c8becdfd2b666c6cc912988a0c76011cd03417d59502d44f9"
+    },
+    {
+      "source": "packages/db/src/client.ts",
+      "sha256NormalizedLF": "f8909da2d254a57d0de0b620b7ace725db2eb6700dd413e3b35de7fa4c2a1869"
+    },
+    {
+      "source": "packages/db/src/index.ts",
+      "sha256NormalizedLF": "52ea9d1c4f404f3143d561178438aa4c9e724498b4abb223c5bc9114d030a65d"
+    },
+    {
+      "source": "packages/db/src/middleware/tenant-isolation.ts",
+      "sha256NormalizedLF": "7dfb3648f46dbd876a3cea636cd7f18669565abe6cd6369f8c3497dec0728585"
+    },
+    {
+      "source": "packages/db/prisma/schema.prisma",
+      "sha256NormalizedLF": "a454b15164afbfee56db0f563ae13f487ca2acdd861fe8793373fdedd642d603"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260908080000_add_website_source_discovery/migration.sql",
+      "sha256NormalizedLF": "03e06c9452af04c440d850da37faa4a02484f159a1e585467af5824e784b57e9"
+    },
+    {
+      "source": "scripts/lib/disposable-prisma-migration.mjs",
+      "sha256NormalizedLF": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7"
+    },
+    {
+      "source": "scripts/run-staging-migration-predeploy.mjs",
+      "sha256NormalizedLF": "2f8fafb0a126fe81caf22bc5f7df8bda281101303347eddbdb6470bcd2f5a066"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake.test.ts",
+      "sha256NormalizedLF": "7be50af59fba064793f54d1e621eac4f0f9ecce2a380534fe86a05d583875b04"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake-runtime.ts",
+      "sha256NormalizedLF": "3ede4fd294516a0785b7ea6f65a6b8adcd55026a8dc418e730677c53ac165fca"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake-runtime.test.ts",
+      "sha256NormalizedLF": "3401d92690d59b36136ca56e08d3f5d91a43d998d31a32f79fecda666aa280a9"
+    },
+    {
+      "source": "packages/api/src/lib/website-intake-research-service.test.ts",
+      "sha256NormalizedLF": "c4fdfddea03a4aa43adf58af8df2b71f3c11e271d9015c28277f47179cc35459"
+    },
+    {
+      "source": "packages/api/src/lib/website-source-discovery-review.ts",
+      "sha256NormalizedLF": "5068a6e979d760c7408b9ff85da04c3813b9e30bee2f5f440d7b85e2b001d329"
+    },
+    {
+      "source": "packages/api/src/lib/website-source-discovery-review.test.ts",
+      "sha256NormalizedLF": "7f43a40adcd2435bd97f737503f03da0c295f6b99fb2d85c5e1b5aa396ea7180"
+    },
+    {
+      "source": "packages/api/src/lib/intake-builder-lifecycle-service.ts",
+      "sha256NormalizedLF": "2f0dc9e2e7d5a896f3fb712e08472059ee26c3f704e41ea03b236a6e2ee1e927"
+    },
+    {
+      "source": "packages/api/src/lib/intake-builder-lifecycle-service.test.ts",
+      "sha256NormalizedLF": "3b2f3a9d17ad3c23753629cac8e0c2c2c2ac75441a6353d43fa9a07b0a790a4c"
+    },
+    {
+      "source": "packages/contracts/src/intake-engine.test.ts",
+      "sha256NormalizedLF": "6ee53134fc069ab69c9bbd2d68091189a47955eee9569c9d0b3b90bdfba5262e"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-website-research-actions.test.ts",
+      "sha256NormalizedLF": "a5a07ed013cdcec69b8791930d6335977f8e50f4f52cb6a1c391aa27c2c8ec07"
+    },
+    {
+      "source": "apps/dashboard/components/admin/WebsiteSourceDiscoveryPanel.tsx",
+      "sha256NormalizedLF": "1b5ddfebcd86671cc77cc151c7965710762ebe72e7ae859879be47ca8da9473e"
+    },
+    {
+      "source": "apps/dashboard/components/admin/WebsiteSourceDiscoveryPanel.test.tsx",
+      "sha256NormalizedLF": "4c00fad4e1053166afa64f7fcb805f1fb90f5af7b7278a45b0c6044676a0dc0b"
+    },
+    {
+      "source": "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.tsx",
+      "sha256NormalizedLF": "0360aad694a0062b8bced5ecd2a7328155acea2a05a676ecfa584e17e78c9a77"
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/website-source-discovery/page.tsx",
+      "sha256NormalizedLF": "7ec86becece04856d604081771fbb25e8405156e5e898138491279e9158a016e"
+    },
+    {
+      "source": "apps/dashboard/tests/visual/website-source-discovery.spec.ts",
+      "sha256NormalizedLF": "648b44ccf4f122f72e84409264c819fefd21c3cfb69420d3ef357957520c6684"
+    },
+    {
+      "source": "scripts/staging-migration-predeploy.test.mjs",
+      "sha256NormalizedLF": "9cd50913d2554553e3b799965ff08542d67044b439a4271d4388468f860d4e48"
+    },
+    {
+      "source": "Dockerfile.web.staging",
+      "sha256NormalizedLF": "fabe2fc8663a1baf5c56d0073d2795cf12f28b1e109a859b53acc9118eaec563"
+    },
+    {
+      "source": "docs/railway-staging.md",
+      "sha256NormalizedLF": "729b79c646c64a353a60fea3240490d433258448eff68b57efb133521a75db03"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\website-source-discovery-20260908\\root-reviewed\\website-source-discovery-1024.png",
+      "sha256": "c9e3f18d554e9cf25fab880afb9d16ce5cd8ca86dfae403cb10358bf839cbbd7"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\website-source-discovery-20260908\\root-reviewed\\website-source-discovery-1440.png",
+      "sha256": "f5d8d1fcce01005f00b490b3342274cf55bffd59fcb193b99ad05e0cd2e5664d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\website-source-discovery-20260908\\root-reviewed\\website-source-discovery-320.png",
+      "sha256": "3a3b0a5b5424bfa0d8037a0b81bf21ba49935c91e1999e284fa91dcf9a6bc72e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\website-source-discovery-20260908\\root-reviewed\\website-source-discovery-820.png",
+      "sha256": "b1f4a7479c33a30d2400765c84163f16bb6b13396e559d079ad8b61d7fa120d4"
+    }
+  ],
+  "limitations": [
+    "No live website fetch, paid provider, semantic extraction benchmark, deployment or publication.",
+    "Native proof injects deterministic fetch and extraction; separate loopback transport test covers actual HTTP runtime but not live DNS/TLS.",
+    "Browser renders the actual read-only panel with synthetic props; actual admin auth/HTTP transport is not covered by this visual fixture.",
+    "Website document/video/image adapters remain unavailable; map identity, official ownership, topic completeness, freshness and semantic corroboration remain unverified. Existing upload extraction is separate.",
+    "Unexpected security/network/extractor/cost/time failures still fail closed and do not retain partial discovery.",
+    "No physical phone testing or final Tochi/wordmark selection."
+  ]
+}

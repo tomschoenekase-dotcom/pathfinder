@@ -1,52 +1,36 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 import { McpCapability } from '@pathfinder/contracts/mcp-v0'
 
-const sql = readFileSync(
-  new URL(
-    '../../prisma/migrations/20260821200000_sync_mcp_credential_capabilities/migration.sql',
-    import.meta.url,
-  ),
-  'utf8',
-)
-const capabilityMigrationPaths = [
-  '20260821201000_add_meeting_processing_capability',
-  '20260822223000_add_conversation_review_knowledge_draft_capabilities',
-  '20260823030000_add_customer_access_requests',
-  '20260823210000_add_location_proposal_capability',
-  '20260823233000_add_agent_improvement_proposals',
-  '20260824010000_add_agent_improvement_validation_evidence',
-  '20260824160000_add_intake_machine_lineage',
-  '20260824170000_add_weekly_report_draft_capability',
-  '20260824180000_add_support_open_capability',
-  '20260824190000_add_support_note_capability',
-  '20260824200000_add_support_triage_capability',
-  '20260824210000_add_support_information_request_capability',
-  '20260824220000_add_support_completion_capability',
-  '20260824231000_add_support_package_approval_capability',
-  '20260824233000_add_support_package_application_capability',
-  '20260824234000_add_support_package_reversion_capability',
-  '20260824235000_add_support_package_handoff_supersession',
-  '20260825003000_add_retention_read_capability',
-]
-const capabilitySql = [
-  sql,
-  ...capabilityMigrationPaths.map((migration) =>
-    readFileSync(
-      new URL(`../../prisma/migrations/${migration}/migration.sql`, import.meta.url),
-      'utf8',
+const migrationsRoot = new URL('../../prisma/migrations/', import.meta.url)
+const latestDefinition = readdirSync(migrationsRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort()
+  .reverse()
+  .find((name) =>
+    readFileSync(new URL(`${name}/migration.sql`, migrationsRoot), 'utf8').includes(
+      'CREATE OR REPLACE FUNCTION pathfinder_check_external_credential_evidence()',
     ),
-  ),
-].join('\n')
+  )
+if (!latestDefinition) throw new Error('Missing current credential evidence trigger definition')
+const sql = readFileSync(new URL(`${latestDefinition}/migration.sql`, migrationsRoot), 'utf8')
+
+const mcpAllowlistMatch = sql.match(/NEW\."kind" = 'MCP'[\s\S]*?<@ ARRAY\[([^\]]*)\]::TEXT\[\]/)
+const mcpAllowlist = [...(mcpAllowlistMatch?.[1]?.matchAll(/'([^']+)'/g) ?? [])].map(
+  ([, capability]) => capability,
+)
 
 describe('MCP credential database capability parity', () => {
   it('admits every typed MCP capability while preserving the fail-closed evidence trigger', () => {
-    for (const capability of McpCapability.options)
-      expect(capabilitySql).toContain(`'${capability}'`)
+    expect(mcpAllowlistMatch).not.toBeNull()
+    expect([...mcpAllowlist].sort()).toEqual([...McpCapability.options].sort())
     expect(sql).toContain('unsupported MCP credential capability')
+    expect(sql).toContain('unsupported partner credential capability')
     expect(sql).toContain('external credential capabilities must be sorted and unique')
     expect(sql).toContain('new external credential requires operation evidence')
     expect(sql).toContain('enabled external credential requires exact activation evidence')
+    expect(sql).toContain('external credential revocation requires exact timestamp evidence')
   })
 })

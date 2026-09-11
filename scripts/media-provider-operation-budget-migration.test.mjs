@@ -82,7 +82,47 @@ test('every direct media provider dispatch is wrapped by a durable pre-dispatch 
   assert.match(geminiVideoGateway, /retryOptions: \{ attempts: 1 \}/u)
   assert.equal(mediaGateway.match(/chat\.completions\.create\(/gu)?.length, 1)
   assert.equal(mediaGateway.match(/audio\.transcriptions\.create\(/gu)?.length, 1)
-  assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
+  assertMediaFailurePropagation(processor)
+})
+
+function assertMediaFailurePropagation(source) {
+  const helper = source.match(/export function shouldPropagateFullVideoFailure\([^]*?\n\}/u)?.[0]
+  assert.ok(helper, 'Media provider safety failures must have a shared propagation predicate')
+  assert.match(helper, /assertMediaJobActive\(signal\)/u)
+  assert.match(
+    helper,
+    /return\s*\(\s*isAiAdmissionControlError\(error\)\s*\|\|\s*error instanceof AiRequestBudgetCeilingExceededError\s*\|\|\s*error instanceof GeminiVideoDeletionUnconfirmedError\s*\|\|\s*error instanceof GeminiVideoAccountingPendingError\s*\|\|\s*error instanceof MediaProviderOperationRecoveryError\s*\|\|\s*error instanceof UnrecoverableError\s*\)/u,
+  )
+  assert.equal(
+    source.match(/if \(shouldPropagateFullVideoFailure\(error, signal\)\) throw error/gu)?.length,
+    2,
+    'Both asset and optional-transcript catches must rethrow safety failures',
+  )
+  assert.match(
+    source,
+    /shouldPropagate: \(error\) => shouldPropagateFullVideoFailure\(error, signal\)/u,
+  )
+}
+
+test('media safety proof rejects swallowed budget failures and bypassed fallback guards', () => {
+  assert.throws(() =>
+    assertMediaFailurePropagation(
+      processor.replace('error instanceof UnrecoverableError', 'false'),
+    ),
+  )
+  assert.throws(() =>
+    assertMediaFailurePropagation(
+      processor.replace('if (shouldPropagateFullVideoFailure(error, signal)) throw error', ''),
+    ),
+  )
+  assert.throws(() =>
+    assertMediaFailurePropagation(
+      processor.replace(
+        'shouldPropagate: (error) => shouldPropagateFullVideoFailure(error, signal)',
+        'shouldPropagate: () => false',
+      ),
+    ),
+  )
 })
 
 test('media jobs resolve only reviewed model identifiers before source processing', () => {

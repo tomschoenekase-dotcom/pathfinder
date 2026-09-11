@@ -73,6 +73,314 @@ export const WebsiteIntakeBounds = z
   .strict()
 export type WebsiteIntakeBounds = z.infer<typeof WebsiteIntakeBounds>
 
+export const WebsitePdfExtractionFailure = z.enum([
+  'UNSAFE_TEXT_CONTROL',
+  'TEXT_TOO_LARGE',
+  'PDF_TOO_MANY_PAGES',
+  'PDF_NO_EXTRACTABLE_TEXT',
+  'PDF_EXTRACTION_TIMEOUT',
+  'PDF_PASSWORD_REQUIRED',
+  'PDF_PARSE_FAILED',
+  'PDF_TOO_LARGE',
+  'PDF_EXTRACTION_CANCELLED',
+])
+export type WebsitePdfExtractionFailure = z.infer<typeof WebsitePdfExtractionFailure>
+
+export const WebsiteSourceDiscoveryDisposition = z.enum([
+  'FETCHED_TEXT',
+  'PDF_TEXT_EXTRACTED',
+  'PDF_EXTRACTION_FAILED',
+  'TIME_LIMIT',
+  'UNSUPPORTED_DOCUMENT',
+  'UNSUPPORTED_VIDEO',
+  'UNSUPPORTED_IMAGE',
+  'UNSUPPORTED_OTHER',
+  'ROBOTS_DENIED',
+  'DEPTH_LIMIT',
+  'PAGE_LIMIT',
+])
+export type WebsiteSourceDiscoveryDisposition = z.infer<typeof WebsiteSourceDiscoveryDisposition>
+
+const sensitiveWebsiteQueryKey =
+  /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
+
+function isPrivateWebsiteDiscoveryHost(hostname: string) {
+  const normalized = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/gu, '')
+    .replace(/\.$/u, '')
+  if (
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized.endsWith('.local') ||
+    normalized.endsWith('.internal') ||
+    normalized.endsWith('.home.arpa') ||
+    normalized === 'instance-data' ||
+    normalized === 'metadata.google.internal'
+  )
+    return true
+  if (
+    /^(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})$/u.test(
+      normalized,
+    )
+  ) {
+    const [first = -1, second = -1, third = -1, fourth = -1] = normalized.split('.').map(Number)
+    if ([first, second, third, fourth].some((segment) => segment > 255)) return true
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
+    )
+  }
+  if (normalized.includes(':')) {
+    const mappedIpv4 = normalized.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/u)
+    if (mappedIpv4) {
+      const first = Number.parseInt(mappedIpv4[1]!, 16)
+      const mappedFirst = first >> 8
+      const mappedSecond = first & 0xff
+      if (
+        mappedFirst === 0 ||
+        mappedFirst === 10 ||
+        mappedFirst === 127 ||
+        (mappedFirst === 100 && mappedSecond >= 64 && mappedSecond <= 127) ||
+        (mappedFirst === 169 && mappedSecond === 254) ||
+        (mappedFirst === 172 && mappedSecond >= 16 && mappedSecond <= 31) ||
+        (mappedFirst === 192 && mappedSecond === 168)
+      )
+        return true
+    }
+    return (
+      normalized === '::' ||
+      normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe8') ||
+      normalized.startsWith('fe9') ||
+      normalized.startsWith('fea') ||
+      normalized.startsWith('feb')
+    )
+  }
+  return false
+}
+
+const WebsiteSourceDiscoveryUrl = z
+  .string()
+  .min(1)
+  .max(2_048)
+  .superRefine((value, context) => {
+    let parsed: URL
+    try {
+      parsed = new URL(value)
+    } catch {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Discovery URL must be valid.' })
+      return
+    }
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.hash ||
+      [...parsed.searchParams.keys()].some((key) => sensitiveWebsiteQueryKey.test(key)) ||
+      isPrivateWebsiteDiscoveryHost(parsed.hostname) ||
+      parsed.toString() !== value
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Discovery URL must be a canonical safe HTTP(S) reference.',
+      })
+    }
+  })
+
+/** Static source material for review; never an approved claim or publication grant. */
+export const WebsitePageTextEvidence = z
+  .object({
+    sourceUrl: WebsiteSourceDiscoveryUrl,
+    exactByteHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    capturedAt: z.string().datetime({ offset: true }),
+    extractionProfile: z.enum(['static-html-v1', 'plain-text-v1', 'pdfjs-document-v1']),
+    pdfPageCount: z.number().int().min(1).max(200).optional(),
+    text: z.string().max(40_000),
+    normalizedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    retainedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    fullCodePointCount: z.number().int().min(0).max(10_000_000),
+    retainedCodePointCount: z.number().int().min(0).max(20_000),
+    truncated: z.boolean(),
+  })
+  .strict()
+  .superRefine((page, context) => {
+    if ((page.extractionProfile === 'pdfjs-document-v1') !== (page.pdfPageCount !== undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'PDF text requires its actual page count; other profiles cannot claim PDF pages.',
+      })
+    }
+    if (
+      [...page.text].length !== page.retainedCodePointCount ||
+      page.retainedCodePointCount > page.fullCodePointCount ||
+      page.truncated !== page.retainedCodePointCount < page.fullCodePointCount ||
+      (!page.truncated && page.normalizedTextHash !== page.retainedTextHash)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Page text retention metadata is inconsistent.',
+      })
+    }
+  })
+export type WebsitePageTextEvidence = z.infer<typeof WebsitePageTextEvidence>
+
+export const WebsitePageTextEvidenceCollection = z
+  .array(WebsitePageTextEvidence)
+  .max(100)
+  .superRefine((pages, context) => {
+    if (
+      pages.reduce((sum, page) => sum + page.retainedCodePointCount, 0) > 100_000 ||
+      new Set(pages.map((page) => page.sourceUrl)).size !== pages.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Page text must use unique sources and a bounded run total.',
+      })
+    }
+  })
+
+const WebsiteSourceDiscoveryMimeType = z
+  .string()
+  .min(3)
+  .max(255)
+  .regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=[a-z0-9!#$&^_.+:-]+)*$/u)
+
+export const WebsiteSourceDiscoveryItem = z
+  .object({
+    url: WebsiteSourceDiscoveryUrl,
+    parentUrl: WebsiteSourceDiscoveryUrl.nullable(),
+    depth: z.number().int().min(0).max(10),
+    observedAt: z.string().datetime({ offset: true }),
+    disposition: WebsiteSourceDiscoveryDisposition,
+    contentType: WebsiteSourceDiscoveryMimeType.optional(),
+    byteSize: z.number().int().min(0).max(1_000_000_000).optional(),
+    exactByteHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
+    duplicateOf: WebsiteSourceDiscoveryUrl.optional(),
+    extractionFailureCode: WebsitePdfExtractionFailure.optional(),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (
+      (item.disposition === 'PDF_EXTRACTION_FAILED') !==
+      (item.extractionFailureCode !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Only failed PDF extraction requires a failure code.',
+      })
+    }
+    if (
+      ['PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED'].includes(item.disposition) &&
+      item.contentType !== 'application/pdf'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'PDF extraction requires the received PDF MIME type.',
+      })
+    }
+    const hasByteSize = item.byteSize !== undefined
+    const hasByteHash = item.exactByteHash !== undefined
+    if (hasByteSize !== hasByteHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['byteSize'],
+        message: 'Received-byte size and exact hash must be retained together.',
+      })
+    }
+    if (
+      hasByteSize &&
+      ['ROBOTS_DENIED', 'DEPTH_LIMIT', 'PAGE_LIMIT', 'TIME_LIMIT'].includes(item.disposition)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['disposition'],
+        message: 'Unfetched discovery entries cannot claim received-byte metadata.',
+      })
+    }
+    if (item.duplicateOf) {
+      if (!hasByteSize || item.duplicateOf === item.url) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['duplicateOf'],
+          message: 'A duplicate source requires a distinct exact-byte identity.',
+        })
+      }
+    }
+    if (
+      ['FETCHED_TEXT', 'PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED'].includes(item.disposition) &&
+      !hasByteSize
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['byteSize'],
+        message: 'Fetched text requires the exact received-byte size and hash.',
+      })
+    }
+  })
+export type WebsiteSourceDiscoveryItem = z.infer<typeof WebsiteSourceDiscoveryItem>
+
+export const WebsiteSourceDiscovery = z
+  .object({
+    policyVersion: z.union([z.literal(1), z.literal(2)]),
+    observedAt: z.string().datetime({ offset: true }),
+    items: z.array(WebsiteSourceDiscoveryItem).max(1_000),
+    omittedCount: z.number().int().min(0).max(1_000_000),
+  })
+  .strict()
+  .superRefine((discovery, context) => {
+    const priorItems = new Map<string, (typeof discovery.items)[number]>()
+    for (const [index, item] of discovery.items.entries()) {
+      if (
+        discovery.policyVersion === 1 &&
+        ['PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED', 'TIME_LIMIT'].includes(item.disposition)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['items', index, 'disposition'],
+          message: 'This collection outcome requires policy version 2.',
+        })
+      }
+      if (priorItems.has(item.url)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['items', index, 'url'],
+          message: 'Discovery item URLs must be unique.',
+        })
+      }
+      if (item.duplicateOf) {
+        const original = priorItems.get(item.duplicateOf)
+        if (
+          !original ||
+          original.byteSize === undefined ||
+          original.exactByteHash === undefined ||
+          original.byteSize !== item.byteSize ||
+          original.exactByteHash !== item.exactByteHash
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['items', index, 'duplicateOf'],
+            message:
+              'A duplicate must reference an earlier fetched item with exact matching bytes.',
+          })
+        }
+      }
+      priorItems.set(item.url, item)
+    }
+  })
+export type WebsiteSourceDiscovery = z.infer<typeof WebsiteSourceDiscovery>
+
 export const IntakeEvidence = z
   .object({
     id: z.string().min(1),

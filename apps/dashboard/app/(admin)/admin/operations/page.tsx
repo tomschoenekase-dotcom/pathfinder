@@ -4,10 +4,12 @@ import Link from 'next/link'
 
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
 import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
+import { FounderCharacterReviewInbox } from '../../../../components/admin/FounderCharacterReviewInbox'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
 import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
+import { auth } from '@clerk/nextjs/server'
 
 type Cursor = { createdAt: string; id: string }
 
@@ -31,39 +33,46 @@ export default async function AdminOperationsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
+  const { userId } = await auth()
   const caller = await createAdminCaller()
   const query = await searchParams
-  const [data, readiness, releaseEvidence, incident, providerHealth] = await Promise.all([
-    caller.admin.attentionConsole({
-      limit: 10,
-      ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
-      ...(cursor(query.evaluationsCursor)
-        ? { evaluationsCursor: cursor(query.evaluationsCursor) }
-        : {}),
-      ...(cursor(query.approvalsCursor) ? { approvalsCursor: cursor(query.approvalsCursor) } : {}),
-      ...(cursor(query.supportCursor) ? { supportCursor: cursor(query.supportCursor) } : {}),
-      ...(cursor(query.agentsCursor) ? { agentsCursor: cursor(query.agentsCursor) } : {}),
-      ...(cursor(query.questionsCursor) ? { questionsCursor: cursor(query.questionsCursor) } : {}),
-      ...(cursor(query.workingAgentsCursor)
-        ? { workingAgentsCursor: cursor(query.workingAgentsCursor) }
-        : {}),
-      ...(cursor(query.blockedAgentsCursor)
-        ? { blockedAgentsCursor: cursor(query.blockedAgentsCursor) }
-        : {}),
-      ...(cursor(query.completedAgentsCursor)
-        ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
-        : {}),
-      ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
-      ...(cursor(query.eventsCursor) ? { eventsCursor: cursor(query.eventsCursor) } : {}),
-      ...(cursor(query.platformEventsCursor)
-        ? { platformEventsCursor: cursor(query.platformEventsCursor) }
-        : {}),
-    }),
-    caller.admin.operationsReadiness(),
-    caller.admin.releaseEvidence({ limit: 5 }),
-    caller.admin.getGlobalAiControl(),
-    caller.admin.getAiProviderHealthControl(),
-  ])
+  const [data, readiness, releaseEvidence, incident, providerHealth, characterReviews] =
+    await Promise.all([
+      caller.admin.attentionConsole({
+        limit: 10,
+        ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
+        ...(cursor(query.evaluationsCursor)
+          ? { evaluationsCursor: cursor(query.evaluationsCursor) }
+          : {}),
+        ...(cursor(query.approvalsCursor)
+          ? { approvalsCursor: cursor(query.approvalsCursor) }
+          : {}),
+        ...(cursor(query.supportCursor) ? { supportCursor: cursor(query.supportCursor) } : {}),
+        ...(cursor(query.agentsCursor) ? { agentsCursor: cursor(query.agentsCursor) } : {}),
+        ...(cursor(query.questionsCursor)
+          ? { questionsCursor: cursor(query.questionsCursor) }
+          : {}),
+        ...(cursor(query.workingAgentsCursor)
+          ? { workingAgentsCursor: cursor(query.workingAgentsCursor) }
+          : {}),
+        ...(cursor(query.blockedAgentsCursor)
+          ? { blockedAgentsCursor: cursor(query.blockedAgentsCursor) }
+          : {}),
+        ...(cursor(query.completedAgentsCursor)
+          ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
+          : {}),
+        ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
+        ...(cursor(query.eventsCursor) ? { eventsCursor: cursor(query.eventsCursor) } : {}),
+        ...(cursor(query.platformEventsCursor)
+          ? { platformEventsCursor: cursor(query.platformEventsCursor) }
+          : {}),
+      }),
+      caller.admin.operationsReadiness(),
+      caller.admin.releaseEvidence({ limit: 5 }),
+      caller.admin.getGlobalAiControl(),
+      caller.admin.getAiProviderHealthControl(),
+      caller.admin.listCharacterCandidateReviews({ limit: 12 }),
+    ])
 
   return (
     <div className="space-y-6">
@@ -82,6 +91,7 @@ export default async function AdminOperationsPage({
       </header>
 
       <FounderOperatingConversation exchanges={data.founderConversation} />
+      <FounderCharacterReviewInbox initial={characterReviews} />
 
       <section
         aria-label="Global AI incident state"
@@ -129,7 +139,7 @@ export default async function AdminOperationsPage({
 
       {releaseEvidence.current ? null : <ReleaseEvidenceRecorder />}
 
-      <OperationsAttentionConsole data={data} />
+      <OperationsAttentionConsole actorId={userId} data={data} />
     </div>
   )
 }

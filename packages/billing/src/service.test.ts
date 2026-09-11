@@ -16,6 +16,7 @@ const checkoutEnvironment = {
   STRIPE_WEBHOOK_PROCESSING_ENABLED: false,
   STRIPE_RECONCILIATION_ENABLED: false,
   BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: false,
+  BILLING_RECOVERY_POLICY_APPROVED: false,
   STRIPE_LIVE_MODE_ALLOWED: false,
   TORCHIKO_LEGAL_ENTITY_VERIFIED: false,
   BILLING_GRACE_PERIOD_DAYS: 14,
@@ -91,7 +92,10 @@ describe('negotiated Checkout boundary', () => {
     })
     const client = {
       $transaction: async (callback: (tx: unknown) => unknown) =>
-        callback({ billingCheckoutAttempt: { findFirst } }),
+        callback({
+          $executeRaw: vi.fn().mockResolvedValue([]),
+          billingCheckoutAttempt: { findFirst },
+        }),
     }
 
     await expect(
@@ -124,6 +128,7 @@ describe('negotiated Checkout boundary', () => {
       internalPlanKey: 'torchiko_pilot_test',
     })
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue([]),
       billingCheckoutAttempt: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'attempt-a' }),
@@ -176,7 +181,10 @@ describe('negotiated Checkout boundary', () => {
   it('rejects a new catalog-priced checkout without a human-approved custom quote', async () => {
     const client = {
       $transaction: async (callback: (tx: unknown) => unknown) =>
-        callback({ billingCheckoutAttempt: { findFirst: vi.fn().mockResolvedValue(null) } }),
+        callback({
+          $executeRaw: vi.fn().mockResolvedValue([]),
+          billingCheckoutAttempt: { findFirst: vi.fn().mockResolvedValue(null) },
+        }),
     }
     await expect(
       createTenantCheckout({
@@ -222,6 +230,7 @@ describe('negotiated Checkout boundary', () => {
       stripeCheckoutUrl: 'https://checkout.stripe.test/existing',
     }
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue([{ id: 'account-a' }]),
       billingCheckoutAttempt: {
         findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(existingAttempt),
         create: vi.fn(),
@@ -229,22 +238,25 @@ describe('negotiated Checkout boundary', () => {
       tenant: { findUnique: vi.fn().mockResolvedValue({ id: 'tenant-a', name: 'Tenant A' }) },
       venue: { findMany: vi.fn().mockResolvedValue([{ id: 'venue-a' }]) },
       commercialAgreement: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'agreement-a',
-          status: 'PENDING',
-          billingMode: 'STRIPE_SUBSCRIPTION',
-          stripeSubscriptionId: null,
-          internalPlanKey: 'torchiko_pilot_test',
-          internalPlanVersion: 1,
-          coveredVenueCount: 1,
-          quantity: 1,
-          agreedAmountMinor: 2500n,
-          venuePriceBreakdownComplete: true,
-          currency: 'usd',
-          billingInterval: 'MONTH',
-          billingIntervalCount: 1,
-          stripePriceId: null,
-        }),
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'agreement-a',
+            status: 'PENDING',
+            billingMode: 'STRIPE_SUBSCRIPTION',
+            stripeSubscriptionId: null,
+            internalPlanKey: 'torchiko_pilot_test',
+            internalPlanVersion: 1,
+            coveredVenueCount: 1,
+            quantity: 1,
+            agreedAmountMinor: 2500n,
+            venuePriceBreakdownComplete: true,
+            currency: 'usd',
+            billingInterval: 'MONTH',
+            billingIntervalCount: 1,
+            stripePriceId: null,
+          })
+          .mockResolvedValueOnce(null),
       },
       commercialAgreementVenue: {
         findMany: vi.fn().mockResolvedValue([{ venueId: 'venue-a', agreedAmountMinor: 2500n }]),

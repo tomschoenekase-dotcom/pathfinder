@@ -1,9 +1,13 @@
+import { McpExecutionClaim } from './execution-claim'
+
 import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
   McpAgentImprovementProposalInput,
   McpAgentImprovementValidationInput,
+  McpAgentWorkflowVersionRegistrationInput,
+  McpAgentWorkflowVersionsReadInput,
   McpAccountContextInput,
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
@@ -12,12 +16,17 @@ import {
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpIntakeV1PackagePreviewInput,
+  McpIntakeV1PackageDraftProposalInput,
+  McpIntakeV1PackageDraftApplyInput,
   McpKnowledgeGetInput,
   McpKnowledgeGapListInput,
   McpGuestAnswerAttributionListInput,
   McpGuestAnswerAttributionAgreementInput,
   McpKnowledgeCorrectionProposalInput,
   McpSupportKnowledgeProposalInput,
+  McpSemanticUniversalContentDraftInput,
+  McpLegacyKnowledgeAdoptionDraftInput,
   McpLocationDraftProposalInput,
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
@@ -25,6 +34,7 @@ import {
   McpMeetingProcessInput,
   McpReportLifecycleInput,
   McpReadInput,
+  McpResolveSourceClarificationInput,
   McpSupportDraftInput,
   McpSupportOpenInput,
   McpSupportInternalNoteInput,
@@ -59,6 +69,8 @@ import {
  */
 export type VerifiedMcpInvocationContext = Readonly<{
   credential: VerifiedMcpCredentialScope
+  /** Untrusted claim keys. Source actions must validate these inside their effect transaction. */
+  executionClaim?: McpExecutionClaim
   /** Opaque evidence already verified by the canonical approval boundary. */
   approvalGrantId?: string
 }>
@@ -96,10 +108,13 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'pathfinder.propose_support_package_handoff_supersession'
         | 'torchiko.agent_improvements.propose'
         | 'torchiko.agent_improvements.record_validation'
+        | 'torchiko.agent_workflows.register_version'
+        | 'torchiko.agent_workflows.get_compatible_versions'
         | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
         | 'torchiko.reports.get_lifecycle'
         | 'pathfinder.ask_operator'
+        | 'pathfinder.resolve_source_clarification'
         | 'pathfinder.delegate_specialist'
         | 'pathfinder.propose_billing_action'
       >
@@ -160,6 +175,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   prepareKnowledgeFromSupport: (
     input: McpSupportKnowledgeProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  createSemanticUniversalContentDraft: (
+    input: McpSemanticUniversalContentDraftInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  createLegacyKnowledgeAdoptionDraft: (
+    input: McpLegacyKnowledgeAdoptionDraftInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeLocationDraft: (
@@ -238,6 +261,14 @@ export type PathfinderMcpDomainActions = Readonly<{
     input: McpAgentImprovementValidationInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
+  registerAgentWorkflowVersion: (
+    input: McpAgentWorkflowVersionRegistrationInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  readAgentWorkflowVersions: (
+    input: McpAgentWorkflowVersionsReadInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   prepareCustomerAccessInvitation: (
     input: McpCustomerAccessPreparationInput,
     context: VerifiedMcpInvocationContext,
@@ -254,6 +285,10 @@ export type PathfinderMcpDomainActions = Readonly<{
     input: McpAskOperatorInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
+  resolveSourceClarification?: (
+    input: McpResolveSourceClarificationInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   delegateSpecialist: (
     input: McpDelegateSpecialistInput,
     context: VerifiedMcpInvocationContext,
@@ -264,6 +299,18 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   createPackageDraft: (
     input: McpPackageDraftInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  previewIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackagePreviewInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackageDraftProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  applyIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackageDraftApplyInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createUpdateDraft: (
@@ -321,7 +368,14 @@ const definitionsByName = new Map(
 /** Creates no listener and performs no authentication or I/O until an injected action is called. */
 export function createPathfinderMcpRegistry(
   actions: PathfinderMcpDomainActions,
-  options: Readonly<{ writeToolsEnabled?: boolean }> = {},
+  options: Readonly<{
+    writeToolsEnabled?: boolean
+    beforeAction?: (
+      name: string,
+      input: unknown,
+      context: VerifiedMcpInvocationContext,
+    ) => Promise<void>
+  }> = {},
 ): PathfinderMcpRegistry {
   const writeToolsEnabled = options.writeToolsEnabled ?? false
 
@@ -333,6 +387,9 @@ export function createPathfinderMcpRegistry(
 
       const context: VerifiedMcpInvocationContext = {
         credential: VerifiedMcpCredentialScope.parse(rawContext.credential),
+        ...(rawContext.executionClaim !== undefined
+          ? { executionClaim: McpExecutionClaim.parse(rawContext.executionClaim) }
+          : {}),
         ...(rawContext.approvalGrantId !== undefined
           ? { approvalGrantId: zApprovalGrantId(rawContext.approvalGrantId) }
           : {}),
@@ -365,96 +422,126 @@ export function createPathfinderMcpRegistry(
             resourceSecurity.capability,
             resourceSecurity.scope,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.read(input, context)
           break
         }
         case 'torchiko.account.get_context': {
           const input = McpAccountContextInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.accountContext(input, context)
           break
         }
         case 'torchiko.account.timeline': {
           const input = McpAccountHistoryInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.accountTimeline(input, context)
           break
         }
         case 'torchiko.account.meetings': {
           const input = McpAccountHistoryInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.accountMeetings(input, context)
           break
         }
         case 'torchiko.account.meeting_get': {
           const input = McpAccountMeetingGetInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.accountMeetingGet(input, context)
           break
         }
         case 'torchiko.account.correspondence': {
           const input = McpAccountHistoryInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.accountCorrespondence(input, context)
           break
         }
         case 'torchiko.meeting.process': {
           const input = McpMeetingProcessInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.processMeeting(input, context)
           break
         }
         case 'torchiko.knowledge.search': {
           const input = McpKnowledgeSearchInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.knowledgeSearch(input, context)
           break
         }
         case 'torchiko.knowledge.get': {
           const input = McpKnowledgeGetInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.knowledgeGet(input, context)
           break
         }
         case 'torchiko.knowledge.list_gaps': {
           const input = McpKnowledgeGapListInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.listKnowledgeGaps(input, context)
           break
         }
         case 'torchiko.quality.list_answer_attributions': {
           const input = McpGuestAnswerAttributionListInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.listGuestAnswerAttributions(input, context)
           break
         }
         case 'torchiko.quality.preview_answer_attribution_agreement': {
           const input = McpGuestAnswerAttributionAgreementInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.previewGuestAnswerAttributionAgreement(input, context)
           break
         }
         case 'torchiko.knowledge.propose_correction': {
           const input = McpKnowledgeCorrectionProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeKnowledgeCorrection(input, context)
           break
         }
         case 'torchiko.knowledge.prepare_from_support': {
           const input = McpSupportKnowledgeProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.prepareKnowledgeFromSupport(input, context)
+          break
+        }
+        case 'torchiko.knowledge.create_typed_draft': {
+          const input = McpSemanticUniversalContentDraftInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.createSemanticUniversalContentDraft(input, context)
+          break
+        }
+        case 'torchiko.knowledge.adopt_legacy_draft': {
+          const input = McpLegacyKnowledgeAdoptionDraftInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.createLegacyKnowledgeAdoptionDraft(input, context)
           break
         }
         case 'torchiko.locations.propose_draft': {
           const input = McpLocationDraftProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeLocationDraft(input, context)
           break
         }
         case 'pathfinder.propose_support_triage': {
           const input = McpSupportTriageProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportTriage(input, context)
           break
         }
@@ -468,12 +555,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportTriage(input, context)
           break
         }
         case 'pathfinder.propose_support_information_request': {
           const input = McpSupportInformationRequestProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportInformationRequest(input, context)
           break
         }
@@ -487,12 +576,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportInformationRequest(input, context)
           break
         }
         case 'pathfinder.propose_support_completion': {
           const input = McpSupportCompletionProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportCompletion(input, context)
           break
         }
@@ -506,12 +597,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportCompletion(input, context)
           break
         }
         case 'pathfinder.propose_support_package_draft': {
           const input = McpSupportPackageDraftProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportPackageDraft(input, context)
           break
         }
@@ -525,12 +618,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportPackageDraft(input, context)
           break
         }
         case 'pathfinder.propose_support_package_approval': {
           const input = McpSupportPackageApprovalProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportPackageApproval(input, context)
           break
         }
@@ -544,12 +639,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportPackageApproval(input, context)
           break
         }
         case 'pathfinder.propose_support_package_application': {
           const input = McpSupportPackageApplicationProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportPackageApplication(input, context)
           break
         }
@@ -563,12 +660,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportPackageApplication(input, context)
           break
         }
         case 'pathfinder.propose_support_package_reversion': {
           const input = McpSupportPackageReversionProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportPackageReversion(input, context)
           break
         }
@@ -582,12 +681,14 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportPackageReversion(input, context)
           break
         }
         case 'pathfinder.propose_support_package_handoff_supersession': {
           const input = McpSupportPackageHandoffSupersessionProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeSupportPackageHandoffSupersession(input, context)
           break
         }
@@ -601,54 +702,98 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.applySupportPackageHandoffSupersession(input, context)
           break
         }
         case 'torchiko.agent_improvements.propose': {
           const input = McpAgentImprovementProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeAgentImprovement(input, context)
           break
         }
         case 'torchiko.agent_improvements.record_validation': {
           const input = McpAgentImprovementValidationInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.recordAgentImprovementValidation(input, context)
+          break
+        }
+        case 'torchiko.agent_workflows.register_version': {
+          const input = McpAgentWorkflowVersionRegistrationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.registerAgentWorkflowVersion(input, context)
+          break
+        }
+        case 'torchiko.agent_workflows.get_compatible_versions': {
+          const input = McpAgentWorkflowVersionsReadInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.readAgentWorkflowVersions(input, context)
           break
         }
         case 'torchiko.customer_access.prepare_invitation': {
           const input = McpCustomerAccessPreparationInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.prepareCustomerAccessInvitation(input, context)
           break
         }
         case 'torchiko.integrations.health': {
           const input = McpIntegrationHealthInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.integrationHealth(input, context)
           break
         }
         case 'torchiko.reports.get_lifecycle': {
           const input = McpReportLifecycleInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.reportLifecycle(input, context)
           break
         }
         case 'pathfinder.ask_operator': {
           const input = McpAskOperatorInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          if (input.sourceClarification) {
+            assertMcpScope(context.credential, input, 'intake-source:read', 'venue')
+            assertMcpScope(context.credential, input, 'agent-runs:execute', 'venue')
+            if (!context.executionClaim || context.executionClaim.agentRunId !== input.agentRunId)
+              throw new Error('Source questions require an exact worker execution claim')
+          }
+          await options.beforeAction?.(name, input, context)
           result = await actions.askOperator(input, context)
+          break
+        }
+        case 'pathfinder.resolve_source_clarification': {
+          const input = McpResolveSourceClarificationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          assertMcpScope(context.credential, input, 'intake-source:read', 'venue')
+          assertMcpScope(context.credential, input, 'agent-runs:execute', 'venue')
+          if (!context.executionClaim || context.executionClaim.agentRunId !== input.agentRunId)
+            throw new Error(
+              'Source clarification resolution requires an exact worker execution claim',
+            )
+          await options.beforeAction?.(name, input, context)
+          if (!actions.resolveSourceClarification)
+            throw new Error('Source clarification resolution is unavailable')
+          result = await actions.resolveSourceClarification(input, context)
           break
         }
         case 'pathfinder.delegate_specialist': {
           const input = McpDelegateSpecialistInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.delegateSpecialist(input, context)
           break
         }
         case 'pathfinder.propose_billing_action': {
           const input = McpBillingProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
           result = await actions.proposeBillingAction(input, context)
           break
         }
@@ -662,7 +807,42 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.createPackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.preview_intake_v1_package_draft': {
+          const input = McpIntakeV1PackagePreviewInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          if (!actions.previewIntakeV1PackageDraft)
+            throw new Error('V1 package preview is unavailable')
+          result = await actions.previewIntakeV1PackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.propose_intake_v1_package_draft': {
+          const input = McpIntakeV1PackageDraftProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          if (!actions.proposeIntakeV1PackageDraft)
+            throw new Error('V1 package proposal is unavailable')
+          result = await actions.proposeIntakeV1PackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.apply_intake_v1_package_draft': {
+          const input = McpIntakeV1PackageDraftApplyInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.apply_intake_v1_package_draft',
+            input,
+            metadata.capability,
+            context,
+          )
+          await options.beforeAction?.(name, input, context)
+          if (!actions.applyIntakeV1PackageDraft)
+            throw new Error('V1 package draft application is unavailable')
+          result = await actions.applyIntakeV1PackageDraft(input, context)
           break
         }
         case 'pathfinder.create_update_draft': {
@@ -675,6 +855,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.createUpdateDraft(input, context)
           break
         }
@@ -688,6 +869,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.createSupportDraft(input, context)
           break
         }
@@ -701,6 +883,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.openSupportRequest(input, context)
           break
         }
@@ -714,6 +897,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.addSupportInternalNote(input, context)
           break
         }
@@ -727,6 +911,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.createIntakeNotesProposal(input, context)
           break
         }
@@ -740,6 +925,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.generateWeeklyReportDraft(input, context)
           break
         }
@@ -753,6 +939,7 @@ export function createPathfinderMcpRegistry(
             metadata.capability,
             context,
           )
+          await options.beforeAction?.(name, input, context)
           result = await actions.requestEvaluation(input, context)
           break
         }
@@ -787,10 +974,13 @@ async function verifyApproval(
     | 'pathfinder.propose_support_package_approval'
     | 'torchiko.agent_improvements.propose'
     | 'torchiko.agent_improvements.record_validation'
+    | 'torchiko.agent_workflows.register_version'
+    | 'torchiko.agent_workflows.get_compatible_versions'
     | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
     | 'torchiko.reports.get_lifecycle'
     | 'pathfinder.ask_operator'
+    | 'pathfinder.resolve_source_clarification'
     | 'pathfinder.delegate_specialist'
     | 'pathfinder.propose_billing_action'
     | 'pathfinder.propose_support_package_application'

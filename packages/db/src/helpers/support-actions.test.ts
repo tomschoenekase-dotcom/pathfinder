@@ -836,12 +836,17 @@ describe('support domain actions', () => {
       body: appendInput.body,
       submissionRequestId: operationId,
       submissionInputHash: inputHash,
+      requestVersion: 2,
       attachments: [],
     })
     await expect(
       appendSupportMessageAction(appendInput, replay.actionClient),
     ).resolves.toMatchObject({
-      clientVersion: 2,
+      requestVersion: 9,
+      clientVersion: 7,
+      status: 'OPEN',
+      currentProjection: { requestVersion: 9, clientVersion: 7, status: 'OPEN' },
+      operationVersion: { requestVersion: 2, clientVersion: 2 },
       replayed: true,
     })
     expect(replay.tx.supportRequest.updateMany).not.toHaveBeenCalled()
@@ -854,6 +859,131 @@ describe('support domain actions', () => {
       ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(replay.tx.supportMessage.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('reopens a completed request in the same thread when its client adds follow-up information', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'COMPLETED',
+      version: 4,
+      clientVersion: 3,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
+    })
+    const result = await appendSupportMessageAction(
+      { ...appendInput, expectedClientVersion: 3, body: 'The issue is still happening.' },
+      actionClient,
+    )
+    expect(result).toMatchObject({ status: 'IN_REVIEW', requestVersion: 5, clientVersion: 4 })
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'request_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        clientVersion: 3,
+        version: 4,
+        status: 'COMPLETED',
+      },
+      data: expect.objectContaining({
+        status: 'IN_REVIEW',
+        version: 5,
+        clientVersion: 4,
+        updatedByKind: 'CLIENT',
+        updatedById: 'client_1',
+      }),
+    })
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'CLIENT_MESSAGE_ADDED',
+          fromStatus: 'COMPLETED',
+          toStatus: 'IN_REVIEW',
+          requestVersion: 5,
+        }),
+      }),
+    )
+    expect(tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ requestVersion: 5, clientVersion: 4 }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          beforeState: expect.objectContaining({ status: 'COMPLETED' }),
+          afterState: expect.objectContaining({ status: 'IN_REVIEW', statusChanged: true }),
+        }),
+      }),
+    )
+  })
+
+  it('keeps a completed request closed to an agent append', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'COMPLETED',
+      version: 4,
+      clientVersion: 3,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
+    })
+
+    await expect(
+      appendSupportMessageAction(
+        {
+          operationId,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'request_1',
+          expectedVersion: 4,
+          visibility: 'INTERNAL_ONLY',
+          body: 'Agent note after completion.',
+          attachments: [],
+          actor: {
+            actorType: 'AGENT',
+            participantKind: 'AGENT',
+            actorId: 'agent_1',
+            auditRole: 'AGENT',
+            agentIdentityId: 'agent_1',
+            agentRunId: 'run_1',
+            workerId: 'worker_1',
+            credentialId: 'credential_1',
+            approvalGrantId: 'grant_1',
+            capability: 'support:note',
+            modelProvider: 'openai',
+            modelName: 'gpt-test',
+            idempotencyKey: operationId,
+          },
+        },
+        actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.supportRequest.updateMany).not.toHaveBeenCalled()
+    expect(tx.supportMessage.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps cancelled requests closed and does not mutate their thread', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'CANCELLED',
+      version: 4,
+      clientVersion: 3,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
+    })
+    await expect(
+      appendSupportMessageAction({ ...appendInput, expectedClientVersion: 3 }, actionClient),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.supportRequest.updateMany).not.toHaveBeenCalled()
+    expect(tx.supportMessage.create).not.toHaveBeenCalled()
   })
 
   it.each(['create', 'append'] as const)(
