@@ -1,3 +1,5 @@
+import type { CharacterRuntimePack as ContractCharacterRuntimePack } from '@pathfinder/contracts'
+
 export const FACTORY_STATES = [
   'idle',
   'attention',
@@ -124,3 +126,11 @@ export interface CharacterBundleAssetInput {
   role: 'master' | 'slot' | 'fallback' | 'rig-source'
   slot?: string
 }
+
+/**
+ * Explicit, byte-bound preparation metadata for a portable character bundle.
+ * This schema records supplied renderer input; it neither infers geometry nor
+ * grants art approval or publication authority.
+ */
+export type CharacterRuntimePackInput = ContractCharacterRuntimePack
+export type CharacterRuntimePack = ContractCharacterRuntimePack

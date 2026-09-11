@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { resolveCharacterState } from '@pathfinder/contracts/character-system'
 
 import { LayeredSvgRenderer } from './LayeredSvgRenderer'
+import { FamilyRigPublicAdapter } from './FamilyRigPublicAdapter'
 import { StaticCharacterFallback } from './StaticCharacterFallback'
 import { findCharacterAsset } from './character-assets'
 import type { CharacterAssetError, CharacterRenderProps } from './character-types'
@@ -43,6 +44,19 @@ export function CharacterRenderer({
         manifest={manifest}
         preferredAssetId={preferredAssetId}
         size={size}
+        onAssetError={onAssetError}
+      />
+    )
+  }
+
+  if (manifest.renderer === 'family-rig-v1' && 'displayName' in manifest) {
+    return (
+      <FamilyRigPublicAdapter
+        projection={manifest}
+        state={resolution.resolvedState}
+        motion={motion}
+        size={size}
+        intensity={clamp(intensity, 0, 1)}
         onAssetError={onAssetError}
       />
     )

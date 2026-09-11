@@ -64,6 +64,72 @@ const envelope = {
 }
 
 describe('NATIVE_CORE_V1 FULL manifest', () => {
+  it('binds custom publication only to the exact explicit character and hashes each immutable identity', () => {
+    const binding = {
+      schemaVersion: 1,
+      characterId: 'custom-a',
+      decisionId: 'decision-a',
+      exportJobId: 'job-a',
+      characterVersion: 1,
+      characterRevision: 2,
+      sourceSha256: 'b'.repeat(64),
+      artifactSha256: 'c'.repeat(64),
+      artifactVersionId: 'object-a',
+      runtimePackSha256: 'd'.repeat(64),
+    }
+    const value = {
+      ...envelope,
+      customCharacterPublication: binding,
+      venueBotConfiguration: {
+        presentationMode: 'CHARACTER',
+        personalityMode: 'PRESET',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        responseDepth: 'BALANCED',
+        personalityProfileId: null,
+        characterKey: null,
+        customCharacterId: 'custom-a',
+        publicDisplayName: null,
+        greeting: null,
+        voiceProfileId: null,
+      },
+    }
+    expect(NativeCoreFullManifest.safeParse(value).success).toBe(true)
+    expect(canonicalNativeCoreFullManifest(envelope)).not.toContain('customCharacterPublication')
+    expect(
+      NativeCoreFullManifest.safeParse({ ...envelope, customCharacterPublication: binding })
+        .success,
+    ).toBe(false)
+    expect(
+      NativeCoreFullManifest.safeParse({
+        ...value,
+        venueBotConfiguration: { ...value.venueBotConfiguration, customCharacterId: 'foreign' },
+      }).success,
+    ).toBe(false)
+    expect(
+      NativeCoreFullManifest.safeParse({
+        ...value,
+        venueBotConfiguration: { ...value.venueBotConfiguration, presentationMode: 'CLASSIC' },
+      }).success,
+    ).toBe(false)
+    for (const changed of [
+      { exportJobId: 'job-b' },
+      { decisionId: 'decision-b' },
+      { characterVersion: 2 },
+      { characterRevision: 3 },
+      { sourceSha256: 'e'.repeat(64) },
+      { artifactSha256: 'e'.repeat(64) },
+      { artifactVersionId: 'object-b' },
+      { runtimePackSha256: 'e'.repeat(64) },
+    ]) {
+      expect(
+        nativeCoreFullManifestHash({
+          ...value,
+          customCharacterPublication: { ...binding, ...changed },
+        }),
+      ).not.toBe(nativeCoreFullManifestHash(value))
+    }
+  })
   it('is explicit, lossless-shaped, and hash-stable across set-like order', () => {
     expect(NativeCoreFullManifest.parse(envelope).materializationProfile).toBe('NATIVE_CORE_V1')
     const reversed = {

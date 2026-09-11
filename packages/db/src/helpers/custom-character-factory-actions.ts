@@ -10,6 +10,13 @@ import { z } from 'zod'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { characterCandidateArtifactFingerprint } from './character-candidate-reviews'
+import {
+  createVerifiedCharacterExportReceipt,
+  verifiedCharacterExportReceiptHash,
+  VERIFIED_CHARACTER_EXPORT_RECEIPT_KEY,
+  VERIFIED_CHARACTER_EXPORT_AUDIT_ACTION,
+} from './custom-character-publication'
 
 export class CustomCharacterFactoryActionError extends Error {
   constructor(
@@ -524,11 +531,19 @@ export async function completeCharacterFactoryJobAction(
       venueId: string
       reference: unknown
       expectedSpec: ReturnType<typeof requireCharacterSpec>
-    }) => Promise<{ reference: Record<string, string | number>; spec: unknown }>
+    }) => Promise<{
+      reference: Record<string, string | number>
+      spec: unknown
+      runtimePack?: unknown
+    }>
   },
 ) {
   requireActor(input.actor)
   const resultPayload = boundedJson(input.resultPayload)
+  // This key is server-owned, including for old/non-export callers.
+  if (resultPayload && typeof resultPayload === 'object' && !Array.isArray(resultPayload)) {
+    delete (resultPayload as Record<string, unknown>)[VERIFIED_CHARACTER_EXPORT_RECEIPT_KEY]
+  }
   const characterSpec =
     input.characterSpec === undefined ? undefined : requireCharacterSpec(input.characterSpec)
   if (stable(resultPayload).length > 100_000)
@@ -589,6 +604,9 @@ export async function completeCharacterFactoryJobAction(
       )
     const mutating =
       job.action === 'CREATE_FROM_IMPORT' || job.action === 'REVISE' || job.action === 'EXPORT'
+    let acceptedCandidate:
+      | { artifactReference: unknown; spec: CharacterSpec; artifactFingerprint: string }
+      | undefined
     if (mutating !== Boolean(characterSpec))
       throw new CustomCharacterFactoryActionError(
         'INVALID_INPUT',
@@ -655,11 +673,24 @@ export async function completeCharacterFactoryJobAction(
           )
         const before = await tx.customCharacter.findFirst({
           where: { id: job.customCharacterId, tenantId: input.tenantId, venueId: input.venueId },
-          select: { capabilityMetadata: true },
+          select: {
+            capabilityMetadata: true,
+            assetStorageReference: true,
+            previewStorageReference: true,
+            version: true,
+            revision: true,
+          },
         })
         if (!before)
           throw new CustomCharacterFactoryActionError('NOT_FOUND', 'Custom character not found.')
         const prior = parseSpec(before.capabilityMetadata)
+        if (job.action === 'EXPORT' && verifiedArtifact?.runtimePack !== undefined) {
+          acceptedCandidate = {
+            artifactReference: before.assetStorageReference,
+            spec: prior,
+            artifactFingerprint: characterCandidateArtifactFingerprint(before),
+          }
+        }
         if (
           characterSpec.source.sha256 !== prior.source.sha256 ||
           characterSpec.source.sourceUrl !== prior.source.sourceUrl ||
@@ -715,6 +746,27 @@ export async function completeCharacterFactoryJobAction(
           )
       }
     }
+    const exportReceipt =
+      job.action === 'EXPORT' &&
+      characterSpec &&
+      artifactReference &&
+      verifiedArtifact?.runtimePack !== undefined
+        ? createVerifiedCharacterExportReceipt({
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            exportJobId: job.id,
+            spec: characterSpec,
+            artifactReference,
+            runtimePack: verifiedArtifact.runtimePack,
+            acceptedCandidate: acceptedCandidate!,
+          })
+        : undefined
+    const persistedResult = exportReceipt
+      ? {
+          ...(resultPayload as Record<string, unknown>),
+          [VERIFIED_CHARACTER_EXPORT_RECEIPT_KEY]: exportReceipt,
+        }
+      : resultPayload
     const changed = await tx.characterFactoryJob.updateMany({
       where: {
         id: job.id,
@@ -725,7 +777,7 @@ export async function completeCharacterFactoryJobAction(
       },
       data: {
         status: 'SUCCEEDED',
-        resultPayload: resultPayload as Prisma.InputJsonValue,
+        resultPayload: persistedResult as Prisma.InputJsonValue,
         completedAt: now,
         leaseToken: null,
         leaseExpiresAt: null,
@@ -744,6 +796,20 @@ export async function completeCharacterFactoryJobAction(
         'Character factory job completion was fenced.',
       )
     const saved = await tx.characterFactoryJob.findUniqueOrThrow({ where: { id: job.id } })
+    if (exportReceipt)
+      await writeAuditLogStrict(
+        {
+          tenantId: input.tenantId,
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          actorType: input.actor.type ?? 'HUMAN',
+          action: VERIFIED_CHARACTER_EXPORT_AUDIT_ACTION,
+          targetType: 'CharacterFactoryJob',
+          targetId: job.id,
+          afterState: { receiptSha256: verifiedCharacterExportReceiptHash(exportReceipt) },
+        },
+        tx,
+      )
     await writeAuditLogStrict(
       {
         tenantId: input.tenantId,

@@ -1,9 +1,13 @@
 import type {
   CharacterBundleAssetInput,
   CharacterExportArtifact,
+  CharacterRuntimePack,
+  CharacterRuntimePackInput,
   CharacterSpec,
+  FactoryState,
   ImportedSource,
 } from './types'
+import { CharacterRuntimePackSchema, canonicalCharacterRuntimePack } from '@pathfinder/contracts'
 
 const CREDENTIAL_KEYS =
   /^(access_token|api_key|apikey|auth|client_secret|credential|key|signature|sig|token)$/iu
@@ -93,6 +97,7 @@ export async function createCharacterExportArtifact(
 export async function createCharacterBundle(
   spec: CharacterSpec,
   assets: readonly CharacterBundleAssetInput[],
+  runtimePack?: CharacterRuntimePackInput,
 ): Promise<CharacterExportArtifact> {
   if (spec.status === 'invalid') throw new Error('Invalid characters cannot be bundled.')
   if (assets.length === 0 || assets.length > 32)
@@ -148,11 +153,15 @@ export async function createCharacterBundle(
       throw new Error(`Character slot asset is missing: ${slot}`)
   if (!normalizedAssets.some((asset) => asset.role === 'fallback'))
     throw new Error('Character bundle requires static fallback art.')
+  const normalizedRuntimePack = runtimePack
+    ? validateAndNormalizeRuntimePack(spec, runtimePack, normalizedAssets)
+    : undefined
   const payload = {
     schemaVersion: 1,
     kind: 'pathfinder-character-bundle',
     spec: { ...spec, source: sanitizeImportedSource(spec.source) },
     assets: normalizedAssets,
+    ...(normalizedRuntimePack ? { runtimePack: normalizedRuntimePack } : {}),
   }
   const bytes = new TextEncoder().encode(stable(payload))
   return {
@@ -164,6 +173,114 @@ export async function createCharacterBundle(
     byteLength: bytes.byteLength,
     bytes,
   }
+}
+
+type NormalizedBundleAsset = {
+  path: string
+  mediaType: 'image/svg+xml' | 'image/png'
+  role: CharacterBundleAssetInput['role']
+  slot?: string
+  byteLength: number
+  sha256: string
+  bytesBase64: string
+}
+
+function validateAndNormalizeRuntimePack(
+  spec: CharacterSpec,
+  pack: CharacterRuntimePackInput,
+  assets: readonly NormalizedBundleAsset[],
+): CharacterRuntimePack {
+  let parsed: CharacterRuntimePack
+  try {
+    parsed = CharacterRuntimePackSchema.parse(pack)
+  } catch {
+    throw new Error('Character runtime pack format is unsupported.')
+  }
+  const normalized = JSON.parse(canonicalCharacterRuntimePack(parsed)) as CharacterRuntimePack
+  if (normalized.characterId !== spec.characterId || normalized.characterVersion !== spec.version)
+    throw new Error('Character runtime pack identity does not match the export.')
+  if (normalized.sourceSha256 !== spec.source.sha256)
+    throw new Error('Character runtime pack source hash does not match provenance.')
+  if (normalized.family !== spec.rigFamily || normalized.capability !== 'rigid-source')
+    throw new Error('Character runtime pack family or capability is unsupported.')
+  if (!['morph-v1', 'compact-creature-v1', 'humanoid-v1'].includes(normalized.family))
+    throw new Error('Character runtime pack requires a supported built-in family.')
+  if (normalized.assets.length !== assets.length)
+    throw new Error('Character runtime pack must reference every bundled asset exactly once.')
+  const bundledByPath = new Map(assets.map((asset) => [asset.path, asset]))
+  for (const asset of normalized.assets) {
+    const bundled = bundledByPath.get(asset.path)
+    if (!bundled)
+      throw new Error(`Character runtime pack references a missing bundled asset: ${asset.path}`)
+    if (
+      asset.mediaType !== bundled.mediaType ||
+      asset.bytes !== bundled.byteLength ||
+      asset.sha256 !== bundled.sha256
+    )
+      throw new Error(`Character runtime pack asset does not match bundled bytes: ${asset.id}`)
+    const dimensions = imageDimensions(base64ToBytes(bundled.bytesBase64), bundled.mediaType)
+    if (!dimensions || dimensions.width !== asset.width || dimensions.height !== asset.height)
+      throw new Error(`Character runtime pack dimensions do not match asset bytes: ${asset.id}`)
+  }
+  const byId = new Map(normalized.assets.map((asset) => [asset.id, asset]))
+  const sourceAsset = byId.get(normalized.sourceAssetId)
+  if (!sourceAsset || sourceAsset.path !== spec.masterReference || sourceAsset.sha256 !== spec.source.sha256)
+    throw new Error('Character runtime pack source asset does not match provenance.')
+  for (const fallbackId of [normalized.staticFallbackAssetId, normalized.reducedMotionFallbackAssetId])
+    if (!byId.has(fallbackId) || !assets.some((asset) => asset.path === byId.get(fallbackId)?.path && asset.role === 'fallback'))
+      throw new Error('Character runtime pack fallback asset is missing.')
+  for (const state of normalized.supportedStates) {
+    if (!FACTORY_STATE_SET.has(state) || !spec.supportedStates.includes(state as FactoryState))
+      throw new Error(`Character runtime pack state is unsupported: ${state}`)
+  }
+  return normalized
+}
+
+const FACTORY_STATE_SET = new Set<string>([
+  'idle', 'attention', 'listening', 'thinking', 'speaking', 'happy', 'sad', 'success', 'error', 'reaction',
+])
+
+function imageDimensions(bytes: Uint8Array, mediaType: 'image/svg+xml' | 'image/png') {
+  if (mediaType === 'image/png') {
+    if (
+      bytes.byteLength < 45 ||
+      ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
+    )
+      return undefined
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    if (view.getUint32(8) !== 13 || textChunk(bytes, 12) !== 'IHDR') return undefined
+    const width = view.getUint32(16)
+    const height = view.getUint32(20)
+    let offset = 8
+    let foundEnd = false
+    while (offset + 12 <= bytes.byteLength) {
+      const length = view.getUint32(offset)
+      const chunkEnd = offset + 12 + length
+      if (chunkEnd > bytes.byteLength) return undefined
+      const type = textChunk(bytes, offset + 4)
+      if (!type) return undefined
+      if (type === 'IEND') {
+        if (length !== 0 || chunkEnd !== bytes.byteLength) return undefined
+        foundEnd = true
+        break
+      }
+      offset = chunkEnd
+    }
+    if (!foundEnd || width < 1 || height < 1) return undefined
+    return { width, height }
+  }
+  const svg = new TextDecoder().decode(bytes)
+  const match = /<svg\b[^>]*\bviewBox\s*=\s*["']\s*(-?(?:\d+\.?\d*|\.\d+))\s+(-?(?:\d+\.?\d*|\.\d+))\s+(\d+(?:\.\d*)?|\.\d+)\s+(\d+(?:\.\d*)?|\.\d+)\s*["']/iu.exec(svg)
+  if (!match) return undefined
+  const width = Number(match[3])
+  const height = Number(match[4])
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return undefined
+  return { width, height }
+}
+
+function textChunk(bytes: Uint8Array, offset: number) {
+  if (offset + 4 > bytes.byteLength) return undefined
+  return String.fromCharCode(bytes[offset]!, bytes[offset + 1]!, bytes[offset + 2]!, bytes[offset + 3]!)
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -186,6 +303,7 @@ export async function readCharacterExportArtifact(
     | {
         kind?: string
         spec?: CharacterSpec
+        runtimePack?: CharacterRuntimePackInput
         assets?: Array<{
           path: string
           mediaType: string
@@ -199,6 +317,11 @@ export async function readCharacterExportArtifact(
   if ('kind' in decoded && decoded.kind === 'pathfinder-character-bundle') {
     if (!decoded.spec || !decoded.assets?.length)
       throw new Error('Character bundle payload is incomplete.')
+    if (
+      decoded.spec.characterId !== artifact.characterId ||
+      decoded.spec.version !== artifact.characterVersion
+    )
+      throw new Error('Character bundle metadata does not match its payload.')
     for (const asset of decoded.assets) {
       const bytes = base64ToBytes(asset.bytesBase64)
       if (bytes.byteLength !== asset.byteLength || (await sha256(bytes)) !== asset.sha256)
@@ -213,6 +336,7 @@ export async function readCharacterExportArtifact(
         ...(asset.slot ? { slot: asset.slot } : {}),
         bytes: base64ToBytes(asset.bytesBase64),
       })),
+      decoded.runtimePack,
     )
     if (rebuilt.sha256 !== artifact.sha256)
       throw new Error('Character bundle reconstruction failed.')
@@ -241,6 +365,66 @@ export async function readCharacterBundle(
   if (decoded.kind !== 'pathfinder-character-bundle')
     throw new Error('Stored character artifact must be a portable character bundle.')
   return readCharacterExportArtifact(artifact)
+}
+
+/**
+ * Returns only an explicitly prepared pack. A v1 spec or legacy bundle remains
+ * readable through readCharacterExportArtifact but is never animation-publishable.
+ */
+export async function readCharacterRuntimePack(
+  artifact: CharacterExportArtifact,
+): Promise<{ spec: CharacterSpec; runtimePack: CharacterRuntimePack }> {
+  const spec = await readCharacterBundle(artifact)
+  const decoded = JSON.parse(new TextDecoder().decode(artifact.bytes)) as {
+    runtimePack?: CharacterRuntimePackInput
+  }
+  if (!decoded.runtimePack)
+    throw new Error('Legacy character exports are not animation-publishable.')
+  // Rebuild validation in readCharacterExportArtifact has already bound every
+  // reference to bundled bytes. Return the canonical verified declaration only.
+  return {
+    spec,
+    runtimePack: JSON.parse(
+      canonicalCharacterRuntimePack(CharacterRuntimePackSchema.parse(decoded.runtimePack)),
+    ) as CharacterRuntimePack,
+  }
+}
+
+/**
+ * Resolves one runtime-pack allowlisted asset after the complete bundle has
+ * been verified. Callers never need to parse the private editable bundle.
+ */
+export async function readCharacterRuntimeAsset(
+  artifact: CharacterExportArtifact,
+  input: { assetId: string },
+): Promise<{
+  spec: CharacterSpec
+  runtimePack: CharacterRuntimePack
+  asset: CharacterRuntimePack['assets'][number]
+  bytes: Uint8Array
+}> {
+  const { spec, runtimePack } = await readCharacterRuntimePack(artifact)
+  const asset = runtimePack.assets.find((candidate) => candidate.id === input.assetId)
+  if (!asset) throw new Error('Character runtime pack asset is not allowlisted.')
+  const decoded = JSON.parse(new TextDecoder().decode(artifact.bytes)) as {
+    assets?: NormalizedBundleAsset[]
+  }
+  const bundled = decoded.assets?.find((candidate) => candidate.path === asset.path)
+  if (!bundled) throw new Error('Character runtime pack asset is missing from the verified bundle.')
+  const bytes = base64ToBytes(bundled.bytesBase64)
+  const dimensions = imageDimensions(bytes, bundled.mediaType)
+  if (
+    bundled.mediaType !== asset.mediaType ||
+    bundled.byteLength !== asset.bytes ||
+    bundled.sha256 !== asset.sha256 ||
+    bytes.byteLength !== asset.bytes ||
+    (await sha256(bytes)) !== asset.sha256 ||
+    !dimensions ||
+    dimensions.width !== asset.width ||
+    dimensions.height !== asset.height
+  )
+    throw new Error('Character runtime pack asset failed exact byte verification.')
+  return { spec, runtimePack, asset, bytes }
 }
 
 function base64ToBytes(value: string): Uint8Array {

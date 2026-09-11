@@ -1223,6 +1223,13 @@ const approvedOperations = [
     hash: 'a1306f1dfc78039c6bab6a6793310ecd57ef79b270ef6d457f8c02ac61baaef1',
     policy: 'tenant-and-venue',
   },
+  // Lock the exact candidate after external export verification and before publication.
+  {
+    file: 'packages/db/src/helpers/native-venue-deployment-actions.ts',
+    method: '$queryRaw',
+    hash: '8b0e0b2e254ba4f29cf816dcad50e38cf3ba8b9ca379661e9eeea9ff802068bb',
+    policy: 'tenant-and-venue',
+  },
   {
     file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
     method: '$executeRaw',
@@ -1930,7 +1937,12 @@ function runSelfTests() {
   )
   expectFixtureFailure(
     'excess repeated occurrence',
-    [{ fileName, source: `${repeatedSource};\n${source.replace('const rows', 'const extraRows')}` }],
+    [
+      {
+        fileName,
+        source: `${repeatedSource};\n${source.replace('const rows', 'const extraRows')}`,
+      },
+    ],
     repeatedApproval,
     'expected 2 occurrence(s), observed 3',
   )

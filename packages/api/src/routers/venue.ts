@@ -45,6 +45,7 @@ import {
 
 import { router } from '../core'
 import { resolveSystemCharacterProjection } from '../lib/character-registry'
+import { resolvePublishedCustomCharacterProjection } from '../lib/custom-character-publication'
 import { checkRateLimit } from '../lib/rate-limit'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
@@ -587,6 +588,14 @@ export const venueRouter = router({
             approvedCharacter: resolveSystemCharacterProjection(configuredCharacterKey),
           })
         }
+      }
+
+      if (isFeatureEnabled('venueCharacterMode') && isFeatureEnabled('characterRegistry')) {
+        const published = await resolvePublishedCustomCharacterProjection(
+          { tenantId: venue.tenantId, venueId: venue.id, venueSlug: input.slug },
+          { client: ctx.db },
+        )
+        if (published) venueBotPresentation = published.presentation
       }
 
       const projectedVenue = venueBotPresentation

@@ -119,6 +119,58 @@ function policy(mode: 'DARK' | 'ACTIVE' = 'ACTIVE') {
 }
 
 describe('native guest content read', () => {
+  it('carries custom export identity only inside the exact hash-bound active snapshot', async () => {
+    const db = client()
+    const binding = {
+      schemaVersion: 1,
+      characterId: 'custom-a',
+      decisionId: 'decision-a',
+      exportJobId: 'job-a',
+      characterVersion: 1,
+      characterRevision: 2,
+      sourceSha256: 'a'.repeat(64),
+      artifactSha256: 'b'.repeat(64),
+      artifactVersionId: 'object-a',
+      runtimePackSha256: 'c'.repeat(64),
+    }
+    const desired = {
+      ...state,
+      venueBotConfiguration: {
+        ...state.venueBotConfiguration,
+        presentationMode: 'CHARACTER',
+        customCharacterId: 'custom-a',
+      },
+      customCharacterPublication: binding,
+    }
+    const hash = nativeCoreVisibleStateHash(desired)
+    const head = {
+      releaseId,
+      artifactId: releaseId,
+      manifestHash: 'a'.repeat(64),
+      stateHash: hash,
+      release: {
+        id: releaseId,
+        artifactId: releaseId,
+        manifestHash: 'a'.repeat(64),
+        desiredStateHash: hash,
+        status: 'APPLIED',
+        plan: { desired },
+      },
+    }
+    db.nativeVenueDeploymentHead.findFirst.mockResolvedValue(head)
+    const input = {
+      client: db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      environment: { NATIVE_GUEST_CONTENT_READ_ENABLED: 'true', RAILWAY_ENVIRONMENT: 'staging' },
+    }
+    expect(await resolveNativeGuestReadSnapshotAction(input)).toMatchObject({
+      path: 'NATIVE',
+      state: { customCharacterPublication: binding },
+    })
+    head.release.plan.desired.customCharacterPublication.artifactVersionId = 'tampered'
+    expect(await resolveNativeGuestReadSnapshotAction(input)).toMatchObject({ path: 'LEGACY' })
+  })
   it('is server-disabled by default without consulting persisted policy', async () => {
     const db = client()
     const result = await resolveNativeGuestReadSnapshotAction({

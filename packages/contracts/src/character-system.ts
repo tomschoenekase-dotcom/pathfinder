@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+import {
+  CharacterRuntimePackSchema,
+  PublicFamilyRigSchema,
+  createPublicFamilyRig,
+  type PublicFamilyRig,
+} from './character-runtime-pack'
+
 export const CHARACTER_SYSTEM_SCHEMA_VERSION = 1 as const
 export const CHARACTER_ASSET_INITIAL_FILE_BUDGET_BYTES = 512 * 1024
 export const CHARACTER_ASSET_INITIAL_PACK_BUDGET_BYTES = 2 * 1024 * 1024
@@ -28,7 +35,11 @@ export const CHARACTER_PRESENTATION_CONTEXTS = [
   'marketing',
 ] as const
 
-export const CHARACTER_RENDERER_ADAPTERS = ['layered-svg-v1', 'static-image-v1'] as const
+export const CHARACTER_RENDERER_ADAPTERS = [
+  'layered-svg-v1',
+  'static-image-v1',
+  'family-rig-v1',
+] as const
 export const CHARACTER_ART_STATUSES = ['placeholder', 'review', 'approved', 'retired'] as const
 export const CHARACTER_LIFECYCLE_STATUSES = [
   'development',
@@ -234,6 +245,7 @@ const CharacterAssetManifestBaseSchema = z
     assetPackId: Identifier,
     version: VersionIdentifier,
     renderer: CharacterRendererAdapterSchema,
+    familyRig: CharacterRuntimePackSchema.optional(),
     artStatus: CharacterArtStatusSchema,
     publishable: z.boolean(),
     publicBasePath: z
@@ -273,6 +285,97 @@ const CharacterAssetManifestBaseSchema = z
   })
   .strict()
 
+function validateFamilyProjection(
+  value: {
+    renderer: string
+    characterId: string
+    familyRig?: PublicFamilyRig | undefined
+    assets: {
+      id: string
+      path: string
+      mediaType: string
+      width: number
+      height: number
+      bytes: number
+    }[]
+    canvas: { width: number; height: number }
+    safeBounds?: CharacterBounds | undefined
+    origin?: CharacterPoint | undefined
+    layers: Record<string, unknown>
+    anchors: { lookAt: CharacterPoint; embers: CharacterPoint }
+    staticFallbackAssetId: string
+    reducedMotionFallbackAssetId: string
+    supportedContexts: string[]
+    states: Partial<Record<CharacterState, CharacterStateMapping>>
+    stateFallbacks: Partial<Record<CharacterState, CharacterState>>
+  },
+  context: z.RefinementCtx,
+) {
+  const pack = value.familyRig
+  if (value.renderer !== 'family-rig-v1') {
+    if (pack)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Family rig requires its explicit renderer.',
+      })
+    return
+  }
+  if (!pack) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Family renderer requires a verified runtime pack.',
+    })
+    return
+  }
+  const assetMatches =
+    value.assets.length === pack.assets.length &&
+    value.assets.every((asset, index) => {
+      const expected = pack.assets[index]
+      return (
+        expected &&
+        (['id', 'path', 'mediaType', 'width', 'height', 'bytes'] as const).every(
+          (key) => asset[key] === expected[key],
+        )
+      )
+    })
+  const pointMatches = (a: CharacterPoint, b: CharacterPoint) => a.x === b.x && a.y === b.y
+  const statesMatch =
+    Object.keys(value.states).length === pack.supportedStates.length &&
+    pack.supportedStates.every(
+      (state) =>
+        value.states[state]?.variant === state.toLowerCase() &&
+        (!value.states[state]?.staticAssetId ||
+          value.states[state]?.staticAssetId === pack.staticFallbackAssetId),
+    )
+  const fallbacksMatch = CHARACTER_STATES.every(
+    (state) => value.stateFallbacks[state] === pack.stateFallbacks[state],
+  )
+  if (
+    value.characterId !== pack.characterId ||
+    !assetMatches ||
+    value.canvas.width !== pack.canvas.width ||
+    value.canvas.height !== pack.canvas.height ||
+    Object.keys(value.layers).length !== 0 ||
+    (value.origin && !pointMatches(value.origin, pack.origin)) ||
+    (value.safeBounds &&
+      (!pointMatches(value.safeBounds, pack.safeBounds) ||
+        value.safeBounds.width !== pack.safeBounds.width ||
+        value.safeBounds.height !== pack.safeBounds.height)) ||
+    !pointMatches(value.anchors.lookAt, pack.anchors.lookAt) ||
+    !pointMatches(value.anchors.embers, pack.anchors.embers) ||
+    value.staticFallbackAssetId !== pack.staticFallbackAssetId ||
+    value.reducedMotionFallbackAssetId !== pack.reducedMotionFallbackAssetId ||
+    JSON.stringify(value.supportedContexts) !== JSON.stringify(pack.supportedContexts) ||
+    !statesMatch ||
+    !fallbacksMatch
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Public family fields must match the immutable runtime pack.',
+    })
+  }
+}
+
 function pointIsInsideCanvas(point: CharacterPoint, canvas: { width: number; height: number }) {
   return point.x <= canvas.width && point.y <= canvas.height
 }
@@ -305,6 +408,7 @@ function hasUnsafeControlCharacter(value: string) {
 
 export const CharacterAssetManifestSchema = CharacterAssetManifestBaseSchema.superRefine(
   (manifest, context) => {
+    validateFamilyProjection(manifest, context)
     const ids = new Set<string>()
     let totalBytes = 0
     for (const [index, asset] of manifest.assets.entries()) {
@@ -602,6 +706,7 @@ export const PublicCharacterProjectionSchema = z
     assetPackId: Identifier,
     assetPackVersion: VersionIdentifier,
     renderer: CharacterRendererAdapterSchema,
+    familyRig: PublicFamilyRigSchema.optional(),
     publicBasePath: z.string().startsWith('/characters/'),
     assets: z.array(PublicCharacterAssetSchema).min(1),
     canvas: z.object({ width: PositiveDimension, height: PositiveDimension }).strict(),
@@ -619,6 +724,7 @@ export const PublicCharacterProjectionSchema = z
     supportedContexts: z.array(CharacterPresentationContextSchema).min(1).max(4),
   })
   .strict()
+  .superRefine(validateFamilyProjection)
 export type PublicCharacterProjection = z.infer<typeof PublicCharacterProjectionSchema>
 
 export function createPublicCharacterProjection(
@@ -640,6 +746,7 @@ export function createPublicCharacterProjection(
     assetPackId: manifest.assetPackId,
     assetPackVersion: manifest.version,
     renderer: manifest.renderer,
+    ...(manifest.familyRig ? { familyRig: createPublicFamilyRig(manifest.familyRig) } : {}),
     publicBasePath: manifest.publicBasePath,
     assets: manifest.assets.map(({ id, path, mediaType, width, height, bytes }) => ({
       id,

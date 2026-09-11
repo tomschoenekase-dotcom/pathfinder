@@ -106,6 +106,55 @@ describe('native venue deployment actions', () => {
     )
   })
 
+  it.each([approveNativeVenueDeploymentAction, applyNativeVenueDeploymentAction])(
+    'refuses custom publication without a matching outside-transaction verifier',
+    async (action) => {
+      const binding = {
+        schemaVersion: 1,
+        characterId: 'custom-a',
+        decisionId: 'decision-a',
+        exportJobId: 'job-a',
+        characterVersion: 1,
+        characterRevision: 2,
+        sourceSha256: 'a'.repeat(64),
+        artifactSha256: 'b'.repeat(64),
+        artifactVersionId: 'object-a',
+        runtimePackSha256: 'c'.repeat(64),
+      }
+      const tx = {
+        $executeRaw: vi.fn(),
+        nativeVenueDeploymentCommand: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn(),
+        },
+        nativeVenueDeploymentRelease: {
+          findFirst: vi.fn().mockResolvedValue({
+            plan: { before: {}, desired: { customCharacterPublication: binding } },
+          }),
+          updateMany: vi.fn(),
+          update: vi.fn(),
+        },
+        auditLog: { create: vi.fn() },
+      }
+      await expect(
+        action(
+          {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            releaseId: 'release-a',
+            commandId: 'command-a',
+            expectedUpdatedAt: '2026-09-11T00:00:00.000Z',
+            actor: { type: 'HUMAN', role: 'PLATFORM_ADMIN', id: 'operator' },
+          },
+          { $transaction: vi.fn((run) => run(tx)) },
+        ),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+      expect(tx.nativeVenueDeploymentRelease.updateMany).not.toHaveBeenCalled()
+      expect(tx.nativeVenueDeploymentRelease.update).not.toHaveBeenCalled()
+      expect(tx.nativeVenueDeploymentCommand.create).not.toHaveBeenCalled()
+    },
+  )
+
   it('classifies exact native-head convergence without authorizing legacy retirement', async () => {
     const { db } = client()
     const current = await projectNativeVenueStateAction(db, {
@@ -246,7 +295,10 @@ describe('native venue deployment actions', () => {
     const tx = {
       $executeRaw: vi.fn(),
       nativeVenueDeploymentCommand: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
-      nativeVenueDeploymentRelease: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      nativeVenueDeploymentRelease: {
+        findFirst: vi.fn().mockResolvedValue({ plan: { before: {}, desired: {} } }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
     }
     const db = { $transaction: vi.fn((fn) => fn(tx)) }
@@ -293,7 +345,10 @@ describe('native venue deployment actions', () => {
     const first = {
       $executeRaw: vi.fn(),
       nativeVenueDeploymentCommand: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
-      nativeVenueDeploymentRelease: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      nativeVenueDeploymentRelease: {
+        findFirst: vi.fn().mockResolvedValue({ plan: { before: {}, desired: {} } }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       auditLog: { create: vi.fn() },
     }
     await approveNativeVenueDeploymentAction(input, { $transaction: vi.fn((fn) => fn(first)) })
@@ -335,7 +390,10 @@ describe('native venue deployment actions', () => {
     const tx = {
       $executeRaw: vi.fn(),
       nativeVenueDeploymentCommand: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
-      nativeVenueDeploymentRelease: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      nativeVenueDeploymentRelease: {
+        findFirst: vi.fn().mockResolvedValue({ plan: { before: {}, desired: {} } }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       auditLog: { create: vi.fn() },
     }
     const db = {

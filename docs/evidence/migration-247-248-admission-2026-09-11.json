@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-migration-endpoint-evidence",
+  "date": "2026-09-11",
+  "hostedAuthority": false,
+  "predecessorCommit": "6f76348bba6af9228d1e5cc34a7043840888c4ef",
+  "predecessorMigrationCount": 247,
+  "predecessorManifestSha256": "accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c",
+  "migrationCount": 248,
+  "migrationManifestSha256": "73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa",
+  "finalMigration": "20260911063000_add_native_venue_bot_configuration_effect",
+  "finalMigrationSqlSha256": "daa348987fc6cd66dea426d1b1183e620ad6cf6e2810f803dd00ed56da8800a9",
+  "rehearsal": {
+    "kind": "disposable-native-postgresql-migration-247-248",
+    "resultSha256": "bb56db0d5c05881634e79a3d87b8d2212343a2441797eaa41e85534194f7ffb3",
+    "finishedAt": "2026-09-11T06:47:15.031Z",
+    "passed": true,
+    "stopped": true,
+    "publicTablesBefore": 264,
+    "publicTablesAfter": 264,
+    "all247PriorSqlUnchanged": true,
+    "all247LedgerRowsUnchanged": true,
+    "existingEffectUnchanged": true,
+    "priorEnumLabelsAndOrderUnchanged": true,
+    "appendedEnumValue": "VENUE_BOT_CONFIGURATION",
+    "replayHasNoPendingMigrations": true,
+    "loopbackPortFreeAfterStop": true
+  },
+  "connectedPublicationProof": {
+    "logSha256": "9eefd3b83172ce834465a895cceee9a8243edd5ee7f9a867df88a95939726974",
+    "passed": 1,
+    "scope": "Real disposable PostgreSQL ACCEPT/EXPORT/native APPLY/draft divergence/REVERT and forged receipt rejection; artifact bytes held in memory.",
+    "limitation": "Not hosted publication, HTTP delivery, live generation or browser proof. Subsequent test-only typing/assertion changes require the final candidate proof."
+  },
+  "remainingGates": [
+    "Independent endpoint review and new exact candidate canonical admission",
+    "Fresh drained staging backup and exact candidate restore/upgrade comparison",
+    "Concrete human recovery approval and held staging migration",
+    "Hosted health, errors, visitor/client journeys and human inspection"
+  ]
+}

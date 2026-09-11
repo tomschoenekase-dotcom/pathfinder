@@ -12,6 +12,10 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Public custom PNG assets resolve one active unique venue slug, then require
+  // its exact tenant/venue, current native head, flags and verified export receipt.
+  // Caller paths never provide tenant identities or private storage references.
+  ['packages/api/src/lib/custom-character-publication.ts', 1],
   // Human-admin V1 proposal decisions bind exact tenant/venue/revision terms;
   // decision and one-shot draft grant share a transaction and execute no package effect.
   ['packages/api/src/routers/admin/intake-v1-package-draft-approval.ts', 1],

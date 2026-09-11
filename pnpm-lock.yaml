@@ -411,6 +411,9 @@ importers:
       pdfjs-dist:
         specifier: 6.2.108
         version: 6.2.108
+      sharp:
+        specifier: 0.35.4
+        version: 0.35.4(@types/node@24.12.2)
       superjson:
         specifier: ^2.2.2
         version: 2.2.6
