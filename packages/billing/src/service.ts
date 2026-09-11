@@ -626,6 +626,8 @@ export async function createTenantCheckout(params: {
     customerEmail: reserved.account.billingEmail,
   })
   await client.$transaction(async (tx) => {
+    // Keep reservation reads and replacement promotion under the same tenant fence.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`torchiko:billing-checkout:${params.tenantId}`}, 0))`
     if (reserved.replacementId) {
       await tx.commercialAgreement.update({
         where: { id: reserved.replacementId, tenantId: params.tenantId },

@@ -503,13 +503,14 @@ const approvedOperations = [
     hash: 'eb5d16c6a962a5f7484f72522cfa390740984f4d869601f29746efbeffafcba8',
     policy: 'tenant-workflow-approval-request-lock',
   },
-  // Checkout reserves under an exact tenant-keyed transaction advisory lock;
-  // the transaction commits its pending agreement before external provider work.
+  // Checkout reservation and result finalization share the exact tenant lock;
+  // provider work remains outside both transactions.
   {
     file: 'packages/billing/src/service.ts',
     method: '$executeRaw',
     hash: '7b38aa25cd1def5b224727e4c592a17c80ad0ed7c2651152b5e6bcd9eff93264',
     policy: 'tenant-billing-effect-lock',
+    count: 2,
   },
   // Reviewed workflow activation: sorted scoped heads precede exact leased runs;
   // SHARE-locked authority is rechecked with PostgreSQL time after locks. Revoke
