@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
-const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL!
+const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
 async function hideFrameworkDevChrome(page: Page) {
   await page.locator('nextjs-portal').evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
   const keylessPrompt = page.getByRole('button', { name: 'Keyless prompt' })

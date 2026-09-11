@@ -989,7 +989,7 @@ export function AgentWorkflowActivationReviewPanel({
             disabled={mutationLocked}
           />
         </label>
-        <label className="text-sm lg:col-span-2">
+        <label className="min-w-0 text-sm lg:col-span-2">
           Visible selection salt
           <div className="mt-1 flex gap-2">
             <input
@@ -1272,7 +1272,7 @@ export function AgentWorkflowActivationReviewPanel({
                   disabled={mutationLocked}
                 />
               </label>
-              <label className="text-sm lg:col-span-2">
+              <label className="min-w-0 text-sm lg:col-span-2">
                 Rollback visible selection salt
                 <div className="mt-1 flex gap-2">
                   <input
