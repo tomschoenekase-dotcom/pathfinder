@@ -1,7 +1,13 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { FACTORY_STATES, type CharacterSpec, type RigFamily } from './types'
+import {
+  FACTORY_STATES,
+  type CharacterBundleAssetInput,
+  type CharacterRuntimePackInput,
+  type CharacterSpec,
+  type RigFamily,
+} from './types'
 import { inspectImportedSkin } from './compatibility'
 import { CharacterFactoryEngine, MemoryCharacterFactoryStore } from './engine'
 import { RIGS } from './rigs'
@@ -9,6 +15,8 @@ import {
   createCharacterBundle,
   createCharacterExportArtifact,
   readCharacterExportArtifact,
+  readCharacterRuntimeAsset,
+  readCharacterRuntimePack,
   sanitizeImportedSource,
 } from './artifact'
 
@@ -65,6 +73,71 @@ async function firstFixture(): Promise<{ spec: CharacterSpec; svg: string }> {
   const fixture = (await loadFixtures())[0]
   if (!fixture) throw new Error('Expected at least one architecture fixture')
   return fixture
+}
+
+async function sha256(bytes: Uint8Array) {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(bytes).buffer)
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+async function neutralOwlRuntimePack(
+  spec: CharacterSpec,
+  assets: readonly CharacterBundleAssetInput[],
+): Promise<CharacterRuntimePackInput> {
+  const assetId = (asset: CharacterBundleAssetInput) => {
+    if (asset.role === 'master') return 'source'
+    if (asset.role === 'fallback') return 'static-fallback'
+    return `${asset.slot ?? 'rig'}-layer`
+  }
+  const references = await Promise.all(
+    assets.map(async (asset) => ({
+      id: assetId(asset),
+      path: asset.path,
+      mediaType: asset.mediaType,
+      width: 72,
+      height: 72,
+      bytes: asset.bytes.byteLength,
+      sha256: await sha256(asset.bytes),
+    })),
+  )
+  return {
+    schemaVersion: 1,
+    renderer: 'family-rig-v1',
+    characterId: spec.characterId,
+    characterVersion: spec.version,
+    sourceSha256: spec.source.sha256,
+    family: 'compact-creature-v1',
+    capability: 'rigid-source',
+    assets: references,
+    canvas: { width: 72, height: 72 },
+    safeBounds: { x: 0, y: 0, width: 72, height: 72 },
+    origin: { x: 36, y: 36 },
+    anchors: { lookAt: { x: 36, y: 28 }, embers: { x: 36, y: 55 } },
+    sourceAssetId: 'source',
+    staticFallbackAssetId: 'static-fallback',
+    reducedMotionFallbackAssetId: 'static-fallback',
+    layers: [
+      { role: 'body', assetId: 'body-layer' },
+      { role: 'eyes', assetId: 'eyes-layer' },
+      { role: 'wing', assetId: 'wings-layer' },
+    ],
+    supportedStates: ['idle', 'speaking'],
+    stateFallbacks: {
+      attention: 'idle',
+      listening: 'idle',
+      thinking: 'idle',
+      success: 'idle',
+      processing: 'idle',
+      uploadReceiving: 'idle',
+      uploadComplete: 'idle',
+      question: 'idle',
+      handoff: 'idle',
+      error: 'idle',
+      sleeping: 'idle',
+      minimized: 'idle',
+    },
+    supportedContexts: ['client-assistant'],
+  }
 }
 
 describe('neutral fixture architecture proof', () => {
@@ -339,5 +412,140 @@ describe('agent-callable production engine', () => {
     if (originalByte === undefined) throw new Error('Expected a retained bundle byte to tamper')
     tamperedBundle.bytes[tamperIndex] = originalByte ^ 1
     await expect(readCharacterExportArtifact(tamperedBundle)).rejects.toThrow('integrity')
+  })
+
+  it('binds an explicitly prepared runtime pack to exact neutral fixture bytes and export identity', async () => {
+    const { spec, svg } = await firstFixture()
+    const body = await readFile(`${fixtureRoot}/segmented/owl/body.svg`, 'utf8')
+    const face = await readFile(`${fixtureRoot}/segmented/owl/face.svg`, 'utf8')
+    const wing = await readFile(`${fixtureRoot}/segmented/owl/wing.svg`, 'utf8')
+    const assets: CharacterBundleAssetInput[] = [
+      {
+        path: spec.masterReference,
+        mediaType: 'image/svg+xml',
+        role: 'master',
+        bytes: new TextEncoder().encode(svg),
+      },
+      {
+        path: 'fallback/static.svg',
+        mediaType: 'image/svg+xml',
+        role: 'fallback',
+        bytes: new TextEncoder().encode(svg),
+      },
+      { path: 'slots/body.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'body', bytes: new TextEncoder().encode(body) },
+      { path: 'slots/eyes.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'eyes', bytes: new TextEncoder().encode(face) },
+      { path: 'slots/wings.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'wings', bytes: new TextEncoder().encode(wing) },
+    ]
+    const pack = await neutralOwlRuntimePack(spec, assets)
+    const bundle = await createCharacterBundle(spec, assets, pack)
+    const verified = await readCharacterRuntimePack(bundle)
+    expect(verified).toMatchObject({
+      spec: { characterId: spec.characterId, version: spec.version },
+      runtimePack: { renderer: 'family-rig-v1', sourceSha256: spec.source.sha256, family: spec.rigFamily },
+    })
+    const publicAsset = await readCharacterRuntimeAsset(bundle, { assetId: 'body-layer' })
+    expect(publicAsset).toMatchObject({
+      asset: { id: 'body-layer', path: 'slots/body.svg', width: 72, height: 72 },
+    })
+    expect(new TextDecoder().decode(publicAsset.bytes)).toBe(body)
+    await expect(readCharacterRuntimeAsset(bundle, { assetId: 'unlisted' })).rejects.toThrow('not allowlisted')
+    const changedState = {
+      ...pack,
+      supportedContexts: ['marketing'] as CharacterRuntimePackInput['supportedContexts'],
+    }
+    const changedIdentity = await createCharacterBundle(spec, assets, changedState)
+    expect(changedIdentity.sha256).not.toBe(bundle.sha256)
+  })
+
+  it('refuses runtime packs with changed or missing bytes, dimensions, hashes, unsupported families, or unsupported states', async () => {
+    const { spec, svg } = await firstFixture()
+    const body = await readFile(`${fixtureRoot}/segmented/owl/body.svg`, 'utf8')
+    const face = await readFile(`${fixtureRoot}/segmented/owl/face.svg`, 'utf8')
+    const wing = await readFile(`${fixtureRoot}/segmented/owl/wing.svg`, 'utf8')
+    const assets: CharacterBundleAssetInput[] = [
+      { path: spec.masterReference, mediaType: 'image/svg+xml', role: 'master', bytes: new TextEncoder().encode(svg) },
+      { path: 'fallback/static.svg', mediaType: 'image/svg+xml', role: 'fallback', bytes: new TextEncoder().encode(svg) },
+      { path: 'slots/body.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'body', bytes: new TextEncoder().encode(body) },
+      { path: 'slots/eyes.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'eyes', bytes: new TextEncoder().encode(face) },
+      { path: 'slots/wings.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'wings', bytes: new TextEncoder().encode(wing) },
+      { path: 'rig/source.svg', mediaType: 'image/svg+xml', role: 'rig-source', bytes: new TextEncoder().encode(wing) },
+    ]
+    const pack = await neutralOwlRuntimePack(spec, assets)
+    await expect(
+      createCharacterBundle(
+        spec,
+        assets.map((asset) => asset.path === 'slots/wings.svg' ? { ...asset, bytes: new TextEncoder().encode(`${wing} `) } : asset),
+        pack,
+      ),
+    ).rejects.toThrow('does not match bundled bytes')
+    await expect(createCharacterBundle(spec, assets.slice(0, -1), pack)).rejects.toThrow('reference every bundled asset')
+    await expect(
+      createCharacterBundle(spec, assets, {
+        ...pack,
+        assets: pack.assets.map((asset) => asset.id === 'body-layer' ? { ...asset, width: 71 } : asset),
+      }),
+    ).rejects.toThrow('format is unsupported')
+    await expect(
+      createCharacterBundle(spec, assets, {
+        ...pack,
+        assets: pack.assets.map((asset) => asset.id === 'body-layer' ? { ...asset, sha256: '0'.repeat(64) } : asset),
+      }),
+    ).rejects.toThrow('does not match bundled bytes')
+    const malformedSvgAssets = assets.map((asset) =>
+      asset.path === 'slots/body.svg'
+        ? { ...asset, bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }
+        : asset,
+    )
+    await expect(
+      createCharacterBundle(
+        spec,
+        malformedSvgAssets,
+        await neutralOwlRuntimePack(spec, malformedSvgAssets),
+      ),
+    ).rejects.toThrow('dimensions do not match asset bytes')
+    const malformedPng = Uint8Array.from([
+      137, 80, 78, 71, 13, 10, 26, 10, ...Array<number>(37).fill(0),
+    ])
+    const malformedPngAssets = assets.map((asset) =>
+      asset.path === 'slots/body.svg'
+        ? { ...asset, path: 'slots/body.png', mediaType: 'image/png' as const, bytes: malformedPng }
+        : asset,
+    )
+    await expect(
+      createCharacterBundle(
+        spec,
+        malformedPngAssets,
+        await neutralOwlRuntimePack(spec, malformedPngAssets),
+      ),
+    ).rejects.toThrow('dimensions do not match asset bytes')
+    await expect(createCharacterBundle(spec, assets, { ...pack, family: 'morph-v1' })).rejects.toThrow('family or capability')
+    const unsupportedStateFallbacks = { ...pack.stateFallbacks, speaking: 'idle' as const }
+    delete unsupportedStateFallbacks.processing
+    await expect(
+      createCharacterBundle(spec, assets, {
+        ...pack,
+        supportedStates: ['idle', 'processing'],
+        stateFallbacks: unsupportedStateFallbacks,
+      }),
+    ).rejects.toThrow('state is unsupported')
+  })
+
+  it('keeps legacy bundles readable but refuses to mark them animation-publishable', async () => {
+    const { spec, svg } = await firstFixture()
+    const bytes = new TextEncoder().encode(svg)
+    const assets: CharacterBundleAssetInput[] = [
+      { path: spec.masterReference, mediaType: 'image/svg+xml', role: 'master', bytes },
+      { path: 'fallback/static.svg', mediaType: 'image/svg+xml', role: 'fallback', bytes },
+      ...Object.keys(spec.slotMap).map((slot) => ({ path: `slots/${slot}.svg`, mediaType: 'image/svg+xml' as const, role: 'slot' as const, slot, bytes })),
+    ]
+    const legacy = await createCharacterBundle(spec, assets)
+    expect((await readCharacterExportArtifact(legacy)).characterId).toBe(spec.characterId)
+    await expect(
+      readCharacterExportArtifact({ ...legacy, characterId: 'another-character' }),
+    ).rejects.toThrow('metadata does not match')
+    await expect(
+      readCharacterExportArtifact({ ...legacy, characterVersion: spec.version + 1 }),
+    ).rejects.toThrow('metadata does not match')
+    await expect(readCharacterRuntimePack(legacy)).rejects.toThrow('not animation-publishable')
   })
 })

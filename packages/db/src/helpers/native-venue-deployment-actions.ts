@@ -13,6 +13,11 @@ import {
 
 import { lockVenueContentMutation } from './venue-content-lock'
 import { writeAuditLogStrict } from './audit'
+import {
+  readCustomCharacterPublicationEvidence,
+  type CustomCharacterPublicationEvidence,
+  type NativeCustomCharacterPublicationOptions,
+} from './custom-character-publication'
 
 // Extended Prisma clients and transaction clients share this structural surface.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -237,7 +242,11 @@ const revisionInclude = {
   relationship: true,
 }
 
-async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
+async function projectLocked(
+  tx: NativeVenueDeploymentClient,
+  scope: Scope,
+  prospective?: { binding: VisibleState['customCharacterPublication'] },
+) {
   const venue = await tx.venue.findFirst({ where: { id: scope.venueId, tenantId: scope.tenantId } })
   if (!venue) throw new NativeVenueDeploymentError('NOT_FOUND', 'Venue was not found.')
   const [places, knowledge, headIds, venueBotConfiguration] = await Promise.all([
@@ -304,9 +313,33 @@ async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
       'PRECONDITION_FAILED',
       'Published module state exceeds native profile bounds.',
     )
+  const configuration = venueBotConfigurationState(venueBotConfiguration, venue)
+  let binding = prospective?.binding
+  if (!prospective && configuration.customCharacterId && tx.nativeVenueDeploymentHead?.findFirst) {
+    const head = await tx.nativeVenueDeploymentHead.findFirst({
+      where: { tenantId: scope.tenantId, venueId: scope.venueId },
+      include: { release: true },
+    })
+    const desired = NativeCoreVisibleState.safeParse(head?.release?.plan?.desired)
+    if (
+      head &&
+      head.release?.status === 'APPLIED' &&
+      head.release.id === head.releaseId &&
+      head.release.artifactId === head.artifactId &&
+      head.release.manifestHash === head.manifestHash &&
+      head.release.desiredStateHash === head.stateHash &&
+      desired.success &&
+      nativeCoreVisibleStateHash(desired.data) === head.stateHash &&
+      desired.data.customCharacterPublication?.characterId === configuration.customCharacterId &&
+      configuration.presentationMode === 'CHARACTER'
+    ) {
+      binding = desired.data.customCharacterPublication
+    }
+  }
   const state = NativeCoreVisibleState.parse({
     venue: venueState(venue),
-    venueBotConfiguration: venueBotConfigurationState(venueBotConfiguration, venue),
+    venueBotConfiguration: configuration,
+    ...(binding ? { customCharacterPublication: binding } : {}),
     places: places.map((item: Record<string, unknown>) => ({
       id: item.id,
       name: item.name,
@@ -405,6 +438,7 @@ async function validateVenueBotConfigurationReferences(
   tx: NativeVenueDeploymentClient,
   scope: Scope,
   configuration: VisibleState['venueBotConfiguration'],
+  publication?: VisibleState['customCharacterPublication'],
 ) {
   if (configuration.personalityProfileId) {
     const profile = await tx.personalityProfile.findFirst({
@@ -422,7 +456,7 @@ async function validateVenueBotConfigurationReferences(
         'Venue Bot personality profile is outside the exact deployment scope.',
       )
   }
-  if (configuration.customCharacterId) {
+  if (configuration.customCharacterId && !publication) {
     const character = await tx.customCharacter.findFirst({
       where: {
         id: configuration.customCharacterId,
@@ -438,6 +472,54 @@ async function validateVenueBotConfigurationReferences(
         'Custom character is outside the exact deployment scope.',
       )
   }
+}
+
+async function preflightPublication(
+  client: NativeVenueDeploymentClient,
+  scope: Scope,
+  binding: VisibleState['customCharacterPublication'],
+  options?: NativeCustomCharacterPublicationOptions,
+) {
+  if (!binding) return undefined
+  if (!options?.verifyCustomCharacterPublication)
+    throw new NativeVenueDeploymentError(
+      'PRECONDITION_FAILED',
+      'Custom publication requires external immutable artifact verification.',
+    )
+  const evidence = await readCustomCharacterPublicationEvidence(client, {
+    ...scope,
+    binding,
+    requireCurrentCandidate: false,
+  })
+  await options.verifyCustomCharacterPublication({ ...scope, ...evidence })
+  return evidence
+}
+
+async function recheckPublication(
+  tx: NativeVenueDeploymentClient,
+  scope: Scope,
+  binding: VisibleState['customCharacterPublication'],
+  verified: CustomCharacterPublicationEvidence | undefined,
+  requireCurrentCandidate: boolean,
+) {
+  if (!binding) return
+  if (!verified || !sameJsonValue(binding, verified.binding))
+    throw new NativeVenueDeploymentError(
+      'PRECONDITION_FAILED',
+      'Custom publication has no matching artifact verification.',
+    )
+  // This is the same scoped row lock used by candidate ACCEPT. It fences a concurrent draft change.
+  await tx.$queryRaw`SELECT "id" FROM "custom_characters" WHERE "id" = ${binding.characterId} AND "tenant_id" = ${scope.tenantId} AND "venue_id" = ${scope.venueId} FOR UPDATE`
+  const current = await readCustomCharacterPublicationEvidence(tx, {
+    ...scope,
+    binding,
+    requireCurrentCandidate,
+  })
+  if (!sameJsonValue(current, verified))
+    throw new NativeVenueDeploymentError(
+      'PRECONDITION_FAILED',
+      'Custom publication evidence changed during artifact verification.',
+    )
 }
 
 function plannedEffects(
@@ -634,6 +716,7 @@ export async function measureNativeContentConvergenceAction(
 export async function createNativeVenueDeploymentAction(
   input: Scope & { manifest: unknown; actor: NativeVenueDeploymentActor },
   client: NativeVenueDeploymentClient,
+  options?: NativeCustomCharacterPublicationOptions,
 ) {
   assertActor(input.actor)
   const parsedManifest = NativeCoreFullManifest.parse(input.manifest)
@@ -648,6 +731,19 @@ export async function createNativeVenueDeploymentAction(
   const canonicalManifest = JSON.parse(canonicalNativeCoreFullManifest(parsedManifest))
   const manifest = NativeCoreFullManifest.parse(canonicalManifest)
   const manifestHash = nativeCoreFullManifestHash(manifest)
+  const existingArtifact = manifest.customCharacterPublication
+    ? await client.nativeVenueDeploymentArtifact.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          idempotencyKey: manifest.idempotencyKey,
+        },
+      })
+    : undefined
+  const verified =
+    manifest.customCharacterPublication && !existingArtifact
+      ? await preflightPublication(client, input, manifest.customCharacterPublication, options)
+      : undefined
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await client.$transaction(async (tx: NativeVenueDeploymentClient) => {
@@ -692,11 +788,36 @@ export async function createNativeVenueDeploymentAction(
           venue: manifest.venue,
           venueBotConfiguration:
             manifest.venueBotConfiguration ?? current.state.venueBotConfiguration,
+          ...(manifest.customCharacterPublication
+            ? { customCharacterPublication: manifest.customCharacterPublication }
+            : current.state.customCharacterPublication &&
+                (!manifest.venueBotConfiguration ||
+                  (manifest.venueBotConfiguration.presentationMode === 'CHARACTER' &&
+                    manifest.venueBotConfiguration.customCharacterId ===
+                      current.state.customCharacterPublication.characterId))
+              ? { customCharacterPublication: current.state.customCharacterPublication }
+              : {}),
           places: manifest.places,
           knowledgeEntries: manifest.knowledgeEntries,
           generalizedModules: manifest.generalizedModules,
         })
-        await validateVenueBotConfigurationReferences(tx, input, desired.venueBotConfiguration)
+        if (manifest.customCharacterPublication)
+          await recheckPublication(
+            tx,
+            input,
+            manifest.customCharacterPublication,
+            verified,
+            !sameJsonValue(
+              manifest.customCharacterPublication,
+              current.state.customCharacterPublication,
+            ),
+          )
+        await validateVenueBotConfigurationReferences(
+          tx,
+          input,
+          desired.venueBotConfiguration,
+          desired.customCharacterPublication,
+        )
         const [placeRows, knowledgeRows, identities, revisionRows] = await Promise.all([
           tx.place.findMany({
             where: {
@@ -923,13 +1044,52 @@ export async function approveNativeVenueDeploymentAction(
     actor: NativeVenueDeploymentActor
   },
   client: NativeVenueDeploymentClient,
+  options?: NativeCustomCharacterPublicationOptions,
 ) {
   assertActor(input.actor)
   const hash = commandHash(input, 'APPROVE', input.actor.id)
+  const observed = options
+    ? await client.nativeVenueDeploymentRelease.findFirst({
+        where: {
+          id: input.releaseId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'DRAFT',
+        },
+      })
+    : undefined
+  const verified = await preflightPublication(
+    client,
+    input,
+    (observed?.plan as Plan | undefined)?.desired.customCharacterPublication,
+    options,
+  )
   return lifecycleWithRetry(client, async (tx) => {
     await lockVenueContentMutation(tx, input)
     const replay = await replayCommand(tx, input, hash)
     if (replay) return replay
+    const release = await tx.nativeVenueDeploymentRelease.findFirst({
+      where: {
+        id: input.releaseId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        status: 'DRAFT',
+        updatedAt: new Date(input.expectedUpdatedAt),
+      },
+    })
+    if (!release)
+      throw new NativeVenueDeploymentError('PRECONDITION_FAILED', 'Release approval state changed.')
+    const plan = release.plan as Plan
+    await recheckPublication(
+      tx,
+      input,
+      plan.desired.customCharacterPublication,
+      verified,
+      !sameJsonValue(
+        plan.before.customCharacterPublication,
+        plan.desired.customCharacterPublication,
+      ),
+    )
     const now = new Date()
     const updated = await tx.nativeVenueDeploymentRelease.updateMany({
       where: {
@@ -1473,9 +1633,26 @@ export async function applyNativeVenueDeploymentAction(
     actor: NativeVenueDeploymentActor
   },
   client: NativeVenueDeploymentClient,
+  options?: NativeCustomCharacterPublicationOptions,
 ) {
   assertActor(input.actor)
   const hash = commandHash(input, 'APPLY', input.actor.id)
+  const observed = options
+    ? await client.nativeVenueDeploymentRelease.findFirst({
+        where: {
+          id: input.releaseId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'APPROVED',
+        },
+      })
+    : undefined
+  const verified = await preflightPublication(
+    client,
+    input,
+    (observed?.plan as Plan | undefined)?.desired.customCharacterPublication,
+    options,
+  )
   return lifecycleWithRetry(client, async (tx) => {
     await lockVenueContentMutation(tx, input)
     const replay = await replayCommand(tx, input, hash)
@@ -1492,6 +1669,16 @@ export async function applyNativeVenueDeploymentAction(
     if (!release)
       throw new NativeVenueDeploymentError('PRECONDITION_FAILED', 'Release apply state changed.')
     const plan = release.plan as Plan
+    await recheckPublication(
+      tx,
+      input,
+      plan.desired.customCharacterPublication,
+      verified,
+      !sameJsonValue(
+        plan.before.customCharacterPublication,
+        plan.desired.customCharacterPublication,
+      ),
+    )
     const current = await projectLocked(tx, input)
     if (
       current.stateHash !== release.baseStateHash ||
@@ -1508,7 +1695,9 @@ export async function applyNativeVenueDeploymentAction(
       plan.desired,
       input.actor.id,
     )
-    const materialized = await projectLocked(tx, input)
+    const materialized = await projectLocked(tx, input, {
+      binding: plan.desired.customCharacterPublication,
+    })
     if (materialized.stateHash !== release.desiredStateHash)
       throw new NativeVenueDeploymentError(
         'CONFLICT',
@@ -1569,9 +1758,26 @@ export async function revertNativeVenueDeploymentAction(
     actor: NativeVenueDeploymentActor
   },
   client: NativeVenueDeploymentClient,
+  options?: NativeCustomCharacterPublicationOptions,
 ) {
   assertActor(input.actor)
   const hash = commandHash(input, 'REVERT', input.actor.id)
+  const observed = options
+    ? await client.nativeVenueDeploymentRelease.findFirst({
+        where: {
+          id: input.releaseId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'APPLIED',
+        },
+      })
+    : undefined
+  const verified = await preflightPublication(
+    client,
+    input,
+    (observed?.plan as Plan | undefined)?.before.customCharacterPublication,
+    options,
+  )
   return lifecycleWithRetry(client, async (tx) => {
     await lockVenueContentMutation(tx, input)
     const replay = await replayCommand(tx, input, hash)
@@ -1624,6 +1830,7 @@ export async function revertNativeVenueDeploymentAction(
         'Applied publication head evidence changed after apply.',
       )
     const plan = release.plan as Plan
+    await recheckPublication(tx, input, plan.before.customCharacterPublication, verified, false)
     const effects = await tx.nativeVenueDeploymentEffect.findMany({
       where: { releaseId: release.id, tenantId: input.tenantId, venueId: input.venueId },
       orderBy: { effectOrder: 'desc' },
@@ -1791,7 +1998,9 @@ export async function revertNativeVenueDeploymentAction(
         where: { id_tenantId: { id: input.venueId, tenantId: input.tenantId } },
         data: venueData(venueBefore),
       })
-    const restored = await projectLocked(tx, input)
+    const restored = await projectLocked(tx, input, {
+      binding: plan.before.customCharacterPublication,
+    })
     if (restored.stateHash !== release.baseStateHash)
       throw new NativeVenueDeploymentError(
         'CONFLICT',

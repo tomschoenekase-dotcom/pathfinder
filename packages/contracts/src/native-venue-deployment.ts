@@ -5,6 +5,44 @@ import { VenueBotConfigurationValues } from './venue-bot-configuration'
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u)
 const Id = z.string().trim().min(1).max(191)
+export const CustomCharacterPublicationBindingSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    characterId: Id,
+    decisionId: Id,
+    exportJobId: Id,
+    characterVersion: z.number().int().positive(),
+    characterRevision: z.number().int().positive(),
+    sourceSha256: Hash,
+    artifactSha256: Hash,
+    artifactVersionId: z.string().min(1).max(1000),
+    runtimePackSha256: Hash,
+  })
+  .strict()
+export type CustomCharacterPublicationBinding = z.infer<
+  typeof CustomCharacterPublicationBindingSchema
+>
+function validateCharacterBinding(
+  value: {
+    customCharacterPublication?: CustomCharacterPublicationBinding | undefined
+    venueBotConfiguration?: z.infer<typeof VenueBotConfigurationValues> | undefined
+  },
+  context: z.RefinementCtx,
+) {
+  const binding = value.customCharacterPublication
+  if (
+    binding &&
+    (value.venueBotConfiguration?.presentationMode !== 'CHARACTER' ||
+      value.venueBotConfiguration.customCharacterId !== binding.characterId ||
+      value.venueBotConfiguration.characterKey !== null)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['customCharacterPublication'],
+      message: 'Publication must match an explicit custom character configuration.',
+    })
+  }
+}
 const EvidenceSourceId = z.string().trim().min(1).max(500)
 export const NATIVE_CORE_MAX_CANONICAL_BYTES = 2_000_000
 export const NATIVE_CORE_MAX_TOTAL_EVIDENCE = 5_000
@@ -260,6 +298,7 @@ export const NativeCoreFullManifest = z
     venue: NativeVenueConfiguration,
     /** Optional for backward-compatible NATIVE_CORE_V1 input; omission preserves current truth. */
     venueBotConfiguration: VenueBotConfigurationValues.optional(),
+    customCharacterPublication: CustomCharacterPublicationBindingSchema.optional(),
     places: z.array(NativePlaceState).max(1_000),
     knowledgeEntries: z.array(NativeKnowledgeState).max(1_000),
     generalizedModules: z.array(NativeGeneralizedModuleState).max(1_000),
@@ -297,6 +336,7 @@ export const NativeCoreFullManifest = z
   })
   .strict()
   .superRefine((value, context) => {
+    validateCharacterBinding(value, context)
     if (
       value.generalizedModules.reduce((sum, item) => sum + item.evidence.length, 0) >
       NATIVE_CORE_MAX_TOTAL_EVIDENCE
@@ -384,11 +424,13 @@ export const NativeCoreVisibleState = z
   .object({
     venue: NativeVenueConfiguration,
     venueBotConfiguration: VenueBotConfigurationValues,
+    customCharacterPublication: CustomCharacterPublicationBindingSchema.optional(),
     places: z.array(NativePlaceState).max(1_000),
     knowledgeEntries: z.array(NativeKnowledgeState).max(1_000),
     generalizedModules: z.array(NativeGeneralizedModuleState).max(1_000),
   })
   .strict()
+  .superRefine(validateCharacterBinding)
 export type NativeCoreVisibleState = z.infer<typeof NativeCoreVisibleState>
 
 export const NativeDeploymentScopeInput = z.object({ tenantId: Id, venueId: Id }).strict()

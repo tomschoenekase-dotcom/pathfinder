@@ -137,6 +137,20 @@ function storageReturning(
 describe('character artifact storage boundaries', () => {
   afterEach(() => vi.useRealTimers())
 
+  it('preserves historical packless exports without inventing publication evidence', async () => {
+    const { spec, artifact } = await fixture()
+    const reference = referenceFor(artifact)
+    const result = await storageReturning(artifact.bytes, reference).getVerified({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      reference,
+      expectedSpec: spec,
+    })
+    expect(result.spec).toEqual(spec)
+    expect(result.bytes).toEqual(artifact.bytes)
+    expect(result).not.toHaveProperty('runtimePack')
+  })
+
   it('rejects cross-tenant references before reading storage', async () => {
     const { artifact } = await fixture()
     let sends = 0

@@ -33,6 +33,7 @@ vi.mock('@pathfinder/db', async (original) => ({
 }))
 
 import { adminNativeVenueDeploymentsRouter } from './native-venue-deployments'
+import { verifyNativeCustomCharacterPublication } from '../../lib/custom-character-publication'
 
 const app = router({ admin: adminNativeVenueDeploymentsRouter })
 const context = (isPlatformAdmin = true): TRPCContext => ({
@@ -270,8 +271,39 @@ describe('admin native venue deployments', () => {
         actor: { type: 'HUMAN', role: 'PLATFORM_ADMIN', id: 'admin-1' },
       }),
       expect.anything(),
+      { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
     )
   })
+
+  it.each(['approve', 'apply', 'revert'] as const)(
+    'forwards the server verifier and authenticated actor for %s',
+    async (action) => {
+      const input = {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        commandId: '22222222-2222-4222-8222-222222222222',
+        expectedUpdatedAt: '2026-08-12T12:00:00.000Z',
+      }
+      actions[action].mockResolvedValue({
+        ...input,
+        status: action === 'approve' ? 'APPROVED' : action === 'apply' ? 'APPLIED' : 'REVERTED',
+        updatedAt: input.expectedUpdatedAt,
+      })
+      const caller = app.createCaller(context()).admin
+      const procedure = {
+        approve: caller.approveNativeVenueDeployment,
+        apply: caller.applyNativeVenueDeployment,
+        revert: caller.revertNativeVenueDeployment,
+      }[action]
+      await procedure(input)
+      expect(actions[action]).toHaveBeenCalledWith(
+        { ...input, actor: { type: 'HUMAN', role: 'PLATFORM_ADMIN', id: 'admin-1' } },
+        expect.anything(),
+        { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
+      )
+    },
+  )
 
   it('derives bounded coverage, impacts, and action gates without exposing the plan', async () => {
     releaseReads.findFirst.mockResolvedValue({

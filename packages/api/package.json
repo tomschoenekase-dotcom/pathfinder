@@ -2,6 +2,7 @@
   "name": "@pathfinder/api",
   "private": true,
   "exports": {
+    "./custom-character-publication": "./src/lib/custom-character-publication.ts",
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
@@ -37,6 +38,7 @@
     "test:watch": "vitest --passWithNoTests"
   },
   "dependencies": {
+    "sharp": "0.35.4",
     "@aws-sdk/client-s3": "^3.1102.0",
     "@aws-sdk/s3-request-presigner": "^3.1102.0",
     "@pathfinder/ai": "workspace:*",

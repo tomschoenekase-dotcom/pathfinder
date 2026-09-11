@@ -4,8 +4,12 @@ import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }))
+const publicationMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: checkRateLimitMock }))
+vi.mock('../lib/custom-character-publication', () => ({
+  resolvePublishedCustomCharacterProjection: publicationMock,
+}))
 
 vi.mock('@pathfinder/config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/config')>()
@@ -179,6 +183,7 @@ describe('venue router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     checkRateLimitMock.mockResolvedValue(true)
+    publicationMock.mockResolvedValue(null)
     importReceiptFindFirst.mockResolvedValue(null)
     importReceiptCreateMany.mockResolvedValue({ count: 1 })
     placeCreateMany.mockResolvedValue({ count: 1 })
@@ -478,6 +483,50 @@ describe('venue router', () => {
     )
     expect(isFeatureEnabled).toHaveBeenCalledWith('tochiVenueCharacter')
   })
+
+  it.each(['CHARACTER', 'CLASSIC'] as const)(
+    'uses the native helper %s presentation instead of mutable draft presentation',
+    async (mode) => {
+      vi.mocked(isFeatureEnabled).mockReturnValue(true)
+      tenantFeatureFlagFindMany.mockResolvedValue([
+        { flagKey: 'venue-character-mode-v1' },
+        { flagKey: 'character-registry-v1' },
+      ])
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          ...venueRow,
+          venueBotConfigurationId: 'draft-config',
+          venueBotPresentationMode: 'CHARACTER',
+          venueBotTonePreset: 'enthusiastic',
+          venueBotCharacterKey: null,
+          venueBotPublicDisplayName: 'Unpublished B',
+          venueBotGreeting: 'Unpublished greeting',
+        },
+      ])
+      // Authority, shape, and byte validation are exercised by the actual helper
+      // suite; this route test checks that its result owns the public field.
+      const presentation = {
+        mode,
+        displayName: mode === 'CHARACTER' ? 'Published A' : null,
+        greeting: null,
+        personalityPreset: 'friendly',
+        character: mode === 'CHARACTER' ? { characterId: 'published-a' } : null,
+      }
+      publicationMock.mockResolvedValue({ presentation })
+      const result = await testRouter
+        .createCaller({
+          ...baseCtx,
+          session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+        })
+        .venue.getBySlug({ slug: 'city-zoo' })
+      expect(result).toHaveProperty('venueBotPresentation', presentation)
+      expect(JSON.stringify(result)).not.toMatch(/Unpublished|draft-config|tenant_1/)
+      expect(publicationMock).toHaveBeenCalledWith(
+        { tenantId: 'tenant_1', venueId: venueRow.id, venueSlug: 'city-zoo' },
+        { client: mockDb },
+      )
+    },
+  )
 
   it('venue.getBySlug throws NOT_FOUND when slug is missing', async () => {
     dbQueryRaw.mockResolvedValueOnce([])

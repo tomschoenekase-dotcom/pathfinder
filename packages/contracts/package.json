@@ -37,6 +37,7 @@
     "./universal-content-actions": "./src/universal-content-actions.ts",
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts",
+    "./character-runtime-pack": "./src/character-runtime-pack.ts",
     "./actor": "./src/actor.ts",
     "./agent-workflow-registry": "./src/agent-workflow-registry.ts",
     "./agent-workflow-promotion-assessment": "./src/agent-workflow-promotion-assessment.ts",

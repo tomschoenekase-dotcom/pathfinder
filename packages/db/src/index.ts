@@ -1,5 +1,14 @@
 export { db } from './client'
 export {
+  readCustomCharacterPublicationEvidence,
+  createVerifiedCharacterExportReceipt,
+  verifiedCharacterExportReceiptHash,
+  VERIFIED_CHARACTER_EXPORT_RECEIPT_KEY,
+  VERIFIED_CHARACTER_EXPORT_AUDIT_ACTION,
+  type CustomCharacterPublicationEvidence,
+  type NativeCustomCharacterPublicationOptions,
+} from './helpers/custom-character-publication'
+export {
   claimMediaProviderOperation,
   confirmMediaProviderOperationCleanup,
   heartbeatMediaProviderOperation,

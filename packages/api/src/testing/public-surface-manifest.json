@@ -152,6 +152,17 @@
   ],
   "http": [
     {
+      "source": "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-controlled-media-read",
+      "behavioralEvidence": [
+        "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.test.ts",
+        "packages/api/src/lib/custom-character-publication.test.ts",
+        "packages/api/src/lib/custom-character-publication.disposable.integration.test.ts"
+      ]
+    },
+    {
       "source": "apps/web/app/api/chat-stream/route.ts",
       "methods": ["POST"],
       "exposure": "intentional-public",

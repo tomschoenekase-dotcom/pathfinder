@@ -25,6 +25,7 @@ import {
   safeLifecycleResult,
 } from './native-venue-deployment-projections'
 import { nativeEvaluationAvailability } from './native-deployment-evaluation-request'
+import { verifyNativeCustomCharacterPublication } from '../../lib/custom-character-publication'
 
 const scope = z.object({ tenantId: z.string().min(1), venueId: z.string().min(1) }).strict()
 const lifecycle = scope
@@ -317,6 +318,7 @@ export const adminNativeVenueDeploymentsRouter = router({
               actor: actor(ctx.session.userId),
             },
             db,
+            { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
           )
           return releaseSummary(release)
         } catch (error) {
@@ -331,6 +333,7 @@ export const adminNativeVenueDeploymentsRouter = router({
           await approveNativeVenueDeploymentAction(
             { ...input, actor: actor(ctx.session.userId) },
             db,
+            { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
           ),
           input,
         )
@@ -346,6 +349,7 @@ export const adminNativeVenueDeploymentsRouter = router({
           await applyNativeVenueDeploymentAction(
             { ...input, actor: actor(ctx.session.userId) },
             db,
+            { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
           ),
           input,
         )
@@ -361,6 +365,7 @@ export const adminNativeVenueDeploymentsRouter = router({
           await revertNativeVenueDeploymentAction(
             { ...input, actor: actor(ctx.session.userId) },
             db,
+            { verifyCustomCharacterPublication: verifyNativeCustomCharacterPublication },
           ),
           input,
         )

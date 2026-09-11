@@ -3,6 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   fingerprintFactoryRequest,
   readCharacterBundle,
+  readCharacterRuntimePack,
   type CharacterExportArtifact,
   type CharacterSpec,
 } from '@pathfinder/character-factory'
@@ -386,7 +387,12 @@ export function createCharacterArtifactStorage(
           'INTEGRITY_FAILED',
           'Stored character artifact does not match the exact completed character specification.',
         )
-      return { reference, spec, bytes }
+      const decoded = JSON.parse(new TextDecoder().decode(bytes)) as { runtimePack?: unknown }
+      const runtimePack =
+        decoded.runtimePack === undefined
+          ? undefined
+          : (await readCharacterRuntimePack(artifact)).runtimePack
+      return { reference, spec, bytes, ...(runtimePack ? { runtimePack } : {}) }
     },
 
     cleanupCancelled(reference: unknown) {
