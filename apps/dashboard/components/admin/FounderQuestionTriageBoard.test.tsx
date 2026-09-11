@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import axe from 'axe-core'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
 
@@ -105,6 +105,8 @@ const questions = {
 }
 
 describe('FounderQuestionTriageBoard', () => {
+  afterEach(cleanup)
+
   it('prioritizes blocking work, filters loaded questions, and expands evidence in place', () => {
     render(
       <FounderQuestionTriageBoard

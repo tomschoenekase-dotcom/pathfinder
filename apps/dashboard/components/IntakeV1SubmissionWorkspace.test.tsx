@@ -399,17 +399,41 @@ describe('IntakeV1SubmissionWorkspace', () => {
   })
 
   it('unlocks a frozen selection after an uncertain retry receives a definitive conflict', async () => {
+    const retry = deferred<never>()
+    const refresh = deferred<null>()
     mocks.submit
       .mockRejectedValueOnce(new Error('network ended'))
-      .mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
+      .mockReturnValueOnce(retry.promise)
     render(<IntakeV1SubmissionWorkspace ownerId="user-1" venueId="venue-1" proposals={[]} />)
     await waitFor(() => expect(mocks.latest).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Review my materials' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Submit this version' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Check this submission again' }))
+    const retryButton = await screen.findByRole('button', { name: 'Check this submission again' })
+    const latestReadsBeforeRetry = mocks.latest.mock.calls.length
+    mocks.latest.mockReturnValueOnce(refresh.promise)
+    fireEvent.click(retryButton)
 
-    const back = await screen.findByRole('button', { name: 'Back to editing' })
-    expect((back as HTMLButtonElement).disabled).toBe(false)
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(2))
+    const back = screen.getByRole('button', { name: 'Back to editing' }) as HTMLButtonElement
+    expect(back.disabled).toBe(true)
+    expect(screen.getByTestId('drafts').dataset.suspended).toBe('true')
+    const stored = JSON.parse(
+      sessionStorage.getItem('torchiko:intake-v1:user-1:venue-1') ?? '{}',
+    ) as { operationId?: string }
+    expect(stored.operationId).toBe(mocks.submit.mock.calls[0]![0].selection.operationId)
+    expect(mocks.submit.mock.calls[1]![0]).toEqual(mocks.submit.mock.calls[0]![0])
+
+    await act(async () => retry.reject({ data: { code: 'CONFLICT' } }))
+    await waitFor(() => expect(mocks.latest).toHaveBeenCalledTimes(latestReadsBeforeRetry + 1))
+    expect(back.disabled).toBe(true)
+    expect(screen.getByTestId('drafts').dataset.suspended).toBe('true')
+    expect(sessionStorage.getItem('torchiko:intake-v1:user-1:venue-1')).toBeNull()
+
+    await act(async () => refresh.resolve(null))
+    await screen.findByText(
+      'Some selected materials are incomplete or changed. Confirm “Send what is complete” or revise the selection.',
+    )
+    expect(back.disabled).toBe(false)
     expect(sessionStorage.getItem('torchiko:intake-v1:user-1:venue-1')).toBeNull()
     fireEvent.click(back)
     expect(await screen.findByRole('button', { name: 'Review my materials' })).toBeTruthy()
