@@ -2960,6 +2960,7 @@ enum NativeVenueDeploymentEffectKind {
   KNOWLEDGE
   GENERALIZED_MODULE
   GENERALIZED_PUBLICATION
+  VENUE_BOT_CONFIGURATION
 }
 
 enum NativeVenueDeploymentCommandKind {

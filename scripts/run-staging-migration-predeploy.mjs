@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-247-20260910',
+  approval: 'torchiko-staging-lineage-to-248-20260911',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 247,
+  migrationCount: 248,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -146,9 +146,14 @@ const EXPECTED = Object.freeze({
   agentQuestionOperationsPredecessorFinalMigration: '20260908160000_add_agent_question_operations',
   agentQuestionOperationsPredecessorManifestHash:
     'f4aebada18e395975ca24613b86caf3a93428d1f5c661e55ae446527130861a9',
-  finalMigration: '20260910140000_add_semantic_reviewed_decline',
-  manifestHash: 'accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c',
-  // Exact 247 candidate boundary; retained relational proof is recorded separately.
+  nativeBotEffectPredecessorCount: 247,
+  nativeBotEffectPredecessorPublicTableCount: 264,
+  nativeBotEffectPredecessorFinalMigration: '20260910140000_add_semantic_reviewed_decline',
+  nativeBotEffectPredecessorManifestHash:
+    'accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c',
+  finalMigration: '20260911063000_add_native_venue_bot_configuration_effect',
+  manifestHash: '73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa',
+  // Exact additive 248 endpoint; preserves all 247 predecessor SQL files.
   finalPublicTableCount: 264,
 })
 
@@ -511,6 +516,17 @@ export function assertFrozenManifest(manifest) {
     EXPECTED.agentQuestionOperationsPredecessorFinalMigration
   )
     fail('agent question operations predecessor migration changed')
+  const nativeBotEffectPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.nativeBotEffectPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.nativeBotEffectPredecessorCount - 1] !==
+      EXPECTED.nativeBotEffectPredecessorFinalMigration ||
+    nativeBotEffectPredecessorHash !== EXPECTED.nativeBotEffectPredecessorManifestHash
+  )
+    fail('native bot effect predecessor manifest changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -554,6 +570,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.websitePdfPredecessorCount &&
     rows.length !== EXPECTED.fileExtractionPredecessorCount &&
     rows.length !== EXPECTED.agentQuestionOperationsPredecessorCount &&
+    rows.length !== EXPECTED.nativeBotEffectPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -635,6 +652,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.fileExtractionPredecessorCount) return 'file-extraction-predecessor'
   if (rows.length === EXPECTED.agentQuestionOperationsPredecessorCount)
     return 'agent-question-operations-predecessor'
+  if (rows.length === EXPECTED.nativeBotEffectPredecessorCount)
+    return 'native-bot-effect-predecessor'
   return 'complete'
 }
 
@@ -911,6 +930,7 @@ export function expectedPublicTableCount(state) {
     'file-extraction-predecessor': EXPECTED.fileExtractionPredecessorPublicTableCount,
     'agent-question-operations-predecessor':
       EXPECTED.agentQuestionOperationsPredecessorPublicTableCount,
+    'native-bot-effect-predecessor': EXPECTED.nativeBotEffectPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
