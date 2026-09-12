@@ -322,7 +322,7 @@ describe('ProspectCampaignWorkbench release safety', () => {
     }
     campaign.members = [firstMember]
     campaign.page = { ...campaign.page, hasMoreMembers: true }
-    mocks.members.mockResolvedValue({
+    const memberPage = {
       detailVersion: 2,
       items: [
         {
@@ -333,24 +333,92 @@ describe('ProspectCampaignWorkbench release safety', () => {
         },
       ],
       nextCursor: null,
-    })
-    mocks.deliveries.mockResolvedValue({
+    }
+    const deliveryPage = {
       detailVersion: 2,
-      items: [{ ...frozenItem, batchId: 'batch-1', createdAt: new Date('2026-09-01T00:00:00Z') }],
+      items: [
+        {
+          ...frozenItem,
+          id: 'delivery-item-2',
+          subjectSnapshot: 'Newly loaded delivery subject',
+          batchId: 'batch-1',
+          createdAt: new Date('2026-09-01T00:00:00Z'),
+        },
+      ],
       nextCursor: null,
-    })
+    }
+    let resolveMembers!: (page: typeof memberPage) => void
+    let resolveDeliveries!: (page: typeof deliveryPage) => void
+    mocks.members.mockReturnValueOnce(
+      new Promise<typeof memberPage>((resolve) => {
+        resolveMembers = resolve
+      }),
+    )
+    mocks.deliveries.mockReturnValueOnce(
+      new Promise<typeof deliveryPage>((resolve) => {
+        resolveDeliveries = resolve
+      }),
+    )
 
     render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={state} />)
     fireEvent.click(screen.getByLabelText('Include in batch'))
     fireEvent.click(screen.getByRole('button', { name: 'Load more recipients' }))
-    expect(await screen.findByText('First museum', { selector: 'h3' })).toBeTruthy()
+    await waitFor(() =>
+      expect(mocks.members).toHaveBeenCalledWith(
+        {
+          campaignId: 'campaign-1',
+          cursor: {
+            version: 2,
+            campaignId: 'campaign-1',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            id: 'member-1',
+          },
+          detailVersion: 2,
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
+
+    // Existing content does not prove that the pending member page has finished.
+    expect(screen.getByText('First museum', { selector: 'h3' })).toBeTruthy()
+    expect(screen.getByText('Exact frozen subject', { selector: 'p' })).toBeTruthy()
+    expect(screen.queryByText('Second museum', { selector: 'h3' })).toBeNull()
+    const browseDeliveries = screen.getByRole('button', {
+      name: 'Browse deliveries',
+    }) as HTMLButtonElement
+    expect(browseDeliveries.disabled).toBe(true)
+    fireEvent.click(browseDeliveries)
+    expect(mocks.deliveries).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveMembers(memberPage)
+    })
+    expect(await screen.findByText('Second museum', { selector: 'h3' })).toBeTruthy()
+    await waitFor(() => expect(browseDeliveries.disabled).toBe(false))
     expect(screen.getByText('Stage 1 approved draft')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Browse deliveries' }))
-    expect(await screen.findByText('Exact frozen subject', { selector: 'p' })).toBeTruthy()
+    expect(
+      screen
+        .getAllByLabelText('Include in batch')
+        .map((input) => (input as HTMLInputElement).checked),
+    ).toEqual([true, false])
+
+    fireEvent.click(browseDeliveries)
+    await waitFor(() => expect(mocks.deliveries).toHaveBeenCalledTimes(1))
     expect(mocks.deliveries).toHaveBeenCalledWith(
       { campaignId: 'campaign-1', detailVersion: 2 },
       { signal: expect.any(AbortSignal) },
     )
+    expect(screen.queryByText('Newly loaded delivery subject', { selector: 'p' })).toBeNull()
+    await act(async () => {
+      resolveDeliveries(deliveryPage)
+    })
+    expect(await screen.findByText('Newly loaded delivery subject', { selector: 'p' })).toBeTruthy()
+    expect(
+      screen
+        .getAllByLabelText('Include in batch')
+        .map((input) => (input as HTMLInputElement).checked),
+    ).toEqual([true, false])
+    expect(screen.getByText('Stage 1 approved draft')).toBeTruthy()
   })
 
   it('aborts every in-flight evidence transport on unmount', async () => {
