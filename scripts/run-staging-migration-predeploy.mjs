@@ -960,11 +960,41 @@ export function expectedPublicTableCount(state) {
 
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+
+export async function exitStagingPredeployFailure(error) {
+  const classification = stagingPredeployExitClassification(error)
+  // main has already settled its verification/disconnect boundary. A retained
+  // engine handle must not turn the intentional hold into a provider timeout.
+  const streams = [process.stdout, process.stderr]
+  for (const stream of streams) stream.on('error', () => {})
+  reportOperatorCliFailure(classification)
+  let deadline
+  await Promise.race([
+    Promise.all(
+      streams.map(
+        (stream) =>
+          new Promise((resolve) => {
+            stream.once('error', resolve)
+            try {
+              stream.write('', resolve)
+            } catch {
+              resolve()
+            }
+          }),
+      ),
+    ),
+    new Promise((resolve) => {
+      deadline = setTimeout(resolve, 2_000)
+    }),
+  ])
+  clearTimeout(deadline)
+  // A deadline bounds the flush attempt; it does not assert delivery. The
+  // operator must still observe the complete finite record and numeric exit.
+  process.exit(classification.exitCode)
+}
+
 if (isMain) {
-  main().catch(async (error) => {
-    process.exitCode = reportOperatorCliFailure(stagingPredeployExitClassification(error))
-    await new Promise((resolve) => setTimeout(resolve, 2_000))
-  })
+  main().catch(exitStagingPredeployFailure)
 }
 
 export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState, remainingMigrationNames }

@@ -5,7 +5,9 @@
     "dockerfilePath": "Dockerfile.web.staging"
   },
   "deploy": {
-    "preDeployCommand": ["node /migration/scripts/run-staging-migration-predeploy.mjs"],
+    "preDeployCommand": [
+      "sh -c 'node /migration/scripts/run-staging-migration-predeploy.mjs; code=$?; printf \"{\\\"kind\\\":\\\"staging-predeploy-process-exit\\\",\\\"exitCode\\\":%s}\\n\" \"$code\"; exit \"$code\"'"
+    ],
     "healthcheckPath": "/api/health",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
