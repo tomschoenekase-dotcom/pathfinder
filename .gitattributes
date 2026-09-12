@@ -3,3 +3,6 @@ assets/characters/** text eol=lf
 packages/character-factory/fixtures/**/*.svg text eol=lf
 # Benchmark source hashes bind exact file bytes, including text-like PDF streams.
 scripts/fixtures/media-fusion-v1/**/sources/* binary
+# Generated runtime checks require exact LF bytes on every checkout.
+packages/config/src/guest-conversation-disposition-policy.runtime.mjs text eol=lf
+packages/contracts/src/guest-conversation-disposition.runtime.mjs text eol=lf

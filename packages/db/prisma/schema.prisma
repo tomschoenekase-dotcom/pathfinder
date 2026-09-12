@@ -3221,6 +3221,8 @@ enum VenuePackageDuplicateAnalysisStatus {
 }
 
 model VisitorSession {
+  dispositionOperationId String?                                @map("disposition_operation_id") @db.Uuid
+  dispositionOperation   GuestConversationDispositionOperation? @relation(fields: [dispositionOperationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "visitor_session_disposition_fkey")
   id                                String                                    @id @default(cuid())
   tenantId                          String                                    @map("tenant_id")
   venueId                           String                                    @map("venue_id")
@@ -9688,4 +9690,40 @@ model SemanticReviewedDecline {
   @@unique([proposalId, tenantId, venueId], map: "semantic_reviewed_decline_proposal_key")
   @@index([tenantId, venueId, proposalId], map: "semantic_reviewed_decline_scope_idx")
   @@map("semantic_reviewed_declines")
+}
+
+/// Authenticated authorization and maintenance receipt. Survives absence of a
+/// restored session; no session/tenant cascade may erase a retirement record.
+model GuestConversationDispositionOperation {
+  id                   String                            @id @db.Uuid
+  tenantId             String                            @map("tenant_id")
+  venueId              String                            @map("venue_id")
+  sessionId            String                            @map("session_id")
+  request              Json
+  authoritySnapshot    Json                              @map("authority_snapshot")
+  requestSha256        String                            @map("request_sha256") @db.Char(64)
+  policyVersion        String                            @map("policy_version") @db.VarChar(100)
+  policySha256         String                            @map("policy_sha256") @db.Char(64)
+  retentionDays        Int                               @map("retention_days")
+  state                GuestConversationDispositionState @default(AUTHORIZED)
+  authorizedAt         DateTime                          @default(now()) @map("authorized_at") @db.Timestamptz(6)
+  sealedAt             DateTime?                         @map("sealed_at") @db.Timestamptz(6)
+  appliedAt            DateTime?                         @map("applied_at") @db.Timestamptz(6)
+  effectiveCutoffUtc   DateTime?                         @map("effective_cutoff_utc") @db.Timestamptz(6)
+  retiredTokenDigest   String?                           @map("retired_token_digest") @db.Char(64)
+  externalIntentSha256 String?                           @map("external_intent_sha256") @db.Char(64)
+  sealedInventory      Json?                             @map("sealed_inventory")
+  receipt              Json?
+  sessions             VisitorSession[]
+
+  @@unique([id, tenantId, venueId], map: "guest_disposition_scope_key")
+  @@index([tenantId, venueId, sessionId], map: "guest_disposition_session_idx")
+  @@index([tenantId, venueId, retiredTokenDigest], map: "guest_disposition_token_idx")
+  @@map("guest_conversation_disposition_operations")
+}
+
+enum GuestConversationDispositionState {
+  AUTHORIZED
+  FENCED
+  APPLIED
 }

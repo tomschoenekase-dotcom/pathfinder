@@ -11,6 +11,7 @@ import {
   createPdfLoadingTaskCleanup,
   executeIntakeFileExtraction,
 } from './intake-file-extraction-service'
+import { PDF_EXTRACTION_TIMEOUT_MS } from './pdf-text-extraction'
 
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/db')>()
@@ -306,36 +307,41 @@ describe('deterministic intake file extraction', () => {
     expect(recordReceipt).not.toHaveBeenCalled()
   })
 
-  it('extracts text from an exact verified PDF without OCR or authority', async () => {
-    const bytes = pdfWithText('Welcome to the museum')
-    const db = database(bytes, { mimeType: 'application/pdf' })
-    const result = await executeIntakeFileExtraction({
-      db: db as never,
-      tenantId: 'tenant-a',
-      venueId: 'venue-a',
-      runId: 'run-a',
-      operationId,
-      createdBy: 'admin-a',
-      storage: storage(bytes),
-    })
-
-    expect(result).toMatchObject({ receiptId: operationId, reviewRequired: true })
-    expect(recordReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({
+  it(
+    'extracts text from an exact verified PDF without OCR or authority',
+    async () => {
+      const bytes = pdfWithText('Welcome to the museum')
+      const db = database(bytes, { mimeType: 'application/pdf' })
+      const result = await executeIntakeFileExtraction({
+        db: db as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
         operationId,
-        sourceSha256: sha256(bytes),
-        sourceMimeType: 'application/pdf',
-        extractor: 'pathfinder-pdfjs-document',
-        extractorVersion: '1',
-        outcome: 'SUCCEEDED',
-        extractedText: 'Welcome to the museum',
-        extractedTextHash: sha256(Buffer.from('Welcome to the museum')),
-        extractedCharacterCount: 21,
-        extractedLineCount: 1,
-      }),
-      db,
-    )
-  })
+        createdBy: 'admin-a',
+        storage: storage(bytes),
+      })
+
+      expect(result).toMatchObject({ receiptId: operationId, reviewRequired: true })
+      expect(recordReceipt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId,
+          sourceSha256: sha256(bytes),
+          sourceMimeType: 'application/pdf',
+          extractor: 'pathfinder-pdfjs-document',
+          extractorVersion: '1',
+          outcome: 'SUCCEEDED',
+          extractedText: 'Welcome to the museum',
+          extractedTextHash: sha256(Buffer.from('Welcome to the museum')),
+          extractedCharacterCount: 21,
+          extractedLineCount: 1,
+        }),
+        db,
+      )
+    },
+    // Include cold pdf.js loading while preserving the extractor's own deadline.
+    PDF_EXTRACTION_TIMEOUT_MS + 5_000,
+  )
 
   it('records a bounded failure when a verified PDF has no extractable text', async () => {
     const bytes = pdfWithText('')

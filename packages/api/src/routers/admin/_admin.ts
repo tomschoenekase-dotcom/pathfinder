@@ -77,6 +77,7 @@ import { adminPlatformWorkerPolicyCredentialsRouter } from './platform-worker-po
 import { adminUnitEconomicsRouter } from './unit-economics'
 import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
 import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
+import { adminGuestConversationDispositionRouter } from './guest-conversation-disposition'
 import { adminPublicInterestRouter } from './public-interest'
 import { adminReleaseEvidenceRouter } from './release-evidence'
 import { adminIntakeMediaAssetRouter } from './venue-media'
@@ -104,6 +105,7 @@ export const adminRouter = mergeRouters(
   adminUnitEconomicsRouter,
   adminGuestAnswerAttributionsRouter,
   adminRetentionDispositionPreviewRouter,
+  adminGuestConversationDispositionRouter,
   adminPublicInterestRouter,
   adminReleaseEvidenceRouter,
   adminIntakeMediaAssetRouter,

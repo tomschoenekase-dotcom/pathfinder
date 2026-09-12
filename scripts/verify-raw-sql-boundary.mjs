@@ -96,6 +96,8 @@ const approvedPolicies = new Set([
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
   'tenant-guest-chat-turn-lock',
+  'tenant-guest-disposition-authorization',
+  'tenant-guest-disposition-current-content',
   'tenant-venue-voice-quota-lock',
   'platform-prospect-mailbox-send-reservation-lock',
   'platform-prospect-campaign-send-reservation-lock',
@@ -107,6 +109,23 @@ const approvedPolicies = new Set([
 // An omitted count permits exactly one occurrence. Reviewed repeated templates must declare
 // their exact positive count; adding or removing a call remains an inventory review event.
 const approvedOperations = [
+  // Authenticated platform-admin authority is durably recorded by the exact database
+  // procedure. Although invoked through $queryRaw for its receipt, this call writes.
+  {
+    file: 'packages/db/src/helpers/guest-conversation-disposition.ts',
+    method: '$queryRaw',
+    hash: '14cfaf856908a0df009aa382947fe2babf7add6903a7d9d88916bf5c7607df31',
+    policy: 'tenant-guest-disposition-authorization',
+    effect: 'write',
+  },
+  // Content readers fail closed on the exact scoped disposition tombstone lookup.
+  {
+    file: 'packages/db/src/helpers/guest-conversation-disposition.ts',
+    method: '$queryRaw',
+    hash: 'd25f2735654dbdd63ee62b92f7d5c89cd5f0baba888068b173e32779989b2006',
+    policy: 'tenant-guest-disposition-current-content',
+    effect: 'read',
+  },
   // Platform-admin export preflight reads aggregate counts and row byte sizes for the exact
   // tenant, venue, active recipient support ACL, and explicitly requested sections only.
   {
@@ -1133,7 +1152,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'a0b3e2a9d6e5dd6aa9c9a3f948ce6732c7d1c5933274d3bf3521cf14b997b07f',
+    hash: '9f933fbd0e5d46ac945b7ff5e17c64a15aeba8272d768ec3b45266b71f3acb80',
     policy: 'public-venue-session-token',
   },
   {
@@ -1538,6 +1557,26 @@ const approvedOperations = [
   },
 ]
 
+const approvedEffectOverrides = new Map([
+  [
+    [
+      'packages/db/src/helpers/guest-conversation-disposition.ts',
+      '$queryRaw',
+      '14cfaf856908a0df009aa382947fe2babf7add6903a7d9d88916bf5c7607df31',
+    ].join('\0'),
+    'write',
+  ],
+  [
+    [
+      'packages/db/src/helpers/guest-conversation-disposition.ts',
+      '$queryRaw',
+      'd25f2735654dbdd63ee62b92f7d5c89cd5f0baba888068b173e32779989b2006',
+    ].join('\0'),
+    'read',
+  ],
+])
+const rawSqlEffects = new Set(['read', 'write'])
+
 async function collectFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   const files = []
@@ -1855,16 +1894,18 @@ function operationKey(operation) {
   return `${operation.file}\0${operation.method}\0${operation.hash}`
 }
 
-function auditInventory(files, approved) {
+function auditInventory(files, approved, effectOverrides = new Map()) {
   const violations = []
   const operations = []
   const approvedKeys = new Set()
   const approvedCounts = new Map()
+  const approvedByKey = new Map()
 
   for (const entry of approved) {
     const key = operationKey(entry)
     if (approvedKeys.has(key)) violations.push(`duplicate raw SQL allowlist entry: ${key}`)
     approvedKeys.add(key)
+    approvedByKey.set(key, entry)
     const count = entry.count === undefined ? 1 : entry.count
     if (!Number.isSafeInteger(count) || count < 1) {
       violations.push(`${entry.file}: invalid raw SQL occurrence count for ${entry.hash}`)
@@ -1874,6 +1915,21 @@ function auditInventory(files, approved) {
     if (!approvedPolicies.has(entry.policy)) {
       violations.push(`${entry.file}: invalid or missing raw SQL policy '${entry.policy}'`)
     }
+    const expectedEffect = effectOverrides.get(key)
+    if (entry.effect !== undefined && !rawSqlEffects.has(entry.effect)) {
+      violations.push(`${entry.file}: invalid raw SQL effect '${entry.effect}' for ${entry.hash}`)
+    } else if (entry.effect !== undefined && expectedEffect === undefined) {
+      violations.push(`${entry.file}: unapproved raw SQL effect override for ${entry.hash}`)
+    } else if (entry.effect !== undefined && entry.effect !== expectedEffect) {
+      violations.push(
+        `${entry.file}: raw SQL effect override must be '${expectedEffect}' for ${entry.hash}`,
+      )
+    } else if (entry.effect === undefined && expectedEffect !== undefined) {
+      violations.push(`${entry.file}: missing raw SQL effect override for ${entry.hash}`)
+    }
+  }
+  for (const key of effectOverrides.keys()) {
+    if (!approvedKeys.has(key)) violations.push(`stale raw SQL effect override: ${key}`)
   }
 
   for (const { fileName, source } of files) {
@@ -1909,7 +1965,16 @@ function auditInventory(files, approved) {
     }
   }
 
-  return { operations, violations }
+  return {
+    operations: operations.map((operation) => {
+      const entry = approvedByKey.get(operationKey(operation))
+      return {
+        ...operation,
+        effect: entry?.effect ?? (operation.method === '$queryRaw' ? 'read' : 'write'),
+      }
+    }),
+    violations,
+  }
 }
 
 function expectFixtureFailure(name, files, approved, fragment) {
@@ -1977,6 +2042,50 @@ function runSelfTests() {
   )
   if (auditInventory([{ fileName, source }], approved).violations.length > 0) {
     throw new Error('Raw SQL verifier failed its clean inventory self-test')
+  }
+
+  const exactEffectOverrides = new Map([[operationKey(approved[0]), 'write']])
+  const effectResult = auditInventory(
+    [{ fileName, source }],
+    [{ ...approved[0], effect: 'write' }],
+    exactEffectOverrides,
+  )
+  if (effectResult.violations.length > 0 || effectResult.operations[0]?.effect !== 'write') {
+    throw new Error('Raw SQL verifier failed its exact effect override self-test')
+  }
+  expectFixtureFailure(
+    'unapproved effect override',
+    [{ fileName, source }],
+    [{ ...approved[0], effect: 'write' }],
+    'unapproved raw SQL effect override',
+  )
+  expectFixtureFailure(
+    'invalid effect override',
+    [{ fileName, source }],
+    [{ ...approved[0], effect: 'execute' }],
+    'invalid raw SQL effect',
+  )
+  const missingEffectResult = auditInventory([{ fileName, source }], approved, exactEffectOverrides)
+  if (
+    !missingEffectResult.violations.some((violation) =>
+      violation.includes('missing raw SQL effect'),
+    )
+  ) {
+    throw new Error('Raw SQL verifier failed its missing effect override self-test')
+  }
+  const wrongEffectResult = auditInventory(
+    [{ fileName, source }],
+    [{ ...approved[0], effect: 'read' }],
+    exactEffectOverrides,
+  )
+  if (!wrongEffectResult.violations.some((violation) => violation.includes("must be 'write'"))) {
+    throw new Error('Raw SQL verifier failed its mismatched effect override self-test')
+  }
+  const staleEffectResult = auditInventory([], [], exactEffectOverrides)
+  if (
+    !staleEffectResult.violations.some((violation) => violation.includes('stale raw SQL effect'))
+  ) {
+    throw new Error('Raw SQL verifier failed its stale effect override self-test')
   }
 
   const literalWhitespaceA = analyzeSource(
@@ -2187,7 +2296,7 @@ const files = await Promise.all(
     source: await readFile(absolute, 'utf8'),
   })),
 )
-const result = auditInventory(files, approvedOperations)
+const result = auditInventory(files, approvedOperations, approvedEffectOverrides)
 
 if (process.argv.includes('--print-inventory')) {
   console.log(JSON.stringify(result.operations, null, 2))
@@ -2205,7 +2314,7 @@ if (result.violations.length > 0) {
   process.exit(1)
 }
 
-const reads = result.operations.filter((operation) => operation.method === '$queryRaw').length
+const reads = result.operations.filter((operation) => operation.effect === 'read').length
 const writes = result.operations.length - reads
 console.log(
   `Verified ${result.operations.length} raw SQL operations: ${reads} reads, ${writes} writes.`,

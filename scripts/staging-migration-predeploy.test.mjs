@@ -363,10 +363,12 @@ const REVIEWED_236_TO_247 = [
 
 const REVIEWED_247_TO_248 = ['20260911063000_add_native_venue_bot_configuration_effect']
 const REVIEWED_236_TO_248 = [...REVIEWED_236_TO_247, ...REVIEWED_247_TO_248]
-const REVIEWED_234_TO_248 = [
+const REVIEWED_248_TO_249 = ['20260912080000_add_guest_conversation_disposition']
+const REVIEWED_236_TO_249 = [...REVIEWED_236_TO_248, ...REVIEWED_248_TO_249]
+const REVIEWED_234_TO_249 = [
   '20260908150000_add_intake_v1_file_extraction_dispatches',
   '20260908160000_add_agent_question_operations',
-  ...REVIEWED_236_TO_248,
+  ...REVIEWED_236_TO_249,
 ]
 
 async function readMigrationManifest(directory) {
@@ -385,11 +387,54 @@ function completedRows(manifest, count = manifest.names.length) {
   }))
 }
 
-test('the reviewed 248 endpoint retains the frozen 236 and 247 predecessors and rejects future manifests', async () => {
+test('248 guest-disposition predecessor binds its exact manifest and only the new migration', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(manifest.names.length, 248)
-  assert.equal(manifest.hash, '73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa')
-  assert.equal(EXPECTED.approval, 'torchiko-staging-lineage-to-248-20260911')
+  const rows = completedRows(manifest, 248)
+  assert.equal(ledgerState(rows, manifest), 'guest-disposition-predecessor')
+  assert.equal(expectedPublicTableCount('guest-disposition-predecessor'), 264)
+  assert.deepEqual(currentRemainingMigrationNames(rows, manifest), REVIEWED_248_TO_249)
+  assert.deepEqual(manifest.names.slice(247, 248), REVIEWED_247_TO_248)
+  assert.equal(
+    EXPECTED.guestDispositionPredecessorManifestHash,
+    '73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa',
+  )
+  const changed = new Map(manifest.checksums)
+  changed.set(manifest.names[247], '0'.repeat(64))
+  assert.throws(
+    () => assertFrozenManifest({ ...manifest, checksums: changed }),
+    /guest disposition predecessor manifest changed/u,
+  )
+  for (const count of [248, 249]) {
+    for (const [patch, expected] of [
+      [{ checksum: '0'.repeat(64) }, /ledger checksum mismatches/u],
+      [{ finished_at: null }, /unfinished migration/u],
+      [{ rolled_back_at: new Date() }, /rolled-back migration/u],
+      [{ logs: 'fixture failure' }, /migration logs are non-empty/u],
+      [{ migration_name: 'unknown.future_migration' }, /ordering\/name mismatch/u],
+    ]) {
+      const invalid = completedRows(manifest, count)
+      Object.assign(invalid.at(-1), patch)
+      assert.throws(() => currentRemainingMigrationNames(invalid, manifest), expected)
+    }
+  }
+  assert.throws(
+    () =>
+      assertStagingApplicationPolicy(
+        readStagingApplicationPolicy({
+          PATHFINDER_STAGING_MIGRATION_ONLY_HOLD: '0',
+          PATHFINDER_ALLOW_STAGING_MIGRATIONS: '1',
+        }),
+        { state: 'guest-disposition-predecessor', dataPolicy: 'preserve-existing' },
+      ),
+    /requires migration-only hold/u,
+  )
+})
+
+test('the reviewed 249 endpoint retains the frozen 236, 247 and 248 predecessors and rejects future manifests', async () => {
+  const manifest = await readMigrationManifest('packages/db/prisma')
+  assert.equal(manifest.names.length, 249)
+  assert.equal(manifest.hash, '4eff7f0a42a6cce1e695f7bc9bcd5b90a8b7534b1e3f0b11f59bfc6e618f9736')
+  assert.equal(EXPECTED.approval, 'torchiko-staging-lineage-to-249-20260912')
   assert.equal(EXPECTED.nativeBotEffectPredecessorCount, 247)
   assert.equal(
     EXPECTED.nativeBotEffectPredecessorManifestHash,
@@ -412,7 +457,7 @@ test('the reviewed 248 endpoint retains the frozen 236 and 247 predecessors and 
     EXPECTED.agentQuestionOperationsPredecessorManifestHash,
   )
   assert.deepEqual(manifest.names.slice(236, 247), REVIEWED_236_TO_247)
-  assert.deepEqual(manifest.names.slice(236), REVIEWED_236_TO_248)
+  assert.deepEqual(manifest.names.slice(236), REVIEWED_236_TO_249)
   const changed247 = new Map(manifest.checksums)
   changed247.set(manifest.names[246], '0'.repeat(64))
   assert.throws(
@@ -448,8 +493,8 @@ test('the reviewed 248 endpoint retains the frozen 236 and 247 predecessors and 
 // also asserts the complete explicit admitted tail, so newer SQL is not ignored.
 function remainingMigrationNames(rows, manifest) {
   const actual = currentRemainingMigrationNames(rows, manifest)
-  const historical = actual.filter((name) => !REVIEWED_234_TO_248.includes(name))
-  const expectedTail = REVIEWED_234_TO_248.filter(
+  const historical = actual.filter((name) => !REVIEWED_234_TO_249.includes(name))
+  const expectedTail = REVIEWED_234_TO_249.filter(
     (name) => !rows.some((row) => row.migration_name === name),
   )
   assert.deepEqual(actual, [...historical, ...expectedTail])
@@ -474,7 +519,7 @@ test('the measured workflow predecessor uses its own table count and unknown bou
   assert.equal(expectedPublicTableCount('staging-baseline'), 126)
   assert.equal(expectedPublicTableCount('b5-complete'), 193)
   assert.equal(expectedPublicTableCount('expiry-predecessor'), 255)
-  assert.equal(expectedPublicTableCount('complete'), 264)
+  assert.equal(expectedPublicTableCount('complete'), 265)
   for (const state of ['unknown', 'constructor', '__proto__'])
     assert.throws(() => expectedPublicTableCount(state), /unknown schema boundary/u)
 })
@@ -585,9 +630,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest retains observed predecessors and the reviewed 248 suffix', async () => {
+test('repository migration manifest retains observed predecessors and the reviewed 249 suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 264)
+  assert.equal(EXPECTED.finalPublicTableCount, 265)
   assert.equal(EXPECTED.intakePackagePredecessorCount, 226)
   assert.equal(EXPECTED.intakePackagePredecessorPublicTableCount, 253)
   assert.equal(EXPECTED.sourceMappingPredecessorCount, 227)
@@ -711,7 +756,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   assert.deepEqual(currentRemainingMigrationNames(websitePdfRows, manifest), [
     '20260908150000_add_intake_v1_file_extraction_dispatches',
     '20260908160000_add_agent_question_operations',
-    ...REVIEWED_236_TO_248,
+    ...REVIEWED_236_TO_249,
   ])
   const fileExtractionRows = rows.slice(0, EXPECTED.fileExtractionPredecessorCount)
   assert.equal(fileExtractionRows.length, 235)
@@ -719,7 +764,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   assert.equal(expectedPublicTableCount('file-extraction-predecessor'), 255)
   assert.deepEqual(currentRemainingMigrationNames(fileExtractionRows, manifest), [
     '20260908160000_add_agent_question_operations',
-    ...REVIEWED_236_TO_248,
+    ...REVIEWED_236_TO_249,
   ])
   const corruptFileExtractionRows = fileExtractionRows.map((row) => ({ ...row }))
   corruptFileExtractionRows.at(-1).checksum = '0'.repeat(64)
@@ -1747,16 +1792,19 @@ test('exact previous staging release advances only through the reviewed migratio
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
 
-test('exact 236, 247 and 207 ledgers advance to 248 while complete 248 is a no-op', async () => {
+test('exact 236, 247, 248 and 207 ledgers advance to 249 while complete 249 is a no-op', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const predecessor = completedRows(manifest, 236)
   assert.equal(ledgerState(predecessor, manifest), 'agent-question-operations-predecessor')
   assert.equal(expectedPublicTableCount('agent-question-operations-predecessor'), 256)
-  assert.deepEqual(currentRemainingMigrationNames(predecessor, manifest), REVIEWED_236_TO_248)
+  assert.deepEqual(currentRemainingMigrationNames(predecessor, manifest), REVIEWED_236_TO_249)
   const beforeEnum = completedRows(manifest, 247)
   assert.equal(ledgerState(beforeEnum, manifest), 'native-bot-effect-predecessor')
   assert.equal(expectedPublicTableCount('native-bot-effect-predecessor'), 264)
-  assert.deepEqual(currentRemainingMigrationNames(beforeEnum, manifest), REVIEWED_247_TO_248)
+  assert.deepEqual(currentRemainingMigrationNames(beforeEnum, manifest), [
+    ...REVIEWED_247_TO_248,
+    ...REVIEWED_248_TO_249,
+  ])
   assert.throws(() =>
     admitPendingStagingMigrations(
       { ...approved, PATHFINDER_ALLOW_STAGING_MIGRATIONS: '0' },
@@ -1767,12 +1815,12 @@ test('exact 236, 247 and 207 ledgers advance to 248 while complete 248 is a no-o
   assert.equal(ledgerState(staging, manifest), 'campaign-predecessor')
   assert.equal(expectedPublicTableCount('campaign-predecessor'), 232)
   const remaining = currentRemainingMigrationNames(staging, manifest)
-  assert.equal(remaining.length, 41)
+  assert.equal(remaining.length, 42)
   assert.equal(remaining[0], '20260907000000_add_intake_submission_drafts')
-  assert.deepEqual(remaining.slice(-12), REVIEWED_236_TO_248)
+  assert.deepEqual(remaining.slice(-13), REVIEWED_236_TO_249)
   const complete = completedRows(manifest)
   assert.equal(ledgerState(complete, manifest), 'complete')
-  assert.equal(expectedPublicTableCount('complete'), 264)
+  assert.equal(expectedPublicTableCount('complete'), 265)
   assert.deepEqual(currentRemainingMigrationNames(complete, manifest), [])
   assert.equal(
     admitPendingStagingMigrations(
@@ -1822,7 +1870,7 @@ test('unreviewed 237-246 boundaries and failed or divergent suffix rows remain r
   }
 })
 
-test('248 approval preserves exact target, one-run opt-in and release-bound backup gates', () => {
+test('249 approval preserves exact target, one-run opt-in and release-bound backup gates', () => {
   const now = new Date().toISOString()
   const env = {
     ...approved,
@@ -1840,19 +1888,20 @@ test('248 approval preserves exact target, one-run opt-in and release-bound back
     PATHFINDER_STAGING_BACKUP_DATABASE_RESOURCE: EXPECTED.databaseResourceId,
     PATHFINDER_STAGING_BACKUP_STORAGE_RESOURCE: 'fixture-independent-backup-storage',
     PATHFINDER_CONFIRM_STAGING_BACKUP_STORAGE_RESOURCE: 'fixture-independent-backup-storage',
-    PATHFINDER_STAGING_BACKUP_LEDGER_COUNT: '236',
+    PATHFINDER_STAGING_BACKUP_LEDGER_COUNT: '248',
     PATHFINDER_STAGING_BACKUP_CREATED_AT: now,
     PATHFINDER_STAGING_BACKUP_RESTORE_VERIFIED_AT: now,
     PATHFINDER_STAGING_BACKUP_SHA256: 'b'.repeat(64),
     PATHFINDER_STAGING_BACKUP_RESTORE_PROOF_SHA256: 'c'.repeat(64),
   }
-  const state = 'agent-question-operations-predecessor'
+  const state = 'guest-disposition-predecessor'
   const admission = admitPendingStagingMigrations(env, state)
-  assert.equal(admission.backupEvidence.ledgerCount, 236)
-  assert.doesNotThrow(() => assertBackupEvidenceMatchesLedger(admission, Array(236)))
+  assert.equal(admission.backupEvidence.ledgerCount, 248)
+  assert.doesNotThrow(() => assertBackupEvidenceMatchesLedger(admission, Array(248)))
   assert.throws(() => assertBackupEvidenceMatchesLedger(admission, Array(207)), /ledger count/u)
   for (const patch of [
     { PATHFINDER_STAGING_MIGRATION_APPROVAL: 'torchiko-staging-lineage-to-236-20260908' },
+    { PATHFINDER_STAGING_MIGRATION_APPROVAL: 'torchiko-staging-lineage-to-248-20260911' },
     { PATHFINDER_ALLOW_STAGING_MIGRATIONS: '0' },
     { RAILWAY_ENVIRONMENT_ID: 'foreign-environment' },
     { DATABASE_RESOURCE_ID: 'foreign-database' },

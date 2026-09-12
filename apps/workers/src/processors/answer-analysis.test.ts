@@ -216,6 +216,7 @@ describe('processAnswerAnalysisJob', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         experienceScope: 'PUBLIC',
+        dispositionOperationId: null,
       },
     }
     expect(mocks.responseFindMany).toHaveBeenCalledWith({

@@ -19,7 +19,9 @@ const services = [
     config: 'railway.staging.web.json',
     dockerfile: 'Dockerfile.web.staging',
     healthcheckPath: '/api/health',
-    preDeployCommand: ['node /migration/scripts/run-staging-migration-predeploy.mjs'],
+    preDeployCommand: [
+      `sh -c 'node /migration/scripts/run-staging-migration-predeploy.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"'`,
+    ],
   },
   {
     name: 'dashboard',
@@ -153,7 +155,6 @@ for (const service of services) {
   }
 
   if (
-    service.preDeployCommand !== undefined &&
     JSON.stringify(config.deploy?.preDeployCommand) !== JSON.stringify(service.preDeployCommand)
   ) {
     throw new Error(`${service.config}: unexpected preDeployCommand`)

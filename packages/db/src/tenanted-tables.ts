@@ -50,6 +50,7 @@ export const TENANTED_TABLES = [
   'NativeVenueDeploymentEvaluationEvidence',
   'VenuePackageDuplicateAnalysis',
   'VisitorSession',
+  'GuestConversationDispositionOperation',
   'VoiceSession',
   'VoiceTranscriptSegment',
   'GuestChatTurn',

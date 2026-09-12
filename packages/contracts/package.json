@@ -54,7 +54,8 @@
     "./media-resolution-state": "./src/media-resolution-state.ts",
     "./media-temporal-claims": "./src/media-temporal-claims.ts",
     "./legacy-knowledge-adoption": "./src/legacy-knowledge-adoption.ts",
-    "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"
+    "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts",
+    "./guest-conversation-disposition": "./src/guest-conversation-disposition.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

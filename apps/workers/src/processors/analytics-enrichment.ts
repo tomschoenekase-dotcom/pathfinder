@@ -527,7 +527,7 @@ async function enrichVenue(params: {
       role: 'user',
       topic: null,
       createdAt: { gte: dayStart, lt: dayEnd },
-      session: { venueId, experienceScope: 'PUBLIC' },
+      session: { venueId, experienceScope: 'PUBLIC', dispositionOperationId: null },
     },
     select: { id: true, content: true },
   })
@@ -575,7 +575,7 @@ async function enrichVenue(params: {
       role: 'user',
       topic: { not: null },
       createdAt: { gte: dayStart, lt: dayEnd },
-      session: { venueId, experienceScope: 'PUBLIC' },
+      session: { venueId, experienceScope: 'PUBLIC', dispositionOperationId: null },
     },
     _count: { _all: true },
   })
@@ -643,7 +643,9 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
-      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
+      session: {
+        is: { tenantId, venueId, experienceScope: 'PUBLIC', dispositionOperationId: null },
+      },
       eventType: 'message.sent',
       occurredAt: { gte: windowStart, lt: dayEnd },
       userMessageId: { not: null },
@@ -663,7 +665,9 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
-      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
+      session: {
+        is: { tenantId, venueId, experienceScope: 'PUBLIC', dispositionOperationId: null },
+      },
       eventType: 'message.low_confidence',
       occurredAt: { gte: windowStart, lt: dayEnd },
       userMessageId: { not: null },
@@ -688,7 +692,9 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
-      session: { is: { tenantId, venueId, experienceScope: 'PUBLIC' } },
+      session: {
+        is: { tenantId, venueId, experienceScope: 'PUBLIC', dispositionOperationId: null },
+      },
       eventType: 'message.sent',
       occurredAt: { gte: themeWindowStart, lt: dayEnd },
       userMessageId: { not: null },

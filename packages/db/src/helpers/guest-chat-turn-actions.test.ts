@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
+vi.mock('./guest-conversation-disposition', () => ({
+  isGuestConversationDisposed: vi.fn().mockResolvedValue(false),
+}))
+
 import { GUEST_ANSWER_EVIDENCE_VERSION } from '@pathfinder/contracts'
 import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract'
 
@@ -98,7 +102,11 @@ describe('guest chat turn actions', () => {
       status: 'GENERATING',
       leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       leaseExpiresAt: { gt: new Date('2026-01-01T00:01:00Z') },
-      session: { anonymousToken: request.anonymousToken, experienceScope: 'SECOND_LAYER' },
+      session: {
+        anonymousToken: request.anonymousToken,
+        experienceScope: 'SECOND_LAYER',
+        dispositionOperationId: null,
+      },
     })
     expect(findFirst.mock.calls[1]![0].where).toMatchObject({
       sessionId: 'session-1',
@@ -107,7 +115,7 @@ describe('guest chat turn actions', () => {
       userMessageId: { not: null },
       assistantMessageId: { not: null },
       completedAt: { not: null },
-      session: { experienceScope: 'SECOND_LAYER' },
+      session: { experienceScope: 'SECOND_LAYER', dispositionOperationId: null },
     })
   })
 

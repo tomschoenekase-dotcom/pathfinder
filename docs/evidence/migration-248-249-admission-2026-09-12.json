@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-synthetic-populated-migration-248-249",
+  "recordedUtc": "2026-09-12T10:14:59.179476+00:00",
+  "hostedAuthority": false,
+  "approval": "torchiko-staging-lineage-to-249-20260912",
+  "predecessor": {
+    "count": 248,
+    "tables": 264,
+    "finalMigration": "20260911063000_add_native_venue_bot_configuration_effect",
+    "normalizedManifestSha256": "73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa"
+  },
+  "endpoint": {
+    "count": 249,
+    "tables": 265,
+    "finalMigration": "20260912080000_add_guest_conversation_disposition",
+    "normalizedManifestSha256": "4eff7f0a42a6cce1e695f7bc9bcd5b90a8b7534b1e3f0b11f59bfc6e618f9736"
+  },
+  "preservation": {
+    "oldApplicationTableProjections": 263,
+    "populatedTables": 38,
+    "rows": 157,
+    "sequences": 2,
+    "oldLedgerRowsAllFields": 248,
+    "singleAdvance": true,
+    "replayNoop": true,
+    "newOperations": 0,
+    "nonNullDisposition": 0
+  },
+  "refusedNativeRollbackLedgerCases": ["divergent", "failed", "rolled-back", "logs"],
+  "nativeResult": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-guest-lifecycle-implementation-20260912\\admission-248-249\\proof-248-249-149302014cfe\\result.json",
+    "sha256": "6c7a38142b0c9787f240d819662724429506fafbf934a1b464116ea2ae68c733",
+    "bytes": 535454
+  },
+  "nativeCommand": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-guest-lifecycle-implementation-20260912\\admission-248-249\\native-final\\receipt.json",
+    "sha256": "1173ce72e32001e02937e4f362b6e081a8d65e0fa1d65a2a213775942c366c8b",
+    "bytes": 1069
+  },
+  "maintenanceBridge": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-guest-lifecycle-implementation-20260912\\native-c-runtime-admission-249-r2\\PASS.json",
+    "sha256": "cb7a212048fd1c520f34e060826e7080f61d9518660a8097db426b021c87d4c8",
+    "bytes": 67873
+  },
+  "node20Proof": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-guest-lifecycle-implementation-20260912\\admission-248-249\\node20-r2\\file-tests.json",
+    "sha256": "2b90cb8d15fa01094ba36d26eff70ce5cd010eec6378646d7ebf9b0a11770cad",
+    "bytes": 1880
+  },
+  "finalReadback": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-guest-lifecycle-implementation-20260912\\admission-248-249\\final-readback.json",
+    "sha256": "b689cdb2338cca070fc4b497cda7c7d1641916bfac20b107d5b6489568352676",
+    "bytes": 941
+  },
+  "limits": [
+    "Synthetic loopback PostgreSQL; no production archive or hosted execution.",
+    "Native maintenance engine proof uses Node22.23.2 and actual psql; Node20.20.2 proof covers module imports, default CLI and 24 file tests, not hosted socket execution.",
+    "Fixture role grants and external custody attestations are synthetic; hosted prerequisites remain outstanding.",
+    "Historical247-to248 artifacts and old248 SQL remain unchanged."
+  ]
+}

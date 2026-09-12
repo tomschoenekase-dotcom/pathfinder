@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
+import { GuestChatTurnActionError } from '@pathfinder/db'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -56,6 +57,7 @@ const guestTurnActions = vi.hoisted(() => ({
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
 const resolveNativeGuestReadSnapshotAction = vi.hoisted(() => vi.fn())
 const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
+const isGuestConversationDisposed = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
 vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
@@ -74,6 +76,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
   resolveNativeGuestReadSnapshotAction,
   readActiveUnhealthyAiProviders,
+  isGuestConversationDisposed,
   recordConversationLearningCandidate,
 }))
 
@@ -88,6 +91,7 @@ import { _setAnthropicClientForTesting, chatRouter, streamChatTurn } from './cha
 
 const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
+const sessionFindFirst = vi.fn()
 const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
 const placeFindMany = vi.fn()
 const placeFindFirst = vi.fn()
@@ -126,7 +130,11 @@ const mockDb = {
     findMany: tenantFeatureFlagFindMany,
     findUnique: tenantFeatureFlagFindUnique,
   },
-  visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
+  visitorSession: {
+    upsert: sessionUpsert,
+    updateMany: sessionUpdateMany,
+    findFirst: sessionFindFirst,
+  },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: {
     findMany: engagementQuestionFindMany,
@@ -230,6 +238,7 @@ describe('chat router', () => {
       state: null,
     })
     readActiveUnhealthyAiProviders.mockResolvedValue([])
+    isGuestConversationDisposed.mockResolvedValue(false)
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
     sessionUpdateMany.mockResolvedValue({ count: 1 })
@@ -244,6 +253,7 @@ describe('chat router', () => {
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
     voiceTranscriptSegmentFindMany.mockResolvedValue([])
+    sessionFindFirst.mockResolvedValue({ id: SESSION_ID, experienceScope: 'PUBLIC' })
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -397,6 +407,24 @@ describe('chat router', () => {
           create: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
         }),
       )
+    })
+
+    it('refuses to recreate a disposed session before the session upsert', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
+      isGuestConversationDisposed.mockResolvedValueOnce(true)
+
+      await expect(
+        caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'This conversation is no longer available.',
+      })
+
+      expect(isGuestConversationDisposed).toHaveBeenCalledWith(
+        { tenantId: TENANT_ID, venueId: VENUE_ID, anonymousToken: TOKEN },
+        mockDb,
+      )
+      expect(sessionUpsert).not.toHaveBeenCalled()
     })
 
     it('denies an anonymous employee-session caller even with the exact access key', async () => {
@@ -693,6 +721,24 @@ describe('chat router', () => {
       expect(anthropicCreate).not.toHaveBeenCalled()
     })
 
+    it('maps a disposition race at the durable reservation to the same safe public refusal', async () => {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      guestTurnActions.reserve.mockRejectedValueOnce(
+        new GuestChatTurnActionError(
+          'SESSION_DISPOSED',
+          'This conversation is no longer available.',
+        ),
+      )
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'This conversation is no longer available.',
+      })
+      expect(guestTurnActions.claim).not.toHaveBeenCalled()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    })
+
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       guestTurnActions.reserve.mockResolvedValueOnce({
@@ -913,6 +959,45 @@ describe('chat router', () => {
       lat: 40.7128,
       lng: -74.006,
     }
+
+    it('refuses a disposed token before reservation, replay, or provider work', async () => {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      isGuestConversationDisposed.mockResolvedValueOnce(true)
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'This conversation is no longer available.',
+      })
+
+      expect(isGuestConversationDisposed).toHaveBeenCalledWith(
+        { tenantId: TENANT_ID, venueId: VENUE_ID, anonymousToken: TOKEN },
+        mockDb,
+      )
+      expect(guestTurnActions.reserve).not.toHaveBeenCalled()
+      expect(guestTurnActions.claim).not.toHaveBeenCalled()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(messageFindMany).not.toHaveBeenCalled()
+    })
+
+    it('maps an action-level disposition race to the same safe public outcome', async () => {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      guestTurnActions.reserve.mockRejectedValueOnce(
+        new GuestChatTurnActionError(
+          'SESSION_DISPOSED',
+          'This conversation is no longer available.',
+        ),
+      )
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'This conversation is no longer available.',
+      })
+
+      expect(guestTurnActions.claim).not.toHaveBeenCalled()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    })
 
     it('denies exhausted global ingress before caller-derived keys or database work', async () => {
       checkRateLimit.mockResolvedValueOnce(false)
@@ -3112,6 +3197,7 @@ describe('chat router', () => {
             visitorSessionId: SESSION_ID,
             tenantId: TENANT_ID,
             venueId: VENUE_ID,
+            visitorSession: { dispositionOperationId: null },
           },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -3588,10 +3674,27 @@ describe('chat router', () => {
 
       const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
 
-      expect(dbQueryRaw.mock.calls[0]?.slice(1)).toEqual([TOKEN, VENUE_ID])
+      expect(dbQueryRaw.mock.calls[0]?.slice(1)).toEqual([VENUE_ID])
+      expect(isGuestConversationDisposed).toHaveBeenCalledWith(
+        { tenantId: TENANT_ID, venueId: VENUE_ID, anonymousToken: TOKEN },
+        mockDb,
+      )
+      expect(sessionFindFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          anonymousToken: TOKEN,
+          dispositionOperationId: null,
+        },
+        select: { id: true, experienceScope: true },
+      })
       expect(messageFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { sessionId: SESSION_ID, tenantId: TENANT_ID },
+          where: {
+            sessionId: SESSION_ID,
+            tenantId: TENANT_ID,
+            session: { dispositionOperationId: null },
+          },
           orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
           take: 40,
         }),
@@ -3611,6 +3714,7 @@ describe('chat router', () => {
               visitorSessionId: SESSION_ID,
               tenantId: TENANT_ID,
               venueId: VENUE_ID,
+              visitorSession: { dispositionOperationId: null },
             },
           },
           take: 40,
@@ -3747,6 +3851,7 @@ describe('chat router', () => {
           sessionId: SESSION_ID,
           tenantId: TENANT_ID,
           venueId: VENUE_ID,
+          session: { dispositionOperationId: null },
         },
         select: { requestId: true, status: true },
       })
@@ -3796,6 +3901,7 @@ describe('chat router', () => {
       dbQueryRaw.mockResolvedValueOnce([
         { id: null, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
       ])
+      sessionFindFirst.mockResolvedValueOnce(null)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3868,10 +3974,31 @@ describe('chat router', () => {
           secondLayerAccessKey: '123e4567-e89b-42d3-a456-426614174999',
         },
       ])
+      sessionFindFirst.mockResolvedValueOnce({
+        id: SESSION_ID,
+        experienceScope: 'SECOND_LAYER',
+      })
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).resolves.toEqual({ messages: [] })
+      expect(messageFindMany).not.toHaveBeenCalled()
+      expect(voiceTranscriptSegmentFindMany).not.toHaveBeenCalled()
+    })
+
+    it('refuses disposed history before session lookup, turn replay, or content reads', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
+      isGuestConversationDisposed.mockResolvedValueOnce(true)
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'This conversation is no longer available.',
+      })
+
+      expect(sessionFindFirst).not.toHaveBeenCalled()
+      expect(guestChatTurnFindFirst).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
       expect(voiceTranscriptSegmentFindMany).not.toHaveBeenCalled()
     })

@@ -445,7 +445,15 @@ describe('processWeeklyReportJob', () => {
     })
     const countWhere = mocks.responseCount.mock.calls.at(-1)?.[0]?.where
     const sampleWhere = mocks.responseFindMany.mock.calls.at(-1)?.[0]?.where
-    expect(sampleWhere).toEqual(countWhere)
+    expect(countWhere.session).toEqual({ experienceScope: 'PUBLIC' })
+    expect(sampleWhere).toEqual({
+      ...countWhere,
+      session: { experienceScope: 'PUBLIC', dispositionOperationId: null },
+    })
+    expect(sampleWhere.session).toEqual({
+      experienceScope: 'PUBLIC',
+      dispositionOperationId: null,
+    })
     const saved = JSON.stringify(mocks.reportUpdateMany.mock.calls.at(-1))
     expect(mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data.answerCount).toBe(101)
     expect(anthropicCreate).toHaveBeenCalledOnce()
@@ -470,6 +478,14 @@ describe('processWeeklyReportJob', () => {
   it('partitions consumed captured answers from ordinary public-message evidence', async () => {
     await processWeeklyReportJob(payload)
 
+    const numericSessionWhere = mocks.sessionCount.mock.calls.at(-1)?.[0]?.where
+    const numericMessageWhere = mocks.messageCount.mock.calls.at(-1)?.[0]?.where
+    expect(numericSessionWhere).not.toHaveProperty('dispositionOperationId')
+    expect(numericMessageWhere.session).toEqual({
+      venueId: 'venue_1',
+      experienceScope: 'PUBLIC',
+    })
+
     expect(mocks.messageFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -479,7 +495,11 @@ describe('processWeeklyReportJob', () => {
             gte: new Date('2026-06-01T00:00:00.000Z'),
             lte: new Date('2026-06-08T00:00:00.000Z'),
           },
-          session: { venueId: 'venue_1', experienceScope: 'PUBLIC' },
+          session: {
+            venueId: 'venue_1',
+            experienceScope: 'PUBLIC',
+            dispositionOperationId: null,
+          },
           answerEngagementResponses: {
             none: {
               tenantId: 'tenant_1',

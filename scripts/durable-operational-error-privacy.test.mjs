@@ -370,7 +370,6 @@ test('guarded domain processors expose only finite failure codes to BullMQ reten
     ['apps/workers/src/processors/send-welcome-email.ts', 'WELCOME_EMAIL_DELIVERY_FAILED'],
     ['apps/workers/src/processors/generation-recovery.ts', 'GENERATION_RECOVERY_FAILED'],
     ['apps/workers/src/processors/voice-session-recovery.ts', 'VOICE_SESSION_RECOVERY_FAILED'],
-    ['apps/workers/src/processors/daily-rollup.ts', 'DAILY_ROLLUP_FAILED'],
   ]) {
     const source = await readFile(new URL(relativePath, root), 'utf8')
     assert.match(
@@ -380,6 +379,24 @@ test('guarded domain processors expose only finite failure codes to BullMQ reten
     )
     assert.doesNotMatch(source, /catch \(error\)[\s\S]{0,1600}\n\s*throw error\s*\n/u, relativePath)
   }
+
+  const dailyRollupPath = 'apps/workers/src/processors/daily-rollup.ts'
+  const dailyRollup = await readFile(new URL(dailyRollupPath, root), 'utf8')
+  assert.match(
+    dailyRollup,
+    /throw toQueueSafeJobError\(\s*error,\s*error instanceof DailyRollupDisposedSourceError\s*\?\s*'DAILY_ROLLUP_DISPOSED_SOURCE'\s*:\s*'DAILY_ROLLUP_FAILED',\s*\)/u,
+    dailyRollupPath,
+  )
+  assert.deepEqual(
+    [...dailyRollup.matchAll(/['"](DAILY_ROLLUP_[A-Z_]+)['"]/gu)].map((match) => match[1]),
+    ['DAILY_ROLLUP_DISPOSED_SOURCE', 'DAILY_ROLLUP_FAILED'],
+    dailyRollupPath,
+  )
+  assert.doesNotMatch(
+    dailyRollup,
+    /catch \(error\)[\s\S]{0,1600}\n\s*throw error\s*\n/u,
+    dailyRollupPath,
+  )
 })
 
 test('every BullMQ worker registration crosses the queue-safe retention boundary', async () => {

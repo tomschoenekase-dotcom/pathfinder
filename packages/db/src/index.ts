@@ -1473,3 +1473,14 @@ export {
   recoverMissingIntakeSourceAgentDispatches,
   dispatchIntakeSourceAgentTask,
 } from './helpers/intake-source-agent-dispatch-actions'
+
+export {
+  recordGuestConversationDispositionAuthorization,
+  isGuestConversationDisposed,
+} from './helpers/guest-conversation-disposition'
+export type { GuestConversationDispositionAuthoritySnapshot } from './helpers/guest-conversation-disposition'
+export {
+  authorizeGuestConversationDispositionAction,
+  GuestConversationDispositionAuthorizationInput,
+  GuestConversationDispositionAuthorityError,
+} from './helpers/guest-conversation-disposition-authority'

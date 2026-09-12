@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-248-20260911',
+  approval: 'torchiko-staging-lineage-to-249-20260912',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 248,
+  migrationCount: 249,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -151,10 +151,16 @@ const EXPECTED = Object.freeze({
   nativeBotEffectPredecessorFinalMigration: '20260910140000_add_semantic_reviewed_decline',
   nativeBotEffectPredecessorManifestHash:
     'accc130b682f930408145bf38eb97e27488b183cf54884e8f78753760d5da82c',
-  finalMigration: '20260911063000_add_native_venue_bot_configuration_effect',
-  manifestHash: '73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa',
-  // Exact additive 248 endpoint; preserves all 247 predecessor SQL files.
-  finalPublicTableCount: 264,
+  guestDispositionPredecessorCount: 248,
+  guestDispositionPredecessorPublicTableCount: 264,
+  guestDispositionPredecessorFinalMigration:
+    '20260911063000_add_native_venue_bot_configuration_effect',
+  guestDispositionPredecessorManifestHash:
+    '73e4424d07324767058e2934a01d32f068b8270b414f30a91e15914fd32891fa',
+  finalMigration: '20260912080000_add_guest_conversation_disposition',
+  manifestHash: '4eff7f0a42a6cce1e695f7bc9bcd5b90a8b7534b1e3f0b11f59bfc6e618f9736',
+  // Exact additive 249 endpoint; preserves all 248 predecessor SQL files.
+  finalPublicTableCount: 265,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -527,6 +533,17 @@ export function assertFrozenManifest(manifest) {
     nativeBotEffectPredecessorHash !== EXPECTED.nativeBotEffectPredecessorManifestHash
   )
     fail('native bot effect predecessor manifest changed')
+  const guestDispositionPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.guestDispositionPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.guestDispositionPredecessorCount - 1] !==
+      EXPECTED.guestDispositionPredecessorFinalMigration ||
+    guestDispositionPredecessorHash !== EXPECTED.guestDispositionPredecessorManifestHash
+  )
+    fail('guest disposition predecessor manifest changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -571,6 +588,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.fileExtractionPredecessorCount &&
     rows.length !== EXPECTED.agentQuestionOperationsPredecessorCount &&
     rows.length !== EXPECTED.nativeBotEffectPredecessorCount &&
+    rows.length !== EXPECTED.guestDispositionPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -654,6 +672,8 @@ function ledgerState(rows, manifest) {
     return 'agent-question-operations-predecessor'
   if (rows.length === EXPECTED.nativeBotEffectPredecessorCount)
     return 'native-bot-effect-predecessor'
+  if (rows.length === EXPECTED.guestDispositionPredecessorCount)
+    return 'guest-disposition-predecessor'
   return 'complete'
 }
 
@@ -931,6 +951,7 @@ export function expectedPublicTableCount(state) {
     'agent-question-operations-predecessor':
       EXPECTED.agentQuestionOperationsPredecessorPublicTableCount,
     'native-bot-effect-predecessor': EXPECTED.nativeBotEffectPredecessorPublicTableCount,
+    'guest-disposition-predecessor': EXPECTED.guestDispositionPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
@@ -939,11 +960,41 @@ export function expectedPublicTableCount(state) {
 
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+
+export async function exitStagingPredeployFailure(error) {
+  const classification = stagingPredeployExitClassification(error)
+  // main has already settled its verification/disconnect boundary. A retained
+  // engine handle must not turn the intentional hold into a provider timeout.
+  const streams = [process.stdout, process.stderr]
+  for (const stream of streams) stream.on('error', () => {})
+  reportOperatorCliFailure(classification)
+  let deadline
+  await Promise.race([
+    Promise.all(
+      streams.map(
+        (stream) =>
+          new Promise((resolve) => {
+            stream.once('error', resolve)
+            try {
+              stream.write('', resolve)
+            } catch {
+              resolve()
+            }
+          }),
+      ),
+    ),
+    new Promise((resolve) => {
+      deadline = setTimeout(resolve, 2_000)
+    }),
+  ])
+  clearTimeout(deadline)
+  // A deadline bounds the flush attempt; it does not assert delivery. The
+  // operator must still observe the complete finite record and numeric exit.
+  process.exit(classification.exitCode)
+}
+
 if (isMain) {
-  main().catch(async (error) => {
-    process.exitCode = reportOperatorCliFailure(stagingPredeployExitClassification(error))
-    await new Promise((resolve) => setTimeout(resolve, 2_000))
-  })
+  main().catch(exitStagingPredeployFailure)
 }
 
 export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState, remainingMigrationNames }
