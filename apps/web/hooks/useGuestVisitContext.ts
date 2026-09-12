@@ -11,6 +11,7 @@ const EMPTY_CONTEXT: GuestVisitContext = { visitedPlaceIds: [], interests: [] }
 
 type GuestVisitContextState = {
   scopeKey: string
+  lifecycle: number
   context: GuestVisitContext
 }
 
@@ -27,6 +28,7 @@ export function useGuestVisitContext(
   const scopeKey = `${venueId}\u0000${experienceScope}`
   const [state, setState] = useState<GuestVisitContextState>({
     scopeKey: '',
+    lifecycle: -1,
     context: EMPTY_CONTEXT,
   })
   const lifecycleRef = useRef(0)
@@ -39,8 +41,13 @@ export function useGuestVisitContext(
   const lifecycle = lifecycleRef.current
 
   useEffect(() => {
-    if (scopeKeyRef.current !== scopeKey || lifecycleRef.current !== lifecycle) return
-    setState({ scopeKey, context: EMPTY_CONTEXT })
+    setState((previous) => {
+      if (scopeKeyRef.current !== scopeKey || lifecycleRef.current !== lifecycle) return previous
+      // A current callback may have saved before this passive initializer runs.
+      return previous.scopeKey === scopeKey && previous.lifecycle === lifecycle
+        ? previous
+        : { scopeKey, lifecycle, context: EMPTY_CONTEXT }
+    })
   }, [lifecycle, scopeKey])
 
   const updateContext = useCallback(
@@ -53,8 +60,8 @@ export function useGuestVisitContext(
       if (!parsed.success) return false
       const context = parsed.data
       setState((previous) =>
-        previous.scopeKey === scopeKey && lifecycleRef.current === lifecycle
-          ? { scopeKey, context }
+        scopeKeyRef.current === scopeKey && lifecycleRef.current === lifecycle
+          ? { scopeKey, lifecycle, context }
           : previous,
       )
       return true
@@ -68,12 +75,13 @@ export function useGuestVisitContext(
     }
 
     lifecycleRef.current += 1
-    setState({ scopeKey, context: EMPTY_CONTEXT })
+    setState({ scopeKey, lifecycle: lifecycleRef.current, context: EMPTY_CONTEXT })
     return true
   }, [lifecycle, scopeKey, venueId])
 
   return {
-    context: state.scopeKey === scopeKey ? state.context : EMPTY_CONTEXT,
+    context:
+      state.scopeKey === scopeKey && state.lifecycle === lifecycle ? state.context : EMPTY_CONTEXT,
     updateContext,
     clearVisit,
   }
