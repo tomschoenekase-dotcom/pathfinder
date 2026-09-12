@@ -87,6 +87,15 @@ const OWNED_DAILY_ROLLUP_METRICS = [
   ...Object.values(CHAT_TIMING_METRICS).flat(),
 ] as const
 
+class DailyRollupDisposedSourceError extends Error {
+  constructor() {
+    super(
+      'Daily rollup refused because the UTC day includes a disposed guest conversation; existing rollups were preserved.',
+    )
+    this.name = 'DailyRollupDisposedSourceError'
+  }
+}
+
 function metadataRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -408,6 +417,44 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
   })
 }
 
+async function assertDailyRollupSourcesAvailable(
+  payload: DailyRollupJobPayload,
+  date: Date,
+  nextDate: Date,
+): Promise<void> {
+  const disposedSource = await withTenantIsolationBypass(() =>
+    db.visitorSession.findFirst({
+      where: {
+        tenantId: payload.tenantId,
+        dispositionOperationId: { not: null },
+        OR: [
+          { startedAt: { gte: date, lt: nextDate } },
+          {
+            messages: {
+              some: {
+                tenantId: payload.tenantId,
+                createdAt: { gte: date, lt: nextDate },
+              },
+            },
+          },
+          {
+            analyticsEvents: {
+              some: {
+                tenantId: payload.tenantId,
+                eventType: 'message.received',
+                occurredAt: { gte: date, lt: nextDate },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    }),
+  )
+
+  if (disposedSource) throw new DailyRollupDisposedSourceError()
+}
+
 export async function processDailyRollupJob(
   payload: DailyRollupJobPayload,
   executionInput?: JobExecutionInput,
@@ -430,6 +477,11 @@ export async function processDailyRollupJob(
   })
 
   try {
+    // Maintenance is performed only while application processes are stopped. This
+    // reader guard protects subsequent rebuilds; it cannot revoke content already
+    // loaded by a process that was left running.
+    await assertDailyRollupSourcesAvailable(payload, date, nextDate)
+
     const [rollups, groupedUsage] = await Promise.all([
       buildTenantRollups(payload),
       withTenantIsolationBypass(() =>
@@ -538,6 +590,11 @@ export async function processDailyRollupJob(
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
     })
 
-    throw toQueueSafeJobError(error, 'DAILY_ROLLUP_FAILED')
+    throw toQueueSafeJobError(
+      error,
+      error instanceof DailyRollupDisposedSourceError
+        ? 'DAILY_ROLLUP_DISPOSED_SOURCE'
+        : 'DAILY_ROLLUP_FAILED',
+    )
   }
 }

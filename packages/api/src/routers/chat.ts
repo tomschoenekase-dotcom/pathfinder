@@ -31,6 +31,7 @@ import {
   GuestChatReplayMetadata,
   GuestChatTurnActionError,
   isAiAdmissionControlError,
+  isGuestConversationDisposed,
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   markGuestChatProviderDispatchedAction,
@@ -107,6 +108,14 @@ function venueUnavailable(): TRPCError {
   })
 }
 
+function conversationDisposed(): TRPCError {
+  return publicTRPCError({
+    code: 'NOT_FOUND',
+    message: 'This conversation is no longer available.',
+    publicCode: 'CONTENT_UNAVAILABLE',
+  })
+}
+
 function boundedGuestChatFallbackCode(error: unknown): GuestChatFallbackCode {
   if (!(error instanceof AiGatewayError)) return 'UNEXPECTED_FAILURE'
   if (error.code === 'provider-not-configured' || error.code === 'provider-client-initialization') {
@@ -137,7 +146,7 @@ function guestChatTurnError(error: unknown): never {
         ? 'TOO_MANY_REQUESTS'
         : error.code === 'UNKNOWN_PROVIDER_OUTCOME'
           ? 'SERVICE_UNAVAILABLE'
-          : error.code === 'NOT_FOUND'
+          : error.code === 'NOT_FOUND' || error.code === 'SESSION_DISPOSED'
             ? 'NOT_FOUND'
             : error.code === 'FAILED'
               ? 'PRECONDITION_FAILED'
@@ -149,7 +158,7 @@ function guestChatTurnError(error: unknown): never {
         ? 'REJECTED'
         : error.code === 'IN_PROGRESS'
           ? 'RATE_LIMITED'
-          : error.code === 'NOT_FOUND'
+          : error.code === 'NOT_FOUND' || error.code === 'SESSION_DISPOSED'
             ? 'CONTENT_UNAVAILABLE'
             : error.code === 'FAILED'
               ? 'TRANSIENT_FAILURE'
@@ -536,6 +545,19 @@ const chatSessionRouter = router({
     if (!venue.isActive) throw venueUnavailable()
     const experienceScope = authorizeChatExperience(venue, ctx.session, input.secondLayerKey)
 
+    if (
+      await isGuestConversationDisposed(
+        {
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          anonymousToken: input.anonymousToken,
+        },
+        ctx.db,
+      )
+    ) {
+      throw conversationDisposed()
+    }
+
     const isNonLocation = venue.guideMode === 'non_location'
     const updateData: Record<string, unknown> = {
       lastActiveAt: new Date(),
@@ -588,6 +610,19 @@ const chatReadRouter = router({
     const trimmedInput = input.message
     const venue = ctx.chatVenue
     const includeSecondLayer = ctx.experienceScope === 'SECOND_LAYER'
+
+    if (
+      await isGuestConversationDisposed(
+        {
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          anonymousToken: input.anonymousToken,
+        },
+        ctx.db,
+      )
+    ) {
+      throw conversationDisposed()
+    }
 
     const guideMode = venue.guideMode ?? 'location_aware'
     const callerLocation =
@@ -927,7 +962,11 @@ const chatReadRouter = router({
     ] = await Promise.all([
       queryEmbeddingPromise,
       ctx.db.message.findMany({
-        where: { sessionId: session.id, tenantId: venue.tenantId },
+        where: {
+          sessionId: session.id,
+          tenantId: venue.tenantId,
+          session: { dispositionOperationId: null },
+        },
         orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
         take: HISTORY_LIMIT,
         select: {
@@ -946,6 +985,7 @@ const chatReadRouter = router({
             visitorSessionId: session.id,
             tenantId: venue.tenantId,
             venueId: venue.id,
+            visitorSession: { dispositionOperationId: null },
           },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -2167,41 +2207,56 @@ const chatReadRouter = router({
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
     }
 
-    // This is a public cross-tenant lookup, so resolve tenant ownership from the
-    // venue-scoped session identity. Browser tokens are generated per venue, and
-    // this lookup must never select a session from another venue.
-    const [session] = await ctx.db.$queryRaw<
+    // Resolve venue ownership before consulting the caller's retired token. The
+    // disposition guard must run before any current-session lookup or replay read.
+    const [venue] = await ctx.db.$queryRaw<
       {
-        id: string | null
         venueId: string
         tenantId: string
         isActive: boolean
-        experienceScope: string | null
         secondLayerEnabled: boolean
         secondLayerAccessKey: string | null
       }[]
     >`
-        SELECT visitor_sessions.id,
-               venues.id AS "venueId",
+        SELECT venues.id AS "venueId",
                venues.tenant_id AS "tenantId",
                venues.is_active AS "isActive"
-               ,visitor_sessions.experience_scope AS "experienceScope"
                ,venues.second_layer_enabled AS "secondLayerEnabled"
                ,venues.second_layer_access_key AS "secondLayerAccessKey"
         FROM venues
-        LEFT JOIN visitor_sessions
-          ON visitor_sessions.venue_id = venues.id
-         AND visitor_sessions.tenant_id = venues.tenant_id
-         AND visitor_sessions.anonymous_token = ${input.anonymousToken}
         WHERE venues.id = ${input.venueId}
         LIMIT 1
       `
 
-    // No session yet — fresh visitor, return empty history
-    if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-    if (!session.isActive) throw venueUnavailable()
-    const experienceScope = authorizeChatExperience(session, ctx.session, input.secondLayerKey)
-    if (!session.id) {
+    if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+    if (!venue.isActive) throw venueUnavailable()
+    const experienceScope = authorizeChatExperience(venue, ctx.session, input.secondLayerKey)
+
+    if (
+      await isGuestConversationDisposed(
+        {
+          tenantId: venue.tenantId,
+          venueId: venue.venueId,
+          anonymousToken: input.anonymousToken,
+        },
+        ctx.db,
+      )
+    ) {
+      throw conversationDisposed()
+    }
+
+    const session = await ctx.db.visitorSession.findFirst({
+      where: {
+        tenantId: venue.tenantId,
+        venueId: venue.venueId,
+        anonymousToken: input.anonymousToken,
+        dispositionOperationId: null,
+      },
+      select: { id: true, experienceScope: true },
+    })
+
+    // No session yet — fresh visitor, return empty history.
+    if (!session) {
       return { messages: [] }
     }
     if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
@@ -2213,8 +2268,9 @@ const chatReadRouter = router({
           where: {
             requestId: input.operationId,
             sessionId: session.id,
-            tenantId: session.tenantId,
-            venueId: session.venueId,
+            tenantId: venue.tenantId,
+            venueId: venue.venueId,
+            session: { dispositionOperationId: null },
           },
           select: { requestId: true, status: true },
         })
@@ -2222,7 +2278,11 @@ const chatReadRouter = router({
 
     const [rows, voiceRows] = await Promise.all([
       ctx.db.message.findMany({
-        where: { sessionId: session.id, tenantId: session.tenantId },
+        where: {
+          sessionId: session.id,
+          tenantId: venue.tenantId,
+          session: { dispositionOperationId: null },
+        },
         orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
         take: HISTORY_LOAD_LIMIT,
         select: {
@@ -2236,12 +2296,13 @@ const chatReadRouter = router({
       }),
       ctx.db.voiceTranscriptSegment.findMany({
         where: {
-          tenantId: session.tenantId,
-          venueId: session.venueId,
+          tenantId: venue.tenantId,
+          venueId: venue.venueId,
           voiceSession: {
             visitorSessionId: session.id,
-            tenantId: session.tenantId,
-            venueId: session.venueId,
+            tenantId: venue.tenantId,
+            venueId: venue.venueId,
+            visitorSession: { dispositionOperationId: null },
           },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

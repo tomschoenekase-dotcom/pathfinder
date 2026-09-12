@@ -6,6 +6,7 @@ import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-contex
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 
 import { db } from '../client'
+import { isGuestConversationDisposed } from './guest-conversation-disposition'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
 
 export const GUEST_CHAT_TURN_LEASE_MS = 2 * 60 * 1_000
@@ -163,7 +164,7 @@ const finalizeSchema = requestObjectSchema
 
 export type GuestChatTurnActionClient = Pick<
   typeof db,
-  '$transaction' | 'guestChatTurn' | 'guestChatProviderOperation'
+  '$transaction' | '$queryRaw' | 'guestChatTurn' | 'guestChatProviderOperation'
 >
 
 export type GuestChatRequest = z.input<typeof requestSchema>
@@ -176,6 +177,7 @@ const adjacentPendingReadSchema = claimSchema
   .strict()
 
 export type GuestChatTurnActionErrorCode =
+  | 'SESSION_DISPOSED'
   | 'INVALID_INPUT'
   | 'CONFLICT'
   | 'IN_PROGRESS'
@@ -190,6 +192,28 @@ export class GuestChatTurnActionError extends Error {
   ) {
     super(message)
     this.name = 'GuestChatTurnActionError'
+  }
+}
+
+async function assertCurrentGuestConversation(
+  client: Pick<typeof db, '$queryRaw'>,
+  scope: { tenantId: string; venueId: string; anonymousToken?: string; sessionId?: string },
+): Promise<void> {
+  if (
+    await isGuestConversationDisposed(
+      {
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        ...(scope.anonymousToken ? { anonymousToken: scope.anonymousToken } : {}),
+        ...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
+      },
+      client,
+    )
+  ) {
+    throw new GuestChatTurnActionError(
+      'SESSION_DISPOSED',
+      'This conversation is no longer available.',
+    )
   }
 }
 
@@ -329,7 +353,7 @@ type GuestChatTurnState = {
     dispatchedAt: Date | null
   }>
 }
-type ReplayReader = {
+type ReplayReader = Pick<typeof db, '$queryRaw'> & {
   message: {
     findFirst(args: {
       where: {
@@ -338,6 +362,7 @@ type ReplayReader = {
         venueId: string
         sessionId: string
         guestChatTurnId: string
+        session: { dispositionOperationId: null }
       }
       select: { content: true }
     }): Promise<{ content: string } | null>
@@ -350,6 +375,7 @@ async function projectExistingTurn(
   requestHash: string,
   retry?: { allowUndispatchedReservation: boolean; now: Date },
 ) {
+  await assertCurrentGuestConversation(tx, turn)
   if (turn.requestHash !== requestHash) {
     throw new GuestChatTurnActionError('CONFLICT', 'Operation identity is already bound.')
   }
@@ -366,6 +392,7 @@ async function projectExistingTurn(
         venueId: turn.venueId,
         sessionId: turn.sessionId,
         guestChatTurnId: turn.id,
+        session: { dispositionOperationId: null },
       },
       select: { content: true },
     })
@@ -427,7 +454,6 @@ export async function reserveGuestChatTurnAction(args: {
 }) {
   const request = parse(requestSchema, args?.request)
   const experienceScope = request.experienceScope ?? 'PUBLIC'
-  const requestHash = guestChatRequestHash(request)
   const client = args.client ?? db
   const now = args.now ?? new Date()
 
@@ -438,11 +464,14 @@ export async function reserveGuestChatTurnAction(args: {
           tenantId: request.tenantId,
           lockId: `${request.venueId}:${request.anonymousToken}`,
         })
+        await assertCurrentGuestConversation(tx, request)
+        const requestHash = guestChatRequestHash(request)
         let session = await tx.visitorSession.findFirst({
           where: {
             tenantId: request.tenantId,
             venueId: request.venueId,
             anonymousToken: request.anonymousToken,
+            dispositionOperationId: null,
           },
           select: {
             id: true,
@@ -488,6 +517,7 @@ export async function reserveGuestChatTurnAction(args: {
             'Operation identity could not be resolved.',
           )
         }
+        await assertCurrentGuestConversation(tx, { ...request, sessionId: session.id })
         if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
           throw new GuestChatTurnActionError('NOT_FOUND', 'Chat session not found.')
         }
@@ -497,6 +527,7 @@ export async function reserveGuestChatTurnAction(args: {
             tenantId: request.tenantId,
             sessionId: session.id,
             requestId: request.requestId,
+            session: { dispositionOperationId: null },
           },
           select: turnSelect,
         })
@@ -615,6 +646,7 @@ export async function reserveGuestChatTurnAction(args: {
           where: {
             tenantId: request.tenantId,
             sessionId: session.id,
+            session: { dispositionOperationId: null },
             status: { in: ['RESERVED', 'GENERATING'] },
           },
           select: turnSelect,
@@ -807,17 +839,19 @@ export async function claimGuestChatTurnAction(args: {
   const now = args.now ?? new Date()
   const leaseExpiresAt = new Date(now.getTime() + GUEST_CHAT_TURN_LEASE_MS)
   return client.$transaction(async (tx) => {
+    await assertCurrentGuestConversation(tx, claim)
     const turn = await tx.guestChatTurn.findFirst({
       where: {
         id: claim.turnId,
         tenantId: claim.tenantId,
         venueId: claim.venueId,
         requestId: claim.requestId,
-        session: { anonymousToken: claim.anonymousToken },
+        session: { anonymousToken: claim.anonymousToken, dispositionOperationId: null },
       },
       select: turnSelect,
     })
     if (!turn) throw new GuestChatTurnActionError('NOT_FOUND', 'Chat turn not found.')
+    await assertCurrentGuestConversation(tx, { ...claim, sessionId: turn.sessionId })
     if (turn.status === 'COMPLETE')
       return projectExistingTurn(tx as unknown as ReplayReader, turn, turn.requestHash)
     if (turn.status === 'FAILED') throw new GuestChatTurnActionError('FAILED', 'Chat turn failed.')
@@ -913,6 +947,7 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
     async (tx) => {
       await lockGuestChatTurnMutation(tx, { tenantId: input.tenantId, lockId: input.turnId })
       const now = args.now ?? new Date()
+      await assertCurrentGuestConversation(tx, input)
       const current = await tx.guestChatTurn.findFirst({
         where: {
           id: input.turnId,
@@ -925,11 +960,14 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
           session: {
             anonymousToken: input.anonymousToken,
             experienceScope: input.experienceScope,
+            dispositionOperationId: null,
           },
         },
         select: { sessionId: true, turnSequence: true },
       })
-      if (!current || current.turnSequence <= 1) return null
+      if (!current) return null
+      await assertCurrentGuestConversation(tx, { ...input, sessionId: current.sessionId })
+      if (current.turnSequence <= 1) return null
 
       const previous = await tx.guestChatTurn.findFirst({
         where: {
@@ -941,7 +979,7 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
           userMessageId: { not: null },
           assistantMessageId: { not: null },
           completedAt: { not: null },
-          session: { experienceScope: input.experienceScope },
+          session: { experienceScope: input.experienceScope, dispositionOperationId: null },
         },
         select: {
           replayMetadata: true,
@@ -977,6 +1015,7 @@ export async function markGuestChatProviderDispatchedAction(args: {
   const client = args.client ?? db
   const now = args.now ?? new Date()
   return client.$transaction(async (tx) => {
+    await assertCurrentGuestConversation(tx, operation)
     const turn = await tx.guestChatTurn.findFirst({
       where: {
         id: operation.turnId,
@@ -985,11 +1024,12 @@ export async function markGuestChatProviderDispatchedAction(args: {
         requestId: operation.requestId,
         leaseToken: operation.claimId,
         status: 'GENERATING',
-        session: { anonymousToken: operation.anonymousToken },
+        session: { anonymousToken: operation.anonymousToken, dispositionOperationId: null },
       },
       select: { sessionId: true, leaseExpiresAt: true },
     })
     if (!turn) throw new GuestChatTurnActionError('CONFLICT', 'Chat turn claim is no longer valid.')
+    await assertCurrentGuestConversation(tx, { ...operation, sessionId: turn.sessionId })
     if (!turn.leaseExpiresAt || turn.leaseExpiresAt.getTime() <= now.getTime()) {
       throw new GuestChatTurnActionError('IN_PROGRESS', 'Chat turn claim expired before dispatch.')
     }
@@ -1026,6 +1066,7 @@ export async function skipGuestChatProviderOperationAction(args: {
   const client = args.client ?? db
   const now = args.now ?? new Date()
   return client.$transaction(async (tx) => {
+    await assertCurrentGuestConversation(tx, operation)
     const turn = await tx.guestChatTurn.findFirst({
       where: {
         id: operation.turnId,
@@ -1034,11 +1075,12 @@ export async function skipGuestChatProviderOperationAction(args: {
         requestId: operation.requestId,
         leaseToken: operation.claimId,
         status: 'GENERATING',
-        session: { anonymousToken: operation.anonymousToken },
+        session: { anonymousToken: operation.anonymousToken, dispositionOperationId: null },
       },
       select: { sessionId: true, leaseExpiresAt: true },
     })
     if (!turn) throw new GuestChatTurnActionError('CONFLICT', 'Chat turn claim is no longer valid.')
+    await assertCurrentGuestConversation(tx, { ...operation, sessionId: turn.sessionId })
     if (!turn.leaseExpiresAt || turn.leaseExpiresAt.getTime() <= now.getTime()) {
       throw new GuestChatTurnActionError('IN_PROGRESS', 'Chat turn claim expired before skip.')
     }
@@ -1081,6 +1123,7 @@ export async function observeGuestChatProviderOperationAction(args: {
   const operation = parse(providerObservationSchema, args?.operation)
   const client = args.client ?? db
   const now = args.now ?? new Date()
+  await assertCurrentGuestConversation(client, operation)
   const updated = await client.guestChatProviderOperation.updateMany({
     where: {
       tenantId: operation.tenantId,
@@ -1091,7 +1134,7 @@ export async function observeGuestChatProviderOperationAction(args: {
       turn: {
         requestId: operation.requestId,
         leaseToken: operation.claimId,
-        session: { anonymousToken: operation.anonymousToken },
+        session: { anonymousToken: operation.anonymousToken, dispositionOperationId: null },
       },
     },
     data: {
@@ -1116,6 +1159,7 @@ export async function failGuestChatTurnAction(args: {
   const now = args.now ?? new Date()
   return client.$transaction(async (tx) => {
     await lockGuestChatTurnMutation(tx, { tenantId: claim.tenantId, lockId: claim.turnId })
+    await assertCurrentGuestConversation(tx, claim)
     const turn = await tx.guestChatTurn.findFirst({
       where: {
         id: claim.turnId,
@@ -1124,7 +1168,7 @@ export async function failGuestChatTurnAction(args: {
         requestId: claim.requestId,
         leaseToken: claim.claimId,
         status: 'GENERATING',
-        session: { anonymousToken: claim.anonymousToken },
+        session: { anonymousToken: claim.anonymousToken, dispositionOperationId: null },
       },
       select: {
         sessionId: true,
@@ -1138,6 +1182,7 @@ export async function failGuestChatTurnAction(args: {
       },
     })
     if (!turn) throw new GuestChatTurnActionError('CONFLICT', 'Chat turn failure did not match.')
+    await assertCurrentGuestConversation(tx, { ...claim, sessionId: turn.sessionId })
     if (
       turn.providerOperations.some(
         (operation) =>
@@ -1219,30 +1264,32 @@ export async function finalizeGuestChatTurnAction(args: {
   const input = parse(finalizeSchema, args?.input)
   const client = args.client ?? db
   const now = args.now ?? new Date()
-  const replayMetadata = JSON.parse(JSON.stringify(input.replayMetadata)) as z.infer<
-    typeof GuestChatReplayMetadata
-  >
-  const responseHash = guestChatResponseHash(
-    input.assistantResponse,
-    replayMetadata,
-    replayMetadata,
-  )
 
   const run = () =>
     client.$transaction(
       async (tx) => {
         await lockGuestChatTurnMutation(tx, { tenantId: input.tenantId, lockId: input.turnId })
+        await assertCurrentGuestConversation(tx, input)
+        const replayMetadata = JSON.parse(JSON.stringify(input.replayMetadata)) as z.infer<
+          typeof GuestChatReplayMetadata
+        >
+        const responseHash = guestChatResponseHash(
+          input.assistantResponse,
+          replayMetadata,
+          replayMetadata,
+        )
         const turn = await tx.guestChatTurn.findFirst({
           where: {
             id: input.turnId,
             tenantId: input.tenantId,
             venueId: input.venueId,
             requestId: input.requestId,
-            session: { anonymousToken: input.anonymousToken },
+            session: { anonymousToken: input.anonymousToken, dispositionOperationId: null },
           },
           select: { ...turnSelect, userMessageSequence: true, assistantMessageSequence: true },
         })
         if (!turn) throw new GuestChatTurnActionError('NOT_FOUND', 'Chat turn not found.')
+        await assertCurrentGuestConversation(tx, { ...input, sessionId: turn.sessionId })
         if (turn.requestHash !== hashParsedGuestChatRequest(input)) {
           throw new GuestChatTurnActionError(
             'CONFLICT',
@@ -1310,6 +1357,7 @@ export async function finalizeGuestChatTurnAction(args: {
                   tenantId: input.tenantId,
                   venueId: input.venueId,
                   sessionId: turn.sessionId,
+                  session: { dispositionOperationId: null },
                 },
                 select: { content: true },
               })

@@ -65,6 +65,32 @@ describe('agent operation coverage inventory', () => {
       evidence: '',
       decision: 'No concrete agent surface has been reviewed for this operation.',
     })
+    expect(
+      report.operations.entries.find(
+        (operation: { path: string }) =>
+          operation.path === 'admin.authorizeGuestConversationDisposition',
+      ),
+    ).toMatchObject({
+      kind: 'mutation',
+      router: 'adminGuestConversationDispositionRouter',
+      categories: ['offboarding'],
+      agentCoverage: 'partial',
+      developerCoverage: 'full',
+      status: 'classified',
+    })
+    expect(
+      report.operations.bindings.entries.find(
+        (operation: { path: string }) =>
+          operation.path === 'admin.authorizeGuestConversationDisposition',
+      ),
+    ).toEqual({
+      path: 'admin.authorizeGuestConversationDisposition',
+      kind: 'unbound',
+      ruleId: null,
+      surfaces: [],
+      evidence: '',
+      decision: 'No concrete agent surface has been reviewed for this operation.',
+    })
     expect(report.healthy).toBe(true)
   }, 30_000)
 })

@@ -108,6 +108,7 @@ export const adminChatlogsRouter = router({
             id: input.sessionId,
             tenantId: input.tenantId,
             venueId: input.venueId,
+            dispositionOperationId: null,
           },
           select: {
             id: true,
@@ -146,6 +147,7 @@ export const adminChatlogsRouter = router({
             tenantId: input.tenantId,
             venueId: input.venueId,
             sessionId: input.sessionId,
+            session: { dispositionOperationId: null },
             ...(input.beforeSequence !== undefined
               ? { sessionSequence: { lt: input.beforeSequence } }
               : {}),

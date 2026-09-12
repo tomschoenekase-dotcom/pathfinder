@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   digestUpdateMany: vi.fn(),
   tenantFindUnique: vi.fn(),
   sessionFindMany: vi.fn(),
+  sessionCount: vi.fn(),
+  messageCount: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
   writeJobRecord: vi.fn(),
   updateJobRecord: vi.fn(),
@@ -56,7 +58,8 @@ vi.mock('@pathfinder/db', () => ({
   db: {
     weeklyDigest: { updateMany: mocks.digestUpdateMany },
     tenant: { findUnique: mocks.tenantFindUnique },
-    visitorSession: { findMany: mocks.sessionFindMany },
+    visitorSession: { findMany: mocks.sessionFindMany, count: mocks.sessionCount },
+    message: { count: mocks.messageCount },
   },
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
@@ -124,6 +127,8 @@ describe('processWeeklyDigestJob', () => {
     mocks.digestUpdateMany.mockResolvedValue({ count: 1 })
     mocks.tenantFindUnique.mockResolvedValue({ name: 'Example Tenant' })
     mocks.sessionFindMany.mockResolvedValue(makeSessions(5))
+    mocks.sessionCount.mockResolvedValue(5)
+    mocks.messageCount.mockResolvedValue(5)
     anthropicCreate.mockResolvedValue({
       content: [{ type: 'text', text: JSON.stringify({ insights: validInsights }) }],
       usage: { input_tokens: 120, output_tokens: 50 },
@@ -132,6 +137,8 @@ describe('processWeeklyDigestJob', () => {
 
   it('completes insufficient data without calling the provider', async () => {
     mocks.sessionFindMany.mockResolvedValueOnce(makeSessions(4))
+    mocks.sessionCount.mockResolvedValueOnce(4)
+    mocks.messageCount.mockResolvedValueOnce(4)
 
     await processWeeklyDigestJob(payload, {
       bullJobId: 'bull_1',
@@ -154,6 +161,35 @@ describe('processWeeklyDigestJob', () => {
       status: 'COMPLETE',
     })
   })
+
+  it.each([0, 4])(
+    'keeps structural counts while only %i undisposed sessions remain eligible for the prompt',
+    async (availableSessionCount) => {
+      mocks.sessionFindMany.mockResolvedValueOnce(makeSessions(availableSessionCount))
+      mocks.sessionCount.mockResolvedValueOnce(5)
+      mocks.messageCount.mockResolvedValueOnce(5)
+
+      await processWeeklyDigestJob(payload)
+
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
+        where: { id: 'digest_1', tenantId: 'tenant_1' },
+        data: {
+          status: 'COMPLETE',
+          sessionCount: 5,
+          messageCount: 5,
+          insights: [],
+          generatedAt: expect.any(Date),
+        },
+      })
+      expect(mocks.sessionCount.mock.calls.at(-1)?.[0]?.where).not.toHaveProperty(
+        'dispositionOperationId',
+      )
+      expect(mocks.messageCount.mock.calls.at(-1)?.[0]?.where.session).toEqual({
+        experienceScope: 'PUBLIC',
+      })
+    },
+  )
 
   it('fenced-restores PENDING without recording failure when admission pauses', async () => {
     const pause = new GlobalAiAdmissionError('global-ai-paused')
@@ -391,6 +427,7 @@ describe('processWeeklyDigestJob', () => {
       where: {
         tenantId: 'tenant_1',
         experienceScope: 'PUBLIC',
+        dispositionOperationId: null,
         messages: {
           some: {
             tenantId: 'tenant_1',

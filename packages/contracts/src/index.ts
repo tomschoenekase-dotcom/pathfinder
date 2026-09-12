@@ -66,3 +66,4 @@ export * from './support-completion-outcome'
 export * from './support-portable-export'
 
 export * from './agent-source-assignment'
+export * from './guest-conversation-disposition'

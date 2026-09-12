@@ -232,6 +232,33 @@ describe('processAnalyticsEnrichmentJob', () => {
         data: { topic: 'amenities_restrooms' },
       }),
     )
+    expect(mocks.messageFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          session: {
+            venueId: 'venue_1',
+            experienceScope: 'PUBLIC',
+            dispositionOperationId: null,
+          },
+        }),
+      }),
+    )
+    expect(mocks.messageGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          session: {
+            venueId: 'venue_1',
+            experienceScope: 'PUBLIC',
+            dispositionOperationId: null,
+          },
+        }),
+      }),
+    )
+    const visitorCountWhere = mocks.visitorFindMany.mock.calls.at(-1)?.[0]?.where
+    expect(visitorCountWhere).toEqual(
+      expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+    )
+    expect(visitorCountWhere).not.toHaveProperty('dispositionOperationId')
     expect(mocks.messageUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: { in: ['m2'] }, tenantId: 'tenant_1' },
@@ -305,7 +332,12 @@ describe('processAnalyticsEnrichmentJob', () => {
             venueId: 'venue_1',
             userMessageId: { not: null },
             session: {
-              is: { tenantId: 'tenant_1', venueId: 'venue_1', experienceScope: 'PUBLIC' },
+              is: {
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                experienceScope: 'PUBLIC',
+                dispositionOperationId: null,
+              },
             },
             userMessage: { is: { role: 'user' } },
           }),

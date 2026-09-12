@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   venueFindMany: vi.fn(),
   visitorSessionCount: vi.fn(),
+  visitorSessionFindFirst: vi.fn(),
   messageCount: vi.fn(),
   messageFindMany: vi.fn(),
   placeFindMany: vi.fn(),
@@ -26,7 +27,10 @@ vi.mock('@pathfinder/config', () => ({
 vi.mock('@pathfinder/db', () => ({
   db: {
     venue: { findMany: mocks.venueFindMany },
-    visitorSession: { count: mocks.visitorSessionCount },
+    visitorSession: {
+      count: mocks.visitorSessionCount,
+      findFirst: mocks.visitorSessionFindFirst,
+    },
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
     place: { findMany: mocks.placeFindMany },
     aiUsageEvent: { groupBy: mocks.usageGroupBy },
@@ -346,6 +350,7 @@ describe('processDailyRollupJob AI cost rollups', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.venueFindMany.mockResolvedValue([])
+    mocks.visitorSessionFindFirst.mockResolvedValue(null)
     mocks.usageGroupBy.mockResolvedValue([])
     mocks.analyticsEventFindMany.mockResolvedValue([])
     mocks.dailyDeleteMany.mockResolvedValue({ count: 0 })
@@ -486,6 +491,66 @@ describe('processDailyRollupJob AI cost rollups', () => {
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
       status: 'COMPLETE',
+    })
+  })
+
+  it('refuses an affected UTC day before prose reads or rollup replacement, including cross-midnight sessions', async () => {
+    mocks.visitorSessionFindFirst.mockResolvedValueOnce({ id: 'disposed-session' })
+
+    await expect(
+      processDailyRollupJob({ tenantId: 'tenant_1', date: targetDate.toISOString() }),
+    ).rejects.toThrow('DAILY_ROLLUP_DISPOSED_SOURCE')
+
+    expect(mocks.visitorSessionFindFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        dispositionOperationId: { not: null },
+        OR: [
+          {
+            startedAt: {
+              gte: new Date('2026-08-06T00:00:00.000Z'),
+              lt: new Date('2026-08-07T00:00:00.000Z'),
+            },
+          },
+          {
+            messages: {
+              some: {
+                tenantId: 'tenant_1',
+                createdAt: {
+                  gte: new Date('2026-08-06T00:00:00.000Z'),
+                  lt: new Date('2026-08-07T00:00:00.000Z'),
+                },
+              },
+            },
+          },
+          {
+            analyticsEvents: {
+              some: {
+                tenantId: 'tenant_1',
+                eventType: 'message.received',
+                occurredAt: {
+                  gte: new Date('2026-08-06T00:00:00.000Z'),
+                  lt: new Date('2026-08-07T00:00:00.000Z'),
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    })
+    expect(mocks.venueFindMany).not.toHaveBeenCalled()
+    expect(mocks.messageFindMany).not.toHaveBeenCalled()
+    expect(mocks.usageGroupBy).not.toHaveBeenCalled()
+    expect(mocks.dailyDeleteMany).not.toHaveBeenCalled()
+    expect(mocks.dailyCreateMany).not.toHaveBeenCalled()
+    expect(mocks.costDeleteMany).not.toHaveBeenCalled()
+    expect(mocks.costCreateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
+      status: 'FAILED',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 

@@ -289,19 +289,23 @@ export async function loadWeeklyReportSources(payload: WeeklyReportJobPayload) {
   const weekEnd = new Date(payload.weekEnd)
 
   return withTenantIsolationBypass(async () => {
-    const capturedAnswerWhere = {
+    const capturedAnswerCountWhere = {
       tenantId: payload.tenantId,
       venueId: payload.venueId,
       answeredAt: { gte: weekStart, lte: weekEnd },
       isAiInvented: false,
       session: { experienceScope: 'PUBLIC' as const },
     }
+    const capturedAnswerContentWhere = {
+      ...capturedAnswerCountWhere,
+      session: { experienceScope: 'PUBLIC' as const, dispositionOperationId: null },
+    }
     const capturedAnswers = db.$transaction(
       async (tx) =>
         Promise.all([
-          tx.engagementQuestionResponse.count({ where: capturedAnswerWhere }),
+          tx.engagementQuestionResponse.count({ where: capturedAnswerCountWhere }),
           tx.engagementQuestionResponse.findMany({
-            where: capturedAnswerWhere,
+            where: capturedAnswerContentWhere,
             orderBy: [{ answeredAt: 'asc' }, { id: 'asc' }],
             take: MAX_CAPTURED_ANSWERS,
             select: {
@@ -360,7 +364,11 @@ export async function loadWeeklyReportSources(payload: WeeklyReportJobPayload) {
           tenantId: payload.tenantId,
           role: 'user',
           createdAt: { gte: weekStart, lte: weekEnd },
-          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+          session: {
+            venueId: payload.venueId,
+            experienceScope: 'PUBLIC',
+            dispositionOperationId: null,
+          },
           answerEngagementResponses: {
             none: {
               tenantId: payload.tenantId,

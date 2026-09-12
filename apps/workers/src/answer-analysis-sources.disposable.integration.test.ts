@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 
+import { PrismaClient } from '@prisma/client'
 import { afterAll, describe, expect, it } from 'vitest'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 } from '@pathfinder/config/guest-conversation-disposition-policy'
+import {
+  db,
+  recordGuestConversationDispositionAuthorization,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { loadAnswerAnalysisSources } from './processors/answer-analysis'
 import { loadWeeklyReportSources } from './processors/weekly-report'
@@ -10,6 +16,11 @@ import { loadWeeklyReportSources } from './processors/weekly-report'
 const enabled =
   process.env.RUN_NATIVE_ANSWER_ANALYSIS_SOURCES_DB_INTEGRATION === '1' &&
   /\/pathfinder_disposable_answer_analysis_sources_[a-f0-9]{12}$/u.test(
+    process.env.DATABASE_URL ?? '',
+  )
+const dispositionEnabled =
+  process.env.RUN_GUEST_CONVERSATION_READER_DB_INTEGRATION === '1' &&
+  /^postgresql:\/\/[^@]+@127\.0\.0\.1:51324\/pathfinder_disposable_guest_lifecycle_[a-f0-9]{12}(?:\?|$)/u.test(
     process.env.DATABASE_URL ?? '',
   )
 
@@ -229,4 +240,239 @@ describe.skipIf(!enabled)('native visitor-report source boundaries', () => {
         )
     })
   })
+})
+
+describe.skipIf(!dispositionEnabled)('disposed native visitor-report source boundaries', () => {
+  afterAll(async () => db.$disconnect())
+
+  it('excludes authentically disposed prose while preserving structural weekly counts', async () => {
+    const rawUrl = process.env.DATABASE_URL ?? ''
+    const parsed = new URL(rawUrl)
+    const database = parsed.pathname.slice(1)
+    function client(user: string, name = database) {
+      const url = new URL(rawUrl)
+      url.username = user
+      url.pathname = `/${name}`
+      url.searchParams.set('connection_limit', '1')
+      return new PrismaClient({ datasourceUrl: url.toString() })
+    }
+
+    const control = client('guest_maintenance', 'postgres')
+    const admin = client('postgres')
+    const application = client('guest_application')
+    const maintenance = client('guest_maintenance')
+    const suffix = randomUUID().slice(0, 8)
+    const tenantId = `reader-disposition-${suffix}`
+    const venueId = `reader-venue-${suffix}`
+    const sessionId = `reader-session-${suffix}`
+    const operationId = randomUUID()
+    const token = randomUUID()
+    const at = new Date('2024-01-01T12:00:00.000Z')
+    const policyVersion = 'guest-conversations-terminal-text-v1'
+    const request = {
+      version: 'guest-conversation-disposition-v1' as const,
+      operationId,
+      tenantId,
+      venueId,
+      sessionId,
+      expectedPolicyVersion: policyVersion,
+      expectedPolicySha256: GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256,
+      basis: { kind: 'RETENTION_EXPIRY' as const },
+    }
+    const authority = {
+      version: 'guest-disposition-authority-v1' as const,
+      actorId: 'synthetic-platform-operator',
+      actorRole: 'PLATFORM_ADMIN' as const,
+      policyVersion,
+      policySha256: GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256,
+      retentionDays: 365 as const,
+      holdAssessment: {
+        status: 'NO_KNOWN_HOLD' as const,
+        referenceSha256: '7'.repeat(64),
+      },
+      basis: request.basis,
+    }
+    let reclosed = true
+
+    try {
+      const initial = await control.$queryRaw<Array<{ closed: boolean }>>`
+        SELECT NOT datallowconn AS closed FROM pg_database WHERE datname = ${database}
+      `
+      expect(initial).toEqual([{ closed: true }])
+      await control.$executeRawUnsafe(`ALTER DATABASE "${database}" ALLOW_CONNECTIONS true`)
+      reclosed = false
+
+      await admin.tenant.create({
+        data: { id: tenantId, name: 'Synthetic reader disposition tenant', slug: tenantId },
+      })
+      await admin.venue.create({
+        data: { id: venueId, tenantId, name: 'Synthetic reader disposition venue', slug: venueId },
+      })
+      await admin.visitorSession.create({
+        data: {
+          id: sessionId,
+          tenantId,
+          venueId,
+          anonymousToken: token,
+          experienceScope: 'PUBLIC',
+          startedAt: at,
+          lastActiveAt: at,
+        },
+      })
+      const asked = await admin.message.create({
+        data: {
+          tenantId,
+          venueId,
+          sessionId,
+          sessionSequence: 0,
+          role: 'assistant',
+          content: 'Synthetic disposed prompt',
+          createdAt: at,
+        },
+      })
+      const answered = await admin.message.create({
+        data: {
+          tenantId,
+          venueId,
+          sessionId,
+          sessionSequence: 1,
+          role: 'user',
+          content: 'Synthetic disposed structured answer',
+          createdAt: at,
+        },
+      })
+      await admin.engagementQuestionResponse.create({
+        data: {
+          tenantId,
+          venueId,
+          sessionId,
+          askedMessageId: asked.id,
+          answerMessageId: answered.id,
+          isAiInvented: false,
+          questionText: 'What did you notice?',
+          answerType: 'OPEN_ENDED',
+          answerText: answered.content,
+          askedAt: at,
+          answeredAt: at,
+        },
+      })
+      await admin.message.create({
+        data: {
+          tenantId,
+          venueId,
+          sessionId,
+          sessionSequence: 2,
+          role: 'user',
+          content: 'Synthetic disposed ordinary opinion',
+          createdAt: at,
+        },
+      })
+
+      const answerPayload = {
+        tenantId,
+        venueId,
+        snapshotId: 'disposed-reader-proof',
+        rangeStart: '2024-01-01T00:00:00.000Z',
+        rangeEnd: '2024-01-02T00:00:00.000Z',
+      }
+      const weeklyPayload = {
+        tenantId,
+        venueId,
+        reportId: 'disposed-weekly-reader-proof',
+        weekStart: answerPayload.rangeStart,
+        weekEnd: answerPayload.rangeEnd,
+      }
+      const beforeAnswer = await loadAnswerAnalysisSources(answerPayload)
+      const beforeWeekly = await loadWeeklyReportSources(weeklyPayload)
+      expect(beforeAnswer.responses.map((row) => row.answerText)).toEqual([
+        'Synthetic disposed structured answer',
+      ])
+      expect(beforeAnswer.generalMessages.sort()).toEqual(
+        ['Synthetic disposed structured answer', 'Synthetic disposed ordinary opinion'].sort(),
+      )
+      expect(beforeWeekly).toMatchObject({
+        sessionCount: 1,
+        messageCount: 3,
+        responseCount: 1,
+        responseSampleCount: 1,
+      })
+
+      const authorized = await recordGuestConversationDispositionAuthorization(
+        { request, authority },
+        application,
+      )
+      await db.$disconnect()
+      await admin.$disconnect()
+      await application.$disconnect()
+      await maintenance.$queryRaw`SELECT pg_backend_pid()`
+      await control.$executeRawUnsafe(`ALTER DATABASE "${database}" ALLOW_CONNECTIONS false`)
+      reclosed = true
+      const intentRows = await maintenance.$queryRaw<Array<{ result: Record<string, unknown> }>>`
+        SELECT public.pathfinder_seal_guest_disposition(
+          ${operationId}::uuid, ${authorized.requestSha256}
+        ) AS result
+      `
+      expect(intentRows).toHaveLength(1)
+      const intent = intentRows[0]!.result
+      expect(intent?.affected).toMatchObject({ sessions: 1, messages: 3 })
+      const receiptRows = await maintenance.$queryRaw<Array<{ result: Record<string, unknown> }>>`
+        SELECT public.pathfinder_apply_guest_disposition(
+          ${operationId}::uuid, ${authorized.requestSha256}, ${'b'.repeat(64)}
+        ) AS result
+      `
+      expect(receiptRows).toHaveLength(1)
+      const receipt = receiptRows[0]!.result
+      expect(receipt?.affected).toEqual(intent?.affected)
+      await maintenance.$disconnect()
+      await control.$executeRawUnsafe(`ALTER DATABASE "${database}" ALLOW_CONNECTIONS true`)
+      reclosed = false
+
+      const afterAnswer = await loadAnswerAnalysisSources(answerPayload)
+      const afterWeekly = await loadWeeklyReportSources(weeklyPayload)
+      expect(afterAnswer).toMatchObject({ responses: [], generalMessages: [] })
+      expect(afterWeekly).toMatchObject({
+        sessionCount: 1,
+        messageCount: 3,
+        responseCount: 1,
+        responseSampleCount: 0,
+        responses: [],
+        generalMessages: [],
+      })
+      expect(await db.answerAnalysisSnapshot.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(await db.weeklyReport.count({ where: { tenantId, venueId } })).toBe(0)
+
+      const output = process.env.PATHFINDER_DISPOSABLE_PROOF_OUTPUT
+      if (output)
+        writeFileSync(
+          output,
+          JSON.stringify(
+            {
+              authorizedState: authorized.state,
+              sealAffected: intent?.affected,
+              applyAffected: receipt?.affected,
+              disposedAnswerResponses: afterAnswer.responses.length,
+              disposedAnswerGeneralMessages: afterAnswer.generalMessages.length,
+              structuralSessionCount: afterWeekly.sessionCount,
+              structuralMessageCount: afterWeekly.messageCount,
+              structuralResponseCount: afterWeekly.responseCount,
+              responseEvidenceSampleCount: afterWeekly.responseSampleCount,
+              noProviderOrSnapshotWrite: true,
+            },
+            null,
+            2,
+          ),
+        )
+    } finally {
+      await Promise.allSettled([
+        db.$disconnect(),
+        admin.$disconnect(),
+        application.$disconnect(),
+        maintenance.$disconnect(),
+      ])
+      if (!reclosed) {
+        await control.$executeRawUnsafe(`ALTER DATABASE "${database}" ALLOW_CONNECTIONS false`)
+      }
+      await control.$disconnect()
+    }
+  }, 60_000)
 })

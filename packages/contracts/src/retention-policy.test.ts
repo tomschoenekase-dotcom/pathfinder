@@ -22,6 +22,23 @@ describe('retention policy architecture', () => {
     }
   })
 
+  it('classifies guest disposition receipts as restricted append-only evidence', () => {
+    expect(
+      RETENTION_DATA_INVENTORY.find(
+        (entry) => entry.model === 'GuestConversationDispositionOperation',
+      ),
+    ).toEqual({
+      model: 'GuestConversationDispositionOperation',
+      decisionKey: 'guest-conversations',
+      containsPersonalData: true,
+      clientExportEligible: false,
+      lifecycle: 'APPEND_ONLY',
+      deletionBoundary: 'RESTRICTED_EVIDENCE',
+      notes:
+        'Immutable disposition authority and maintenance receipts survive content erasure and remain governed by the selected guest-conversations policy.',
+    })
+  })
+
   it('fails closed when no legal policy has been supplied', () => {
     expect(assessRetentionReadiness(null)).toEqual({
       ready: false,

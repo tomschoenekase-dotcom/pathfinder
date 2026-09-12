@@ -137,6 +137,16 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     notes: 'Conversation and visitor identifiers require a privacy decision.',
   },
   {
+    model: 'GuestConversationDispositionOperation',
+    decisionKey: 'guest-conversations',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'APPEND_ONLY',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Immutable disposition authority and maintenance receipts survive content erasure and remain governed by the selected guest-conversations policy.',
+  },
+  {
     model: 'AnalyticsEvent',
     decisionKey: 'analytics-and-reports',
     containsPersonalData: true,

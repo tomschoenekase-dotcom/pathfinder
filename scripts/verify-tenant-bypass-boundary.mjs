@@ -57,7 +57,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/venue-media-derivative.ts', 3],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
   ['apps/workers/src/processors/answer-analysis.ts', 2],
-  ['apps/workers/src/processors/daily-rollup.ts', 3],
+  // The tenant-day rollup has three existing tenant-scoped aggregation/write phases and one
+  // bounded preflight read that refuses any day containing a disposed conversation source.
+  ['apps/workers/src/processors/daily-rollup.ts', 4],
   ['apps/workers/src/processors/embed-knowledge-entry.ts', 1],
   // Company Knowledge embedding claims are platform-dispatched, then re-enter
   // the exact tenant+venue scope before selecting or persisting content.

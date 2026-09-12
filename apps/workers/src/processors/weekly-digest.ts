@@ -187,6 +187,7 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
       where: {
         tenantId: payload.tenantId,
         experienceScope: 'PUBLIC',
+        dispositionOperationId: null,
         messages: {
           some: {
             tenantId: payload.tenantId,
@@ -230,6 +231,28 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
       },
     })
 
+    const [sessionCount, messageCount] = await Promise.all([
+      db.visitorSession.count({
+        where: {
+          tenantId: payload.tenantId,
+          experienceScope: 'PUBLIC',
+          messages: {
+            some: {
+              tenantId: payload.tenantId,
+              createdAt: { gte: weekStart, lte: weekEnd },
+            },
+          },
+        },
+      }),
+      db.message.count({
+        where: {
+          tenantId: payload.tenantId,
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { experienceScope: 'PUBLIC' },
+        },
+      }),
+    ])
+
     type RawSession = (typeof sessions)[number]
     type RawMessage = RawSession['messages'][number]
 
@@ -266,16 +289,12 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
             )
             .join(', ')
 
-    const messageCount = promptSessions.reduce(
-      (total, session) => total + session.messages.length,
-      0,
-    )
-
     return {
       tenantName: tenant.name,
       venueSummary,
       sessions: promptSessions,
-      sessionCount: promptSessions.length,
+      contentSessionCount: promptSessions.length,
+      sessionCount,
       messageCount,
     }
   })
@@ -304,7 +323,7 @@ export async function processWeeklyDigestJob(
   try {
     const promptData = await loadPromptSessions(payload)
 
-    if (promptData.sessionCount < MINIMUM_SESSION_COUNT) {
+    if (promptData.contentSessionCount < MINIMUM_SESSION_COUNT) {
       await markDigestStatus(payload, {
         status: 'COMPLETE',
         sessionCount: promptData.sessionCount,

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 539,
-    "sha256": "4ef7d1f61c6eef58f00eeca4bf99db2683f09cfff5ff4d9ef8d93fbafb869324",
+    "count": 540,
+    "sha256": "f38dee14eb08c2fd890ef349d40be265f2a6c28a958282cf8502a47b0cbea095",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "4ef7d1f61c6eef58f00eeca4bf99db2683f09cfff5ff4d9ef8d93fbafb869324",
-      "sha256": "faf2d4e5ab23ea64beeae9775b551adec22269bfb732edd1efcc021c36a13634"
+      "operationInventorySha256": "f38dee14eb08c2fd890ef349d40be265f2a6c28a958282cf8502a47b0cbea095",
+      "sha256": "9b2de9a75e03c436d361608b68b857704d58aa447162cb3e29247b37f4474ec4"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -731,7 +731,7 @@
     },
     {
       "id": "offboarding",
-      "pattern": "Offboarding|RetentionDisposition",
+      "pattern": "Offboarding|RetentionDisposition|GuestConversationDisposition",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Agents may inspect a count-only, policy-unresolved retention preview; offboarding finalization, policy approval, revocation, deletion, anonymization, and provider-side actions remain restricted.",

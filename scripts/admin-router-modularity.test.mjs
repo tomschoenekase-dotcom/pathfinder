@@ -33,6 +33,7 @@ const expectedAdminProcedures = [
   'archiveProspect',
   'askFounderOperatingSystem',
   'attentionConsole',
+  'authorizeGuestConversationDisposition',
   'beginProspectImport',
   'cancelCharacterFactoryJob',
   'cancelEvaluationRun',

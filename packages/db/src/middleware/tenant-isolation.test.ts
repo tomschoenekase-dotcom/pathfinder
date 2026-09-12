@@ -131,6 +131,7 @@ describe('tenantIsolationMiddleware', () => {
       'NativeVenueDeploymentEvaluationEvidence',
       'VenuePackageDuplicateAnalysis',
       'VisitorSession',
+      'GuestConversationDispositionOperation',
       'VoiceSession',
       'VoiceTranscriptSegment',
       'GuestChatTurn',
