@@ -857,11 +857,17 @@ describe('admin router', () => {
           id: 'session_1',
           tenantId: 'tenant_1',
           venueId: 'venue_1',
+          dispositionOperationId: null,
         },
       }),
     )
     expect(messageFindMany).toHaveBeenCalledWith({
-      where: { tenantId: 'tenant_1', venueId: 'venue_1', sessionId: 'session_1' },
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        sessionId: 'session_1',
+        session: { dispositionOperationId: null },
+      },
       orderBy: { sessionSequence: 'desc' },
       take: 51,
       select: {
@@ -921,6 +927,7 @@ describe('admin router', () => {
           id: 'session_1',
           tenantId: 'tenant_1',
           venueId: 'wrong_venue',
+          dispositionOperationId: null,
         },
       }),
     )

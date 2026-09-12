@@ -57,6 +57,7 @@ vi.mock('@pathfinder/db', () => ({
     releaseId: null,
     state: null,
   }),
+  isGuestConversationDisposed: vi.fn().mockResolvedValue(false),
   applyNativeGuestContentRead: vi.fn(
     (input: { legacyPlaces: unknown[]; legacyKnowledgeEntries: unknown[] }) => ({
       path: 'LEGACY',
