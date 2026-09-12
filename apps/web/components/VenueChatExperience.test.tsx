@@ -640,8 +640,8 @@ describe('VenueChatExperience presentation boundary', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
 
-    await screen.findByRole('button', { name: 'Check conversation' })
-    expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
+    await screen.findByText(/current history could not be confirmed/u)
+    expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
       true,
     )
@@ -682,8 +682,8 @@ describe('VenueChatExperience presentation boundary', () => {
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
 
-    await screen.findByRole('button', { name: 'Check conversation' })
-    expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
+    await screen.findByText(/current history could not be confirmed/u)
+    expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
       true,
     )
