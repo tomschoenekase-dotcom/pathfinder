@@ -122,7 +122,7 @@ jobs:
             --publish 127.0.0.1:59000:9000 \
             --env MINIO_ROOT_USER=synthetic-access \
             --env MINIO_ROOT_PASSWORD=synthetic-secret \
-            minio/minio@sha256:3f97c5651cb6662b880c787a232b6b34fec8d8922e08d6617b25d241a21164bb \
+            quay.io/minio/minio@sha256:3f97c5651cb6662b880c787a232b6b34fec8d8922e08d6617b25d241a21164bb \
             server /data
           for attempt in {1..30}; do
             curl --fail --silent http://127.0.0.1:59000/minio/health/ready && exit 0
