@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
+import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 
 import {
   AiGatewayError,
@@ -629,6 +630,7 @@ const chatReadRouter = router({
     if (reservation.state === 'COMPLETE') {
       return {
         response: reservation.response,
+        replyKind: reservation.replyKind,
         assistantMessageId: reservation.assistantMessageId,
         sessionId: reservation.sessionId,
         places: reservation.places,
@@ -664,6 +666,7 @@ const chatReadRouter = router({
     if (claimed.state === 'COMPLETE') {
       return {
         response: claimed.response,
+        replyKind: claimed.replyKind,
         assistantMessageId: claimed.assistantMessageId,
         sessionId: claimed.sessionId,
         places: claimed.places,
@@ -1703,6 +1706,7 @@ const chatReadRouter = router({
           ...turnOperationBase,
           kind: 'RESPONSE_GENERATION',
           outcomeCode: isAiAdmissionControlError(err) ? 'ADMISSION_REJECTED' : 'FAILED_FALLBACK',
+          usageReference: chatAccounting.usageEventIds().at(-1) ?? null,
         },
       })
       if (isAiAdmissionControlError(err)) {
@@ -2119,6 +2123,7 @@ const chatReadRouter = router({
 
     return {
       response: finalized.response,
+      replyKind: finalized.replyKind,
       assistantMessageId: finalized.assistantMessageId,
       sessionId: finalized.sessionId,
       places: finalized.places,
@@ -2226,7 +2231,7 @@ const chatReadRouter = router({
           content: true,
           createdAt: true,
           sessionSequence: true,
-          guestChatTurn: { select: { replayMetadata: true } },
+          guestChatTurn: { select: { replayMetadata: true, fallbackCode: true } },
         },
       }),
       ctx.db.voiceTranscriptSegment.findMany({
@@ -2286,6 +2291,9 @@ const chatReadRouter = router({
           id: entry.row.id,
           role: entry.row.role as 'user' | 'assistant',
           content: entry.row.content,
+          ...(entry.row.role === 'assistant'
+            ? { replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode) }
+            : {}),
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
           ...(replay?.success && replay.data.citations.length
             ? {

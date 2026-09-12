@@ -45,6 +45,7 @@ import { adminNativeVenueDeploymentsRouter } from './native-venue-deployments'
 import { adminNativeDeploymentEvaluationsRouter } from './native-deployment-evaluations'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
+import { adminSupportPortableExportRouter } from './support-portable-export'
 import { adminSupportManualLoopRouter } from './support-manual-loop'
 import { adminSupportAgentRunLineageRouter } from './support-agent-run-lineage'
 import { adminSupportAttachmentsRouter } from './support-attachments'
@@ -135,6 +136,7 @@ export const adminRouter = mergeRouters(
   adminFreshnessAuditRouter,
   adminGuestDesignRouter,
   adminSupportOperationsRouter,
+  adminSupportPortableExportRouter,
   adminSupportManualLoopRouter,
   adminSupportAgentRunLineageRouter,
   adminSupportAttachmentsRouter,

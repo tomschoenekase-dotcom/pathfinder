@@ -9,7 +9,7 @@ export type GuestTextHistoryRow = {
   content: string
   createdAt: Date
   sessionSequence: number
-  guestChatTurn?: { replayMetadata: unknown } | null
+  guestChatTurn?: { replayMetadata: unknown; fallbackCode?: string | null } | null
 }
 
 export type GuestVoiceHistoryRow = {

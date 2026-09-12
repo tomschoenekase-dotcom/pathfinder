@@ -366,6 +366,15 @@
         "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts",
         "packages/api/src/routers/admin/character-candidate-reviews.test.ts"
       ]
+    },
+    {
+      "source": "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.test.ts"
+      ]
     }
   ],
   "dashboardPublicApiPaths": [

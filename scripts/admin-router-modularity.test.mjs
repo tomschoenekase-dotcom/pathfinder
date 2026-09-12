@@ -261,6 +261,7 @@ const expectedAdminProcedures = [
   'prepareLegacyKnowledgeAdoptionDraft',
   'prepareOnboardingEvaluationSuite',
   'prepareProspectEmailAttachmentRetention',
+  'prepareSupportPortableExport',
   'previewCurrentEvaluationSourceCoverage',
   'previewFullVenueDeploymentManifest',
   'previewGuestAnswerAttributionAgreement',

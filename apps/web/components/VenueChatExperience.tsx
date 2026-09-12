@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
+import type { GuestReplyKind } from '@pathfinder/contracts/guest-reply-kind'
 import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import {
@@ -76,6 +77,23 @@ type PendingTurn = {
   anonymousToken: string
 }
 
+type ReplyAwareChatMessage = ChatMessage & { replyKind?: GuestReplyKind }
+
+function normalizeReplyKind(value: unknown): GuestReplyKind {
+  return value === 'TEMPORARY_FALLBACK' ? 'TEMPORARY_FALLBACK' : 'ANSWER'
+}
+
+function normalizeHistoryMessages(messages: readonly ChatMessage[]): ReplyAwareChatMessage[] {
+  return messages.map((message) =>
+    message.role === 'assistant'
+      ? {
+          ...message,
+          replyKind: normalizeReplyKind((message as { replyKind?: unknown }).replyKind),
+        }
+      : message,
+  )
+}
+
 const VISITOR_READ_TIMEOUT_MS = 15_000
 
 const EXPANSION_REQUEST_MESSAGES: Record<SupportedChatLanguage, string> = {
@@ -121,7 +139,7 @@ export function VenueChatExperience({
     null,
   )
   const venue = venueState?.slug === venueSlug ? venueState.venue : null
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<ReplyAwareChatMessage[]>([])
   const [isBooting, setIsBooting] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [characterState, setCharacterState] = useState<CharacterState>('idle')
@@ -310,7 +328,8 @@ export function VenueChatExperience({
             })
             if (!disposed && conversationEpochRef.current === epoch) {
               historyBootstrapFailureRef.current = null
-              if (history.messages.length) setMessages(history.messages as ChatMessage[])
+              if (history.messages.length)
+                setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
             }
           } catch {
             if (!disposed && conversationEpochRef.current === epoch) {
@@ -498,7 +517,7 @@ export function VenueChatExperience({
         !['COMPLETE', 'FAILED', 'AMBIGUOUS'].includes(scopedTurn.status)
       )
         return false
-      setMessages(history.messages as ChatMessage[])
+      setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
       reconciliationRequiredRef.current = false
       return true
     } catch {
@@ -537,7 +556,7 @@ export function VenueChatExperience({
         currentAnonymousTokenRef.current !== failure.anonymousToken
       )
         return
-      setMessages(history.messages as ChatMessage[])
+      setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
       historyBootstrapFailureRef.current = null
       setRecoveryMode(null)
       setSendError(null)
@@ -577,6 +596,7 @@ export function VenueChatExperience({
       if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
       const response = result.response
+      const replyKind = normalizeReplyKind(result.replyKind)
       const resultPlaces = result.places
       const resultCitations = Array.isArray(result.citations) ? result.citations : []
       if (typeof response !== 'string' || !Array.isArray(resultPlaces)) {
@@ -597,6 +617,7 @@ export function VenueChatExperience({
           ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}),
           role: 'assistant',
           content: response,
+          replyKind,
           places: resultPlaces as NonNullable<ChatMessage['places']>,
           ...(resultCitations.length
             ? {
@@ -613,7 +634,10 @@ export function VenueChatExperience({
       setSessionId(result.sessionId)
       pendingTurnRef.current = null
       setRecoveryMode(null)
-      setTemporaryCharacterState('success', 900)
+      setTemporaryCharacterState(
+        replyKind === 'TEMPORARY_FALLBACK' ? 'error' : 'success',
+        replyKind === 'TEMPORARY_FALLBACK' ? 1600 : 900,
+      )
     } catch (error) {
       if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
@@ -905,7 +929,9 @@ export function VenueChatExperience({
       onSend={(message) => {
         handleSend(message)
       }}
-      onRequestMore={() => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND')}
+      {...(messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK'
+        ? { onRequestMore: () => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND') }
+        : {})}
       requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}

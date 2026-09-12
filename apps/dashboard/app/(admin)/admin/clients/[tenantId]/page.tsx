@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { SUPPORT_PORTABLE_EXPORT_MAX_BYTES, SUPPORT_PORTABLE_EXPORT_SECTIONS } from '@pathfinder/contracts'
 import Link from 'next/link'
 
 import { AdminAiCostBudgetForm } from '../../../../../components/admin/AdminAiCostBudgetForm'
@@ -7,6 +8,7 @@ import { AdminClientPlanForm } from '../../../../../components/admin/AdminClient
 import { AdminClientStatusForm } from '../../../../../components/admin/AdminClientStatusForm'
 import { AdminTriggerDigestButton } from '../../../../../components/admin/AdminTriggerDigestButton'
 import { AdminTochiRolloutForm } from '../../../../../components/admin/AdminTochiRolloutForm'
+import { SupportPortableExportForm } from '../../../../../components/admin/SupportPortableExportForm'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 import { getStatusClasses } from '../../../../../lib/admin-status'
 
@@ -244,6 +246,22 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
         </div>
       </section>
 
+      <SupportPortableExportForm
+        tenantId={tenant.id}
+        venues={venues.map((venue) => ({
+          id: venue.id,
+          name: venue.name,
+          isActive: venue.isActive,
+        }))}
+        recipients={tenant.memberships.map((membership) => ({
+          userId: membership.user.id,
+          fullName: membership.user.fullName,
+          email: membership.user.email,
+          role: membership.role,
+        }))}
+        sections={SUPPORT_PORTABLE_EXPORT_SECTIONS}
+        maxExportBytes={SUPPORT_PORTABLE_EXPORT_MAX_BYTES}
+      />
       <details
         id="ai-cost-budget"
         className="scroll-mt-24 rounded-2xl border border-pf-light bg-pf-white p-6"

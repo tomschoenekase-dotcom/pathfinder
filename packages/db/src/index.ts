@@ -1,5 +1,11 @@
 export { db } from './client'
 export {
+  readSupportPortableExport,
+  SUPPORT_PORTABLE_EXPORT_LIMITS,
+  SupportPortableExportReadError,
+  type SupportPortableExportReadErrorCode,
+} from './helpers/support-portable-export-read'
+export {
   readCustomCharacterPublicationEvidence,
   createVerifiedCharacterExportReceipt,
   verifiedCharacterExportReceiptHash,

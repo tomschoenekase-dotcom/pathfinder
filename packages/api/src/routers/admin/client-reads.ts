@@ -61,7 +61,7 @@ export const adminClientReadsRouter = router({
               select: {
                 id: true,
                 role: true,
-                user: { select: { email: true, fullName: true } },
+                user: { select: { id: true, email: true, fullName: true } },
               },
             },
           },

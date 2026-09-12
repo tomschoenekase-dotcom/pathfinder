@@ -144,11 +144,24 @@ let anthropicClient: AnthropicMessagesClient | null = null
 function getAnthropicClient(): AnthropicMessagesClient {
   if (!anthropicClient) {
     const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured')
-    anthropicClient = new Anthropic({
-      apiKey,
-      maxRetries: 0,
-    }) as unknown as AnthropicMessagesClient
+    if (!apiKey) {
+      throw new AiGatewayError('AI provider configuration is unavailable', {
+        attempts: 0,
+        code: 'provider-not-configured',
+      })
+    }
+    try {
+      anthropicClient = new Anthropic({
+        apiKey,
+        maxRetries: 0,
+      }) as unknown as AnthropicMessagesClient
+    } catch (cause) {
+      throw new AiGatewayError('AI provider client could not be initialized', {
+        attempts: 0,
+        code: 'provider-client-initialization',
+        cause,
+      })
+    }
   }
   return anthropicClient as AnthropicMessagesClient
 }
@@ -380,6 +393,44 @@ export async function generateText<TParsed = string>(params: {
         })
       }
       throw admissionError
+    }
+    // Local client setup cannot spend. Resolve it after admission, before claiming
+    // a dispatch or reserving spend, so missing configuration stays undispatched.
+    if (!dispatchRecorded && spec.provider === 'anthropic') {
+      try {
+        const client = getAnthropicClient()
+        if (params.onTextDelta && !client.messages.stream) {
+          throw new AiGatewayError('AI provider streaming client is unavailable', {
+            attempts: 0,
+            code: 'provider-client-initialization',
+          })
+        }
+      } catch (error) {
+        if (!(error instanceof AiGatewayError)) throw error
+        await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'NOT_DISPATCHED',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: 0,
+          success: false,
+          errorCode: error.code,
+        })
+        throw new AiGatewayError(error.message, {
+          attempts: 0,
+          code: error.code,
+          usageRecorded: true,
+          cause: error,
+        })
+      }
     }
     const reservation = await budgetGate.reserve({
       invocationId,
