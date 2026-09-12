@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { useLayoutEffect } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { useGuestVisitContext } from './useGuestVisitContext'
@@ -6,6 +7,75 @@ import { useGuestVisitContext } from './useGuestVisitContext'
 const emptyContext = { visitedPlaceIds: [], interests: [] }
 
 describe('useGuestVisitContext', () => {
+  it.each([
+    { label: 'an initially unavailable venue', venueId: '', scope: 'public' },
+    { label: 'another experience scope', venueId: 'venue_1', scope: 'employee' },
+  ])('retains an accepted pre-passive update after $label becomes current', (initial) => {
+    const accepted: boolean[] = []
+    const preferences = { visitedPlaceIds: ['place-1'], interests: ['trains'] }
+    const visit = renderHook(
+      ({ venueId, scope }) => {
+        const output = useGuestVisitContext(venueId, scope)
+        const updateContext = output.updateContext
+        useLayoutEffect(() => {
+          if (venueId === 'venue_1' && scope === 'public' && accepted.length === 0) {
+            accepted.push(updateContext(preferences))
+          }
+        }, [scope, updateContext, venueId])
+        return output
+      },
+      { initialProps: { venueId: initial.venueId, scope: initial.scope } },
+    )
+    const staleUpdate = visit.result.current.updateContext
+    const staleClear = visit.result.current.clearVisit
+
+    visit.rerender({ venueId: 'venue_1', scope: 'public' })
+
+    expect(accepted).toEqual([true])
+    expect(visit.result.current.context).toEqual(preferences)
+    act(() => {
+      expect(staleUpdate({ visitedPlaceIds: [], interests: ['stale'] })).toBe(false)
+      expect(staleClear()).toBe(false)
+    })
+    expect(visit.result.current.context).toEqual(preferences)
+    const beforeFreshVisit = visit.result.current.updateContext
+    act(() => expect(visit.result.current.clearVisit()).toBe(true))
+    expect(visit.result.current.context).toEqual(emptyContext)
+    act(() => expect(beforeFreshVisit(preferences)).toBe(false))
+    expect(visit.result.current.context).toEqual(emptyContext)
+  })
+
+  it('retains a new accepted input before a fresh visit passive reset', () => {
+    const accepted: boolean[] = []
+    const replacement = { visitedPlaceIds: [], interests: ['architecture'] }
+    const visit = renderHook(
+      ({ replace }) => {
+        const output = useGuestVisitContext('venue_1')
+        const updateContext = output.updateContext
+        useLayoutEffect(() => {
+          if (replace) accepted.push(updateContext(replacement))
+        }, [replace, updateContext])
+        return output
+      },
+      { initialProps: { replace: false } },
+    )
+    act(() => {
+      expect(
+        visit.result.current.updateContext({ visitedPlaceIds: [], interests: ['trains'] }),
+      ).toBe(true)
+    })
+    const priorVisitUpdate = visit.result.current.updateContext
+    act(() => {
+      expect(visit.result.current.clearVisit()).toBe(true)
+      visit.rerender({ replace: true })
+    })
+
+    expect(accepted).toEqual([true])
+    expect(visit.result.current.context).toEqual(replacement)
+    act(() => expect(priorVisitUpdate({ visitedPlaceIds: [], interests: ['stale'] })).toBe(false))
+    expect(visit.result.current.context).toEqual(replacement)
+  })
+
   it('keeps explicit context only in the current venue and experience scope', async () => {
     const capturedContexts: Array<{ visitedPlaceIds: string[]; interests: string[] }> = []
     const visit = renderHook(
