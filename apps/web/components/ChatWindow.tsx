@@ -6,6 +6,7 @@ import type { GuestPlaceCard } from '@pathfinder/api'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
+import type { GuestReplyKind } from '@pathfinder/contracts/guest-reply-kind'
 
 import { MessageBubble } from './MessageBubble'
 import styles from './visitor-chat.module.css'
@@ -17,6 +18,7 @@ type Message = {
   id?: string
   role: 'user' | 'assistant'
   content: string
+  replyKind?: GuestReplyKind
   places?: GuestPlaceCard[]
   blocks?: GuestResponseBlock[]
   voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
@@ -229,7 +231,10 @@ export function ChatWindow({
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(onVisitorAction ? { onVisitorAction } : {})}
-              {...(message.id && !message.voiceDelivery && onMessageFeedback
+              {...(message.id &&
+              !message.voiceDelivery &&
+              message.replyKind !== 'TEMPORARY_FALLBACK' &&
+              onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
               {...(message.role === 'assistant' && !isLoading && isOnline && !conversationLocked
@@ -246,7 +251,8 @@ export function ChatWindow({
         {onRequestMore &&
         !isLoading &&
         messages.at(-1)?.role === 'assistant' &&
-        !messages.at(-1)?.voiceDelivery ? (
+        !messages.at(-1)?.voiceDelivery &&
+        messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK' ? (
           <div className="flex justify-start pl-1">
             <button
               type="button"

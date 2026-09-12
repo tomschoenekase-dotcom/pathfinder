@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -79,7 +80,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { SUPPORTED_CHAT_LANGUAGES } from '../schemas/chat'
-import { _setAnthropicClientForTesting, chatRouter } from './chat'
+import { _setAnthropicClientForTesting, chatRouter, streamChatTurn } from './chat'
 
 // ---------------------------------------------------------------------------
 // DB mock
@@ -286,6 +287,7 @@ describe('chat router', () => {
         sessionId: SESSION_ID,
         userMessageId: '55555555-5555-4555-8555-555555555555',
         response: input.assistantResponse,
+        replyKind: guestReplyKindFromFallbackCode(input.fallbackCode),
         places: input.replayMetadata.places,
         citations: input.replayMetadata.citations,
         replayed: false,
@@ -576,6 +578,102 @@ describe('chat router', () => {
   // --- chat.send ---
 
   describe('chat.send', () => {
+    describe('public reply classification', () => {
+      it.each([false, true])(
+        'classifies a newly committed response, provider failure=%s',
+        async (failed) => {
+          setupHappyPath('A useful answer.')
+          if (failed)
+            anthropicCreate
+              .mockReset()
+              .mockRejectedValue(Object.assign(new Error('fixture refusal'), { status: 400 }))
+          const result = await caller.chat.send(sendInput)
+          expect(result.replyKind).toBe(failed ? 'TEMPORARY_FALLBACK' : 'ANSWER')
+          expect(result).not.toHaveProperty('fallbackCode')
+          expect(result).not.toHaveProperty('failureCode')
+          expect(anthropicCreate).toHaveBeenCalledTimes(1)
+        },
+      )
+
+      it.each(['reserve', 'claim'] as const)(
+        'preserves durable classification through %s replay without dispatch',
+        async (boundary) => {
+          dbQueryRaw.mockResolvedValueOnce([venueRow])
+          guestTurnActions[boundary].mockResolvedValueOnce({
+            state: 'COMPLETE',
+            turnId: '11111111-1111-4111-8111-111111111111',
+            sessionId: SESSION_ID,
+            assistantMessageId: 'assistant-message-1',
+            response: 'Previously committed fallback.',
+            replyKind: 'TEMPORARY_FALLBACK',
+            places: [],
+            citations: [],
+            replayed: true,
+          })
+          const result = await caller.chat.send(sendInput)
+          expect(result).toMatchObject({ replyKind: 'TEMPORARY_FALLBACK', replayed: true })
+          expect(embeddingCreate).not.toHaveBeenCalled()
+          expect(anthropicCreate).not.toHaveBeenCalled()
+          expect(guestTurnActions.dispatch).not.toHaveBeenCalled()
+          expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+        },
+      )
+
+      it('carries temporary classification on stream completion after a failed partial stream', async () => {
+        setupHappyPath('Unused final provider text.')
+        const stream = vi.fn(() => ({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: 'content_block_delta',
+              delta: { type: 'text_delta', text: 'Partial answer.' },
+            }
+            throw Object.assign(new Error('fixture stream failure'), { status: 400 })
+          },
+          finalMessage: vi.fn(),
+        }))
+        _setAnthropicClientForTesting({
+          messages: { create: anthropicCreate, stream },
+        } as unknown as AnthropicMessagesClient)
+        const events = []
+        for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+        expect(events.some((event) => event.type === 'delta')).toBe(true)
+        expect(events.at(-1)).toMatchObject({
+          type: 'complete',
+          result: { replyKind: 'TEMPORARY_FALLBACK' },
+        })
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(1)
+        expect(stream).toHaveBeenCalledTimes(1)
+        expect(anthropicCreate).not.toHaveBeenCalled()
+      })
+
+      it.each(['ANSWER', 'TEMPORARY_FALLBACK'] as const)(
+        'carries %s through a terminal stream replay',
+        async (replyKind) => {
+          dbQueryRaw.mockResolvedValueOnce([venueRow])
+          guestTurnActions.reserve.mockResolvedValueOnce({
+            state: 'COMPLETE',
+            turnId: '11111111-1111-4111-8111-111111111111',
+            sessionId: SESSION_ID,
+            assistantMessageId: 'assistant-message-1',
+            response: 'Retained response.',
+            replyKind,
+            places: [],
+            citations: [],
+            replayed: true,
+          })
+          const events = []
+          for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          expect(events).toHaveLength(1)
+          expect(events[0]).toMatchObject({
+            type: 'complete',
+            result: { replyKind, replayed: true },
+          })
+          expect(anthropicCreate).not.toHaveBeenCalled()
+          expect(embeddingCreate).not.toHaveBeenCalled()
+        },
+      )
+    })
+
     it('returns terminal ambiguity from an expired dispatched retry without provider work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       guestTurnActions.reserve.mockResolvedValueOnce({
@@ -2416,6 +2514,11 @@ describe('chat router', () => {
         }),
       )
       expect(messageCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.observe).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION' }),
+        }),
+      )
     })
 
     it('skips excluded OpenAI embeddings and preserves text chat through safe fallback retrieval', async () => {
@@ -2662,6 +2765,12 @@ describe('chat router', () => {
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
       anthropicCreate.mockRejectedValueOnce(new Error('Claude API unavailable'))
+      aiUsageEventCreate.mockImplementation(async ({ data }) => ({
+        id:
+          data.feature === 'guest-chat-query-embedding'
+            ? 'usage-embedding'
+            : 'usage-generation-failure',
+      }))
       operationalEventUpsert.mockRejectedValueOnce(new Error('operational event store unavailable'))
       messageCreate.mockResolvedValue({})
 
@@ -2716,6 +2825,62 @@ describe('chat router', () => {
           }),
         }),
       )
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'QUERY_EMBEDDING',
+            outcomeCode: 'SUCCEEDED',
+            usageReference: 'usage-embedding',
+          }),
+        }),
+      )
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'FAILED_FALLBACK',
+            usageReference: 'usage-generation-failure',
+          }),
+        }),
+      )
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(1)
+    })
+
+    it('keeps a failed generation observation unlinked when usage persistence fails', async () => {
+      setupHappyPath()
+      anthropicCreate.mockReset()
+      anthropicCreate.mockRejectedValueOnce(new Error('Claude API unavailable'))
+      aiUsageEventCreate.mockImplementation(async ({ data }) => {
+        if (data.feature === 'guest-chat') throw new Error('usage persistence unavailable')
+        return { id: 'usage-embedding' }
+      })
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: "I'm having trouble right now. Please try again in a moment.",
+        sessionId: SESSION_ID,
+      })
+
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'FAILED_FALLBACK',
+            usageReference: null,
+          }),
+        }),
+      )
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(1)
+      expect(guestTurnActions.finalize).toHaveBeenCalledTimes(1)
     })
 
     it.each([1, 2])(
@@ -3302,6 +3467,48 @@ describe('chat router', () => {
   })
 
   describe('chat.history', () => {
+    it.each([
+      [undefined, 'ANSWER'],
+      [null, 'ANSWER'],
+      ['NO_RELEVANT_CONTEXT', 'ANSWER'],
+      ['PROVIDER_REQUEST_FAILED', 'TEMPORARY_FALLBACK'],
+    ] as const)(
+      'restores %s from durable state without exposing failure codes',
+      async (fallbackCode, replyKind) => {
+        dbQueryRaw.mockResolvedValueOnce([
+          { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+        ])
+        messageFindMany.mockResolvedValueOnce([
+          {
+            id: 'classified-assistant',
+            role: 'assistant',
+            content: 'Text deliberately identical in every case.',
+            sessionSequence: 1,
+            createdAt: new Date('2026-09-07T16:00:00.000Z'),
+            ...(fallbackCode === undefined
+              ? {}
+              : { guestChatTurn: { fallbackCode, replayMetadata: { places: [] } } }),
+          },
+        ])
+        const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+        expect(result.messages).toEqual([
+          {
+            id: 'classified-assistant',
+            role: 'assistant',
+            content: 'Text deliberately identical in every case.',
+            replyKind,
+          },
+        ])
+        expect(messageFindMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            select: expect.objectContaining({
+              guestChatTurn: { select: { replayMetadata: true, fallbackCode: true } },
+            }),
+          }),
+        )
+      },
+    )
+
     it('denies exhausted history global ingress before caller-derived keys or database work', async () => {
       checkRateLimit.mockResolvedValueOnce(false)
 
@@ -3392,7 +3599,7 @@ describe('chat router', () => {
       expect(result).toEqual({
         messages: [
           { id: 'message-older', role: 'user', content: 'Older.' },
-          { id: 'message-newest', role: 'assistant', content: 'Newest.' },
+          { id: 'message-newest', role: 'assistant', content: 'Newest.', replyKind: 'ANSWER' },
         ],
       })
       expect(voiceTranscriptSegmentFindMany).toHaveBeenCalledWith(
@@ -3458,7 +3665,12 @@ describe('chat router', () => {
       ).resolves.toEqual({
         messages: [
           { id: 'message-before', role: 'user', content: 'Text before voice.' },
-          { id: 'message-after', role: 'assistant', content: 'Text after voice.' },
+          {
+            id: 'message-after',
+            role: 'assistant',
+            content: 'Text after voice.',
+            replyKind: 'ANSWER',
+          },
           {
             id: 'voice:11111111-1111-4111-8111-111111111111:provider-event-1',
             role: 'user',
@@ -3626,6 +3838,7 @@ describe('chat router', () => {
             id: 'assistant-1',
             role: 'assistant',
             content: 'Visit the Elephants habitat.',
+            replyKind: 'ANSWER',
             blocks: [
               {
                 type: 'citations',

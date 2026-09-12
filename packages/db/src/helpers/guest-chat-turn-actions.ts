@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
 import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 
 import { db } from '../client'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
@@ -286,6 +287,7 @@ const turnSelect = {
   assistantMessageId: true,
   replayMetadata: true,
   responseHash: true,
+  fallbackCode: true,
   failureCode: true,
   createdAt: true,
   pendingQuestionId: true,
@@ -313,6 +315,7 @@ type GuestChatTurnState = {
   assistantMessageId: string | null
   replayMetadata: unknown
   responseHash: string | null
+  fallbackCode: string | null
   failureCode: string | null
   createdAt: Date
   pendingQuestionId: string | null
@@ -385,6 +388,7 @@ async function projectExistingTurn(
       userMessageId,
       assistantMessageId,
       response: assistant.content,
+      replyKind: guestReplyKindFromFallbackCode(turn.fallbackCode),
       places: metadata.data.places,
       citations: metadata.data.citations,
       replayed: true,
@@ -1398,6 +1402,7 @@ export async function finalizeGuestChatTurnAction(args: {
           userMessageId,
           assistantMessageId,
           response: input.assistantResponse,
+          replyKind: guestReplyKindFromFallbackCode(input.fallbackCode),
           places: replayMetadata.places,
           citations: replayMetadata.citations,
           replayed: false,

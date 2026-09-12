@@ -32,7 +32,11 @@ const mocks = vi.hoisted(() => ({
     chat: {
       history: {
         query: vi.fn(async () => ({
-          messages: [] as Array<{ role: 'user' | 'assistant'; content: string }>,
+          messages: [] as Array<{
+            role: 'user' | 'assistant'
+            content: string
+            replyKind?: 'ANSWER' | 'TEMPORARY_FALLBACK'
+          }>,
         })),
       },
       session: { mutate: vi.fn() },
@@ -126,7 +130,11 @@ vi.mock('./ChatWindow', () => ({
     persistentVoiceControl?: React.ReactNode
     emptyState: React.ReactNode
     errorMessage?: string | null
-    messages: Array<{ content: string; places?: Array<{ id: string }> }>
+    messages: Array<{
+      content: string
+      replyKind?: 'ANSWER' | 'TEMPORARY_FALLBACK'
+      places?: Array<{ id: string }>
+    }>
     onSend: (message: string) => void
     onRequestMore?: () => void
     requestMoreLabel?: string
@@ -146,6 +154,7 @@ vi.mock('./ChatWindow', () => ({
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
       <span>Latest: {messages.at(-1)?.content ?? 'none'}</span>
+      <span>Latest reply kind: {messages.at(-1)?.replyKind ?? 'legacy'}</span>
       <span>Cards: {messages.flatMap((message) => message.places ?? []).length}</span>
       {messages
         .flatMap((message) => message.places ?? [])
@@ -313,6 +322,27 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
   })
 
+  it('maps restored temporary fallback history and suppresses expansion', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174097'
+    mocks.anonymousToken = token
+    mocks.sessionId = 'session-1'
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.history.query.mockResolvedValueOnce({
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: "I'm having trouble right now. Please try again in a moment.",
+          replyKind: 'TEMPORARY_FALLBACK' as const,
+        },
+      ],
+    })
+
+    render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByText('Latest reply kind: TEMPORARY_FALLBACK')
+    expect(screen.queryByRole('button', { name: 'Tell me more about that' })).toBeNull()
+  })
   it('keeps text and voice sending locked when stored history cannot be loaded', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174090'
     mocks.anonymousToken = token
@@ -359,6 +389,7 @@ describe('VenueChatExperience presentation boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
 
     await screen.findByText('Latest: It is in the west gallery.')
+    expect(screen.getByText('Latest reply kind: ANSWER')).toBeTruthy()
     expect(screen.getByText('Messages: 2')).toBeTruthy()
     expect(mocks.client.chat.history.query).toHaveBeenCalledTimes(2)
     expect(mocks.client.chat.history.query).toHaveBeenNthCalledWith(
@@ -484,6 +515,44 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
+  it('maps a streamed temporary fallback and suppresses expansion', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174098'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    mocks.client.chat.stream = {
+      subscribe: vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+        handlers = nextHandlers
+        return { unsubscribe: vi.fn() }
+      }),
+    }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    act(() => {
+      handlers?.onData({
+        type: 'complete',
+        result: {
+          response: "I'm having trouble right now. Please try again in a moment.",
+          assistantMessageId: 'assistant-fallback-stream',
+          sessionId: 'session-1',
+          places: [],
+          citations: [],
+          replayed: false,
+          replyKind: 'TEMPORARY_FALLBACK',
+        },
+      })
+    })
+
+    await screen.findByText('Latest reply kind: TEMPORARY_FALLBACK')
+    expect(screen.queryByRole('button', { name: 'Tell me more about that' })).toBeNull()
+  })
   it('stops local response rendering, reconciles once, and ignores a delayed completion', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
@@ -1492,6 +1561,30 @@ describe('VenueChatExperience presentation boundary', () => {
     ).toBeTruthy()
   })
 
+  it('uses an error character state and no expansion for a completed temporary fallback', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174023'
+    mocks.getBySlug.mockResolvedValueOnce(characterVenue)
+    mocks.client.chat.send.mutate.mockResolvedValueOnce({
+      response: "I'm having trouble right now. Please try again in a moment.",
+      sessionId: 'session-1',
+      places: [],
+      replyKind: 'TEMPORARY_FALLBACK',
+    })
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    expect(await screen.findByText('Latest reply kind: TEMPORARY_FALLBACK')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Tell me more about that' })).toBeNull()
+    expect(
+      await screen.findByText(
+        'The character had a problem',
+        {},
+        { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS },
+      ),
+    ).toBeTruthy()
+  })
   it('preserves the current chat when New conversation confirmation is cancelled', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174012'
     mocks.anonymousToken = token

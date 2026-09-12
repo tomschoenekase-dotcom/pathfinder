@@ -107,6 +107,14 @@ const approvedPolicies = new Set([
 // An omitted count permits exactly one occurrence. Reviewed repeated templates must declare
 // their exact positive count; adding or removing a call remains an inventory review event.
 const approvedOperations = [
+  // Platform-admin export preflight reads aggregate counts and row byte sizes for the exact
+  // tenant, venue, active recipient support ACL, and explicitly requested sections only.
+  {
+    file: 'packages/db/src/helpers/support-portable-export-read.ts',
+    method: '$queryRaw',
+    hash: 'fe48cb33620ec27e105f325ed722dd69b631bbcd29267855bebde28038b55550',
+    policy: 'tenant-and-venue',
+  },
   // Human-admin adjudication locks exact proposal, answered question and canonical target; no publication.
   {
     file: 'packages/api/src/lib/semantic-conflict-resolution-service.ts',

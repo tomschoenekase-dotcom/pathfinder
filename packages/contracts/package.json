@@ -11,6 +11,7 @@
     "./venue-bot-configuration": "./src/venue-bot-configuration.ts",
     "./guest-visit-context": "./src/guest-visit-context.ts",
     "./guest-response": "./src/guest-response.ts",
+    "./guest-reply-kind": "./src/guest-reply-kind.ts",
     "./agent-identity": "./src/agent-identity.ts",
     "./media-evidence": "./src/media-evidence.ts",
     "./guest-answer-attribution": "./src/guest-answer-attribution.ts",

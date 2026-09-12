@@ -512,140 +512,150 @@ describe('guest chat turn actions', () => {
     )
   })
 
-  it('preserves the production chat incident invariant when finalizing durable messages', async () => {
-    const claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-    const turnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-    const citations = [
-      {
-        label: 'Official visitor guide',
-        href: 'https://museum.example/visit',
-        detail: 'Place: Cafe',
-      },
-    ]
-    const answerEvidence = {
-      schemaVersion: GUEST_ANSWER_EVIDENCE_VERSION,
-      promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
-      answerHash: 'a'.repeat(64),
-      systemPromptHash: 'b'.repeat(64),
-      evidenceSetHash: 'c'.repeat(64),
-      routeConfigurationVersion: 'route-v1',
-      system: { staticPart: 'Static prompt', dynamicPart: 'Dynamic prompt' },
-      sources: [
+  it.each([
+    [null, 'ANSWER'],
+    ['NO_RELEVANT_CONTEXT', 'ANSWER'],
+    ['PROVIDER_REQUEST_FAILED', 'TEMPORARY_FALLBACK'],
+  ] as const)(
+    'preserves durable message/hash invariants when finalizing %s',
+    async (fallbackCode, replyKind) => {
+      const claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+      const turnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const citations = [
         {
-          sourceId: 'venue:venue-1',
-          kind: 'VENUE_PROFILE' as const,
-          label: 'Museum',
-          rank: null,
-          snapshot: '{"name":"Museum"}',
-          snapshotHash: 'd'.repeat(64),
+          label: 'Official visitor guide',
+          href: 'https://museum.example/visit',
+          detail: 'Place: Cafe',
         },
-      ],
-    }
-    const pendingPlaceIdentity = {
-      version: 'guest-place-identity-pending-v1' as const,
-      requestedName: 'Gallery',
-      candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
-    }
-    const createMany = vi.fn().mockResolvedValue({ count: 2 })
-    const tx = {
-      $executeRaw: vi.fn(),
-      guestChatTurn: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: turnId,
+      ]
+      const answerEvidence = {
+        schemaVersion: GUEST_ANSWER_EVIDENCE_VERSION,
+        promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
+        answerHash: 'a'.repeat(64),
+        systemPromptHash: 'b'.repeat(64),
+        evidenceSetHash: 'c'.repeat(64),
+        routeConfigurationVersion: 'route-v1',
+        system: { staticPart: 'Static prompt', dynamicPart: 'Dynamic prompt' },
+        sources: [
+          {
+            sourceId: 'venue:venue-1',
+            kind: 'VENUE_PROFILE' as const,
+            label: 'Museum',
+            rank: null,
+            snapshot: '{"name":"Museum"}',
+            snapshotHash: 'd'.repeat(64),
+          },
+        ],
+      }
+      const pendingPlaceIdentity = {
+        version: 'guest-place-identity-pending-v1' as const,
+        requestedName: 'Gallery',
+        candidates: [{ id: 'place-1', name: 'East Gallery', floor: null, location: 'Atrium' }],
+      }
+      const createMany = vi.fn().mockResolvedValue({ count: 2 })
+      const tx = {
+        $executeRaw: vi.fn(),
+        guestChatTurn: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: turnId,
+            tenantId: request.tenantId,
+            venueId: request.venueId,
+            sessionId: 'session-1',
+            requestId: request.requestId,
+            requestHash: guestChatRequestHash(request),
+            status: 'GENERATING',
+            leaseToken: claimId,
+            userMessageSequence: 21,
+            assistantMessageSequence: 22,
+            pendingQuestionId: null,
+            pendingIsInvented: false,
+            pendingAskedMessageId: null,
+            pendingAskedAt: null,
+            providerOperations: [
+              { kind: 'QUERY_EMBEDDING', status: 'OBSERVED' },
+              { kind: 'RESPONSE_GENERATION', status: 'OBSERVED' },
+            ],
+          }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        message: { createMany },
+        visitorSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        engagementQuestion: { findFirst: vi.fn() },
+        engagementQuestionResponse: { create: vi.fn() },
+      }
+
+      await expect(
+        finalizeGuestChatTurnAction({
+          client: transactionClient(tx),
+          input: {
+            ...request,
+            turnId,
+            claimId,
+            assistantResponse: 'The cafe is downstairs.',
+            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            fallbackCode,
+            nextPending: { kind: 'NONE' },
+          },
+          now: new Date('2026-08-22T12:00:00.000Z'),
+        }),
+      ).resolves.toEqual({
+        state: 'COMPLETE',
+        turnId,
+        sessionId: 'session-1',
+        userMessageId: expect.any(String),
+        assistantMessageId: expect.any(String),
+        response: 'The cafe is downstairs.',
+        replyKind,
+        places: [],
+        citations,
+        replayed: false,
+      })
+
+      const rows = createMany.mock.calls[0]![0].data
+      expect(rows).toEqual([
+        expect.objectContaining({
           tenantId: request.tenantId,
           venueId: request.venueId,
           sessionId: 'session-1',
-          requestId: request.requestId,
-          requestHash: guestChatRequestHash(request),
-          status: 'GENERATING',
-          leaseToken: claimId,
-          userMessageSequence: 21,
-          assistantMessageSequence: 22,
-          pendingQuestionId: null,
-          pendingIsInvented: false,
-          pendingAskedMessageId: null,
-          pendingAskedAt: null,
-          providerOperations: [
-            { kind: 'QUERY_EMBEDDING', status: 'OBSERVED' },
-            { kind: 'RESPONSE_GENERATION', status: 'OBSERVED' },
-          ],
+          guestChatTurnId: turnId,
+          sessionSequence: 21,
+          turnMessageSequence: 0,
+          role: 'user',
         }),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-      message: { createMany },
-      visitorSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      engagementQuestion: { findFirst: vi.fn() },
-      engagementQuestionResponse: { create: vi.fn() },
-    }
-
-    await expect(
-      finalizeGuestChatTurnAction({
-        client: transactionClient(tx),
-        input: {
-          ...request,
-          turnId,
-          claimId,
-          assistantResponse: 'The cafe is downstairs.',
-          replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
-          fallbackCode: null,
-          nextPending: { kind: 'NONE' },
-        },
-        now: new Date('2026-08-22T12:00:00.000Z'),
-      }),
-    ).resolves.toEqual({
-      state: 'COMPLETE',
-      turnId,
-      sessionId: 'session-1',
-      userMessageId: expect.any(String),
-      assistantMessageId: expect.any(String),
-      response: 'The cafe is downstairs.',
-      places: [],
-      citations,
-      replayed: false,
-    })
-
-    const rows = createMany.mock.calls[0]![0].data
-    expect(rows).toEqual([
-      expect.objectContaining({
-        tenantId: request.tenantId,
-        venueId: request.venueId,
-        sessionId: 'session-1',
-        guestChatTurnId: turnId,
-        sessionSequence: 21,
-        turnMessageSequence: 0,
-        role: 'user',
-      }),
-      expect.objectContaining({
-        tenantId: request.tenantId,
-        venueId: request.venueId,
-        sessionId: 'session-1',
-        guestChatTurnId: turnId,
-        sessionSequence: 22,
-        turnMessageSequence: 1,
-        role: 'assistant',
-      }),
-    ])
-    expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
-          responseHash: await import('node:crypto').then(({ createHash }) =>
-            createHash('sha256')
-              .update(
-                JSON.stringify({
-                  response: 'The cafe is downstairs.',
-                  places: [],
-                  citations,
-                  answerEvidence,
-                  pendingPlaceIdentity,
-                }),
-              )
-              .digest('hex'),
-          ),
+        expect.objectContaining({
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          sessionId: 'session-1',
+          guestChatTurnId: turnId,
+          sessionSequence: 22,
+          turnMessageSequence: 1,
+          role: 'assistant',
         }),
-      }),
-    )
-  })
+      ])
+      expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'COMPLETE',
+            fallbackCode,
+            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            responseHash: await import('node:crypto').then(({ createHash }) =>
+              createHash('sha256')
+                .update(
+                  JSON.stringify({
+                    response: 'The cafe is downstairs.',
+                    places: [],
+                    citations,
+                    answerEvidence,
+                    pendingPlaceIdentity,
+                  }),
+                )
+                .digest('hex'),
+            ),
+          }),
+        }),
+      )
+    },
+  )
 
   it('terminalizes an expired pre-claim orphan before reserving a new request identity', async () => {
     const newRequest = { ...request, requestId: '99999999-9999-4999-8999-999999999999' }
@@ -1197,73 +1207,83 @@ describe('guest chat turn actions', () => {
     ).rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
   })
 
-  it('converges a reservation P2002 through a fresh terminal replay without writes', async () => {
-    const response = 'The cafe is beside the lobby.'
-    const places: never[] = []
-    const responseHash = await import('node:crypto').then(({ createHash }) =>
-      createHash('sha256').update(JSON.stringify({ response, places })).digest('hex'),
-    )
-    const tx = {
-      $executeRaw: vi.fn(),
-      visitorSession: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'session-1',
-          tenantId: request.tenantId,
-          venueId: request.venueId,
-          nextTurnSequence: 1,
-          nextMessageSequence: 2,
-          pendingEngagementQuestionId: null,
-          pendingEngagementIsInvented: false,
-          pendingEngagementAskedMessageId: null,
-          pendingEngagementAskedAt: null,
-        }),
-      },
-      guestChatTurn: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          tenantId: request.tenantId,
-          venueId: request.venueId,
-          sessionId: 'session-1',
-          requestId: request.requestId,
-          requestHash: guestChatRequestHash(request),
-          turnSequence: 1,
-          status: 'COMPLETE',
-          leaseToken: null,
-          leaseExpiresAt: null,
-          userMessageId: 'user-1',
-          assistantMessageId: 'assistant-1',
-          replayMetadata: { places },
-          responseHash,
-          failureCode: null,
-          pendingQuestionId: null,
-          pendingIsInvented: false,
-          pendingAskedMessageId: null,
-          pendingAskedAt: null,
-          providerOperations: [],
-        }),
-        create: vi.fn(),
-      },
-      message: { findFirst: vi.fn().mockResolvedValue({ content: response }) },
-    }
-    const transaction = vi
-      .fn()
-      .mockRejectedValueOnce(Object.assign(new Error('unique'), { code: 'P2002' }))
-      .mockImplementationOnce(async (callback: (value: unknown) => unknown) => callback(tx))
-    const result = await reserveGuestChatTurnAction({
-      client: {
-        $transaction: transaction,
-        guestChatTurn: tx.guestChatTurn,
-        guestChatProviderOperation: {},
-      } as never,
-      request,
-    })
-    expect(result).toMatchObject({
-      state: 'COMPLETE',
-      userMessageId: 'user-1',
-      response,
-      replayed: true,
-    })
-    expect(transaction).toHaveBeenCalledTimes(2)
-    expect(tx.guestChatTurn.create).not.toHaveBeenCalled()
-  })
+  it.each([
+    [undefined, 'ANSWER'],
+    [null, 'ANSWER'],
+    ['NO_RELEVANT_CONTEXT', 'ANSWER'],
+    ['PROVIDER_REQUEST_FAILED', 'TEMPORARY_FALLBACK'],
+  ] as const)(
+    'replays %s after P2002 with the historical response hash and no writes',
+    async (fallbackCode, replyKind) => {
+      const response = 'The cafe is beside the lobby.'
+      const places: never[] = []
+      const responseHash = await import('node:crypto').then(({ createHash }) =>
+        createHash('sha256').update(JSON.stringify({ response, places })).digest('hex'),
+      )
+      const tx = {
+        $executeRaw: vi.fn(),
+        visitorSession: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'session-1',
+            tenantId: request.tenantId,
+            venueId: request.venueId,
+            nextTurnSequence: 1,
+            nextMessageSequence: 2,
+            pendingEngagementQuestionId: null,
+            pendingEngagementIsInvented: false,
+            pendingEngagementAskedMessageId: null,
+            pendingEngagementAskedAt: null,
+          }),
+        },
+        guestChatTurn: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            tenantId: request.tenantId,
+            venueId: request.venueId,
+            sessionId: 'session-1',
+            requestId: request.requestId,
+            requestHash: guestChatRequestHash(request),
+            turnSequence: 1,
+            status: 'COMPLETE',
+            leaseToken: null,
+            leaseExpiresAt: null,
+            userMessageId: 'user-1',
+            assistantMessageId: 'assistant-1',
+            replayMetadata: { places },
+            responseHash,
+            fallbackCode,
+            failureCode: null,
+            pendingQuestionId: null,
+            pendingIsInvented: false,
+            pendingAskedMessageId: null,
+            pendingAskedAt: null,
+            providerOperations: [],
+          }),
+          create: vi.fn(),
+        },
+        message: { findFirst: vi.fn().mockResolvedValue({ content: response }) },
+      }
+      const transaction = vi
+        .fn()
+        .mockRejectedValueOnce(Object.assign(new Error('unique'), { code: 'P2002' }))
+        .mockImplementationOnce(async (callback: (value: unknown) => unknown) => callback(tx))
+      const result = await reserveGuestChatTurnAction({
+        client: {
+          $transaction: transaction,
+          guestChatTurn: tx.guestChatTurn,
+          guestChatProviderOperation: {},
+        } as never,
+        request,
+      })
+      expect(result).toMatchObject({
+        state: 'COMPLETE',
+        userMessageId: 'user-1',
+        response,
+        replyKind,
+        replayed: true,
+      })
+      expect(transaction).toHaveBeenCalledTimes(2)
+      expect(tx.guestChatTurn.create).not.toHaveBeenCalled()
+    },
+  )
 })

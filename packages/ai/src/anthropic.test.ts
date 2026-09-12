@@ -504,6 +504,79 @@ describe('generateText', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])(
+    'refuses missing configuration before reserving or dispatching (stream=%s)',
+    async (streaming) => {
+      setAnthropicClientForTesting(null)
+      vi.stubEnv('ANTHROPIC_API_KEY', '')
+      const gate = budgetGate()
+      const onBeforeFirstDispatch = vi.fn()
+      try {
+        await expect(
+          generateText({
+            modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+            system: [],
+            messages: [{ role: 'user', content: 'Hello' }],
+            usageSink,
+            admissionGuard,
+            budgetGate: gate,
+            maxAttempts: 3,
+            onBeforeFirstDispatch,
+            ...(streaming ? { onTextDelta: vi.fn() } : {}),
+          }),
+        ).rejects.toMatchObject({ code: 'provider-not-configured', attempts: 0 })
+        expect(admissionGuard).toHaveBeenCalledOnce()
+        expect(gate.reserve).not.toHaveBeenCalled()
+        expect(gate.markDispatched).not.toHaveBeenCalled()
+        expect(gate.settleAmbiguous).not.toHaveBeenCalled()
+        expect(onBeforeFirstDispatch).not.toHaveBeenCalled()
+        expect(create).not.toHaveBeenCalled()
+        expect(stream).not.toHaveBeenCalled()
+        expect(usageSink).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            usageObservationStatus: 'NOT_DISPATCHED',
+            success: false,
+            attempts: 0,
+            estimatedCostUsd: 0,
+            errorCode: 'provider-not-configured',
+          }),
+        )
+      } finally {
+        vi.unstubAllEnvs()
+        setAnthropicClientForTesting(client)
+      }
+    },
+  )
+
+  it('refuses an unavailable stream adapter before any dispatch or budget reservation', async () => {
+    setAnthropicClientForTesting({ messages: { create } })
+    const gate = budgetGate()
+    const onBeforeFirstDispatch = vi.fn()
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        usageSink,
+        admissionGuard,
+        budgetGate: gate,
+        onTextDelta: vi.fn(),
+        onBeforeFirstDispatch,
+      }),
+    ).rejects.toMatchObject({ code: 'provider-client-initialization', attempts: 0 })
+    expect(gate.reserve).not.toHaveBeenCalled()
+    expect(onBeforeFirstDispatch).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(usageSink).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        usageObservationStatus: 'NOT_DISPATCHED',
+        success: false,
+        attempts: 0,
+        errorCode: 'provider-client-initialization',
+      }),
+    )
+  })
+
   it('records a dispatched unknown failure and a separately undispatched denied retry', async () => {
     admissionGuard
       .mockResolvedValueOnce(undefined)

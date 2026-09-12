@@ -512,6 +512,27 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).toHaveBeenCalledWith('My next question')
   })
 
+  it('omits feedback and expansion only for a temporary fallback', () => {
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'fallback-message',
+            role: 'assistant',
+            content: "I'm having trouble right now. Please try again in a moment.",
+            replyKind: 'TEMPORARY_FALLBACK',
+          },
+        ]}
+        onSend={vi.fn()}
+        onRequestMore={vi.fn()}
+        onMessageFeedback={vi.fn()}
+        isLoading={false}
+      />,
+    )
+
+    expect(screen.queryByLabelText('Rate this answer')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+  })
   it('offers one explicit expansion action only after an assistant answer', () => {
     const onRequestMore = vi.fn()
     const view = render(

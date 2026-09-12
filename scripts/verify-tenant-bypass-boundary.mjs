@@ -171,6 +171,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
   ['packages/api/src/routers/admin/client-reads.ts', 3],
+  // Platform-admin portable export resolves one active tenant recipient, then every selected
+  // content/report/support read retains the exact tenant+venue and recipient ACL scope.
+  ['packages/api/src/routers/admin/support-portable-export.ts', 1],
   // Platform-admin billing portfolio intentionally aggregates customer billing and CRM links.
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
   // Platform-admin Company Brain browse/create operations are bounded, audited,
