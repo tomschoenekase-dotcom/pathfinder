@@ -41,6 +41,30 @@ describe('agent operation coverage inventory', () => {
     expect(report.operations.bindings.validation.duplicateOperations).toEqual([])
     expect(report.operations.bindings.validation.unavailableSurfaces).toEqual([])
     expect(report.operations.bindings.validation.digestMatches).toBe(true)
+    expect(
+      report.operations.entries.find(
+        (operation: { path: string }) => operation.path === 'admin.prepareSupportPortableExport',
+      ),
+    ).toMatchObject({
+      kind: 'query',
+      router: 'adminSupportPortableExportRouter',
+      categories: ['support'],
+      agentCoverage: 'partial',
+      developerCoverage: 'full',
+      status: 'classified',
+    })
+    expect(
+      report.operations.bindings.entries.find(
+        (operation: { path: string }) => operation.path === 'admin.prepareSupportPortableExport',
+      ),
+    ).toEqual({
+      path: 'admin.prepareSupportPortableExport',
+      kind: 'unbound',
+      ruleId: null,
+      surfaces: [],
+      evidence: '',
+      decision: 'No concrete agent surface has been reviewed for this operation.',
+    })
     expect(report.healthy).toBe(true)
   }, 30_000)
 })
