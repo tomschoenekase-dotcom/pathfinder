@@ -246,7 +246,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
-  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 8],
+  // Human platform-admin contact-readiness review is a platform-owned CRM mutation with an
+  // explicit audited actor and no customer-tenant procedure exposure.
+  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 9],
   ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
   ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
