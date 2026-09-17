@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
+import { env } from '@pathfinder/config'
 
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
 import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
+import { FounderProviderConnections } from '../../../../components/admin/FounderProviderConnections'
 import { FounderCharacterReviewInbox } from '../../../../components/admin/FounderCharacterReviewInbox'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
 import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
@@ -36,43 +38,47 @@ export default async function AdminOperationsPage({
   const { userId } = await auth()
   const caller = await createAdminCaller()
   const query = await searchParams
-  const [data, readiness, releaseEvidence, incident, providerHealth, characterReviews] =
-    await Promise.all([
-      caller.admin.attentionConsole({
-        limit: 10,
-        ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
-        ...(cursor(query.evaluationsCursor)
-          ? { evaluationsCursor: cursor(query.evaluationsCursor) }
-          : {}),
-        ...(cursor(query.approvalsCursor)
-          ? { approvalsCursor: cursor(query.approvalsCursor) }
-          : {}),
-        ...(cursor(query.supportCursor) ? { supportCursor: cursor(query.supportCursor) } : {}),
-        ...(cursor(query.agentsCursor) ? { agentsCursor: cursor(query.agentsCursor) } : {}),
-        ...(cursor(query.questionsCursor)
-          ? { questionsCursor: cursor(query.questionsCursor) }
-          : {}),
-        ...(cursor(query.workingAgentsCursor)
-          ? { workingAgentsCursor: cursor(query.workingAgentsCursor) }
-          : {}),
-        ...(cursor(query.blockedAgentsCursor)
-          ? { blockedAgentsCursor: cursor(query.blockedAgentsCursor) }
-          : {}),
-        ...(cursor(query.completedAgentsCursor)
-          ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
-          : {}),
-        ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
-        ...(cursor(query.eventsCursor) ? { eventsCursor: cursor(query.eventsCursor) } : {}),
-        ...(cursor(query.platformEventsCursor)
-          ? { platformEventsCursor: cursor(query.platformEventsCursor) }
-          : {}),
-      }),
-      caller.admin.operationsReadiness(),
-      caller.admin.releaseEvidence({ limit: 5 }),
-      caller.admin.getGlobalAiControl(),
-      caller.admin.getAiProviderHealthControl(),
-      caller.admin.listCharacterCandidateReviews({ limit: 12 }),
-    ])
+  const [
+    data,
+    readiness,
+    releaseEvidence,
+    incident,
+    providerHealth,
+    characterReviews,
+    providerConnections,
+  ] = await Promise.all([
+    caller.admin.attentionConsole({
+      limit: 10,
+      ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
+      ...(cursor(query.evaluationsCursor)
+        ? { evaluationsCursor: cursor(query.evaluationsCursor) }
+        : {}),
+      ...(cursor(query.approvalsCursor) ? { approvalsCursor: cursor(query.approvalsCursor) } : {}),
+      ...(cursor(query.supportCursor) ? { supportCursor: cursor(query.supportCursor) } : {}),
+      ...(cursor(query.agentsCursor) ? { agentsCursor: cursor(query.agentsCursor) } : {}),
+      ...(cursor(query.questionsCursor) ? { questionsCursor: cursor(query.questionsCursor) } : {}),
+      ...(cursor(query.workingAgentsCursor)
+        ? { workingAgentsCursor: cursor(query.workingAgentsCursor) }
+        : {}),
+      ...(cursor(query.blockedAgentsCursor)
+        ? { blockedAgentsCursor: cursor(query.blockedAgentsCursor) }
+        : {}),
+      ...(cursor(query.completedAgentsCursor)
+        ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
+        : {}),
+      ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
+      ...(cursor(query.eventsCursor) ? { eventsCursor: cursor(query.eventsCursor) } : {}),
+      ...(cursor(query.platformEventsCursor)
+        ? { platformEventsCursor: cursor(query.platformEventsCursor) }
+        : {}),
+    }),
+    caller.admin.operationsReadiness(),
+    caller.admin.releaseEvidence({ limit: 5 }),
+    caller.admin.getGlobalAiControl(),
+    caller.admin.getAiProviderHealthControl(),
+    caller.admin.listCharacterCandidateReviews({ limit: 12 }),
+    caller.admin.getFounderProviderConnections(),
+  ])
 
   return (
     <div className="space-y-6">
@@ -91,6 +97,10 @@ export default async function AdminOperationsPage({
       </header>
 
       <FounderOperatingConversation exchanges={data.founderConversation} />
+      <FounderProviderConnections
+        connections={providerConnections}
+        bridgeHttpEnabled={env.AGENT_BRIDGE_HTTP_ENABLED}
+      />
       <FounderCharacterReviewInbox initial={characterReviews} />
 
       <section

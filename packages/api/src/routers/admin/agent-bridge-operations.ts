@@ -12,6 +12,41 @@ import { adminProcedure } from '../../trpc'
 import { tenantScopeInput } from './agent-operations-shared'
 
 export const adminAgentBridgeOperationsRouter = router({
+  getFounderProviderConnections: adminProcedure.query(() =>
+    withTenantIsolationBypass(async () => {
+      const [sessions, venues] = await Promise.all([
+        db.agentBridgeSession.findMany({
+          orderBy: [{ lastHeartbeatAt: 'desc' }, { id: 'desc' }],
+          take: 100,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            provider: true,
+            label: true,
+            status: true,
+            lastHeartbeatAt: true,
+            expiresAt: true,
+            venue: { select: { name: true } },
+            tenant: { select: { name: true } },
+          },
+        }),
+        db.venue.findMany({
+          where: { isActive: true },
+          orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          take: 50,
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            tenant: { select: { name: true } },
+          },
+        }),
+      ])
+
+      return { sessions, venues }
+    }),
+  ),
   revokeAgentBridgeSession: adminProcedure
     .input(
       z
