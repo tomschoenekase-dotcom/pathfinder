@@ -331,6 +331,7 @@ const expectedAdminProcedures = [
   'reviewIntakeSourceMapping',
   'reviewKnowledgeProposal',
   'reviewOffboardingPlanExports',
+  'reviewProspectContactReadiness',
   'reviewProspectEmailAttachmentRetention',
   'reviewProspectInboundReply',
   'reviewProspectOutreachDraft',
