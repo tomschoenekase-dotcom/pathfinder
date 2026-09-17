@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import { ProspectActionsPanel } from '../../../../../components/admin/ProspectActionsPanel'
+import { ProspectContactabilityReview } from '../../../../../components/admin/ProspectContactabilityReview'
 import { ProspectCorrespondenceHistory } from '../../../../../components/admin/ProspectCorrespondenceHistory'
 import { ProspectMeetingHistory } from '../../../../../components/admin/ProspectMeetingHistory'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
@@ -332,6 +333,22 @@ export default async function ProspectDetailPage({
                               </span>
                             ) : null}
                           </div>
+                          {contact.email ? (
+                            <ProspectContactabilityReview
+                              contactId={contact.id}
+                              emailReadiness={contact.emailReadiness}
+                              permissionState={contact.permissionState}
+                              disabledReason={
+                                contact.doNotContact ||
+                                Boolean(contact.suppressedAt) ||
+                                Boolean(contact.unsubscribedAt) ||
+                                contact.permissionState === 'OPTED_OUT' ||
+                                contact.permissionState === 'PROHIBITED'
+                                  ? 'This contact is suppressed. Use the separately audited restoration workflow before any readiness review.'
+                                  : undefined
+                              }
+                            />
+                          ) : null}
                         </div>
                       </div>
                       {contact.doNotContact ? (

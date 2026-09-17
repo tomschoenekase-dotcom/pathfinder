@@ -193,7 +193,11 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
         contactId: prospect.contact.id,
         emailReadiness: 'VALID',
         permissionState: 'LEGITIMATE_INTEREST_RECORDED',
-        evidence: { source: 'disposable-prospect-copy-fixture', reviewedFor: 'draft-only' },
+        evidence: {
+          reviewReason: 'Disposable contact fixture reviewed for draft-only testing.',
+          source: 'disposable-prospect-copy-fixture',
+          reviewedFor: 'draft-only',
+        },
         actor,
       })
       const campaign = await createProspectCampaignAction({

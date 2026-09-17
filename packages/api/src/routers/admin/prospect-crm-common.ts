@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { ProspectActionError } from '@pathfinder/db'
+import { ProspectActionError, ProspectContactabilityError } from '@pathfinder/db'
 
 export const prospectStage = z.enum([
   'DISCOVERED',
@@ -25,6 +25,17 @@ export const prospectActor = (userId: string) =>
   ({ type: 'HUMAN', id: userId, role: 'PLATFORM_ADMIN' }) as const
 
 export function mapProspectActionError(error: unknown): never {
+  if (error instanceof ProspectContactabilityError) {
+    const code =
+      error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'INVALID_INPUT'
+          ? 'BAD_REQUEST'
+          : error.code === 'APPROVAL_REQUIRED'
+            ? 'PRECONDITION_FAILED'
+            : 'FORBIDDEN'
+    throw new TRPCError({ code, message: error.message })
+  }
   if (error instanceof ProspectActionError) {
     const code =
       error.code === 'NOT_FOUND'

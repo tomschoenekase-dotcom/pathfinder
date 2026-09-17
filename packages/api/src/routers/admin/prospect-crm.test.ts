@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ProspectContactabilityError } from '@pathfinder/db'
+
 const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   createProspect: vi.fn(),
@@ -9,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   providerAccounts: vi.fn(),
   followups: vi.fn(),
   prospect: vi.fn(),
+  reviewContactReadiness: vi.fn(),
   prepareAttachmentRetention: vi.fn(),
   reviewAttachmentRetention: vi.fn(),
   reviewInboundReply: vi.fn(),
@@ -34,11 +37,20 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  ProspectContactabilityError: class ProspectContactabilityError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   withTenantIsolationBypass: mocks.bypass,
   createProspectAction: mocks.createProspect,
   prepareProspectEmailAttachmentRetentionAction: mocks.prepareAttachmentRetention,
   reviewProspectEmailAttachmentRetentionAction: mocks.reviewAttachmentRetention,
   reviewProspectInboundReplyAction: mocks.reviewInboundReply,
+  reviewProspectContactReadinessAction: mocks.reviewContactReadiness,
   beginProspectImportAction: mocks.beginImport,
   addProspectNoteAction: vi.fn(),
   approveProspectImportAction: vi.fn(),
@@ -195,10 +207,19 @@ describe('admin prospect CRM router', () => {
         purpose: 'Blocked request.',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    await expect(
+      caller.reviewProspectContactReadiness({
+        contactId: 'contact-1',
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        evidence: 'Blocked review.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.createProspect).not.toHaveBeenCalled()
     expect(mocks.prepareAttachmentRetention).not.toHaveBeenCalled()
     expect(mocks.reviewInboundReply).not.toHaveBeenCalled()
+    expect(mocks.reviewContactReadiness).not.toHaveBeenCalled()
   })
 
   it('derives the human platform-admin actor from the authenticated session', async () => {
@@ -215,6 +236,67 @@ describe('admin prospect CRM router', () => {
       organization: { canonicalName: 'Authorized prospect' },
       actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
     })
+  })
+
+  it('records bounded human contact-readiness evidence without granting delivery authority', async () => {
+    mocks.reviewContactReadiness.mockResolvedValue({
+      id: 'contact-1',
+      emailReadiness: 'VALID',
+      permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+    })
+
+    const result = await testRouter.createCaller(context(true)).crm.reviewProspectContactReadiness({
+      contactId: 'contact-1',
+      emailReadiness: 'VALID',
+      permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+      evidence: 'Public venue contact page reviewed by the operator.',
+    })
+
+    expect(result).toMatchObject({
+      id: 'contact-1',
+      emailReadiness: 'VALID',
+      permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+    })
+    expect(mocks.reviewContactReadiness).toHaveBeenCalledWith({
+      contactId: 'contact-1',
+      emailReadiness: 'VALID',
+      permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+      evidence: {
+        reviewReason: 'Public venue contact page reviewed by the operator.',
+        interface: 'prospect_detail',
+      },
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+  })
+
+  it('rejects blank contact-readiness evidence before action dispatch', async () => {
+    await expect(
+      testRouter.createCaller(context(true)).crm.reviewProspectContactReadiness({
+        contactId: 'contact-1',
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        evidence: '   ',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
+    expect(mocks.reviewContactReadiness).not.toHaveBeenCalled()
+  })
+
+  it('reports a terminal contact state as a failed precondition', async () => {
+    mocks.reviewContactReadiness.mockRejectedValueOnce(
+      new ProspectContactabilityError(
+        'APPROVAL_REQUIRED',
+        'Suppressed contacts cannot be returned to outreach readiness.',
+      ),
+    )
+
+    await expect(
+      testRouter.createCaller(context(true)).crm.reviewProspectContactReadiness({
+        contactId: 'contact-1',
+        emailReadiness: 'INVALID',
+        permissionState: 'REVIEW_REQUIRED',
+        evidence: 'Confirmed the existing terminal contact state.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' } satisfies Partial<TRPCError>)
   })
 
   it('rejects oversized imports at the API boundary before action dispatch', async () => {

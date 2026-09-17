@@ -46,7 +46,11 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         contactId: prospect.contact!.id,
         emailReadiness: 'VALID',
         permissionState: 'LEGITIMATE_INTEREST_RECORDED',
-        evidence: { source: 'disposable-test', reviewedFor: 'internal-fixture' },
+        evidence: {
+          reviewReason: 'Disposable contact fixture reviewed for internal outreach testing.',
+          source: 'disposable-test',
+          reviewedFor: 'internal-fixture',
+        },
         actor,
       })
       const campaign = await createProspectCampaignAction({

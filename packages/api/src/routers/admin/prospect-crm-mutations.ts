@@ -6,6 +6,7 @@ import {
   createProspectAction,
   linkProspectConversionAction,
   prepareProspectEmailAttachmentRetentionAction,
+  reviewProspectContactReadinessAction,
   reviewProspectEmailAttachmentRetentionAction,
   reviewProspectInboundReplyAction,
   updateProspectPipelineAction,
@@ -22,6 +23,37 @@ import {
 } from './prospect-crm-common'
 
 export const adminProspectCrmMutationsRouter = router({
+  reviewProspectContactReadiness: adminProcedure
+    .input(
+      z
+        .object({
+          contactId: z.string().min(1).max(191),
+          emailReadiness: z.enum(['UNKNOWN', 'REVIEW_REQUIRED', 'VALID', 'INVALID']),
+          permissionState: z.enum([
+            'UNKNOWN',
+            'REVIEW_REQUIRED',
+            'LEGITIMATE_INTEREST_RECORDED',
+            'OPTED_IN',
+          ]),
+          evidence: prospectBoundedText(2000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        reviewProspectContactReadinessAction({
+          contactId: input.contactId,
+          emailReadiness: input.emailReadiness,
+          permissionState: input.permissionState,
+          evidence: {
+            reviewReason: input.evidence,
+            interface: 'prospect_detail',
+          },
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapProspectActionError),
+      ),
+    ),
+
   reviewProspectInboundReply: adminProcedure
     .input(
       z

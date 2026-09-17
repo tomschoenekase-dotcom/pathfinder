@@ -22,7 +22,7 @@ export async function reviewProspectContactReadinessAction(
     contactId: string
     emailReadiness: 'UNKNOWN' | 'REVIEW_REQUIRED' | 'VALID' | 'INVALID'
     permissionState: 'UNKNOWN' | 'REVIEW_REQUIRED' | 'LEGITIMATE_INTEREST_RECORDED' | 'OPTED_IN'
-    evidence: Record<string, unknown>
+    evidence: { reviewReason: string; [key: string]: unknown }
     actor: { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
   },
   client: Client = db,
@@ -30,16 +30,28 @@ export async function reviewProspectContactReadinessAction(
   if (input.actor.type !== 'HUMAN' || input.actor.role !== 'PLATFORM_ADMIN') {
     throw new ProspectContactabilityError('APPROVAL_REQUIRED', 'Human contact review is required')
   }
-  if (Object.keys(input.evidence).length === 0) {
+  if (!input.evidence.reviewReason.trim()) {
     throw new ProspectContactabilityError('INVALID_INPUT', 'Contact review evidence is required')
   }
   return client.$transaction(async (tx) => {
     const contact = await tx.prospectContact.findUnique({ where: { id: input.contactId } })
     if (!contact) throw new ProspectContactabilityError('NOT_FOUND', 'Prospect contact not found')
-    if (contact.doNotContact || contact.suppressedAt || contact.unsubscribedAt) {
+    if (
+      contact.doNotContact ||
+      contact.suppressedAt ||
+      contact.unsubscribedAt ||
+      contact.permissionState === 'OPTED_OUT' ||
+      contact.permissionState === 'PROHIBITED'
+    ) {
       throw new ProspectContactabilityError(
         'APPROVAL_REQUIRED',
         'Suppressed contactability must use the separately audited restoration action',
+      )
+    }
+    if (input.emailReadiness === 'VALID' && !contact.normalizedEmail) {
+      throw new ProspectContactabilityError(
+        'INVALID_INPUT',
+        'A normalized email address is required before email readiness can be valid',
       )
     }
     const saved = await tx.prospectContact.update({
