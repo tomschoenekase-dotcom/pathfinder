@@ -1,7 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { env } from '@pathfinder/config'
 import {
   AI_CENTRAL_MODEL_REGISTRY,
   AI_INVENTORY_OMISSIONS,
@@ -21,6 +20,7 @@ import {
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { getVisitorProviderSetup, providerHasExecutionKey } from './ai-provider-connections'
 const venueInputSchema = z
   .object({ tenantId: z.string().min(1).max(128), venueId: z.string().min(1).max(128) })
   .strict()
@@ -142,13 +142,6 @@ function storedState(row: Parameters<typeof configurationValuesFromRow>[0] | und
   }
 }
 
-function providerHasExecutionKey(provider: string) {
-  if (provider === 'anthropic') return Boolean(env.ANTHROPIC_API_KEY)
-  if (provider === 'openai') return Boolean(env.OPENAI_API_KEY)
-  if (provider === 'deepseek') return Boolean(env.DEEPSEEK_API_KEY)
-  return false
-}
-
 export const adminAiWorkloadConfigurationRouter = router({
   getAdminAiSystems: adminProcedure.query(async ({ ctx }) => {
     const workloadId = 'guest-chat' as const
@@ -168,31 +161,7 @@ export const adminAiWorkloadConfigurationRouter = router({
       ? [configurationOverrideFromRow(workloadRow, { level: 'WORKLOAD', workloadId })]
       : []
     const effective = resolveAiWorkloadConfiguration({ workloadId, overrides })
-    const providerKeyAvailability = {
-      anthropic: Boolean(env.ANTHROPIC_API_KEY),
-      openai: Boolean(env.OPENAI_API_KEY),
-      deepseek: Boolean(env.DEEPSEEK_API_KEY),
-    }
-    const providerConnections = [
-      {
-        id: 'anthropic' as const,
-        name: 'Anthropic',
-        configured: providerKeyAvailability.anthropic,
-        environmentVariable: 'ANTHROPIC_API_KEY' as const,
-      },
-      {
-        id: 'openai' as const,
-        name: 'OpenAI',
-        configured: providerKeyAvailability.openai,
-        environmentVariable: 'OPENAI_API_KEY' as const,
-      },
-      {
-        id: 'deepseek' as const,
-        name: 'DeepSeek',
-        configured: providerKeyAvailability.deepseek,
-        environmentVariable: 'DEEPSEEK_API_KEY' as const,
-      },
-    ]
+    const { providerKeyAvailability, providerConnections } = getVisitorProviderSetup()
     const options = (
       [
         'guest-chat',
