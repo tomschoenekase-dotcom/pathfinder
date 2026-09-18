@@ -100,8 +100,10 @@ describe('AgentRoutinesView', () => {
       requiredWorkerRoles: ['read-only-monitor', 'reviewer'],
       requiredWorkerCapabilities: ['content.read'],
     })
-    expect(mutate.mock.calls[0][0]).not.toHaveProperty('perRunBudgetE8Usd')
-    expect(mutate.mock.calls[0][0]).not.toHaveProperty('dailyBudgetE8Usd')
+    const firstCall = mutate.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    expect(firstCall![0]).not.toHaveProperty('perRunBudgetE8Usd')
+    expect(firstCall![0]).not.toHaveProperty('dailyBudgetE8Usd')
     expect(screen.getByText('Definition saved disabled. No run was started.')).toBeTruthy()
   })
 
