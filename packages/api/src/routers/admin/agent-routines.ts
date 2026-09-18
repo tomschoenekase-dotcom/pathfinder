@@ -42,6 +42,8 @@ export const adminAgentRoutinesRouter = router({
           intervalSeconds: true,
           maxAttempts: true,
           maxRunsPerDay: true,
+          perRunBudgetE8Usd: true,
+          dailyBudgetE8Usd: true,
           requiredWorkerRoles: true,
           requiredWorkerCapabilities: true,
           enabled: true,
@@ -58,8 +60,10 @@ export const adminAgentRoutinesRouter = router({
           },
         },
       })
-      return routines.map(({ dispatches, ...routine }) => ({
+      return routines.map(({ dispatches, perRunBudgetE8Usd, dailyBudgetE8Usd, ...routine }) => ({
         ...routine,
+        perRunBudgetE8Usd: perRunBudgetE8Usd?.toString() ?? null,
+        dailyBudgetE8Usd: dailyBudgetE8Usd?.toString() ?? null,
         lastAgentRunId: dispatches[0]?.agentRunId ?? null,
       }))
     }),
