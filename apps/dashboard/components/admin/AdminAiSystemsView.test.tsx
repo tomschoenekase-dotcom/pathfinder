@@ -81,10 +81,10 @@ describe('AdminAiSystemsView', () => {
     render(<AdminAiSystemsView systems={systems as never} credentials={[]} />)
 
     expect(screen.getByRole('heading', { name: 'Founder-facing operating help' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Visitor chat routing' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Visitor chatbot routing' })).toBeTruthy()
     expect(screen.getByText(/cannot borrow your Codex or ChatGPT subscription/i)).toBeTruthy()
-    expect(screen.getByText(/local Hermes or Codex bridge has not been installed/i)).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Visitor chat providers' })).toBeTruthy()
+    expect(screen.getByText(/local Hermes\/Codex bridge implementation exists/i)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Visitor chatbot providers' })).toBeTruthy()
     expect(screen.getByText('DEEPSEEK_API_KEY')).toBeTruthy()
     expect(screen.getAllByText('Dashboard key present')).toHaveLength(2)
     expect(screen.queryByText('Connected')).toBeNull()
@@ -92,7 +92,15 @@ describe('AdminAiSystemsView', () => {
       screen.getByText(/OpenRouter and arbitrary provider URLs are not admitted/i),
     ).toBeTruthy()
     expect(screen.getByText(/never asks you to paste a provider key into this page/i)).toBeTruthy()
-    expect(screen.getByText(/No platform-worker credentials have been issued/i)).toBeTruthy()
+    expect(screen.getByText(/policy surface is implemented.*inactive state/i)).toBeTruthy()
+    expect(screen.getByText('Runtime surface')).toBeTruthy()
+    expect(screen.getByText('Implemented')).toBeTruthy()
+    expect(screen.getByText('Inactive')).toBeTruthy()
+    expect(screen.getByText('Not evaluated here')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Staging activation path' })).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: /Choose a venue to inspect workers/i }).getAttribute('href'),
+    ).toBe('/admin/directory')
   })
 
   it('requires a reason and explicit acknowledgement before changing global guest-chat routing', async () => {

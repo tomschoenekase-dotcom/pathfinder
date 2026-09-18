@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
@@ -20,8 +21,9 @@ function WorkerCredentialList({ credentials }: { credentials: PlatformWorkerCred
   if (!credentials.length) {
     return (
       <p className="mt-3 text-sm leading-6 text-slate-600">
-        No platform-worker credentials have been issued. That is separate from a local Hermes or
-        Codex bridge.
+        No platform-worker policy credential is active. The policy surface is implemented; this is
+        an inactive state, not an installation failure. A local Hermes or Codex bridge is governed
+        separately.
       </p>
     )
   }
@@ -57,6 +59,96 @@ function WorkerCredentialList({ credentials }: { credentials: PlatformWorkerCred
   )
 }
 
+function AdminWorkerStatus({ credentials }: { credentials: PlatformWorkerCredential[] }) {
+  const hasActivePolicyCredential = credentials.some(
+    (credential) =>
+      credential.enabled &&
+      !credential.revokedAt &&
+      (!credential.expiresAt || credential.expiresAt.getTime() > Date.now()),
+  )
+
+  return (
+    <section aria-labelledby="admin-worker-heading" className="border-t border-slate-200 pt-8">
+      <div className="max-w-3xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">
+          Admin-worker AI
+        </p>
+        <h2
+          id="admin-worker-heading"
+          className="mt-2 text-2xl font-semibold tracking-tight text-slate-950"
+        >
+          Workers that run Torchiko
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          The Hermes/Codex worker surface and the per-venue agent control room are implemented. This
+          page reports setup boundaries; the selected venue’s Integrations and Operations views
+          remain the source of truth for a live bridge heartbeat, runs, questions, and recovery.
+        </p>
+      </div>
+
+      <dl className="mt-6 grid border-y border-slate-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <div className="py-4 sm:px-5 sm:first:pl-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Runtime surface
+          </dt>
+          <dd className="mt-2 text-sm font-semibold text-emerald-700">Implemented</dd>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Reuse the existing per-venue worker views; no second runtime is created here.
+          </p>
+        </div>
+        <div className="border-t border-slate-200 py-4 sm:border-t-0 sm:px-5">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Policy activation
+          </dt>
+          <dd
+            className={`mt-2 text-sm font-semibold ${hasActivePolicyCredential ? 'text-emerald-700' : 'text-amber-800'}`}
+          >
+            {hasActivePolicyCredential ? 'Credential active' : 'Inactive'}
+          </dd>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            A policy credential is not the same thing as a connected worker session.
+          </p>
+        </div>
+        <div className="border-t border-slate-200 py-4 sm:border-t-0 sm:px-5 sm:pr-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Live session
+          </dt>
+          <dd className="mt-2 text-sm font-semibold text-slate-700">Not evaluated here</dd>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            This page does not query per-venue sessions. Open a venue workspace to inspect its
+            short-lived bridge heartbeat.
+          </p>
+        </div>
+      </dl>
+
+      <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold">
+        <Link
+          href="/admin/directory"
+          className="text-sky-800 underline decoration-sky-300 underline-offset-4 hover:text-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+        >
+          Choose a venue to inspect workers
+        </Link>
+        <Link
+          href="/admin/operations"
+          className="text-sky-800 underline decoration-sky-300 underline-offset-4 hover:text-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+        >
+          Open the Control Room
+        </Link>
+      </div>
+
+      <div className="mt-7 max-w-3xl border-l-2 border-sky-700 pl-4">
+        <h3 className="text-sm font-semibold text-slate-950">Staging activation path</h3>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-600">
+          <li>Choose a venue and issue or activate its scoped machine credential.</li>
+          <li>Enable bridge admission for the staging route.</li>
+          <li>Launch the local Hermes or Codex runner on the always-on computer.</li>
+          <li>Confirm the venue heartbeat in Integrations, then inspect runs in Operations.</li>
+        </ol>
+      </div>
+    </section>
+  )
+}
+
 function VisitorProviderConnections({
   providers,
 }: {
@@ -66,7 +158,7 @@ function VisitorProviderConnections({
     <div className="mt-7 max-w-3xl" aria-labelledby="visitor-provider-heading">
       <div>
         <h3 id="visitor-provider-heading" className="text-lg font-semibold text-slate-950">
-          Visitor chat providers
+          Visitor chatbot providers
         </h3>
         <p className="mt-1 text-sm leading-6 text-slate-600">
           These connections power public venue chat only. They do not connect Codex, Hermes, the
@@ -74,36 +166,43 @@ function VisitorProviderConnections({
         </p>
       </div>
 
-      <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
-        {providers.map((provider) => (
-          <article
-            key={provider.id}
-            className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h4 className="text-sm font-semibold text-slate-950">{provider.name}</h4>
-                <span
-                  className={`text-xs font-semibold ${
-                    provider.configured ? 'text-emerald-700' : 'text-amber-800'
-                  }`}
-                >
-                  {provider.configured ? 'Dashboard key present' : 'Dashboard key missing'}
-                </span>
+      {providers.length ? (
+        <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
+          {providers.map((provider) => (
+            <article
+              key={provider.id}
+              className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <h4 className="text-sm font-semibold text-slate-950">{provider.name}</h4>
+                  <span
+                    className={`text-xs font-semibold ${
+                      provider.configured ? 'text-emerald-700' : 'text-amber-800'
+                    }`}
+                  >
+                    {provider.configured ? 'Dashboard key present' : 'Dashboard key missing'}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Server-only Railway variable:{' '}
+                  <code className="font-mono text-slate-800">{provider.environmentVariable}</code>
+                </p>
               </div>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Server-only Railway variable:{' '}
-                <code className="font-mono text-slate-800">{provider.environmentVariable}</code>
+              <p className="text-xs font-medium text-slate-600">
+                {provider.configured
+                  ? 'Eligible to select; web verifies again at dispatch'
+                  : 'Add key in Railway staging'}
               </p>
-            </div>
-            <p className="text-xs font-medium text-slate-600">
-              {provider.configured
-                ? 'Eligible to select; web verifies again at dispatch'
-                : 'Add key in Railway staging'}
-            </p>
-          </article>
-        ))}
-      </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 border-y border-slate-200 py-4 text-sm leading-6 text-slate-600">
+          No visitor-chat provider connections are configured in the current inventory. This does
+          not affect admin-worker setup.
+        </p>
+      )}
 
       <aside className="mt-4 border-l-2 border-sky-700 pl-4 text-sm leading-6 text-slate-700">
         <p className="font-semibold text-slate-950">Connect or replace a provider</p>
@@ -165,17 +264,17 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
     <section aria-labelledby="customer-ai-heading" className="border-t border-slate-200 pt-8">
       <div className="max-w-3xl">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">
-          Customer AI
+          Visitor chatbot
         </p>
         <h2
           id="customer-ai-heading"
           className="mt-2 text-2xl font-semibold tracking-tight text-slate-950"
         >
-          Visitor chat routing
+          Visitor chatbot routing
         </h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          This changes the global default for the public venue chatbot. It does not configure Tochi,
-          an operator agent, or a venue bridge.
+          This changes the global default for the public venue chatbot. It does not configure an
+          admin worker, Hermes/Codex, the Control Room, or a venue bridge.
         </p>
       </div>
 
@@ -329,7 +428,7 @@ export function AdminAiSystemsView({
       <section aria-labelledby="operator-ai-heading">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">
-            Operator AI
+            Admin-worker AI
           </p>
           <h2
             id="operator-ai-heading"
@@ -347,8 +446,9 @@ export function AdminAiSystemsView({
           <div className="py-4">
             <h3 className="font-semibold text-slate-950">Hosted subscription boundary</h3>
             <p className="mt-1 text-slate-600">
-              Torchiko cannot borrow your Codex or ChatGPT subscription inside the hosted app. A
-              local Hermes or Codex bridge has not been installed yet.
+              Torchiko cannot borrow your Codex or ChatGPT subscription inside the hosted app. The
+              local Hermes/Codex bridge implementation exists, but a live session is only proven
+              from a selected venue’s Integrations view.
             </p>
           </div>
           <div className="py-4">
@@ -362,6 +462,7 @@ export function AdminAiSystemsView({
         </div>
       </section>
 
+      <AdminWorkerStatus credentials={credentials} />
       <CustomerChatRouting customerChat={systems.customerChat} />
     </div>
   )
