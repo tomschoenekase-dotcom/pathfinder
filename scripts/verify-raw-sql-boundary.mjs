@@ -33,6 +33,7 @@ const approvedPolicies = new Set([
   'tenant-workflow-authority-share-lock',
   'tenant-workflow-activation-revoke',
   'tenant-agent-outcome-source-provenance-lock',
+  'tenant-agent-routine-operation-lock',
 
   'tenant-media-identity-request-lock',
   'tenant-media-identity-exact-receipt',
@@ -224,6 +225,29 @@ const approvedOperations = [
     method: '$queryRaw',
     hash: '8bac01d46c0c0b79c331b18ab4888ddf53259cb67fe375df420db7c75e734d1f',
     policy: 'tenant-workflow-authority-share-lock',
+  },
+  // Routine creation serializes one exact tenant/venue/key definition before
+  // replay/conflict evaluation; subsequent runtime locks one opaque routine ID.
+  {
+    file: 'packages/db/src/helpers/agent-routine-actions.ts',
+    method: '$executeRaw',
+    hash: '05d320583175a1b8e9518bd761c9b5880fcf55574de417d46b89d1009a2bb0ea',
+    policy: 'tenant-agent-routine-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-routine-actions.ts',
+    method: '$executeRaw',
+    hash: '1ab0da9456471fd0179ac70e9c08eaf9e77163fdbb4d40164a6df72e987ffc4c',
+    policy: 'tenant-agent-routine-operation-lock',
+    count: 2,
+  },
+  // Isolated routine worker performs only a database readiness probe before
+  // registering its bridge-only maintenance queue.
+  {
+    file: 'apps/workers/src/agent-routines-only-runtime.ts',
+    method: '$queryRaw',
+    hash: '1730fc082ddaf286020215008c78754a2d980d4e7aefc39e339c6684fca76e7c',
+    policy: 'system-probe',
   },
   {
     file: 'packages/db/src/helpers/agent-run-execution-actions.ts',

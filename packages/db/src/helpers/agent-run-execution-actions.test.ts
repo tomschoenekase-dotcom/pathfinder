@@ -73,6 +73,147 @@ function client(transaction: object) {
 }
 
 describe('agent run execution actions', () => {
+  it('rejects a bridge-only routine claim without a live session and registered worker', async () => {
+    const updateMany = vi.fn()
+    await expect(
+      claimAgentRunExecution(
+        { tenantId: 'tenant-1', runId: 'routine-run-1', leaseDurationMs: 60_000 },
+        client({
+          agentRun: {
+            findFirst: vi.fn().mockResolvedValue({
+              ...baseRun,
+              scopeSnapshot: {
+                routine: { routineId: 'routine-1', budgetEnforcement: 'DEFERRED' },
+                requiredWorkerRoles: ['operations-monitor'],
+                requiredWorkerCapabilities: ['agent-runs:execute'],
+              },
+            }),
+            updateMany,
+          },
+        }) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: 'NOT_CLAIMABLE',
+      message:
+        'Bridge-only routine runs require a live bridge session and registered execution worker',
+    })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it('permits a bridge-only routine claim only with its eligible registered worker', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    await expect(
+      claimAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'routine-run-1',
+          leaseDurationMs: 60_000,
+          bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          executionWorkerId: 'worker-1',
+        },
+        client({
+          agentRun: {
+            findFirst: vi.fn().mockResolvedValue({
+              ...baseRun,
+              scopeSnapshot: {
+                routine: { routineId: 'routine-1', budgetEnforcement: 'DEFERRED' },
+                requiredWorkerRoles: ['operations-monitor'],
+                requiredWorkerCapabilities: ['agent-runs:execute'],
+              },
+            }),
+            updateMany,
+          },
+          agentWorker: {
+            findFirst: vi.fn().mockResolvedValue({
+              agentRoles: ['operations-monitor'],
+              capabilities: ['agent-runs:execute'],
+            }),
+          },
+          agentBridgeSession: {
+            findFirst: vi.fn().mockResolvedValue({
+              clientId: 'client-1',
+              credentialId: 'credential-1',
+              scopeKey: 'scope-1',
+            }),
+          },
+        }) as never,
+      ),
+    ).resolves.toMatchObject({ status: 'RUNNING' })
+    expect(updateMany).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a routine claim when the supplied bridge session is unavailable', async () => {
+    await expect(
+      claimAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'routine-run-1',
+          leaseDurationMs: 60_000,
+          bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          executionWorkerId: 'worker-1',
+        },
+        client({
+          agentRun: {
+            findFirst: vi.fn().mockResolvedValue({
+              ...baseRun,
+              scopeSnapshot: { routine: { routineId: 'routine-1' } },
+            }),
+            updateMany: vi.fn(),
+          },
+          agentBridgeSession: { findFirst: vi.fn().mockResolvedValue(null) },
+        }) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: 'NOT_CLAIMABLE',
+      message: 'Bridge-only routine bridge session is offline, expired, or unauthorized',
+    })
+  })
+
+  it('rejects a routine claim when worker credentials do not match the live session', async () => {
+    const workerLookup = vi.fn().mockResolvedValue(null)
+    await expect(
+      claimAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'routine-run-1',
+          leaseDurationMs: 60_000,
+          bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          executionWorkerId: 'worker-1',
+        },
+        client({
+          agentRun: {
+            findFirst: vi.fn().mockResolvedValue({
+              ...baseRun,
+              scopeSnapshot: { routine: { routineId: 'routine-1' } },
+            }),
+            updateMany: vi.fn(),
+          },
+          agentBridgeSession: {
+            findFirst: vi.fn().mockResolvedValue({
+              clientId: 'client-1',
+              credentialId: 'credential-1',
+              scopeKey: 'scope-1',
+            }),
+          },
+          agentWorker: { findFirst: workerLookup },
+        }) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: 'NOT_CLAIMABLE',
+      message: 'Registered worker does not satisfy this bridge-only routine binding',
+    })
+    expect(workerLookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          clientId: 'client-1',
+          credentialId: 'credential-1',
+          credentialScopeKey: 'scope-1',
+        }),
+      }),
+    )
+  })
+
   it('denies a queued automatic source run when current authority was revoked', async () => {
     const transaction = {
       $queryRaw: vi.fn(async (parts: readonly string[]) =>

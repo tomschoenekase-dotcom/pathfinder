@@ -7,6 +7,8 @@ import {
   ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
   AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB,
   AGENT_QUESTION_MAINTENANCE_QUEUE,
+  AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB,
+  AGENT_ROUTINE_MAINTENANCE_QUEUE,
   AGENT_RUN_PROCESS_JOB,
   AGENT_RUN_QUEUE,
   AGENT_RUN_RETRY_BACKOFF,
@@ -138,6 +140,7 @@ import { processOperationalEventDeliveries } from './processors/operational-even
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
 import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
 import { processAgentQuestionExpiration } from './processors/agent-question-expiration'
+import { processAgentRoutineDispatch } from './processors/agent-routine-dispatch'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -472,6 +475,13 @@ async function handleAgentQuestionMaintenanceQueueJob(job: Job<Record<string, ne
   await processAgentQuestionExpiration()
 }
 
+async function handleAgentRoutineMaintenanceQueueJob(job: Job<Record<string, never>>) {
+  if (job.name !== AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB) {
+    throw new Error(`Unsupported agent routine maintenance job: ${job.name}`)
+  }
+  await processAgentRoutineDispatch()
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
   token?: string,
@@ -713,6 +723,9 @@ export async function startWorkers() {
   const agentQuestionMaintenanceQueue = new Queue(AGENT_QUESTION_MAINTENANCE_QUEUE, {
     connection,
   })
+  const agentRoutineMaintenanceQueue = new Queue(AGENT_ROUTINE_MAINTENANCE_QUEUE, {
+    connection,
+  })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -744,6 +757,10 @@ export async function startWorkers() {
     {
       name: AGENT_QUESTION_MAINTENANCE_QUEUE,
       close: () => agentQuestionMaintenanceQueue.close(),
+    },
+    {
+      name: AGENT_ROUTINE_MAINTENANCE_QUEUE,
+      close: () => agentRoutineMaintenanceQueue.close(),
     },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
@@ -830,6 +847,27 @@ export async function startWorkers() {
           ),
         remove: () =>
           agentQuestionMaintenanceQueue.removeJobScheduler(AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB),
+      },
+    ])
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED && env.AGENT_ROUTINES_ENABLED, [
+      {
+        upsert: () =>
+          agentRoutineMaintenanceQueue.upsertJobScheduler(
+            AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB,
+            { every: 60_000 },
+            {
+              name: AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 100,
+                removeOnFail: 500,
+              },
+            },
+          ),
+        remove: () =>
+          agentRoutineMaintenanceQueue.removeJobScheduler(AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB),
       },
     ])
     await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
@@ -1328,6 +1366,18 @@ export async function startWorkers() {
     ),
   )
 
+  const agentRoutineMaintenanceWorker = observeWorkerRuntime(
+    AGENT_ROUTINE_MAINTENANCE_QUEUE,
+    new Worker(
+      AGENT_ROUTINE_MAINTENANCE_QUEUE,
+      queueSafeJobProcessor(handleAgentRoutineMaintenanceQueueJob),
+      {
+        connection,
+        concurrency: 1,
+      },
+    ),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, queueSafeJobProcessor(handleAnswerAnalysisQueueJob), {
@@ -1491,6 +1541,7 @@ export async function startWorkers() {
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, worker: accountSummaryRefreshWorker },
     { name: VOICE_SESSION_RECOVERY_QUEUE, worker: voiceSessionRecoveryWorker },
     { name: AGENT_QUESTION_MAINTENANCE_QUEUE, worker: agentQuestionMaintenanceWorker },
+    { name: AGENT_ROUTINE_MAINTENANCE_QUEUE, worker: agentRoutineMaintenanceWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -1544,6 +1595,7 @@ export async function startWorkers() {
     generationRecoveryEnabled: env.GENERATION_RECOVERY_ENABLED,
     evaluationRunnerEnabled: env.EVALUATION_RUNNER_ENABLED,
     agentRunnerEnabled: env.AGENT_RUNNER_ENABLED,
+    agentRoutinesEnabled: env.AGENT_ROUTINES_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
@@ -1563,6 +1615,7 @@ export async function startWorkers() {
       ACCOUNT_SUMMARY_REFRESH_QUEUE,
       VOICE_SESSION_RECOVERY_QUEUE,
       AGENT_QUESTION_MAINTENANCE_QUEUE,
+      AGENT_ROUTINE_MAINTENANCE_QUEUE,
       MEDIA_INGESTION_QUEUE,
       VENUE_MEDIA_DERIVATIVE_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
@@ -1624,6 +1677,8 @@ export async function startWorkers() {
     voiceSessionRecoveryWorker,
     agentQuestionMaintenanceQueue,
     agentQuestionMaintenanceWorker,
+    agentRoutineMaintenanceQueue,
+    agentRoutineMaintenanceWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,

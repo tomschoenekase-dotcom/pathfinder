@@ -123,6 +123,10 @@ const approvedCallCounts = new Map([
   // Platform-admin reads policy-backed draft authority only within one exact tenant+venue scope.
   ['packages/api/src/routers/admin/agent-approval-policy-reads.ts', 1],
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
+  // Platform routine maintenance discovers a bounded cross-tenant due set of
+  // opaque IDs, then locks and rechecks each exact tenant/venue routine before
+  // creating a bridge-only AgentRun. It cannot run a provider or claim work.
+  ['packages/db/src/helpers/agent-routine-actions.ts', 1],
   // Platform-admin AI Systems reads one aggregate count of enabled client/venue guest-chat
   // exceptions; no tenant content, provider credentials, or secret values are returned.
   ['packages/api/src/routers/admin/ai-workload-configuration.ts', 1],

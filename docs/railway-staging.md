@@ -147,15 +147,15 @@ older worker replica and prove that only the reviewed release SHA remains; an ol
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
 jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
 
-For production workers, all twelve controls must be explicitly set to `true` or `false`:
+For production workers, all thirteen controls must be explicitly set to `true` or `false`:
 `OUTBOUND_PROVIDER_WORKERS_ENABLED`, `CRM_BACKGROUND_WORKERS_ENABLED`,
 `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED`,
 `INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
 `EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
-`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`,
+`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`, `AGENT_ROUTINES_ENABLED`,
 `VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED`, and `FOUNDER_ABSENCE_OBSERVER_ENABLED`.
 This list follows `WORKER_EXECUTION_FLAGS` in `apps/workers/src/lib/worker-startup-policy.ts`.
-Use all twelve explicitly set to `false` for a fully dormant staging deployment.
+Use all thirteen explicitly set to `false` for a fully dormant staging deployment.
 Omission in production is a startup failure, not implicit authorization.
 Scheduler flags do not by themselves freeze ordinary consumers; a cutover freeze still requires
 stopped/drained worker replicas and inspected queues.
@@ -172,6 +172,19 @@ For an isolated staging evaluation window, keep `OUTBOUND_PROVIDER_WORKERS_ENABL
 `mode=evaluation-only` and exactly the evaluation-run plus guest-answer-attribution queues. Any
 unrelated queue registration, mixed worker generation, or broad provider-enabled mode blocks the
 evaluation canary.
+
+For provider-dark recurring admin monitoring, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
+both `AGENT_ROUTINES_ENABLED=true` and `WORKER_SCHEDULERS_ENABLED=true`, and keep every other isolated
+mode false. Routine scheduling requires the scheduler flag; ordinary schedulers may remain enabled
+while routines remain off. The worker must
+report `mode=agent-routines-only` and exactly the agent-routine-maintenance queue. This process only
+materializes bounded, tenant-scoped `AgentRun` rows. It never invokes a model or starts the managed
+provider runner; an authenticated local bridge worker with the routine's required role and
+capabilities must claim each run. Routine definitions are created disabled, enabling is a separate
+human action, active runs are serialized, retry attempts are fixed at one, and a configured daily
+run-count limit is enforced. USD budget enforcement is not supported in this initial subset because
+the local bridges do not yet provide trustworthy pre-call enforcement and usage settlement; use
+provider-side spending limits and conservative run counts instead.
 
 For provider-dark venue-media processing, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
 `VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED=true`, and keep the CRM, intake-verification, and evaluation

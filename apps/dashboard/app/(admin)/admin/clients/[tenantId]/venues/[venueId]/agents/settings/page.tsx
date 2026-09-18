@@ -67,6 +67,12 @@ export default async function AgentSettingsPage({
           >
             Runner connections
           </Link>
+          <Link
+            href={`${agentBase}/routines`}
+            className="rounded-2xl border border-pf-light px-5 py-3 text-sm font-semibold text-pf-primary"
+          >
+            Recurring monitoring
+          </Link>
         </div>
       </section>
     </div>

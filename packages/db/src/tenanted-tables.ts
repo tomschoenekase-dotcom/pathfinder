@@ -104,6 +104,8 @@ export const TENANTED_TABLES = [
   'AgentBridgeSession',
   'AgentWorker',
   'AgentRun',
+  'AgentRoutine',
+  'AgentRoutineDispatch',
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',

@@ -79,6 +79,21 @@ const leaseSchema = scopeSchema.extend({
 })
 const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
 
+function routineBridgeRequirements(scopeSnapshot: unknown) {
+  if (typeof scopeSnapshot !== 'object' || scopeSnapshot === null || !('routine' in scopeSnapshot))
+    return null
+  const list = (key: 'requiredWorkerRoles' | 'requiredWorkerCapabilities') => {
+    const value = (scopeSnapshot as Record<string, unknown>)[key]
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      : []
+  }
+  return {
+    requiredRoles: list('requiredWorkerRoles'),
+    requiredCapabilities: list('requiredWorkerCapabilities'),
+  }
+}
+
 async function lockAndValidateTerminalLease(
   transaction: typeof db,
   input: { tenantId: string; runId: string; leaseToken: string },
@@ -110,6 +125,7 @@ async function lockAndValidateTerminalLease(
       venueId: true,
       agentIdentityId: true,
       parentAgentRunId: true,
+      scopeSnapshot: true,
       attemptNumber: true,
       maxAttempts: true,
       cancelRequestedAt: true,
@@ -450,6 +466,58 @@ export async function claimAgentRunExecution(
     }
     if (!run.agentIdentity.enabled) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent identity is disabled')
+    }
+    const routineRequirements = routineBridgeRequirements(run.scopeSnapshot)
+    if (routineRequirements) {
+      if (!input.bridgeSessionId || !input.executionWorkerId || !run.venueId)
+        throw new AgentRunExecutionError(
+          'NOT_CLAIMABLE',
+          'Bridge-only routine runs require a live bridge session and registered execution worker',
+        )
+      const session = await transaction.agentBridgeSession.findFirst({
+        where: {
+          id: input.bridgeSessionId,
+          tenantId: run.tenantId,
+          venueId: run.venueId,
+          status: 'ONLINE',
+          expiresAt: { gt: now },
+          credential: {
+            enabled: true,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+            capabilities: { has: 'agent-runs:execute' },
+          },
+        },
+        select: { clientId: true, credentialId: true, scopeKey: true },
+      })
+      if (!session)
+        throw new AgentRunExecutionError(
+          'NOT_CLAIMABLE',
+          'Bridge-only routine bridge session is offline, expired, or unauthorized',
+        )
+      const worker = await transaction.agentWorker.findFirst({
+        where: {
+          id: input.executionWorkerId,
+          tenantId: run.tenantId,
+          clientId: session.clientId,
+          credentialId: session.credentialId,
+          credentialScopeKey: session.scopeKey,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+        },
+        select: { capabilities: true, agentRoles: true },
+      })
+      if (
+        !worker ||
+        !routineRequirements.requiredRoles.every((role) => worker.agentRoles.includes(role)) ||
+        !routineRequirements.requiredCapabilities.every((capability) =>
+          worker.capabilities.includes(capability),
+        )
+      )
+        throw new AgentRunExecutionError(
+          'NOT_CLAIMABLE',
+          'Registered worker does not satisfy this bridge-only routine binding',
+        )
     }
     if (run.requestedOperation === 'intake_source_review') {
       // Workflow heads precede run and identity locks. Hold current authority through

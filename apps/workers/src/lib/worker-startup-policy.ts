@@ -9,18 +9,21 @@ export const WORKER_EXECUTION_FLAGS = [
   'GENERATION_DISPATCH_ENABLED',
   'GENERATION_RECOVERY_ENABLED',
   'EVALUATION_RUNNER_ENABLED',
+  'AGENT_ROUTINES_ENABLED',
   'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
   'FOUNDER_ABSENCE_OBSERVER_ENABLED',
 ] as const
 
 const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
   (flag) =>
+    flag !== 'WORKER_SCHEDULERS_ENABLED' &&
     flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
     flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
     flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
     flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&
     flag !== 'EVALUATION_RUNNER_ENABLED' &&
+    flag !== 'AGENT_ROUTINES_ENABLED' &&
     flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
     flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',
 )
@@ -37,6 +40,7 @@ export type WorkerStartupPolicy = {
     | 'intake-v1-website-research-only'
     | 'intake-v1-file-extraction-only'
     | 'evaluation-only'
+    | 'agent-routines-only'
     | 'venue-media-derivative-only'
     | 'founder-absence-observer-only'
     | 'provider-disabled'
@@ -71,8 +75,13 @@ export function resolveWorkerStartupPolicy(
   const intakeV1FileExtractionEnabled =
     environment.INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED === 'true'
   const evaluationRunnerEnabled = environment.EVALUATION_RUNNER_ENABLED === 'true'
+  const agentRoutinesEnabled = environment.AGENT_ROUTINES_ENABLED === 'true'
+  const workerSchedulersEnabled = environment.WORKER_SCHEDULERS_ENABLED === 'true'
   const venueMediaDerivativeEnabled = environment.VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED === 'true'
   const founderAbsenceObserverEnabled = environment.FOUNDER_ABSENCE_OBSERVER_ENABLED === 'true'
+  if (agentRoutinesEnabled && !workerSchedulersEnabled) {
+    throw new Error('AGENT_ROUTINES_ENABLED requires WORKER_SCHEDULERS_ENABLED to be enabled')
+  }
   if (providerEnabled && intakeV1FileExtractionEnabled) {
     throw new Error(
       'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED requires the isolated provider-disabled runtime',
@@ -85,7 +94,8 @@ export function resolveWorkerStartupPolicy(
       intakeUploadVerificationEnabled ||
       intakeV1WebsiteResearchEnabled ||
       intakeV1FileExtractionEnabled ||
-      evaluationRunnerEnabled)
+      evaluationRunnerEnabled ||
+      agentRoutinesEnabled)
   ) {
     throw new Error(
       'FOUNDER_ABSENCE_OBSERVER_ENABLED can run only by itself or with the venue media derivative runtime',
@@ -104,6 +114,7 @@ export function resolveWorkerStartupPolicy(
       intakeV1WebsiteResearchEnabled,
       intakeV1FileExtractionEnabled,
       evaluationRunnerEnabled,
+      agentRoutinesEnabled,
       venueMediaDerivativeEnabled,
     ].filter(Boolean).length
     if (isolatedModesEnabled > 1) {
@@ -198,29 +209,39 @@ export function resolveWorkerStartupPolicy(
                   ],
                   intakeUploadVerificationEnabled: false,
                 }
-              : venueMediaDerivativeEnabled
+              : agentRoutinesEnabled
                 ? {
-                    mode: 'venue-media-derivative-only',
-                    requiredEnvironmentKeys: [
-                      'REDIS_URL',
-                      'DATABASE_URL',
-                      'DIRECT_DATABASE_URL',
-                      'STORAGE_BUCKET',
-                      'STORAGE_REGION',
-                      'STORAGE_ACCESS_KEY_ID',
-                      'STORAGE_SECRET_ACCESS_KEY',
-                    ],
+                    mode: 'agent-routines-only',
+                    requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
                     intakeUploadVerificationEnabled: false,
                   }
-                : founderAbsenceObserverEnabled
+                : venueMediaDerivativeEnabled
                   ? {
-                      mode: 'founder-absence-observer-only',
-                      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+                      mode: 'venue-media-derivative-only',
+                      requiredEnvironmentKeys: [
+                        'REDIS_URL',
+                        'DATABASE_URL',
+                        'DIRECT_DATABASE_URL',
+                        'STORAGE_BUCKET',
+                        'STORAGE_REGION',
+                        'STORAGE_ACCESS_KEY_ID',
+                        'STORAGE_SECRET_ACCESS_KEY',
+                      ],
                       intakeUploadVerificationEnabled: false,
                     }
-                  : {
-                      mode: 'provider-disabled',
-                      requiredEnvironmentKeys: ['REDIS_URL'],
-                      intakeUploadVerificationEnabled: false,
-                    }
+                  : founderAbsenceObserverEnabled
+                    ? {
+                        mode: 'founder-absence-observer-only',
+                        requiredEnvironmentKeys: [
+                          'REDIS_URL',
+                          'DATABASE_URL',
+                          'DIRECT_DATABASE_URL',
+                        ],
+                        intakeUploadVerificationEnabled: false,
+                      }
+                    : {
+                        mode: 'provider-disabled',
+                        requiredEnvironmentKeys: ['REDIS_URL'],
+                        intakeUploadVerificationEnabled: false,
+                      }
 }

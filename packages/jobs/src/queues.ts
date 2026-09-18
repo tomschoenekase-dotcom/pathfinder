@@ -83,6 +83,12 @@ export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
 export const AGENT_QUESTION_MAINTENANCE_QUEUE = queueName('agent-question-maintenance')
 export const AGENT_QUESTION_EXPIRATION_SCHEDULER_JOB = 'agent-question-expiration-scheduler'
 
+// This queue only discovers due, database-backed routines. It never invokes a
+// model itself; an explicit runtime flag is required before its scheduler is
+// registered.
+export const AGENT_ROUTINE_MAINTENANCE_QUEUE = queueName('agent-routine-maintenance')
+export const AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB = 'agent-routine-dispatch-scheduler'
+
 export const PROSPECT_IMPORT_QUEUE = queueName('prospect-import')
 export const PROSPECT_IMPORT_COMMIT_JOB = 'prospect-import-commit'
 export const PROSPECT_IMPORT_INSPECT_JOB = 'prospect-import-inspect'
@@ -147,6 +153,7 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
   AGENT_RUN_QUEUE,
   AGENT_QUESTION_MAINTENANCE_QUEUE,
+  AGENT_ROUTINE_MAINTENANCE_QUEUE,
   PROSPECT_IMPORT_QUEUE,
   GMAIL_SYNC_QUEUE,
   BILLING_RECONCILIATION_QUEUE,

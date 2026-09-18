@@ -18,6 +18,10 @@ const intakeRuntime = readFileSync(
   'utf8',
 )
 const evaluationRuntime = readFileSync(resolve(__dirname, 'evaluation-only-runtime.ts'), 'utf8')
+const agentRoutinesRuntime = readFileSync(
+  resolve(__dirname, 'agent-routines-only-runtime.ts'),
+  'utf8',
+)
 const isolatedReadiness = readFileSync(
   resolve(__dirname, 'lib/isolated-runtime-readiness.ts'),
   'utf8',
@@ -86,6 +90,30 @@ describe('provider-disabled worker registration boundary', () => {
     expect(founderAbsenceRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
   })
 
+  it('loads the isolated routine scheduler before importing the provider worker graph', () => {
+    const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
+    const routineBranch = bootstrap.indexOf(
+      "if (policy.mode === 'agent-routines-only')",
+      entryPoint,
+    )
+    const routineImport = bootstrap.indexOf(
+      "await import('./agent-routines-only-runtime.js')",
+      routineBranch,
+    )
+    const routineReturn = bootstrap.indexOf('return runtime', routineImport)
+    const providerImport = bootstrap.indexOf("await import('./index.js')", routineReturn)
+
+    expect(routineBranch).toBeGreaterThan(entryPoint)
+    expect(routineImport).toBeGreaterThan(routineBranch)
+    expect(routineReturn).toBeGreaterThan(routineImport)
+    expect(providerImport).toBeGreaterThan(routineReturn)
+    expect(agentRoutinesRuntime).toContain('AGENT_ROUTINE_MAINTENANCE_QUEUE')
+    expect(agentRoutinesRuntime).toContain('AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB')
+    expect(agentRoutinesRuntime).toContain('await db.$queryRaw`SELECT 1`')
+    expect(agentRoutinesRuntime).toContain('startIsolatedRuntimeReadinessHeartbeat')
+    expect(agentRoutinesRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
+  })
+
   it('keeps every database-backed isolated mode visible and gracefully stoppable', () => {
     for (const runtime of [
       derivativeRuntime,
@@ -93,6 +121,7 @@ describe('provider-disabled worker registration boundary', () => {
       crmRuntime,
       intakeRuntime,
       evaluationRuntime,
+      agentRoutinesRuntime,
     ]) {
       expect(runtime).toContain('startIsolatedRuntimeReadinessHeartbeat')
       expect(runtime).toContain('await stopOperationalHeartbeat()')

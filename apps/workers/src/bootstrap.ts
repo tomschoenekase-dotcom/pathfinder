@@ -99,6 +99,13 @@ export async function bootstrapWorkers() {
     return runtime
   }
 
+  if (policy.mode === 'agent-routines-only') {
+    const { startAgentRoutinesOnlyRuntime } = await import('./agent-routines-only-runtime.js')
+    const runtime = await startAgentRoutinesOnlyRuntime()
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
   if (policy.mode === 'venue-media-derivative-only') {
     const { startVenueMediaDerivativeRuntime } = await import('./venue-media-derivative-runtime.js')
     const runtime = await startVenueMediaDerivativeRuntime()

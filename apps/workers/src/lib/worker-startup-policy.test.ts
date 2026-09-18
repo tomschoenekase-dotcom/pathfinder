@@ -157,6 +157,63 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits the isolated database-backed routine scheduler without provider keys', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        WORKER_SCHEDULERS_ENABLED: 'true',
+        AGENT_ROUTINES_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'agent-routines-only',
+      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it.each([{ AGENT_ROUTINES_ENABLED: 'true' }])(
+    'requires the scheduler gate when routines are enabled in a provider-disabled process: %#',
+    (flags) => {
+      expect(() =>
+        resolveWorkerStartupPolicy({
+          RAILWAY_ENVIRONMENT: 'staging',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          ...flags,
+        }),
+      ).toThrow('AGENT_ROUTINES_ENABLED requires WORKER_SCHEDULERS_ENABLED')
+    },
+  )
+
+  it.each([{ AGENT_ROUTINES_ENABLED: 'true' }])(
+    'requires the scheduler gate when routines are enabled in a provider-enabled process: %#',
+    (flags) => {
+      expect(() =>
+        resolveWorkerStartupPolicy({
+          RAILWAY_ENVIRONMENT: 'staging',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+          ...flags,
+        }),
+      ).toThrow('AGENT_ROUTINES_ENABLED requires WORKER_SCHEDULERS_ENABLED')
+    },
+  )
+
+  it.each(['false', 'true'] as const)(
+    'permits schedulers without enabling routines in a provider-%s process',
+    (providerEnabled) => {
+      expect(
+        resolveWorkerStartupPolicy({
+          RAILWAY_ENVIRONMENT: 'staging',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: providerEnabled,
+          WORKER_SCHEDULERS_ENABLED: 'true',
+          AGENT_ROUTINES_ENABLED: 'false',
+        }),
+      ).toMatchObject({
+        mode: providerEnabled === 'true' ? 'provider-enabled' : 'provider-disabled',
+      })
+    },
+  )
+
   it('permits the deterministic venue media derivative runtime without provider workers', () => {
     expect(
       resolveWorkerStartupPolicy({
@@ -236,11 +293,13 @@ describe('worker startup policy', () => {
     WORKER_EXECUTION_FLAGS.filter(
       (flag) =>
         flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
+        flag !== 'WORKER_SCHEDULERS_ENABLED' &&
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
         flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
         flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&
         flag !== 'EVALUATION_RUNNER_ENABLED' &&
+        flag !== 'AGENT_ROUTINES_ENABLED' &&
         flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
         flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',
     ),

@@ -18,6 +18,7 @@ import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
 import { adminAgentTaskRequestsRouter } from './agent-task-requests'
+import { adminAgentRoutinesRouter } from './agent-routines'
 import { adminAgentOutcomesRouter } from './agent-outcomes'
 import { adminChatlogsRouter } from './chatlogs'
 import { adminClientAnalyticsRouter } from './client-analytics'
@@ -125,6 +126,7 @@ export const adminRouter = mergeRouters(
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,
   adminAgentTaskRequestsRouter,
+  adminAgentRoutinesRouter,
   adminAgentOutcomesRouter,
   adminIncidentControlRouter,
   adminIntakeOperationsRouter,

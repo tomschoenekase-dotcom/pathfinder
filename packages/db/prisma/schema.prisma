@@ -236,6 +236,8 @@ model Tenant {
   firstWeekAccountReviews                   FirstWeekAccountReview[]
   agentIdentities                           AgentIdentity[]
   agentRuns                                 AgentRun[]
+  agentRoutines                             AgentRoutine[]
+  agentRoutineDispatches                    AgentRoutineDispatch[]
   agentActions                              AgentAction[]
   agentTimelineEvents                       AgentTimelineEvent[]
   approvalRequests                          ApprovalRequest[]
@@ -1546,6 +1548,8 @@ model Venue {
   firstWeekAccountReviews                   FirstWeekAccountReview[]
   agentIdentities                           AgentIdentity[]
   agentRuns                                 AgentRun[]
+  agentRoutines                             AgentRoutine[]
+  agentRoutineDispatches                    AgentRoutineDispatch[]
   agentActions                              AgentAction[]
   agentTimelineEvents                       AgentTimelineEvent[]
   approvalRequests                          ApprovalRequest[]
@@ -5721,6 +5725,7 @@ model AgentIdentity {
   tenant                 Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue                  Venue?                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   runs                   AgentRun[]
+  routines               AgentRoutine[]
   actions                AgentAction[]
   approvalRequests       ApprovalRequest[]
   customerAccessRequests CustomerAccessRequest[]
@@ -5792,6 +5797,7 @@ model AgentRun {
   approvalGrantConsumptions ApprovalGrantConsumption[]
   founderDirectiveTask      FounderDirectiveTaskRequest?
   workflowBindings          AgentWorkflowRunBinding[]
+  routineDispatch          AgentRoutineDispatch?
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
@@ -8943,6 +8949,67 @@ model AgentWorker {
   @@index([tenantId, status, lastHeartbeatAt], map: "agent_workers_tenant_status_idx")
   @@index([credentialId, status], map: "agent_workers_credential_status_idx")
   @@map("agent_workers")
+}
+
+/// A human-configured recurring monitor. It is intentionally inert at
+/// creation time; runtime dispatch additionally requires an explicit server
+/// flag. The definition, next due time, and every resulting AgentRun are
+/// retained by Torchiko rather than a desktop worker.
+model AgentRoutine {
+  id                         String                 @id @default(cuid())
+  tenantId                   String                 @map("tenant_id")
+  venueId                    String                 @map("venue_id")
+  routineKey                 String                 @map("routine_key") @db.VarChar(191)
+  agentIdentityId            String                 @map("agent_identity_id")
+  requestedOperation         String                 @map("requested_operation") @db.VarChar(191)
+  prompt                     String                 @db.VarChar(10000)
+  intervalSeconds            Int                    @map("interval_seconds")
+  maxAttempts                Int                    @default(1) @map("max_attempts")
+  maxRunsPerDay              Int                    @default(24) @map("max_runs_per_day")
+  // Reserved legacy fields. New routine admission always writes null and
+  // runtime refuses non-null rows until pre-call budget enforcement exists.
+  perRunBudgetE8Usd          BigInt?                @map("per_run_budget_e8_usd")
+  dailyBudgetE8Usd           BigInt?                @map("daily_budget_e8_usd")
+  requiredWorkerRoles        String[]               @default([]) @map("required_worker_roles")
+  requiredWorkerCapabilities String[]               @default([]) @map("required_worker_capabilities")
+  enabled                    Boolean                @default(false)
+  nextRunAt                  DateTime?              @map("next_run_at")
+  lastRunAt                  DateTime?              @map("last_run_at")
+  lastSkipReason             String?                @map("last_skip_reason") @db.VarChar(191)
+  createdBy                  String                 @map("created_by") @db.VarChar(191)
+  createdAt                  DateTime               @default(now()) @map("created_at")
+  updatedAt                  DateTime               @updatedAt @map("updated_at")
+  tenant                     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                      Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity              AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  dispatches                 AgentRoutineDispatch[]
+
+  @@unique([tenantId, venueId, routineKey], map: "agent_routines_scope_key")
+  @@unique([id, tenantId, venueId], map: "agent_routines_id_scope_key")
+  @@index([enabled, nextRunAt], map: "agent_routines_due_idx")
+  @@index([tenantId, venueId, createdAt], map: "agent_routines_scope_created_idx")
+  @@map("agent_routines")
+}
+
+/// One durable dispatch slot. The unique routine/scheduled-for key prevents
+/// duplicate AgentRuns even if scheduler replicas wake simultaneously.
+model AgentRoutineDispatch {
+  id            String       @id @default(cuid())
+  tenantId      String       @map("tenant_id")
+  venueId       String       @map("venue_id")
+  routineId     String       @map("routine_id")
+  scheduledFor  DateTime     @map("scheduled_for")
+  agentRunId    String       @unique @map("agent_run_id")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  routine       AgentRoutine @relation(fields: [routineId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun      AgentRun     @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([routineId, scheduledFor], map: "agent_routine_dispatches_routine_due_key")
+  @@unique([agentRunId, tenantId, venueId], map: "agent_routine_dispatches_run_scope_key")
+  @@index([tenantId, venueId, scheduledFor], map: "agent_routine_dispatches_scope_due_idx")
+  @@map("agent_routine_dispatches")
 }
 
 enum CompanyKnowledgeType {

@@ -1456,6 +1456,7 @@ export * from './helpers/agent-current-worker-claim'
 export * from './helpers/agent-workflow-activation-actions'
 export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'
+export * from './helpers/agent-routine-actions'
 export * from './helpers/intake-v1-package-draft-proposal-actions'
 export * from './helpers/intake-v1-package-machine-authority'
 

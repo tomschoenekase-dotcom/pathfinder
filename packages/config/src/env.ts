@@ -91,6 +91,11 @@ const rawEnvSchema = z
     // workload. It stays off until an operator configures an execution adapter.
     AGENT_RUNNER_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Database-backed recurring agent monitors are independently dark. An
+    // enabled routine definition is not enough to schedule work until this
+    // worker gate is explicitly enabled too.
+    AGENT_ROUTINES_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Public machine-to-machine bridge transport is separately dark. Database
     // activation alone must never expose the HTTP surface.
     AGENT_BRIDGE_HTTP_ENABLED: z.enum(['true', 'false']).optional(),
@@ -311,6 +316,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
   EVALUATION_RUNNER_ENABLED: values.EVALUATION_RUNNER_ENABLED === 'true',
   AGENT_RUNNER_ENABLED: values.AGENT_RUNNER_ENABLED === 'true',
+  AGENT_ROUTINES_ENABLED: values.AGENT_ROUTINES_ENABLED === 'true',
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
