@@ -37,6 +37,7 @@ const configSchema = z.object({
     .default(30 * 60_000),
   localInferenceUrl: z.string().url().optional(),
   localInferenceKey: z.string().min(1).max(4_096).optional(),
+  hermesMcpUrl: z.string().url().optional(),
   hermesProfile: z
     .string()
     .trim()
@@ -94,21 +95,74 @@ function validateLocalInferenceEndpoint(raw: string) {
   return endpoint.toString()
 }
 
+function validateHermesMcpEndpoint(raw: string, bridgeEndpoint: string) {
+  const endpoint = new URL(raw)
+  const bridge = new URL(bridgeEndpoint)
+  if (
+    endpoint.origin !== bridge.origin ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash ||
+    (endpoint.protocol !== 'https:' &&
+      !(
+        endpoint.protocol === 'http:' &&
+        (endpoint.hostname === '127.0.0.1' || endpoint.hostname === 'localhost')
+      ))
+  )
+    throw new Error('INVALID_HERMES_MCP_ENDPOINT')
+  return endpoint.toString()
+}
+
+function deriveHermesMcpEndpoint(bridgeEndpoint: string) {
+  const endpoint = new URL(bridgeEndpoint)
+  const bridgePath = '/api/agent-bridge/'
+  if (!endpoint.pathname.startsWith(bridgePath)) throw new Error('HERMES_MCP_ENDPOINT_REQUIRED')
+  endpoint.pathname = `/api/mcp/${endpoint.pathname.slice(bridgePath.length)}`
+  return endpoint.toString()
+}
+
 export function parseAgentBridgeRunnerConfig(raw: unknown): AgentBridgeRunnerConfig {
   const parsed = configSchema.parse(raw)
+  const endpoint = validateEndpoint(parsed.endpoint)
   if (parsed.provider === 'OPENAI_COMPATIBLE' && !parsed.localInferenceUrl)
     throw new Error('LOCAL_INFERENCE_ENDPOINT_REQUIRED')
   if (parsed.provider === 'HERMES' && !parsed.hermesProfile)
     throw new Error('HERMES_PROFILE_REQUIRED')
   if (!parsed.workerCapabilities.includes('agent-runs:execute'))
     throw new Error('WORKER_EXECUTION_CAPABILITY_REQUIRED')
+  if (parsed.provider === 'HERMES') {
+    const mcpEndpoint = parsed.hermesMcpUrl ?? deriveHermesMcpEndpoint(endpoint)
+    validateHermesMcpEndpoint(mcpEndpoint, endpoint)
+  }
   return {
     ...parsed,
-    endpoint: validateEndpoint(parsed.endpoint),
+    endpoint,
     ...(parsed.localInferenceUrl
       ? { localInferenceUrl: validateLocalInferenceEndpoint(parsed.localInferenceUrl) }
       : {}),
+    ...(parsed.hermesMcpUrl
+      ? { hermesMcpUrl: validateHermesMcpEndpoint(parsed.hermesMcpUrl, endpoint) }
+      : {}),
   }
+}
+
+/**
+ * Build the one authenticated MCP server that is made available to a Hermes
+ * ACP session. The secret is carried only as an HTTP authorization header in
+ * the ACP control message; it is never added to the model prompt or logged by
+ * this runner. The server still enforces the credential's capabilities.
+ */
+export function buildHermesMcpServers(config: AgentBridgeRunnerConfig) {
+  if (config.provider !== 'HERMES') return []
+  const url = config.hermesMcpUrl ?? deriveHermesMcpEndpoint(config.endpoint)
+  return [
+    {
+      name: 'torchiko',
+      url,
+      headers: [{ name: 'Authorization', value: `Bearer ${config.secret}` }],
+    },
+  ]
 }
 
 export function buildAgentCliInvocation(config: AgentBridgeRunnerConfig) {
@@ -331,7 +385,7 @@ function executeHermesAcpTask(
             jsonrpc: '2.0',
             id: 2,
             method: 'session/new',
-            params: { cwd: config.workdir, mcpServers: [] },
+            params: { cwd: config.workdir, mcpServers: buildHermesMcpServers(config) },
           })
         } else if (envelope.id === 2) {
           const session = z.object({ sessionId: z.string().min(1) }).safeParse(envelope.result)

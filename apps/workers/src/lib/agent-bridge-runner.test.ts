@@ -11,6 +11,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
 import {
   buildAgentCliInvocation,
   buildAgentBridgeExecutionPrompt,
+  buildHermesMcpServers,
   createAgentBridgeHttpClient,
   executeAgentBridgeTask,
   parseAgentBridgeRunnerConfig,
@@ -317,6 +318,39 @@ describe('desktop agent bridge runner', () => {
     ).toBe('pathfinder_architect')
   })
 
+  it('derives a same-origin authenticated Torchiko MCP endpoint for Hermes', () => {
+    const config = parseAgentBridgeRunnerConfig({
+      ...base,
+      provider: 'HERMES',
+      hermesProfile: 'pathfinder_architect',
+    })
+    expect(buildHermesMcpServers(config)).toEqual([
+      {
+        name: 'torchiko',
+        url: 'https://torchiko.test/api/mcp/tenant-1/venue-1',
+        headers: [{ name: 'Authorization', value: `Bearer ${base.secret}` }],
+      },
+    ])
+    expect(
+      buildHermesMcpServers(
+        parseAgentBridgeRunnerConfig({
+          ...base,
+          provider: 'HERMES',
+          hermesProfile: 'pathfinder_architect',
+          hermesMcpUrl: 'https://torchiko.test/custom-mcp',
+        }),
+      )[0]?.url,
+    ).toBe('https://torchiko.test/custom-mcp')
+    expect(() =>
+      parseAgentBridgeRunnerConfig({
+        ...base,
+        provider: 'HERMES',
+        hermesProfile: 'pathfinder_architect',
+        hermesMcpUrl: 'https://other-host.test/api/mcp/tenant-1/venue-1',
+      }),
+    ).toThrow('INVALID_HERMES_MCP_ENDPOINT')
+  })
+
   it('uses Hermes ACP over stdin and denies every permission request', async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()
@@ -391,10 +425,29 @@ describe('desktop agent bridge runner', () => {
     )
     expect(writes).toContainEqual({
       jsonrpc: '2.0',
+      id: 2,
+      method: 'session/new',
+      params: {
+        cwd: 'C:\\workspace',
+        mcpServers: [
+          {
+            name: 'torchiko',
+            url: 'https://torchiko.test/api/mcp/tenant-1/venue-1',
+            headers: [{ name: 'Authorization', value: `Bearer ${base.secret}` }],
+          },
+        ],
+      },
+    })
+    expect(writes).toContainEqual({
+      jsonrpc: '2.0',
       id: 'permission-1',
       result: { outcome: { outcome: 'cancelled' } },
     })
     expect(JSON.stringify(writes)).toContain('Review architecture.')
+    const promptMessages = writes.filter(
+      (message) => message.id === 3 && message.method === 'session/prompt',
+    )
+    expect(JSON.stringify(promptMessages)).not.toContain(base.secret)
     expect(spawn).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.arrayContaining(['-z']),

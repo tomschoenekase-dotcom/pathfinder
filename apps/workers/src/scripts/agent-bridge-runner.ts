@@ -30,6 +30,7 @@ async function main() {
     taskTimeoutMs: integer(process.env.TORCHIKO_AGENT_BRIDGE_TASK_TIMEOUT_MS, 30 * 60_000),
     localInferenceUrl: process.env.TORCHIKO_LOCAL_INFERENCE_URL,
     localInferenceKey: process.env.TORCHIKO_LOCAL_INFERENCE_KEY,
+    hermesMcpUrl: process.env.TORCHIKO_HERMES_MCP_URL,
     hermesProfile: process.env.TORCHIKO_HERMES_PROFILE,
   })
   const controller = new AbortController()

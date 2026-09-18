@@ -53,6 +53,7 @@ TORCHIKO_AGENT_BRIDGE_WORKER_AGENT_ROLES=<comma-separated-agent-identity-keys>
 TORCHIKO_LOCAL_INFERENCE_URL=http://127.0.0.1:11434/v1
 TORCHIKO_LOCAL_INFERENCE_KEY=<optional-loopback-server-key>
 TORCHIKO_HERMES_PROFILE=<exact-installed-profile-name>
+TORCHIKO_HERMES_MCP_URL=<optional-same-origin-MCP-endpoint>
 ```
 
 `TORCHIKO_AGENT_BRIDGE_WORKER_KEY` is required and must uniquely identify this installed runner.
@@ -68,15 +69,25 @@ was in scope. Run `pnpm test:agent-bridge:disposable` for provider-dark proof of
 session registration, rich claim context, retry/reclaim, completion, explicit cost provenance, and
 durable artifact readback against a disposable migrated database with verified cleanup.
 
+For Hermes, the runner derives the MCP endpoint by replacing `/api/agent-bridge/` in the bridge URL
+with `/api/mcp/`. Set `TORCHIKO_HERMES_MCP_URL` only when the deployment uses a same-origin custom
+route. The runner passes the existing machine credential as an HTTP `Authorization` header through
+the ACP `session/new` MCP-server configuration; it is not placed in the Hermes prompt or runner
+logs. Torchiko remains the authority boundary: the MCP route authenticates the credential and
+exposes only the tools granted by that credential. Use a credential scoped to the intended venue
+and capabilities; worker registration does not add MCP privileges.
+
 ## Provider status
 
-| Provider                | Runner adapter       | Current authority                               |
-| ----------------------- | -------------------- | ----------------------------------------------- |
-| Codex subscription      | Implemented          | Ephemeral, read-only sandbox, no approvals      |
-| Claude subscription     | Implemented          | Plan-only, no tools, no persisted session       |
-| Hermes                  | Implemented over ACP | Named profile, stdin prompt, permissions denied |
-| OpenAI-compatible local | Implemented          | Loopback HTTP only, one leased task at a time   |
+| Provider                | Runner adapter       | Current authority                                                                                   |
+| ----------------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
+| Codex subscription      | Implemented          | Ephemeral, read-only sandbox, no approvals                                                          |
+| Claude subscription     | Implemented          | Plan-only, no tools, no persisted session                                                           |
+| Hermes                  | Implemented over ACP | Named profile, authenticated same-origin Torchiko MCP, local filesystem/terminal permissions denied |
+| OpenAI-compatible local | Implemented          | Loopback HTTP only, one leased task at a time                                                       |
 
 The restricted first adapters prove safe subscription routing and result recovery. Repository-writing
-Codex work, permissioned Hermes tools, multi-run GPU scheduling, and MCP tool injection require
-separate explicit authority mappings rather than silently widening this runner.
+Codex work and multi-run GPU scheduling remain out of scope. Hermes MCP tool use is available only
+through the explicitly configured authenticated Torchiko MCP endpoint and still requires the
+credential's existing capability and approval boundaries; it does not silently grant worker or model
+permissions.
