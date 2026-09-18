@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+const configEnv = vi.hoisted(() => ({
+  ANTHROPIC_API_KEY: 'test-anthropic-key',
+  OPENAI_API_KEY: undefined as string | undefined,
+}))
+
+vi.mock('@pathfinder/config', () => ({ env: configEnv }))
+
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
@@ -15,7 +22,10 @@ function context(isPlatformAdmin: boolean, options?: { missingVenue?: boolean })
         ),
       },
       aiWorkloadConfigurationOverride: { findMany: vi.fn(async () => []) },
-      aiScopedWorkloadConfigurationOverride: { findMany: vi.fn(async () => []) },
+      aiScopedWorkloadConfigurationOverride: {
+        findMany: vi.fn(async () => []),
+        count: vi.fn(async () => 0),
+      },
     } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: {
@@ -28,6 +38,33 @@ function context(isPlatformAdmin: boolean, options?: { missingVenue?: boolean })
 }
 
 describe('admin AI workload configuration', () => {
+  it('projects only the two supported global guest-chat choices and key presence', async () => {
+    const ctx = context(true)
+    const result = await app.createCaller(ctx).admin.getAdminAiSystems()
+
+    expect(result.customerChat.workloadId).toBe('guest-chat')
+    expect(result.customerChat.modelOptions.map((option) => option.key)).toEqual([
+      'guest-chat',
+      'guest-chat-openai',
+    ])
+    expect(
+      result.customerChat.modelOptions.every((option) => typeof option.available === 'boolean'),
+    ).toBe(true)
+    expect(result.customerChat.effective.primaryModelKey).toBe('guest-chat')
+    expect(result.customerChat.scopedExceptionCount).toBe(0)
+    expect(ctx.db.aiScopedWorkloadConfigurationOverride.count).toHaveBeenCalledWith({
+      where: { workloadId: 'guest-chat', enabled: true, isTombstone: false },
+    })
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toMatch(/sk-|api[_-]?key[^A-Za-z]/iu)
+    expect(result.limitations).toMatchObject({
+      providerExecution: false,
+      deepSeek: false,
+      openRouter: false,
+      priceTierRouting: false,
+    })
+  })
+
   it('requires platform-admin authorization before global configuration reads', async () => {
     const ctx = context(false)
     await expect(
@@ -164,5 +201,21 @@ describe('admin AI workload configuration', () => {
         apiKey: 'must-not-be-accepted',
       } as never),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('rejects enabling a model whose provider execution key is missing', async () => {
+    await expect(
+      app.createCaller(context(true)).admin.saveAiWorkloadConfigurationOverride({
+        scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+        expectedRevision: null,
+        enabled: true,
+        values: { primaryModelKey: 'guest-chat-openai' },
+        unsafeChangesEnabled: true,
+        reason: 'move visitor chat to the OpenAI route',
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('provider configuration is missing: openai'),
+    })
   })
 })

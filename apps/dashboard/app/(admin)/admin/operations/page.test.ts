@@ -9,9 +9,12 @@ describe('founder operations readiness surface', () => {
     expect(source).toContain('<OperationsReadinessSummary readiness={readiness} />')
   })
 
-  it('surfaces truthful provider connection state in the Founder Control Room', () => {
-    expect(source).toContain('caller.admin.getFounderProviderConnections()')
-    expect(source).toContain('<FounderProviderConnections')
-    expect(source).toContain('bridgeHttpEnabled={env.AGENT_BRIDGE_HTTP_ENABLED}')
+  it('separates current work, detailed queues, system evidence, and AI systems', () => {
+    expect(source).toContain("query.view === 'work' || query.view === 'system'")
+    expect(source).toContain(
+      '<OperationsAttentionConsole actorId={userId} data={data} summaryOnly />',
+    )
+    expect(source).toContain("['/admin/ai', 'AI systems']")
+    expect(source).not.toContain('FounderProviderConnections')
   })
 })

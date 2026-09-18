@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { env } from '@pathfinder/config'
 import {
   AI_CENTRAL_MODEL_REGISTRY,
   AI_INVENTORY_OMISSIONS,
@@ -15,11 +16,11 @@ import {
   configurationValuesFromRow,
   resetAiWorkloadConfigurationOverrideAction,
   saveAiWorkloadConfigurationOverrideAction,
+  withTenantIsolationBypass,
 } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
-
 const venueInputSchema = z
   .object({ tenantId: z.string().min(1).max(128), venueId: z.string().min(1).max(128) })
   .strict()
@@ -29,7 +30,6 @@ const workloadIds = Object.keys(AI_CENTRAL_MODEL_REGISTRY).sort() as [
   ...AiWorkloadId[],
 ]
 const workloadIdSchema = z.enum(workloadIds)
-
 const scopeSchema = z.discriminatedUnion('level', [
   z.object({ level: z.literal('WORKLOAD'), workloadId: workloadIdSchema }).strict(),
   z
@@ -48,7 +48,6 @@ const scopeSchema = z.discriminatedUnion('level', [
     })
     .strict(),
 ])
-
 const valuesSchema = z
   .object({
     primaryModelKey: workloadIdSchema.optional(),
@@ -87,7 +86,6 @@ const saveInputSchema = z
       })
     }
   })
-
 const persistedSelect = {
   id: true,
   workloadId: true,
@@ -144,7 +142,69 @@ function storedState(row: Parameters<typeof configurationValuesFromRow>[0] | und
   }
 }
 
+function providerHasExecutionKey(provider: string) {
+  if (provider === 'anthropic') return Boolean(env.ANTHROPIC_API_KEY)
+  if (provider === 'openai') return Boolean(env.OPENAI_API_KEY)
+  return false
+}
+
 export const adminAiWorkloadConfigurationRouter = router({
+  getAdminAiSystems: adminProcedure.query(async ({ ctx }) => {
+    const workloadId = 'guest-chat' as const
+    const [workloadRows, scopedExceptionCount] = await withTenantIsolationBypass(() =>
+      Promise.all([
+        ctx.db.aiWorkloadConfigurationOverride.findMany({
+          where: { workloadId },
+          select: persistedSelect,
+        }),
+        ctx.db.aiScopedWorkloadConfigurationOverride.count({
+          where: { workloadId, enabled: true, isTombstone: false },
+        }),
+      ]),
+    )
+    const workloadRow = workloadRows[0]
+    const overrides = workloadRow
+      ? [configurationOverrideFromRow(workloadRow, { level: 'WORKLOAD', workloadId })]
+      : []
+    const effective = resolveAiWorkloadConfiguration({ workloadId, overrides })
+    const providerKeyAvailability = {
+      anthropic: Boolean(env.ANTHROPIC_API_KEY),
+      openai: Boolean(env.OPENAI_API_KEY),
+    }
+    const options = (['guest-chat', 'guest-chat-openai'] as const).map((key) => {
+      const provider = AI_CENTRAL_MODEL_REGISTRY[key].provider
+      return {
+        key,
+        provider,
+        model: AI_CENTRAL_MODEL_REGISTRY[key].model,
+        costTier: AI_CENTRAL_MODEL_REGISTRY[key].costTier,
+        available: providerKeyAvailability[provider],
+      }
+    })
+
+    return {
+      customerChat: {
+        workloadId,
+        effective: {
+          primaryModelKey: effective.primaryModelKey,
+          provider: effective.model.provider,
+          model: effective.model.model,
+          source: effective.sources.primaryModelKey,
+        },
+        workloadOverride: storedState(workloadRow),
+        modelOptions: options,
+        providerKeyAvailability,
+        scopedExceptionCount,
+      },
+      limitations: {
+        providerExecution: false as const,
+        deepSeek: false as const,
+        openRouter: false as const,
+        priceTierRouting: false as const,
+      },
+    }
+  }),
+
   getVenueAiWorkloadConfiguration: adminProcedure
     .input(venueInputSchema)
     .query(async ({ ctx, input }) => {
@@ -287,6 +347,23 @@ export const adminAiWorkloadConfigurationRouter = router({
   saveAiWorkloadConfigurationOverride: adminProcedure
     .input(saveInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const selectedKeys = [
+        ...(input.values.primaryModelKey ? [input.values.primaryModelKey] : []),
+        ...(input.values.fallback?.enabled ? input.values.fallback.modelKeys : []),
+      ]
+      const unavailableProviders = [
+        ...new Set(
+          selectedKeys
+            .map((key) => AI_CENTRAL_MODEL_REGISTRY[key].provider)
+            .filter((provider) => !providerHasExecutionKey(provider)),
+        ),
+      ]
+      if (input.enabled && unavailableProviders.length > 0) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Cannot enable this AI route because provider configuration is missing: ${unavailableProviders.join(', ')}`,
+        })
+      }
       try {
         const saved = await saveAiWorkloadConfigurationOverrideAction({
           ...input,

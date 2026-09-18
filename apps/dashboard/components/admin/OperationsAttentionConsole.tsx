@@ -274,14 +274,19 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
 export function OperationsAttentionConsole({
   actorId,
   data,
+  summaryOnly = false,
 }: {
   actorId?: string | null | undefined
   data: Data
+  summaryOnly?: boolean
 }) {
   const { focus, metrics, boundedSnapshot, reviewState } = data.briefing
   const reviewChanges = reviewState.changesSinceLastReview
   return (
-    <div className="space-y-6" aria-label="Operational attention queues">
+    <div
+      className={`space-y-6 ${summaryOnly ? '[&>*:nth-child(n+5)]:hidden' : ''}`}
+      aria-label="Operational attention queues"
+    >
       <p className="text-xs text-slate-600">
         Snapshot generated {date(data.generatedAt)}. Review linked evidence before acknowledging or
         resolving an alert.
@@ -410,6 +415,16 @@ export function OperationsAttentionConsole({
 
       <FounderTwoMinuteBoard data={data} />
 
+      <Link
+        href="/admin/operations?view=work"
+        className={
+          summaryOnly
+            ? 'inline-flex min-h-11 items-center border-b-2 border-sky-700 px-1 text-sm font-semibold text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500'
+            : 'hidden'
+        }
+      >
+        Open all queues, workers, alerts, approvals, and cost evidence
+      </Link>
       <FounderAbsenceReadiness data={data.founderAbsenceReadiness} />
 
       <FounderCostCoverage data={data.unitEconomics} />

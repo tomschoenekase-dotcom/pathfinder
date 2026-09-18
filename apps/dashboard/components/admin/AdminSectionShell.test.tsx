@@ -115,6 +115,18 @@ describe('AdminSectionShell browser foundation', () => {
     expect(link.getAttribute('aria-current')).toBe('page')
   })
 
+  it('offers AI systems as a distinct founder surface', () => {
+    pathname = '/admin/ai'
+    render(<AdminSectionShell>AI systems</AdminSectionShell>)
+
+    const link = screen.getByRole('link', { name: 'AI systems' })
+    expect(link.getAttribute('href')).toBe('/admin/ai')
+    expect(link.getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
+      null,
+    )
+  })
+
   it('offers a skip link and moves route-change focus to the new page heading', async () => {
     const { rerender } = render(
       <AdminSectionShell>

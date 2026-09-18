@@ -175,35 +175,41 @@ export function FounderOperatingConversation({ exchanges }: { exchanges: Exchang
   return (
     <section
       aria-labelledby="founder-conversation-heading"
-      className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4 shadow-sm sm:p-6"
+      className="border-y border-slate-300 bg-white py-5 sm:py-6"
     >
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-800">
-        Company operating conversation
+        Torchiko operating snapshot
       </p>
       <h2 id="founder-conversation-heading" className="mt-2 text-xl font-semibold text-slate-950">
-        What do you need to know or direct?
+        Ask what is happening, or leave direction for an operator agent
       </h2>
       <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-        Questions are answered from the current Control Room snapshot with source links. Other
-        direction is recorded for authorized worker triage; it does not execute consequential work.
+        This is not a live ChatGPT, Codex, or Hermes conversation yet. Known operating questions are
+        answered from Torchiko’s current evidence. Other direction enters the governed operator
+        inbox; a connected local worker may propose work, but it still cannot bypass approvals.
       </p>
 
-      <div
-        className="mt-4 flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible sm:pb-0"
-        aria-label="Suggested questions"
-      >
-        {suggestions.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            disabled={pending}
-            onClick={() => edit(suggestion)}
-            className="min-h-11 shrink-0 rounded-full border border-sky-200 bg-white px-4 text-left text-sm font-medium text-sky-950 hover:border-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
+      <details className="mt-4 border-y border-slate-200 py-2">
+        <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+          Useful operating questions
+        </summary>
+        <div
+          className="divide-y divide-slate-100 border-t border-slate-100"
+          aria-label="Suggested questions"
+        >
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              disabled={pending}
+              onClick={() => edit(suggestion)}
+              className="block min-h-11 w-full px-1 py-3 text-left text-sm font-medium text-slate-700 hover:text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      </details>
 
       <form onSubmit={(event) => void submit(event)} className="mt-3">
         <label htmlFor="founder-operating-prompt" className="sr-only">
@@ -218,7 +224,7 @@ export function FounderOperatingConversation({ exchanges }: { exchanges: Exchang
           value={prompt}
           onChange={(event) => edit(event.target.value)}
           placeholder="Ask what needs you, request context, or record direction…"
-          className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
+          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
         />
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs leading-5 text-slate-500">
@@ -228,7 +234,7 @@ export function FounderOperatingConversation({ exchanges }: { exchanges: Exchang
           <button
             type="submit"
             disabled={pending || !prompt.trim()}
-            className="min-h-11 shrink-0 rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:opacity-50"
+            className="min-h-11 shrink-0 rounded-lg bg-slate-950 px-5 text-sm font-semibold text-white hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             {pending ? 'Checking…' : 'Ask Torchiko'}
           </button>
@@ -241,18 +247,23 @@ export function FounderOperatingConversation({ exchanges }: { exchanges: Exchang
       ) : null}
 
       <div className="mt-6 border-t border-sky-100 pt-5">
-        <h3 className="text-sm font-semibold text-slate-900">Recent conversation</h3>
-        {exchanges.length ? (
-          <div className="mt-3 space-y-3">
-            {exchanges.map((exchange) => (
-              <ExchangeCard key={exchange.id} exchange={exchange} />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-4 text-sm text-slate-600">
-            No operating conversation has been recorded yet. Start with one of the questions above.
-          </p>
-        )}
+        <details>
+          <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+            Recent requests ({exchanges.length})
+          </summary>
+          {exchanges.length ? (
+            <div className="mt-3 space-y-3">
+              {exchanges.map((exchange) => (
+                <ExchangeCard key={exchange.id} exchange={exchange} />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-4 text-sm text-slate-600">
+              No operating conversation has been recorded yet. Start with one of the questions
+              above.
+            </p>
+          )}
+        </details>
       </div>
     </section>
   )

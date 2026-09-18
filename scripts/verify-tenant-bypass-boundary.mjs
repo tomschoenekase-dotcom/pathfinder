@@ -122,9 +122,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],
   // Platform-admin reads policy-backed draft authority only within one exact tenant+venue scope.
   ['packages/api/src/routers/admin/agent-approval-policy-reads.ts', 1],
-  // Platform-admin bridge controls include one bounded cross-tenant provider-presence summary;
-  // it selects only runner status, labels, timestamps, and tenant/venue display names.
-  ['packages/api/src/routers/admin/agent-bridge-operations.ts', 3],
+  ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
+  // Platform-admin AI Systems reads one aggregate count of enabled client/venue guest-chat
+  // exceptions; no tenant content, provider credentials, or secret values are returned.
+  ['packages/api/src/routers/admin/ai-workload-configuration.ts', 1],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
   // Identity configuration includes human-only policy issuance/revocation for one exact venue.
   ['packages/api/src/routers/admin/agent-identity-configuration.ts', 9],

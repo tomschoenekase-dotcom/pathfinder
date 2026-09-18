@@ -11,6 +11,7 @@ import {
   CreditCard,
   ExternalLink,
   BookOpen,
+  Bot,
   BrainCircuit,
   Home,
   Menu,
@@ -37,6 +38,7 @@ const navigationItems = [
   { href: '/admin/company-brain', label: 'Company Brain', icon: BrainCircuit },
   { href: '/admin/billing', label: 'Billing', icon: CreditCard },
   { href: '/admin/operations', label: 'Control room', icon: Activity },
+  { href: '/admin/ai', label: 'AI systems', icon: Bot },
   { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
 ] as const
 
