@@ -122,6 +122,7 @@ function ExchangeCard({ exchange }: { exchange: Exchange }) {
 
 export function FounderOperatingConversation({ exchanges }: { exchanges: Exchange[] }) {
   const client = useTRPCClient()
+  const hasTaskReadback = exchanges.some((exchange) => Boolean(exchange.directiveTaskRequest))
   const router = useRouter()
   const active = useRef(false)
   const attemptedPrompt = useRef<string | null>(null)
@@ -247,7 +248,7 @@ export function FounderOperatingConversation({ exchanges }: { exchanges: Exchang
       ) : null}
 
       <div className="mt-6 border-t border-sky-100 pt-5">
-        <details>
+        <details open={hasTaskReadback}>
           <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
             Recent requests ({exchanges.length})
           </summary>

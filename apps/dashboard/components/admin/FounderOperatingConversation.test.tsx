@@ -76,7 +76,7 @@ describe('FounderOperatingConversation', () => {
   })
 
   it('shows the current scoped agent run without rewriting the initial triage exchange', () => {
-    render(
+    const { container } = render(
       <FounderOperatingConversation
         exchanges={[
           {
@@ -103,6 +103,7 @@ describe('FounderOperatingConversation', () => {
     )
     expect(screen.getByText(/recorded for triage · not executed/i)).toBeTruthy()
     expect(screen.getByText(/initial response · recorded for triage/i)).toBeTruthy()
+    expect(container.querySelectorAll('details')[1]?.hasAttribute('open')).toBe(true)
     expect(screen.getByText('queued')).toBeTruthy()
     expect(screen.getByText(/Venue research agent/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open real agent run' }).getAttribute('href')).toBe(
