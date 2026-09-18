@@ -108,9 +108,9 @@ function VisitorProviderConnections({
       <aside className="mt-4 border-l-2 border-sky-700 pl-4 text-sm leading-6 text-slate-700">
         <p className="font-semibold text-slate-950">Connect or replace a provider</p>
         <ol className="mt-1 list-decimal space-y-1 pl-5">
-          <li>Create a key in the provider's own console.</li>
+          <li>Create a key in the provider’s own console.</li>
           <li>
-            In Railway's <strong>staging</strong> environment, add the variable shown above to the
+            In Railway’s <strong>staging</strong> environment, add the variable shown above to the
             dashboard and web services, then redeploy them.
           </li>
           <li>
