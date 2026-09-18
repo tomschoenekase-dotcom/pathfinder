@@ -43,6 +43,7 @@ test('the canary registry covers every secret-shaped config key without stale en
     'CLERK_SECRET_KEY',
     'CLERK_WEBHOOK_SECRET',
     'DATABASE_URL',
+    'DEEPSEEK_API_KEY',
     'DIRECT_DATABASE_URL',
     'GEMINI_API_KEY',
     'GOOGLE_OAUTH_CLIENT_SECRET',

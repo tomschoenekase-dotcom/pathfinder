@@ -7,6 +7,8 @@ export const AI_MODEL_KEYS = {
   COMPANY_BRAIN_RETRIEVAL_EVALUATION: 'company-brain-retrieval-evaluation',
   GUEST_ANSWER_ATTRIBUTION_EVALUATION: 'guest-answer-attribution-evaluation',
   GUEST_CHAT: 'guest-chat',
+  GUEST_CHAT_DEEPSEEK_FLASH: 'guest-chat-deepseek-flash',
+  GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -14,8 +16,10 @@ export const AI_MODEL_KEYS = {
 
 export type AiModelKey = (typeof AI_MODEL_KEYS)[keyof typeof AI_MODEL_KEYS]
 
+export type AiTextProviderId = 'anthropic' | 'openai' | 'deepseek'
+
 export type AiModelSpec = {
-  provider: 'anthropic' | 'openai'
+  provider: AiTextProviderId
   model: string
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
@@ -48,6 +52,35 @@ function openAiMiniSpec(maxOutputTokens: number): AiModelSpec {
       output: 2,
       cacheWrite: 0.25,
       cacheRead: 0.025,
+    },
+  }
+}
+
+function deepSeekSpec(params: {
+  model: 'deepseek-flash' | 'deepseek-v4-pro'
+  costTier: AiModelSpec['costTier']
+  maxOutputTokens: number
+  inputUsdPerMillionTokens: number
+  outputUsdPerMillionTokens: number
+  cacheReadUsdPerMillionTokens: number
+}): AiModelSpec {
+  return {
+    provider: 'deepseek',
+    model: params.model,
+    costTier: params.costTier,
+    maxOutputTokens: params.maxOutputTokens,
+    timeoutMs: 15_000,
+    maxAttempts: 2,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
+    // Peak cache-miss rates are deliberately pinned so every reservation is
+    // conservative; off-peak discounts must not lower a safety ceiling.
+    pricingVersion: 'deepseek-2026-09-18-peak',
+    pricingUsdPerMillionTokens: {
+      input: params.inputUsdPerMillionTokens,
+      output: params.outputUsdPerMillionTokens,
+      cacheWrite: 0,
+      cacheRead: params.cacheReadUsdPerMillionTokens,
     },
   }
 }
@@ -113,6 +146,25 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // exact evidence bundle. Execution remains policy-, admission-, and budget-gated.
   [AI_MODEL_KEYS.GUEST_ANSWER_ATTRIBUTION_EVALUATION]: sonnetSpec(4_000),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
+  // Direct DeepSeek routes are explicit, fixed-endpoint visitor-chat canaries.
+  // They remain disabled until a governed workload/client/venue override selects
+  // one; callers can never supply a DeepSeek model ID or endpoint.
+  [AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_FLASH]: deepSeekSpec({
+    model: 'deepseek-flash',
+    costTier: 'ECONOMY',
+    maxOutputTokens: 512,
+    inputUsdPerMillionTokens: 0.3,
+    outputUsdPerMillionTokens: 1.2,
+    cacheReadUsdPerMillionTokens: 0.006,
+  }),
+  [AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_PRO]: deepSeekSpec({
+    model: 'deepseek-v4-pro',
+    costTier: 'PREMIUM',
+    maxOutputTokens: 512,
+    inputUsdPerMillionTokens: 1.32,
+    outputUsdPerMillionTokens: 3.96,
+    cacheReadUsdPerMillionTokens: 0.044,
+  }),
   // Explicit provider-diversity candidate. Anthropic remains the platform
   // default until a governed workload/client/venue override selects this key.
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),

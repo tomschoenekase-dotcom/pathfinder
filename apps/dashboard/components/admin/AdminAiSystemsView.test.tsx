@@ -40,11 +40,31 @@ const systems = {
       },
     ],
     providerKeyAvailability: { anthropic: true, openai: true },
+    providerConnections: [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        configured: true,
+        environmentVariable: 'ANTHROPIC_API_KEY',
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        configured: true,
+        environmentVariable: 'OPENAI_API_KEY',
+      },
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        configured: false,
+        environmentVariable: 'DEEPSEEK_API_KEY',
+      },
+    ],
     scopedExceptionCount: 2,
   },
   limitations: {
     providerExecution: false,
-    deepSeek: false,
+    deepSeek: true,
     openRouter: false,
     priceTierRouting: false,
   },
@@ -64,7 +84,14 @@ describe('AdminAiSystemsView', () => {
     expect(screen.getByRole('heading', { name: 'Visitor chat routing' })).toBeTruthy()
     expect(screen.getByText(/cannot borrow your Codex or ChatGPT subscription/i)).toBeTruthy()
     expect(screen.getByText(/local Hermes or Codex bridge has not been installed/i)).toBeTruthy()
-    expect(screen.getByText(/DeepSeek and OpenRouter are not registered/i)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Visitor chat providers' })).toBeTruthy()
+    expect(screen.getByText('DEEPSEEK_API_KEY')).toBeTruthy()
+    expect(screen.getAllByText('Dashboard key present')).toHaveLength(2)
+    expect(screen.queryByText('Connected')).toBeNull()
+    expect(
+      screen.getByText(/OpenRouter and arbitrary provider URLs are not admitted/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/never asks you to paste a provider key into this page/i)).toBeTruthy()
     expect(screen.getByText(/No platform-worker credentials have been issued/i)).toBeTruthy()
   })
 
@@ -135,6 +162,10 @@ describe('AdminAiSystemsView', () => {
       customerChat: {
         ...systems.customerChat,
         providerKeyAvailability: { anthropic: true, openai: false },
+        providerConnections: systems.customerChat.providerConnections.map((provider) => ({
+          ...provider,
+          configured: provider.id === 'anthropic',
+        })),
         modelOptions: systems.customerChat.modelOptions.map((option) => ({
           ...option,
           available: option.key !== 'guest-chat-openai',

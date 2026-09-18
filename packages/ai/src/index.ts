@@ -31,7 +31,11 @@ export {
   setGeminiVideoClientForTesting,
   type GeminiVideoClient,
 } from './gemini-video'
-export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from './openai-text'
+export {
+  assertOpenAiResponsesProviderReady,
+  setOpenAiResponsesClientForTesting,
+  type OpenAiResponsesClient,
+} from './openai-text'
 export {
   createOpenAiMediaJson,
   OPENAI_MEDIA_JSON_ATTEMPT_CEILING_UNITS,
@@ -69,6 +73,7 @@ export {
   getAiModelSpec,
   type AiModelKey,
   type AiModelSpec,
+  type AiTextProviderId,
 } from './model-registry'
 export {
   CLIENT_TOCHI_BEHAVIOR_VERSION,

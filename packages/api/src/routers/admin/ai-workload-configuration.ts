@@ -145,6 +145,7 @@ function storedState(row: Parameters<typeof configurationValuesFromRow>[0] | und
 function providerHasExecutionKey(provider: string) {
   if (provider === 'anthropic') return Boolean(env.ANTHROPIC_API_KEY)
   if (provider === 'openai') return Boolean(env.OPENAI_API_KEY)
+  if (provider === 'deepseek') return Boolean(env.DEEPSEEK_API_KEY)
   return false
 }
 
@@ -170,8 +171,36 @@ export const adminAiWorkloadConfigurationRouter = router({
     const providerKeyAvailability = {
       anthropic: Boolean(env.ANTHROPIC_API_KEY),
       openai: Boolean(env.OPENAI_API_KEY),
+      deepseek: Boolean(env.DEEPSEEK_API_KEY),
     }
-    const options = (['guest-chat', 'guest-chat-openai'] as const).map((key) => {
+    const providerConnections = [
+      {
+        id: 'anthropic' as const,
+        name: 'Anthropic',
+        configured: providerKeyAvailability.anthropic,
+        environmentVariable: 'ANTHROPIC_API_KEY' as const,
+      },
+      {
+        id: 'openai' as const,
+        name: 'OpenAI',
+        configured: providerKeyAvailability.openai,
+        environmentVariable: 'OPENAI_API_KEY' as const,
+      },
+      {
+        id: 'deepseek' as const,
+        name: 'DeepSeek',
+        configured: providerKeyAvailability.deepseek,
+        environmentVariable: 'DEEPSEEK_API_KEY' as const,
+      },
+    ]
+    const options = (
+      [
+        'guest-chat',
+        'guest-chat-openai',
+        'guest-chat-deepseek-flash',
+        'guest-chat-deepseek-pro',
+      ] as const
+    ).map((key) => {
       const provider = AI_CENTRAL_MODEL_REGISTRY[key].provider
       return {
         key,
@@ -193,12 +222,13 @@ export const adminAiWorkloadConfigurationRouter = router({
         },
         workloadOverride: storedState(workloadRow),
         modelOptions: options,
+        providerConnections,
         providerKeyAvailability,
         scopedExceptionCount,
       },
       limitations: {
         providerExecution: false as const,
-        deepSeek: false as const,
+        deepSeek: true as const,
         openRouter: false as const,
         priceTierRouting: false as const,
       },

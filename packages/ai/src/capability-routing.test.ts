@@ -87,4 +87,34 @@ describe('AI capability routing', () => {
       }),
     ).toThrow(new AiRoutingError('NO_HEALTHY_ROUTE', 'No healthy STANDARD route is available'))
   })
+
+  it('routes a governed DeepSeek visitor-chat selection and honors health exclusion', () => {
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'guest-chat-deepseek-flash' },
+          unsafeChangesEnabled: true,
+          reason: 'bounded DeepSeek canary',
+        },
+      ],
+    })
+    expect(
+      routeAiCapability({ capability: 'STANDARD', workloadId: 'guest-chat', configuration }),
+    ).toMatchObject({
+      candidates: [
+        { modelKey: 'guest-chat-deepseek-flash', provider: 'deepseek', model: 'deepseek-flash' },
+      ],
+    })
+    expect(() =>
+      routeAiCapability({
+        capability: 'STANDARD',
+        workloadId: 'guest-chat',
+        configuration,
+        unhealthyProviders: ['deepseek'],
+      }),
+    ).toThrow(new AiRoutingError('NO_HEALTHY_ROUTE', 'No healthy STANDARD route is available'))
+  })
 })

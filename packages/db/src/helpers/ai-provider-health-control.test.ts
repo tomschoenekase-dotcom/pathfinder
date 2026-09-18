@@ -36,6 +36,11 @@ describe('AI provider health control reads', () => {
         overrides: [
           { provider: 'anthropic', reason: 'Provider incident', expiresAt: expiry.toISOString() },
           {
+            provider: 'deepseek',
+            reason: 'Direct canary incident',
+            expiresAt: expiry.toISOString(),
+          },
+          {
             provider: 'openai',
             reason: 'Expired investigation',
             expiresAt: '2026-08-22T18:00:00.000Z',
@@ -46,9 +51,10 @@ describe('AI provider health control reads', () => {
       updatedBy: 'admin-old',
     })
     const state = await readAiProviderHealthControl(client as never, now)
-    expect(state.activeUnhealthyProviders).toEqual(['anthropic'])
+    expect(state.activeUnhealthyProviders).toEqual(['anthropic', 'deepseek'])
     expect(state.overrides).toEqual([
       expect.objectContaining({ provider: 'anthropic', active: true, expiresAt: expiry }),
+      expect.objectContaining({ provider: 'deepseek', active: true, expiresAt: expiry }),
       expect.objectContaining({ provider: 'openai', active: false }),
     ])
   })

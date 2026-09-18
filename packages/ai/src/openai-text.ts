@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 import { z } from 'zod'
 
 import type { AiMessage, AiSystemBlock, AiTokenUsage } from './anthropic'
-import type { AiModelSpec } from './model-registry'
+import type { AiModelSpec, AiTextProviderId } from './model-registry'
 
 const openAiResponseSchema = z.object({
   status: z.string().optional(),
@@ -72,7 +72,24 @@ const openAiStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('response.failed'), response: openAiResponseSchema }).passthrough(),
 ])
 
-let openAiResponsesClient: OpenAiResponsesClient | null = null
+type OpenAiResponsesProviderId = Extract<AiTextProviderId, 'openai' | 'deepseek'>
+
+const OPENAI_RESPONSES_PROVIDER_CONFIG: Record<
+  OpenAiResponsesProviderId,
+  { envKey: string; baseURL?: string }
+> = {
+  openai: {
+    envKey: 'OPENAI_API_KEY',
+  },
+  // This endpoint is intentionally literal rather than configuration: accepting
+  // a runtime base URL would turn provider routing into an SSRF/egress boundary.
+  deepseek: {
+    envKey: 'DEEPSEEK_API_KEY',
+    baseURL: 'https://api.deepseek.com',
+  },
+} as const
+
+const openAiResponsesClients = new Map<OpenAiResponsesProviderId, OpenAiResponsesClient>()
 
 export class OpenAiIncompleteResponseError extends Error {
   readonly reason: string
@@ -84,20 +101,55 @@ export class OpenAiIncompleteResponseError extends Error {
   }
 }
 
-function getOpenAiResponsesClient(): OpenAiResponsesClient {
-  if (!openAiResponsesClient) {
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
-    openAiResponsesClient = new OpenAI({
-      apiKey,
-      maxRetries: 0,
-    }) as unknown as OpenAiResponsesClient
+export class OpenAiResponsesProviderConfigurationError extends Error {
+  constructor(readonly code: 'provider-not-configured' | 'provider-client-initialization') {
+    super('AI provider configuration is unavailable')
+    this.name = 'OpenAiResponsesProviderConfigurationError'
   }
-  return openAiResponsesClient
 }
 
-export function setOpenAiResponsesClientForTesting(client: OpenAiResponsesClient | null): void {
-  openAiResponsesClient = client
+function openAiResponsesProviderId(provider: AiTextProviderId): OpenAiResponsesProviderId {
+  if (provider === 'openai' || provider === 'deepseek') return provider
+  throw new Error(`Provider ${provider} does not implement the OpenAI Responses adapter`)
+}
+
+function getOpenAiResponsesClient(provider: AiTextProviderId): OpenAiResponsesClient {
+  const providerId = openAiResponsesProviderId(provider)
+  const existing = openAiResponsesClients.get(providerId)
+  if (existing) return existing
+
+  const configuration = OPENAI_RESPONSES_PROVIDER_CONFIG[providerId]
+  const apiKey = process.env[configuration.envKey]
+  if (!apiKey) throw new OpenAiResponsesProviderConfigurationError('provider-not-configured')
+  try {
+    const client = new OpenAI({
+      apiKey,
+      maxRetries: 0,
+      ...(configuration.baseURL ? { baseURL: configuration.baseURL } : {}),
+    }) as unknown as OpenAiResponsesClient
+    openAiResponsesClients.set(providerId, client)
+    return client
+  } catch {
+    throw new OpenAiResponsesProviderConfigurationError('provider-client-initialization')
+  }
+}
+
+/** Resolves the fixed provider client without dispatching or reserving spend. */
+export function assertOpenAiResponsesProviderReady(provider: AiTextProviderId): void {
+  getOpenAiResponsesClient(provider)
+}
+
+export function setOpenAiResponsesClientForTesting(
+  client: OpenAiResponsesClient | null,
+  provider?: OpenAiResponsesProviderId,
+): void {
+  if (provider) {
+    if (client) openAiResponsesClients.set(provider, client)
+    else openAiResponsesClients.delete(provider)
+    return
+  }
+  openAiResponsesClients.clear()
+  if (client) openAiResponsesClients.set('openai', client)
 }
 
 export async function createOpenAiTextResponse(params: {
@@ -108,7 +160,7 @@ export async function createOpenAiTextResponse(params: {
   timeoutMs: number
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
-  const raw = await getOpenAiResponsesClient().responses.create(
+  const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(
     {
       model: params.spec.model,
       instructions: params.system.map((block) => block.text).join('\n\n'),
@@ -159,7 +211,7 @@ export async function createOpenAiTextStream(params: {
   onTextDelta: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
-  const raw = await getOpenAiResponsesClient().responses.create(
+  const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(
     {
       model: params.spec.model,
       instructions: params.system.map((block) => block.text).join('\n\n'),

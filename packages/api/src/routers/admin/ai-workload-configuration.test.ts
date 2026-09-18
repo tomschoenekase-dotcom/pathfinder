@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 const configEnv = vi.hoisted(() => ({
   ANTHROPIC_API_KEY: 'test-anthropic-key',
   OPENAI_API_KEY: undefined as string | undefined,
+  DEEPSEEK_API_KEY: undefined as string | undefined,
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: configEnv }))
@@ -38,7 +39,7 @@ function context(isPlatformAdmin: boolean, options?: { missingVenue?: boolean })
 }
 
 describe('admin AI workload configuration', () => {
-  it('projects only the two supported global guest-chat choices and key presence', async () => {
+  it('projects only approved global guest-chat choices and secret-safe provider setup state', async () => {
     const ctx = context(true)
     const result = await app.createCaller(ctx).admin.getAdminAiSystems()
 
@@ -46,20 +47,43 @@ describe('admin AI workload configuration', () => {
     expect(result.customerChat.modelOptions.map((option) => option.key)).toEqual([
       'guest-chat',
       'guest-chat-openai',
+      'guest-chat-deepseek-flash',
+      'guest-chat-deepseek-pro',
     ])
     expect(
       result.customerChat.modelOptions.every((option) => typeof option.available === 'boolean'),
     ).toBe(true)
     expect(result.customerChat.effective.primaryModelKey).toBe('guest-chat')
     expect(result.customerChat.scopedExceptionCount).toBe(0)
+    expect(result.customerChat.providerConnections).toEqual([
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        configured: true,
+        environmentVariable: 'ANTHROPIC_API_KEY',
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        configured: false,
+        environmentVariable: 'OPENAI_API_KEY',
+      },
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        configured: false,
+        environmentVariable: 'DEEPSEEK_API_KEY',
+      },
+    ])
     expect(ctx.db.aiScopedWorkloadConfigurationOverride.count).toHaveBeenCalledWith({
       where: { workloadId: 'guest-chat', enabled: true, isTombstone: false },
     })
     const serialized = JSON.stringify(result)
-    expect(serialized).not.toMatch(/sk-|api[_-]?key[^A-Za-z]/iu)
+    expect(serialized).not.toContain('test-anthropic-key')
+    expect(serialized).not.toMatch(/sk-[A-Za-z0-9]{8,}/u)
     expect(result.limitations).toMatchObject({
       providerExecution: false,
-      deepSeek: false,
+      deepSeek: true,
       openRouter: false,
       priceTierRouting: false,
     })
@@ -95,7 +119,7 @@ describe('admin AI workload configuration', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1', venueScopeKey: 'venue_7' } }),
     )
     expect(result.scope).toEqual({ tenantId: 'tenant_1', venueId: 'venue_7' })
-    expect(result.workloads).toHaveLength(15)
+    expect(result.workloads).toHaveLength(17)
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-openai')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('client-tochi')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain(

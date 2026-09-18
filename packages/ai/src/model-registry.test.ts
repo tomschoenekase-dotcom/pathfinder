@@ -22,4 +22,21 @@ describe('text model registry', () => {
       maxAttempts: 1,
     })
   })
+
+  it('pins direct DeepSeek visitor-chat canaries to conservative peak rates', () => {
+    expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_FLASH)).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-flash',
+      costTier: 'ECONOMY',
+      pricingVersion: 'deepseek-2026-09-18-peak',
+      pricingUsdPerMillionTokens: { input: 0.3, output: 1.2, cacheWrite: 0, cacheRead: 0.006 },
+    })
+    expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_PRO)).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      costTier: 'PREMIUM',
+      pricingVersion: 'deepseek-2026-09-18-peak',
+      pricingUsdPerMillionTokens: { input: 1.32, output: 3.96, cacheWrite: 0, cacheRead: 0.044 },
+    })
+  })
 })

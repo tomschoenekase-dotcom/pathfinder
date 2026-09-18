@@ -7,9 +7,11 @@ import { z } from 'zod'
 
 import type { AiAdmissionGuard } from './admission'
 import {
+  assertOpenAiResponsesProviderReady,
   createOpenAiTextResponse,
   createOpenAiTextStream,
   OpenAiIncompleteResponseError,
+  OpenAiResponsesProviderConfigurationError,
 } from './openai-text'
 
 import {
@@ -19,7 +21,7 @@ import {
   type AiBudgetGate,
   type AiBudgetReservationRef,
 } from './budget'
-import { getAiModelSpec, type AiModelKey } from './model-registry'
+import { getAiModelSpec, type AiModelKey, type AiTextProviderId } from './model-registry'
 
 export type AiSystemBlock = {
   type: 'text'
@@ -65,7 +67,7 @@ export type AiTokenUsage = {
 export type AiTextResult<TParsed = string> = {
   text: string
   parsed: TParsed
-  provider: 'anthropic' | 'openai'
+  provider: AiTextProviderId
   model: string
   pricingVersion: string
   usage: AiTokenUsage
@@ -75,7 +77,7 @@ export type AiTextResult<TParsed = string> = {
 }
 
 export type AiUsageRecord = {
-  provider: 'anthropic' | 'openai' | 'google'
+  provider: AiTextProviderId | 'google'
   model: string
   pricingVersion: string
   usage: AiTokenUsage
@@ -188,10 +190,18 @@ async function createProviderResponse(params: {
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
-  if (params.spec.provider === 'openai') {
-    return params.onTextDelta
-      ? createOpenAiTextStream({ ...params, onTextDelta: params.onTextDelta })
-      : createOpenAiTextResponse(params)
+  switch (params.spec.provider) {
+    case 'openai':
+    case 'deepseek':
+      return params.onTextDelta
+        ? createOpenAiTextStream({ ...params, onTextDelta: params.onTextDelta })
+        : createOpenAiTextResponse(params)
+    case 'anthropic':
+      break
+    default: {
+      const impossible: never = params.spec.provider
+      throw new Error(`No text provider adapter is registered for ${impossible}`)
+    }
   }
 
   if (params.onTextDelta) {
@@ -396,17 +406,38 @@ export async function generateText<TParsed = string>(params: {
     }
     // Local client setup cannot spend. Resolve it after admission, before claiming
     // a dispatch or reserving spend, so missing configuration stays undispatched.
-    if (!dispatchRecorded && spec.provider === 'anthropic') {
+    if (!dispatchRecorded) {
       try {
-        const client = getAnthropicClient()
-        if (params.onTextDelta && !client.messages.stream) {
-          throw new AiGatewayError('AI provider streaming client is unavailable', {
-            attempts: 0,
-            code: 'provider-client-initialization',
-          })
+        switch (spec.provider) {
+          case 'anthropic': {
+            const client = getAnthropicClient()
+            if (params.onTextDelta && !client.messages.stream) {
+              throw new AiGatewayError('AI provider streaming client is unavailable', {
+                attempts: 0,
+                code: 'provider-client-initialization',
+              })
+            }
+            break
+          }
+          case 'openai':
+          case 'deepseek':
+            assertOpenAiResponsesProviderReady(spec.provider)
+            break
+          default: {
+            const impossible: never = spec.provider
+            throw new Error(`No text provider adapter is registered for ${impossible}`)
+          }
         }
       } catch (error) {
-        if (!(error instanceof AiGatewayError)) throw error
+        const providerError =
+          error instanceof OpenAiResponsesProviderConfigurationError
+            ? new AiGatewayError('AI provider configuration is unavailable', {
+                attempts: 0,
+                code: error.code,
+                cause: error,
+              })
+            : error
+        if (!(providerError instanceof AiGatewayError)) throw providerError
         await recordUsageBestEffort(params.usageSink, {
           usageObservationStatus: 'NOT_DISPATCHED',
           provider: spec.provider,
@@ -422,13 +453,13 @@ export async function generateText<TParsed = string>(params: {
           latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
           attempts: 0,
           success: false,
-          errorCode: error.code,
+          errorCode: providerError.code,
         })
-        throw new AiGatewayError(error.message, {
+        throw new AiGatewayError(providerError.message, {
           attempts: 0,
-          code: error.code,
+          code: providerError.code,
           usageRecorded: true,
-          cause: error,
+          cause: providerError,
         })
       }
     }

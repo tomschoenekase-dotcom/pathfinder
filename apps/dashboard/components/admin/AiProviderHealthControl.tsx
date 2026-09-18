@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-type ProviderId = 'anthropic' | 'openai'
+type ProviderId = 'anthropic' | 'openai' | 'deepseek'
 type ProviderOverride = {
   provider: ProviderId
   reason: string
@@ -24,7 +24,8 @@ type ProviderHealthState = {
 
 const providerLabels: Record<ProviderId, string> = {
   anthropic: 'Anthropic text',
-  openai: 'OpenAI embeddings',
+  openai: 'OpenAI text and embeddings',
+  deepseek: 'DeepSeek text',
 }
 
 function errorCode(error: unknown): string | null {
@@ -177,8 +178,8 @@ export function AiProviderHealthControl({ initialState }: { initialState: Provid
         </p>
       ) : null}
 
-      <ul className="mt-5 grid gap-3 sm:grid-cols-2">
-        {(['anthropic', 'openai'] as const).map((id) => {
+      <ul className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {(['anthropic', 'openai', 'deepseek'] as const).map((id) => {
           const override = state.overrides.find((item) => item.provider === id)
           return (
             <li key={id} className="rounded-2xl border border-pf-light p-4">
@@ -210,7 +211,8 @@ export function AiProviderHealthControl({ initialState }: { initialState: Provid
             className="mt-2 min-h-11 w-full rounded-2xl border border-pf-light bg-white px-4 text-sm"
           >
             <option value="anthropic">Anthropic text</option>
-            <option value="openai">OpenAI embeddings</option>
+            <option value="openai">OpenAI text and embeddings</option>
+            <option value="deepseek">DeepSeek text</option>
           </select>
         </label>
         <label className="text-sm font-medium text-pf-deep">

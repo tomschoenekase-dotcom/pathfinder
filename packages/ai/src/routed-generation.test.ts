@@ -73,6 +73,101 @@ describe('routed text generation', () => {
     )
   })
 
+  it('routes the fixed DeepSeek canary through the Responses adapter without caller endpoint input', async () => {
+    const create = vi.fn().mockResolvedValue({
+      output_text: 'Welcome',
+      output: [],
+      usage: {
+        input_tokens: 10,
+        output_tokens: 2,
+        input_tokens_details: { cached_tokens: 4 },
+      },
+    })
+    setOpenAiResponsesClientForTesting({ responses: { create } }, 'deepseek')
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'guest-chat-deepseek-flash', maxAttempts: 1 },
+          unsafeChangesEnabled: true,
+          reason: 'bounded DeepSeek text canary',
+        },
+      ],
+    })
+
+    const reservation = { id: 'deepseek-reservation', reservedUnits: 1_000n }
+    const settleExact = vi.fn().mockResolvedValue(undefined)
+    const budgetGate: AiBudgetGate = {
+      reserve: vi.fn().mockResolvedValue(reservation),
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact,
+      settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
+    const result = await generateTextForCapability({
+      route: routeAiCapability({ capability: 'STANDARD', workloadId: 'guest-chat', configuration }),
+      system: [{ type: 'text', text: 'Be concise.' }],
+      messages: [{ role: 'user', content: 'Hello' }],
+      usageSink: vi.fn().mockResolvedValue(undefined),
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate,
+    })
+
+    expect(result).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-flash',
+      usage: { inputTokens: 6, outputTokens: 2, cacheReadInputTokens: 4 },
+      route: { modelKey: 'guest-chat-deepseek-flash' },
+    })
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'deepseek-flash', store: false }),
+      expect.any(Object),
+    )
+    expect(settleExact).toHaveBeenCalledWith(reservation, 423n)
+  })
+
+  it('checks DeepSeek readiness before reserving budget or recording dispatch', async () => {
+    setOpenAiResponsesClientForTesting(null)
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const reserve = vi.fn()
+    const onBeforeFirstDispatch = vi.fn()
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'guest-chat-deepseek-flash', maxAttempts: 1 },
+          unsafeChangesEnabled: true,
+          reason: 'readiness regression',
+        },
+      ],
+    })
+    try {
+      await expect(
+        generateTextForCapability({
+          route: routeAiCapability({
+            capability: 'STANDARD',
+            workloadId: 'guest-chat',
+            configuration,
+          }),
+          system: [{ type: 'text', text: 'Be concise.' }],
+          messages: [{ role: 'user', content: 'Hello' }],
+          usageSink: vi.fn().mockResolvedValue(undefined),
+          admissionGuard: vi.fn().mockResolvedValue(undefined),
+          budgetGate: { reserve } as never,
+          onBeforeFirstDispatch,
+        }),
+      ).rejects.toMatchObject({ code: 'provider-not-configured' })
+      expect(reserve).not.toHaveBeenCalled()
+      expect(onBeforeFirstDispatch).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('streams an OpenAI route and settles from the terminal response usage', async () => {
     const providerStream = {
       async *[Symbol.asyncIterator]() {

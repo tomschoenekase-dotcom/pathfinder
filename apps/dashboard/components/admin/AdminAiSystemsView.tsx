@@ -57,6 +57,75 @@ function WorkerCredentialList({ credentials }: { credentials: PlatformWorkerCred
   )
 }
 
+function VisitorProviderConnections({
+  providers,
+}: {
+  providers: AiSystems['customerChat']['providerConnections']
+}) {
+  return (
+    <div className="mt-7 max-w-3xl" aria-labelledby="visitor-provider-heading">
+      <div>
+        <h3 id="visitor-provider-heading" className="text-lg font-semibold text-slate-950">
+          Visitor chat providers
+        </h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          These connections power public venue chat only. They do not connect Codex, Hermes, the
+          Control Room, or any founder-facing agent.
+        </p>
+      </div>
+
+      <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
+        {providers.map((provider) => (
+          <article
+            key={provider.id}
+            className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h4 className="text-sm font-semibold text-slate-950">{provider.name}</h4>
+                <span
+                  className={`text-xs font-semibold ${
+                    provider.configured ? 'text-emerald-700' : 'text-amber-800'
+                  }`}
+                >
+                  {provider.configured ? 'Dashboard key present' : 'Dashboard key missing'}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Server-only Railway variable:{' '}
+                <code className="font-mono text-slate-800">{provider.environmentVariable}</code>
+              </p>
+            </div>
+            <p className="text-xs font-medium text-slate-600">
+              {provider.configured
+                ? 'Eligible to select; web verifies again at dispatch'
+                : 'Add key in Railway staging'}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <aside className="mt-4 border-l-2 border-sky-700 pl-4 text-sm leading-6 text-slate-700">
+        <p className="font-semibold text-slate-950">Connect or replace a provider</p>
+        <ol className="mt-1 list-decimal space-y-1 pl-5">
+          <li>Create a key in the provider's own console.</li>
+          <li>
+            In Railway's <strong>staging</strong> environment, add the variable shown above to the
+            dashboard and web services, then redeploy them.
+          </li>
+          <li>
+            Return here, confirm “Dashboard key present,” then choose an approved model below.
+          </li>
+        </ol>
+        <p className="mt-2 text-xs text-slate-600">
+          Torchiko never asks you to paste a provider key into this page. This avoids putting a
+          reusable secret in the browser or application database.
+        </p>
+      </aside>
+    </div>
+  )
+}
+
 function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['customerChat'] }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -110,6 +179,8 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
         </p>
       </div>
 
+      <VisitorProviderConnections providers={customerChat.providerConnections} />
+
       <dl className="mt-6 grid gap-x-8 gap-y-4 border-y border-slate-200 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -134,12 +205,11 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
         </div>
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Provider keys
+            Dashboard keys present
           </dt>
-          <dd className="mt-1 text-slate-700">
-            Anthropic: {customerChat.providerKeyAvailability.anthropic ? 'available' : 'missing'}
-            <br />
-            OpenAI: {customerChat.providerKeyAvailability.openai ? 'available' : 'missing'}
+          <dd className="mt-1 font-semibold text-slate-950">
+            {customerChat.providerConnections.filter((provider) => provider.configured).length} of{' '}
+            {customerChat.providerConnections.length} present
           </dd>
         </div>
         <div>
@@ -171,8 +241,9 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
           ))}
         </select>
         <p className="mt-2 text-xs leading-5 text-slate-600">
-          Registered choices only. A missing provider key makes that route unavailable at execution
-          time, so unavailable choices cannot be saved here.
+          Registered choices only. This page checks the dashboard service. The public web service
+          independently verifies its own key before reserving budget or calling a provider, and
+          fails closed if it is missing.
         </p>
       </div>
 
@@ -225,9 +296,10 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
       >
         <p className="font-semibold text-slate-900">Current limits</p>
         <p className="mt-1">
-          DeepSeek and OpenRouter are not registered providers here. Price-tier routing, such as
-          changing models for venues below a monthly price, is not implemented. Client and venue
-          overrides can supersede this global default.
+          DeepSeek supports approved text-chat models only. OpenRouter and arbitrary provider URLs
+          are not admitted yet. Price-tier routing, such as changing models for venues below a
+          monthly price, is not implemented. Client and venue overrides can supersede this global
+          default.
         </p>
       </aside>
     </section>

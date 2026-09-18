@@ -49,7 +49,7 @@ describe('AiProviderHealthControl', () => {
 
   it('shows eligible defaults and requires both reason and explicit expiry to exclude', () => {
     render(<AiProviderHealthControl initialState={initialState} />)
-    expect(screen.getAllByText('Eligible')).toHaveLength(2)
+    expect(screen.getAllByText('Eligible')).toHaveLength(3)
     expect(
       (screen.getByRole('button', { name: 'Exclude until expiry' }) as HTMLButtonElement).disabled,
     ).toBe(true)

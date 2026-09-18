@@ -12,6 +12,7 @@ export const AI_PROVIDER_HEALTH_CONTROL_KEY = 'ai-provider-health-control-v1' as
 // addition to the provider-id union an explicit compile-time reconciliation point here.
 const providerRegistryCoverage = {
   anthropic: true,
+  deepseek: true,
   openai: true,
 } as const satisfies Record<AiProviderId, true>
 const providerIds = Object.keys(providerRegistryCoverage) as [AiProviderId, ...AiProviderId[]]

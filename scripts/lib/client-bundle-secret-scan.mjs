@@ -40,6 +40,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('OPENAI_API_KEY'),
     value: `sk-proj-${canary('OPENAI_API_KEY')}`,
   },
+  DEEPSEEK_API_KEY: {
+    marker: canary('DEEPSEEK_API_KEY'),
+    value: `sk-${canary('DEEPSEEK_API_KEY')}`,
+  },
   GEMINI_API_KEY: {
     marker: canary('GEMINI_API_KEY'),
     value: `AIza${canary('GEMINI_API_KEY')}`,

@@ -7,6 +7,7 @@ export const AI_CONFIGURATION_VERSION = 'ai-workload-config-v1' as const
 
 export const AI_PROVIDER_REGISTRY = {
   anthropic: { id: 'anthropic', capabilities: ['TEXT'] },
+  deepseek: { id: 'deepseek', capabilities: ['TEXT'] },
   openai: { id: 'openai', capabilities: ['TEXT', 'EMBEDDING'] },
 } as const
 
