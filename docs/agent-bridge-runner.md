@@ -2,10 +2,13 @@
 
 Status: implemented and tested; default-dark; not launched or authenticated by this change.
 
-The runner connects a single local Claude Code or Codex CLI process to one exact Torchiko venue. It
-polls the authenticated bridge endpoint, executes one leased task at a time, sends 25-second task
-heartbeats, observes durable cancellation, and posts a bounded Markdown artifact or a non-secret
-failure code. A session heartbeat expires after two minutes if the process disappears.
+The runner connects one local Codex, Claude, Hermes, or OpenAI-compatible process to one exact
+Torchiko venue. It registers a durable provider-neutral worker identity, polls the authenticated
+bridge endpoint,
+executes one compatible leased task at a time, sends session, worker, and task heartbeats, observes
+durable cancellation, and posts a bounded Markdown artifact or a non-secret failure code. The
+worker key remains stable across process restarts; expired heartbeats make vanished processes
+visible without losing queued work.
 
 ## Safety profile
 
@@ -44,10 +47,20 @@ TORCHIKO_AGENT_BRIDGE_PROVIDER=CODEX_SUBSCRIPTION|CLAUDE_SUBSCRIPTION|HERMES|OPE
 TORCHIKO_AGENT_BRIDGE_LABEL=<operator-visible-label>
 TORCHIKO_AGENT_BRIDGE_WORKDIR=<trusted-work-directory>
 TORCHIKO_AGENT_BRIDGE_MODEL=subscription-default
+TORCHIKO_AGENT_BRIDGE_WORKER_KEY=<stable-machine-worker-key>
+TORCHIKO_AGENT_BRIDGE_WORKER_CAPABILITIES=<comma-separated-subset-of-credential-capabilities>
+TORCHIKO_AGENT_BRIDGE_WORKER_AGENT_ROLES=<comma-separated-agent-identity-keys>
 TORCHIKO_LOCAL_INFERENCE_URL=http://127.0.0.1:11434/v1
 TORCHIKO_LOCAL_INFERENCE_KEY=<optional-loopback-server-key>
 TORCHIKO_HERMES_PROFILE=<exact-installed-profile-name>
 ```
+
+`TORCHIKO_AGENT_BRIDGE_WORKER_KEY` is required and must uniquely identify this installed runner.
+Use a new key when replacing its credential rather than silently rebinding an existing worker
+identity. Capabilities default to the required `agent-runs:execute` capability and must remain a
+subset of the issued credential; an explicit list that omits it is rejected locally. Agent roles
+default to none. Role- or capability-bound runs are claimed only when the configured lists
+explicitly match, so adding a worker does not silently widen its authority.
 
 Then run `pnpm --filter @pathfinder/workers agent-bridge:run`. No real authenticated runner was
 launched during implementation because no operator-issued deployment credential or rollout approval

@@ -27,6 +27,7 @@ const base = {
   modelName: 'subscription-default',
   pollMs: 2_000,
   taskTimeoutMs: 60_000,
+  workerKey: 'desktop-test-worker',
 } as const
 
 const bridgeTask = (overrides: Record<string, unknown> = {}) => ({
@@ -156,6 +157,78 @@ describe('desktop agent bridge runner', () => {
       ]),
     )
     expect(claude.args).not.toContain('--dangerously-skip-permissions')
+  })
+
+  it('requires a stable worker identity and preserves explicit capability and role routing', () => {
+    expect(() =>
+      parseAgentBridgeRunnerConfig({
+        ...base,
+        workerKey: undefined,
+        provider: 'HERMES',
+        hermesProfile: 'default',
+      }),
+    ).toThrow()
+
+    const explicit = parseAgentBridgeRunnerConfig({
+      ...base,
+      provider: 'HERMES',
+      hermesProfile: 'default',
+      workerKey: 'torchiko-hermes-main-01',
+      workerCapabilities: ['agent-runs:execute', 'operations.read'],
+      workerAgentRoles: ['operations.reviewer'],
+    })
+    expect(explicit).toMatchObject({
+      workerKey: 'torchiko-hermes-main-01',
+      workerCapabilities: ['agent-runs:execute', 'operations.read'],
+      workerAgentRoles: ['operations.reviewer'],
+    })
+    expect(() =>
+      parseAgentBridgeRunnerConfig({
+        ...base,
+        provider: 'HERMES',
+        hermesProfile: 'default',
+        workerCapabilities: ['operations.read'],
+      }),
+    ).toThrow('WORKER_EXECUTION_CAPABILITY_REQUIRED')
+  })
+
+  it('registers and heartbeats the worker and claims through its durable worker key', async () => {
+    const config = parseAgentBridgeRunnerConfig({
+      ...base,
+      provider: 'HERMES',
+      hermesProfile: 'default',
+      workerKey: 'torchiko-hermes-main-01',
+      workerCapabilities: ['agent-runs:execute', 'operations.read'],
+      workerAgentRoles: ['operations.reviewer'],
+    })
+    const controller = new AbortController()
+    const call = vi.fn(async (method: string) => {
+      if (method === 'claimTask') controller.abort()
+      return method === 'claimTask' ? { task: null } : {}
+    })
+
+    await runAgentBridge(config, controller.signal, { call: call as never })
+
+    expect(call).toHaveBeenCalledWith(
+      'registerWorker',
+      expect.objectContaining({
+        workerKey: 'torchiko-hermes-main-01',
+        runtimeType: 'HERMES',
+        capabilities: ['agent-runs:execute', 'operations.read'],
+        agentRoles: ['operations.reviewer'],
+      }),
+      controller.signal,
+    )
+    expect(call).toHaveBeenCalledWith(
+      'heartbeatWorker',
+      { workerKey: 'torchiko-hermes-main-01' },
+      controller.signal,
+    )
+    expect(call).toHaveBeenCalledWith(
+      'claimTask',
+      expect.objectContaining({ workerKey: 'torchiko-hermes-main-01' }),
+      controller.signal,
+    )
   })
 
   it('accepts HTTPS or loopback HTTP only and never permits URL credentials', () => {

@@ -22,6 +22,12 @@ const configSchema = z.object({
     .uuid()
     .default(() => randomUUID()),
   modelName: z.string().trim().min(1).max(191).default('subscription-default'),
+  workerKey: z.string().trim().min(1).max(191),
+  workerCapabilities: z
+    .array(z.string().trim().min(1).max(191))
+    .max(100)
+    .default(['agent-runs:execute']),
+  workerAgentRoles: z.array(z.string().trim().min(1).max(191)).max(50).default([]),
   pollMs: z.number().int().min(1_000).max(60_000).default(2_000),
   taskTimeoutMs: z
     .number()
@@ -94,6 +100,8 @@ export function parseAgentBridgeRunnerConfig(raw: unknown): AgentBridgeRunnerCon
     throw new Error('LOCAL_INFERENCE_ENDPOINT_REQUIRED')
   if (parsed.provider === 'HERMES' && !parsed.hermesProfile)
     throw new Error('HERMES_PROFILE_REQUIRED')
+  if (!parsed.workerCapabilities.includes('agent-runs:execute'))
+    throw new Error('WORKER_EXECUTION_CAPABILITY_REQUIRED')
   return {
     ...parsed,
     endpoint: validateEndpoint(parsed.endpoint),
@@ -606,6 +614,7 @@ export async function runAgentBridge(
   const call = dependencies.call ?? createAgentBridgeHttpClient(config)
   const execute = dependencies.execute ?? executeAgentBridgeTask
   const session = { sessionId: config.sessionId, venueId: config.venueId }
+  const worker = { workerKey: config.workerKey }
   await call(
     'register',
     {
@@ -617,9 +626,35 @@ export async function runAgentBridge(
     },
     signal,
   )
+  await call(
+    'registerWorker',
+    {
+      ...worker,
+      runtimeType:
+        config.provider === 'CODEX_SUBSCRIPTION'
+          ? 'CODEX'
+          : config.provider === 'CLAUDE_SUBSCRIPTION'
+            ? 'CLAUDE'
+            : config.provider,
+      label: config.label,
+      protocolVersion: 'agent-bridge-http/1',
+      softwareVersion: 'torchiko-desktop-bridge/0.2.0',
+      capabilities: config.workerCapabilities,
+      agentRoles: config.workerAgentRoles,
+      modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[config.provider],
+      modelName: config.modelName,
+      safeHealth: { transport: 'agent-bridge-http', execution: 'one-at-a-time' },
+    },
+    signal,
+  )
   while (!signal.aborted) {
-    await call('heartbeatSession', session, signal)
-    const claimed = AgentBridgeClaimResult.parse(await call('claimTask', session, signal))
+    await Promise.all([
+      call('heartbeatSession', session, signal),
+      call('heartbeatWorker', worker, signal),
+    ])
+    const claimed = AgentBridgeClaimResult.parse(
+      await call('claimTask', { ...session, ...worker }, signal),
+    )
     if (!claimed.task) {
       await delay(config.pollMs, signal)
       continue
@@ -635,8 +670,9 @@ export async function runAgentBridge(
       heartbeatRenewal = heartbeatRenewal
         .then(async () => {
           if (heartbeatStopped) return
-          const [, raw] = await Promise.all([
+          const [, , raw] = await Promise.all([
             call('heartbeatSession', session, signal),
+            call('heartbeatWorker', worker, signal),
             call(
               'heartbeatTask',
               {
