@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-18T20:09:26.9917580Z",
+  "scope": "read-only Railway staging-web deployment and predeploy log evidence",
+  "environment": "staging",
+  "service": "staging-web",
+  "deploymentId": "6c5976d6-14ff-4723-9f36-fe94bebb2a21",
+  "deploymentCreatedAt": "2026-09-18T18:18:42.095Z",
+  "deploymentStatus": "SUCCESS",
+  "branch": "codex/pathfinder-v2-staging",
+  "commitHash": "7435a56943a9438edf33f2878c6e37e95b3b264e",
+  "imageDigest": "sha256:c1c8ddb664788e771fe77ff05fcf2544904d6f4c6fa2e0c537c0e3fc139444ed",
+  "predeployLog": [
+    "staging-migration: exact Railway target identity accepted",
+    "staging-migration: frozen 249-file manifest accepted",
+    "staging-migration: exact 249-row ledger accepted",
+    "staging-migration: already complete (249/249); integrity checks passed",
+    "2026-09-18T18:19:16.838451509Z [INFO] kind=staging-predeploy-process-exit exitCode=0"
+  ],
+  "collection": {
+    "deploymentMetadata": "railway deployment list --service staging-web --environment staging --limit 5 --json",
+    "deploymentLogs": "railway logs --deployment --lines 120 --service staging-web --environment staging 6c5976d6-14ff-4723-9f36-fe94bebb2a21"
+  },
+  "limits": [
+    "This proves the hosted staging database accepted the exact 249-file manifest and 249-row ledger at this deployment.",
+    "It does not prove migration 250, the recurring-worker rollout, a fresh backup/restore, production readiness, or production publication."
+  ]
+}
