@@ -185,6 +185,8 @@ describe('tenantIsolationMiddleware', () => {
       'AgentBridgeSession',
       'AgentWorker',
       'AgentRun',
+      'AgentRoutine',
+      'AgentRoutineDispatch',
       'AgentAction',
       'AgentTimelineEvent',
       'AgentMessage',
