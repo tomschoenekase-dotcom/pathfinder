@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 542)
+  assert.equal(report.operations.total, 545)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
-  assert.equal(report.operations.counts.byKind.query, 235)
-  assert.equal(report.operations.counts.byKind.mutation, 307)
+  assert.equal(report.operations.counts.byKind.query, 236)
+  assert.equal(report.operations.counts.byKind.mutation, 309)
   assert.equal(report.operations.bindings.healthy, true)
   assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
   assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)
@@ -145,6 +145,25 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.ok(report.operations.bindings.counts['direct-tool'] > 0)
   assert.ok(report.operations.bindings.counts['bounded-alternative'] > 20)
   assert.ok(report.operations.bindings.counts.unbound > 0)
+  for (const operationPath of [
+    'admin.listAgentRoutines',
+    'admin.createAgentRoutine',
+    'admin.setAgentRoutineEnabled',
+  ]) {
+    assert.deepEqual(
+      report.operations.bindings.entries.find(
+        (operation) => operation.path === operationPath,
+      ),
+      {
+        path: operationPath,
+        kind: 'unbound',
+        ruleId: null,
+        surfaces: [],
+        evidence: '',
+        decision: 'No concrete agent surface has been reviewed for this operation.',
+      },
+    )
+  }
   assert.deepEqual(
     report.operations.bindings.entries.find(
       (operation) => operation.path === 'admin.listAgentRunTrace',
