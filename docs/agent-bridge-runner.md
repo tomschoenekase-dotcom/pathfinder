@@ -65,7 +65,7 @@ default to none. Role- or capability-bound runs are claimed only when the config
 explicitly match, so adding a worker does not silently widen its authority.
 
 Then run `pnpm --filter @pathfinder/workers agent-bridge:run`. The runner verifies the work
-directory and the selected subscription executable before it registers. It emits bounded JSON
+directory and the selected desktop-agent executable before it registers. It emits bounded JSON
 status lines for `connected`, `idle`, task claim/completion/failure, unconfirmed failure recording,
 and stop. Startup failures emit
 a fixed `errorCode` such as `agent-bridge-invalid-secret`, `bridge-executor-unavailable`, or

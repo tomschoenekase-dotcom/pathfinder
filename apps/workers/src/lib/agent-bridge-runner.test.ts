@@ -16,6 +16,7 @@ import {
   createAgentBridgeHttpClient,
   executeAgentBridgeTask,
   parseAgentBridgeRunnerConfig,
+  preflightAgentBridgeRunner,
   runAgentBridge,
 } from './agent-bridge-runner'
 
@@ -192,6 +193,25 @@ describe('desktop agent bridge runner', () => {
         workerCapabilities: ['operations.read'],
       }),
     ).toThrow('WORKER_EXECUTION_CAPABILITY_REQUIRED')
+  })
+
+  it('fails preflight before registration when the Hermes executable is unavailable', async () => {
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      await expect(
+        preflightAgentBridgeRunner(
+          parseAgentBridgeRunnerConfig({
+            ...base,
+            workdir: process.cwd(),
+            provider: 'HERMES',
+            hermesProfile: 'default',
+          }),
+        ),
+      ).rejects.toThrow('BRIDGE_EXECUTOR_UNAVAILABLE')
+    } finally {
+      process.env.PATH = previousPath
+    }
   })
 
   it('registers and heartbeats the worker and claims through its durable worker key', async () => {

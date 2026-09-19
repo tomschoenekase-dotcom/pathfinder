@@ -135,8 +135,8 @@ export async function preflightAgentBridgeRunner(config: AgentBridgeRunnerConfig
   } catch {
     throw new Error('BRIDGE_WORKDIR_UNAVAILABLE')
   }
-  if (config.provider === 'OPENAI_COMPATIBLE' || config.provider === 'HERMES') return
-  const { command } = buildAgentCliInvocation(config)
+  if (config.provider === 'OPENAI_COMPATIBLE') return
+  const command = config.provider === 'HERMES' ? 'hermes' : buildAgentCliInvocation(config).command
   if (!(await executableAvailable(command))) throw new Error('BRIDGE_EXECUTOR_UNAVAILABLE')
 }
 
