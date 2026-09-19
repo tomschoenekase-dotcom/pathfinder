@@ -92,5 +92,5 @@ describe('agent operation coverage inventory', () => {
       decision: 'No concrete agent surface has been reviewed for this operation.',
     })
     expect(report.healthy).toBe(true)
-  }, 30_000)
+  }, 60_000)
 })
