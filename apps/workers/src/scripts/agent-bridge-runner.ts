@@ -1,4 +1,10 @@
-import { parseAgentBridgeRunnerConfig, runAgentBridge } from '../lib/agent-bridge-runner'
+import {
+  agentBridgeRunnerFailureCode,
+  parseAgentBridgeRunnerConfig,
+  preflightAgentBridgeRunner,
+  runAgentBridge,
+} from '../lib/agent-bridge-runner'
+import { writeSafeCliFailure } from '../lib/safe-cli-failure'
 
 function integer(value: string | undefined, fallback: number) {
   return value ? Number.parseInt(value, 10) : fallback
@@ -39,10 +45,21 @@ async function main() {
   process.stdout.write(
     `Torchiko bridge runner ${config.sessionId} starting for ${config.provider}.\n`,
   )
-  await runAgentBridge(config, controller.signal)
+  await preflightAgentBridgeRunner(config)
+  await runAgentBridge(config, controller.signal, {
+    onStatus: (status) => {
+      process.stdout.write(
+        `${JSON.stringify({ ok: true, action: 'agent-bridge.status', ...status })}\n`,
+      )
+    },
+  })
 }
 
-void main().catch(() => {
-  process.stderr.write('Torchiko bridge runner stopped without a confirmed connection.\n')
+void main().catch((error: unknown) => {
+  writeSafeCliFailure({
+    action: 'agent-bridge.start',
+    errorCode: agentBridgeRunnerFailureCode(error),
+    mutationAccepted: false,
+  })
   process.exitCode = 1
 })

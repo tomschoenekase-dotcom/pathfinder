@@ -26,7 +26,8 @@ visible without losing queued work.
   the byte ceiling. Subscription/local cost is persisted as `UNREPORTED` with a zero numeric
   placeholder, so unknown is never displayed or reasoned about as a confirmed free run.
 - Process shutdown prevents new bridge requests and aborts registration, polling, heartbeats, and
-  the current task. A lost heartbeat or lease prevents stale completion.
+  the current task. A lost heartbeat or lease prevents stale completion. A transport heartbeat
+  failure is reported as retryable; an explicit durable cancellation remains non-retryable.
 - Every claimed task must match the configured venue and provider. The execution prompt includes
   the exact initiating actor, agent identity, access/autonomy snapshot, operation/run references,
   scope, and attempt, while explicitly treating embedded task/scope text as untrusted data that
@@ -63,7 +64,15 @@ subset of the issued credential; an explicit list that omits it is rejected loca
 default to none. Role- or capability-bound runs are claimed only when the configured lists
 explicitly match, so adding a worker does not silently widen its authority.
 
-Then run `pnpm --filter @pathfinder/workers agent-bridge:run`. No real authenticated runner was
+Then run `pnpm --filter @pathfinder/workers agent-bridge:run`. The runner verifies the work
+directory and the selected subscription executable before it registers. It emits bounded JSON
+status lines for `connected`, `idle`, task claim/completion/failure, unconfirmed failure recording,
+and stop. Startup failures emit
+a fixed `errorCode` such as `agent-bridge-invalid-secret`, `bridge-executor-unavailable`, or
+`bridge-request-timeout`; they never include the credential or raw provider error text. The Control
+Room remains the durable view of whether the latest heartbeat is online.
+
+No real authenticated runner was
 launched during implementation because no operator-issued deployment credential or rollout approval
 was in scope. Run `pnpm test:agent-bridge:disposable` for provider-dark proof of authenticated HTTP,
 session registration, rich claim context, retry/reclaim, completion, explicit cost provenance, and

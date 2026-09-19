@@ -9,6 +9,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
 }))
 
 import {
+  agentBridgeRunnerFailureCode,
   buildAgentCliInvocation,
   buildAgentBridgeExecutionPrompt,
   buildHermesMcpServers,
@@ -207,8 +208,9 @@ describe('desktop agent bridge runner', () => {
       if (method === 'claimTask') controller.abort()
       return method === 'claimTask' ? { task: null } : {}
     })
+    const onStatus = vi.fn()
 
-    await runAgentBridge(config, controller.signal, { call: call as never })
+    await runAgentBridge(config, controller.signal, { call: call as never, onStatus })
 
     expect(call).toHaveBeenCalledWith(
       'registerWorker',
@@ -230,6 +232,11 @@ describe('desktop agent bridge runner', () => {
       expect.objectContaining({ workerKey: 'torchiko-hermes-main-01' }),
       controller.signal,
     )
+    expect(onStatus.mock.calls.map(([status]) => status.status)).toEqual([
+      'connected',
+      'idle',
+      'stopped',
+    ])
   })
 
   it('accepts HTTPS or loopback HTTP only and never permits URL credentials', () => {
@@ -968,6 +975,58 @@ describe('desktop agent bridge runner', () => {
       expect.objectContaining({ errorCode: 'TASK_CANCELLED', retryable: false }),
     )
     vi.useRealTimers()
+  })
+
+  it('reports a transient task heartbeat failure as retryable instead of durable cancellation', async () => {
+    vi.useFakeTimers()
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    let claims = 0
+    const call = vi.fn(async (method: string) => {
+      if (method === 'claimTask') return { task: claims++ === 0 ? bridgeTask() : null }
+      if (method === 'heartbeatTask') throw new Error('temporary transport interruption')
+      if (method === 'failTask') controller.abort()
+      return {}
+    })
+    const execute = vi.fn(
+      (_task: unknown, _config: unknown, signal?: AbortSignal) =>
+        new Promise<never>((_resolve, reject) =>
+          signal?.addEventListener('abort', () => reject(new Error('TASK_CANCELLED')), {
+            once: true,
+          }),
+        ),
+    )
+
+    const running = runAgentBridge(config, controller.signal, {
+      call: call as never,
+      execute: execute as never,
+      heartbeatMs: 100,
+    })
+    await vi.advanceTimersByTimeAsync(101)
+    await running
+
+    expect(call).toHaveBeenCalledWith(
+      'failTask',
+      expect.objectContaining({ errorCode: 'TASK_HEARTBEAT_FAILED', retryable: true }),
+    )
+    vi.useRealTimers()
+  })
+
+  it('maps startup failures to fixed secret-safe operator codes', () => {
+    let invalidConfig: unknown
+    try {
+      parseAgentBridgeRunnerConfig({ ...base, secret: 'not-a-secret', provider: 'HERMES' })
+    } catch (error) {
+      invalidConfig = error
+    }
+
+    expect(agentBridgeRunnerFailureCode(invalidConfig)).toBe('agent-bridge-invalid-secret')
+    expect(agentBridgeRunnerFailureCode(new Error('BRIDGE_REQUEST_TIMEOUT'))).toBe(
+      'bridge-request-timeout',
+    )
+    expect(agentBridgeRunnerFailureCode(new Error('token-value-from-provider'))).toBe(
+      'agent-bridge-connection-failed',
+    )
   })
 
   it('maps untrusted uppercase executor failures to the fixed durable fallback', async () => {

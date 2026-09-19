@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { access, stat } from 'node:fs/promises'
+import { delimiter, isAbsolute, resolve } from 'node:path'
 import { z } from 'zod'
 
 import {
@@ -56,6 +58,7 @@ const durableTaskFailureCodes = new Set([
   'TASK_EXECUTOR_FAILED',
   'TASK_EXECUTOR_INVALID_RESULT',
   'TASK_EXECUTOR_UNAVAILABLE',
+  'TASK_HEARTBEAT_FAILED',
   'TASK_OUTPUT_TOO_LARGE',
   'TASK_PROVIDER_MISMATCH',
   'TASK_TIMEOUT',
@@ -67,6 +70,74 @@ function durableTaskFailureCode(error: unknown): string {
     return 'TASK_EXECUTOR_FAILED'
   }
   return error.message
+}
+
+const configFieldCode = new Map<string, string>([
+  ['endpoint', 'endpoint'],
+  ['secret', 'secret'],
+  ['venueId', 'venue-id'],
+  ['provider', 'provider'],
+  ['label', 'label'],
+  ['workdir', 'workdir'],
+  ['sessionId', 'session-id'],
+  ['modelName', 'model-name'],
+  ['workerKey', 'worker-key'],
+  ['workerCapabilities', 'worker-capabilities'],
+  ['workerAgentRoles', 'worker-agent-roles'],
+  ['pollMs', 'poll-ms'],
+  ['taskTimeoutMs', 'task-timeout-ms'],
+  ['localInferenceUrl', 'local-inference-url'],
+  ['localInferenceKey', 'local-inference-key'],
+  ['hermesMcpUrl', 'hermes-mcp-url'],
+  ['hermesProfile', 'hermes-profile'],
+])
+
+export function agentBridgeRunnerFailureCode(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    const field = configFieldCode.get(String(error.issues[0]?.path[0] ?? ''))
+    return field ? `agent-bridge-invalid-${field}` : 'agent-bridge-invalid-config'
+  }
+  if (error instanceof Error && /^[A-Z][A-Z0-9_]{0,63}$/u.test(error.message)) {
+    return error.message.toLowerCase().replaceAll('_', '-')
+  }
+  return 'agent-bridge-connection-failed'
+}
+
+async function executableAvailable(command: string): Promise<boolean> {
+  const extensions =
+    process.platform === 'win32'
+      ? ['', ...(process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')]
+      : ['']
+  const roots = isAbsolute(command)
+    ? ['']
+    : (process.env.PATH ?? '')
+        .split(delimiter)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+  for (const root of roots) {
+    for (const extension of extensions) {
+      const candidate = root ? resolve(root, `${command}${extension}`) : `${command}${extension}`
+      try {
+        await access(candidate)
+        return true
+      } catch {
+        // Continue through the bounded PATH candidate list.
+      }
+    }
+  }
+  return false
+}
+
+export async function preflightAgentBridgeRunner(config: AgentBridgeRunnerConfig): Promise<void> {
+  try {
+    const workdir = await stat(config.workdir)
+    if (!workdir.isDirectory()) throw new Error('BRIDGE_WORKDIR_UNAVAILABLE')
+  } catch {
+    throw new Error('BRIDGE_WORKDIR_UNAVAILABLE')
+  }
+  if (config.provider === 'OPENAI_COMPATIBLE' || config.provider === 'HERMES') return
+  const { command } = buildAgentCliInvocation(config)
+  if (!(await executableAvailable(command))) throw new Error('BRIDGE_EXECUTOR_UNAVAILABLE')
 }
 
 function validateEndpoint(raw: string) {
@@ -636,6 +707,15 @@ export function createAgentBridgeHttpClient(
 
 type BridgeCall = ReturnType<typeof createAgentBridgeHttpClient>
 type TaskExecutor = typeof executeAgentBridgeTask
+export type AgentBridgeRunnerStatus =
+  | { status: 'connected' | 'idle' | 'stopped' }
+  | { status: 'task-claimed' | 'task-completed'; runId: string }
+  | {
+      status: 'task-failed' | 'task-failure-unconfirmed'
+      runId: string
+      errorCode: string
+      retryable: boolean
+    }
 
 const delay = (milliseconds: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -663,7 +743,12 @@ const delay = (milliseconds: number, signal: AbortSignal) =>
 export async function runAgentBridge(
   config: AgentBridgeRunnerConfig,
   signal: AbortSignal,
-  dependencies: { call?: BridgeCall; execute?: TaskExecutor; heartbeatMs?: number } = {},
+  dependencies: {
+    call?: BridgeCall
+    execute?: TaskExecutor
+    heartbeatMs?: number
+    onStatus?: (status: AgentBridgeRunnerStatus) => void
+  } = {},
 ) {
   const call = dependencies.call ?? createAgentBridgeHttpClient(config)
   const execute = dependencies.execute ?? executeAgentBridgeTask
@@ -701,6 +786,8 @@ export async function runAgentBridge(
     },
     signal,
   )
+  dependencies.onStatus?.({ status: 'connected' })
+  let idleReported = false
   while (!signal.aborted) {
     await Promise.all([
       call('heartbeatSession', session, signal),
@@ -710,13 +797,18 @@ export async function runAgentBridge(
       await call('claimTask', { ...session, ...worker }, signal),
     )
     if (!claimed.task) {
+      if (!idleReported) dependencies.onStatus?.({ status: 'idle' })
+      idleReported = true
       await delay(config.pollMs, signal)
       continue
     }
+    idleReported = false
+    dependencies.onStatus?.({ status: 'task-claimed', runId: claimed.task.id })
     const taskController = new AbortController()
     const stopTask = () => taskController.abort()
     signal.addEventListener('abort', stopTask, { once: true })
     let heartbeatStopped = false
+    let heartbeatFailed = false
     let heartbeatRenewal = Promise.resolve()
     const renewHeartbeat = () => {
       if (heartbeatStopped) return heartbeatRenewal
@@ -740,7 +832,10 @@ export async function runAgentBridge(
           const state = z.object({ cancelRequested: z.boolean() }).parse(raw)
           if (state.cancelRequested) taskController.abort()
         })
-        .catch(() => taskController.abort())
+        .catch(() => {
+          heartbeatFailed = true
+          taskController.abort()
+        })
       return heartbeatRenewal
     }
     const heartbeat = setInterval(() => {
@@ -754,6 +849,7 @@ export async function runAgentBridge(
     try {
       const result = await execute(claimed.task, config, taskController.signal)
       await stopHeartbeat()
+      if (heartbeatFailed) throw new Error('TASK_HEARTBEAT_FAILED')
       if (taskController.signal.aborted) throw new Error('TASK_CANCELLED')
       await call('completeTask', {
         ...session,
@@ -765,19 +861,29 @@ export async function runAgentBridge(
         costE8Usd: result.costE8Usd,
         costStatus: result.costStatus,
       })
+      dependencies.onStatus?.({ status: 'task-completed', runId: claimed.task.id })
     } catch (error) {
       await stopHeartbeat()
-      const code = durableTaskFailureCode(error)
-      await call('failTask', {
+      const code = heartbeatFailed ? 'TASK_HEARTBEAT_FAILED' : durableTaskFailureCode(error)
+      const failureRecorded = await call('failTask', {
         ...session,
         runId: claimed.task.id,
         leaseToken: claimed.task.leaseToken,
         errorCode: code,
         retryable: code !== 'TASK_CANCELLED',
-      }).catch(() => undefined)
+      })
+        .then(() => true)
+        .catch(() => false)
+      dependencies.onStatus?.({
+        status: failureRecorded ? 'task-failed' : 'task-failure-unconfirmed',
+        runId: claimed.task.id,
+        errorCode: code,
+        retryable: code !== 'TASK_CANCELLED',
+      })
     } finally {
       await stopHeartbeat()
       signal.removeEventListener('abort', stopTask)
     }
   }
+  dependencies.onStatus?.({ status: 'stopped' })
 }
