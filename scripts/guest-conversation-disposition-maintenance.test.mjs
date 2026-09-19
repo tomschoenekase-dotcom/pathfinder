@@ -20,7 +20,7 @@ import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../p
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
-test('249 maintenance source verification accepts exact 248 predecessor and refuses ledger drift before body reads', async () => {
+test('250 maintenance source verification accepts the exact current ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -30,7 +30,7 @@ test('249 maintenance source verification accepts exact 248 predecessor and refu
     logs: null,
   }))
   const sql = await readFile(
-    join(root, 'packages/db/prisma/migrations', manifest.names.at(-1), 'migration.sql'),
+    join(root, 'packages/db/prisma/migrations', manifest.names[248], 'migration.sql'),
     'utf8',
   )
   const functions = [
@@ -41,12 +41,13 @@ test('249 maintenance source verification accepts exact 248 predecessor and refu
   let calls = 0
   await verifyDispositionDatabaseSource({
     query: async () =>
-      [rows, functions, { tables: 265, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
+      [rows, functions, { tables: 267, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
   })
   assert.equal(calls, 3)
   for (const [index, patch] of [
     [247, { checksum: '0'.repeat(64) }],
     [248, { checksum: '0'.repeat(64) }],
+    [249, { checksum: '0'.repeat(64) }],
     [248, { finished_at: null }],
     [248, { logs: 'synthetic failure' }],
   ]) {
@@ -60,7 +61,7 @@ test('249 maintenance source verification accepts exact 248 predecessor and refu
           return invalid
         },
       }),
-      /checksum|status|ledger/u,
+      /checksum|unfinished|logs are non-empty|ledger/u,
     )
     assert.equal(calls, 1)
   }
