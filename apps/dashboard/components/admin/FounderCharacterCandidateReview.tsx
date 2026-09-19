@@ -161,7 +161,7 @@ export function FounderCharacterCandidateReview({ candidates, onDecision }: Prop
         className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
       >
         <h2 id="character-candidates-heading" className="font-semibold text-slate-950">
-          Character candidates
+          First-draft review
         </h2>
         <p className="mt-2 text-sm text-slate-600">No candidates are ready for founder review.</p>
       </section>
@@ -175,16 +175,19 @@ export function FounderCharacterCandidateReview({ candidates, onDecision }: Prop
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-sky-800">Founder review</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
+            Appearance review
+          </p>
           <h2
             id="character-candidates-heading"
             className="mt-1 text-lg font-semibold text-slate-950"
           >
-            Choose a character candidate
+            Review the first draft
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Compare the prepared variants, then accept, reject, or describe a bounded revision. This
-            does not approve a final Tochi appearance.
+            Inspect the exact verified image, then approve its appearance, reject it, or describe a
+            bounded revision. “All good” queues basic animation preparation. Nothing is published by
+            this decision.
           </p>
         </div>
         <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -295,7 +298,11 @@ export function FounderCharacterCandidateReview({ candidates, onDecision }: Prop
                   onClick={() => void decide(candidate, 'ACCEPT')}
                   className="min-h-10 rounded-lg bg-sky-700 px-3 text-sm font-semibold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {busy ? 'Saving…' : isDecided ? 'Decision recorded' : 'Accept candidate'}
+                  {busy
+                    ? 'Saving…'
+                    : isDecided
+                      ? 'Appearance decision recorded'
+                      : 'All good — prepare animation'}
                 </button>
                 <button
                   type="button"

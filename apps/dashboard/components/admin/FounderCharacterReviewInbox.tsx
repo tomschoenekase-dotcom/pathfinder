@@ -83,14 +83,12 @@ export function FounderCharacterReviewInbox({ initial }: { initial: Page }) {
             })
             const name =
               page.items.find((item) => item.id === input.briefId)?.displayName ?? 'Candidate'
-            const label =
-              result.decision === 'ACCEPT'
-                ? 'Accepted'
-                : result.decision === 'REJECT'
-                  ? 'Rejected'
-                  : 'Revision requested'
             setReceipt(
-              `${label}: ${name}, version ${input.expectedVersion}, revision ${input.expectedRevision}.${result.jobId ? ` Factory job ${result.jobId} recorded.` : ''}`,
+              result.decision === 'ACCEPT'
+                ? `All good: ${name} appearance approved.${result.jobId ? ` Animation/export job ${result.jobId} queued.` : ''} Nothing was published.`
+                : result.decision === 'REJECT'
+                  ? `Rejected: ${name}, version ${input.expectedVersion}, revision ${input.expectedRevision}. Nothing was published.`
+                  : `Revision requested: ${name}, version ${input.expectedVersion}, revision ${input.expectedRevision}.${result.jobId ? ` Revision job ${result.jobId} queued.` : ''} Nothing was published.`,
             )
             router.refresh()
             return result

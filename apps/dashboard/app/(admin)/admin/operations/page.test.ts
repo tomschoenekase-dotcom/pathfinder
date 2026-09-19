@@ -9,12 +9,14 @@ describe('founder operations readiness surface', () => {
     expect(source).toContain('<OperationsReadinessSummary readiness={readiness} />')
   })
 
-  it('separates current work, detailed queues, system evidence, and AI systems', () => {
-    expect(source).toContain("query.view === 'work' || query.view === 'system'")
+  it('separates current work, bot making, system evidence, and AI systems', () => {
+    expect(source).toContain("query.view === 'work' || query.view === 'bot-maker'")
     expect(source).toContain(
       '<OperationsAttentionConsole actorId={userId} data={data} summaryOnly />',
     )
     expect(source).toContain("['/admin/ai', 'AI systems']")
+    expect(source).toContain("['/admin/operations?view=bot-maker', 'Bot Maker']")
+    expect(source).toContain('<BotMakerWorkspace')
     expect(source).not.toContain('FounderProviderConnections')
   })
 })

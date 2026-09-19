@@ -21,7 +21,10 @@ test('founder candidate review stays scoped, keyboard reachable, and preview-saf
     route.fulfill({ status: 200, contentType: 'image/png', body: inertPng }),
   )
   await page.goto(`${dashboardBaseUrl}/dev-fixtures/character-candidate-review`)
-  await expect(page.getByRole('heading', { name: 'Choose a character candidate' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Approve the character before animation work begins' }),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review the first draft' })).toBeVisible()
   await expect
     .poll(async () =>
       page
@@ -30,15 +33,17 @@ test('founder candidate review stays scoped, keyboard reachable, and preview-saf
         .evaluate((image) => (image as HTMLImageElement).naturalWidth),
     )
     .toBeGreaterThan(0)
-  await expect(page.getByRole('button', { name: 'Accept candidate' }).first()).toBeEnabled()
-  await page.getByRole('button', { name: 'Accept candidate' }).first().click()
+  await expect(
+    page.getByRole('button', { name: 'All good — prepare animation' }).first(),
+  ).toBeEnabled()
+  await page.getByRole('button', { name: 'All good — prepare animation' }).first().click()
   await expect(page.getByRole('status').first()).toContainText('ACCEPT recorded')
   expect(
     await page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth + 1),
   ).toBe(true)
   expect((await new AxeBuilder({ page }).include('body').analyze()).violations).toEqual([])
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Choose a character candidate' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review the first draft' })).toBeVisible()
   expect(
     await page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth + 1),
   ).toBe(true)

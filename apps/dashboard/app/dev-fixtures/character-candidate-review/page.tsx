@@ -5,6 +5,7 @@ import {
   type FounderCharacterDecision,
   type FounderCharacterCandidate,
 } from '../../../components/admin/FounderCharacterCandidateReview'
+import { BotMakerWorkspace } from '../../../components/admin/BotMakerWorkspace'
 
 const candidates: FounderCharacterCandidate[] = [
   {
@@ -50,8 +51,12 @@ async function fixtureDecision(input: FounderCharacterDecision) {
 export default function CharacterCandidateReviewFixturePage() {
   return (
     <main className="min-h-screen bg-slate-100 p-3 sm:p-8">
-      <div className="mx-auto max-w-5xl">
-        <FounderCharacterCandidateReview candidates={candidates} onDecision={fixtureDecision} />
+      <div className="mx-auto max-w-6xl">
+        <BotMakerWorkspace
+          reviewInbox={
+            <FounderCharacterCandidateReview candidates={candidates} onDecision={fixtureDecision} />
+          }
+        />
       </div>
     </main>
   )

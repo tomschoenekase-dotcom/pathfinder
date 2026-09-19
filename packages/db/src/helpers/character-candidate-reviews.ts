@@ -426,7 +426,13 @@ export async function decideCharacterCandidateReview(
                 action: input.decision === 'ACCEPT' ? 'EXPORT' : 'REVISE',
                 requestPayload:
                   input.decision === 'ACCEPT'
-                    ? { includeEditableSource: true }
+                    ? {
+                        includeEditableSource: true,
+                        workflowStage: 'ANIMATION_PREPARATION',
+                        approvedAppearanceFingerprint: input.expectedArtifactFingerprint,
+                        motionCapability: 'rigid-source',
+                        publicationAuthorized: false,
+                      }
                     : { instructions: input.revisionRequest! },
                 characterId: brief.customCharacterId,
                 baseVersion: input.expectedVersion,

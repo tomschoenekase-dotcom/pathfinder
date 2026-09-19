@@ -240,13 +240,26 @@ describe.skipIf(!enabled)('character candidate review disposable lifecycle', () 
         expect(firstDecision.resultingJob).toMatchObject({ action: 'EXPORT', status: 'QUEUED' })
         const acceptedJobs = await db.characterFactoryJob.findMany({
           where: { tenantId, venueId, requestId: firstDecision.resultingJob!.requestId },
-          select: { id: true, status: true, attemptNumber: true, resultPayload: true },
+          select: {
+            id: true,
+            status: true,
+            attemptNumber: true,
+            requestPayload: true,
+            resultPayload: true,
+          },
         })
         expect(acceptedJobs).toEqual([
           expect.objectContaining({
             id: firstDecision.resultingJob!.id,
             status: 'QUEUED',
             attemptNumber: 0,
+            requestPayload: {
+              includeEditableSource: true,
+              workflowStage: 'ANIMATION_PREPARATION',
+              approvedAppearanceFingerprint: firstBrief.brief.artifactFingerprint,
+              motionCapability: 'rigid-source',
+              publicationAuthorized: false,
+            },
             resultPayload: null,
           }),
         ])

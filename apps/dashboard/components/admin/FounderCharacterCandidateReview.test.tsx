@@ -48,27 +48,27 @@ describe('FounderCharacterCandidateReview', () => {
       />,
     )
     fireEvent.load(screen.getByRole('img'))
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      false,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(false)
     view.rerender(
       <FounderCharacterCandidateReview
         candidates={[scoped('brief', 'a:tenant')]}
         onDecision={onDecision}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      true,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(true)
   })
   it('keeps accept unavailable until the same-origin preview loads and sends the exact snapshot', async () => {
     const onDecision = vi.fn().mockResolvedValue({ decision: 'ACCEPT', jobId: 'job-1' })
     render(<FounderCharacterCandidateReview candidates={[candidate]} onDecision={onDecision} />)
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      true,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(true)
     fireEvent.load(screen.getByRole('img'))
-    fireEvent.click(screen.getByRole('button', { name: 'Accept candidate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'All good — prepare animation' }))
     await waitFor(() =>
       expect(onDecision).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -151,9 +151,9 @@ describe('FounderCharacterCandidateReview', () => {
       <FounderCharacterCandidateReview candidates={[candidate]} onDecision={onDecision} />,
     )
     fireEvent.load(screen.getByRole('img'))
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      false,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(false)
     const changed = {
       ...candidate,
       revision: candidate.revision + 1,
@@ -161,12 +161,12 @@ describe('FounderCharacterCandidateReview', () => {
       previewHref: `/api/admin/character-candidate-preview?tenantId=tenant-1&venueId=venue-1&briefId=brief-1&expectedVersion=2&expectedRevision=4&expectedArtifactFingerprint=${'b'.repeat(64)}`,
     }
     rerender(<FounderCharacterCandidateReview candidates={[changed]} onDecision={onDecision} />)
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      true,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(true)
     fireEvent.load(screen.getByRole('img'))
-    expect(screen.getByRole('button', { name: 'Accept candidate' }).hasAttribute('disabled')).toBe(
-      false,
-    )
+    expect(
+      screen.getByRole('button', { name: 'All good — prepare animation' }).hasAttribute('disabled'),
+    ).toBe(false)
   })
 })

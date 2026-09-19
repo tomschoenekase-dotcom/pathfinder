@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
 import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
 import { FounderCharacterReviewInbox } from '../../../../components/admin/FounderCharacterReviewInbox'
+import { BotMakerWorkspace } from '../../../../components/admin/BotMakerWorkspace'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
 import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
@@ -36,7 +37,10 @@ export default async function AdminOperationsPage({
   const { userId } = await auth()
   const caller = await createAdminCaller()
   const query = await searchParams
-  const view = query.view === 'work' || query.view === 'system' ? query.view : 'now'
+  const view =
+    query.view === 'work' || query.view === 'bot-maker' || query.view === 'system'
+      ? query.view
+      : 'now'
   const [data, readiness, releaseEvidence, incident, providerHealth, characterReviews] =
     await Promise.all([
       caller.admin.attentionConsole({
@@ -95,6 +99,7 @@ export default async function AdminOperationsPage({
           [
             ['/admin/operations', 'Now'],
             ['/admin/operations?view=work', 'Work and approvals'],
+            ['/admin/operations?view=bot-maker', 'Bot Maker'],
             ['/admin/operations?view=system', 'System evidence'],
             ['/admin/ai', 'AI systems'],
           ] as const
@@ -102,6 +107,7 @@ export default async function AdminOperationsPage({
           const active =
             (label === 'Now' && view === 'now') ||
             (label === 'Work and approvals' && view === 'work') ||
+            (label === 'Bot Maker' && view === 'bot-maker') ||
             (label === 'System evidence' && view === 'system')
           return (
             <Link
@@ -125,10 +131,14 @@ export default async function AdminOperationsPage({
 
       {view === 'work' ? <OperationsAttentionConsole actorId={userId} data={data} /> : null}
 
+      {view === 'bot-maker' ? (
+        <BotMakerWorkspace
+          reviewInbox={<FounderCharacterReviewInbox initial={characterReviews} />}
+        />
+      ) : null}
+
       {view === 'system' ? (
         <div className="space-y-6">
-          <FounderCharacterReviewInbox initial={characterReviews} />
-
           <section
             aria-label="Global AI incident state"
             className={`rounded-2xl border p-4 text-sm ${incident.paused || incident.malformed ? 'border-rose-200 bg-rose-50 text-rose-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}
