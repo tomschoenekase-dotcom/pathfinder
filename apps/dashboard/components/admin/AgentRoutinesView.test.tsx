@@ -153,7 +153,7 @@ describe('AgentRoutinesView', () => {
       enabled: true,
     })
     expect(
-      screen.getByText(
+      await screen.findByText(
         'Enabled. The routine is now eligible for the independently gated scheduler; no run was started by this action.',
       ),
     ).toBeTruthy()
