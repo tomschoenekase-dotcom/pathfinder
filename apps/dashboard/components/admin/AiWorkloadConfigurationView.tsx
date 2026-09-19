@@ -15,15 +15,7 @@ function formatRate(value: number): string {
   return `$${value.toLocaleString('en-US', { maximumFractionDigits: 4 })}`
 }
 
-function VenueOverrideEditor({
-  workload,
-  scope,
-  modelOptions,
-}: {
-  workload: Workload
-  scope: Data['scope']
-  modelOptions: Data['modelOptions']
-}) {
+function VenueOverrideEditor({ workload, scope }: { workload: Workload; scope: Data['scope'] }) {
   const client = useTRPCClient()
   const router = useRouter()
   const current = workload.overrides.venue
@@ -31,24 +23,74 @@ function VenueOverrideEditor({
   const [timeoutMs, setTimeoutMs] = useState(
     current?.values.timeoutMs?.toString() ?? workload.effective.timeoutMs.toString(),
   )
+  const [overrideTimeout, setOverrideTimeout] = useState(current?.values.timeoutMs !== undefined)
   const [maxAttempts, setMaxAttempts] = useState(
     current?.values.maxAttempts?.toString() ?? workload.effective.maxAttempts.toString(),
+  )
+  const [overrideMaxAttempts, setOverrideMaxAttempts] = useState(
+    current?.values.maxAttempts !== undefined,
   )
   const [primaryModelKey, setPrimaryModelKey] = useState<Workload['workloadId'] | ''>(
     current?.values.primaryModelKey ?? '',
   )
-  const [fallbackEnabled, setFallbackEnabled] = useState(current?.values.fallback?.enabled ?? false)
+  const [fallbackMode, setFallbackMode] = useState<'inherit' | 'disabled' | 'enabled'>(
+    current?.values.fallback === undefined
+      ? 'inherit'
+      : current.values.fallback.enabled
+        ? 'enabled'
+        : 'disabled',
+  )
   const [fallbackModelKey, setFallbackModelKey] = useState<Workload['workloadId'] | ''>(
     current?.values.fallback?.modelKeys[0] ?? '',
   )
-  const [maxOutputTokens, setMaxOutputTokens] = useState(
-    current?.values.maxOutputTokens?.toString() ?? '',
+  const [maxOutputTokensMode, setMaxOutputTokensMode] = useState<'inherit' | 'limit' | 'unbounded'>(
+    current?.values.maxOutputTokens === undefined
+      ? 'inherit'
+      : current.values.maxOutputTokens === null
+        ? 'unbounded'
+        : 'limit',
   )
-  const [budget, setBudget] = useState(current?.values.requestBudgetCeilingE8Usd ?? '')
+  const [maxOutputTokens, setMaxOutputTokens] = useState(
+    current?.values.maxOutputTokens?.toString() ??
+      workload.effective.maxOutputTokens?.toString() ??
+      '',
+  )
+  const [budgetMode, setBudgetMode] = useState<'inherit' | 'limit' | 'unbounded'>(
+    current?.values.requestBudgetCeilingE8Usd === undefined
+      ? 'inherit'
+      : current.values.requestBudgetCeilingE8Usd === null
+        ? 'unbounded'
+        : 'limit',
+  )
+  const [budget, setBudget] = useState(
+    current?.values.requestBudgetCeilingE8Usd ?? workload.effective.requestBudgetCeilingE8Usd ?? '',
+  )
   const [unsafe, setUnsafe] = useState(false)
   const [reason, setReason] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const selectedKeys = [
+    ...(primaryModelKey ? [primaryModelKey] : []),
+    ...(fallbackMode === 'enabled' && fallbackModelKey ? [fallbackModelKey] : []),
+  ]
+  const hasUnavailableSelectedRoute = selectedKeys.some(
+    (key) => workload.modelOptions.find((option) => option.key === key)?.available !== true,
+  )
+  const hasIncompleteOverride =
+    (fallbackMode === 'enabled' && !fallbackModelKey) ||
+    (overrideTimeout &&
+      (!Number.isInteger(Number(timeoutMs)) ||
+        Number(timeoutMs) < 100 ||
+        Number(timeoutMs) > 120_000)) ||
+    (overrideMaxAttempts &&
+      (!Number.isInteger(Number(maxAttempts)) ||
+        Number(maxAttempts) < 1 ||
+        Number(maxAttempts) > 5)) ||
+    (maxOutputTokensMode === 'limit' &&
+      (!Number.isInteger(Number(maxOutputTokens)) ||
+        Number(maxOutputTokens) < 1 ||
+        Number(maxOutputTokens) > 32_000)) ||
+    (budgetMode === 'limit' && !/^\d+$/u.test(budget.trim()))
 
   async function save() {
     setBusy(true)
@@ -60,14 +102,28 @@ function VenueOverrideEditor({
         enabled,
         values: {
           ...(primaryModelKey ? { primaryModelKey } : {}),
-          fallback: {
-            enabled: fallbackEnabled,
-            modelKeys: fallbackModelKey ? [fallbackModelKey] : [],
-          },
-          timeoutMs: Number(timeoutMs),
-          maxAttempts: Number(maxAttempts),
-          ...(maxOutputTokens ? { maxOutputTokens: Number(maxOutputTokens) } : {}),
-          ...(budget.trim() ? { requestBudgetCeilingE8Usd: budget.trim() } : {}),
+          ...(fallbackMode === 'inherit'
+            ? {}
+            : {
+                fallback: {
+                  enabled: fallbackMode === 'enabled',
+                  modelKeys:
+                    fallbackMode === 'enabled' && fallbackModelKey ? [fallbackModelKey] : [],
+                },
+              }),
+          ...(overrideTimeout ? { timeoutMs: Number(timeoutMs) } : {}),
+          ...(overrideMaxAttempts ? { maxAttempts: Number(maxAttempts) } : {}),
+          ...(maxOutputTokensMode === 'inherit'
+            ? {}
+            : {
+                maxOutputTokens:
+                  maxOutputTokensMode === 'unbounded' ? null : Number(maxOutputTokens),
+              }),
+          ...(budgetMode === 'inherit'
+            ? {}
+            : {
+                requestBudgetCeilingE8Usd: budgetMode === 'unbounded' ? null : budget.trim(),
+              }),
         },
         unsafeChangesEnabled: unsafe,
         reason,
@@ -124,41 +180,54 @@ function VenueOverrideEditor({
             }
           >
             <option value="">Inherit</option>
-            {modelOptions
-              .filter((option) => option.kind === workload.kind)
-              .map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.key} · {option.provider}/{option.model}
-                </option>
-              ))}
+            {workload.modelOptions.map((option) => (
+              <option key={option.key} value={option.key} disabled={!option.available}>
+                {option.key} · {option.provider}/{option.model}
+                {option.available ? '' : ' · unavailable to admin control'}
+              </option>
+            ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-xs font-medium text-pf-deep">
-          <input
-            type="checkbox"
-            checked={fallbackEnabled}
-            onChange={(event) => setFallbackEnabled(event.target.checked)}
-          />
-          Enable fallback
+        <label className="text-xs font-medium text-pf-deep">
+          Fallback behavior
+          <select
+            className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+            value={fallbackMode}
+            onChange={(event) =>
+              setFallbackMode(event.target.value as 'inherit' | 'disabled' | 'enabled')
+            }
+          >
+            <option value="inherit">Inherit</option>
+            <option value="disabled">Disabled for this venue</option>
+            <option value="enabled">Enabled for this venue</option>
+          </select>
         </label>
         <label className="text-xs font-medium text-pf-deep">
           Fallback logical key
           <select
             className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
             value={fallbackModelKey}
+            disabled={fallbackMode !== 'enabled'}
             onChange={(event) =>
               setFallbackModelKey(event.target.value as Workload['workloadId'] | '')
             }
           >
             <option value="">None</option>
-            {modelOptions
-              .filter((option) => option.kind === workload.kind)
-              .map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.key}
-                </option>
-              ))}
+            {workload.modelOptions.map((option) => (
+              <option key={option.key} value={option.key} disabled={!option.available}>
+                {option.key}
+                {option.available ? '' : ' · unavailable to admin control'}
+              </option>
+            ))}
           </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs font-medium text-pf-deep sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={overrideTimeout}
+            onChange={(event) => setOverrideTimeout(event.target.checked)}
+          />
+          Use venue-specific timeout
         </label>
         <label className="text-xs font-medium text-pf-deep">
           Timeout (ms)
@@ -168,17 +237,38 @@ function VenueOverrideEditor({
             min={100}
             max={120000}
             value={timeoutMs}
+            disabled={!overrideTimeout}
             onChange={(event) => setTimeoutMs(event.target.value)}
           />
         </label>
+        <label className="flex items-center gap-2 text-xs font-medium text-pf-deep">
+          <input
+            type="checkbox"
+            checked={overrideMaxAttempts}
+            onChange={(event) => setOverrideMaxAttempts(event.target.checked)}
+          />
+          Use venue-specific attempts
+        </label>
         <label className="text-xs font-medium text-pf-deep sm:col-span-2">
-          Maximum output tokens (blank inherits)
+          Maximum output tokens
+          <select
+            className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+            value={maxOutputTokensMode}
+            onChange={(event) =>
+              setMaxOutputTokensMode(event.target.value as 'inherit' | 'limit' | 'unbounded')
+            }
+          >
+            <option value="inherit">Inherit</option>
+            <option value="limit">Set venue limit</option>
+            <option value="unbounded">No limit</option>
+          </select>
           <input
             className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
             type="number"
             min={1}
             max={32000}
             value={maxOutputTokens}
+            disabled={maxOutputTokensMode !== 'limit'}
             onChange={(event) => setMaxOutputTokens(event.target.value)}
           />
         </label>
@@ -190,16 +280,29 @@ function VenueOverrideEditor({
             min={1}
             max={5}
             value={maxAttempts}
+            disabled={!overrideMaxAttempts}
             onChange={(event) => setMaxAttempts(event.target.value)}
           />
         </label>
         <label className="text-xs font-medium text-pf-deep sm:col-span-2">
-          Per-request budget ceiling (10^-8 USD units, optional)
+          Per-request budget ceiling (10^-8 USD units)
+          <select
+            className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+            value={budgetMode}
+            onChange={(event) =>
+              setBudgetMode(event.target.value as 'inherit' | 'limit' | 'unbounded')
+            }
+          >
+            <option value="inherit">Inherit</option>
+            <option value="limit">Set venue ceiling</option>
+            <option value="unbounded">No ceiling</option>
+          </select>
           <input
             className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
             inputMode="numeric"
             pattern="[0-9]*"
             value={budget}
+            disabled={budgetMode !== 'limit'}
             onChange={(event) => setBudget(event.target.value)}
           />
         </label>
@@ -222,10 +325,21 @@ function VenueOverrideEditor({
           non-expanding staged edits.
         </label>
       </div>
+      {hasUnavailableSelectedRoute ? (
+        <p className="mt-3 text-xs text-amber-800">
+          This route cannot be saved because its provider is unavailable to this admin control. The
+          visitor-chat runtime is verified separately.
+        </p>
+      ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={busy || reason.trim().length === 0}
+          disabled={
+            busy ||
+            reason.trim().length === 0 ||
+            hasUnavailableSelectedRoute ||
+            hasIncompleteOverride
+          }
           onClick={() => void save()}
           className="rounded-lg bg-pf-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -381,11 +495,7 @@ export function AiWorkloadConfigurationView({ data }: { data: Data }) {
                 )
               })}
             </div>
-            <VenueOverrideEditor
-              workload={workload}
-              scope={data.scope}
-              modelOptions={data.modelOptions}
-            />
+            <VenueOverrideEditor workload={workload} scope={data.scope} />
           </article>
         ))}
       </div>

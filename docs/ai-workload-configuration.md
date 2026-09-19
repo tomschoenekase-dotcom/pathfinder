@@ -18,6 +18,13 @@ rejects unknown keys, and both API and resolver reject text/embedding cross-kind
 The registry remains authoritative for provider model strings, hard limits, and versioned public
 price estimates; no pricing is persisted or invented by overrides.
 
+Capability labels describe the request and prompt policy attached to a workload; they are not an
+intrinsic certification of the underlying provider model. Internal text workloads may use an
+explicitly acknowledged same-kind registry entry as a fallback. Public visitor chat is narrower:
+only the registered `guest-chat`, `guest-chat-openai`, `guest-chat-deepseek-flash`, and
+`guest-chat-deepseek-pro` route keys may be selected or dispatched for that route family. Arbitrary
+provider model names and unrelated internal workload keys remain unavailable to visitor chat.
+
 ## Persistence and isolation
 
 Global workload rows live in `AiWorkloadConfigurationOverride`, a platform table. The only HTTP
@@ -60,6 +67,11 @@ The venue AI configuration page shows:
 - existing workload/client/venue override state and venue revision;
 - a deliberate venue editor with disabled-by-default activation, required reason, explicit
   unsafe-change acknowledgement, CAS save, and reset-to-inherited action.
+
+The editor exposes inheritance separately for every optional field and does not copy effective
+fallback, retry, timeout, output, or budget values into a new venue row unless the operator chooses
+a venue-specific value. Provider availability on this surface means only that the admin API process
+can see its configured key; the visitor-chat runtime has a separate readiness check.
 
 The UI states that saving does not trigger provider execution. A configured request ceiling is
 metadata used by future dispatch integration; runtime accounting and `AiBudgetGate` remain the

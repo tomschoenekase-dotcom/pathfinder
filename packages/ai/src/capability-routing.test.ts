@@ -63,7 +63,7 @@ describe('AI capability routing', () => {
           activation: 'ENABLED',
           scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
           values: {
-            fallback: { enabled: true, modelKeys: ['agent-run'] },
+            fallback: { enabled: true, modelKeys: ['guest-chat-deepseek-pro'] },
           },
           unsafeChangesEnabled: true,
           reason: 'test fallback',
@@ -83,9 +83,76 @@ describe('AI capability routing', () => {
         capability: 'STANDARD',
         workloadId: 'guest-chat',
         configuration,
-        disabledProviders: ['anthropic'],
+        disabledProviders: ['anthropic', 'deepseek'],
       }),
     ).toThrow(new AiRoutingError('NO_HEALTHY_ROUTE', 'No healthy STANDARD route is available'))
+  })
+
+  it('never dispatches a stale capability-incompatible candidate', () => {
+    const withValidPrimary = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { fallback: { enabled: true, modelKeys: ['agent-run'] } },
+          unsafeChangesEnabled: true,
+          reason: 'legacy incompatible fallback',
+        },
+      ],
+    })
+    expect(
+      routeAiCapability({
+        capability: 'STANDARD',
+        workloadId: 'guest-chat',
+        configuration: withValidPrimary,
+      }).candidates.map((candidate) => candidate.modelKey),
+    ).toEqual(['guest-chat'])
+
+    const withOnlyInvalidPrimary = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'agent-run' },
+          unsafeChangesEnabled: true,
+          reason: 'legacy incompatible primary',
+        },
+      ],
+    })
+    expect(() =>
+      routeAiCapability({
+        capability: 'STANDARD',
+        workloadId: 'guest-chat',
+        configuration: withOnlyInvalidPrimary,
+      }),
+    ).toThrow(
+      new AiRoutingError('CAPABILITY_MISMATCH', 'No configured route is registered for STANDARD'),
+    )
+  })
+
+  it('preserves explicit same-kind fallbacks for internal workload policy', () => {
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'answer-analysis',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'answer-analysis' },
+          values: { fallback: { enabled: true, modelKeys: ['client-tochi'] } },
+          unsafeChangesEnabled: true,
+          reason: 'bounded internal text fallback',
+        },
+      ],
+    })
+
+    expect(
+      routeAiCapability({
+        capability: 'EXTRACTION',
+        workloadId: 'answer-analysis',
+        configuration,
+      }).candidates.map((candidate) => candidate.modelKey),
+    ).toEqual(['answer-analysis', 'client-tochi'])
   })
 
   it('routes a governed DeepSeek visitor-chat selection and honors health exclusion', () => {

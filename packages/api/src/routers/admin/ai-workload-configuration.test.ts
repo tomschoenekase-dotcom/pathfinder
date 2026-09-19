@@ -129,6 +129,20 @@ describe('admin AI workload configuration', () => {
       'guest-answer-attribution-evaluation',
     )
     expect(result.workloads.every((workload) => workload.effectiveSource === 'PLATFORM')).toBe(true)
+    const guestChat = result.workloads.find((workload) => workload.workloadId === 'guest-chat')
+    expect(guestChat?.modelOptions.map((option) => option.key)).toEqual([
+      'guest-chat',
+      'guest-chat-deepseek-flash',
+      'guest-chat-deepseek-pro',
+      'guest-chat-openai',
+    ])
+    expect(
+      guestChat?.modelOptions.find((option) => option.key === 'guest-chat-openai')?.available,
+    ).toBe(false)
+    expect(
+      guestChat?.modelOptions.find((option) => option.key === 'guest-chat-deepseek-flash')
+        ?.available,
+    ).toBe(false)
     expect(result.providerExecution).toBe(false)
     expect(result.operationalInventory.entries).toHaveLength(result.workloads.length)
     expect(result.operationalInventory.entries.every((entry) => entry.adapterCallable)).toBe(true)
@@ -173,7 +187,7 @@ describe('admin AI workload configuration', () => {
     expect(serialized).toContain('invoice cost are unknown')
   })
 
-  it('rejects unknown registry keys and cross-kind fallback before any action', async () => {
+  it('rejects unknown registry keys and capability-incompatible routes before any action', async () => {
     const caller = app.createCaller(context(true))
     await expect(
       caller.admin.saveAiWorkloadConfigurationOverride({
@@ -205,7 +219,23 @@ describe('admin AI workload configuration', () => {
         unsafeChangesEnabled: true,
         reason: 'cross-kind fallback',
       }),
-    ).rejects.toThrow('AI model selections cannot cross workload model kinds')
+    ).rejects.toThrow('AI model selection is not registered for this workload')
+
+    await expect(
+      caller.admin.saveAiWorkloadConfigurationOverride({
+        scope: {
+          level: 'VENUE',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          workloadId: 'guest-chat',
+        },
+        expectedRevision: null,
+        enabled: false,
+        values: { primaryModelKey: 'agent-run' },
+        unsafeChangesEnabled: false,
+        reason: 'same-kind but incompatible route',
+      }),
+    ).rejects.toThrow('AI model selection is not registered for this workload')
   })
 
   it('rejects extra fields including secret-shaped input', async () => {

@@ -31,9 +31,6 @@ const data = {
     { level: 'VENUE', availability: 'AVAILABLE', detail: 'Venue override.' },
   ],
   budgetIntegration: { availability: 'STAGED', detail: 'Runtime gate is separate.' },
-  modelOptions: [
-    { key: 'guest-chat', kind: 'TEXT', provider: 'anthropic', model: 'configured-model' },
-  ],
   workloads: [
     {
       workloadId: 'guest-chat',
@@ -73,6 +70,22 @@ const data = {
         maxBillableInputTokens: 200,
         maxOutputTokens: 512,
       },
+      modelOptions: [
+        {
+          key: 'guest-chat',
+          kind: 'TEXT',
+          provider: 'anthropic',
+          model: 'configured-model',
+          available: true,
+        },
+        {
+          key: 'guest-chat-openai',
+          kind: 'TEXT',
+          provider: 'openai',
+          model: 'configured-openai-model',
+          available: false,
+        },
+      ],
     },
   ],
 }
@@ -113,15 +126,21 @@ describe('AiWorkloadConfigurationView', () => {
       },
       expectedRevision: null,
       enabled: false,
-      values: {
-        fallback: { enabled: false, modelKeys: [] },
-        timeoutMs: 10_000,
-        maxAttempts: 2,
-      },
+      values: {},
       unsafeChangesEnabled: false,
       reason: 'Stage reduced retry profile for review',
     })
     expect(await screen.findByText(/Provider execution was not triggered/)).toBeTruthy()
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('labels unavailable provider routes and prevents selecting them', () => {
+    render(<AiWorkloadConfigurationView data={data as never} />)
+    fireEvent.click(screen.getByText(/Edit venue override/))
+
+    const option = screen.getAllByRole('option', {
+      name: /guest-chat-openai.*unavailable to admin control/i,
+    })[0] as HTMLOptionElement
+    expect(option.disabled).toBe(true)
   })
 })

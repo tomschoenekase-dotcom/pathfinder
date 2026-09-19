@@ -520,21 +520,23 @@ describe('routed text generation', () => {
   })
 
   it('uses an explicit fallback and annotates usage without repeating the dispatch fence', async () => {
-    const create = vi
+    const primaryCreate = vi
       .fn()
-      .mockRejectedValueOnce(Object.assign(new Error('unavailable'), { status: 503 }))
-      .mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Welcome' }],
-        usage: { input_tokens: 2, output_tokens: 1 },
-      })
-    setAnthropicClientForTesting({ messages: { create } })
+      .mockRejectedValue(Object.assign(new Error('unavailable'), { status: 503 }))
+    const fallbackCreate = vi.fn().mockResolvedValue({
+      output_text: 'Welcome',
+      output: [],
+      usage: { input_tokens: 2, output_tokens: 1 },
+    })
+    setAnthropicClientForTesting({ messages: { create: primaryCreate } })
+    setOpenAiResponsesClientForTesting({ responses: { create: fallbackCreate } })
     const configuration = resolveAiWorkloadConfiguration({
       workloadId: 'guest-chat',
       overrides: [
         {
           activation: 'ENABLED',
           scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
-          values: { fallback: { enabled: true, modelKeys: ['agent-run'] } },
+          values: { fallback: { enabled: true, modelKeys: ['guest-chat-openai'] } },
           unsafeChangesEnabled: true,
           reason: 'test fallback',
         },
@@ -566,7 +568,7 @@ describe('routed text generation', () => {
       onBeforeFirstDispatch: fence,
     })
 
-    expect(result.route).toMatchObject({ modelKey: 'agent-run', fallbackUsed: true })
+    expect(result.route).toMatchObject({ modelKey: 'guest-chat-openai', fallbackUsed: true })
     expect(fence).toHaveBeenCalledTimes(1)
     expect(reserve).toHaveBeenCalledTimes(2)
     expect(reserve).toHaveBeenNthCalledWith(
@@ -580,7 +582,7 @@ describe('routed text generation', () => {
       expect.objectContaining({
         capability: 'STANDARD',
         requestType: 'guest-chat',
-        routeModelKey: 'agent-run',
+        routeModelKey: 'guest-chat-openai',
         fallbackUsed: true,
       }),
     )
@@ -726,7 +728,7 @@ describe('routed text generation', () => {
           values: {
             primaryModelKey: 'guest-chat-openai',
             maxAttempts: 1,
-            fallback: { enabled: true, modelKeys: ['agent-run'] },
+            fallback: { enabled: true, modelKeys: ['guest-chat'] },
           },
           unsafeChangesEnabled: true,
           reason: 'stale fallback proof',
@@ -760,7 +762,7 @@ describe('routed text generation', () => {
         admissionGuard,
         budgetGate,
       }),
-    ).rejects.toThrow('Text model identity mismatch for agent-run')
+    ).rejects.toThrow('Text model identity mismatch for guest-chat')
 
     expect(primaryCreate).toHaveBeenCalledTimes(1)
     expect(fallbackCreate).not.toHaveBeenCalled()

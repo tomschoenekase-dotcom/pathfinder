@@ -129,9 +129,11 @@ export {
 } from './workload-inventory'
 export {
   AI_CAPABILITIES,
+  AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS,
   AI_WORKLOAD_CAPABILITIES,
   AiCapability,
   AiRoutingError,
+  modelIsSelectableForWorkload,
   routeAiCapability,
   type AiRouteCandidate,
   type AiRoutePlan,

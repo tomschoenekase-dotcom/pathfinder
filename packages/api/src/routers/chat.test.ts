@@ -5,6 +5,7 @@ import { GuestChatTurnActionError } from '@pathfinder/db'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
+  setOpenAiResponsesClientForTesting,
   type AnthropicCreateParams,
   type AnthropicMessagesClient,
   type OpenAiEmbeddingsClient,
@@ -310,6 +311,7 @@ describe('chat router', () => {
     vi.unstubAllEnvs()
     _setAnthropicClientForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
+    setOpenAiResponsesClientForTesting(null)
   })
 
   // --- chat.session ---
@@ -3029,21 +3031,23 @@ describe('chat router', () => {
     it('executes the centrally configured fallback route under one durable provider dispatch', async () => {
       setupHappyPath('unused primary response')
       anthropicCreate.mockReset()
-      anthropicCreate
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Recovered through the configured route.' }],
+        usage: { input_tokens: 20, output_tokens: 8 },
+      })
+      const openAiCreate = vi
+        .fn()
         .mockRejectedValueOnce(Object.assign(new Error('primary unavailable'), { status: 503 }))
-        .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Recovered through the configured route.' }],
-          usage: { input_tokens: 20, output_tokens: 8 },
-        })
+      setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
       aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
         id: 'fallback-config',
         workloadId: 'guest-chat',
         enabled: true,
-        primaryModelKey: null,
-        primaryModelKeySet: false,
+        primaryModelKey: 'guest-chat-openai',
+        primaryModelKeySet: true,
         fallbackEnabled: true,
         fallbackEnabledSet: true,
-        fallbackModelKeys: ['agent-run'],
+        fallbackModelKeys: ['guest-chat'],
         fallbackModelKeysSet: true,
         timeoutMs: null,
         timeoutMsSet: false,
@@ -3066,7 +3070,8 @@ describe('chat router', () => {
       const result = await caller.chat.send(sendInput)
 
       expect(result.response).toBe('Recovered through the configured route.')
-      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(openAiCreate).toHaveBeenCalledTimes(1)
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
       expect(
         guestTurnActions.dispatch.mock.calls.filter(
           ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
@@ -3076,7 +3081,7 @@ describe('chat router', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             feature: 'guest-chat',
-            routeModelKey: 'guest-chat',
+            routeModelKey: 'guest-chat-openai',
             fallbackUsed: false,
             success: false,
           }),
@@ -3086,7 +3091,7 @@ describe('chat router', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             feature: 'guest-chat',
-            routeModelKey: 'agent-run',
+            routeModelKey: 'guest-chat',
             fallbackUsed: true,
             success: true,
           }),

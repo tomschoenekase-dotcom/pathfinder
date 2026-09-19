@@ -45,6 +45,14 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'analytics-clustering-embedding': ['EMBEDDING'],
 } as const satisfies Readonly<Record<AiWorkloadId, readonly AiCapability[]>>)
 
+export const AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS = [
+  'guest-chat',
+  'guest-chat-openai',
+  'guest-chat-deepseek-flash',
+  'guest-chat-deepseek-pro',
+] as const satisfies readonly AiWorkloadId[]
+const publicVisitorChatRouteKeys = new Set<AiWorkloadId>(AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS)
+
 export type AiRouteCandidate = {
   modelKey: AiWorkloadId
   provider: AiProviderId
@@ -76,6 +84,23 @@ export class AiRoutingError extends Error {
     super(message)
     this.name = 'AiRoutingError'
   }
+}
+
+/**
+ * Workload capability labels describe request behavior, not a certification of
+ * every underlying model. Internal text workloads may deliberately use another
+ * text registry entry as a fallback. Public visitor chat is narrower: only its
+ * explicitly governed route family may answer a visitor.
+ */
+export function modelIsSelectableForWorkload(
+  modelKey: AiWorkloadId,
+  workloadId: AiWorkloadId,
+): boolean {
+  if (AI_CENTRAL_MODEL_REGISTRY[modelKey].kind !== AI_CENTRAL_MODEL_REGISTRY[workloadId].kind) {
+    return false
+  }
+  if (!publicVisitorChatRouteKeys.has(workloadId)) return true
+  return publicVisitorChatRouteKeys.has(modelKey)
 }
 
 function requiresPremiumEntitlement(capability: AiCapability): boolean {
@@ -151,6 +176,15 @@ export function routeAiCapability(params: {
       fallback: index > 0,
     }
   })
+  candidates = candidates.filter((candidate) =>
+    modelIsSelectableForWorkload(candidate.modelKey, params.workloadId),
+  )
+  if (candidates.length === 0) {
+    throw new AiRoutingError(
+      'CAPABILITY_MISMATCH',
+      `No configured route is registered for ${capability}`,
+    )
+  }
 
   const blockedProviders = new Set([
     ...(params.disabledProviders ?? []),

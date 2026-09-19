@@ -4,7 +4,9 @@ import { z } from 'zod'
 import {
   AI_CENTRAL_MODEL_REGISTRY,
   AI_INVENTORY_OMISSIONS,
+  AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS,
   buildAiWorkloadInventory,
+  modelIsSelectableForWorkload,
   resolveAiWorkloadConfiguration,
   type AiConfigurationOverride,
   type AiWorkloadId,
@@ -73,16 +75,15 @@ const saveInputSchema = z
   })
   .strict()
   .superRefine((input, context) => {
-    const expectedKind = AI_CENTRAL_MODEL_REGISTRY[input.scope.workloadId].kind
     const selectedKeys = [
       ...(input.values.primaryModelKey ? [input.values.primaryModelKey] : []),
       ...(input.values.fallback?.modelKeys ?? []),
     ]
-    if (selectedKeys.some((key) => AI_CENTRAL_MODEL_REGISTRY[key].kind !== expectedKind)) {
+    if (selectedKeys.some((key) => !modelIsSelectableForWorkload(key, input.scope.workloadId))) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['values'],
-        message: 'AI model selections cannot cross workload model kinds',
+        message: 'AI model selection is not registered for this workload',
       })
     }
   })
@@ -162,14 +163,7 @@ export const adminAiWorkloadConfigurationRouter = router({
       : []
     const effective = resolveAiWorkloadConfiguration({ workloadId, overrides })
     const { providerKeyAvailability, providerConnections } = getVisitorProviderSetup()
-    const options = (
-      [
-        'guest-chat',
-        'guest-chat-openai',
-        'guest-chat-deepseek-flash',
-        'guest-chat-deepseek-pro',
-      ] as const
-    ).map((key) => {
+    const options = AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS.map((key) => {
       const provider = AI_CENTRAL_MODEL_REGISTRY[key].provider
       return {
         key,
@@ -230,6 +224,16 @@ export const adminAiWorkloadConfigurationRouter = router({
       const clientMap = byWorkload(clientRows)
       const venueMap = byWorkload(venueRows)
       const operationalInventory = buildAiWorkloadInventory()
+      const allModelOptions = workloadIds.map((key) => {
+        const provider = AI_CENTRAL_MODEL_REGISTRY[key].provider
+        return {
+          key,
+          kind: AI_CENTRAL_MODEL_REGISTRY[key].kind,
+          provider,
+          model: AI_CENTRAL_MODEL_REGISTRY[key].model,
+          available: providerHasExecutionKey(provider),
+        }
+      })
 
       return {
         scope: { tenantId: input.tenantId, venueId: input.venueId },
@@ -273,12 +277,6 @@ export const adminAiWorkloadConfigurationRouter = router({
           detail:
             'A request ceiling is configuration metadata; runtime AiBudgetGate remains authoritative.',
         },
-        modelOptions: workloadIds.map((key) => ({
-          key,
-          kind: AI_CENTRAL_MODEL_REGISTRY[key].kind,
-          provider: AI_CENTRAL_MODEL_REGISTRY[key].provider,
-          model: AI_CENTRAL_MODEL_REGISTRY[key].model,
-        })),
         workloads: workloadIds.map((workloadId) => {
           const workloadRow = workloadMap.get(workloadId)
           const clientRow = clientMap.get(workloadId)
@@ -338,6 +336,9 @@ export const adminAiWorkloadConfigurationRouter = router({
               invoiceAmount: false as const,
             },
             limits: effective.model.limits,
+            modelOptions: allModelOptions.filter((option) =>
+              modelIsSelectableForWorkload(option.key, workloadId),
+            ),
           }
         }),
       }
