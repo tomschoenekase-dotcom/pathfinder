@@ -3,7 +3,10 @@
 Status: development placeholder contract
 Character ID: `tochi`
 Current pack: `tochi-dev-v0` / `0-development`
-Final art approved: **No**
+Approved visual direction: **Yes — bound in `assets/characters/tochi/production-brief-v1.json`**
+Final production art and animation approved: **No**
+
+Agent start path: `docs/BOT-MAKER-TOCHI-OPERATOR.md`
 
 This document is the exact handoff contract for replacing the temporary Tochi development assets. The final design may use layered SVG, a single static image, or a future renderer adapter such as Rive/Lottie. The product, settings, chat, controller, and character ID must not need redesign when the approved pack arrives.
 

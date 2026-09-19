@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   failCharacter: vi.fn(),
   submitCharacterReview: vi.fn(),
   readCharacterReview: vi.fn(),
+  getVerifiedCharacterArtifact: vi.fn(),
 }))
 vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
@@ -45,6 +46,10 @@ vi.mock('@pathfinder/db', () => ({
   failCharacterFactoryJobAction: mocks.failCharacter,
   submitCharacterCandidateReviewBrief: mocks.submitCharacterReview,
   readCharacterCandidateReviewBrief: mocks.readCharacterReview,
+}))
+vi.mock('../lib/character-artifact-storage', () => ({
+  beginCharacterArtifactUpload: vi.fn(),
+  createCharacterArtifactStorage: () => ({ getVerified: mocks.getVerifiedCharacterArtifact }),
 }))
 
 import { createAgentBridgeRegistry } from './registry'
@@ -175,6 +180,49 @@ describe('agent bridge registry', () => {
         { credential: { ...credential, capabilities: ['characters:build'] } },
       ),
     ).toThrow(/characters:execute/u)
+  })
+
+  it('preserves a verified runtime pack at the executor completion boundary', async () => {
+    const runtimePack = { renderer: 'family-rig-v1', characterId: 'tochi' }
+    mocks.getVerifiedCharacterArtifact.mockResolvedValue({
+      reference: { kind: 'character-bundle-v1' },
+      spec: { characterId: 'tochi', version: 1 },
+      runtimePack,
+    })
+    mocks.completeCharacter.mockImplementation(
+      async (
+        input: Record<string, unknown>,
+        _client: unknown,
+        options: {
+          verifyArtifact: (input: {
+            tenantId: unknown
+            venueId: unknown
+            reference: unknown
+            expectedSpec: unknown
+          }) => Promise<unknown>
+        },
+      ) =>
+        options.verifyArtifact({
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          reference: input.assetStorageReference,
+          expectedSpec: input.characterSpec,
+        }),
+    )
+
+    await expect(
+      createAgentBridgeRegistry().completeCharacterFactoryJob(
+        {
+          venueId: 'venue-1',
+          requestId: 'export-tochi-1',
+          leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          resultPayload: {},
+          characterSpec: { characterId: 'tochi', version: 1 },
+          assetStorageReference: { kind: 'character-bundle-v1' },
+        },
+        { credential: { ...credential, capabilities: ['characters:execute'] } },
+      ),
+    ).resolves.toMatchObject({ runtimePack })
   })
 
   it('validates bounded runner metadata before registering a session', async () => {

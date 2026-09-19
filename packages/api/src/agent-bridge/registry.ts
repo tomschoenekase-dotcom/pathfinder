@@ -287,7 +287,11 @@ export function createAgentBridgeRegistry(
               reference,
               expectedSpec,
             })
-            return { reference: verified.reference, spec: verified.spec }
+            return {
+              reference: verified.reference,
+              spec: verified.spec,
+              ...(verified.runtimePack === undefined ? {} : { runtimePack: verified.runtimePack }),
+            }
           },
         },
       )

@@ -57,6 +57,7 @@
     "test:scripts": "node scripts/run-script-tests.mjs",
     "characters:verify": "node scripts/verify-character-assets.mjs",
     "characters:sync": "node scripts/sync-character-assets.mjs",
+    "bot-maker:tochi-prepare": "node scripts/prepare-tochi-production-input.mjs",
     "db:migrate:disposable": "node scripts/migrate-disposable-db.mjs",
     "db:migrate:staging": "node scripts/migrate-staging-db.mjs",
     "test:redis:disposable": "node scripts/run-disposable-redis-integration.mjs",

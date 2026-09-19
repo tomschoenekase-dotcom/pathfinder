@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "briefId": "tochi-production-v1",
+  "characterId": "tochi",
+  "displayName": "Tochi",
+  "houseStyle": {
+    "id": "torchiko-house-style",
+    "version": "0.1-approved-board",
+    "visualThesis": "Polished warm 2D character illustration with thin controlled structural contours, gentle dimensional shading, readable anatomy, expressive faces, and enough variety that animals, robots, plants, spirits, objects, and humanoids belong to one world without sharing one body template.",
+    "positiveAnchors": [
+      "Yuki — bulky soft anatomy and light-on-light readability",
+      "Astro — suited humanoid construction and controlled detail",
+      "Penny — compact dressed anatomy and appealing proportions"
+    ],
+    "weakExamples": ["Charlie — object-character execution is a caution, not a positive template"]
+  },
+  "approvedReference": {
+    "fileName": "TorchikoBotReferenceImages.png",
+    "sha256": "2d7b768e2c93636b387377967fd3bc99525f2e4c57ac3213e6039d8aa8068a60",
+    "byteLength": 1791472,
+    "authority": "founder-approved-reference-board",
+    "repositoryState": "operator-supplied-by-hash",
+    "usage": "Use the whole board for family resemblance and the Tochi body/expression strip as identity evidence. The board is reference material, not a production master or shippable rig."
+  },
+  "creation": {
+    "mode": "reference-conditioned-agent-assisted",
+    "factoryIntake": "CREATE_FROM_IMPORT",
+    "automaticGenerationAvailable": false,
+    "providerRequirements": [
+      {
+        "capability": "reference-image-input",
+        "required": true,
+        "limitation": "The tool must actually receive the approved board; mentioning its filename in text is not visual conditioning."
+      },
+      {
+        "capability": "image-generation",
+        "required": true,
+        "limitation": "Generation currently happens through an authorized external agent image tool before the factory import step."
+      },
+      {
+        "capability": "transparent-or-removable-background",
+        "required": false,
+        "limitation": "True transparency is preferred; otherwise require a clean removable background and verify the extracted edges."
+      },
+      {
+        "capability": "commercial-use-review",
+        "required": true,
+        "limitation": "Record the actual provider/model and applicable use terms; this brief does not make a rights conclusion."
+      }
+    ]
+  },
+  "identity": {
+    "concept": "Torchiko's warm living flame mascot: friendly, calm-capable, curious, and expressive. He is a fire-being, not a logo with eyes and not a generic droplet.",
+    "lockedTraits": [
+      "warm orange and yellow flame palette",
+      "asymmetric multi-lobed flame silhouette",
+      "upward organic flame flow",
+      "readable expressive eyes",
+      "expressive real mouth",
+      "soft compact lower-body shapes",
+      "stable face identity across expressions"
+    ],
+    "requestedChanges": [
+      "remove or substantially reduce detached diamond-like sparks",
+      "keep any occasional spark optional and on a separate effects layer"
+    ],
+    "forbiddenTraits": [
+      "symmetrical raindrop or single-taper silhouette",
+      "anime rendering",
+      "flat logo treatment",
+      "3D render treatment",
+      "clothing or human legs",
+      "constant glitter or confetti",
+      "independently regenerated frames that change identity"
+    ],
+    "expressions": ["Happy", "Excited", "Curious", "Thinking", "Surprised", "Calm", "Playful"]
+  },
+  "productionMaster": {
+    "acceptedMediaTypes": ["image/png", "image/svg+xml"],
+    "transparentBackgroundPreferred": true,
+    "separateOptionalEffects": true,
+    "requirements": [
+      "Show one fully visible Tochi with comfortable margins and no labels, UI, slogan, watermark, or unrelated prop.",
+      "Preserve clean edges at small and large product sizes.",
+      "Retain a recoverable clean master and exact source-to-derivative provenance.",
+      "Do not crop the reference board and call that a production asset."
+    ]
+  },
+  "motionProfile": {
+    "family": "morph-v1",
+    "targetCapability": "deformable-contour",
+    "initialStates": ["idle", "attention", "listening", "thinking", "speaking", "success", "error"],
+    "requiredBehavior": [
+      "billow, narrow, flare, sag, stretch, and compress the flame contour without losing body volume or identity",
+      "keep eyes and mouth comfortably anchored while the surrounding flame moves",
+      "provide a calm idle loop, listening response, thinking motion, speaking response, and brief warm success reaction",
+      "return to idle cleanly after interruptions and rapid state changes",
+      "do not treat whole-body bobbing or scaling as the complete flame-animation proof"
+    ],
+    "reducedMotionFallbackRequired": true
+  },
+  "review": {
+    "humanApprovalRequired": true,
+    "publishable": false,
+    "gates": [
+      "compare the candidate directly with the approved Tochi body and expression strip",
+      "confirm the requested spark reduction did not redesign the body",
+      "inspect neutral and calm frames at 48, 96, 256, and 512 pixels",
+      "inspect face stability during contour motion and state transitions",
+      "verify static and reduced-motion fallbacks",
+      "approve the exact immutable artifact before any assignment or publication"
+    ]
+  }
+}
