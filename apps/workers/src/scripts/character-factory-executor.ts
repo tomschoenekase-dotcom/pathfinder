@@ -36,6 +36,8 @@ async function main() {
     label: 'Torchiko character executor',
     workdir: process.cwd(),
     modelName: 'provider-dark-artifact-executor',
+    workerKey:
+      process.env.TORCHIKO_AGENT_BRIDGE_WORKER_KEY ?? 'torchiko-character-factory-executor',
     taskTimeoutMs: 60_000,
   })
   const controller = new AbortController()

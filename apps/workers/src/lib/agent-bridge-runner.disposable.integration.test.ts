@@ -289,6 +289,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         workdir: process.cwd(),
         sessionId: randomUUID(),
         modelName: 'subscription-default',
+        workerKey: 'agent-bridge-disposable-fixture',
         pollMs: 1_000,
         taskTimeoutMs: 10_000,
       })

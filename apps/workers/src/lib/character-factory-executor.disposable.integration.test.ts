@@ -145,6 +145,7 @@ describe.skipIf(!enabled)(
           provider: 'CODEX_SUBSCRIPTION',
           label: 'Disposable HTTP executor',
           workdir: process.cwd(),
+          workerKey: 'character-factory-disposable-fixture',
           taskTimeoutMs: 10_000,
         })
         const fetcher: typeof fetch = async (input, init) => {

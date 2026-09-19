@@ -10,6 +10,7 @@ const config = parseAgentBridgeRunnerConfig({
   provider: 'CODEX_SUBSCRIPTION',
   label: 'Provider-dark fixture',
   workdir: process.cwd(),
+  workerKey: 'character-factory-unit-fixture',
   taskTimeoutMs: 10_000,
 })
 const completion = {
