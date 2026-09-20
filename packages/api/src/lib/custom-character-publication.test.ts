@@ -134,7 +134,8 @@ async function fixture(malformedPng = false) {
   const transport = {
     send: vi.fn(
       async (command: { input: { Key?: string | undefined; VersionId?: string | undefined } }) => {
-        const found = records.get(command.input.VersionId ?? '')
+        const contentIdentity = command.input.Key?.split('/').at(-1)?.split('.')[0]
+        const found = records.get(command.input.VersionId ?? contentIdentity ?? '')
         if (!found || command.input.Key !== reference(found).objectKey)
           throw new Error('Missing immutable version')
         return {
@@ -323,6 +324,27 @@ describe('published custom character API boundary', () => {
     await expect(
       verifyNativeCustomCharacterPublication({ ...scope, ...evidence }, f.dependencies),
     ).rejects.toThrow('ACCEPTed')
+  })
+  it('fails closed when publication receives a content-addressed artifact reference', async () => {
+    const f = await fixture()
+    const contentReference = (bundle: CharacterExportArtifact) => {
+      const { versionId, ...reference } = f.reference(bundle)
+      expect(versionId).toBeTruthy()
+      return { ...reference, kind: 'character-bundle-content-v1' as const }
+    }
+    const evidence = {
+      ...f.evidence,
+      artifactReference: contentReference(f.records.get(f.evidence.artifactReference.sha256)!),
+      acceptedCandidate: {
+        ...f.evidence.acceptedCandidate,
+        artifactReference: contentReference(
+          f.records.get(f.evidence.acceptedCandidate.artifactReference.sha256)!,
+        ),
+      },
+    }
+    await expect(
+      verifyNativeCustomCharacterPublication({ ...scope, ...evidence }, f.dependencies),
+    ).rejects.toThrow('Published runtime pack differs')
   })
   it('rejects header-only PNGs with valid bundle and declared dimensions during full decode', async () => {
     const f = await fixture(true)

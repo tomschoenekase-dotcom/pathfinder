@@ -59,9 +59,8 @@ const characterSpecSchema = z
     ]),
   })
   .strict()
-const artifactReferenceSchema = z
+const artifactReferenceBaseSchema = z
   .object({
-    kind: z.literal('character-bundle-v1'),
     bucket: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/u),
     objectKey: z.string().min(1).max(1_000),
     sha256,
@@ -69,9 +68,17 @@ const artifactReferenceSchema = z
     mediaType: z.literal('application/vnd.pathfinder.character+json'),
     characterId: requestId,
     characterVersion: z.number().int().positive(),
-    versionId: z.string().min(1).max(1_000),
   })
   .strict()
+const artifactReferenceSchema = z.discriminatedUnion('kind', [
+  artifactReferenceBaseSchema.extend({
+    kind: z.literal('character-bundle-v1'),
+    versionId: z.string().min(1).max(1_000),
+  }),
+  artifactReferenceBaseSchema.extend({
+    kind: z.literal('character-bundle-content-v1'),
+  }),
+])
 const completionSchema = z
   .object({
     requestId,

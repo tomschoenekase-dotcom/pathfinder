@@ -88,6 +88,7 @@ async function verifiedBundles(
     canonical !== canonicalCharacterRuntimePack(input.runtimePack) ||
     digest(canonical) !== input.binding.runtimePackSha256 ||
     exported.reference.sha256 !== input.binding.artifactSha256 ||
+    exported.reference.kind !== 'character-bundle-v1' ||
     exported.reference.versionId !== input.binding.artifactVersionId
   ) {
     throw new Error('Published runtime pack differs from the ACCEPTed immutable candidate.')

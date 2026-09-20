@@ -17,8 +17,7 @@ export type CharacterArtifactTransport = {
   send(command: StorageCommand, options?: { abortSignal?: AbortSignal }): Promise<unknown>
 }
 
-export type CharacterArtifactReference = {
-  kind: 'character-bundle-v1'
+type CharacterArtifactReferenceBase = {
   bucket: string
   objectKey: string
   sha256: string
@@ -26,8 +25,18 @@ export type CharacterArtifactReference = {
   mediaType: 'application/vnd.pathfinder.character+json'
   characterId: string
   characterVersion: number
-  versionId: string
 }
+
+export type CharacterArtifactReference =
+  | (CharacterArtifactReferenceBase & {
+      /** Legacy S3 version-pinned references. */
+      kind: 'character-bundle-v1'
+      versionId: string
+    })
+  | (CharacterArtifactReferenceBase & {
+      /** Create-only, content-addressed references for providers without versioning. */
+      kind: 'character-bundle-content-v1'
+    })
 
 export class CharacterArtifactStorageError extends Error {
   constructor(
@@ -113,12 +122,17 @@ async function boundedSend(transport: CharacterArtifactTransport, command: Stora
 function parseReference(value: unknown): CharacterArtifactReference {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new CharacterArtifactStorageError('INVALID_REFERENCE', 'Artifact reference is invalid.')
-  const candidate = value as Partial<CharacterArtifactReference>
+  const candidate = value as Partial<CharacterArtifactReference> & { kind?: string }
   const keys = Object.keys(candidate).sort().join(',')
+  const legacy = candidate.kind === 'character-bundle-v1'
+  const contentAddressed = candidate.kind === 'character-bundle-content-v1'
   if (
-    keys !==
-      'bucket,byteLength,characterId,characterVersion,kind,mediaType,objectKey,sha256,versionId' ||
-    candidate.kind !== 'character-bundle-v1' ||
+    (legacy &&
+      keys !==
+        'bucket,byteLength,characterId,characterVersion,kind,mediaType,objectKey,sha256,versionId') ||
+    (contentAddressed &&
+      keys !== 'bucket,byteLength,characterId,characterVersion,kind,mediaType,objectKey,sha256') ||
+    (!legacy && !contentAddressed) ||
     candidate.mediaType !== 'application/vnd.pathfinder.character+json' ||
     typeof candidate.bucket !== 'string' ||
     !ID.test(candidate.bucket) ||
@@ -131,9 +145,10 @@ function parseReference(value: unknown): CharacterArtifactReference {
     candidate.byteLength > MAX_ARTIFACT_BYTES ||
     typeof candidate.characterId !== 'string' ||
     typeof candidate.characterVersion !== 'number' ||
-    typeof candidate.versionId !== 'string' ||
-    candidate.versionId.length < 1 ||
-    candidate.versionId.length > 1_000
+    (legacy &&
+      (typeof candidate.versionId !== 'string' ||
+        candidate.versionId.length < 1 ||
+        candidate.versionId.length > 1_000))
   )
     throw new CharacterArtifactStorageError('INVALID_REFERENCE', 'Artifact reference is invalid.')
   segment(candidate.characterId, 'Character ID')
@@ -274,13 +289,10 @@ export function createCharacterArtifactStorage(
           )
         versionId = head.VersionId
       }
-      if (!versionId)
-        throw new CharacterArtifactStorageError(
-          'INTEGRITY_FAILED',
-          'Versioned character artifact storage is required.',
-        )
       const reference = {
-        kind: 'character-bundle-v1',
+        ...(versionId
+          ? { kind: 'character-bundle-v1' as const, versionId }
+          : { kind: 'character-bundle-content-v1' as const }),
         bucket: configuredBucket,
         objectKey: key,
         sha256: input.artifact.sha256,
@@ -288,15 +300,13 @@ export function createCharacterArtifactStorage(
         mediaType: input.artifact.mediaType,
         characterId: spec.characterId,
         characterVersion: spec.version,
-        versionId,
       } satisfies CharacterArtifactReference
-      if (versionId)
-        await this.getVerified({
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          reference,
-          expectedSpec: spec,
-        })
+      await this.getVerified({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        reference,
+        expectedSpec: spec,
+      })
       return reference
     },
 
@@ -336,7 +346,7 @@ export function createCharacterArtifactStorage(
           new GetObjectCommand({
             Bucket: configuredBucket,
             Key: expectedKey,
-            VersionId: reference.versionId,
+            ...(reference.kind === 'character-bundle-v1' ? { VersionId: reference.versionId } : {}),
           }),
         )) as typeof response
       } catch (error) {
@@ -439,7 +449,7 @@ export async function beginCharacterArtifactUpload(input: {
     uploadUrl,
     expiresInSeconds: 15 * 60,
     referenceTemplate: {
-      kind: 'character-bundle-v1' as const,
+      kind: 'character-bundle-content-v1' as const,
       bucket: storage.bucket,
       objectKey: key,
       sha256: input.sha256,

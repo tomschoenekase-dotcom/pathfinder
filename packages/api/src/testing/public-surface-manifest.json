@@ -368,6 +368,16 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/admin/character-import/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/admin/character-import/route.test.ts",
+        "apps/dashboard/lib/character-import.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.ts",
       "methods": ["POST"],
       "exposure": "handler-platform-admin",

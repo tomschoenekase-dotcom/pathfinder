@@ -151,6 +151,107 @@ describe('character artifact storage boundaries', () => {
     expect(result).not.toHaveProperty('runtimePack')
   })
 
+  it('uses an explicit content reference when the provider has no object versioning', async () => {
+    const { spec, artifact } = await fixture()
+    const commands: string[] = []
+    const storage = createCharacterArtifactStorage(
+      {
+        send: async (command: object) => {
+          commands.push(command.constructor.name)
+          if (command.constructor.name === 'PutObjectCommand') return {}
+          return {
+            Body: (async function* () {
+              yield artifact.bytes
+            })(),
+            ContentLength: artifact.byteLength,
+            ContentType: artifact.mediaType,
+            Metadata: { 'pathfinder-sha256': artifact.sha256 },
+          }
+        },
+      },
+      'fixture-bucket',
+    )
+    const reference = await storage.put({ tenantId: 'tenant-a', venueId: 'venue-a', artifact })
+    expect(reference).toMatchObject({ kind: 'character-bundle-content-v1' })
+    expect(reference).not.toHaveProperty('versionId')
+    await expect(
+      storage.getVerified({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        reference,
+        expectedSpec: spec,
+      }),
+    ).resolves.toMatchObject({ spec })
+    expect(commands).toEqual(['PutObjectCommand', 'GetObjectCommand', 'GetObjectCommand'])
+  })
+
+  it('reconciles a content-addressed conditional-write replay without inventing a version', async () => {
+    const { spec, artifact } = await fixture()
+    const commands: string[] = []
+    const storage = createCharacterArtifactStorage(
+      {
+        send: async (command: object) => {
+          commands.push(command.constructor.name)
+          if (command.constructor.name === 'PutObjectCommand')
+            throw Object.assign(new Error('already exists'), { $metadata: { httpStatusCode: 412 } })
+          if (command.constructor.name === 'HeadObjectCommand')
+            return {
+              ContentLength: artifact.byteLength,
+              Metadata: { 'pathfinder-sha256': artifact.sha256 },
+            }
+          return {
+            Body: (async function* () {
+              yield artifact.bytes
+            })(),
+            ContentLength: artifact.byteLength,
+            ContentType: artifact.mediaType,
+            Metadata: { 'pathfinder-sha256': artifact.sha256 },
+          }
+        },
+      },
+      'fixture-bucket',
+    )
+    const reference = await storage.put({ tenantId: 'tenant-a', venueId: 'venue-a', artifact })
+    expect(reference.kind).toBe('character-bundle-content-v1')
+    expect(reference).not.toHaveProperty('versionId')
+    await expect(
+      storage.getVerified({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        reference,
+        expectedSpec: spec,
+      }),
+    ).resolves.toMatchObject({ spec })
+    expect(commands).toEqual([
+      'PutObjectCommand',
+      'HeadObjectCommand',
+      'GetObjectCommand',
+      'GetObjectCommand',
+    ])
+  })
+
+  it('rejects mixed content references that carry a legacy version id', async () => {
+    const { artifact } = await fixture()
+    const reference = {
+      kind: 'character-bundle-content-v1',
+      bucket: 'fixture-bucket',
+      objectKey: `character-factory/tenant-a/venue-a/${artifact.characterId}/v${artifact.characterVersion}/${artifact.sha256}.character.json`,
+      sha256: artifact.sha256,
+      byteLength: artifact.byteLength,
+      mediaType: artifact.mediaType,
+      characterId: artifact.characterId,
+      characterVersion: artifact.characterVersion,
+      versionId: 'must-not-be-present',
+    }
+    await expect(
+      storageReturning(artifact.bytes, referenceFor(artifact)).getVerified({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        reference,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REFERENCE' })
+  })
+
   it('rejects cross-tenant references before reading storage', async () => {
     const { artifact } = await fixture()
     let sends = 0

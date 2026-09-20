@@ -13,9 +13,8 @@ import type { db } from '../client'
 
 const Id = z.string().min(1).max(191)
 const Hash = z.string().regex(/^[a-f0-9]{64}$/)
-const ArtifactReference = z
+const ArtifactReferenceBase = z
   .object({
-    kind: z.literal('character-bundle-v1'),
     bucket: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/),
     objectKey: z.string().min(1).max(1000),
     sha256: Hash,
@@ -23,9 +22,17 @@ const ArtifactReference = z
     mediaType: z.literal('application/vnd.pathfinder.character+json'),
     characterId: Id,
     characterVersion: z.number().int().positive(),
-    versionId: z.string().min(1).max(1000),
   })
   .strict()
+const ArtifactReference = z.discriminatedUnion('kind', [
+  ArtifactReferenceBase.extend({
+    kind: z.literal('character-bundle-v1'),
+    versionId: z.string().min(1).max(1000),
+  }),
+  ArtifactReferenceBase.extend({
+    kind: z.literal('character-bundle-content-v1'),
+  }),
+])
 const ReceiptSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -190,6 +197,7 @@ export async function readCustomCharacterPublicationEvidence(
     receipt.acceptedCandidate.artifactFingerprint !== decision.artifactFingerprint ||
     spec.source.sha256 !== binding.sourceSha256 ||
     receipt.artifactReference.sha256 !== binding.artifactSha256 ||
+    receipt.artifactReference.kind !== 'character-bundle-v1' ||
     receipt.artifactReference.versionId !== binding.artifactVersionId ||
     sha(canonicalCharacterRuntimePack(receipt.runtimePack)) !== binding.runtimePackSha256
   )

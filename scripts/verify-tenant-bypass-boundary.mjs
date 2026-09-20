@@ -271,6 +271,9 @@ const approvedCallCounts = new Map([
   // Human platform-admin candidate inbox and exact tenant/venue/snapshot decisions;
   // canonical helpers serialize art changes and never activate venue characters.
   ['packages/api/src/routers/admin/character-candidate-reviews.ts', 1],
+  // Bot Maker multipart intake is platform-admin authenticated and re-enters one exact
+  // tenant+venue scope before creating or storing the verified candidate bundle.
+  ['apps/dashboard/lib/character-import.ts', 1],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.

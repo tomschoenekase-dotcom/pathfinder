@@ -102,7 +102,8 @@ function isValidCandidateArtifact(candidate: {
     characterFactory?: { spec?: { status?: unknown } }
   } | null
   return (
-    reference?.kind === 'character-bundle-v1' &&
+    (reference?.kind === 'character-bundle-v1' ||
+      reference?.kind === 'character-bundle-content-v1') &&
     typeof reference.sha256 === 'string' &&
     /^[a-f0-9]{64}$/u.test(reference.sha256) &&
     metadata?.characterFactory?.spec?.status === 'candidate'

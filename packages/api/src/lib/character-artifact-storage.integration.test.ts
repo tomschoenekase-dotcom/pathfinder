@@ -35,7 +35,10 @@ integrationDescribe('character artifact storage (disposable MinIO)', () => {
   const bucket = process.env.STORAGE_BUCKET ?? ''
   const region = process.env.STORAGE_REGION ?? ''
   let client: S3Client
+  let unversionedClient: S3Client
+  let unversionedBucket = ''
   let key = ''
+  let unversionedKey = ''
 
   beforeAll(async () => {
     const url = new URL(endpoint)
@@ -62,7 +65,10 @@ integrationDescribe('character artifact storage (disposable MinIO)', () => {
       forcePathStyle: true,
       credentials: { accessKeyId, secretAccessKey },
     })
+    unversionedClient = client
+    unversionedBucket = `${bucket}-plain`
     await client.send(new CreateBucketCommand({ Bucket: bucket }))
+    await client.send(new CreateBucketCommand({ Bucket: unversionedBucket }))
     await client.send(
       new PutBucketVersioningCommand({
         Bucket: bucket,
@@ -85,6 +91,11 @@ integrationDescribe('character artifact storage (disposable MinIO)', () => {
         .send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects } }))
         .catch(() => undefined)
     await client.send(new DeleteBucketCommand({ Bucket: bucket })).catch(() => undefined)
+    if (unversionedKey)
+      await client
+        .send(new DeleteObjectCommand({ Bucket: unversionedBucket, Key: unversionedKey }))
+        .catch(() => undefined)
+    await client.send(new DeleteBucketCommand({ Bucket: unversionedBucket })).catch(() => undefined)
     client.destroy()
     await db.$disconnect()
   })
@@ -140,6 +151,8 @@ integrationDescribe('character artifact storage (disposable MinIO)', () => {
       bucket,
     )
     const reference = await storage.put({ tenantId: 'tenant-a', venueId: 'venue-a', artifact })
+    if (reference.kind !== 'character-bundle-v1')
+      throw new Error('Expected versioned fixture bucket.')
     key = reference.objectKey
     await expect(
       storage.put({ tenantId: 'tenant-a', venueId: 'venue-a', artifact }),
@@ -249,10 +262,13 @@ integrationDescribe('character artifact storage (disposable MinIO)', () => {
         },
       ])
       const storage = createCharacterArtifactStorage(
-        client as unknown as CharacterArtifactTransport,
-        bucket,
+        unversionedClient as unknown as CharacterArtifactTransport,
+        unversionedBucket,
       )
       const reference = await storage.put({ tenantId, venueId, artifact })
+      unversionedKey = reference.objectKey
+      expect(reference.kind).toBe('character-bundle-content-v1')
+      expect(reference).not.toHaveProperty('versionId')
       await prepareCharacterFactoryJobAction({
         tenantId,
         venueId,

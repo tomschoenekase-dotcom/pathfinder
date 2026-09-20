@@ -258,6 +258,22 @@ describe('immutable custom character publication evidence', () => {
     await expect(f.read(false)).resolves.toMatchObject({ spec: { version: 1, revision: 2 } })
     await expect(f.read(true)).rejects.toThrow('newer custom character draft')
   })
+  it('rejects content-addressed artifacts against the version-pinned publication binding', async () => {
+    const f = fixture()
+    expect(f.receipt.artifactReference.kind).toBe('character-bundle-v1')
+    if (f.receipt.artifactReference.kind !== 'character-bundle-v1') throw new Error('fixture shape')
+    const { versionId, ...contentReference } = f.receipt.artifactReference
+    expect(versionId).toBeTruthy()
+    f.receipt.artifactReference = {
+      ...contentReference,
+      kind: 'character-bundle-content-v1',
+    }
+    f.receipt.acceptedCandidate.artifactReference = {
+      ...contentReference,
+      kind: 'character-bundle-content-v1',
+    }
+    await expect(f.read(false)).rejects.toThrow('binding changed')
+  })
   it.each([
     'decision',
     'job',

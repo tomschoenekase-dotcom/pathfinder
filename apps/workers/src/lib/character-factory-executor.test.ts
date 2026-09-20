@@ -128,16 +128,23 @@ describe('explicit character factory executor', () => {
     expect(call).toHaveBeenCalledTimes(3)
   })
 
-  it('rejects malformed retained artifact input before it claims work', async () => {
-    const call = vi.fn()
-    await expect(
-      runCharacterFactoryExecutor(
-        config,
-        { requestId: 'request-a', resultPayload: {}, assetStorageReference: { kind: 'bad' } },
-        new AbortController().signal,
-        { call },
-      ),
-    ).rejects.toThrow()
-    expect(call).not.toHaveBeenCalled()
-  })
+  it.each([
+    { kind: 'bad' },
+    { kind: 'character-bundle-content-v1', versionId: 'must-not-be-present' },
+    { kind: 'character-bundle-v1' },
+  ])(
+    'rejects malformed retained artifact shape before it claims work: $kind',
+    async (reference) => {
+      const call = vi.fn()
+      await expect(
+        runCharacterFactoryExecutor(
+          config,
+          { requestId: 'request-a', resultPayload: {}, assetStorageReference: reference },
+          new AbortController().signal,
+          { call },
+        ),
+      ).rejects.toThrow()
+      expect(call).not.toHaveBeenCalled()
+    },
+  )
 })

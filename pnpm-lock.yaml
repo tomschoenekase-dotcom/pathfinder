@@ -86,6 +86,9 @@ importers:
       '@pathfinder/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@pathfinder/character-factory':
+        specifier: workspace:*
+        version: link:../../packages/character-factory
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -155,6 +158,9 @@ importers:
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.76
     devDependencies:
       '@axe-core/playwright':
         specifier: 4.13.0

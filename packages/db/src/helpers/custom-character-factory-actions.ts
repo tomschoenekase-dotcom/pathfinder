@@ -37,9 +37,8 @@ type JobAction = 'CREATE_FROM_IMPORT' | 'REVISE' | 'INSPECT' | 'PREVIEW' | 'VALI
 const identifier = z.string().trim().min(1).max(191)
 const boundedText = z.string().trim().min(1).max(2_000)
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u)
-const verifiedArtifactReferenceSchema = z
+const verifiedArtifactReferenceBaseSchema = z
   .object({
-    kind: z.literal('character-bundle-v1'),
     bucket: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/u),
     objectKey: z.string().min(1).max(1_000),
     sha256,
@@ -47,9 +46,17 @@ const verifiedArtifactReferenceSchema = z
     mediaType: z.literal('application/vnd.pathfinder.character+json'),
     characterId: identifier,
     characterVersion: z.number().int().positive(),
-    versionId: z.string().min(1).max(1_000),
   })
   .strict()
+const verifiedArtifactReferenceSchema = z.discriminatedUnion('kind', [
+  verifiedArtifactReferenceBaseSchema.extend({
+    kind: z.literal('character-bundle-v1'),
+    versionId: z.string().min(1).max(1_000),
+  }),
+  verifiedArtifactReferenceBaseSchema.extend({
+    kind: z.literal('character-bundle-content-v1'),
+  }),
+])
 const requestPayloadByAction = {
   CREATE_FROM_IMPORT: z
     .object({

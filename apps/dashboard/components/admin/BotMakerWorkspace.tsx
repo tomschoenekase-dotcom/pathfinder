@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { CharacterBundleImport } from './CharacterBundleImport'
 
 export function BotMakerWorkspace({ reviewInbox }: { reviewInbox: ReactNode }) {
   return (
@@ -53,6 +54,8 @@ export function BotMakerWorkspace({ reviewInbox }: { reviewInbox: ReactNode }) {
           ))}
         </ol>
       </section>
+
+      <CharacterBundleImport />
 
       {reviewInbox}
 
