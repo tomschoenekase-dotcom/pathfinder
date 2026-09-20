@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { CharacterBundleImport } from './CharacterBundleImport'
 
@@ -64,11 +63,7 @@ export function BotMakerWorkspace({ reviewInbox }: { reviewInbox: ReactNode }) {
         <p className="mt-1 leading-6">
           The proven first pass supports safe semantic movement and static fallbacks. Fluid flame
           contour deformation is deferred; approving a face or silhouette does not claim that later
-          renderer work is complete.{' '}
-          <Link className="font-semibold text-sky-800 underline" href="/admin/character-lab">
-            Inspect the character runtime lab
-          </Link>
-          .
+          renderer work is complete.
         </p>
       </section>
     </div>

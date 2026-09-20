@@ -77,7 +77,10 @@ for (const viewport of [
     async function navigate(query: string) {
       const started = performance.now()
       await page.goto(`${dashboardBaseUrl}/dev-fixtures/character-family-rigs?${query}`, {
-        waitUntil: 'domcontentloaded',
+        // Next's async client bundle can still be downloading at DOMContentLoaded.
+        // Start the hydration assertion after page assets load; retain its normal
+        // timeout so missing hydration is still a real failure.
+        waitUntil: 'load',
       })
       await expect(grid).toHaveAttribute('data-fixture-ready', 'true')
       navigationDurationMs = Math.round((performance.now() - started) * 100) / 100

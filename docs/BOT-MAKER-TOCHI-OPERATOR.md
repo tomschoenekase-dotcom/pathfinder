@@ -9,6 +9,20 @@ This is the shortest honest start path for producing Tochi through the shared ch
 - The existing factory retains imported candidates, validates and exports portable bundles, fences revisions, supports exact candidate review, and keeps publication fail-closed.
 - Export verification preserves the runtime pack needed to create the server-owned publication receipt.
 
+## Reusable baseline acceptance
+
+Static import and founder acceptance are only the candidate boundary. The reusable all-bot baseline is ready when the accepted `EXPORT` request has been claimed by a credential with `characters:execute`, renewed once through the bridge, and completed against the exact tenant, venue, request ID, candidate revision, and verified artifact reference. The completion read-back must include the server-side export receipt and a verified `family-rig-v1` runtime pack; record the export job ID and receipt identity before treating the baseline as usable.
+
+The shared baseline pack uses the selected built-in family (`morph-v1` for this candidate), `rigid-source` capability, a static fallback, and a reduced-motion fallback. Its directly supported public states are `idle`, `attention`, `listening`, `thinking`, `speaking`, `success`, and `error`; every other public `RuntimePackStateSchema` state (`processing`, `uploadReceiving`, `uploadComplete`, `question`, `handoff`, `sleeping`, and `minimized`) must resolve through an explicit fallback. The separate factory authoring grammar has ten states and includes `happy`, `sad`, and `reaction`; those names are not public runtime-pack states. The exporter must use the public vocabulary, while the existing adapter provides normalized whole-image layers and runtime state control. This proves reusable state choreography and safe fallback behavior. It does not prove deforming flame contours, fluid billow/flare/compress motion, a wordmark, or the later consumer website redesign.
+
+### Exact remaining steps after import and queued `EXPORT`
+
+1. Preserve the accepted candidate's exact `EXPORT` job ID and artifact fingerprint. Do not resubmit with a new request ID.
+2. Prepare the shared runtime pack from the exact stored master/static fallback bytes. Its asset digests, dimensions, character ID/version, source SHA, family, fallbacks, state list, and context list must pass `CharacterRuntimePackSchema`; do not alter the approved appearance.
+3. Upload or retain that exact pack through the executor's approved artifact-upload lifecycle, then run `apps/workers/src/scripts/character-factory-executor.ts` with the exact request ID, exported spec, and verified artifact reference. The executor is provider-dark and does not invoke an image model.
+4. Read back the succeeded job and verified export receipt. Check every shared state and its fallback at representative size, including reduced motion and interruption-to-idle, then retain the bounded proof with the job and receipt IDs.
+5. Keep publication disabled. A later shared runtime/renderer capability review is required before claiming fluid flame motion or moving beyond the reusable baseline into bespoke consumer-site poses, animation, or wordmark work.
+
 ## What is not automatic
 
 The factory does not invoke an image model. Candidate artwork must first be created with an authorized image tool that can actually receive the approved board, then imported through `CREATE_FROM_IMPORT`. A text prompt containing the board's filename is not visual conditioning. Current family rigs are `rigid-source`; they do not yet prove Tochi's required deforming flame contour.

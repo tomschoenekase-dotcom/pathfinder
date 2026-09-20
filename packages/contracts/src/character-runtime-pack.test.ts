@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES,
+  CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES,
   CharacterRuntimePackSchema,
   RuntimePackStateSchema,
   canonicalCharacterRuntimePack,
@@ -53,6 +55,55 @@ describe('prepared character runtime pack', () => {
         supportedStates: [...parsed.supportedStates].reverse(),
       }),
     )
+  })
+  it('accepts one MiB assets at the boundary and rejects per-asset and aggregate overflow', () => {
+    const asset = (id: string, path: string, bytes: number) => ({
+      ...pack.assets[0],
+      id,
+      path,
+      bytes,
+    })
+    const boundary = {
+      ...pack,
+      assets: [
+        asset('source', 'source.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+        asset('fallback', 'fallback.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+      ],
+      sourceAssetId: 'source',
+      staticFallbackAssetId: 'fallback',
+      reducedMotionFallbackAssetId: 'fallback',
+      layers: [
+        { role: 'body' as const, assetId: 'source' },
+        { role: 'shadow' as const, assetId: 'fallback' },
+      ],
+    }
+    expect(boundary.assets.reduce((sum, item) => sum + item.bytes, 0)).toBe(
+      CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES,
+    )
+    expect(CharacterRuntimePackSchema.safeParse(boundary).success).toBe(true)
+    expect(
+      CharacterRuntimePackSchema.safeParse({
+        ...boundary,
+        assets: [
+          asset('source', 'source.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES + 1),
+          asset('fallback', 'fallback.svg', 1),
+        ],
+      }).success,
+    ).toBe(false)
+    const aggregateOverflow = {
+      ...boundary,
+      assets: [
+        asset('source', 'source.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+        asset('fallback', 'fallback.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+        asset('extra', 'extra.svg', CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+      ],
+      layers: [
+        { role: 'body' as const, assetId: 'source' },
+        { role: 'shadow' as const, assetId: 'fallback' },
+        { role: 'head' as const, assetId: 'extra' },
+      ],
+    }
+    expect(CharacterRuntimePackSchema.safeParse(aggregateOverflow).success).toBe(false)
   })
   it.each([
     { ...pack, publication: { approved: true } },
