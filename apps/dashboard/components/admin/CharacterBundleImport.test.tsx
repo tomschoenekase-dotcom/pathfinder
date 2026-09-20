@@ -67,7 +67,7 @@ describe('CharacterBundleImport request lifecycle', () => {
     submitForm()
 
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1))
-    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    const request = mocks.fetch.mock.calls[0]![1] as RequestInit
     const body = request.body as FormData
     expect(body.get('tenantId')).toBe('tenant-1')
     expect(body.get('venueId')).toBe('venue-1')
@@ -89,8 +89,8 @@ describe('CharacterBundleImport request lifecycle', () => {
     await screen.findByRole('alert')
     submitForm()
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2))
-    const first = (mocks.fetch.mock.calls[0][1] as RequestInit).body as FormData
-    const second = (mocks.fetch.mock.calls[1][1] as RequestInit).body as FormData
+    const first = (mocks.fetch.mock.calls[0]![1] as RequestInit).body as FormData
+    const second = (mocks.fetch.mock.calls[1]![1] as RequestInit).body as FormData
     expect(first.get('requestId')).toBe('request-stable-1')
     expect(second.get('requestId')).toBe('request-stable-1')
   })
@@ -105,7 +105,7 @@ describe('CharacterBundleImport request lifecycle', () => {
     chooseFile('replacement.character.json')
     submitForm()
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2))
-    expect((mocks.fetch.mock.calls[1][1].body as FormData).get('requestId')).toBe(
+    expect((mocks.fetch.mock.calls[1]![1].body as FormData).get('requestId')).toBe(
       'request-stable-1',
     )
     expect(mocks.randomUUID).toHaveBeenCalledTimes(2)

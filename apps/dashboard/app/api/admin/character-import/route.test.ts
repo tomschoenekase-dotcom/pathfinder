@@ -173,7 +173,7 @@ describe('admin character import route boundary', () => {
     )
   })
 
-  it.each([
+  it.each<['CONFLICT' | 'NOT_FOUND' | 'INVALID_INPUT', number]>([
     ['CONFLICT', 409],
     ['NOT_FOUND', 404],
     ['INVALID_INPUT', 400],
