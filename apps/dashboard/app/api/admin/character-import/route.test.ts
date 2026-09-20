@@ -90,6 +90,19 @@ describe('admin character import route boundary', () => {
     expect(mocks.importCharacterBundle).not.toHaveBeenCalled()
   })
 
+  it('accepts the public host when the internal Next request URL uses a proxy host', async () => {
+    const form = new FormData()
+    for (const [key, value] of Object.entries(validFields)) form.set(key, value)
+    form.set('bundle', validFile())
+    const request = new NextRequest('https://0.0.0.0:3000/api/admin/character-import', {
+      method: 'POST',
+      body: form,
+      headers: { origin: 'https://dashboard.example', host: 'dashboard.example' },
+    })
+    expect((await POST(request)).status).toBe(201)
+    expect(mocks.importCharacterBundle).toHaveBeenCalledOnce()
+  })
+
   it('rejects chunked bodies once the bounded reader crosses the limit', async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

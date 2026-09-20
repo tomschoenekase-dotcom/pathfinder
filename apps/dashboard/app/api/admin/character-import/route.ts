@@ -57,7 +57,10 @@ function sameOrigin(request: Request) {
   const origin = request.headers.get('origin')
   if (!origin) return true
   try {
-    return new URL(origin).origin === new URL(request.url).origin
+    const requestUrl = new URL(request.url)
+    const host = request.headers.get('host')
+    const expectedOrigin = host ? `${requestUrl.protocol}//${host}` : requestUrl.origin
+    return new URL(origin).origin === expectedOrigin
   } catch {
     return false
   }
