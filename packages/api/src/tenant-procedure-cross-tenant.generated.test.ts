@@ -72,6 +72,7 @@ vi.mock('@pathfinder/db', async () => {
     }
   }
   return {
+    resolveVenueLaunchSource: draftActions.resolveVenueLaunchSource,
     getIntakeSubmissionDraft: draftActions.getIntakeSubmissionDraft,
     saveIntakeSubmissionDraft: draftActions.saveIntakeSubmissionDraft,
     intakeSubmissionDraftContent: draftActions.intakeSubmissionDraftContent,
