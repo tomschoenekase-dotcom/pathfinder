@@ -19,6 +19,10 @@ This is the normal Torchiko feature-delivery path:
    release-specific production migration/cutover approval has been recorded. Railway production
    tracks `master`, so merging that pull request is the production application deployment action.
 
+The [restricted September 22 production approval](production-cutover-20260922.md) covers one
+reviewed cutover only. Its exact-SHA CI, staging, current-ledger, fresh-backup/rehearsal, and
+preservation checks remain mandatory; approval does not make an unverified release deployable.
+
 A preserved-data migration uses a controlled exception to step 5. Pause all three application
 autodeploy triggers without deploying, freeze the final owner SHA, require its CI success, and
 drain writers before capturing the release-bound backup and restore proof. Arm only web with

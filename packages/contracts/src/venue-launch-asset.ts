@@ -59,5 +59,6 @@ export type VenueLaunchAssetSelection = z.infer<typeof VenueLaunchAssetSelection
 export type VenueLaunchAssetDescriptor = Omit<VenueLaunchAsset, 'contentBase64'>
 export function venueLaunchAssetDescriptor(asset: VenueLaunchAsset): VenueLaunchAssetDescriptor {
   const { contentBase64: _bytes, ...descriptor } = asset
+  void _bytes
   return descriptor
 }

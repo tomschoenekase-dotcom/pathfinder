@@ -163,6 +163,7 @@ const expectedAdminProcedures = [
   'getTochiRollout',
   'getVenueAiWorkloadConfiguration',
   'getVenueAvailability',
+  'getVenueLaunchAsset',
   'getVenueLocationAuthoring',
   'getVenuePackageForReview',
   'getVenueReportConfiguration',

@@ -2,6 +2,23 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+## Restricted production cutover exception — approved 2026-09-22
+
+At `2026-09-22T20:21:17Z`, Tom explicitly approved the reviewed PathFinder V2 production
+cutover plan for Supabase project `zpacmfkomonxeqdiadtz`. The approved plan's SHA-256 is
+`210bac2872449ad19af4b3de65d473520e5d99177c77bfadf92b573d4be9e7ac`.
+See [the scoped approval record](production-cutover-20260922.md). This exception supersedes the
+historical no-production statements below only for the exact reads, backup/rehearsal, controlled
+writer drain, pending-migration roll-forward, configuration, and release promotion in that plan.
+
+The production incident remains ACTIVE by default. This is not a blanket incident resolution.
+Live writes stay gated on green exact-SHA CI, exact three-service staging admission, a matching
+current production ledger, a fresh verified backup and disposable restoration/upgrade rehearsal,
+and all approved stop conditions. No seed, reset, restore over production, manual data cleanup,
+customer email, billing activation, or background/provider execution is authorized.
+
+## Historical incident and staging exception
+
 On 2026-08-19, Tom approved a staging-only Railway release with a hard USD 10 spending ceiling.
 The exception permits writes only to a separately identified, synthetic-only staging database and
 staging-only storage. It permits the reviewed migration wrapper, application deployment, and

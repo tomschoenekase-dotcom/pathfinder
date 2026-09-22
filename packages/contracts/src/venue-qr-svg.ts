@@ -1,22 +1,9 @@
 import { NayukiQrCode, NayukiQrSegment } from './venue-qr-nayuki'
 
 type QrMatrix = boolean[][]
-type QrCode = { getModules(): QrMatrix }
-type QrEncoder = {
-  Ecc: { MEDIUM: unknown }
-  encodeSegments(
-    segments: unknown[],
-    errorCorrection: unknown,
-    minVersion: number,
-    maxVersion: number,
-    mask: number,
-    boostLevel: boolean,
-  ): QrCode
-}
-type QrSegments = { makeSegments(value: string): unknown[] }
 
-const encoder = NayukiQrCode as QrEncoder
-const segments = NayukiQrSegment as QrSegments
+const encoder = NayukiQrCode
+const segments = NayukiQrSegment
 
 /** Path grouping matches qrcode.react 4.2.0's SVG renderer. */
 function darkModulePath(modules: QrMatrix, margin: number): string {

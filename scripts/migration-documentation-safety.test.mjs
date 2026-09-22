@@ -62,6 +62,28 @@ test('the production incident stop remains active while staging is authority-gat
   assert.doesNotMatch(stop, /Production incident state: RESOLVED/)
 })
 
+test('September 22 production exception is exact-plan scoped and retains every live gate', async () => {
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const approval = await readFile(new URL('production-cutover-20260922.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  for (const text of [stop, approval]) {
+    assert.match(text, /2026-09-22T20:21:17Z/)
+    assert.match(text, /zpacmfkomonxeqdiadtz/)
+    assert.match(text, /210bac2872449ad19af4b3de65d473520e5d99177c77bfadf92b573d4be9e7ac/)
+    assert.match(text, /fresh[\s\S]*backup[\s\S]*rehears/)
+    assert.match(text, /No seed|no seed/)
+    assert.match(text, /restore over production/)
+    assert.match(text, /customer email/)
+  }
+  assert.match(stop, /not a blanket incident resolution/)
+  assert.match(approval, /250 finished ledger rows and 267 public tables/)
+  assert.match(approval, /No different commit may be substituted at promotion/)
+  assert.match(approval, /110.*finished migrations/)
+  assert.match(approval, /stop condition fired before the backup or any live write/)
+  assert.match(approval, /owner approval are required before/)
+  assert.match(workflow, /production-cutover-20260922\.md/)
+})
+
 test('active runbook admits only the reviewed staging wrapper', async () => {
   const staging = await readFile(new URL('railway-staging.md', docsRoot), 'utf8')
   const archiveOffset = staging.indexOf(inertArchiveMarker)
