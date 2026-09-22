@@ -6,6 +6,11 @@ import { Webhook } from 'svix'
 
 import { env, logger } from '@pathfinder/config'
 import {
+  applicationTenantId,
+  applicationUserId,
+  assertClerkWebhookBinding,
+} from '@pathfinder/auth/identity-binding'
+import {
   getClerkMembershipEmail,
   handleClerkEvent,
   isClerkWebhookReceiptConflictError,
@@ -141,6 +146,32 @@ export async function POST(req: Request): Promise<Response> {
 
   // Process verified events. Dependency failures return 503 so Clerk can redeliver.
   try {
+    assertClerkWebhookBinding(event, secret)
+    // Copy only the persistence-facing event. Deduplication below always hashes
+    // the raw signed body, so translation cannot change provider event identity.
+    switch (event.type) {
+      case 'organization.created':
+        event = { ...event, data: { ...event.data, id: applicationTenantId(event.data.id) } }
+        break
+      case 'organizationMembership.created':
+      case 'organizationMembership.updated':
+      case 'organizationMembership.deleted':
+        event = {
+          ...event,
+          data: {
+            ...event.data,
+            organization: {
+              ...event.data.organization,
+              id: applicationTenantId(event.data.organization.id),
+            },
+            public_user_data: {
+              ...event.data.public_user_data,
+              user_id: applicationUserId(event.data.public_user_data.user_id),
+            },
+          },
+        }
+        break
+    }
     const processing = await handleClerkEvent(event, {
       providerEventId: svixId,
       payloadHash: createHash('sha256').update(body, 'utf8').digest('hex'),

@@ -2,6 +2,28 @@
 
 Approval is not execution. Production remains unchanged until all release-specific gates pass.
 
+## Subsequent approvals and current release boundary
+
+Tom approved the exact 110-entry predecessor addendum r002 at `2026-09-22T20:52:44Z`,
+then approved production Clerk setup and tested identity mapping at `2026-09-22T22:00:03Z`.
+Those recorded approvals supersede the earlier request to approve a revised baseline below;
+no repeated general cutover approval is required. All preservation and no-send conditions remain.
+
+The fresh September 22 backup's public application schema passed the 110-to-250 upgrade,
+including all 140 pending files, all 112 existing business-table row counts, historical digest
+fingerprint, rebranding effects and second-run no-op verification. Production itself is not upgraded.
+The immutable receipts and owner messages remain in the existing external proof directory.
+
+Release `44ae033595a6a05f7a57638544007e861afe5d10` passed hosted CI and exact three-service
+staging admission at `2026-09-22T22:35:31.658Z`. The authentication binding and public Docker
+build settings introduced after that admission require their own exact-revision CI and staging
+proof before production. Do not transfer the earlier green result to different source.
+
+The new Clerk Production instance is provisioned, but its credentials, exact new identity map,
+disabled webhook setup, and actual client access must be completed before any live switch.
+No automatic invitations, backend key export, business rekey, or live credential change is implied
+by source readiness. See `clerk-identity-binding.md` for the server-side mapping contract.
+
 ## Live preflight outcome — cutover stopped
 
 The authorized read-only preflight at `2026-09-22T20:39:48Z` identified **110** finished migrations

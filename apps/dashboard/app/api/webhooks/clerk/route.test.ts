@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +27,129 @@ vi.mock('@pathfinder/db', () => ({
 vi.mock('@pathfinder/jobs', () => ({ enqueueWelcomeEmail: mocks.enqueueWelcomeEmail }))
 
 import { POST } from './route'
+
+describe('production identity binding on verified webhooks', () => {
+  const museums = [
+    ['org_newMiniature', 'org_3HN2BNDTxN9EU5HrfMOh9gWIxao'],
+    ['org_newSpace', 'org_3HV2vyn6xVr0wPRx2PAmC6AH7V2'],
+  ] as const
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubEnv(
+      'CLERK_IDENTITY_BINDING',
+      JSON.stringify({
+        version: 1,
+        issuer: 'https://clerk.synthetic.example',
+        instanceId: 'ins_synthetic',
+        webhookSecretSha256: createHash('sha256').update('test-webhook-secret').digest('hex'),
+        users: [{ providerId: 'user_newTom', applicationId: 'user_oldTom' }],
+        organizations: museums.map(([providerId, applicationId]) => ({
+          providerId,
+          applicationId,
+        })),
+      }),
+    )
+    vi.stubEnv('CLERK_SECRET_KEY', 'sk_live_synthetic')
+    const key = `pk_live_${Buffer.from('clerk.synthetic.example$').toString('base64')}`
+    vi.stubEnv('CLERK_PUBLISHABLE_KEY', key)
+    vi.stubEnv('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', key)
+    mocks.handleClerkEvent.mockResolvedValue({ replayed: false, welcomeEmailDeliveryId: null })
+    mocks.isClerkWebhookReceiptConflictError.mockReturnValue(false)
+  })
+  afterEach(() => vi.unstubAllEnvs())
+  it.each(museums)(
+    'persists canonical IDs for %s while preserving raw replay identity',
+    async (providerId, applicationId) => {
+      const original = { ...membershipEvent(), instance_id: 'ins_synthetic' }
+      original.data.organization.id = providerId
+      original.data.public_user_data.user_id = 'user_newTom'
+      mocks.verify.mockReturnValue(original)
+      const body = JSON.stringify(original)
+      const identity = {
+        providerEventId: 'msg_test',
+        payloadHash: createHash('sha256').update(body).digest('hex'),
+      }
+      expect((await POST(signedRequest(body))).status).toBe(200)
+      expect(mocks.handleClerkEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            organization: expect.objectContaining({ id: applicationId }),
+            public_user_data: expect.objectContaining({ user_id: 'user_oldTom' }),
+          }),
+        }),
+        identity,
+      )
+      mocks.handleClerkEvent.mockResolvedValue({ replayed: true, welcomeEmailDeliveryId: null })
+      expect((await POST(signedRequest(body))).status).toBe(200)
+      expect(mocks.handleClerkEvent.mock.calls[1]?.[1]).toEqual(identity)
+      expect(original.data.organization.id).toBe(providerId)
+      expect(original.data.public_user_data.user_id).toBe('user_newTom')
+      expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+    },
+  )
+  it.each(['organizationMembership.updated', 'organizationMembership.deleted'])(
+    'translates %s without changing event order or role',
+    async (type) => {
+      const original = {
+        ...membershipEvent({ role: 'org:member' }),
+        type,
+        instance_id: 'ins_synthetic',
+      }
+      original.data.organization.id = museums[1][0]
+      original.data.public_user_data.user_id = 'user_newTom'
+      mocks.verify.mockReturnValue(original)
+      expect((await POST(signedRequest(JSON.stringify(original)))).status).toBe(200)
+      expect(mocks.handleClerkEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type,
+          timestamp: original.timestamp,
+          data: expect.objectContaining({
+            role: 'org:member',
+            organization: expect.objectContaining({ id: museums[1][1] }),
+            public_user_data: expect.objectContaining({ user_id: 'user_oldTom' }),
+          }),
+        }),
+        expect.any(Object),
+      )
+    },
+  )
+  it('maps organization creation to the existing tenant and keeps new organizations distinct', async () => {
+    for (const id of [museums[0][0], 'org_newCustomer']) {
+      mocks.verify.mockReturnValue({
+        type: 'organization.created',
+        instance_id: 'ins_synthetic',
+        timestamp: 1,
+        data: { id, name: 'Synthetic', slug: 'synthetic' },
+      })
+      expect((await POST(request())).status).toBe(200)
+      expect(mocks.handleClerkEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: {
+            id: id === museums[0][0] ? museums[0][1] : id,
+            name: 'Synthetic',
+            slug: 'synthetic',
+          },
+        }),
+        expect.any(Object),
+      )
+    }
+  })
+  it.each([
+    { instance_id: 'ins_wrong', userId: 'user_newTom' },
+    { instance_id: 'ins_synthetic', userId: 'user_oldTom' },
+  ])(
+    'refuses verified but wrong-instance or retired-ID events %#',
+    async ({ instance_id, userId }) => {
+      const event = { ...membershipEvent(), instance_id }
+      event.data.organization.id = museums[0][0]
+      event.data.public_user_data.user_id = userId
+      mocks.verify.mockReturnValue(event)
+      expect((await POST(request())).status).toBe(503)
+      expect(mocks.handleClerkEvent).not.toHaveBeenCalled()
+      expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+    },
+  )
+})
 
 function request(): Request {
   return new Request('https://dashboard.example/api/webhooks/clerk', {

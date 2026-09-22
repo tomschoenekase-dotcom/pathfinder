@@ -127,6 +127,9 @@ const rawEnvSchema = z
     // Required from PACKET-08 (auth) onward
     CLERK_SECRET_KEY: z.string().min(1),
     CLERK_PUBLISHABLE_KEY: z.string().min(1),
+    // Server-only migration map; @pathfinder/auth validates its instance and
+    // bijection before authenticated use. Never expose through NEXT_PUBLIC_*.
+    CLERK_IDENTITY_BINDING: z.string().max(65_536).optional(),
 
     // Required from PACKET-10 (Clerk webhook) onward
     CLERK_WEBHOOK_SECRET: z.string().optional(),

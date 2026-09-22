@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import type { ReactNode } from 'react'
-import { auth, currentUser } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@pathfinder/auth/server'
 import { redirect } from 'next/navigation'
 
 import { AdminSectionShell } from '../../components/admin/AdminSectionShell'

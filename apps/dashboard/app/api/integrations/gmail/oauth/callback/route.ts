@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { publishCrmOperationalSignal } from '@pathfinder/db'
 import { enqueueGmailSync } from '@pathfinder/jobs'
 import { NextResponse, type NextRequest } from 'next/server'

@@ -8,6 +8,9 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
+ARG NEXT_PUBLIC_WEB_URL
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_AFTER_SIGN_OUT_URL
 COPY --from=installer /app ./
 RUN pnpm --filter @pathfinder/db exec prisma generate
 RUN pnpm characters:sync

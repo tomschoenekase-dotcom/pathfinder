@@ -1,5 +1,5 @@
 import { OrganizationList } from '@clerk/nextjs'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { redirect } from 'next/navigation'
 
 import { safeEmployeeReturnPath } from '../../lib/employee-auth-return'

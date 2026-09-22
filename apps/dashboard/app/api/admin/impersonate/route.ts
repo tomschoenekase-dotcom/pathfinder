@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { logger } from '@pathfinder/config/logger'
 import { db, writeAuditLogStrict } from '@pathfinder/db'
 import { type NextRequest, NextResponse } from 'next/server'

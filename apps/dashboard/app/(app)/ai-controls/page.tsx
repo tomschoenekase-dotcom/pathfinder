@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 

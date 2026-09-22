@@ -40,6 +40,7 @@ test('the canary registry covers every secret-shaped config key without stale en
   const source = await readFile(new URL('../packages/config/src/env.ts', import.meta.url), 'utf8')
   assert.deepEqual(assertSecretCanaryRegistryCoversConfig(source), [
     'ANTHROPIC_API_KEY',
+    'CLERK_IDENTITY_BINDING',
     'CLERK_SECRET_KEY',
     'CLERK_WEBHOOK_SECRET',
     'DATABASE_URL',

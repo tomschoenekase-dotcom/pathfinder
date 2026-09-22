@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { NextResponse } from 'next/server'
 
 import { gmailOAuthRuntime } from '../../../../../../lib/gmail-oauth-runtime'

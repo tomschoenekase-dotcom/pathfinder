@@ -83,6 +83,9 @@ importers:
       '@pathfinder/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@pathfinder/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@pathfinder/billing':
         specifier: workspace:*
         version: link:../../packages/billing
@@ -198,6 +201,9 @@ importers:
       '@pathfinder/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@pathfinder/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../../packages/config

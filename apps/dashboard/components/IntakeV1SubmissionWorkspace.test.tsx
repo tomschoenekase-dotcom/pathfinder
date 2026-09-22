@@ -648,7 +648,9 @@ describe('IntakeV1SubmissionWorkspace', () => {
     oldSources.resolve(sourcePage)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Review my materials' })).toBeTruthy(),
+      expect(
+        (screen.getByRole('button', { name: 'Review my materials' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
     )
     expect(
       screen.queryByRole('heading', { name: 'Choose what goes into this version.' }),

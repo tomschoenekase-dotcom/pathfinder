@@ -10,7 +10,7 @@ import { OperationsReadinessSummary } from '../../../../components/admin/Operati
 import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 
 type Cursor = { createdAt: string; id: string }
 

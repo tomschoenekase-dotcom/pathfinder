@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { NextResponse } from 'next/server'
 import { prospectImportReportCsvCell } from '../../../../../../lib/prospect-import-report-csv'

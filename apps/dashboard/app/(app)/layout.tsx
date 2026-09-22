@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import type { ReactNode } from 'react'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
@@ -24,7 +24,7 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
     (sessionClaims?.publicMetadata as { platform_role?: string } | undefined)?.platform_role ===
     'PLATFORM_ADMIN'
   const adminTenantOverride = (await cookies()).get('pf_admin_tenant')?.value
-  const effectiveOrgId = orgId ?? (isPlatformAdmin ? adminTenantOverride : null)
+  const effectiveOrgId = (isPlatformAdmin ? adminTenantOverride : null) ?? orgId
 
   if (!effectiveOrgId) {
     redirect('/onboarding')

@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { CustomCharacterFactoryActionError } from '@pathfinder/db'
 import { NextResponse, type NextRequest } from 'next/server'
 

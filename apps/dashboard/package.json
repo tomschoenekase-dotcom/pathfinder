@@ -18,6 +18,7 @@
     "@clerk/nextjs": "6.39.3",
     "@hookform/resolvers": "^5.2.2",
     "@pathfinder/api": "workspace:*",
+    "@pathfinder/auth": "workspace:*",
     "@pathfinder/billing": "workspace:*",
     "@pathfinder/character-factory": "workspace:*",
     "@pathfinder/config": "workspace:*",

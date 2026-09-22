@@ -1,4 +1,9 @@
 import { auth, currentUser } from '@clerk/nextjs/server'
+import {
+  applicationTenantId,
+  applicationUserId,
+  assertClerkSessionBinding,
+} from './identity-binding'
 
 export type TenantRole = 'STAFF' | 'MANAGER' | 'OWNER'
 
@@ -46,12 +51,14 @@ export async function resolveSession(request: Request): Promise<SessionContext |
     return null
   }
 
+  assertClerkSessionBinding(authState.sessionClaims)
+
   const user = await currentUser()
   const publicMetadata = (user?.publicMetadata ?? {}) as PlatformRoleMetadata
 
   return {
-    userId: authState.userId,
-    activeTenantId: authState.orgId ?? null,
+    userId: applicationUserId(authState.userId),
+    activeTenantId: authState.orgId ? applicationTenantId(authState.orgId) : null,
     isPlatformAdmin: publicMetadata.platform_role === 'PLATFORM_ADMIN',
     role: mapClerkOrgRole(authState.orgRole ?? null),
   }

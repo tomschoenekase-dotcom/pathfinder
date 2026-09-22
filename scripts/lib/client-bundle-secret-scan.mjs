@@ -24,6 +24,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('CLERK_WEBHOOK_SECRET'),
     value: `whsec_${canary('CLERK_WEBHOOK_SECRET')}`,
   },
+  CLERK_IDENTITY_BINDING: {
+    marker: canary('CLERK_IDENTITY_BINDING'),
+    value: JSON.stringify({ marker: canary('CLERK_IDENTITY_BINDING') }),
+  },
   STRIPE_SECRET_KEY: {
     marker: canary('STRIPE_SECRET_KEY'),
     value: `sk_test_${canary('STRIPE_SECRET_KEY')}`,
@@ -75,7 +79,7 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
 })
 
 const secretKeyPattern =
-  /^(?:DATABASE_URL|DIRECT_DATABASE_URL|REDIS_URL|.*(?:SECRET|API_KEY|ACCESS_KEY|ENCRYPTION_KEY|TOKEN|PASSWORD|PRIVATE_KEY).*)$/u
+  /^(?:DATABASE_URL|DIRECT_DATABASE_URL|REDIS_URL|CLERK_IDENTITY_BINDING|.*(?:SECRET|API_KEY|ACCESS_KEY|ENCRYPTION_KEY|TOKEN|PASSWORD|PRIVATE_KEY).*)$/u
 const prerenderExtensions = new Set(['.body', '.html', '.json', '.meta', '.rsc', '.txt'])
 const hardcodedSecretPatterns = [
   ['anthropic-api-key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/gu],

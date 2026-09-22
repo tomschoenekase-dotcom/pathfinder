@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import type { Metadata } from 'next'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 import { redirect } from 'next/navigation'
 
 import { RemoteOnboardingJourney } from '../../../../../components/RemoteOnboardingJourney'

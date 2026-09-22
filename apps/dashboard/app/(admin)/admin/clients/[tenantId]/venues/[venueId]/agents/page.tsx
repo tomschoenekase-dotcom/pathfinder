@@ -7,7 +7,7 @@ import {
 } from '../../../../../../../../components/admin/AgentOperationsOverview'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 import { env } from '@pathfinder/config'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@pathfinder/auth/server'
 
 type Props = {
   params: Promise<{ tenantId: string; venueId: string }>
