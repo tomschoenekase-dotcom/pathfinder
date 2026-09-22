@@ -56,7 +56,10 @@
     "./media-temporal-claims": "./src/media-temporal-claims.ts",
     "./legacy-knowledge-adoption": "./src/legacy-knowledge-adoption.ts",
     "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts",
-    "./guest-conversation-disposition": "./src/guest-conversation-disposition.ts"
+    "./guest-conversation-disposition": "./src/guest-conversation-disposition.ts",
+    "./venue-launch-asset": "./src/venue-launch-asset.ts",
+    "./venue-launch-asset-node": "./src/venue-launch-asset-node.ts",
+    "./venue-qr-svg": "./src/venue-qr-svg.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

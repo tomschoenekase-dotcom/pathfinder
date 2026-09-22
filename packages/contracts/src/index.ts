@@ -69,3 +69,6 @@ export * from './support-portable-export'
 
 export * from './agent-source-assignment'
 export * from './guest-conversation-disposition'
+
+export * from './venue-launch-asset'
+export * from './venue-qr-svg'

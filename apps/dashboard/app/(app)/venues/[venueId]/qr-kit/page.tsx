@@ -18,34 +18,39 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
   const lifecycle = lifecycles.find((candidate) => candidate.venueId === venueId)
   if (!venue || !lifecycle) notFound()
 
-  const candidateGuestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
-    allowLoopbackHttp: process.env.NODE_ENV === 'development',
-  })
+  const eligibleLifecycle = ['READY', 'LIVE', 'REVISIONS'].includes(lifecycle.lifecycle.state)
+  const venueAsset = eligibleLifecycle ? await caller.portal.getVenueLaunchAsset({ venueId }) : null
+
+  const candidateGuestChatUrl = venueAsset
+    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug)
+    : null
   const available = isVenueQrKitAvailable(
     lifecycle.lifecycle.state,
     candidateGuestChatUrl,
-    lifecycle.release.released,
+    venueAsset !== null,
   )
   const guestChatUrl = available ? candidateGuestChatUrl : null
-  const guideItems = available
-    ? (await caller.place.list({ venueId }))
-        .filter((place) => place.isActive && place.visibility === 'PUBLIC')
-        .map((place) => ({
-          id: place.id,
-          name: place.name,
-          updatedAt: place.updatedAt.toISOString(),
-        }))
-    : []
+  const guideItems =
+    available && venueAsset?.release.kind === 'LEGACY'
+      ? (await caller.place.list({ venueId }))
+          .filter((place) => place.isActive && place.visibility === 'PUBLIC')
+          .map((place) => ({
+            id: place.id,
+            name: place.name,
+            updatedAt: place.updatedAt.toISOString(),
+          }))
+      : []
 
   return (
     <VenueQrKitAvailability
       venueId={venue.id}
       venueName={venue.name}
       lifecycleState={lifecycle.lifecycle.state}
-      hasCurrentRelease={lifecycle.release.released}
+      hasCurrentRelease={venueAsset !== null}
       guestChatUrl={guestChatUrl}
       generatedAt={new Date().toISOString()}
       guideItems={guideItems}
+      venueAsset={venueAsset}
     />
   )
 }

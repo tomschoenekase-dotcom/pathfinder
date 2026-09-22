@@ -13,6 +13,7 @@ import {
 } from '@pathfinder/db'
 import { z } from 'zod'
 
+import { resolveVenueLaunchAsset } from '../lib/venue-launch-asset'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { tenantProcedure } from '../trpc'
@@ -313,6 +314,20 @@ export function clientPreviewLifecycleFailureState(error: unknown): 'SUPERSEDED'
 }
 
 export const portalRouter = router({
+  getVenueLaunchAsset: tenantProcedure
+    .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
+    .query(({ ctx, input }) =>
+      ctx.db.$transaction(
+        (client) =>
+          resolveVenueLaunchAsset({
+            client,
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            configuredOrigin: process.env.NEXT_PUBLIC_WEB_URL,
+          }),
+        { isolationLevel: 'RepeatableRead' },
+      ),
+    ),
   getOnboardingJourney: tenantProcedure
     .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
     .query(async ({ ctx, input }) => {

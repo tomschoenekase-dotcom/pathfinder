@@ -49,6 +49,31 @@ describe('VenueQrKit', () => {
     expect(print).toHaveBeenCalledOnce()
   })
 
+  it('shows the bound source revision for the venue code', () => {
+    render(
+      <VenueQrKit
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        generatedAt="2026-09-22T00:00:00.000Z"
+        guideItems={[]}
+        venueAsset={{
+          schema: 'torchiko.venue-launch-asset/1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          release: { kind: 'LEGACY', id: 'legacy:venue_1', revisionSha256: 'a'.repeat(64) },
+          publicUrl: 'https://guide.example.com/museum/chat?source=qr',
+          filename: 'torchiko-museum-qr.svg',
+          mimeType: 'image/svg+xml',
+          sizeBytes: 4,
+          sha256: 'b'.repeat(64),
+          contentBase64: 'PHN2Zz4=',
+        }}
+      />,
+    )
+    expect(screen.getByText('Content revision: legacy aaaaaaaaaaaa')).toBeTruthy()
+    expect(screen.getByText('https://guide.example.com/museum/chat?source=qr')).toBeTruthy()
+  })
+
   it('uses client-safe launch language without exposing admin authority', () => {
     render(
       <VenueQrKit

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   venueList: vi.fn(),
   lifecycleList: vi.fn(),
+  launchAsset: vi.fn(),
   placeList: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND')
@@ -15,7 +16,7 @@ vi.mock('next/navigation', () => ({ notFound: mocks.notFound }))
 vi.mock('../../../../../lib/server-caller', () => ({
   createDashboardCaller: vi.fn(async () => ({
     venue: { list: mocks.venueList },
-    portal: { getVenueLifecycles: mocks.lifecycleList },
+    portal: { getVenueLifecycles: mocks.lifecycleList, getVenueLaunchAsset: mocks.launchAsset },
     place: { list: mocks.placeList },
   })),
 }))
@@ -27,6 +28,18 @@ import {
 import VenueQrKitPage from './page'
 
 const venue = { id: 'venue_1', name: 'Museum', slug: 'museum' }
+const asset = {
+  schema: 'torchiko.venue-launch-asset/1',
+  tenantId: 'tenant_1',
+  venueId: venue.id,
+  release: { kind: 'LEGACY', id: 'legacy:venue_1', revisionSha256: 'a'.repeat(64) },
+  publicUrl: 'https://guide.example.com/museum/chat?source=qr',
+  filename: 'torchiko-museum-qr.svg',
+  mimeType: 'image/svg+xml',
+  sizeBytes: 4,
+  sha256: 'b'.repeat(64),
+  contentBase64: 'PHN2Zz4=',
+}
 
 describe('client QR kit route', () => {
   beforeEach(() => {
@@ -37,6 +50,7 @@ describe('client QR kit route', () => {
       { venueId: venue.id, lifecycle: { state: 'LIVE' }, release: { released: true } },
     ])
     mocks.placeList.mockResolvedValue([])
+    mocks.launchAsset.mockResolvedValue(asset)
   })
 
   it('passes only active public item identity into the client QR component', async () => {
@@ -127,6 +141,7 @@ describe('client QR kit route', () => {
 
   it('renders no code when the public origin is invalid', async () => {
     process.env.NEXT_PUBLIC_WEB_URL = 'http://public.example.com'
+    mocks.launchAsset.mockResolvedValue(null)
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(mocks.placeList).not.toHaveBeenCalled()
     expect(result.type).toBe(VenueQrKitAvailability)
@@ -145,6 +160,7 @@ describe('client QR kit route', () => {
     mocks.lifecycleList.mockResolvedValue([
       { venueId: venue.id, lifecycle: { state: 'REVISIONS' }, release: { released: false } },
     ])
+    mocks.launchAsset.mockResolvedValue(null)
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(result.props.guestChatUrl).toBeNull()
     expect(mocks.placeList).not.toHaveBeenCalled()

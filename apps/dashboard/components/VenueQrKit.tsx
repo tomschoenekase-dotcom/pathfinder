@@ -2,9 +2,10 @@
 
 import { useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { buildGuideItemEntryUrl, buildQrEntryUrl } from '../lib/guest-chat-url'
-import { buildQrSvgFilename, downloadQrSvg } from '../lib/qr-export'
+import { buildQrSvgFilename, downloadQrSvg, downloadQrSvgBytes } from '../lib/qr-export'
 import { CopyUrlButton } from './CopyUrlButton'
 
 type GuideItem = {
@@ -19,16 +20,28 @@ type VenueQrKitProps = {
   guestChatUrl: string
   generatedAt: string
   guideItems: GuideItem[]
+  venueAsset?: VenueLaunchAsset | null
 }
 
-function QrCard({ label, url, revision }: { label: string; url: string; revision: string }) {
+function QrCard({
+  label,
+  url,
+  revision,
+  venueAsset,
+}: {
+  label: string
+  url: string
+  revision: string
+  venueAsset?: VenueLaunchAsset | null
+}) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [exportError, setExportError] = useState<string | null>(null)
 
   function handleDownload() {
     setExportError(null)
     try {
-      downloadQrSvg(svgRef.current, buildQrSvgFilename(label))
+      if (venueAsset) downloadQrSvgBytes(venueAsset.contentBase64, venueAsset.filename)
+      else downloadQrSvg(svgRef.current, buildQrSvgFilename(label))
     } catch {
       setExportError('This QR code could not be downloaded. Try Print QR sheets instead.')
     }
@@ -79,8 +92,9 @@ export function VenueQrKit({
   guestChatUrl,
   generatedAt,
   guideItems,
+  venueAsset,
 }: VenueQrKitProps) {
-  const venueQrUrl = buildQrEntryUrl(guestChatUrl)
+  const venueQrUrl = venueAsset?.publicUrl ?? buildQrEntryUrl(guestChatUrl)
   const itemEntries = guideItems.flatMap((item) => {
     const url = buildGuideItemEntryUrl(guestChatUrl, item)
     return url ? [{ ...item, url }] : []
@@ -97,8 +111,10 @@ export function VenueQrKit({
             {venueName} QR kit
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/80">
-            Scan-test every code before printing. Item codes prefill a question but never send it
-            automatically.{' '}
+            Scan-test every code before printing.{' '}
+            {itemEntries.length > 0
+              ? 'Item codes prefill a question but never send it automatically. '
+              : ''}
             {audience === 'admin'
               ? 'Creating this sheet does not approve public launch.'
               : 'Printing this sheet does not change whether the visitor guide is live.'}
@@ -121,7 +137,16 @@ export function VenueQrKit({
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
         {venueQrUrl ? (
-          <QrCard label={`${venueName} guest guide`} url={venueQrUrl} revision="venue link" />
+          <QrCard
+            label={`${venueName} guest guide`}
+            url={venueQrUrl}
+            revision={
+              venueAsset
+                ? `${venueAsset.release.kind.toLowerCase()} ${venueAsset.release.revisionSha256.slice(0, 12)}`
+                : 'venue link'
+            }
+            venueAsset={venueAsset ?? null}
+          />
         ) : null}
         {itemEntries.map((item) => (
           <QrCard key={item.id} label={item.name} url={item.url} revision={item.updatedAt} />

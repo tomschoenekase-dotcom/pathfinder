@@ -101,7 +101,8 @@ export function DashboardOverviewView({
   const lifecycle = venue.lifecycle
   const clientPreview = venue.clientPreview ?? { state: 'UNAVAILABLE' as const, id: null }
   const showLiveTools = lifecycle.state === 'LIVE' || lifecycle.state === 'PAUSED'
-  const publicGuestLinkAvailable = lifecycle.state === 'READY' || lifecycle.state === 'LIVE'
+  const publicGuestLinkAvailable =
+    lifecycle.state === 'READY' || lifecycle.state === 'LIVE' || lifecycle.state === 'REVISIONS'
   const previewHref =
     lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state === 'AVAILABLE' && clientPreview.id
       ? `/venues/${encodeURIComponent(venue.id)}/preview/${encodeURIComponent(clientPreview.id)}`

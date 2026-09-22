@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { VenueQrKit } from './VenueQrKit'
 
@@ -16,6 +17,7 @@ export type VenueQrKitAvailabilityProps = {
   guestChatUrl: string | null
   generatedAt: string
   guideItems: VenueQrKitGuideItem[]
+  venueAsset?: VenueLaunchAsset | null
 }
 
 export function isVenueQrKitAvailable(
@@ -38,6 +40,7 @@ export function VenueQrKitAvailability({
   guestChatUrl,
   generatedAt,
   guideItems,
+  venueAsset,
 }: VenueQrKitAvailabilityProps) {
   const available = isVenueQrKitAvailable(lifecycleState, guestChatUrl, hasCurrentRelease)
   if (!available || guestChatUrl === null) {
@@ -77,6 +80,7 @@ export function VenueQrKitAvailability({
         guestChatUrl={guestChatUrl}
         generatedAt={generatedAt}
         guideItems={guideItems}
+        venueAsset={venueAsset ?? null}
       />
     </div>
   )

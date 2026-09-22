@@ -34,3 +34,17 @@ export function downloadQrSvg(svg: SVGSVGElement | null, filename: string): void
 
   window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0)
 }
+
+/** Download the exact server-reviewed venue QR bytes. */
+export function downloadQrSvgBytes(contentBase64: string, filename: string): void {
+  const binary = window.atob(contentBase64)
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  const blob = new Blob([bytes], { type: 'image/svg+xml' })
+  const objectUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = filename
+  anchor.rel = 'noopener'
+  anchor.click()
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0)
+}

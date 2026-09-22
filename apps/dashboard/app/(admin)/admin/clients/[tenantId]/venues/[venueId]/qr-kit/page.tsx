@@ -12,17 +12,18 @@ export default async function AdminVenueQrKitPage({ params }: Props) {
 
   try {
     const data = await caller.admin.getClientVenue({ tenantId, venueId })
-    const guestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, data.venue.slug, {
-      allowLoopbackHttp: process.env.NODE_ENV !== 'production',
-    })
+    const venueAsset = await caller.admin.getVenueLaunchAsset({ tenantId, venueId })
+    const guestChatUrl = venueAsset
+      ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, data.venue.slug)
+      : null
 
     if (!guestChatUrl) {
       return (
         <section className="rounded-3xl border border-rose-200 bg-white p-8 shadow-sm" role="alert">
           <h2 className="text-2xl font-semibold text-pf-deep">QR kit is not available</h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/75">
-            The public guest origin is not configured safely for this environment. No QR code was
-            created. Correct the environment configuration, then reload this exact venue scope.
+            This venue has no current public visitor guide source or secure guest URL. No QR code
+            was created. Confirm the venue release and public origin, then reload this venue.
           </p>
         </section>
       )
@@ -32,14 +33,9 @@ export default async function AdminVenueQrKitPage({ params }: Props) {
       <VenueQrKit
         venueName={data.venue.name}
         guestChatUrl={guestChatUrl}
+        venueAsset={venueAsset}
         generatedAt={new Date().toISOString()}
-        guideItems={data.places
-          .filter((place) => place.isActive)
-          .map((place) => ({
-            id: place.id,
-            name: place.name,
-            updatedAt: place.updatedAt.toISOString(),
-          }))}
+        guideItems={[]}
       />
     )
   } catch {

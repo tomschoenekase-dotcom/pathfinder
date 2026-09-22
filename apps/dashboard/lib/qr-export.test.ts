@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { buildQrSvgFilename, downloadQrSvg } from './qr-export'
+import { buildQrSvgFilename, downloadQrSvg, downloadQrSvgBytes } from './qr-export'
 
 describe('QR SVG export', () => {
   afterEach(() => {
@@ -58,5 +58,30 @@ describe('QR SVG export', () => {
 
   it('fails when the rendered QR element is unavailable', () => {
     expect(() => downloadQrSvg(null, 'qr.svg')).toThrow('QR code is not available')
+  })
+
+  it('downloads the server QR bytes with its source filename', () => {
+    vi.useFakeTimers()
+    const bytes = '<svg><path d="M0 0h1"/></svg>'
+    Object.defineProperty(window.URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: () => 'blob:venue-qr',
+    })
+    Object.defineProperty(window.URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: () => undefined,
+    })
+    const createObjectURL = vi.spyOn(window.URL, 'createObjectURL')
+    const anchor = document.createElement('a')
+    vi.spyOn(document, 'createElement').mockReturnValue(anchor)
+    vi.spyOn(anchor, 'click').mockImplementation(() => undefined)
+    downloadQrSvgBytes(btoa(bytes), 'torchiko-museum-qr.svg')
+    const blob = createObjectURL.mock.calls[0]![0] as Blob
+    expect(blob.size).toBe(bytes.length)
+    expect(blob.type).toBe('image/svg+xml')
+    expect(anchor.download).toBe('torchiko-museum-qr.svg')
+    vi.runAllTimers()
   })
 })
