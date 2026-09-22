@@ -1197,6 +1197,14 @@ const approvedOperations = [
     hash: 'cf59d6bd3dcfc1cdbfe9c89d11cfd2a3153ee394dec67acfb9cbda1cda8e6abf',
     policy: 'public-venue-slug',
   },
+  // Launch-asset generation proves the public slug resolves to exactly one venue globally
+  // before emitting a stable QR destination; this is a bounded read with no mutation.
+  {
+    file: 'packages/db/src/helpers/venue-launch-source.ts',
+    method: '$queryRaw',
+    hash: '596048da982d98338c6e2e36c8edf9d9fac8db9c8734d6e51d0cf70ee386587e',
+    policy: 'public-venue-slug',
+  },
   {
     file: 'packages/db/src/helpers/venue-create-action.ts',
     method: '$executeRaw',

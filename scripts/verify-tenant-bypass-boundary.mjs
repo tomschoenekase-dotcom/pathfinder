@@ -180,6 +180,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
   ['packages/api/src/routers/admin/client-reads.ts', 3],
+  // Platform-admin launch-asset read is exact tenant+venue scoped and returns only the
+  // current public guest URL plus deterministic QR bytes/release identity. It cannot
+  // publish, mutate venue content, or broaden client authority.
+  ['packages/api/src/routers/admin/venue-launch-assets.ts', 1],
   // Platform-admin portable export resolves one active tenant recipient, then every selected
   // content/report/support read retains the exact tenant+venue and recipient ACL scope.
   ['packages/api/src/routers/admin/support-portable-export.ts', 1],
