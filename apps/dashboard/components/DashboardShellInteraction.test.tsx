@@ -232,7 +232,7 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.queryByRole('link', { name: 'Payment' })).toBeNull()
 
     rerender(<DashboardShell paymentAvailable>Payment content</DashboardShell>)
-    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(screen.getByText('Account', { selector: 'summary' }))
     expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
   })
 
@@ -258,14 +258,14 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.getByRole('link', { name: 'Visitor experience' }).getAttribute('href')).toBe(
       '/ai-controls',
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+    fireEvent.click(screen.getByText('Activity', { selector: 'summary' }))
     expect(screen.getByRole('link', { name: 'Reports' }).getAttribute('href')).toBe(
       '/weekly-reports',
     )
     expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
       '/support?venue=venue-1',
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(screen.getByText('Account', { selector: 'summary' }))
     expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
     expect(screen.getByRole('link', { name: 'Account' }).getAttribute('href')).toBe('/settings')
   })
