@@ -47,14 +47,14 @@ export function VenueQrKitAvailability({
     return (
       <section className="mx-auto max-w-4xl px-4 py-8 sm:px-7 sm:py-12" role="alert">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
-          Launch materials
+          Visitor access
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">
-          QR kit is not available yet
+          QR code is not available yet
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/70">
-          This venue needs a reviewed visitor link before QR materials can be created. No code was
-          generated and nothing was published.
+          This venue needs a reviewed visitor link before its QR code can be created. No code was
+          generated.
         </p>
         <Link
           href={`/?venue=${encodeURIComponent(venueId)}`}

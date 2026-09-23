@@ -29,14 +29,14 @@ function skipTablet(testInfo: { project: { name: string } }) {
 }
 
 test.describe('QR SVG export proof', () => {
-  test('downloads reusable SVG bytes that decode to the exact venue and item URLs', async ({
+  test('downloads reusable SVG bytes that decode to the exact venue URL', async ({
     page,
   }, testInfo) => {
     skipTablet(testInfo)
     await page.goto(`${baseUrl}/dev-fixtures/qr-kit`)
     await expect(page.getByRole('heading', { name: 'Harbor House QR kit' })).toBeVisible()
 
-    const targets = ['Harbor House guest guide', 'Tide Clock']
+    const targets = ['Harbor House visitor guide']
     for (const label of targets) {
       const button = page.getByRole('button', { name: `Download SVG for ${label}` })
       const card = page.locator('article').filter({ has: button })
@@ -79,7 +79,9 @@ test.describe('QR SVG export proof', () => {
       })
     })
     await page.goto(`${baseUrl}/dev-fixtures/qr-kit`)
-    const button = page.getByRole('button', { name: 'Download SVG for Harbor House guest guide' })
+    const button = page.getByRole('button', {
+      name: 'Download SVG for Harbor House visitor guide',
+    })
     await button.click()
     const error = page.locator('p[role="alert"]')
     await expect(error).toContainText('could not be downloaded')

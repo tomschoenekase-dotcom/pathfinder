@@ -28,7 +28,7 @@ for (const viewport of [
     })
     await page.goto('/dev-fixtures/portal-home?state=live')
 
-    const qrLink = page.getByRole('link', { name: 'Open QR kit' })
+    const qrLink = page.getByRole('link', { name: 'Open QR code' })
     await expect(qrLink).toHaveAttribute('href', '/venues/fixture-great-lakes-museum/qr-kit')
     await qrLink.focus()
     await expect(qrLink).toBeFocused()
@@ -53,8 +53,8 @@ for (const viewport of [
     // The authenticated server route is covered by the route tests. Mount the same production QR
     // component through the provider-dark fixture for responsive interaction checks.
     await page.goto('/dev-fixtures/qr-kit?audience=client')
-    await expect(page.getByRole('heading', { name: 'Harbor House QR kit' })).toBeVisible()
-    await expect(page.getByText('Launch materials')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Harbor House QR code' })).toBeVisible()
+    await expect(page.getByText('Visitor access')).toBeVisible()
     await expect(page.getByText('Internal print tool')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'Copy guest chat URL' }).first().click()
@@ -64,7 +64,8 @@ for (const viewport of [
       'https://guide.example.com/harbor-house/chat?source=qr',
     )
 
-    const printButton = page.getByRole('button', { name: 'Print QR sheets' })
+    await expect(page.locator('svg:has(> title)')).toHaveCount(1)
+    const printButton = page.getByRole('button', { name: 'Print QR code' })
     await printButton.focus()
     await expect(printButton).toBeFocused()
     await printButton.click()

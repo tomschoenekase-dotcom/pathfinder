@@ -1,24 +1,19 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('QR launch kit', () => {
-  test('renders venue-correct public targets and item prefill URLs on desktop', async ({
-    page,
-  }) => {
+  test('renders one venue-correct public target by default on desktop', async ({ page }) => {
     await page.goto('/dev-fixtures/qr-kit')
 
     await expect(page.getByRole('heading', { name: 'Harbor House QR kit' })).toBeVisible()
     await expect(
       page.getByText('https://guide.example.com/harbor-house/chat?source=qr'),
     ).toBeVisible()
-    await expect(page.getByText(/item=place-tide-clock/)).toBeVisible()
-    await expect(page.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeVisible()
-    await expect(page.locator('svg:has(> title)')).toHaveCount(3)
-    await expect(page.locator('svg:has(> title) > title')).toHaveText([
-      'QR code for Harbor House guest guide',
-      'QR code for Tide Clock',
-      'QR code for Lake Lab',
-    ])
-    await expect(page.getByText(/never send it automatically/i)).toBeVisible()
+    await expect(page.getByText(/item=place-tide-clock/)).toHaveCount(0)
+    await expect(page.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toHaveCount(0)
+    await expect(page.locator('svg:has(> title)')).toHaveCount(1)
+    await expect(page.locator('svg:has(> title) > title')).toHaveText(
+      'QR code for Harbor House visitor guide',
+    )
 
     const dimensions = await page.evaluate(() => ({
       body: document.body.scrollWidth,

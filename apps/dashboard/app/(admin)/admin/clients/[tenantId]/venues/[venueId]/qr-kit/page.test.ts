@@ -43,7 +43,7 @@ describe('internal workspace QR launch kit route', () => {
     const html = await renderPage()
     expect(mocks.getClientVenue).toHaveBeenCalledWith(scope)
     expect(mocks.getVenueLaunchAsset).toHaveBeenCalledWith(scope)
-    expect(html).toContain('Museum guest guide')
+    expect(html).toContain('Museum visitor guide')
     expect(html).toContain(asset.publicUrl.replaceAll('&', '&amp;'))
     expect(html).toContain('Content revision: legacy aaaaaaaaaaaa')
     expect(html).toContain('Print QR sheets')

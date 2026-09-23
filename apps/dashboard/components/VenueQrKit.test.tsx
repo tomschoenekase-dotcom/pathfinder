@@ -13,7 +13,7 @@ describe('VenueQrKit', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders a general code and item-prefill code without auto-sending', () => {
+  it('renders one primary venue code by default even when guide items exist', () => {
     render(
       <VenueQrKit
         venueName="Museum"
@@ -23,14 +23,29 @@ describe('VenueQrKit', () => {
       />,
     )
 
-    expect(screen.getByText('Museum guest guide')).toBeTruthy()
-    expect(screen.getByText('Tide Clock')).toBeTruthy()
+    expect(screen.getByText('Museum visitor guide')).toBeTruthy()
+    expect(screen.queryByText('Tide Clock')).toBeNull()
     expect(screen.getByText('https://guide.example.com/museum/chat?source=qr')).toBeTruthy()
+    expect(screen.queryByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeNull()
+    expect(screen.getAllByTitle(/QR code for/)).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /Download SVG for/ })).toHaveLength(1)
+    expect(screen.getAllByText(/save this QR code for signs and handouts/i)).toHaveLength(1)
+  })
+
+  it('keeps per-item codes behind an explicit future-facing opt-in', () => {
+    render(
+      <VenueQrKit
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        generatedAt="2026-08-11T18:00:00.000Z"
+        guideItems={[{ id: 'place_1', name: 'Tide Clock', updatedAt: '2026-08-10T12:00:00.000Z' }]}
+        includeGuideItemCodes
+      />,
+    )
+
+    expect(screen.getByText('Tide Clock')).toBeTruthy()
     expect(screen.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeTruthy()
     expect(screen.getAllByTitle(/QR code for/)).toHaveLength(2)
-    expect(screen.getAllByRole('button', { name: /Download SVG for/ })).toHaveLength(2)
-    expect(screen.getAllByText(/save this QR code for signs and handouts/i)).toHaveLength(2)
-    expect(screen.getByText(/never send it automatically/i)).toBeTruthy()
   })
 
   it('uses the browser print dialog only after an explicit operator action', () => {
@@ -85,9 +100,12 @@ describe('VenueQrKit', () => {
       />,
     )
 
-    expect(screen.getByText('Launch materials')).toBeTruthy()
-    expect(screen.getByText(/does not change whether the visitor guide is live/i)).toBeTruthy()
-    expect(screen.getByText(/scan each code before displaying it/i)).toBeTruthy()
+    expect(screen.getByText('Visitor access')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Museum QR code' })).toBeTruthy()
+    expect(screen.getByText(/use this one code/i)).toBeTruthy()
+    expect(screen.getByText(/scan the code once/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Print QR code' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/generated|content revision/iu)
     expect(document.body.textContent).not.toMatch(/internal|approve|publish|rate limit|incident/iu)
   })
 
@@ -109,7 +127,7 @@ describe('VenueQrKit', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Download SVG for Museum guest guide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Download SVG for Museum visitor guide' }))
     expect(screen.getByRole('alert').textContent).toMatch(/could not be downloaded/i)
   })
 })

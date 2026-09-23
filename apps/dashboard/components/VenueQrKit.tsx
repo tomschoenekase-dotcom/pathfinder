@@ -21,6 +21,7 @@ type VenueQrKitProps = {
   generatedAt: string
   guideItems: GuideItem[]
   venueAsset?: VenueLaunchAsset | null
+  includeGuideItemCodes?: boolean
 }
 
 function QrCard({
@@ -28,11 +29,13 @@ function QrCard({
   url,
   revision,
   venueAsset,
+  showRevision = true,
 }: {
   label: string
   url: string
   revision: string
   venueAsset?: VenueLaunchAsset | null
+  showRevision?: boolean
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -43,7 +46,7 @@ function QrCard({
       if (venueAsset) downloadQrSvgBytes(venueAsset.contentBase64, venueAsset.filename)
       else downloadQrSvg(svgRef.current, buildQrSvgFilename(label))
     } catch {
-      setExportError('This QR code could not be downloaded. Try Print QR sheets instead.')
+      setExportError('This QR code could not be downloaded. Try printing this page instead.')
     }
   }
 
@@ -62,7 +65,9 @@ function QrCard({
       <p className="mt-2 break-all text-center font-mono text-[10px] leading-4 text-pf-deep/80">
         {url}
       </p>
-      <p className="mt-2 text-center text-xs text-pf-deep/80">Content revision: {revision}</p>
+      {showRevision ? (
+        <p className="mt-2 text-center text-xs text-pf-deep/80">Content revision: {revision}</p>
+      ) : null}
       <p className="mt-3 text-center text-xs leading-5 text-pf-deep/70 print:hidden">
         Save this QR code for signs and handouts. It stays sharp when resized.
       </p>
@@ -93,31 +98,31 @@ export function VenueQrKit({
   generatedAt,
   guideItems,
   venueAsset,
+  includeGuideItemCodes = false,
 }: VenueQrKitProps) {
   const venueQrUrl = venueAsset?.publicUrl ?? buildQrEntryUrl(guestChatUrl)
-  const itemEntries = guideItems.flatMap((item) => {
-    const url = buildGuideItemEntryUrl(guestChatUrl, item)
-    return url ? [{ ...item, url }] : []
-  })
+  const itemEntries = includeGuideItemCodes
+    ? guideItems.flatMap((item) => {
+        const url = buildGuideItemEntryUrl(guestChatUrl, item)
+        return url ? [{ ...item, url }] : []
+      })
+    : []
+  const isClient = audience === 'client'
 
   return (
     <section aria-labelledby="qr-kit-title">
       <div className="flex flex-col gap-4 print:hidden sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pf-primary">
-            {audience === 'client' ? 'Launch materials' : 'Internal print tool'}
+            {isClient ? 'Visitor access' : 'Internal print tool'}
           </p>
           <h1 id="qr-kit-title" className="mt-2 text-4xl font-semibold text-pf-deep">
-            {venueName} QR kit
+            {isClient ? `${venueName} QR code` : `${venueName} QR kit`}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/80">
-            Scan-test every code before printing.{' '}
-            {itemEntries.length > 0
-              ? 'Item codes prefill a question but never send it automatically. '
-              : ''}
-            {audience === 'admin'
-              ? 'Creating this sheet does not approve public launch.'
-              : 'Printing this sheet does not change whether the visitor guide is live.'}
+            {isClient
+              ? 'Use this one code on signs, handouts, and anywhere visitors need the guide.'
+              : `Scan-test ${itemEntries.length > 0 ? 'every code' : 'the code'} before printing. Creating this sheet does not approve public launch.`}
           </p>
         </div>
         <button
@@ -125,20 +130,26 @@ export function VenueQrKit({
           onClick={() => window.print()}
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-deep px-5 text-sm font-medium text-white hover:bg-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
         >
-          Print QR sheets
+          {isClient ? 'Print QR code' : 'Print QR sheets'}
         </button>
       </div>
 
       <p className="my-6 text-xs text-pf-deep/80 print:mt-0">
-        {audience === 'client'
-          ? `Generated ${generatedAt}. Scan each code before displaying it.`
+        {isClient
+          ? 'Scan the code once before displaying it.'
           : `Generated ${generatedAt}. URLs contain no secret and remain subject to venue availability, rate limits, and incident controls.`}
       </p>
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
+      <div
+        className={
+          itemEntries.length > 0
+            ? 'grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2'
+            : 'mx-auto max-w-md'
+        }
+      >
         {venueQrUrl ? (
           <QrCard
-            label={`${venueName} guest guide`}
+            label={`${venueName} visitor guide`}
             url={venueQrUrl}
             revision={
               venueAsset
@@ -146,6 +157,7 @@ export function VenueQrKit({
                 : 'venue link'
             }
             venueAsset={venueAsset ?? null}
+            showRevision={!isClient}
           />
         ) : null}
         {itemEntries.map((item) => (

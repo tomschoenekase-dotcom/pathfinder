@@ -1939,7 +1939,9 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await page.goto(
         `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}${themeRequestEnabled ? '&new=theme-preference' : ''}`,
       )
-      await expect(page.getByRole('heading', { name: 'QR kit is not available yet' })).toBeVisible()
+      await expect(
+        page.getByRole('heading', { name: 'QR code is not available yet' }),
+      ).toBeVisible()
       await expect(page.getByLabel('Subject', { exact: true })).not.toHaveValue('')
       await expect(page.getByRole('button', { name: /download.*svg/i })).toHaveCount(0)
       const supportBody = themeRequestEnabled
@@ -2115,7 +2117,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           await page.goto(
             `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(venueId)}`,
           )
-          await expect(page.getByRole('heading', { name: /QR kit$/u })).toBeVisible()
+          await expect(page.getByRole('heading', { name: /QR code$/u })).toBeVisible()
           const downloadButton = page.getByRole('button', { name: /Download SVG/i }).first()
           await expect(downloadButton).toBeVisible()
           const qrUrl = page.locator('article').first().locator('p.font-mono')
@@ -2355,10 +2357,10 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
             `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(qrVenueId)}`,
           )
           await expect(
-            page.getByRole('heading', { name: 'Connected released QR venue QR kit' }),
+            page.getByRole('heading', { name: 'Connected released QR venue QR code' }),
           ).toBeVisible()
-          await expect(page.getByRole('button', { name: /Download SVG/i })).toHaveCount(2)
-          await expect(page.getByText('Connected release gallery', { exact: true })).toBeVisible()
+          await expect(page.getByRole('button', { name: /Download SVG/i })).toHaveCount(1)
+          await expect(page.getByText('Connected release gallery', { exact: true })).toHaveCount(0)
           await expect(page.getByText('Connected unreleased gallery', { exact: true })).toHaveCount(
             0,
           )
@@ -2421,7 +2423,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           `/dev-fixtures/connected-client-handoff?venueId=${encodeURIComponent(unreleasedVenue.id)}`,
         )
         await expect(
-          siblingPage.getByRole('heading', { name: 'QR kit is not available yet' }),
+          siblingPage.getByRole('heading', { name: 'QR code is not available yet' }),
         ).toBeVisible()
         await expect(siblingPage.getByRole('button', { name: /Download SVG/i })).toHaveCount(0)
       } finally {

@@ -346,7 +346,7 @@ export function DashboardOverviewView({
                   Print or share your QR code
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-pf-deep/70">
-                  Get printable codes for your visitor guide and public exhibits.
+                  Download or print the one code visitors use to open your guide.
                 </p>
               </div>
               <Link
@@ -354,7 +354,7 @@ export function DashboardOverviewView({
                 className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
               >
                 <QrCode className="h-4 w-4" aria-hidden="true" />
-                Open QR kit
+                Open QR code
               </Link>
             </div>
           </section>

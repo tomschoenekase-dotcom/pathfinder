@@ -67,7 +67,7 @@ describe('DashboardOverview client portal', () => {
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
-    expect(screen.getByRole('link', { name: 'Open QR kit' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Open QR code' }).getAttribute('href')).toBe(
       '/venues/riverside/qr-kit',
     )
   })
@@ -88,7 +88,7 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.getByRole('link', { name: 'Open QR kit' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Open QR code' }).getAttribute('href')).toBe(
       '/venues/venue%20%2F%20one/qr-kit',
     )
 
@@ -104,7 +104,23 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.queryByRole('link', { name: 'Open QR kit' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open QR code' })).toBeNull()
+  })
+
+  it('keeps a completed live venue out of onboarding mode', () => {
+    render(
+      <DashboardOverview
+        venue={{ id: 'space-museum', name: 'SpaceMuseum', lifecycle: lifecycle() }}
+        venues={[{ id: 'space-museum', name: 'SpaceMuseum' }]}
+        activeUpdates={0}
+        chatUrl="https://guide.example.com/museumroom/chat"
+        tasks={[]}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: /Open visitor experience/ })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open QR code' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/start|continue setup|onboarding|begin setup/iu)
   })
 
   it('shows a privacy-bounded visitor pulse and routes changes into a service request', () => {

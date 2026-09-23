@@ -123,11 +123,11 @@ for (const viewport of [
       path: testInfo.outputPath(`${viewport.name}-today.png`),
       fullPage: true,
     })
-    const qrLink = page.getByRole('link', { name: 'Open QR kit' })
+    const qrLink = page.getByRole('link', { name: 'Open QR code' })
     await expect(qrLink).toHaveAttribute('href', `/venues/${venueId}/qr-kit`)
     await qrLink.click()
     await expect(
-      page.getByRole('heading', { name: 'Great Lakes Discovery Museum QR kit' }),
+      page.getByRole('heading', { name: 'Great Lakes Discovery Museum QR code' }),
     ).toBeVisible()
     await expect(
       page.getByText('https://guide.example.com/great-lakes-discovery-museum/chat'),

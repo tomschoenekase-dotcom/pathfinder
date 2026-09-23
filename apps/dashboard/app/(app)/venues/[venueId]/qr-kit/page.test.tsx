@@ -210,7 +210,7 @@ describe('VenueQrKitAvailability', () => {
         return childText(node.props.children)
       return ''
     }
-    expect(childText(unavailable)).toContain('QR kit is not available yet')
+    expect(childText(unavailable)).toContain('QR code is not available yet')
     expect(childText(unavailable)).not.toContain('Must not render')
   })
 })
