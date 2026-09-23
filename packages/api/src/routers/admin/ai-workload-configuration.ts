@@ -161,7 +161,14 @@ export const adminAiWorkloadConfigurationRouter = router({
     const overrides = workloadRow
       ? [configurationOverrideFromRow(workloadRow, { level: 'WORKLOAD', workloadId })]
       : []
-    const effective = resolveAiWorkloadConfiguration({ workloadId, overrides })
+    const effective = resolveAiWorkloadConfiguration({
+      workloadId,
+      ...(workloadId === 'guest-chat' &&
+      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna'
+        ? { defaultPrimaryModelKey: 'guest-chat-luna' as const }
+        : {}),
+      overrides,
+    })
     const { providerKeyAvailability, providerConnections } = getVisitorProviderSetup()
     const options = AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS.map((key) => {
       const provider = AI_CENTRAL_MODEL_REGISTRY[key].provider

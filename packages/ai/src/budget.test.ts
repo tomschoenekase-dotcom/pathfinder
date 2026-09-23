@@ -58,6 +58,18 @@ describe('AI cost budget ceilings', () => {
     expect(observedAiCostUnits(0.000001)).toBe(100n)
   })
 
+  it('rounds fractional per-token reservation rates upward without changing registry pricing', () => {
+    const spec = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_LUNA)
+    expect(
+      textAttemptCostCeilingUnits({
+        spec,
+        system: [],
+        messages: [{ role: 'user', content: 'hello' }],
+        maxOutputTokens: spec.maxOutputTokens,
+      }),
+    ).toBe(2_625_600n)
+  })
+
   it('produces positive exact ceilings for every registered gateway model', () => {
     for (const spec of Object.values(AI_MODEL_REGISTRY)) {
       const ceiling = textAttemptCostCeilingUnits({

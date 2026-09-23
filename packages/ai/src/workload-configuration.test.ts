@@ -21,6 +21,18 @@ const enabled = (
 })
 
 describe('central AI workload configuration', () => {
+  it('supports an explicit platform default model while preserving workload identity', () => {
+    const result = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      defaultPrimaryModelKey: 'guest-chat-luna',
+    })
+    expect(result).toMatchObject({
+      workloadId: 'guest-chat',
+      primaryModelKey: 'guest-chat-luna',
+      model: { provider: 'openai', model: 'gpt-6-luna' },
+    })
+  })
+
   it('projects every existing registry entry without changing pricing metadata', () => {
     expect(Object.keys(AI_CENTRAL_MODEL_REGISTRY).sort()).toEqual(
       [...Object.keys(AI_MODEL_REGISTRY), ...Object.keys(AI_EMBEDDING_MODEL_REGISTRY)].sort(),

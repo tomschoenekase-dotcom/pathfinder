@@ -47,6 +47,7 @@ describe('admin AI workload configuration', () => {
     expect(result.customerChat.modelOptions.map((option) => option.key)).toEqual([
       'guest-chat',
       'guest-chat-openai',
+      'guest-chat-luna',
       'guest-chat-deepseek-flash',
       'guest-chat-deepseek-pro',
     ])
@@ -119,8 +120,9 @@ describe('admin AI workload configuration', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1', venueScopeKey: 'venue_7' } }),
     )
     expect(result.scope).toEqual({ tenantId: 'tenant_1', venueId: 'venue_7' })
-    expect(result.workloads).toHaveLength(17)
+    expect(result.workloads).toHaveLength(18)
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-openai')
+    expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-luna')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('client-tochi')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain(
       'company-brain-retrieval-evaluation',
@@ -134,6 +136,7 @@ describe('admin AI workload configuration', () => {
       'guest-chat',
       'guest-chat-deepseek-flash',
       'guest-chat-deepseek-pro',
+      'guest-chat-luna',
       'guest-chat-openai',
     ])
     expect(
@@ -158,6 +161,29 @@ describe('admin AI workload configuration', () => {
     expect(result.operationalInventory.omissions).toContain(
       'realtime voice uses its dedicated route registry',
     )
+  })
+
+  it('projects the production Luna selector as the effective guest-chat route', async () => {
+    const previousRoute = process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+    const previousOpenAiKey = configEnv.OPENAI_API_KEY
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-luna'
+    configEnv.OPENAI_API_KEY = 'test-openai-key'
+    try {
+      const result = await app.createCaller(context(true)).admin.getAdminAiSystems()
+      expect(result.customerChat.effective).toMatchObject({
+        primaryModelKey: 'guest-chat-luna',
+        provider: 'openai',
+        model: 'gpt-6-luna',
+        source: 'PLATFORM',
+      })
+      expect(
+        result.customerChat.modelOptions.find((option) => option.key === 'guest-chat-luna'),
+      ).toMatchObject({ available: true, provider: 'openai', model: 'gpt-6-luna' })
+    } finally {
+      configEnv.OPENAI_API_KEY = previousOpenAiKey
+      if (previousRoute === undefined) delete process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+      else process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = previousRoute
+    }
   })
 
   it('does not query configuration rows when venue ownership is absent', async () => {
