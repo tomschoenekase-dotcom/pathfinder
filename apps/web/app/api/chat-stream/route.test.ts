@@ -91,7 +91,7 @@ describe('private-body chat streaming route', () => {
 
   it('carries only an explicitly public recovery code in a stream error', async () => {
     mocks.stream.mockImplementation(async function* () {
-      throw new Error('private provider details')
+      yield Promise.reject(new Error('private provider details'))
     })
     mocks.publicCode.mockReturnValue('OUTCOME_AMBIGUOUS')
     const response = await POST(
