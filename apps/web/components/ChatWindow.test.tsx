@@ -42,10 +42,69 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
+  it('distinguishes a local unconfirmed user turn without claiming a send or creating another action', () => {
+    const onSend = vi.fn()
+    const { rerender } = render(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the gallery?', pendingOperationId: 'local-turn' },
+        ]}
+        onSend={onSend}
+        isLoading={false}
+      />,
+    )
+    expect(screen.getByRole('note').textContent).toBe('Not confirmed')
+    expect(screen.getByRole('note').getAttribute('lang')).toBe('en')
+    expect(screen.getByRole('note').closest('[role="log"]')).toBeTruthy()
+    expect(onSend).not.toHaveBeenCalled()
+    rerender(
+      <ChatWindow
+        messages={[{ id: 'saved', role: 'user', content: 'Where is the gallery?' }]}
+        onSend={onSend}
+        isLoading={false}
+      />,
+    )
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.getAllByText('Where is the gallery?')).toHaveLength(1)
+  })
+
+  it('localizes a pending annotation without confusing assistant fragments or voice persistence', () => {
+    render(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the gallery?', pendingOperationId: 'local-turn' },
+          {
+            role: 'assistant',
+            content: 'An incomplete fragment',
+            pendingOperationId: 'local-turn',
+          },
+          {
+            role: 'user',
+            content: 'Voice text',
+            pendingOperationId: 'voice',
+            voiceDelivery: 'CAPTURED',
+            voicePersistence: 'UNCONFIRMED',
+          },
+        ]}
+        onSend={vi.fn()}
+        language="日本語"
+        isLoading={false}
+      />,
+    )
+    expect(screen.getAllByRole('note')).toHaveLength(1)
+    expect(screen.getByRole('note').textContent).toBe('未確認')
+    expect(screen.getByRole('note').getAttribute('lang')).toBe('ja')
+  })
+
   it('replaces introductory prompts with current recovery instead of stacking both', () => {
     const onRetry = vi.fn()
     const { rerender } = render(
-      <ChatWindow messages={[]} onSend={vi.fn()} emptyState={<h2>Start here</h2>} />,
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        emptyState={<h2>Start here</h2>}
+      />,
     )
     expect(screen.getByRole('heading', { name: 'Start here' })).toBeTruthy()
     rerender(
@@ -56,6 +115,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         errorMessage="Your conversation could not be restored."
         onRetry={onRetry}
         retryLabel="Check conversation"
+        isLoading={false}
       />,
     )
     expect(screen.queryByRole('heading', { name: 'Start here' })).toBeNull()
@@ -66,7 +126,12 @@ describe('ChatWindow accessibility and motion behavior', () => {
   })
 
   it('does not show fresh-chat prompts during restoration or first-response loading', () => {
-    const input = { messages: [], onSend: vi.fn(), emptyState: <h2>Start here</h2> }
+    const input = {
+      messages: [],
+      onSend: vi.fn(),
+      isLoading: false,
+      emptyState: <h2>Start here</h2>,
+    }
     const { rerender } = render(
       <ChatWindow {...input} restoringStatusLabel="Restoring your conversation" />,
     )

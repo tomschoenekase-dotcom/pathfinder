@@ -12,7 +12,7 @@ import { MessageBubble } from './MessageBubble'
 import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
-import { getVisitorUiCopy } from './visitor-ui-copy'
+import { getVisitorPendingCopy, getVisitorUiCopy } from './visitor-ui-copy'
 
 type Message = {
   id?: string
@@ -23,6 +23,8 @@ type Message = {
   blocks?: GuestResponseBlock[]
   voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
   voicePersistence?: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
+  /** Existing client identity; a displayed local turn is not a confirmed delivery. */
+  pendingOperationId?: string
 }
 
 type ChatWindowProps = {
@@ -294,6 +296,16 @@ export function ChatWindow({
                 ? { bubbleTextColor: accentContrastColor }
                 : {})}
             />
+            {message.role === 'user' && message.pendingOperationId && !message.voiceDelivery ? (
+              <p
+                className="mt-1 text-end text-xs leading-5 text-[var(--chat-text-muted)]"
+                lang={presentation.code}
+                dir={presentation.direction}
+                role="note"
+              >
+                {getVisitorPendingCopy(language).notConfirmed}
+              </p>
+            ) : null}
           </div>
         ))}
 

@@ -869,7 +869,7 @@ const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
     'The outcome of this message is not confirmed. Retry the same message safely.',
     'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
     'The conversation still could not be confirmed. Try checking again.',
-    'Clear chat? Your visit preferences stay on this page. The current chat will leave this screen, but it will not be deleted from Torchiko records.',
+    'Clear chat? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
     'We could not start a new conversation in this browser.',
     'Check conversation',
     'Retry same message',
@@ -1113,6 +1113,89 @@ const STATE_COPY: Record<SupportedChatLanguage, VisitorStateCopy> = {
   ],
 }
 
+type VisitorPendingCopy = {
+  notConfirmed: string
+  accessUnavailable: string
+  storageUnavailable: string
+}
+
+const PENDING_COPY: Record<SupportedChatLanguage, VisitorPendingCopy> = {
+  English: {
+    notConfirmed: 'Not confirmed',
+    accessUnavailable:
+      'Chat access could not be confirmed. Reopen this venue link after restoring access. Your message is kept in this tab; it has not been resent.',
+    storageUnavailable:
+      'This tab could not safely restore its pending message. Keep any draft you need, then reopen the venue in a new tab. Nothing has been resent.',
+  },
+  Español: {
+    notConfirmed: 'Sin confirmar',
+    accessUnavailable:
+      'No se pudo confirmar el acceso al chat. Vuelve a abrir el enlace de este lugar después de recuperar el acceso. Tu mensaje se conserva en esta pestaña; no se ha vuelto a enviar.',
+    storageUnavailable:
+      'Esta pestaña no pudo restaurar su mensaje pendiente de forma segura. Guarda el borrador que necesites y vuelve a abrir el lugar en una pestaña nueva. No se ha vuelto a enviar nada.',
+  },
+  Français: {
+    notConfirmed: 'Non confirmé',
+    accessUnavailable:
+      'L’accès au chat n’a pas pu être confirmé. Rouvrez le lien de ce lieu après avoir rétabli l’accès. Votre message est conservé dans cet onglet ; il n’a pas été renvoyé.',
+    storageUnavailable:
+      'Cet onglet n’a pas pu restaurer son message en attente de manière sûre. Conservez tout brouillon nécessaire, puis rouvrez le lieu dans un nouvel onglet. Rien n’a été renvoyé.',
+  },
+  Deutsch: {
+    notConfirmed: 'Nicht bestätigt',
+    accessUnavailable:
+      'Der Zugriff auf den Chat konnte nicht bestätigt werden. Öffne den Link dieses Ortes erneut, nachdem der Zugriff wiederhergestellt wurde. Deine Nachricht bleibt in diesem Tab; sie wurde nicht erneut gesendet.',
+    storageUnavailable:
+      'Dieser Tab konnte seine ausstehende Nachricht nicht sicher wiederherstellen. Sichere benötigte Entwürfe und öffne den Ort dann in einem neuen Tab. Es wurde nichts erneut gesendet.',
+  },
+  Italiano: {
+    notConfirmed: 'Non confermato',
+    accessUnavailable:
+      'Non è stato possibile confermare l’accesso alla chat. Riapri il link di questo luogo dopo aver ripristinato l’accesso. Il messaggio è conservato in questa scheda; non è stato inviato di nuovo.',
+    storageUnavailable:
+      'Questa scheda non ha potuto ripristinare in modo sicuro il messaggio in sospeso. Conserva le bozze necessarie, poi riapri il luogo in una nuova scheda. Non è stato inviato nulla di nuovo.',
+  },
+  Português: {
+    notConfirmed: 'Não confirmado',
+    accessUnavailable:
+      'Não foi possível confirmar o acesso ao chat. Reabra o link deste local depois de restaurar o acesso. Sua mensagem permanece nesta aba; ela não foi reenviada.',
+    storageUnavailable:
+      'Esta aba não conseguiu restaurar sua mensagem pendente com segurança. Guarde os rascunhos necessários e reabra o local em uma nova aba. Nada foi reenviado.',
+  },
+  中文: {
+    notConfirmed: '尚未确认',
+    accessUnavailable:
+      '无法确认聊天访问权限。恢复访问后，请重新打开此场所链接。你的消息保留在此标签页中，尚未重新发送。',
+    storageUnavailable:
+      '此标签页无法安全恢复待处理的消息。请保留所需的草稿，然后在新标签页中重新打开此场所。未重新发送任何消息。',
+  },
+  日本語: {
+    notConfirmed: '未確認',
+    accessUnavailable:
+      'チャットへのアクセスを確認できませんでした。アクセスを回復してから、この施設のリンクを開き直してください。メッセージはこのタブに保持されており、再送信されていません。',
+    storageUnavailable:
+      'このタブの保留中のメッセージを安全に復元できませんでした。必要な下書きを保存してから、新しいタブで施設を開き直してください。何も再送信されていません。',
+  },
+  한국어: {
+    notConfirmed: '확인되지 않음',
+    accessUnavailable:
+      '채팅 접근 권한을 확인할 수 없습니다. 접근 권한을 복구한 후 이 장소의 링크를 다시 여세요. 메시지는 이 탭에 보관되어 있으며 다시 전송되지 않았습니다.',
+    storageUnavailable:
+      '이 탭에서 대기 중인 메시지를 안전하게 복원할 수 없습니다. 필요한 초안을 보관한 다음 새 탭에서 장소를 다시 여세요. 아무것도 다시 전송되지 않았습니다.',
+  },
+  العربية: {
+    notConfirmed: 'غير مؤكدة',
+    accessUnavailable:
+      'تعذر تأكيد الوصول إلى المحادثة. أعد فتح رابط هذا المكان بعد استعادة الوصول. رسالتك محفوظة في علامة التبويب هذه؛ ولم تُرسل مرة أخرى.',
+    storageUnavailable:
+      'تعذر على علامة التبويب هذه استعادة رسالتها المعلقة بأمان. احتفظ بأي مسودة تحتاجها، ثم أعد فتح المكان في علامة تبويب جديدة. لم يُرسل أي شيء مرة أخرى.',
+  },
+}
+
+export function getVisitorPendingCopy(language: SupportedChatLanguage = 'English') {
+  return PENDING_COPY[language] ?? PENDING_COPY.English
+}
+
 export function getVisitorUiCopy(language: SupportedChatLanguage = 'English') {
   return COPY[language] ?? COPY.English
 }
@@ -1135,6 +1218,9 @@ export function localizeVisitorShellError(
 ) {
   if (!message) return message
   if (message === COPY.English.shell[22]) return getVisitorUiCopy(language).shell[22]
+  for (const key of ['accessUnavailable', 'storageUnavailable'] as const) {
+    if (message === PENDING_COPY.English[key]) return getVisitorPendingCopy(language)[key]
+  }
   const recoveryIndex = RECOVERY_COPY.English.findIndex((candidate) => candidate === message)
   return recoveryIndex >= 0 ? (getVisitorRecoveryCopy(language)[recoveryIndex] ?? message) : message
 }
