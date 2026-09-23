@@ -5,6 +5,7 @@ import {
   type WorkerStartupEnvironment,
 } from './lib/worker-startup-policy'
 import { assertStagingWorkerReleaseIdentity } from './lib/worker-release-identity'
+import { inWorkerStartupPhase, workerStartupFailureEvent } from './lib/worker-startup-diagnostic'
 
 function assertRequiredEnvironment(keys: string[]): void {
   const missing = keys.filter((key) => !process.env[key])
@@ -27,7 +28,9 @@ function registerShutdown(shutdown: () => Promise<void>): void {
 }
 
 export async function bootstrapWorkers() {
-  const stagingRevision = assertStagingWorkerReleaseIdentity(process.env)
+  const stagingRevision = await inWorkerStartupPhase('release-identity', () =>
+    assertStagingWorkerReleaseIdentity(process.env),
+  )
   if (stagingRevision) {
     process.stdout.write(
       `${JSON.stringify({
@@ -36,13 +39,20 @@ export async function bootstrapWorkers() {
       })}\n`,
     )
   }
-  const policy = resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)
-  assertRequiredEnvironment(policy.requiredEnvironmentKeys)
+  const policy = await inWorkerStartupPhase('startup-policy', () =>
+    resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment),
+  )
+  await inWorkerStartupPhase('required-environment', () =>
+    assertRequiredEnvironment(policy.requiredEnvironmentKeys),
+  )
 
   if (policy.mode === 'provider-disabled') {
     const redisUrl = process.env.REDIS_URL!
     const runtime = await startProviderDisabledRuntime({
-      checkConnection: () => checkProviderDisabledRedis(redisUrl, 5_000),
+      checkConnection: () =>
+        inWorkerStartupPhase('redis-connectivity', () =>
+          checkProviderDisabledRedis(redisUrl, 5_000),
+        ),
       closeConnection: async () => undefined,
       onConnectionError: () =>
         process.stderr.write(
@@ -144,10 +154,8 @@ export async function bootstrapWorkers() {
 }
 
 if (require.main === module) {
-  void bootstrapWorkers().catch(() => {
-    process.stderr.write(
-      `${JSON.stringify({ action: 'workers.start.failed', errorCode: 'startup-rejected' })}\n`,
-    )
+  void bootstrapWorkers().catch((error: unknown) => {
+    process.stderr.write(`${JSON.stringify(workerStartupFailureEvent(error))}\n`)
     process.exitCode = 1
   })
 }
