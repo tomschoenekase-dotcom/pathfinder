@@ -128,7 +128,7 @@ describe('Packet 2 guest automated accessibility', () => {
     )
 
     expect(screen.getByRole('heading', { level: 1, name: 'East Museum' })).toBeTruthy()
-    expect(screen.getByText('AI guidance')).toBeTruthy()
+    expect(screen.getByText('AI guidance', { selector: 'summary' })).toBeTruthy()
     await expectNoAutomatedViolations(container)
   })
 })
