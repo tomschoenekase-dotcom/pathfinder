@@ -27,6 +27,41 @@ test('responsive browser CI failures retain a bounded secret-free diagnostic tai
   assert.doesNotMatch(step, /printenv|env\s|set\s+-x|DATABASE_URL|SECRET|TOKEN/iu)
 })
 
+test('held final recovery and API contracts execute before the broad visual gate', async () => {
+  const visual = workflow.indexOf('- name: Verify phone, tablet, and desktop core-product rendering')
+  for (const name of [
+    'Verify final combined visitor denial, Stop, draft and recovery contracts',
+    'Verify final combined chat API conversation and replay contracts',
+  ]) {
+    const start = workflow.indexOf(`- name: ${name}`)
+    assert.ok(start >= 0 && start < visual, `${name} must run before the broad visual gate`)
+    const step = workflow.slice(start).split(/\n\s+- name:/u)[0]
+    assert.match(step, /vitest run/u)
+    assert.match(step, /--pool=forks --maxWorkers=1/u)
+    assert.doesNotMatch(step, /continue-on-error|passWithNoTests|\|\|\s*true/u)
+    const command = step.match(/run: pnpm --dir (\S+) exec vitest run (.+)/u)
+    assert.ok(command)
+    const files = command[2].split(/\s+/u).filter((argument) => !argument.startsWith('--'))
+    assert.ok(files.length > 0)
+    for (const file of files) {
+      assert.ok((await readFile(path.join(root, command[1], file), 'utf8')).length > 0)
+    }
+  }
+  assert.match(workflow, /components\/VenueChatExperience\.test\.tsx/u)
+  assert.match(workflow, /components\/ChatWindow\.test\.tsx/u)
+  assert.match(workflow, /src\/routers\/chat\.test\.ts/u)
+})
+
+test('guest-visit browser proof asserts profile absence rather than reopening a removed form', async () => {
+  const spec = await readFile(path.join(root, 'apps/dashboard/tests/visual/guest-visit.spec.ts'), 'utf8')
+  assert.match(spec, /function expectNoVisitForm/u)
+  assert.match(spec, /includeHidden: true/u)
+  assert.match(spec, /toHaveCount\(0\)/u)
+  assert.match(spec, /toBeEditable\(\)/u)
+  assert.match(spec, /assertChatLayout\(page\)/u)
+  assert.doesNotMatch(spec, /summary\.focus\(\)|openPreferences\(|\.skip\(/u)
+})
+
 test('visual fixtures bypass Clerk only through an explicit development-only server contract', () => {
   assert.match(visualConfig, /NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:\s*''/u)
   assert.match(visualConfig, /TORCHIKO_VISUAL_FIXTURES_ENABLED:\s*'1'/u)

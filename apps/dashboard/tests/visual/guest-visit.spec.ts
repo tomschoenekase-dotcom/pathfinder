@@ -2,25 +2,22 @@ import { expect, test, type Page } from '@playwright/test'
 
 const webBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.0.1:3000'
 
-async function openPreferences(page: Page) {
-  const summary = page.locator('summary').filter({ hasText: 'Your visit' })
-  await summary.focus()
-  await page.keyboard.press('Enter')
-  await expect(page.getByLabel('North Gallery')).toBeVisible()
+async function expectNoVisitForm(page: Page) {
+  // The fixture deliberately still offers the old preferences slot. The real
+  // shell must not mount it, even as a collapsed/hidden replacement onboarding.
+  await expect(page.locator('summary').filter({ hasText: 'Your visit' })).toHaveCount(0)
+  await expect(page.getByLabel('North Gallery')).toHaveCount(0)
+  await expect(page.getByLabel('Interests · up to 5, separated by commas')).toHaveCount(0)
+  await expect(page.getByLabel(/Time left/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save preferences', includeHidden: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Start a fresh visit', includeHidden: true })).toHaveCount(0)
 }
 
-async function assertOpenLayout(page: Page) {
+async function assertChatLayout(page: Page) {
   await expect(page.locator('body')).toHaveJSProperty(
     'scrollWidth',
     await page.locator('body').evaluate((body) => body.clientWidth),
   )
-  const interestInput = page.getByLabel('Interests · up to 5, separated by commas')
-  const save = page.getByRole('button', { name: 'Save preferences' })
-  await interestInput.scrollIntoViewIfNeeded()
-  await expect(interestInput).toBeVisible()
-  await save.scrollIntoViewIfNeeded()
-  await expect(save).toBeVisible()
-
   const composer = page.getByPlaceholder('Ask anything about this place...')
   await composer.scrollIntoViewIfNeeded()
   await expect(composer).toBeVisible()
@@ -45,53 +42,50 @@ async function assertOpenLayout(page: Page) {
   expect(composerLayout.centerIsComposer).toBe(true)
 }
 
-test('guest visit saved form supports keyboard review and lifecycle semantics', async ({
+test('guest visit context uses normal chat without mounting a separate profile form', async ({
   page,
 }, testInfo) => {
   await page.goto(`${webBaseUrl}/dev-fixtures/guest-visit`)
   await expect(page.locator('[data-fixture="guest-visit"]')).toBeVisible()
-  await openPreferences(page)
-  await page.getByLabel('North Gallery').check()
-  await page.getByLabel('Interests · up to 5, separated by commas').fill('trains, local history')
-  await page.getByLabel(/Time left/).fill('45')
-
-  const save = page.getByRole('button', { name: 'Save preferences' })
-  for (let index = 0; index < 12; index += 1) {
-    await page.keyboard.press('Tab')
-    if (await save.evaluate((element) => element === document.activeElement)) break
-  }
-  await expect(save).toBeFocused()
-  await save.press('Enter')
-  await expect(page.getByLabel('North Gallery')).toBeChecked()
-  await expect(page.getByText('Explicitly visited places:')).toBeVisible()
-  await assertOpenLayout(page)
-  await save.scrollIntoViewIfNeeded()
+  await expectNoVisitForm(page)
+  await expect(page.getByText('I want to see the trains.', { exact: true })).toBeVisible()
+  const composer = page.getByPlaceholder('Ask anything about this place...')
+  await composer.focus()
+  await expect(composer).toBeFocused()
+  await composer.fill('We like trains and local history, and have 45 minutes.')
+  await expect(composer).toHaveValue('We like trains and local history, and have 45 minutes.')
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
+  await assertChatLayout(page)
   await page.screenshot({
-    path: testInfo.outputPath(`guest-visit-open-saved-${testInfo.project.name}.png`),
+    path: testInfo.outputPath(`guest-visit-text-first-${testInfo.project.name}.png`),
     fullPage: true,
   })
 
   await page.getByRole('button', { name: 'Clear chat' }).click()
-  await expect(page.getByLabel('North Gallery')).toBeChecked()
-  await page.getByRole('button', { name: 'Start a fresh visit' }).click()
-  await expect(page.getByLabel('North Gallery')).not.toBeChecked()
+  await expect(page.getByText('I want to see the trains.', { exact: true })).toHaveCount(0)
+  await expectNoVisitForm(page)
   await expect(page.getByText('Explicitly visited places:')).not.toBeVisible()
 })
 
-test('guest visit validation error stays visible and usable while open', async ({
+test('legacy preference state cannot block the text-first composer', async ({
   page,
 }, testInfo) => {
   await page.goto(`${webBaseUrl}/dev-fixtures/guest-visit`)
-  await openPreferences(page)
-  await page
-    .getByLabel('Interests · up to 5, separated by commas')
-    .fill('one, two, three, four, five, six')
-  await page.getByRole('button', { name: 'Save preferences' }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'Add up to 5 interests.' })).toBeVisible()
-  await assertOpenLayout(page)
-  await page.getByRole('button', { name: 'Save preferences' }).scrollIntoViewIfNeeded()
+  await expect(page.locator('[data-fixture="guest-visit"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Pause preference editing', exact: true }).click()
+  await expectNoVisitForm(page)
+  const composer = page.getByPlaceholder('Ask anything about this place...')
+  await expect(composer).toBeEditable()
+  await composer.fill('We need a quiet, accessible route through the museum.')
+  await composer.focus()
+  await expect(composer).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
+  await assertChatLayout(page)
   await page.screenshot({
-    path: testInfo.outputPath(`guest-visit-open-error-${testInfo.project.name}.png`),
+    path: testInfo.outputPath(`guest-visit-legacy-state-${testInfo.project.name}.png`),
     fullPage: true,
   })
+  await page.getByRole('button', { name: 'Enable preference editing', exact: true }).click()
+  await expectNoVisitForm(page)
+  await expect(composer).toHaveValue('We need a quiet, accessible route through the museum.')
 })
