@@ -828,6 +828,58 @@ describe('chat router', () => {
       )
     })
 
+    it.each([
+      'We have 20 minutes and our children like trains. What should we see?',
+      'We need a quieter place and step-free access. What is known here?',
+    ])(
+      'carries conversational needs through the existing chat without a profile or extra model call: %s',
+      async (message) => {
+        setupHappyPath('I do not have confirmed access details. Please ask venue staff.')
+        await caller.chat.send({ ...sendInput, message })
+        const request = guestTurnActions.reserve.mock.calls[0]?.[0].request
+        expect(request.message).toBe(message)
+        expect(request).not.toHaveProperty('visitContext')
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).not.toContain('VISIT PREFERENCES:')
+        expect(prompt).toContain('only an explicit visitor statement as evidence')
+        expect(prompt).toContain(
+          'Never infer a missing policy, hour, location, accessibility detail',
+        )
+        expect(anthropicCreate).toHaveBeenCalledOnce()
+        expect(embeddingCreate).toHaveBeenCalledOnce()
+        expect(JSON.stringify(anthropicCreate.mock.calls[0]?.[0].messages)).toContain(message)
+        expect(recordConversationLearningCandidate).not.toHaveBeenCalled()
+      },
+    )
+
+    it('passes ordinary stated needs in bounded history to a later question, without extracting a profile', async () => {
+      setupHappyPath('Here are the confirmed details.')
+      const prior = 'We have 20 minutes, and the children like trains.'
+      messageFindMany.mockReset().mockResolvedValueOnce([
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'Which gallery are you near?',
+          sessionSequence: 2,
+          createdAt: new Date('2026-09-23T12:00:01Z'),
+        },
+        {
+          id: 'u1',
+          role: 'user',
+          content: prior,
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-23T12:00:00Z'),
+        },
+      ])
+      await caller.chat.send({
+        ...sendInput,
+        message: 'We are near the entrance. What is suitable?',
+      })
+      expect(JSON.stringify(anthropicCreate.mock.calls[0]?.[0].messages)).toContain(prior)
+      expect(guestTurnActions.reserve.mock.calls[0]?.[0].request).not.toHaveProperty('visitContext')
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
     it('withholds visited recommendation facts, cards and citations while retaining visit labels', async () => {
       setupHappyPath('Elephants and Penguins are worth seeing.', {
         ...venueRow,

@@ -33,7 +33,22 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
           })
           if (!response.ok || !response.body) {
             await response.body?.cancel('invalid-chat-stream').catch(() => undefined)
-            throw new Error('Chat stream could not start.')
+            // A proxy/auth/rate-limit response may precede NDJSON. Preserve its status,
+            // never its potentially private body, so the visitor owner can recover honestly.
+            const code =
+              (
+                {
+                  400: 'BAD_REQUEST',
+                  401: 'UNAUTHORIZED',
+                  403: 'FORBIDDEN',
+                  404: 'NOT_FOUND',
+                  409: 'CONFLICT',
+                  412: 'PRECONDITION_FAILED',
+                  429: 'TOO_MANY_REQUESTS',
+                } as Record<number, string>
+              )[response.status] ??
+              (response.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'INTERNAL_SERVER_ERROR')
+            throw Object.assign(new Error('Chat stream could not start.'), { data: { code } })
           }
           const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
           const cacheControl = response.headers.get('cache-control')?.toLowerCase() ?? ''

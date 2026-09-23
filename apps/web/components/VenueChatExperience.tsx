@@ -15,12 +15,17 @@ import { useGeolocation } from '../hooks/useGeolocation'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useSession } from '../hooks/useSession'
 import { useGuestVisitContext } from '../hooks/useGuestVisitContext'
-import { GuestVisitPreferences } from './GuestVisitPreferences'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
 import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
 import { browserUuid } from '../lib/browser-uuid'
-import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
+import {
+  forgetPendingChatTurn,
+  readPendingChatTurn,
+  rememberPendingChatTurn,
+  type RecoverableChatInput,
+} from '../lib/pending-chat-turn'
 import { useTRPCClient } from '../lib/trpc'
 import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
@@ -72,7 +77,7 @@ type ChatStreamClient = {
 }
 type PendingTurn = {
   operationId: string
-  input: ChatSendInput
+  input: RecoverableChatInput
   epoch: number
   venueId: string
   anonymousToken: string
@@ -96,6 +101,22 @@ function normalizeHistoryMessages(messages: readonly ChatMessage[]): ReplyAwareC
 }
 
 const VISITOR_READ_TIMEOUT_MS = 15_000
+const VISITOR_TURN_TIMEOUT_MS = 60_000
+type TurnReconciliation =
+  | 'COMPLETE'
+  | 'FAILED'
+  | 'AMBIGUOUS'
+  | 'NOT_FOUND'
+  | 'PENDING'
+  | 'UNAVAILABLE'
+  | 'ACCESS_DENIED'
+
+const ACCESS_RECOVERY_MESSAGE =
+  'Chat access could not be confirmed. Restore access and reopen this venue link, or open a new tab to start a separate conversation. Nothing has been resent.'
+
+function isUnavailableConversation(error: unknown): boolean {
+  return ['UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND'].includes(trpcErrorCode(error) ?? '')
+}
 
 const EXPANSION_REQUEST_MESSAGES: Record<SupportedChatLanguage, string> = {
   English: 'Tell me more about that.',
@@ -149,7 +170,7 @@ export function VenueChatExperience({
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [recoveryMode, setRecoveryMode] = useState<
-    'retry-turn' | 'check-history' | 'load-history' | null
+    'retry-turn' | 'check-history' | 'load-history' | 'access-denied' | null
   >(null)
   const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
     const stored = getStoredLanguage()
@@ -190,11 +211,10 @@ export function VenueChatExperience({
   const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
   const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
     useSession(venue?.id ?? '', experienceStorageScope)
-  const {
-    context: visitContext,
-    updateContext: updateVisitContext,
-    clearVisit,
-  } = useGuestVisitContext(venue?.id ?? '', experienceStorageScope)
+  const { context: visitContext, clearVisit } = useGuestVisitContext(
+    venue?.id ?? '',
+    experienceStorageScope,
+  )
   const visitorId = useVisitorId()
   const {
     endSession,
@@ -245,6 +265,10 @@ export function VenueChatExperience({
   useEffect(() => () => clearCharacterReset(), [clearCharacterReset])
   useEffect(
     () => () => {
+      // Retire this owner before cancellation can schedule a late completion callback.
+      conversationEpochRef.current += 1
+      activeOperationRef.current = null
+      pendingTurnRef.current = null
       activeStreamRef.current?.unsubscribe()
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
@@ -317,6 +341,41 @@ export function VenueChatExperience({
           // The session hook retains its in-memory privacy boundary.
         }
         if (token) {
+          const saved = readPendingChatTurn({
+            venueId: result.id,
+            anonymousToken: token,
+            ...(secondLayerKey ? { secondLayerKey } : {}),
+          })
+          if (saved.kind === 'invalid') {
+            reconciliationRequiredRef.current = true
+            setRecoveryMode('access-denied')
+            setSendError(
+              'This tab could not safely restore its pending message. Keep any draft you need, then reopen the venue in a new tab. Nothing has been resent.',
+            )
+            return
+          }
+          const restoredTurn: PendingTurn | null =
+            saved.kind === 'found'
+              ? {
+                  operationId: saved.input.operationId,
+                  input: saved.input,
+                  epoch,
+                  venueId: result.id,
+                  anonymousToken: token,
+                }
+              : null
+          if (restoredTurn) {
+            pendingTurnRef.current = restoredTurn
+            reconciliationRequiredRef.current = true
+            entryPlaceRef.current.value = undefined
+            setMessages([
+              {
+                role: 'user',
+                content: restoredTurn.input.message,
+                pendingOperationId: restoredTurn.operationId,
+              },
+            ])
+          }
           try {
             const history = await runBoundedClientRequest({
               parentSignal: controller.signal,
@@ -326,6 +385,7 @@ export function VenueChatExperience({
                   {
                     venueId: result.id,
                     anonymousToken: token,
+                    ...(restoredTurn ? { operationId: restoredTurn.operationId } : {}),
                     ...(secondLayerKey ? { secondLayerKey } : {}),
                   },
                   { signal },
@@ -333,18 +393,59 @@ export function VenueChatExperience({
             })
             if (!disposed && conversationEpochRef.current === epoch) {
               historyBootstrapFailureRef.current = null
-              if (history.messages.length)
+              if (restoredTurn) {
+                const scopedTurn = 'turn' in history ? history.turn : null
+                if (scopedTurn && scopedTurn.operationId !== restoredTurn.operationId) {
+                  setRecoveryMode('check-history')
+                  setSendError(getVisitorRecoveryCopy()[2])
+                } else if (scopedTurn?.status === 'COMPLETE') {
+                  setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
+                  forgetPendingChatTurn(restoredTurn.input)
+                  pendingTurnRef.current = null
+                  reconciliationRequiredRef.current = false
+                } else if (scopedTurn?.status === 'FAILED' || scopedTurn?.status === 'AMBIGUOUS') {
+                  setMessages([
+                    ...normalizeHistoryMessages(history.messages as ChatMessage[]),
+                    {
+                      role: 'user',
+                      content: restoredTurn.input.message,
+                      pendingOperationId: restoredTurn.operationId,
+                    },
+                  ])
+                  forgetPendingChatTurn(restoredTurn.input)
+                  pendingTurnRef.current = null
+                  reconciliationRequiredRef.current = false
+                  setSendError(getVisitorRecoveryCopy()[0])
+                } else {
+                  setMessages([
+                    ...normalizeHistoryMessages(history.messages as ChatMessage[]),
+                    {
+                      role: 'user',
+                      content: restoredTurn.input.message,
+                      pendingOperationId: restoredTurn.operationId,
+                    },
+                  ])
+                  setRecoveryMode(scopedTurn ? 'check-history' : 'retry-turn')
+                  setSendError(getVisitorRecoveryCopy()[scopedTurn ? 2 : 7])
+                }
+              } else if (history.messages.length)
                 setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
             }
-          } catch {
+          } catch (error) {
             if (!disposed && conversationEpochRef.current === epoch) {
-              historyBootstrapFailureRef.current = {
-                venueId: result.id,
-                anonymousToken: token,
-                epoch,
-              }
-              setRecoveryMode('load-history')
-              setSendError(getVisitorRecoveryCopy()[2])
+              historyBootstrapFailureRef.current = restoredTurn
+                ? null
+                : {
+                    venueId: result.id,
+                    anonymousToken: token,
+                    epoch,
+                  }
+              const denied = isUnavailableConversation(error)
+              if (denied) reconciliationRequiredRef.current = true
+              setRecoveryMode(
+                denied ? 'access-denied' : restoredTurn ? 'check-history' : 'load-history',
+              )
+              setSendError(denied ? ACCESS_RECOVERY_MESSAGE : getVisitorRecoveryCopy()[2])
               setStableCharacterState('error')
             }
           }
@@ -382,6 +483,7 @@ export function VenueChatExperience({
 
   useEffect(() => {
     let disposed = false
+    const controller = new AbortController()
     async function ensureSession() {
       if (!isOnline || !venue || !anonymousToken) return
       if (lat === null || lng === null) lastSyncedPosRef.current = null
@@ -394,7 +496,7 @@ export function VenueChatExperience({
       }
       const epoch = conversationEpochRef.current
       try {
-        const result = await client.chat.session.mutate({
+        const admission = client.chat.session.mutate({
           venueId: venue.id,
           anonymousToken,
           ...(secondLayerKey ? { secondLayerKey } : {}),
@@ -402,6 +504,11 @@ export function VenueChatExperience({
           ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null
             ? { lat, lng }
             : {}),
+        })
+        const result = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: VISITOR_READ_TIMEOUT_MS,
+          request: () => admission,
         })
         if (!disposed && conversationEpochRef.current === epoch) {
           setSessionId(result.sessionId)
@@ -418,6 +525,7 @@ export function VenueChatExperience({
     void ensureSession()
     return () => {
       disposed = true
+      controller.abort()
     }
   }, [anonymousToken, client, isOnline, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
 
@@ -431,17 +539,6 @@ export function VenueChatExperience({
 
   function turnIsCurrent(turn: PendingTurn) {
     return turnScopeIsCurrent(turn) && pendingTurnRef.current?.operationId === turn.operationId
-  }
-
-  function abandonPendingOptimistic() {
-    const abandonedOperationId = pendingTurnRef.current?.operationId
-    if (!abandonedOperationId) return
-    setMessages((current) =>
-      current.filter((message) => message.pendingOperationId !== abandonedOperationId),
-    )
-    pendingTurnRef.current = null
-    setRecoveryMode(null)
-    setSendError(null)
   }
 
   function applyStreamDelta(turn: PendingTurn, delta: string) {
@@ -470,33 +567,131 @@ export function VenueChatExperience({
 
   async function sendTurnRequest(turn: PendingTurn): Promise<ChatSendResult> {
     const stream = streamingClient.chat.stream
-    if (!stream?.subscribe) return client.chat.send.mutate(turn.input)
-    return new Promise<ChatSendResult>((resolve, reject) => {
-      let completed = false
-      const subscription = stream.subscribe(turn.input, {
+    const controller = new AbortController()
+    let retired = false
+    let subscription: { unsubscribe: () => void } | undefined
+    let rejectRequest: (error: unknown) => void = () => undefined
+    const unsubscribe = () => {
+      const current = subscription
+      subscription = undefined
+      current?.unsubscribe()
+    }
+    const owner = {
+      operationId: turn.operationId,
+      unsubscribe: () => {
+        retired = true
+        controller.abort()
+        unsubscribe()
+        rejectRequest(new BoundedClientRequestError('CANCELLED'))
+      },
+    }
+    activeStreamRef.current = owner
+    const request = new Promise<ChatSendResult>((resolve, reject) => {
+      rejectRequest = reject
+      const finish = (result: ChatSendResult) => {
+        if (retired) return
+        retired = true
+        resolve(result)
+      }
+      const fail = (error: unknown) => {
+        if (retired) return
+        retired = true
+        reject(error)
+      }
+      if (!stream?.subscribe) {
+        // Legacy non-stream callers retain the same immutable request and local Stop
+        // semantics. Cancelling the view is not a claim that provider work was cancelled.
+        void client.chat.send.mutate(turn.input).then(finish, fail)
+        return
+      }
+      subscription = stream.subscribe(turn.input, {
         onData(event) {
-          if (event.type === 'delta') {
-            applyStreamDelta(turn, event.delta)
-            return
-          }
-          completed = true
-          resolve(event.result)
+          if (retired || !turnIsCurrent(turn)) return
+          if (event.type === 'delta') applyStreamDelta(turn, event.delta)
+          else if (event.type === 'complete') finish(event.result)
         },
-        onError(error) {
-          reject(error)
-        },
+        onError: fail,
         onComplete() {
-          if (!completed) reject(new Error('The guide stream ended before completion.'))
+          fail(new Error('The guide stream ended before completion.'))
         },
       })
-      activeStreamRef.current = {
-        operationId: turn.operationId,
-        unsubscribe: () => subscription.unsubscribe(),
-      }
+      if (retired) unsubscribe() // A deterministic/local transport may complete synchronously.
     })
+    try {
+      return await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: VISITOR_TURN_TIMEOUT_MS,
+        request: () => request,
+      })
+    } finally {
+      owner.unsubscribe()
+      if (activeStreamRef.current === owner) activeStreamRef.current = null
+    }
   }
 
-  async function reconcileTurn(turn: PendingTurn): Promise<boolean> {
+  function applyTurnHistory(
+    turn: PendingTurn,
+    history: inferRouterOutputs<AppRouter>['chat']['history'],
+  ): TurnReconciliation {
+    const scopedTurn = 'turn' in history ? history.turn : null
+    if (scopedTurn && scopedTurn.operationId !== turn.operationId) return 'UNAVAILABLE'
+    if (!Array.isArray(history.messages)) return 'UNAVAILABLE'
+    if (!scopedTurn) return 'NOT_FOUND'
+    if (!['COMPLETE', 'FAILED', 'AMBIGUOUS'].includes(scopedTurn.status)) return 'PENDING'
+    const restored = normalizeHistoryMessages(history.messages as ChatMessage[])
+    // The database owner commits both text messages only on COMPLETE. Terminal
+    // failures have no committed pair: keep the guest's exact local text, not a
+    // partial assistant fragment that could be mistaken for an authoritative answer.
+    setMessages(
+      scopedTurn.status === 'COMPLETE'
+        ? restored
+        : [
+            ...restored,
+            {
+              role: 'user',
+              content: turn.input.message,
+              pendingOperationId: turn.operationId,
+            },
+          ],
+    )
+    return scopedTurn.status as 'COMPLETE' | 'FAILED' | 'AMBIGUOUS'
+  }
+
+  function finishReconciliation(
+    turn: PendingTurn,
+    outcome: TurnReconciliation,
+    stopped = false,
+    offerExactReplay = false,
+  ) {
+    if (outcome === 'ACCESS_DENIED') {
+      reconciliationRequiredRef.current = true
+      setRecoveryMode('access-denied')
+      setSendError(ACCESS_RECOVERY_MESSAGE)
+      return
+    }
+    if (outcome === 'COMPLETE' || outcome === 'FAILED' || outcome === 'AMBIGUOUS') {
+      forgetPendingChatTurn(turn.input)
+      pendingTurnRef.current = null
+      reconciliationRequiredRef.current = false
+      stoppedOperationsRef.current.delete(turn.operationId)
+      setRecoveryMode(null)
+      setSendError(
+        outcome === 'COMPLETE'
+          ? stopped
+            ? stopCopy.refreshed
+            : recoveryCopy[8]
+          : 'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.',
+      )
+    } else {
+      reconciliationRequiredRef.current = true
+      const canProbeExactOwner =
+        outcome === 'NOT_FOUND' || (outcome === 'PENDING' && offerExactReplay)
+      setRecoveryMode(canProbeExactOwner ? 'retry-turn' : 'check-history')
+      setSendError(canProbeExactOwner ? getVisitorRecoveryCopy()[7] : getVisitorRecoveryCopy()[2])
+    }
+  }
+
+  async function reconcileTurn(turn: PendingTurn): Promise<TurnReconciliation> {
     reconciliationAbortRef.current?.abort()
     const controller = new AbortController()
     reconciliationAbortRef.current = controller
@@ -510,25 +705,16 @@ export function VenueChatExperience({
               venueId: turn.venueId,
               anonymousToken: turn.anonymousToken,
               operationId: turn.operationId,
-              ...(secondLayerKey ? { secondLayerKey } : {}),
+              ...(turn.input.secondLayerKey ? { secondLayerKey: turn.input.secondLayerKey } : {}),
             },
             { signal },
           ),
       })
-      if (!turnIsCurrent(turn)) return false
-      const scopedTurn = 'turn' in history ? history.turn : null
-      if (
-        !scopedTurn ||
-        scopedTurn.operationId !== turn.operationId ||
-        !['COMPLETE', 'FAILED', 'AMBIGUOUS'].includes(scopedTurn.status)
-      )
-        return false
-      setMessages(normalizeHistoryMessages(history.messages as ChatMessage[]))
-      reconciliationRequiredRef.current = false
-      return true
-    } catch {
+      if (!turnIsCurrent(turn)) return 'UNAVAILABLE'
+      return applyTurnHistory(turn, history)
+    } catch (error) {
       // Retain the frozen operation. A failed reconciliation must not invent an empty history.
-      return false
+      return isUnavailableConversation(error) ? 'ACCESS_DENIED' : 'UNAVAILABLE'
     } finally {
       if (reconciliationAbortRef.current === controller) reconciliationAbortRef.current = null
     }
@@ -536,7 +722,7 @@ export function VenueChatExperience({
 
   async function retryHistoryBootstrap() {
     const failure = historyBootstrapFailureRef.current
-    if (!failure || activeOperationRef.current !== null) return
+    if (!failure || activeOperationRef.current !== null || historyBootstrapAbortRef.current) return
     historyBootstrapAbortRef.current?.abort()
     const controller = new AbortController()
     historyBootstrapAbortRef.current = controller
@@ -567,12 +753,17 @@ export function VenueChatExperience({
       setRecoveryMode(null)
       setSendError(null)
       setTemporaryCharacterState('success', 900)
-    } catch {
+    } catch (error) {
       if (
         historyBootstrapFailureRef.current === failure &&
         conversationEpochRef.current === failure.epoch
-      )
-        setSendError(getVisitorRecoveryCopy()[9])
+      ) {
+        if (isUnavailableConversation(error)) {
+          reconciliationRequiredRef.current = true
+          setRecoveryMode('access-denied')
+          setSendError(ACCESS_RECOVERY_MESSAGE)
+        } else setSendError(getVisitorRecoveryCopy()[9])
+      }
     } finally {
       if (historyBootstrapAbortRef.current === controller) {
         historyBootstrapAbortRef.current = null
@@ -584,6 +775,9 @@ export function VenueChatExperience({
   async function dispatchTurn(turn: PendingTurn, addOptimistic: boolean) {
     if (activeOperationRef.current !== null || !turnIsCurrent(turn)) return
     activeOperationRef.current = turn.operationId
+    // The in-flight owner fences new sends; do not leave the recovery lock on the
+    // composer button, because that would also disable its real Stop control.
+    reconciliationRequiredRef.current = false
     setSendError(null)
     setRecoveryMode(null)
     setIsSending(true)
@@ -638,7 +832,9 @@ export function VenueChatExperience({
         },
       ])
       setSessionId(result.sessionId)
+      forgetPendingChatTurn(turn.input)
       pendingTurnRef.current = null
+      reconciliationRequiredRef.current = false
       setRecoveryMode(null)
       setTemporaryCharacterState(
         replyKind === 'TEMPORARY_FALLBACK' ? 'error' : 'success',
@@ -649,6 +845,12 @@ export function VenueChatExperience({
       if (!turnIsCurrent(turn)) return
       const code = trpcErrorCode(error)
       const publicCode = publicGuestErrorCode(error)
+      setMessages((current) =>
+        current.filter(
+          (message) =>
+            !(message.role === 'assistant' && message.pendingOperationId === turn.operationId),
+        ),
+      )
       if (
         publicCode === 'OUTCOME_AMBIGUOUS' ||
         code === 'CONFLICT' ||
@@ -656,21 +858,11 @@ export function VenueChatExperience({
       ) {
         const reconciled = await reconcileTurn(turn)
         if (!turnIsCurrent(turn)) return
-        if (reconciled) {
-          pendingTurnRef.current = null
-          setRecoveryMode(null)
-          setSendError(
-            publicCode === 'OUTCOME_AMBIGUOUS' || code === 'PRECONDITION_FAILED'
-              ? 'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.'
-              : 'The conversation changed while this message was being checked. Review the refreshed conversation before sending a new message.',
-          )
-        } else {
-          reconciliationRequiredRef.current = true
-          setRecoveryMode('check-history')
-          setSendError(
-            'The conversation changed, but its current history could not be confirmed. Check the conversation before sending a new message.',
-          )
-        }
+        finishReconciliation(turn, reconciled)
+      } else if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
+        reconciliationRequiredRef.current = true
+        setRecoveryMode('access-denied')
+        setSendError(ACCESS_RECOVERY_MESSAGE)
       } else if (
         publicCode === 'PROVIDER_UNAVAILABLE' ||
         publicCode === 'CONTENT_UNAVAILABLE' ||
@@ -679,7 +871,9 @@ export function VenueChatExperience({
         code === 'BAD_REQUEST' ||
         code === 'NOT_FOUND'
       ) {
+        forgetPendingChatTurn(turn.input)
         pendingTurnRef.current = null
+        reconciliationRequiredRef.current = false
         setRecoveryMode(null)
         setSendError(
           publicCode === 'PROVIDER_UNAVAILABLE'
@@ -691,12 +885,11 @@ export function VenueChatExperience({
                 : 'This message could not be accepted. Review it before sending a new message.',
         )
       } else {
+        reconciliationRequiredRef.current = true
         setRecoveryMode('retry-turn')
-        setSendError(
-          publicCode === 'RATE_LIMITED' || code === 'TOO_MANY_REQUESTS'
-            ? 'This message was not sent because the guide is busy. Wait a moment, then retry the same message.'
-            : 'The outcome of this message is not confirmed. Retry the same message safely.',
-        )
+        // RATE_LIMITED also represents the existing server IN_PROGRESS fence; it is
+        // not proof that an earlier request was never sent. Reconcile before replay.
+        setSendError('The outcome of this message is not confirmed. Retry the same message safely.')
       }
       setTemporaryCharacterState('error', 1600)
     } finally {
@@ -704,8 +897,11 @@ export function VenueChatExperience({
         activeStreamRef.current.unsubscribe()
         activeStreamRef.current = null
       }
-      if (activeOperationRef.current === turn.operationId) {
-        if (!reconciliationRequiredRef.current) setIsSending(false)
+      if (
+        activeOperationRef.current === turn.operationId &&
+        !stoppedOperationsRef.current.has(turn.operationId)
+      ) {
+        setIsSending(false)
         activeOperationRef.current = null
       }
     }
@@ -721,10 +917,10 @@ export function VenueChatExperience({
       !message ||
       activeOperationRef.current !== null ||
       reconciliationRequiredRef.current ||
+      pendingTurnRef.current !== null ||
       recoveryMode === 'load-history'
     )
       return false
-    abandonPendingOptimistic()
     const epoch = conversationEpochRef.current
     const operationId = browserUuid()
     if (!operationId) {
@@ -733,7 +929,7 @@ export function VenueChatExperience({
       )
       return false
     }
-    const input: ChatSendInput = {
+    const input: RecoverableChatInput = {
       operationId,
       venueId: venue.id,
       anonymousToken,
@@ -753,39 +949,45 @@ export function VenueChatExperience({
     entryPlaceRef.current.value = undefined
     const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
     pendingTurnRef.current = turn
+    rememberPendingChatTurn(input)
     void dispatchTurn(turn, true)
     return true
   }
 
   function handleRetry() {
-    if (!isOnline) return
+    if (!isOnline || recoveryMode === 'access-denied') return
     if (recoveryMode === 'load-history') {
       void retryHistoryBootstrap()
       return
     }
     const turn = pendingTurnRef.current
     if (!turn) return
-    if (recoveryMode === 'check-history') {
+    if (recoveryMode === 'check-history' || recoveryMode === 'retry-turn') {
+      const retryRequested = recoveryMode === 'retry-turn'
       void (async () => {
         if (activeOperationRef.current !== null) return
         activeOperationRef.current = turn.operationId
         setIsSending(true)
+        setRecoveryMode('check-history')
         const reconciled = await reconcileTurn(turn)
         if (turnIsCurrent(turn)) {
           setIsSending(false)
-          if (reconciled) {
-            reconciliationRequiredRef.current = false
-            pendingTurnRef.current = null
-            setRecoveryMode(null)
+          if ((reconciled === 'NOT_FOUND' || reconciled === 'PENDING') && retryRequested) {
+            // Only the visitor's explicit retry may cross the send boundary; replay
+            // the frozen operation, never today's language, location, QR or draft.
+            // Only the existing reservation owner can decide whether a pending lease
+            // is busy, resumable or terminal. History-only polling cannot retire an
+            // expired RESERVED/GENERATING lease. It must never create a new operation.
+            activeOperationRef.current = null
             stoppedOperationsRef.current.delete(turn.operationId)
-            setSendError(recoveryCopy[8])
-          } else {
-            setSendError(recoveryCopy[9])
+            void dispatchTurn(turn, false)
+            return
           }
+          finishReconciliation(turn, reconciled, false, true)
         }
         if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
       })()
-    } else if (recoveryMode === 'retry-turn') void dispatchTurn(turn, false)
+    }
   }
 
   function handleStopResponse() {
@@ -802,35 +1004,29 @@ export function VenueChatExperience({
       activeStreamRef.current = null
     }
     setSendError(stopCopy.checking)
+    setStableCharacterState('idle')
     setRecoveryMode('check-history')
     setIsSending(true)
+    setMessages((current) =>
+      current.filter(
+        (message) =>
+          !(message.role === 'assistant' && message.pendingOperationId === turn.operationId),
+      ),
+    )
     void reconcileTurn(turn).then((reconciled) => {
       if (!turnIsCurrent(turn)) return
-      if (reconciled) {
-        pendingTurnRef.current = null
-        activeOperationRef.current = null
-        reconciliationRequiredRef.current = false
-        setRecoveryMode(null)
-        setSendError(stopCopy.refreshed)
-        stoppedOperationsRef.current.delete(turn.operationId)
-      } else {
-        activeOperationRef.current = null
-        reconciliationRequiredRef.current = true
-        setRecoveryMode('check-history')
-        setSendError(recoveryCopy[2])
-      }
+      activeOperationRef.current = null
+      finishReconciliation(turn, reconciled, true)
       setIsSending(false)
     })
   }
 
   function handleDraftChange(draft = '') {
+    if (activeOperationRef.current !== null || pendingTurnRef.current) return
     setStableCharacterState(draft.trim() ? 'listening' : 'idle')
-    if (activeOperationRef.current !== null || !pendingTurnRef.current) return
-    if (reconciliationRequiredRef.current) return
-    abandonPendingOptimistic()
   }
 
-  function handleNewConversation(freshVisit = false) {
+  function handleNewConversation() {
     if (
       !isOnline ||
       isBooting ||
@@ -841,17 +1037,14 @@ export function VenueChatExperience({
       reconciliationRequiredRef.current
     )
       return
-    const resetCopy = freshVisit
-      ? 'Start a fresh visit? This clears the chat from this screen and your visit preferences. Saved Torchiko records are not deleted.'
-      : recoveryCopy[10]
-    if ((messages.length || freshVisit) && !window.confirm(resetCopy)) return
+    if (messages.length && !window.confirm(recoveryCopy[10])) return
     const previousToken = anonymousToken
     const previousStartedAt = sessionStartedAtRef.current
     if (!startNewConversation()) {
       setSendError('We could not start a new conversation in this browser.')
       return
     }
-    if (freshVisit) clearVisit()
+    clearVisit()
     conversationEpochRef.current += 1
     activeOperationRef.current = null
     pendingTurnRef.current = null
@@ -931,7 +1124,7 @@ export function VenueChatExperience({
             key={`${venue.id}:${anonymousToken ?? 'pending'}:${sessionId ?? 'unconfirmed'}`}
             venueId={venue.id}
             anonymousToken={sessionId ? anonymousToken : null}
-            disabled={!isOnline || isSending}
+            disabled={!isOnline || isSending || reconciliationRequiredRef.current}
             language={language}
           />
         ) : null
@@ -942,7 +1135,7 @@ export function VenueChatExperience({
         : {})}
       requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
-      onRetry={recoveryMode ? handleRetry : null}
+      onRetry={recoveryMode && recoveryMode !== 'access-denied' ? handleRetry : null}
       retryLabel={
         recoveryMode === 'check-history' || recoveryMode === 'load-history'
           ? recoveryCopy[12]
@@ -959,18 +1152,9 @@ export function VenueChatExperience({
       }
       onNewConversation={() => handleNewConversation()}
       visitContext={visitContext}
-      visitPreferences={
-        <GuestVisitPreferences
-          context={visitContext}
-          onChange={updateVisitContext}
-          onFreshVisit={() => handleNewConversation(true)}
-          disabled={!isOnline || isSending || !anonymousToken || reconciliationRequiredRef.current}
-          places={messages.flatMap((message) => message.places ?? [])}
-        />
-      }
       onVoiceCharacterState={setStableCharacterState}
       onVoiceTranscriptLine={handleVoiceTranscriptLine}
-      {...(recoveryMode === 'load-history' ? { voiceControl: null } : {})}
+      {...(recoveryMode || reconciliationRequiredRef.current ? { voiceControl: null } : {})}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {
           viewedPlaceIdsRef.current.add(placeId)

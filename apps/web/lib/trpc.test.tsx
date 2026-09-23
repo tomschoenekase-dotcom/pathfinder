@@ -36,6 +36,48 @@ function chatStreamClient(client: WebTRPCClient): ChatStreamClient {
 }
 
 describe('TRPCProvider', () => {
+  it.each([
+    [400, 'BAD_REQUEST'],
+    [401, 'UNAUTHORIZED'],
+    [403, 'FORBIDDEN'],
+    [404, 'NOT_FOUND'],
+    [429, 'TOO_MANY_REQUESTS'],
+    [503, 'SERVICE_UNAVAILABLE'],
+  ])(
+    'preserves HTTP %s as a neutral %s recovery signal without reading a server error body',
+    async (status, code) => {
+      let client!: WebTRPCClient
+      const view = render(
+        <TRPCProvider scopeKey="status-test">
+          <ClientProbe
+            onCapture={(value) => {
+              client = (value as { client: WebTRPCClient }).client
+            }}
+          />
+        </TRPCProvider>,
+      )
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('private stack and credentials must not be read', {
+          status: Number(status),
+        }),
+      )
+      const onError = vi.fn()
+      const subscription = chatStreamClient(client).chat.stream.subscribe(
+        {
+          venueId: 'venue-1',
+          anonymousToken: '123e4567-e89b-42d3-a456-426614174000',
+          message: 'Hello',
+        },
+        { onData: vi.fn(), onComplete: vi.fn(), onError },
+      )
+      await waitFor(() => expect(onError).toHaveBeenCalledOnce())
+      expect(onError.mock.calls[0]?.[0]).toMatchObject({ data: { code } })
+      expect(String(onError.mock.calls[0]?.[0])).not.toContain('private stack')
+      subscription.unsubscribe()
+      fetchMock.mockRestore()
+      view.unmount()
+    },
+  )
   it('requires browser consumers to be inside the route-scoped provider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
