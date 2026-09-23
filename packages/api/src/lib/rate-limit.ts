@@ -30,6 +30,70 @@ end
 return count
 `
 
+// Evaluate related limits in their existing order in one Redis round trip.
+// A denied parent limit must not consume a more specific bucket.
+const ORDERED_FIXED_WINDOW_SCRIPT = `
+for i = 1, #KEYS do
+  local count = redis.call('INCR', KEYS[i])
+  local ttl = redis.call('TTL', KEYS[i])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[i], ARGV[i * 2])
+  end
+  if count > tonumber(ARGV[i * 2 - 1]) then
+    return i
+  end
+end
+return 0
+`
+
+export type OrderedRateLimit = {
+  key: string
+  maxRequests: number
+  windowSeconds: number
+}
+
+// Returns the one-based index of the first denied limit, or zero when all
+// limits allow the request. A Redis failure denies the first limit in production.
+export async function checkRateLimitsOrdered(limits: readonly OrderedRateLimit[]): Promise<number> {
+  if (limits.length === 0) return 0
+
+  const fallback = (): number => {
+    if (env.RAILWAY_ENVIRONMENT === 'production') return 1
+    for (let index = 0; index < limits.length; index += 1) {
+      const limit = limits[index]!
+      if (!checkRateLimitInMemory(limit.key, limit.maxRequests, limit.windowSeconds)) {
+        return index + 1
+      }
+    }
+    return 0
+  }
+
+  try {
+    const client = getRedisClient()
+    if (!client) return fallback()
+
+    const result = await client.eval(
+      ORDERED_FIXED_WINDOW_SCRIPT,
+      limits.length,
+      ...limits.map((limit) => limit.key),
+      ...limits.flatMap((limit) => [limit.maxRequests, limit.windowSeconds]),
+    )
+    const deniedIndex = typeof result === 'number' ? result : Number(result)
+    if (!Number.isSafeInteger(deniedIndex) || deniedIndex < 0 || deniedIndex > limits.length) {
+      throw new Error('Redis returned an invalid ordered rate-limit result')
+    }
+    return deniedIndex
+  } catch (error) {
+    logger.warn({
+      action: 'rate_limit.check_failed',
+      deploymentEnvironment: env.RAILWAY_ENVIRONMENT,
+      failClosed: env.RAILWAY_ENVIRONMENT === 'production',
+      error: error instanceof Error ? error.message : 'Unknown Redis error',
+    })
+    return fallback()
+  }
+}
+
 function sweepExpiredBuckets(now: number): void {
   for (const [bucketKey, bucket] of memoryBuckets) {
     if (bucket.resetAt <= now) {

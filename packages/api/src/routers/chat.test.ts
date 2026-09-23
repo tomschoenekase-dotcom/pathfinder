@@ -32,11 +32,12 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent,
 }))
 
-const { checkRateLimit } = vi.hoisted(() => ({
+const { checkRateLimit, checkRateLimitsOrdered } = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
+  checkRateLimitsOrdered: vi.fn(),
 }))
 
-vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit, checkRateLimitsOrdered }))
 
 const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
 vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
@@ -305,6 +306,7 @@ describe('chat router', () => {
       }
     })
     checkRateLimit.mockResolvedValue(true)
+    checkRateLimitsOrdered.mockResolvedValue(0)
   })
 
   afterEach(() => {
@@ -3645,7 +3647,7 @@ describe('chat router', () => {
     )
 
     it('denies exhausted history global ingress before caller-derived keys or database work', async () => {
-      checkRateLimit.mockResolvedValueOnce(false)
+      checkRateLimitsOrdered.mockResolvedValueOnce(1)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3653,14 +3655,21 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimit).toHaveBeenCalledTimes(1)
-      expect(checkRateLimit).toHaveBeenCalledWith('ratelimit:chat-history:ingress:global', 3000, 60)
+      expect(checkRateLimitsOrdered).toHaveBeenCalledWith([
+        { key: 'ratelimit:chat-history:ingress:global', maxRequests: 3000, windowSeconds: 60 },
+        { key: `ratelimit:chat-history:venue:${VENUE_ID}`, maxRequests: 3000, windowSeconds: 60 },
+        {
+          key: `ratelimit:chat-history:session:${VENUE_ID}:${TOKEN}`,
+          maxRequests: 60,
+          windowSeconds: 60,
+        },
+      ])
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })
 
     it('denies an exhausted history venue after bounded global ingress', async () => {
-      checkRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      checkRateLimitsOrdered.mockResolvedValueOnce(2)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3668,21 +3677,13 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimit).toHaveBeenNthCalledWith(
-        2,
-        `ratelimit:chat-history:venue:${VENUE_ID}`,
-        3000,
-        60,
-      )
+      expect(checkRateLimitsOrdered).toHaveBeenCalledTimes(1)
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })
 
     it('denies an exhausted history token after bounded venue ingress', async () => {
-      checkRateLimit
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false)
+      checkRateLimitsOrdered.mockResolvedValueOnce(3)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3690,12 +3691,7 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimit).toHaveBeenNthCalledWith(
-        3,
-        `ratelimit:chat-history:session:${VENUE_ID}:${TOKEN}`,
-        60,
-        60,
-      )
+      expect(checkRateLimitsOrdered).toHaveBeenCalledTimes(1)
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })

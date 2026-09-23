@@ -61,7 +61,7 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
-import { checkRateLimit } from '../lib/rate-limit'
+import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
@@ -2184,30 +2184,24 @@ const chatReadRouter = router({
    * yet — the chat page treats that as a fresh conversation.
    */
   history: publicProcedure.input(ChatHistoryInput).query(async ({ ctx, input }) => {
-    const globallyAllowed = await checkRateLimit(
-      'ratelimit:chat-history:ingress:global',
-      HISTORY_GLOBAL_LIMIT,
-      60,
-    )
-    if (!globallyAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
-    }
-
-    const venueAllowed = await checkRateLimit(
-      `ratelimit:chat-history:venue:${input.venueId}`,
-      HISTORY_VENUE_LIMIT,
-      60,
-    )
-    if (!venueAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
-    }
-
-    const sessionAllowed = await checkRateLimit(
-      `ratelimit:chat-history:session:${input.venueId}:${input.anonymousToken}`,
-      HISTORY_SESSION_LIMIT,
-      60,
-    )
-    if (!sessionAllowed) {
+    const deniedLimit = await checkRateLimitsOrdered([
+      {
+        key: 'ratelimit:chat-history:ingress:global',
+        maxRequests: HISTORY_GLOBAL_LIMIT,
+        windowSeconds: 60,
+      },
+      {
+        key: `ratelimit:chat-history:venue:${input.venueId}`,
+        maxRequests: HISTORY_VENUE_LIMIT,
+        windowSeconds: 60,
+      },
+      {
+        key: `ratelimit:chat-history:session:${input.venueId}:${input.anonymousToken}`,
+        maxRequests: HISTORY_SESSION_LIMIT,
+        windowSeconds: 60,
+      },
+    ])
+    if (deniedLimit !== 0) {
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
     }
 
