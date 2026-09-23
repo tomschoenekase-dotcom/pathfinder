@@ -346,6 +346,34 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
+  it('finishes a warm history read before starting the competing session mutation', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174088'
+    mocks.anonymousToken = token
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    let resolveHistory!: (value: {
+      messages: Array<{ role: 'assistant'; content: string }>
+    }) => void
+    mocks.client.chat.history.query.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHistory = resolve
+      }),
+    )
+
+    render(
+      <VenueChatExperience
+        venueSlug="museum"
+        initialVenue={{ slug: 'museum', venue: activeVenue }}
+      />,
+    )
+
+    await waitFor(() => expect(mocks.client.chat.history.query).toHaveBeenCalledOnce())
+    expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
+
+    await act(async () => resolveHistory({ messages: [{ role: 'assistant', content: 'Ready.' }] }))
+    await screen.findByText('Latest: Ready.')
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce())
+  })
+
   it('does not use an admitted venue from a different route or for a second layer', async () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     const view = render(
