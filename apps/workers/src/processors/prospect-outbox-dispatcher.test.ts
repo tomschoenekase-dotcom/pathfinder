@@ -7,6 +7,8 @@ const { findControl, findMany, enqueueProspectOutreach } = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS: 4,
+  PROSPECT_SEND_RECONCILIATION_CODES: ['AMBIGUOUS_SEND', 'UNCLASSIFIED_PROVIDER_FAILURE'],
   db: {
     prospectDeliveryControl: { findUnique: findControl },
     prospectSendOutbox: { findMany },
@@ -63,7 +65,15 @@ describe('prospect outbox dispatcher', () => {
     expect(enqueueProspectOutreach).toHaveBeenNthCalledWith(2, { outboxId: 'outbox-2' })
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ OR: expect.any(Array) }),
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({
+              status: 'AMBIGUOUS',
+              attemptCount: { lt: 4 },
+              lastErrorCode: { in: ['AMBIGUOUS_SEND', 'UNCLASSIFIED_PROVIDER_FAILURE'] },
+            }),
+          ]),
+        }),
         take: 100,
       }),
     )

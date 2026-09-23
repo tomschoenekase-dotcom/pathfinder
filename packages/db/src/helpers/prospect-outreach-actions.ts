@@ -17,6 +17,7 @@ import {
 export const PROSPECT_PLAYBOOK_VERSION = 'torchiko-email-playbook-2026-08-18'
 export const PROSPECT_OUTREACH_MAX_COHORT = 5_000
 export const PROSPECT_OUTREACH_MAX_BATCH = 500
+export const PROSPECT_OUTREACH_COMPANY_SENDER = 'tomschoenekase@torchiko.com'
 export const PROSPECT_OUTREACH_RELEASE_POLICY = Object.freeze({
   phase: 'INITIAL_CANARY' as const,
   maxRecipients: 50,
@@ -709,7 +710,8 @@ export async function releaseProspectSendBatchAction(
       !providerAccount.capabilities.includes('SEND') ||
       providerAccount.connectionStatus !== 'CONNECTED' ||
       !providerAccount.deliveryEnabled ||
-      providerAccount.pausedAt
+      providerAccount.pausedAt ||
+      providerAccount.mailboxAddress.trim().toLowerCase() !== PROSPECT_OUTREACH_COMPANY_SENDER
     ) {
       throw new ProspectOutreachError(
         'APPROVAL_REQUIRED',

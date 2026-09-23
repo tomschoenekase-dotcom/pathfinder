@@ -118,7 +118,7 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       const recipientEmail = prospect.contact?.email
       if (!contactId || !recipientEmail)
         throw new Error('Disposable prospect fixture requires contact')
-      const mailboxAddress = `outreach-${suffix}@example.test`
+      const mailboxAddress = 'tomschoenekase@torchiko.com'
       const providerAccount = await db.correspondenceProviderAccount.create({
         data: {
           provider: 'GMAIL',

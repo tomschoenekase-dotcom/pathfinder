@@ -39,16 +39,21 @@ export async function readProspectLaunchAssets(
     throw new Error('LAUNCH_ASSET_SCOPE_EXCEEDS_BOUND')
   const assets: VenueLaunchAsset[] = []
   for (const link of links) {
-    const asset = await db.$transaction(
-      (client) =>
-        resolveVenueLaunchAsset({
-          client,
-          ...link,
-          configuredOrigin: process.env.NEXT_PUBLIC_WEB_URL,
-        }),
+    const current = await db.$transaction(
+      async (client) =>
+        Promise.all(
+          (['SVG', 'PNG', 'PDF'] as const).map((format) =>
+            resolveVenueLaunchAsset({
+              client,
+              ...link,
+              configuredOrigin: process.env.NEXT_PUBLIC_WEB_URL,
+              format,
+            }),
+          ),
+        ),
       { isolationLevel: 'RepeatableRead' },
     )
-    if (asset) assets.push(asset)
+    for (const asset of current) if (asset) assets.push(asset)
   }
   return assets
 }

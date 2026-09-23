@@ -1,5 +1,9 @@
 import { logger } from '@pathfinder/config'
-import { db } from '@pathfinder/db'
+import {
+  db,
+  MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS,
+  PROSPECT_SEND_RECONCILIATION_CODES,
+} from '@pathfinder/db'
 import { enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const DEFAULT_INTERVAL_MS = 30_000
@@ -24,7 +28,17 @@ export async function dispatchPendingProspectOutbox(
       availableAt: { lte: now },
       OR: [
         { status: { in: ['PENDING', 'RETRYABLE'] }, claimOwner: null },
-        { status: 'CLAIMED', claimExpiresAt: { lt: now } },
+        {
+          status: 'AMBIGUOUS',
+          claimOwner: null,
+          attemptCount: { lt: MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS },
+          lastErrorCode: { in: [...PROSPECT_SEND_RECONCILIATION_CODES] },
+        },
+        {
+          status: 'CLAIMED',
+          claimExpiresAt: { lt: now },
+          attemptCount: { lt: MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS },
+        },
       ],
     },
     orderBy: [{ availableAt: 'asc' }, { id: 'asc' }],

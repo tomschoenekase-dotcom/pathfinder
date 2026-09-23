@@ -530,6 +530,105 @@ describe('prospect send claim rate reservation', () => {
 describe('prospect frozen launch attachment readback', () => {
   const now = new Date('2026-08-22T16:00:00.000Z')
 
+  it('leases a provider-ambiguous operation for lookup only without fresh send authority', async () => {
+    const recipient = 'recipient@example.test'
+    const snapshot = { launchAttachments: [frozenPdfAsset] }
+    const previous = {
+      id: 'outbox-1',
+      operationId: '00000000-0000-4000-8000-000000000001',
+      providerAccountId: 'mailbox-1',
+      status: 'AMBIGUOUS',
+      lastErrorCode: 'AMBIGUOUS_SEND',
+      availableAt: new Date(now.valueOf() - 1_000),
+      claimOwner: null,
+      claimExpiresAt: null,
+      attemptCount: 1,
+      providerIdempotencyKey: 'outbox-key-1',
+      providerAccount: {
+        id: 'mailbox-1',
+        provider: 'GMAIL',
+        externalAccountId: 'me',
+        credentialReferenceId: 'credential-1',
+        mailboxAddress: 'tomschoenekase@torchiko.com',
+        dailySendCap: 100,
+        perDomainDailyCap: 100,
+        minimumDelaySeconds: 0,
+        jitterSeconds: 0,
+      },
+      sendItem: {
+        id: 'item-1',
+        batchId: 'batch-1',
+        recipientEmailSnapshot: recipient,
+        subjectSnapshot: 'Subject',
+        textBodySnapshot: 'Exact approved text',
+        htmlBodySnapshot: null,
+        contentHashSnapshot: prospectOperationalContentHash(
+          recipient,
+          'Subject',
+          'Exact approved text',
+          '',
+          snapshot,
+        ),
+        headerSnapshot: {
+          ...snapshot,
+          launchAttachmentsSha256: launchAttachmentsSha256([frozenPdfAsset]),
+        },
+        draft: { groundingSnapshot: snapshot },
+        batch: { campaignId: 'campaign-1', campaign: { dailySendCap: 100 } },
+      },
+    }
+    const current = {
+      ...previous,
+      status: 'CLAIMED',
+      claimOwner: 'worker-1',
+      claimExpiresAt: new Date(now.valueOf() + 120_000),
+      attemptCount: 2,
+    }
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValueOnce(previous).mockResolvedValueOnce(current),
+        count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      prospectDeliveryControl: { findUnique: vi.fn() },
+      prospectEmailMessage: { findFirst: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    const recovered = await claimProspectSendOutboxAction(
+      { outboxId: 'outbox-1', workerId: 'worker-1', now },
+      client as never,
+    )
+    expect(recovered).toMatchObject({
+      attemptCount: 2,
+      textBody: 'Exact approved text',
+      launchAttachments: [frozenPdfAsset],
+    })
+    expect(tx.prospectDeliveryControl.findUnique).not.toHaveBeenCalled()
+    expect(tx.prospectEmailMessage.findFirst).not.toHaveBeenCalled()
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ status: 'AMBIGUOUS', attemptCount: { lt: 4 } }),
+          ]),
+        }),
+      }),
+    )
+    tx.prospectSendOutbox.findUnique.mockReset().mockResolvedValue({
+      ...previous,
+      attemptCount: 4,
+    })
+    await expect(
+      claimProspectSendOutboxAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBeNull()
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledTimes(1)
+  })
+
   it('returns the exact reviewed attachment from the leased outbox send', async () => {
     const recipient = 'prospect@example.test'
     const snapshot = { launchAttachments: [frozenAsset] }

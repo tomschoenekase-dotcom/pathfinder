@@ -10,6 +10,7 @@ import {
 } from '@pathfinder/api/correspondence'
 import {
   claimProspectSendOutboxAction,
+  PROSPECT_OUTREACH_COMPANY_SENDER,
   recordProspectSendFailureAction,
   recordProspectSendSuccessAction,
   revalidateProspectSendOutboxClaimAction,
@@ -133,7 +134,20 @@ export async function processSendProspectOutreachJob(
       workerId,
     })
     if (!claimed) return
-    if (!isProspectRecipientAllowed(claimed.recipient)) {
+    if (
+      claimed.attemptCount <= 1 &&
+      claimed.mailboxAddress.trim().toLowerCase() !== PROSPECT_OUTREACH_COMPANY_SENDER
+    ) {
+      await recordProspectSendFailureAction({
+        outboxId: claimed.outboxId,
+        workerId,
+        code: 'UNEXPECTED_SENDER',
+        retryable: false,
+        acceptanceAmbiguous: false,
+      })
+      return
+    }
+    if (claimed.attemptCount <= 1 && !isProspectRecipientAllowed(claimed.recipient)) {
       await recordProspectSendFailureAction({
         outboxId: claimed.outboxId,
         workerId,
@@ -164,11 +178,13 @@ export async function processSendProspectOutreachJob(
     }
     try {
       const correspondence = providerForRuntime(claimed.provider)
-      const stillAuthorized = await revalidateProspectSendOutboxClaimAction({
-        outboxId: claimed.outboxId,
-        workerId,
-      })
-      if (!stillAuthorized) return
+      if (claimed.attemptCount <= 1) {
+        const stillAuthorized = await revalidateProspectSendOutboxClaimAction({
+          outboxId: claimed.outboxId,
+          workerId,
+        })
+        if (!stillAuthorized) return
+      }
       const result = await sendOrRecoverProspectCorrespondence(
         correspondence,
         frozen,

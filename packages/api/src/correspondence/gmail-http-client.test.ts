@@ -110,6 +110,67 @@ describe('createGmailApiClient', () => {
   })
 
   it.each([
+    ['PNG', 'image/png', 'venue-qr.png', Buffer.from('png fixture')],
+    ['PDF', 'application/pdf', 'venue-qr.pdf', Buffer.from('%PDF-1.4 fixture')],
+  ] as const)(
+    'recognizes the frozen %s attachment during SENT recovery',
+    async (format, mimeType, filename, bytes) => {
+      const asset: VenueLaunchAsset = {
+        schema: 'torchiko.venue-launch-asset/2',
+        tenantId: 'tenant',
+        venueId: 'venue',
+        release: { kind: 'NATIVE', id: 'release', revisionSha256: 'a'.repeat(64) },
+        publicUrl: 'https://example.com/chat?source=qr',
+        format,
+        generatorVersion: 'qr-print-v1',
+        filename,
+        mimeType,
+        sizeBytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        contentBase64: bytes.toString('base64'),
+      }
+      const full = {
+        ...message('m1'),
+        labelIds: ['SENT'],
+        payload: {
+          headers: [
+            { name: 'Message-ID', value: '<send@example.test>' },
+            { name: 'From', value: recoveryMailbox.mailboxAddress },
+            { name: 'To', value: 'person@example.org' },
+            { name: 'Subject', value: 'Subject' },
+          ],
+          parts: [
+            {
+              mimeType: 'text/plain',
+              filename: '',
+              body: { data: Buffer.from('hello').toString('base64url'), size: 5 },
+            },
+            { mimeType, filename, body: { attachmentId: 'a1', size: bytes.length } },
+          ],
+          body: { size: 0 },
+        },
+      }
+      const request = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/messages?')) return json({ messages: [{ id: 'm1' }] })
+        if (url.endsWith('/messages/m1?format=full')) return json(full)
+        if (url.endsWith('/messages/m1/attachments/a1'))
+          return json({ data: bytes.toString('base64url'), size: bytes.length })
+        throw new Error(`unexpected request ${url}`)
+      })
+      const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+      const found = await client.findByRfcMessageId({
+        accessToken: 'token',
+        mailboxAddress: recoveryMailbox.mailboxAddress,
+        rfcMessageId: '<send@example.test>',
+        expectedAttachments: [asset],
+      })
+      expect(found).toHaveLength(1)
+      expect(found[0]).not.toHaveProperty('hasUnexpectedMimeParts')
+      expect(found[0]?.attachments?.[0]?.contentBase64Url).toBe(bytes.toString('base64url'))
+    },
+  )
+
+  it.each([
     'duplicate critical header',
     'inline non-text MIME part',
     'multiple text/plain MIME parts',

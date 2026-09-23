@@ -55,7 +55,11 @@ const makeAsset = (bytes: Buffer, format: 'SVG' | 'PNG' | 'PDF' = 'SVG'): VenueL
 describe('prospect launch asset selection', () => {
   beforeEach(() => {
     mock.links.mockReset().mockResolvedValue([{ tenantId: 'tenant-1', venueId: 'venue-1' }])
-    mock.resolve.mockReset().mockResolvedValue(makeAsset(pngBytes, 'PNG'))
+    mock.resolve
+      .mockReset()
+      .mockImplementation(({ format }: { format: 'SVG' | 'PNG' | 'PDF' }) =>
+        makeAsset(format === 'SVG' ? svgBytes : format === 'PNG' ? pngBytes : pdfBytes, format),
+      )
     mock.transaction
       .mockReset()
       .mockImplementation((callback: (client: object) => unknown) => callback({}))
@@ -63,9 +67,12 @@ describe('prospect launch asset selection', () => {
 
   it('resolves only bounded active conversion links under repeatable read', async () => {
     await expect(readProspectLaunchAssets('prospect-venue-1')).resolves.toEqual([
+      makeAsset(svgBytes),
       makeAsset(pngBytes, 'PNG'),
+      makeAsset(pdfBytes, 'PDF'),
     ])
     expect(mock.links).toHaveBeenCalledWith('prospect-venue-1')
+    expect(mock.resolve.mock.calls.map(([input]) => input.format)).toEqual(['SVG', 'PNG', 'PDF'])
     expect(mock.transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'RepeatableRead',
     })
@@ -92,8 +99,11 @@ describe('prospect launch asset selection', () => {
     })
     expect(selected).toEqual(makeAsset(pngBytes, 'PNG'))
     const view = await prospectLaunchAssetView('prospect-venue-1')
-    expect(view.available[0]).toMatchObject({ format: 'PNG', generatorVersion: 'qr-print-v1' })
-    expect(view.available[0]).not.toHaveProperty('contentBase64')
+    expect(view.available.find((asset) => asset.mimeType === 'image/png')).toMatchObject({
+      format: 'PNG',
+      generatorVersion: 'qr-print-v1',
+    })
+    expect(view.available.every((asset) => !('contentBase64' in asset))).toBe(true)
     await expect(
       selectProspectLaunchAsset('prospect-venue-1', {
         tenantId: 'tenant-1',

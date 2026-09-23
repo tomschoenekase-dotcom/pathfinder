@@ -2,8 +2,10 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import jsQR from 'jsqr'
 import sharp from 'sharp'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
+
+vi.mock('../lib/trpc', () => ({ useTRPCClient: () => ({}) }))
 
 import { VenueQrKit } from './VenueQrKit'
 

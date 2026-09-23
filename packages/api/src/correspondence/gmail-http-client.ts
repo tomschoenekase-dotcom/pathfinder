@@ -130,7 +130,7 @@ function normalizeMessage(value: unknown): GmailApiMessage {
       return false
     const body = object(part.body)
     return !(
-      mimeType === 'image/svg+xml' &&
+      ['image/svg+xml', 'image/png', 'application/pdf'].includes(mimeType) &&
       typeof part.filename === 'string' &&
       part.filename.length > 0 &&
       (typeof body.attachmentId === 'string' || typeof body.data === 'string')

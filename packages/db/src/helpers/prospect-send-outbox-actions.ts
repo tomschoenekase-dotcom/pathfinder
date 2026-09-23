@@ -17,6 +17,13 @@ import {
 type Client = typeof db
 type TransactionClient = Parameters<Parameters<Client['$transaction']>[0]>[0]
 
+/** One provider send followed by at most three lookup-only reconciliation attempts. */
+export const MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS = 4
+export const PROSPECT_SEND_RECONCILIATION_CODES = [
+  'AMBIGUOUS_SEND',
+  'UNCLASSIFIED_PROVIDER_FAILURE',
+] as const
+
 const TERMINAL_ITEM_STATES = [
   'SENT',
   'DELIVERED',
@@ -236,13 +243,26 @@ export async function claimProspectSendOutboxAction(
       },
     })
     if (!operationBeforeClaim) return { send: null, terminalBatchId: null }
+    const expiredPriorClaim =
+      operationBeforeClaim.status === 'CLAIMED' &&
+      operationBeforeClaim.attemptCount > 0 &&
+      Boolean(operationBeforeClaim.claimExpiresAt && operationBeforeClaim.claimExpiresAt < now)
+    const reconcileOnly =
+      operationBeforeClaim.attemptCount < MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS &&
+      (expiredPriorClaim ||
+        (operationBeforeClaim.status === 'AMBIGUOUS' &&
+          PROSPECT_SEND_RECONCILIATION_CODES.some(
+            (code) => code === operationBeforeClaim.lastErrorCode,
+          )))
     const claimable =
       (['PENDING', 'RETRYABLE'] as const).includes(
         operationBeforeClaim.status as 'PENDING' | 'RETRYABLE',
       ) && !operationBeforeClaim.claimOwner
         ? true
-        : operationBeforeClaim.status === 'CLAIMED' &&
-          Boolean(operationBeforeClaim.claimExpiresAt && operationBeforeClaim.claimExpiresAt < now)
+        : reconcileOnly && !operationBeforeClaim.claimOwner
+          ? true
+          : expiredPriorClaim &&
+            operationBeforeClaim.attemptCount < MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS
     if (!claimable || operationBeforeClaim.availableAt > now) {
       return { send: null, terminalBatchId: null }
     }
@@ -305,7 +325,7 @@ export async function claimProspectSendOutboxAction(
       jitterSeconds: operationBeforeClaim.providerAccount.jitterSeconds,
       lastReservedAt: latestReservation?.updatedAt ?? null,
     })
-    if (!rateDecision.allowed) {
+    if (!reconcileOnly && !rateDecision.allowed) {
       await tx.prospectSendOutbox.updateMany({
         where: {
           id: operationBeforeClaim.id,
@@ -332,7 +352,17 @@ export async function claimProspectSendOutboxAction(
         availableAt: { lte: now },
         OR: [
           { status: { in: ['PENDING', 'RETRYABLE'] }, claimOwner: null },
-          { status: 'CLAIMED', claimExpiresAt: { lt: now } },
+          {
+            status: 'AMBIGUOUS',
+            claimOwner: null,
+            attemptCount: { lt: MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS },
+            lastErrorCode: { in: [...PROSPECT_SEND_RECONCILIATION_CODES] },
+          },
+          {
+            status: 'CLAIMED',
+            claimExpiresAt: { lt: now },
+            attemptCount: { lt: MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS },
+          },
         ],
       },
       data: {
@@ -395,6 +425,50 @@ export async function claimProspectSendOutboxAction(
         },
       })
       return { send: null, terminalBatchId: sendItem.batchId }
+    }
+    if (providerAccount.provider === 'RESEND') {
+      throw new ProspectSendOutboxError(
+        'DISABLED',
+        'Resend is prohibited for prospect correspondence operations',
+      )
+    }
+    const frozenSend: FrozenProspectSend = {
+      outboxId: operation.id,
+      operationId: operation.operationId,
+      claimOwner: input.workerId,
+      provider: providerAccount.provider,
+      providerAccountId: providerAccount.id,
+      externalAccountId: providerAccount.externalAccountId,
+      credentialReferenceId: providerAccount.credentialReferenceId ?? '',
+      mailboxAddress: providerAccount.mailboxAddress,
+      idempotencyKey: operation.providerIdempotencyKey,
+      attemptCount: operation.attemptCount,
+      recipient: sendItem.recipientEmailSnapshot,
+      subject: sendItem.subjectSnapshot,
+      textBody: sendItem.textBodySnapshot,
+      htmlBody: sendItem.htmlBodySnapshot,
+      headers: sendItem.headerSnapshot,
+      launchAttachments,
+    }
+    // The first provider call may already have succeeded. Recovery only reads the
+    // sent mailbox and compares this exact frozen envelope; it cannot dispatch.
+    if (reconcileOnly) {
+      if (!providerAccount.credentialReferenceId) {
+        await tx.prospectSendOutbox.update({
+          where: { id: operation.id },
+          data: {
+            status: 'AMBIGUOUS',
+            terminalAt: now,
+            claimOwner: null,
+            claimExpiresAt: null,
+            lastErrorCode: 'RECOVERY_CREDENTIAL_MISSING',
+            lastErrorMessage: 'The original mailbox credential is unavailable for readback',
+            lastErrorRetryable: false,
+          },
+        })
+        return { send: null, terminalBatchId: sendItem.batchId }
+      }
+      return { send: frozenSend, terminalBatchId: null }
     }
     const control = await tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } })
     if (
@@ -500,33 +574,7 @@ export async function claimProspectSendOutboxAction(
       })
       return { send: null, terminalBatchId: sendItem.batchId }
     }
-    if (providerAccount.provider === 'RESEND') {
-      throw new ProspectSendOutboxError(
-        'DISABLED',
-        'Resend is prohibited for prospect correspondence operations',
-      )
-    }
-    return {
-      terminalBatchId: null,
-      send: {
-        outboxId: operation.id,
-        operationId: operation.operationId,
-        claimOwner: input.workerId,
-        provider: providerAccount.provider,
-        providerAccountId: providerAccount.id,
-        externalAccountId: providerAccount.externalAccountId,
-        credentialReferenceId: providerAccount.credentialReferenceId,
-        mailboxAddress: providerAccount.mailboxAddress,
-        idempotencyKey: operation.providerIdempotencyKey,
-        attemptCount: operation.attemptCount,
-        recipient: sendItem.recipientEmailSnapshot,
-        subject: sendItem.subjectSnapshot,
-        textBody: sendItem.textBodySnapshot,
-        htmlBody: sendItem.htmlBodySnapshot,
-        headers: sendItem.headerSnapshot,
-        launchAttachments,
-      } satisfies FrozenProspectSend,
-    }
+    return { terminalBatchId: null, send: frozenSend }
   })
   if (outcome.terminalBatchId) await finalizeProspectSendBatch(outcome.terminalBatchId, client)
   return outcome.send
@@ -798,8 +846,14 @@ export async function recordProspectSendFailureAction(
         lastErrorCode: failureCode,
         lastErrorMessage: failureMessage,
         lastErrorRetryable: input.retryable,
-        ambiguousSince: input.acceptanceAmbiguous ? now : null,
-        terminalAt: input.retryable ? null : now,
+        ambiguousSince: input.acceptanceAmbiguous ? (operation.ambiguousSince ?? now) : null,
+        terminalAt:
+          input.acceptanceAmbiguous &&
+          operation.attemptCount < MAX_PROSPECT_SEND_RECONCILIATION_ATTEMPTS
+            ? null
+            : input.retryable
+              ? null
+              : now,
       },
     })
     if (completed.count !== 1) {
