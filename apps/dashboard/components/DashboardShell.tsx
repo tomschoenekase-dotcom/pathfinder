@@ -307,7 +307,7 @@ export function DashboardShellView({
                     className={`relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent ${active ? 'border-[#f2a65a] bg-white/8 text-white' : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white'}`}
                   >
                     <Icon className="h-4 w-4" aria-hidden="true" />
-                    <span>{item.label === 'Today' ? 'Home' : item.label}</span>
+                    <span>{item.label}</span>
                   </Link>
                 )
               })}

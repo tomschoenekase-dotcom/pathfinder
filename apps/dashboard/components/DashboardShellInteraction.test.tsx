@@ -245,7 +245,7 @@ describe('DashboardShell interaction semantics', () => {
       </DashboardShell>,
     )
 
-    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/?venue=venue-1')
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/?venue=venue-1')
     expect(screen.getByRole('link', { name: 'Information' }).getAttribute('href')).toBe(
       '/information',
     )
