@@ -53,7 +53,7 @@ describe('client QR kit route', () => {
     mocks.launchAsset.mockResolvedValue(asset)
   })
 
-  it('passes only active public item identity into the client QR component', async () => {
+  it('does not load or expose place-specific QR inputs', async () => {
     mocks.placeList.mockResolvedValue([
       {
         id: 'public_1',
@@ -81,12 +81,12 @@ describe('client QR kit route', () => {
 
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     const kit = result
-    expect(mocks.placeList).toHaveBeenCalledWith({ venueId: venue.id })
+    expect(mocks.placeList).not.toHaveBeenCalled()
     expect(kit.props).toMatchObject({
       venueName: 'Museum',
       guestChatUrl: 'https://guide.example.com/museum/chat',
-      guideItems: [{ id: 'public_1', name: 'Tide Clock', updatedAt: '2026-09-08T12:00:00.000Z' }],
     })
+    expect(kit.props).not.toHaveProperty('guideItems')
     expect(JSON.stringify(kit.props)).not.toContain('private server-side metadata')
   })
 
@@ -153,7 +153,7 @@ describe('client QR kit route', () => {
     ])
     const result = await VenueQrKitPage({ params: Promise.resolve({ venueId: venue.id }) })
     expect(result.props.guestChatUrl).toBe('https://guide.example.com/museum/chat')
-    expect(mocks.placeList).toHaveBeenCalledWith({ venueId: venue.id })
+    expect(mocks.placeList).not.toHaveBeenCalled()
   })
 
   it('fails closed for revisions without a current release', async () => {
@@ -198,9 +198,6 @@ describe('VenueQrKitAvailability', () => {
       hasCurrentRelease: true,
       guestChatUrl: 'https://guide.example.com/museum/chat',
       generatedAt: '2026-09-08T00:00:00.000Z',
-      guideItems: [
-        { id: 'private-input', name: 'Must not render', updatedAt: '2026-09-08T00:00:00.000Z' },
-      ],
     })
     expect(unavailable.type).toBe('section')
     const childText = (node: React.ReactNode): string => {
@@ -211,6 +208,5 @@ describe('VenueQrKitAvailability', () => {
       return ''
     }
     expect(childText(unavailable)).toContain('QR code is not available yet')
-    expect(childText(unavailable)).not.toContain('Must not render')
   })
 })

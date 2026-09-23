@@ -102,7 +102,7 @@ export function VenueGuestAccessPanel({
               href={`/venues/${venueId}/qr-kit`}
               className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
             >
-              Create QR kit
+              Create QR code
             </Link>
           </div>
         </div>

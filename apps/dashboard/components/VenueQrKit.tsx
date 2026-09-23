@@ -4,24 +4,16 @@ import { useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
-import { buildGuideItemEntryUrl, buildQrEntryUrl } from '../lib/guest-chat-url'
+import { buildQrEntryUrl } from '../lib/guest-chat-url'
 import { buildQrSvgFilename, downloadQrSvg, downloadQrSvgBytes } from '../lib/qr-export'
 import { CopyUrlButton } from './CopyUrlButton'
-
-type GuideItem = {
-  id: string
-  name: string
-  updatedAt: string
-}
 
 type VenueQrKitProps = {
   audience?: 'admin' | 'client'
   venueName: string
   guestChatUrl: string
   generatedAt: string
-  guideItems: GuideItem[]
   venueAsset?: VenueLaunchAsset | null
-  includeGuideItemCodes?: boolean
 }
 
 function QrCard({
@@ -96,17 +88,9 @@ export function VenueQrKit({
   venueName,
   guestChatUrl,
   generatedAt,
-  guideItems,
   venueAsset,
-  includeGuideItemCodes = false,
 }: VenueQrKitProps) {
   const venueQrUrl = venueAsset?.publicUrl ?? buildQrEntryUrl(guestChatUrl)
-  const itemEntries = includeGuideItemCodes
-    ? guideItems.flatMap((item) => {
-        const url = buildGuideItemEntryUrl(guestChatUrl, item)
-        return url ? [{ ...item, url }] : []
-      })
-    : []
   const isClient = audience === 'client'
 
   return (
@@ -117,12 +101,12 @@ export function VenueQrKit({
             {isClient ? 'Visitor access' : 'Internal print tool'}
           </p>
           <h1 id="qr-kit-title" className="mt-2 text-4xl font-semibold text-pf-deep">
-            {isClient ? `${venueName} QR code` : `${venueName} QR kit`}
+            {venueName} QR code
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/80">
             {isClient
               ? 'Use this one code on signs, handouts, and anywhere visitors need the guide.'
-              : `Scan-test ${itemEntries.length > 0 ? 'every code' : 'the code'} before printing. Creating this sheet does not approve public launch.`}
+              : 'Scan-test the code before printing. Creating this sheet does not approve public launch.'}
           </p>
         </div>
         <button
@@ -130,7 +114,7 @@ export function VenueQrKit({
           onClick={() => window.print()}
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-deep px-5 text-sm font-medium text-white hover:bg-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
         >
-          {isClient ? 'Print QR code' : 'Print QR sheets'}
+          Print QR code
         </button>
       </div>
 
@@ -140,13 +124,7 @@ export function VenueQrKit({
           : `Generated ${generatedAt}. URLs contain no secret and remain subject to venue availability, rate limits, and incident controls.`}
       </p>
 
-      <div
-        className={
-          itemEntries.length > 0
-            ? 'grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2'
-            : 'mx-auto max-w-md'
-        }
-      >
+      <div className="mx-auto max-w-md">
         {venueQrUrl ? (
           <QrCard
             label={`${venueName} visitor guide`}
@@ -160,9 +138,6 @@ export function VenueQrKit({
             showRevision={!isClient}
           />
         ) : null}
-        {itemEntries.map((item) => (
-          <QrCard key={item.id} label={item.name} url={item.url} revision={item.updatedAt} />
-        ))}
       </div>
     </section>
   )

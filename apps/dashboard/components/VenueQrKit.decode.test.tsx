@@ -16,7 +16,6 @@ function renderGeneralQrSvg() {
       venueName="Museum"
       guestChatUrl={guestChatUrl}
       generatedAt="2026-08-28T00:00:00.000Z"
-      guideItems={[]}
     />,
   )
   const svg = markup.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/)?.[0]

@@ -46,14 +46,14 @@ describe('internal workspace QR launch kit route', () => {
     expect(html).toContain('Museum visitor guide')
     expect(html).toContain(asset.publicUrl.replaceAll('&', '&amp;'))
     expect(html).toContain('Content revision: legacy aaaaaaaaaaaa')
-    expect(html).toContain('Print QR sheets')
+    expect(html).toContain('Print QR code')
     expect(html).not.toContain('Private staff entrance')
   })
 
   it('renders no code when the current public source is unavailable', async () => {
     mocks.getVenueLaunchAsset.mockResolvedValue(null)
     const html = await renderPage()
-    expect(html).toContain('QR kit is not available')
+    expect(html).toContain('QR code is not available')
     expect(html).not.toContain('<svg')
     expect(html).not.toContain('Private staff entrance')
   })
@@ -61,7 +61,7 @@ describe('internal workspace QR launch kit route', () => {
   it('provides a recoverable error when the source read fails', async () => {
     mocks.getVenueLaunchAsset.mockRejectedValue(new Error('read unavailable'))
     const html = await renderPage()
-    expect(html).toContain('QR kit could not be loaded')
+    expect(html).toContain('QR code could not be loaded')
     expect(html).toContain('retry')
     expect(html).not.toContain('<svg')
   })

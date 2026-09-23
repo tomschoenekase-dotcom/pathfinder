@@ -51,7 +51,7 @@ describe('VenueGuestAccessPanel', () => {
     expect(screen.getByText(url)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open guest chat' }).getAttribute('href')).toBe(url)
     expect(screen.getByRole('button', { name: 'Copy guest chat URL' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Create QR kit' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Create QR code' }).getAttribute('href')).toBe(
       '/venues/venue_1/qr-kit',
     )
   })

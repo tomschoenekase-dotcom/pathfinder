@@ -43,31 +43,6 @@ export function buildGuestChatUrl(
   }
 }
 
-export function buildGuideItemEntryUrl(
-  guestChatUrl: string | null,
-  guideItem: { id: string; name: string },
-): string | null {
-  const id = guideItem.id.trim()
-  const name = guideItem.name.trim()
-
-  if (!guestChatUrl || !id || !name || name.length > 120) return null
-
-  try {
-    const url = new URL(guestChatUrl)
-    if (url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/chat')) {
-      return null
-    }
-
-    url.searchParams.set('entry', 'guide-item')
-    url.searchParams.set('source', 'qr')
-    url.searchParams.set('item', id)
-    url.searchParams.set('prompt', `Tell me about ${name}.`)
-    return url.toString()
-  } catch {
-    return null
-  }
-}
-
 export function buildQrEntryUrl(guestChatUrl: string | null): string | null {
   if (!guestChatUrl) return null
 

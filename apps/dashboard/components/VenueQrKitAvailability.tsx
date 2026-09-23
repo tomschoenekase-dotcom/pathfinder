@@ -3,12 +3,6 @@ import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { VenueQrKit } from './VenueQrKit'
 
-export type VenueQrKitGuideItem = {
-  id: string
-  name: string
-  updatedAt: string
-}
-
 export type VenueQrKitAvailabilityProps = {
   venueId: string
   venueName: string
@@ -16,7 +10,6 @@ export type VenueQrKitAvailabilityProps = {
   hasCurrentRelease: boolean
   guestChatUrl: string | null
   generatedAt: string
-  guideItems: VenueQrKitGuideItem[]
   venueAsset?: VenueLaunchAsset | null
 }
 
@@ -39,7 +32,6 @@ export function VenueQrKitAvailability({
   hasCurrentRelease,
   guestChatUrl,
   generatedAt,
-  guideItems,
   venueAsset,
 }: VenueQrKitAvailabilityProps) {
   const available = isVenueQrKitAvailable(lifecycleState, guestChatUrl, hasCurrentRelease)
@@ -79,7 +71,6 @@ export function VenueQrKitAvailability({
         venueName={venueName}
         guestChatUrl={guestChatUrl}
         generatedAt={generatedAt}
-        guideItems={guideItems}
         venueAsset={venueAsset ?? null}
       />
     </div>

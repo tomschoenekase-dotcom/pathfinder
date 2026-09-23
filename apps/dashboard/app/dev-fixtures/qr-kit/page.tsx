@@ -20,10 +20,6 @@ export default async function QrKitFixture({
           venueName="Harbor House"
           guestChatUrl="https://guide.example.com/harbor-house/chat"
           generatedAt="2026-09-07T12:00:00.000Z"
-          guideItems={[
-            { id: 'place-tide-clock', name: 'Tide Clock', updatedAt: '2026-09-06T12:00:00.000Z' },
-            { id: 'place-lake-lab', name: 'Lake Lab', updatedAt: '2026-09-05T12:00:00.000Z' },
-          ]}
         />
       </div>
     </main>

@@ -4,7 +4,7 @@ test.describe('QR launch kit', () => {
   test('renders one venue-correct public target by default on desktop', async ({ page }) => {
     await page.goto('/dev-fixtures/qr-kit')
 
-    await expect(page.getByRole('heading', { name: 'Harbor House QR kit' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Harbor House QR code' })).toBeVisible()
     await expect(
       page.getByText('https://guide.example.com/harbor-house/chat?source=qr'),
     ).toBeVisible()
@@ -39,8 +39,8 @@ test.describe('QR launch kit', () => {
     )
     await expect(page.getByRole('button', { name: 'Copy guest chat URL' }).first()).toBeEnabled()
 
-    await page.getByRole('button', { name: 'Print QR sheets' }).click()
+    await page.getByRole('button', { name: 'Print QR code' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-print-requested', 'true')
-    await expect(page.getByRole('button', { name: 'Print QR sheets' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Print QR code' })).toBeVisible()
   })
 })

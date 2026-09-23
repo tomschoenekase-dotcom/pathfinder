@@ -7,7 +7,7 @@ import { buildGuestChatUrl } from '../lib/guest-chat-url'
 import { useTRPCClient } from '../lib/trpc'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { SupportWorkspace } from './SupportWorkspace'
-import { isVenueQrKitAvailable, VenueQrKitAvailability } from './VenueQrKitAvailability'
+import { VenueQrKitAvailability } from './VenueQrKitAvailability'
 
 type LoadedState = {
   venue: { id: string; name: string; slug: string }
@@ -15,7 +15,6 @@ type LoadedState = {
   lifecycleState: string
   hasCurrentRelease: boolean
   guestChatUrl: string | null
-  guideItems: Array<{ id: string; name: string; updatedAt: string }>
   requests: Awaited<
     ReturnType<ReturnType<typeof useTRPCClient>['support']['listRequests']['query']>
   >
@@ -56,19 +55,13 @@ export function ConnectedClientHandoffFixture({
         const guestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
           allowLoopbackHttp: process.env.NODE_ENV === 'development',
         })
-        const available = isVenueQrKitAvailable(
-          lifecycle.lifecycle.state,
-          guestChatUrl,
-          lifecycle.release.released,
-        )
-        const [requests, attachments, places] = await runBoundedClientRequest({
+        const [requests, attachments] = await runBoundedClientRequest({
           parentSignal: controller.signal,
           timeoutMs: 15_000,
           request: (signal) =>
             Promise.all([
               client.support.listRequests.query({ venueId }, { signal }),
               client.support.listEligibleAttachments.query({ venueId, limit: 20 }, { signal }),
-              available ? client.place.list.query({ venueId }, { signal }) : Promise.resolve([]),
             ]),
         })
         if (controller.signal.aborted) return
@@ -78,13 +71,6 @@ export function ConnectedClientHandoffFixture({
           lifecycleState: lifecycle.lifecycle.state,
           hasCurrentRelease: lifecycle.release.released,
           guestChatUrl,
-          guideItems: places
-            .filter((place) => place.isActive && place.visibility === 'PUBLIC')
-            .map((place) => ({
-              id: place.id,
-              name: place.name,
-              updatedAt: place.updatedAt.toISOString(),
-            })),
           requests,
           attachments,
         })
@@ -140,7 +126,6 @@ export function ConnectedClientHandoffFixture({
           hasCurrentRelease={loaded.hasCurrentRelease}
           guestChatUrl={loaded.guestChatUrl}
           generatedAt={new Date().toISOString()}
-          guideItems={loaded.guideItems}
         />
 
         <section aria-labelledby="connected-support-heading">

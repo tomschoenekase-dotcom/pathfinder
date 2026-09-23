@@ -30,17 +30,6 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
     venueAsset !== null,
   )
   const guestChatUrl = available ? candidateGuestChatUrl : null
-  const guideItems =
-    available && venueAsset?.release.kind === 'LEGACY'
-      ? (await caller.place.list({ venueId }))
-          .filter((place) => place.isActive && place.visibility === 'PUBLIC')
-          .map((place) => ({
-            id: place.id,
-            name: place.name,
-            updatedAt: place.updatedAt.toISOString(),
-          }))
-      : []
-
   return (
     <VenueQrKitAvailability
       venueId={venue.id}
@@ -49,7 +38,6 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
       hasCurrentRelease={venueAsset !== null}
       guestChatUrl={guestChatUrl}
       generatedAt={new Date().toISOString()}
-      guideItems={guideItems}
       venueAsset={venueAsset}
     />
   )

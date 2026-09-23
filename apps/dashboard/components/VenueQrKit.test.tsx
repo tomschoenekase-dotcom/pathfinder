@@ -13,13 +13,12 @@ describe('VenueQrKit', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders one primary venue code by default even when guide items exist', () => {
+  it('renders exactly one primary venue code', () => {
     render(
       <VenueQrKit
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         generatedAt="2026-08-11T18:00:00.000Z"
-        guideItems={[{ id: 'place_1', name: 'Tide Clock', updatedAt: '2026-08-10T12:00:00.000Z' }]}
       />,
     )
 
@@ -32,22 +31,6 @@ describe('VenueQrKit', () => {
     expect(screen.getAllByText(/save this QR code for signs and handouts/i)).toHaveLength(1)
   })
 
-  it('keeps per-item codes behind an explicit future-facing opt-in', () => {
-    render(
-      <VenueQrKit
-        venueName="Museum"
-        guestChatUrl="https://guide.example.com/museum/chat"
-        generatedAt="2026-08-11T18:00:00.000Z"
-        guideItems={[{ id: 'place_1', name: 'Tide Clock', updatedAt: '2026-08-10T12:00:00.000Z' }]}
-        includeGuideItemCodes
-      />,
-    )
-
-    expect(screen.getByText('Tide Clock')).toBeTruthy()
-    expect(screen.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeTruthy()
-    expect(screen.getAllByTitle(/QR code for/)).toHaveLength(2)
-  })
-
   it('uses the browser print dialog only after an explicit operator action', () => {
     const print = vi.spyOn(window, 'print').mockImplementation(() => undefined)
     render(
@@ -55,12 +38,11 @@ describe('VenueQrKit', () => {
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         generatedAt="2026-08-11T18:00:00.000Z"
-        guideItems={[]}
       />,
     )
 
     expect(print).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Print QR sheets' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Print QR code' }))
     expect(print).toHaveBeenCalledOnce()
   })
 
@@ -70,7 +52,6 @@ describe('VenueQrKit', () => {
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         generatedAt="2026-09-22T00:00:00.000Z"
-        guideItems={[]}
         venueAsset={{
           schema: 'torchiko.venue-launch-asset/1',
           tenantId: 'tenant_1',
@@ -96,7 +77,6 @@ describe('VenueQrKit', () => {
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         generatedAt="2026-08-11T18:00:00.000Z"
-        guideItems={[]}
       />,
     )
 
@@ -123,7 +103,6 @@ describe('VenueQrKit', () => {
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         generatedAt="2026-08-11T18:00:00.000Z"
-        guideItems={[]}
       />,
     )
 

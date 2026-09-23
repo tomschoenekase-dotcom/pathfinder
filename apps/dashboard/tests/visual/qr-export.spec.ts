@@ -34,7 +34,7 @@ test.describe('QR SVG export proof', () => {
   }, testInfo) => {
     skipTablet(testInfo)
     await page.goto(`${baseUrl}/dev-fixtures/qr-kit`)
-    await expect(page.getByRole('heading', { name: 'Harbor House QR kit' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Harbor House QR code' })).toBeVisible()
 
     const targets = ['Harbor House visitor guide']
     for (const label of targets) {

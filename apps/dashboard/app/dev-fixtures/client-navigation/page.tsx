@@ -117,7 +117,6 @@ function content(target: string) {
           venueName="Great Lakes Discovery Museum"
           guestChatUrl="https://guide.example.com/great-lakes-discovery-museum/chat"
           generatedAt="2026-09-08T12:00:00.000Z"
-          guideItems={[]}
         />
       </div>
     )
