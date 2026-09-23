@@ -12,6 +12,8 @@ describe('QuickPromptChips', () => {
     const group = screen.getByRole('region', { name: 'Start with a question' })
     expect(screen.queryByText('Start with a question')).toBeNull()
     expect(group.querySelectorAll('button')).toHaveLength(3)
+    expect(group.querySelectorAll('svg[aria-hidden="true"][focusable="false"]')).toHaveLength(3)
+    expect(group.textContent).not.toContain('↗')
   })
 
   it('retains the localized prompt group and explicit selection', () => {

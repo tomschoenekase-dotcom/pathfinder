@@ -194,7 +194,9 @@
 }
 .promptArrow {
   flex-shrink: 0;
-  font-size: 18px;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 3px;
   color: var(--chat-accent-text);
 }
 .assistant {
