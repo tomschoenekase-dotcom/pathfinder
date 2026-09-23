@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 const mocks = vi.hoisted(() => ({
   campaign: vi.fn(),
@@ -49,6 +50,48 @@ function member(index: number) {
 
 describe('prospect campaign detail pagination v2', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('shows selected attachment descriptors without returning frozen file bytes', async () => {
+    const bytes = Buffer.from('<svg><path d="M0 0h1v1H0z"/></svg>')
+    const asset = {
+      schema: 'torchiko.venue-launch-asset/1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      release: { kind: 'LEGACY', id: 'release-1', revisionSha256: 'a'.repeat(64) },
+      publicUrl: 'https://guide.torchiko.com/miniaturemuseum/chat?source=qr',
+      filename: 'museum-qr.svg',
+      mimeType: 'image/svg+xml',
+      sizeBytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      contentBase64: bytes.toString('base64'),
+    }
+    mocks.campaign.mockResolvedValue({
+      id: 'campaign-1',
+      members: [
+        {
+          ...member(1),
+          drafts: [{ id: 'draft-1', groundingSnapshot: { launchAttachments: [asset] } }],
+        },
+      ],
+      sendBatches: [
+        {
+          id: 'batch-1',
+          items: [{ id: 'item-1', headerSnapshot: { launchAttachments: [asset] } }],
+        },
+      ],
+    })
+    const result = await caller.crm.getProspectCampaign({ campaignId: 'campaign-1' })
+    const draftAttachment = (
+      result.members[0]?.drafts[0]?.groundingSnapshot as { launchAttachments: (typeof asset)[] }
+    ).launchAttachments[0]
+    const frozenAttachment = (
+      result.sendBatches[0]?.items[0]?.headerSnapshot as { launchAttachments: (typeof asset)[] }
+    ).launchAttachments[0]
+    expect(draftAttachment).toMatchObject({ filename: asset.filename, sha256: asset.sha256 })
+    expect(frozenAttachment).toMatchObject({ filename: asset.filename, sha256: asset.sha256 })
+    expect(draftAttachment).not.toHaveProperty('contentBase64')
+    expect(frozenAttachment).not.toHaveProperty('contentBase64')
+  })
 
   it('bounds a 5,000-member campaign detail and omits frozen delivery bodies', async () => {
     const members = Array.from({ length: 5_000 }, (_, index) => member(index))
@@ -185,6 +228,7 @@ describe('prospect campaign detail pagination v2', () => {
       select: {
         id: true,
         contentHashSnapshot: true,
+        headerSnapshot: true,
         textBodySnapshot: true,
         htmlBodySnapshot: true,
       },

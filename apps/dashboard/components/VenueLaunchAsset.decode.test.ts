@@ -56,4 +56,30 @@ describe('server venue launch QR asset', () => {
     source.mockResolvedValue(null)
     await expect(resolveVenueLaunchAsset(input)).resolves.toBeNull()
   })
+
+  it('returns exact deterministic PNG bytes with the same canonical destination', async () => {
+    const first = await resolveVenueLaunchAsset({ ...input, format: 'PNG' })
+    const second = await resolveVenueLaunchAsset({ ...input, format: 'PNG' })
+    expect(first).toEqual(second)
+    expect(first?.schema).toBe('torchiko.venue-launch-asset/2')
+    if (!first || first.schema !== 'torchiko.venue-launch-asset/2')
+      throw new Error('PNG asset unavailable')
+    expect(first.format).toBe('PNG')
+    expect(first.mimeType).toBe('image/png')
+    const bytes = Buffer.from(first.contentBase64, 'base64')
+    expect(bytes.length).toBe(first.sizeBytes)
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(first.sha256)
+    const { data, info } = await sharp(bytes)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const decoded = jsQR(
+      new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength),
+      info.width,
+      info.height,
+      { inversionAttempts: 'attemptBoth' },
+    )
+    expect(decoded?.data).toBe(publicUrl)
+    expect(first.filename).toMatch(/^torchiko-museum-[a-f0-9]{12}-qr\.png$/u)
+  })
 })

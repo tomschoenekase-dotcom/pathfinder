@@ -1,11 +1,20 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { buildQrEntryUrl } from '../lib/guest-chat-url'
-import { buildQrSvgFilename, downloadQrSvg, downloadQrSvgBytes } from '../lib/qr-export'
+import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import {
+  buildQrFilename,
+  downloadQrPdf,
+  downloadQrAssetBytes,
+  downloadQrPng,
+  downloadQrSvg,
+  downloadQrSvgBytes,
+} from '../lib/qr-export'
 import { CopyUrlButton } from './CopyUrlButton'
 
 type VenueQrKitProps = {
@@ -17,28 +26,96 @@ type VenueQrKitProps = {
 }
 
 function QrCard({
+  audience,
   label,
+  venueName,
   url,
   revision,
   venueAsset,
   showRevision = true,
 }: {
+  audience: 'admin' | 'client'
   label: string
+  venueName: string
   url: string
   revision: string
   venueAsset?: VenueLaunchAsset | null
   showRevision?: boolean
 }) {
+  const client = useTRPCClient()
   const svgRef = useRef<SVGSVGElement>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const requestAbort = useRef<AbortController | null>(null)
 
-  function handleDownload() {
+  useEffect(() => () => requestAbort.current?.abort(), [venueAsset?.venueId])
+
+  async function handleDownload(format: 'svg' | 'png' | 'pdf') {
     setExportError(null)
+    setExporting(true)
     try {
-      if (venueAsset) downloadQrSvgBytes(venueAsset.contentBase64, venueAsset.filename)
-      else downloadQrSvg(svgRef.current, buildQrSvgFilename(label))
+      if (format === 'svg') {
+        if (venueAsset) downloadQrSvgBytes(venueAsset.contentBase64, venueAsset.filename)
+        else downloadQrSvg(svgRef.current, buildQrFilename(label, 'svg'))
+      } else if (venueAsset) {
+        const serverFormat = format.toUpperCase() as 'PNG' | 'PDF'
+        const controller = new AbortController()
+        requestAbort.current?.abort()
+        requestAbort.current = controller
+        const asset = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: 30_000,
+          request: (signal) =>
+            audience === 'admin'
+              ? client.admin.getVenueLaunchAsset.query(
+                  {
+                    tenantId: venueAsset.tenantId,
+                    venueId: venueAsset.venueId,
+                    format: serverFormat,
+                  },
+                  { signal },
+                )
+              : client.portal.getVenueLaunchAsset.query(
+                  {
+                    venueId: venueAsset.venueId,
+                    format: serverFormat,
+                  },
+                  { signal },
+                ),
+        })
+        if (controller.signal.aborted) return
+
+        if (
+          !asset ||
+          asset.schema !== 'torchiko.venue-launch-asset/2' ||
+          asset.format !== serverFormat ||
+          asset.tenantId !== venueAsset.tenantId ||
+          asset.venueId !== venueAsset.venueId ||
+          asset.publicUrl !== venueAsset.publicUrl ||
+          asset.release.kind !== venueAsset.release.kind ||
+          asset.release.id !== venueAsset.release.id ||
+          asset.release.revisionSha256 !== venueAsset.release.revisionSha256 ||
+          asset.mimeType !== (format === 'png' ? 'image/png' : 'application/pdf') ||
+          !asset.filename.endsWith(`.${format}`)
+        ) {
+          throw new Error('The venue QR print asset no longer matches the current release.')
+        }
+
+        const binarySize = window.atob(asset.contentBase64).length
+        if (binarySize !== asset.sizeBytes) {
+          throw new Error('The venue QR print asset bytes are incomplete.')
+        }
+        downloadQrAssetBytes(asset.contentBase64, asset.mimeType, asset.filename)
+      } else if (format === 'png') {
+        await downloadQrPng(url, buildQrFilename(label, 'png'))
+      } else {
+        downloadQrPdf(venueName, url, buildQrFilename(venueName, 'pdf'))
+      }
     } catch {
-      setExportError('This QR code could not be downloaded. Try printing this page instead.')
+      setExportError(`The ${format.toUpperCase()} QR export could not be downloaded. Try again.`)
+    } finally {
+      requestAbort.current = null
+      setExporting(false)
     }
   }
 
@@ -67,11 +144,30 @@ function QrCard({
         <CopyUrlButton url={url} />
         <button
           type="button"
-          onClick={handleDownload}
+          onClick={() => void handleDownload('svg')}
           aria-label={`Download SVG for ${label}`}
+          disabled={exporting}
           className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-deep/25 px-4 text-sm font-medium text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
         >
           Download SVG
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleDownload('png')}
+          aria-label={`Download PNG for ${label}`}
+          disabled={exporting}
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-deep/25 px-4 text-sm font-medium text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+        >
+          Download PNG
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleDownload('pdf')}
+          aria-label={`Download PDF for ${label}`}
+          disabled={exporting}
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-deep/25 px-4 text-sm font-medium text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+        >
+          Download PDF
         </button>
       </div>
       {exportError ? (
@@ -127,7 +223,9 @@ export function VenueQrKit({
       <div className="mx-auto max-w-md">
         {venueQrUrl ? (
           <QrCard
+            audience={audience}
             label={`${venueName} visitor guide`}
+            venueName={venueName}
             url={venueQrUrl}
             revision={
               venueAsset

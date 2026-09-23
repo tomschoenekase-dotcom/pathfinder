@@ -100,6 +100,16 @@ export async function sendOrRecoverProspectCorrespondence(
     mailbox: frozen.mailbox,
     operationId: frozen.operationId,
     rfcMessageId: frozen.rfcMessageId,
+    expected: {
+      senderEmail: frozen.from.email,
+      recipientEmail: frozen.recipient.email,
+      subject: frozen.subject,
+      textBody: frozen.textBody,
+      attachments: frozen.attachments ?? [],
+      ...(frozen.inReplyTo ? { inReplyTo: frozen.inReplyTo } : {}),
+      references: frozen.references,
+      ...(frozen.providerThreadId ? { providerThreadId: frozen.providerThreadId } : {}),
+    },
   })
   if (lookup.state === 'FOUND') return lookup.result
   throw new CorrespondenceProviderError(
@@ -147,6 +157,7 @@ export async function processSendProspectOutreachJob(
       from: { email: claimed.mailboxAddress },
       subject: claimed.subject,
       textBody: claimed.textBody,
+      attachments: claimed.launchAttachments,
       // Reviewed HTML sanitization is not mounted. Prospect delivery is text-only in this release.
       rfcMessageId: `<torchiko.${claimed.operationId}@torchiko.com>`,
       references: [],

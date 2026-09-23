@@ -1,6 +1,16 @@
 export { db } from './client'
 export { resolveVenueLaunchSource, type VenueLaunchSource } from './helpers/venue-launch-source'
 export {
+  readProspectLaunchLinks,
+  requireCurrentProspectLaunchAttachments,
+  requireSameLaunchAttachments,
+  prospectOperationalContentHash,
+  ProspectLaunchAttachmentError,
+  type VerifiedCurrentProspectPrintAsset,
+  type ProspectLaunchAttachmentValidationOptions,
+  type ProspectLaunchReadClient,
+} from './helpers/prospect-launch-attachments'
+export {
   readSupportPortableExport,
   SUPPORT_PORTABLE_EXPORT_LIMITS,
   SupportPortableExportReadError,

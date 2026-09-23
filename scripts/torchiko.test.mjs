@@ -85,7 +85,7 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   )
   const prospectTools = tools.tools.filter((tool) => tool.family === 'prospect-agent')
   const prospectNames = new Set(prospectTools.map((tool) => tool.name))
-  assert.equal(prospectTools.length, 8)
+  assert.equal(prospectTools.length, 10)
   assert.equal(
     prospectTools.every(
       (tool) =>

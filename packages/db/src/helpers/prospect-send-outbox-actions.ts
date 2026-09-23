@@ -1,7 +1,18 @@
 import { createHash } from 'node:crypto'
 
+import {
+  launchAttachmentsFromSnapshot,
+  launchAttachmentsSha256,
+} from '@pathfinder/contracts/venue-launch-asset-node'
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
+
 import { db } from '../client'
 import { evaluateProspectSendRatePolicy } from './prospect-send-rate-policy'
+import {
+  prospectOperationalContentHash,
+  requireCurrentProspectLaunchAttachments,
+  requireSameLaunchAttachments,
+} from './prospect-launch-attachments'
 
 type Client = typeof db
 type TransactionClient = Parameters<Parameters<Client['$transaction']>[0]>[0]
@@ -34,6 +45,44 @@ export type FrozenProspectSend = {
   textBody: string
   htmlBody: string | null
   headers: unknown
+  launchAttachments: VenueLaunchAsset[]
+}
+
+function readFrozenLaunchAttachments(sendItem: {
+  recipientEmailSnapshot: string
+  subjectSnapshot: string
+  textBodySnapshot: string
+  htmlBodySnapshot: string | null
+  contentHashSnapshot: string
+  headerSnapshot: unknown
+  draft?: { groundingSnapshot: unknown } | null
+}): VenueLaunchAsset[] {
+  const attachments = launchAttachmentsFromSnapshot(sendItem.headerSnapshot)
+  if (!attachments.length) return attachments
+  if (!sendItem.draft)
+    throw new ProspectSendOutboxError('CONFLICT', 'Frozen draft snapshot is missing')
+  requireSameLaunchAttachments(sendItem.draft.groundingSnapshot, sendItem.headerSnapshot)
+  const declaredSha =
+    sendItem.headerSnapshot && typeof sendItem.headerSnapshot === 'object'
+      ? (sendItem.headerSnapshot as Record<string, unknown>).launchAttachmentsSha256
+      : undefined
+  if (declaredSha !== launchAttachmentsSha256(attachments)) {
+    throw new ProspectSendOutboxError('CONFLICT', 'Frozen launch attachment digest does not match')
+  }
+  const contentHash = prospectOperationalContentHash(
+    sendItem.recipientEmailSnapshot,
+    sendItem.subjectSnapshot,
+    sendItem.textBodySnapshot,
+    sendItem.htmlBodySnapshot ?? '',
+    { launchAttachments: attachments },
+  )
+  if (contentHash !== sendItem.contentHashSnapshot) {
+    throw new ProspectSendOutboxError(
+      'CONFLICT',
+      'Frozen send content or launch attachments changed',
+    )
+  }
+  return attachments
 }
 
 export class ProspectSendOutboxError extends Error {
@@ -181,6 +230,7 @@ export async function claimProspectSendOutboxAction(
           include: {
             batch: { include: { campaign: true } },
             member: { include: { contact: true } },
+            draft: true,
           },
         },
       },
@@ -305,6 +355,7 @@ export async function claimProspectSendOutboxAction(
           include: {
             batch: { include: { campaign: true } },
             member: { include: { contact: true } },
+            draft: true,
           },
         },
       },
@@ -313,6 +364,38 @@ export async function claimProspectSendOutboxAction(
       return { send: null, terminalBatchId: null }
     }
     const { providerAccount, sendItem } = operation
+    let launchAttachments: VenueLaunchAsset[]
+    try {
+      launchAttachments = readFrozenLaunchAttachments(sendItem)
+    } catch {
+      const stopped = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: now },
+        },
+        data: {
+          status: 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: 'FROZEN_LAUNCH_ATTACHMENT_INVALID',
+          lastErrorMessage: 'Frozen launch attachment data did not match the approved send',
+          lastErrorRetryable: false,
+        },
+      })
+      if (stopped.count !== 1) return { send: null, terminalBatchId: null }
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: {
+          status: 'CANCELLED',
+          lastErrorCode: 'FROZEN_LAUNCH_ATTACHMENT_INVALID',
+          lastErrorMessage: 'Frozen launch attachment data did not match the approved send',
+        },
+      })
+      return { send: null, terminalBatchId: sendItem.batchId }
+    }
     const control = await tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } })
     if (
       !deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
@@ -441,6 +524,7 @@ export async function claimProspectSendOutboxAction(
         textBody: sendItem.textBodySnapshot,
         htmlBody: sendItem.htmlBodySnapshot,
         headers: sendItem.headerSnapshot,
+        launchAttachments,
       } satisfies FrozenProspectSend,
     }
   })
@@ -469,6 +553,7 @@ export async function revalidateProspectSendOutboxClaimAction(
               batch: { include: { campaign: true } },
               member: {
                 include: {
+                  venue: { select: { id: true } },
                   contact: {
                     select: {
                       normalizedEmail: true,
@@ -482,6 +567,7 @@ export async function revalidateProspectSendOutboxClaimAction(
                   },
                 },
               },
+              draft: true,
             },
           },
         },
@@ -566,6 +652,55 @@ export async function revalidateProspectSendOutboxClaimAction(
             ? 'RECIPIENT_IDENTITY_CHANGED'
             : 'CONTACT_SUPPRESSED',
           lastErrorMessage: 'Recipient eligibility changed after claim and before provider call',
+        },
+      })
+      terminalBatchId = sendItem.batchId
+      return false
+    }
+    let launchAttachments: VenueLaunchAsset[]
+    let attachmentsCurrent = true
+    const attachmentsCheckedAt = input.now ?? new Date()
+    try {
+      launchAttachments = readFrozenLaunchAttachments(sendItem)
+      if (launchAttachments.length) {
+        const prospectVenueId = sendItem.draft.venueId ?? sendItem.member.venue?.id ?? null
+        if (!prospectVenueId)
+          throw new Error('Frozen launch attachments have no prospect venue scope')
+        await requireCurrentProspectLaunchAttachments(prospectVenueId, launchAttachments, {
+          client: tx,
+          allowFrozenVerifiedPrintAttachments: true,
+        })
+      }
+    } catch {
+      launchAttachments = []
+      attachmentsCurrent = false
+    }
+    if (operation.claimExpiresAt <= attachmentsCheckedAt) return false
+    if (!attachmentsCurrent) {
+      const stopped = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: attachmentsCheckedAt },
+        },
+        data: {
+          status: 'CANCELLED',
+          terminalAt: attachmentsCheckedAt,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: 'LAUNCH_ATTACHMENT_STALE',
+          lastErrorMessage: 'The approved venue QR is no longer current or failed integrity checks',
+          lastErrorRetryable: false,
+        },
+      })
+      if (stopped.count !== 1) return false
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: {
+          status: 'CANCELLED',
+          lastErrorCode: 'LAUNCH_ATTACHMENT_STALE',
+          lastErrorMessage: 'The approved venue QR is no longer current or failed integrity checks',
         },
       })
       terminalBatchId = sendItem.batchId

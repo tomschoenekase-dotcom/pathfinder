@@ -1,7 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import {
+  launchAttachmentsFromSnapshot,
+  launchAttachmentsSha256,
+} from '@pathfinder/contracts/venue-launch-asset-node'
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
+
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import {
+  prospectOperationalContentHash,
+  requireCurrentProspectLaunchAttachments,
+  requireSameLaunchAttachments,
+} from './prospect-launch-attachments'
 
 export const PROSPECT_PLAYBOOK_VERSION = 'torchiko-email-playbook-2026-08-18'
 export const PROSPECT_OUTREACH_MAX_COHORT = 5_000
@@ -18,6 +29,10 @@ export const PROSPECT_OUTREACH_RELEASE_POLICY = Object.freeze({
 type HumanActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 type DraftActor = HumanActor | { type: 'AGENT'; id: string; capabilities: readonly string[] }
 type Client = typeof db
+type VerifiedCurrentProspectPrintAsset = Readonly<{
+  prospectVenueId: string
+  asset: VenueLaunchAsset
+}>
 
 export class ProspectOutreachError extends Error {
   constructor(
@@ -35,6 +50,50 @@ function hash(value: string): string {
 
 function json(value: unknown): object | unknown[] {
   return JSON.parse(JSON.stringify(value)) as object | unknown[]
+}
+
+async function currentDraftLaunchAttachments(
+  prospectVenueId: string | null,
+  snapshot: unknown,
+  client: Parameters<Parameters<Client['$transaction']>[0]>[0],
+  verifiedCurrentPrintAssets: readonly VerifiedCurrentProspectPrintAsset[] = [],
+  allowFrozenVerifiedPrintAttachments = false,
+): Promise<VenueLaunchAsset[]> {
+  try {
+    const attachments = launchAttachmentsFromSnapshot(snapshot)
+    if (!attachments.length) return attachments
+    if (!prospectVenueId) {
+      throw new ProspectOutreachError(
+        'CONFLICT',
+        'Launch attachments require an active prospect venue',
+      )
+    }
+    const proof = verifiedCurrentPrintAssets
+      .filter((entry) => entry.prospectVenueId === prospectVenueId)
+      .map((entry) => entry.asset)
+    const current = await requireCurrentProspectLaunchAttachments(prospectVenueId, attachments, {
+      client,
+      verifiedCurrentPrintAssets: proof,
+      ...(allowFrozenVerifiedPrintAttachments ? { allowFrozenVerifiedPrintAttachments: true } : {}),
+    })
+    requireSameLaunchAttachments({ launchAttachments: attachments }, { launchAttachments: current })
+    return current
+  } catch (error) {
+    if (error instanceof ProspectOutreachError) throw error
+    throw new ProspectOutreachError(
+      'CONFLICT',
+      error instanceof Error ? error.message : 'Launch attachment selection is invalid',
+    )
+  }
+}
+
+function snapshotWithLaunchAttachments(snapshot: unknown, attachments: VenueLaunchAsset[]) {
+  if (!attachments.length) return snapshot
+  const record =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? (snapshot as Record<string, unknown>)
+      : {}
+  return { ...record, launchAttachments: attachments }
 }
 
 function requireHuman(actor: HumanActor): void {
@@ -164,6 +223,7 @@ export async function saveProspectOutreachDraftAction(
     textBody: string
     htmlBody?: string
     groundingSnapshot: unknown
+    verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: DraftActor
   },
   client: Client = db,
@@ -208,6 +268,16 @@ export async function saveProspectOutreachDraftAction(
     ) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
+    const launchAttachments = await currentDraftLaunchAttachments(
+      member.venueId,
+      input.groundingSnapshot,
+      tx,
+      input.verifiedCurrentPrintAssets,
+    )
+    const groundingSnapshot = snapshotWithLaunchAttachments(
+      input.groundingSnapshot,
+      launchAttachments,
+    )
     const previous = member.drafts[0]
     if (previous?.status === 'QUEUED' || previous?.status === 'SENT') {
       throw new ProspectOutreachError('CONFLICT', 'Queued or sent drafts are immutable')
@@ -248,8 +318,12 @@ export async function saveProspectOutreachDraftAction(
       textBody,
       relationshipTier: member.organization.relationshipTier,
     })
-    const contentHash = hash(
-      `${member.contact.normalizedEmail}\n${subject}\n${textBody}\n${input.htmlBody ?? ''}`,
+    const contentHash = prospectOperationalContentHash(
+      member.contact.normalizedEmail,
+      subject,
+      textBody,
+      input.htmlBody ?? '',
+      groundingSnapshot,
     )
     const draft = await tx.prospectOutreachDraft.create({
       data: {
@@ -264,7 +338,7 @@ export async function saveProspectOutreachDraftAction(
         textBody,
         htmlBody: input.htmlBody ?? null,
         contentHash,
-        groundingSnapshot: json(input.groundingSnapshot),
+        groundingSnapshot: json(groundingSnapshot),
         escalationFlags,
         generatedByType: input.actor.type,
         generatedById: input.actor.id,
@@ -295,6 +369,7 @@ export async function reviewProspectOutreachDraftAction(
     approve: boolean
     reason?: string
     acknowledgedEscalations?: readonly string[]
+    verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: HumanActor
   },
   client: Client = db,
@@ -305,6 +380,25 @@ export async function reviewProspectOutreachDraftAction(
     if (!draft) throw new ProspectOutreachError('NOT_FOUND', 'Draft not found')
     if (draft.status !== 'NEEDS_REVIEW')
       throw new ProspectOutreachError('CONFLICT', 'Draft is not awaiting review')
+    const launchAttachments = await currentDraftLaunchAttachments(
+      draft.venueId,
+      draft.groundingSnapshot,
+      tx,
+      input.verifiedCurrentPrintAssets,
+    )
+    const reviewedContentHash = prospectOperationalContentHash(
+      draft.toEmail,
+      draft.subject,
+      draft.textBody,
+      draft.htmlBody ?? '',
+      { launchAttachments },
+    )
+    if (reviewedContentHash !== draft.contentHash) {
+      throw new ProspectOutreachError(
+        'CONFLICT',
+        'Draft content or launch attachments changed before review',
+      )
+    }
     if (input.approve) {
       const acknowledged = new Set(input.acknowledgedEscalations ?? [])
       const missing = draft.escalationFlags.filter((flag) => !acknowledged.has(flag))
@@ -332,7 +426,12 @@ export async function reviewProspectOutreachDraftAction(
 }
 
 export async function stageProspectSendBatchAction(
-  input: { campaignId: string; draftIds: readonly string[]; actor: HumanActor },
+  input: {
+    campaignId: string
+    draftIds: readonly string[]
+    verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
+    actor: HumanActor
+  },
   client: Client = db,
 ) {
   requireHuman(input.actor)
@@ -373,8 +472,38 @@ export async function stageProspectSendBatchAction(
         'Every staged draft must still be approved and email-ready',
       )
     }
+    const frozenDrafts = await Promise.all(
+      drafts.map(async (draft) => {
+        const launchAttachments = await currentDraftLaunchAttachments(
+          draft.venueId,
+          draft.groundingSnapshot,
+          tx,
+          input.verifiedCurrentPrintAssets,
+        )
+        const currentContentHash = prospectOperationalContentHash(
+          draft.toEmail,
+          draft.subject,
+          draft.textBody,
+          draft.htmlBody ?? '',
+          { launchAttachments },
+        )
+        if (currentContentHash !== draft.contentHash) {
+          throw new ProspectOutreachError(
+            'CONFLICT',
+            'Draft content or launch attachments changed before staging',
+          )
+        }
+        return { draft, launchAttachments }
+      }),
+    )
     const snapshotHash = hash(
-      drafts.map((draft) => `${draft.id}:${draft.contentHash}:${draft.toEmail}`).join('\n'),
+      frozenDrafts
+        .map(
+          ({ draft, launchAttachments }) =>
+            `${draft.id}:${draft.contentHash}:${draft.toEmail}` +
+            (launchAttachments.length ? `:${launchAttachmentsSha256(launchAttachments)}` : ''),
+        )
+        .join('\n'),
     )
     return tx.prospectSendBatch.create({
       data: {
@@ -383,7 +512,7 @@ export async function stageProspectSendBatchAction(
         snapshotHash,
         createdBy: input.actor.id,
         items: {
-          create: drafts.map((draft) => ({
+          create: frozenDrafts.map(({ draft, launchAttachments }) => ({
             memberId: draft.memberId,
             draftId: draft.id,
             recipientEmailSnapshot: draft.toEmail,
@@ -394,6 +523,12 @@ export async function stageProspectSendBatchAction(
             headerSnapshot: {
               playbookVersion: PROSPECT_PLAYBOOK_VERSION,
               draftVersion: draft.version,
+              ...(launchAttachments.length
+                ? {
+                    launchAttachments,
+                    launchAttachmentsSha256: launchAttachmentsSha256(launchAttachments),
+                  }
+                : {}),
             },
             contentHashSnapshot: draft.contentHash,
             idempotencyKey: `torchiko-prospect-${hash(`${input.campaignId}:${draft.id}:${draft.contentHash}`)}`,
@@ -410,6 +545,7 @@ export async function approveProspectSendBatchAction(
     batchId: string
     expectedRecipientCount: number
     expectedSnapshotHash: string
+    verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: HumanActor
   },
   client: Client = db,
@@ -418,7 +554,7 @@ export async function approveProspectSendBatchAction(
   return client.$transaction(async (tx) => {
     const batch = await tx.prospectSendBatch.findUnique({
       where: { id: input.batchId },
-      include: { items: true },
+      include: { items: { include: { draft: true } } },
     })
     if (!batch) throw new ProspectOutreachError('NOT_FOUND', 'Send batch not found')
     if (batch.status !== 'STAGED')
@@ -432,6 +568,67 @@ export async function approveProspectSendBatchAction(
       throw new ProspectOutreachError(
         'CONFLICT',
         'Batch confirmation does not match the frozen recipient snapshot',
+      )
+    }
+    const frozenAttachmentSnapshot = await Promise.all(
+      batch.items.map(async (item) => {
+        try {
+          const draftAttachments = launchAttachmentsFromSnapshot(item.draft.groundingSnapshot)
+          const frozenAttachments = launchAttachmentsFromSnapshot(item.headerSnapshot)
+          requireSameLaunchAttachments(
+            { launchAttachments: draftAttachments },
+            { launchAttachments: frozenAttachments },
+          )
+          const reviewedContentHash = prospectOperationalContentHash(
+            item.recipientEmailSnapshot,
+            item.subjectSnapshot,
+            item.textBodySnapshot,
+            item.htmlBodySnapshot ?? '',
+            { launchAttachments: frozenAttachments },
+          )
+          if (
+            item.draft.contentHash !== item.contentHashSnapshot ||
+            reviewedContentHash !== item.contentHashSnapshot
+          ) {
+            throw new Error('Frozen content hash does not include the reviewed launch attachment')
+          }
+          await currentDraftLaunchAttachments(
+            item.draft.venueId,
+            { launchAttachments: frozenAttachments },
+            tx,
+            input.verifiedCurrentPrintAssets,
+          )
+          return {
+            draftId: item.draftId,
+            contentHash: item.contentHashSnapshot,
+            recipient: item.recipientEmailSnapshot,
+            launchAttachmentsSha256: frozenAttachments.length
+              ? launchAttachmentsSha256(frozenAttachments)
+              : null,
+          }
+        } catch (error) {
+          throw new ProspectOutreachError(
+            'CONFLICT',
+            error instanceof Error
+              ? error.message
+              : 'Frozen launch attachment selection is invalid',
+          )
+        }
+      }),
+    )
+    const recomputedSnapshotHash = hash(
+      frozenAttachmentSnapshot
+        .sort((left, right) => left.draftId.localeCompare(right.draftId))
+        .map(
+          ({ draftId, contentHash, recipient, launchAttachmentsSha256: attachmentHash }) =>
+            `${draftId}:${contentHash}:${recipient}` + (attachmentHash ? `:${attachmentHash}` : ''),
+        )
+        .join('\n'),
+    )
+    if (recomputedSnapshotHash !== batch.snapshotHash) {
+      throw new ProspectOutreachError(
+        'CONFLICT',
+        'Frozen batch hash does not bind the approved attachments',
       )
     }
     const approved = await tx.prospectSendBatch.update({
@@ -465,6 +662,7 @@ export async function releaseProspectSendBatchAction(
     providerAccountId: string
     expectedRecipientCount: number
     expectedSnapshotHash: string
+    verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: HumanActor
   },
   client: Client = db,
@@ -543,6 +741,41 @@ export async function releaseProspectSendBatchAction(
       throw new ProspectOutreachError(
         'CONFLICT',
         'A draft or recipient changed after staging; create and review a new batch',
+      )
+    }
+
+    for (const item of batch.items) {
+      const draftAttachments = launchAttachmentsFromSnapshot(item.draft.groundingSnapshot)
+      const frozenAttachments = launchAttachmentsFromSnapshot(item.headerSnapshot)
+      try {
+        requireSameLaunchAttachments(
+          { launchAttachments: draftAttachments },
+          { launchAttachments: frozenAttachments },
+        )
+      } catch (error) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          error instanceof Error ? error.message : 'Frozen launch attachments changed after review',
+        )
+      }
+      const currentContentHash = prospectOperationalContentHash(
+        item.recipientEmailSnapshot,
+        item.subjectSnapshot,
+        item.textBodySnapshot,
+        item.htmlBodySnapshot ?? '',
+        { launchAttachments: frozenAttachments },
+      )
+      if (currentContentHash !== item.contentHashSnapshot) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Frozen send content or launch attachments changed',
+        )
+      }
+      await currentDraftLaunchAttachments(
+        item.draft.venueId,
+        { launchAttachments: frozenAttachments },
+        tx,
+        input.verifiedCurrentPrintAssets,
       )
     }
 

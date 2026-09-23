@@ -7,6 +7,12 @@ import {
 } from './content-safety'
 import type { CorrespondenceProvider } from './provider'
 import {
+  checkedLaunchAttachments,
+  launchMimeBoundary,
+  launchMimeParts,
+  matchesLaunchAttachments,
+} from './venue-launch-mime'
+import {
   CorrespondenceProviderError,
   type CorrespondenceAddress,
   type FrozenCorrespondence,
@@ -14,7 +20,19 @@ import {
   type ProviderExternalRef,
   type ProviderMailboxRef,
   type ProviderSendResult,
+  type SendOperationExpectation,
+  type SendOperationLookup,
 } from './types'
+
+type GmailSendOperationLookupInput = Parameters<
+  CorrespondenceProvider['lookupSendOperation']
+>[0] & {
+  expected?: SendOperationExpectation
+}
+type GmailCorrespondenceProvider = CorrespondenceProvider &
+  Readonly<{
+    lookupSendOperation(input: GmailSendOperationLookupInput): Promise<SendOperationLookup>
+  }>
 
 export type GmailAuthorizationLease = Readonly<{
   /** The callback scope is the only place where a decrypted access token is exposed. */
@@ -38,7 +56,10 @@ export type GmailApiMessage = Readonly<{
     filename: string
     mimeType: string
     sizeBytes: number
+    contentBase64Url?: string
   }>[]
+  duplicateCriticalHeaders?: readonly string[]
+  hasUnexpectedMimeParts?: boolean
 }>
 
 export class GmailApiError extends Error {
@@ -104,6 +125,7 @@ export type GmailApiClient = Readonly<{
     accessToken: string
     mailboxAddress: string
     rfcMessageId: string
+    expectedAttachments?: readonly import('@pathfinder/contracts/venue-launch-asset').VenueLaunchAsset[]
   }): Promise<readonly GmailApiMessage[]>
   getProfile(input: {
     accessToken: string
@@ -127,8 +149,22 @@ const GMAIL_CAPABILITIES = new Set<CorrespondenceCapability>([
 
 function parseAddress(value: string | undefined): readonly CorrespondenceAddress[] {
   if (!value) return []
-  return value
-    .split(',')
+  const parts: string[] = []
+  let start = 0
+  let quoted = false
+  let angleDepth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === '"' && value[index - 1] !== '\\') quoted = !quoted
+    else if (!quoted && character === '<') angleDepth += 1
+    else if (!quoted && character === '>' && angleDepth > 0) angleDepth -= 1
+    else if (!quoted && angleDepth === 0 && character === ',') {
+      parts.push(value.slice(start, index))
+      start = index + 1
+    }
+  }
+  parts.push(value.slice(start))
+  return parts
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
@@ -198,7 +234,78 @@ function formatAddress(address: CorrespondenceAddress) {
     : email
 }
 
+function sameEmail(left: string | undefined, right: string) {
+  return typeof left === 'string' && left.trim().toLowerCase() === right.trim().toLowerCase()
+}
+
+function canonicalBody(value: string) {
+  return value.replace(/\r\n?/gu, '\n')
+}
+
+function matchesRecoveryEnvelope(
+  mailbox: ProviderMailboxRef,
+  candidate: GmailApiMessage,
+  rfcMessageId: string,
+  expected: SendOperationExpectation,
+) {
+  const expectedAttachments = checkedLaunchAttachments(expected.attachments)
+  const recovered = candidate.attachments ?? []
+  const exactAttachments =
+    expectedAttachments.length === 0
+      ? recovered.length === 0 && candidate.hasUnexpectedMimeParts !== true
+      : candidate.hasUnexpectedMimeParts !== true &&
+        matchesLaunchAttachments(
+          expectedAttachments,
+          recovered.flatMap((item) =>
+            item.contentBase64Url === undefined
+              ? []
+              : [
+                  {
+                    filename: item.filename,
+                    mimeType: item.mimeType,
+                    sizeBytes: item.sizeBytes,
+                    contentBase64Url: item.contentBase64Url,
+                  },
+                ],
+          ),
+        ) &&
+        recovered.length === expectedAttachments.length
+  const from = parseAddress(candidate.headers.from)
+  const to = parseAddress(candidate.headers.to)
+  let expectedSubject: string
+  let candidateSubject: string
+  try {
+    expectedSubject = assertSafeHeader(expected.subject, 'Subject')
+    candidateSubject = assertSafeHeader(candidate.headers.subject ?? '', 'Subject')
+  } catch {
+    return false
+  }
+  return (
+    candidate.labelIds.includes('SENT') &&
+    (candidate.duplicateCriticalHeaders?.length ?? 0) === 0 &&
+    exactAttachments &&
+    candidate.headers['message-id'] === rfcMessageId &&
+    (expected.providerThreadId === undefined || candidate.threadId === expected.providerThreadId) &&
+    (expected.inReplyTo === undefined || candidate.headers['in-reply-to'] === expected.inReplyTo) &&
+    (expected.references === undefined ||
+      JSON.stringify(parseReferences(candidate.headers.references)) ===
+        JSON.stringify(expected.references)) &&
+    from.length === 1 &&
+    sameEmail(from[0]?.email, mailbox.mailboxAddress) &&
+    sameEmail(from[0]?.email, expected.senderEmail) &&
+    to.length === 1 &&
+    sameEmail(to[0]?.email, expected.recipientEmail) &&
+    parseAddress(candidate.headers.cc).length === 0 &&
+    parseAddress(candidate.headers.bcc).length === 0 &&
+    !candidate.htmlBody &&
+    candidateSubject === expectedSubject &&
+    typeof candidate.textBody === 'string' &&
+    canonicalBody(candidate.textBody) === canonicalBody(expected.textBody)
+  )
+}
+
 function buildRawMessage(message: FrozenCorrespondence) {
+  const attachments = checkedLaunchAttachments(message.attachments)
   if (message.from.email.toLowerCase() !== message.mailbox.mailboxAddress.toLowerCase()) {
     throw new CorrespondenceProviderError(
       'INVALID_INPUT',
@@ -214,8 +321,11 @@ function buildRawMessage(message: FrozenCorrespondence) {
     `Subject: ${assertSafeHeader(message.subject, 'Subject')}`,
     `Message-ID: ${assertSafeHeader(message.rfcMessageId, 'Message-ID', 998)}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: 8bit',
+    ...(attachments.length === 0
+      ? ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit']
+      : [
+          `Content-Type: multipart/mixed; boundary="${launchMimeBoundary(message.operationId, message.rfcMessageId)}"`,
+        ]),
   ]
   if (message.replyTo) headers.splice(2, 0, `Reply-To: ${formatAddress(message.replyTo)}`)
   if (message.inReplyTo)
@@ -229,9 +339,15 @@ function buildRawMessage(message: FrozenCorrespondence) {
   }
   // HTML is deliberately not sent by this foundation until a reviewed sanitizer/template path
   // proves it is safe. The immutable text snapshot remains the canonical first-release body.
-  return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${message.textBody}`, 'utf8').toString(
-    'base64url',
-  )
+  const body =
+    attachments.length === 0
+      ? message.textBody
+      : launchMimeParts(
+          message.textBody,
+          attachments,
+          launchMimeBoundary(message.operationId, message.rfcMessageId),
+        )
+  return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8').toString('base64url')
 }
 
 function mapError(error: unknown): never {
@@ -254,7 +370,7 @@ export function createGmailCorrespondenceProvider(dependencies: {
   credentials: GmailCredentialLeaseProvider
   client: GmailApiClient
   now?: () => Date
-}): CorrespondenceProvider {
+}): GmailCorrespondenceProvider {
   const now = dependencies.now ?? (() => new Date())
   const authorized = async <T>(mailbox: ProviderMailboxRef, fn: (token: string) => Promise<T>) => {
     assertMailboxScope('GMAIL', mailbox.provider)
@@ -378,24 +494,31 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
     },
-    async lookupSendOperation(input) {
+    async lookupSendOperation(input: GmailSendOperationLookupInput) {
+      const expected = input.expected
       const candidates = await authorized(input.mailbox, (accessToken) =>
         dependencies.client.findByRfcMessageId({
           accessToken,
           mailboxAddress: input.mailbox.mailboxAddress,
           rfcMessageId: input.rfcMessageId,
+          ...(expected?.attachments?.length ? { expectedAttachments: expected.attachments } : {}),
         }),
       )
-      if (candidates.length === 0) return { state: 'NOT_FOUND' }
-      if (candidates.length > 1) {
-        return { state: 'AMBIGUOUS', candidateMessageIds: candidates.map((item) => item.id) }
+      const matching = expected
+        ? candidates.filter((candidate) =>
+            matchesRecoveryEnvelope(input.mailbox, candidate, input.rfcMessageId, expected),
+          )
+        : candidates
+      if (matching.length === 0) return { state: 'NOT_FOUND' }
+      if (matching.length > 1) {
+        return { state: 'AMBIGUOUS', candidateMessageIds: matching.map((item) => item.id) }
       }
-      const candidate = candidates[0]!
+      const candidate = matching[0]!
       const result: ProviderSendResult = {
         operationId: input.operationId,
         message: externalRef(input.mailbox, candidate.id),
         thread: externalRef(input.mailbox, candidate.threadId),
-        rfcMessageId: input.rfcMessageId,
+        rfcMessageId: candidate.headers['message-id'] ?? input.rfcMessageId,
         acceptedAt: new Date(candidate.internalDateMs),
       }
       return { state: 'FOUND', result }

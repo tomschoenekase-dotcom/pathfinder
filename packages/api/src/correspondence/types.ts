@@ -1,3 +1,5 @@
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
+
 export const CORRESPONDENCE_PROVIDERS = ['GMAIL', 'FAKE'] as const
 export type CorrespondenceProviderKey = (typeof CORRESPONDENCE_PROVIDERS)[number]
 
@@ -36,6 +38,7 @@ export type FrozenCorrespondence = Readonly<{
   inReplyTo?: string
   references: readonly string[]
   providerThreadId?: string
+  attachments?: readonly VenueLaunchAsset[]
 }>
 
 export type ProviderSendResult = Readonly<{
@@ -107,6 +110,18 @@ export type SendOperationLookup =
   | Readonly<{ state: 'NOT_FOUND' }>
   | Readonly<{ state: 'FOUND'; result: ProviderSendResult }>
   | Readonly<{ state: 'AMBIGUOUS'; candidateMessageIds: readonly string[] }>
+
+/** The immutable envelope needed to match a potentially accepted send safely. */
+export type SendOperationExpectation = Readonly<{
+  senderEmail: string
+  recipientEmail: string
+  subject: string
+  textBody: string
+  attachments?: readonly VenueLaunchAsset[]
+  inReplyTo?: string
+  references?: readonly string[]
+  providerThreadId?: string
+}>
 
 export class CorrespondenceProviderError extends Error {
   constructor(

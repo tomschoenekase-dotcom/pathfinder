@@ -88,10 +88,14 @@ function normalizeMessage(value: unknown): GmailApiMessage {
   const payload = object(message.payload)
   const parts = allParts(payload)
   const headers: Record<string, string> = {}
+  const criticalHeaders = new Set(['from', 'to', 'cc', 'bcc', 'message-id', 'subject'])
+  const duplicateCriticalHeaders = new Set<string>()
   for (const candidate of Array.isArray(payload.headers) ? payload.headers : []) {
     const header = object(candidate)
     if (typeof header.name === 'string' && typeof header.value === 'string') {
-      headers[header.name.toLowerCase()] = header.value
+      const name = header.name.toLowerCase()
+      if (criticalHeaders.has(name) && name in headers) duplicateCriticalHeaders.add(name)
+      headers[name] = header.value
     }
   }
   const bodyFor = (mimeType: string) => {
@@ -100,16 +104,43 @@ function normalizeMessage(value: unknown): GmailApiMessage {
   }
   const attachments = parts.flatMap((part) => {
     const body = object(part.body)
-    if (typeof body.attachmentId !== 'string' || typeof part.filename !== 'string') return []
+    if (
+      typeof part.filename !== 'string' ||
+      !part.filename ||
+      (typeof body.attachmentId !== 'string' && typeof body.data !== 'string')
+    )
+      return []
     return [
       {
-        id: body.attachmentId,
+        id: typeof body.attachmentId === 'string' ? body.attachmentId : '',
         filename: part.filename,
         mimeType: typeof part.mimeType === 'string' ? part.mimeType : 'application/octet-stream',
         sizeBytes: typeof body.size === 'number' ? body.size : 0,
+        ...(typeof body.data === 'string' ? { contentBase64Url: body.data } : {}),
       },
     ]
   })
+  const hasUnexpectedMimeParts = parts.some((part) => {
+    const mimeType = typeof part.mimeType === 'string' ? part.mimeType.toLowerCase() : ''
+    if (
+      !mimeType ||
+      mimeType.startsWith('multipart/') ||
+      ['text/plain', 'text/html'].includes(mimeType)
+    )
+      return false
+    const body = object(part.body)
+    return !(
+      mimeType === 'image/svg+xml' &&
+      typeof part.filename === 'string' &&
+      part.filename.length > 0 &&
+      (typeof body.attachmentId === 'string' || typeof body.data === 'string')
+    )
+  })
+  const nonemptyPlaintextPartCount = parts.filter((part) => {
+    if (typeof part.mimeType !== 'string' || part.mimeType.toLowerCase() !== 'text/plain')
+      return false
+    return Boolean(decode(object(part.body).data))
+  }).length
   return {
     id: required(message.id, 'message ID'),
     threadId: required(message.threadId, 'thread ID'),
@@ -121,6 +152,12 @@ function normalizeMessage(value: unknown): GmailApiMessage {
     textBody: bodyFor('text/plain'),
     htmlBody: bodyFor('text/html'),
     attachments,
+    ...(duplicateCriticalHeaders.size > 0
+      ? { duplicateCriticalHeaders: [...duplicateCriticalHeaders].sort() }
+      : {}),
+    ...(hasUnexpectedMimeParts || nonemptyPlaintextPartCount > 1
+      ? { hasUnexpectedMimeParts: true }
+      : {}),
   }
 }
 
@@ -227,9 +264,17 @@ export function createGmailApiClient(
         body: { raw: args.rawBase64Url, ...(args.threadId ? { threadId: args.threadId } : {}) },
         mayAccept: true,
       })
-      return {
-        id: required(response.id, 'message ID'),
-        threadId: required(response.threadId, 'thread ID'),
+      try {
+        return {
+          id: required(response.id, 'message ID'),
+          threadId: required(response.threadId, 'thread ID'),
+        }
+      } catch {
+        throw new GmailApiError(
+          'TRANSIENT',
+          'Gmail send returned an incomplete acceptance identity; reconcile before any retry',
+          'MAY_HAVE_ACCEPTED',
+        )
       }
     },
     getMessage: (args) => getMessage(args.accessToken, args.mailboxAddress, args.messageId),
@@ -309,7 +354,41 @@ export function createGmailApiClient(
         const message = object(item)
         return typeof message.id === 'string' ? [message.id] : []
       })
-      return hydrate(args.accessToken, args.mailboxAddress, ids)
+      const hydrated = await hydrate(args.accessToken, args.mailboxAddress, ids)
+      if (!args.expectedAttachments?.length) return hydrated
+      const approved = hydrated.filter(
+        (message) =>
+          message.labelIds.includes('SENT') &&
+          message.headers['message-id'] === args.rfcMessageId &&
+          message.attachments !== undefined &&
+          message.attachments.length === args.expectedAttachments?.length &&
+          message.attachments.every(
+            (item, index) =>
+              item.filename === args.expectedAttachments?.[index]?.filename &&
+              item.mimeType === args.expectedAttachments?.[index]?.mimeType &&
+              item.sizeBytes === args.expectedAttachments?.[index]?.sizeBytes,
+          ),
+      )
+      return Promise.all(
+        approved.map(async (message) => ({
+          ...message,
+          attachments: await Promise.all(
+            (message.attachments ?? []).map(async (attachment) => {
+              if (attachment.contentBase64Url !== undefined) return attachment
+              if (!attachment.id)
+                throw new GmailApiError('PERMANENT', 'Gmail attachment body was unavailable')
+              const body = await call({
+                ...args,
+                path: `messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(attachment.id)}`,
+              })
+              const data = required(body.data, 'attachment data')
+              if (data.length > 180_000)
+                throw new GmailApiError('PERMANENT', 'Gmail attachment exceeded QR size limit')
+              return { ...attachment, contentBase64Url: data }
+            }),
+          ),
+        })),
+      )
     },
     async getProfile(args) {
       const response = await call({ ...args, path: 'profile' })

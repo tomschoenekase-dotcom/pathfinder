@@ -52,6 +52,17 @@ const frozenItem = {
   textBodySnapshot: 'Exact frozen body',
   htmlBodySnapshot: null,
   contentHashSnapshot: 'c'.repeat(64),
+  headerSnapshot: {
+    launchAttachments: [
+      {
+        filename: 'miniature-museum-visitor-qr.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 170361,
+        publicUrl: 'https://guide.torchiko.com/miniaturemuseum/chat?source=qr',
+        sha256: 'd'.repeat(64),
+      },
+    ],
+  },
   providerAccountId: null,
   providerMessageId: null,
 }
@@ -188,6 +199,7 @@ describe('ProspectCampaignWorkbench release safety', () => {
     fireEvent.click(screen.getByText('Inspect exact frozen recipients and content'))
     expect(screen.getByText('To: internal@example.com')).toBeTruthy()
     expect(screen.getByText('Exact frozen subject')).toBeTruthy()
+    expect(screen.getByText(/Frozen attachment: miniature-museum-visitor-qr\.pdf/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load full frozen message' }))
     expect(await screen.findByText('Exact frozen body')).toBeTruthy()
     expect(mocks.deliveryBody).toHaveBeenCalledWith(

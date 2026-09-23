@@ -1,5 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { venueLaunchAssetDescriptor } from '@pathfinder/contracts/venue-launch-asset'
+import { launchAttachmentsFromSnapshot } from '@pathfinder/contracts/venue-launch-asset-node'
 
 import { db, getProspectOutreachAnalyticsAction, withTenantIsolationBypass } from '@pathfinder/db'
 
@@ -14,6 +16,16 @@ const campaignCursor = z
 const CAMPAIGN_MEMBER_PAGE = 50
 const CAMPAIGN_BATCH_PAGE = 20
 const CAMPAIGN_DELIVERY_PAGE = 50
+
+function displaySnapshot(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot
+  const record = snapshot as Record<string, unknown>
+  if (!Object.prototype.hasOwnProperty.call(record, 'launchAttachments')) return snapshot
+  return {
+    ...record,
+    launchAttachments: launchAttachmentsFromSnapshot(snapshot).map(venueLaunchAssetDescriptor),
+  }
+}
 
 export const adminProspectCrmOutreachReadRouter = router({
   listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>
@@ -73,6 +85,7 @@ export const adminProspectCrmOutreachReadRouter = router({
                     recipientEmailSnapshot: true,
                     subjectSnapshot: true,
                     contentHashSnapshot: true,
+                    headerSnapshot: true,
                     providerAccountId: true,
                     providerMessageId: true,
                   },
@@ -82,10 +95,19 @@ export const adminProspectCrmOutreachReadRouter = router({
           },
         })
         if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found' })
-        const members = campaign.members.slice(0, CAMPAIGN_MEMBER_PAGE)
+        const members = campaign.members.slice(0, CAMPAIGN_MEMBER_PAGE).map((member) => ({
+          ...member,
+          drafts: member.drafts.map((draft) => ({
+            ...draft,
+            groundingSnapshot: displaySnapshot(draft.groundingSnapshot),
+          })),
+        }))
         const sendBatches = campaign.sendBatches.slice(0, CAMPAIGN_BATCH_PAGE).map((batch) => ({
           ...batch,
-          items: batch.items.slice(0, CAMPAIGN_DELIVERY_PAGE),
+          items: batch.items.slice(0, CAMPAIGN_DELIVERY_PAGE).map((item) => ({
+            ...item,
+            headerSnapshot: displaySnapshot(item.headerSnapshot),
+          })),
           page: {
             hasMoreItems: batch.items.length > CAMPAIGN_DELIVERY_PAGE,
             itemLimit: CAMPAIGN_DELIVERY_PAGE,
@@ -149,7 +171,13 @@ export const adminProspectCrmOutreachReadRouter = router({
             drafts: { orderBy: { version: 'desc' }, take: 1 },
           },
         })
-        const items = rows.slice(0, input.limit)
+        const items = rows.slice(0, input.limit).map((member) => ({
+          ...member,
+          drafts: member.drafts.map((draft) => ({
+            ...draft,
+            groundingSnapshot: displaySnapshot(draft.groundingSnapshot),
+          })),
+        }))
         const last = items.at(-1)
         return {
           detailVersion: 2 as const,
@@ -208,12 +236,16 @@ export const adminProspectCrmOutreachReadRouter = router({
             recipientEmailSnapshot: true,
             subjectSnapshot: true,
             contentHashSnapshot: true,
+            headerSnapshot: true,
             providerAccountId: true,
             providerMessageId: true,
             createdAt: true,
           },
         })
-        const items = rows.slice(0, input.limit)
+        const items = rows.slice(0, input.limit).map((item) => ({
+          ...item,
+          headerSnapshot: displaySnapshot(item.headerSnapshot),
+        }))
         const last = items.at(-1)
         return {
           detailVersion: 2 as const,
@@ -243,13 +275,18 @@ export const adminProspectCrmOutreachReadRouter = router({
           select: {
             id: true,
             contentHashSnapshot: true,
+            headerSnapshot: true,
             textBodySnapshot: true,
             htmlBodySnapshot: true,
           },
         })
         if (!item)
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign delivery not found' })
-        return { detailVersion: 2 as const, ...item }
+        return {
+          detailVersion: 2 as const,
+          ...item,
+          headerSnapshot: displaySnapshot(item.headerSnapshot),
+        }
       }),
     ),
 })

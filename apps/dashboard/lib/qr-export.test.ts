@@ -1,8 +1,16 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { renderVenueQrSvg } from '@pathfinder/contracts/venue-qr-svg'
 
-import { buildQrSvgFilename, downloadQrSvg, downloadQrSvgBytes } from './qr-export'
+import {
+  buildQrFilename,
+  buildQrSvgFilename,
+  createQrPdfBlob,
+  createQrPngBlob,
+  downloadQrSvg,
+  downloadQrSvgBytes,
+} from './qr-export'
 
 describe('QR SVG export', () => {
   afterEach(() => {
@@ -17,6 +25,20 @@ describe('QR SVG export', () => {
     ['CON', 'qr-con.svg'],
   ])('creates a safe filename for %s', (label, expected) => {
     expect(buildQrSvgFilename(label)).toBe(expected)
+  })
+
+  it.each([
+    ['Café / North: Tide Clock?', 'cafe-north-tide-clock.png'],
+    ['CON', 'qr-con.pdf'],
+    ['北側の博物館', 'qr-code.png'],
+  ])('builds a portable %s export filename', (label, expected) => {
+    const extension = expected.endsWith('.pdf') ? 'pdf' : 'png'
+    expect(buildQrFilename(label, extension)).toBe(expected)
+  })
+
+  it('caps long export filenames at a portable basename length', () => {
+    const filename = buildQrFilename('Museum and a very long venue name '.repeat(5), 'pdf')
+    expect(filename).toMatch(/^[a-z0-9-]{1,80}\.pdf$/)
   })
 
   it('downloads the serialized SVG with the exact requested filename', () => {
@@ -83,5 +105,89 @@ describe('QR SVG export', () => {
     expect(blob.type).toBe('image/svg+xml')
     expect(anchor.download).toBe('torchiko-museum-qr.svg')
     vi.runAllTimers()
+  })
+
+  it('creates one printable letter PDF with a vector QR and public address', async () => {
+    const url = 'https://guide.example.com/museum/chat?source=qr'
+    const blob = createQrPdfBlob('Café 北 Museum', url)
+
+    expect(blob.type).toBe('application/pdf')
+    const reader = new FileReader()
+    const pdf = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(blob)
+    })
+    expect(pdf.startsWith('%PDF-1.4')).toBe(true)
+    expect(pdf).toContain('/MediaBox [0 0 612 792]')
+    expect(pdf).toContain('/Count 1')
+    expect(pdf).toContain('Scan to open the visitor guide.')
+    expect(pdf).toContain(url)
+    expect(pdf).toContain('Cafe ? Museum')
+    expect(pdf).toContain('re f')
+    expect((pdf.match(/ re f\n/g) ?? []).length).toBeGreaterThan(200)
+    expect(pdf).toContain('startxref')
+  })
+
+  it('renders a lossless PNG at whole-module boundaries with a white quiet zone', async () => {
+    const originalImage = globalThis.Image
+    const originalCreateElement = document.createElement.bind(document)
+    const drawImage = vi.fn()
+    let requestedType = ''
+    let canvasWidth = 0
+    let canvasHeight = 0
+    const fillRect = vi.fn()
+    const canvas = {
+      set width(value: number) {
+        canvasWidth = value
+      },
+      get width() {
+        return canvasWidth
+      },
+      set height(value: number) {
+        canvasHeight = value
+      },
+      get height() {
+        return canvasHeight
+      },
+      getContext: vi.fn(() => ({
+        fillStyle: '',
+        imageSmoothingEnabled: true,
+        fillRect,
+        drawImage,
+      })),
+      toBlob: (callback: BlobCallback, type: string) => {
+        requestedType = type
+        callback(new Blob(['png-fixture'], { type }))
+      },
+    }
+    class LoadedImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      set src(_value: string) {
+        this.onload?.()
+      }
+    }
+    vi.stubGlobal('Image', LoadedImage)
+    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
+      if (tagName === 'canvas') return canvas as unknown as HTMLCanvasElement
+      return originalCreateElement(tagName)
+    }) as typeof document.createElement)
+
+    try {
+      const blob = await createQrPngBlob('https://guide.example.com/museum/chat?source=qr')
+      const svg = renderVenueQrSvg('https://guide.example.com/museum/chat?source=qr')
+      const dimension = Number(svg.match(/viewBox="0 0 (\d+) /)?.[1])
+      expect(blob.type).toBe('image/png')
+      expect(requestedType).toBe('image/png')
+      expect(canvasWidth).toBe(canvasHeight)
+      expect(canvasWidth).toBeLessThanOrEqual(1_024)
+      expect(dimension).toBeGreaterThan(0)
+      expect(canvasWidth % dimension).toBe(0)
+      expect(drawImage).toHaveBeenCalledOnce()
+      expect(fillRect).toHaveBeenCalledWith(0, 0, canvasWidth, canvasHeight)
+    } finally {
+      vi.stubGlobal('Image', originalImage)
+    }
   })
 })

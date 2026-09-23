@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   askQuestion: vi.fn(),
   claimResearch: vi.fn(),
   finishResearch: vi.fn(),
+  prospectVenueFindFirst: vi.fn(),
+  launchAssetView: vi.fn(),
+  selectLaunchAsset: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -24,6 +27,7 @@ vi.mock('@pathfinder/db', () => ({
       findMany: mocks.memberFindMany,
       findFirst: mocks.memberFindFirst,
     },
+    prospectVenue: { findFirst: mocks.prospectVenueFindFirst },
     companyKnowledgeItem: { findFirst: mocks.knowledgeFindFirst },
     venue: { findFirst: vi.fn() },
     place: { findMany: vi.fn() },
@@ -34,6 +38,10 @@ vi.mock('@pathfinder/db', () => ({
   askAgentQuestionAction: mocks.askQuestion,
   claimNextProspectResearchJobAction: mocks.claimResearch,
   finishProspectResearchJobAction: mocks.finishResearch,
+}))
+vi.mock('../prospect-launch-assets', () => ({
+  prospectLaunchAssetView: mocks.launchAssetView,
+  selectProspectLaunchAsset: mocks.selectLaunchAsset,
 }))
 
 import {
@@ -82,6 +90,8 @@ describe('prospect agent registry', () => {
     const names = tools.map((tool) => tool.name)
     expect(names).toContain('torchiko.prospects.save_outreach_draft')
     expect(names).toContain('torchiko.prospects.ask_operator')
+    expect(names).toContain('torchiko.prospects.list_launch_assets')
+    expect(names).toContain('torchiko.prospects.select_launch_asset')
     expect(
       names.some((name) => /approve|send|queue|convert|merge|delete|unsuppress/u.test(name)),
     ).toBe(false)
@@ -107,6 +117,73 @@ describe('prospect agent registry', () => {
     ).toBe(true)
     const nameSet = new Set<string>(names)
     expect(tools.flatMap((tool) => tool.relatedTools).every((name) => nameSet.has(name))).toBe(true)
+  })
+
+  it('scopes launch asset listing and selection to an in-scope prospect venue and returns descriptors only', async () => {
+    mocks.prospectVenueFindFirst.mockResolvedValue({ id: 'prospect-venue-1' })
+    const asset = {
+      schema: 'torchiko.venue-launch-asset/2',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      release: { kind: 'NATIVE', id: 'release-1', revisionSha256: 'a'.repeat(64) },
+      publicUrl: 'https://guide.example.com/venue/chat?source=qr',
+      filename: 'venue-qr.png',
+      mimeType: 'image/png',
+      sizeBytes: 1024,
+      sha256: 'b'.repeat(64),
+      format: 'PNG',
+      generatorVersion: 'qr-print-v1',
+    }
+    mocks.launchAssetView.mockResolvedValue({ available: [asset], hold: null })
+    mocks.selectLaunchAsset.mockResolvedValue({ ...asset, contentBase64: 'not-for-tool-output' })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context()),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.list_launch_assets',
+        {
+          organizationId: 'org-1',
+          prospectVenueId: 'prospect-venue-1',
+        },
+        invocation,
+      ),
+    ).resolves.toEqual({ available: [asset], hold: null })
+    expect(mocks.prospectVenueFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'prospect-venue-1',
+          organizationId: 'org-1',
+          archivedAt: null,
+        }),
+      }),
+    )
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.select_launch_asset',
+        {
+          organizationId: 'org-1',
+          prospectVenueId: 'prospect-venue-1',
+          selection: {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            release: asset.release,
+            publicUrl: asset.publicUrl,
+            sha256: asset.sha256,
+            format: 'PNG',
+            generatorVersion: 'qr-print-v1',
+          },
+        },
+        invocation,
+      ),
+    ).resolves.toEqual(asset)
+    expect(mocks.selectLaunchAsset).toHaveBeenCalledWith(
+      'prospect-venue-1',
+      expect.objectContaining({
+        format: 'PNG',
+        generatorVersion: 'qr-print-v1',
+      }),
+    )
   })
 
   it('rejects caller capability escalation because authority comes from the resolver', async () => {
@@ -241,6 +318,87 @@ describe('prospect agent registry', () => {
         }),
       }),
     )
+  })
+
+  it('resolves an optional QR selection server-side and stores verified PDF proof without returning bytes', async () => {
+    const asset = {
+      schema: 'torchiko.venue-launch-asset/2',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      release: { kind: 'NATIVE', id: 'release-1', revisionSha256: 'a'.repeat(64) },
+      publicUrl: 'https://guide.example.com/venue/chat?source=qr',
+      filename: 'venue-qr.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 2048,
+      sha256: 'b'.repeat(64),
+      format: 'PDF',
+      generatorVersion: 'qr-print-v1',
+      contentBase64: 'JVBERi0xLjQK',
+    } as const
+    const selection = {
+      tenantId: asset.tenantId,
+      venueId: asset.venueId,
+      release: asset.release,
+      publicUrl: asset.publicUrl,
+      sha256: asset.sha256,
+      format: 'PDF',
+      generatorVersion: 'qr-print-v1',
+    } as const
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1', venueId: 'prospect-venue-1' })
+    mocks.selectLaunchAsset.mockResolvedValue(asset)
+    mocks.saveDraft.mockResolvedValue({ id: 'draft-1', status: 'NEEDS_REVIEW', version: 1 })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    const output = await registry.callTool(
+      'torchiko.prospects.save_outreach_draft',
+      {
+        memberId: 'member-1',
+        subject: 'Hello',
+        textBody: 'Body',
+        evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+        template: { id: 'intro', version: '1' },
+        prompt: { id: 'draft', version: '1' },
+        launchAssetSelection: selection,
+      },
+      invocation,
+    )
+    expect(output).toEqual({ id: 'draft-1', status: 'NEEDS_REVIEW', version: 1 })
+    expect(mocks.selectLaunchAsset).toHaveBeenCalledWith('prospect-venue-1', selection)
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groundingSnapshot: expect.objectContaining({ launchAttachments: [asset] }),
+        verifiedCurrentPrintAssets: [{ prospectVenueId: 'prospect-venue-1', asset }],
+      }),
+    )
+    expect(JSON.stringify(mocks.saveDraft.mock.calls[0]?.[0])).toContain(asset.contentBase64)
+    expect(JSON.stringify(output)).not.toContain(asset.contentBase64)
+  })
+
+  it('rejects caller-supplied attachment bytes on the agent draft tool', async () => {
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.save_outreach_draft',
+        {
+          memberId: 'member-1',
+          subject: 'Hello',
+          textBody: 'Body',
+          evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+          template: { id: 'intro', version: '1' },
+          prompt: { id: 'draft', version: '1' },
+          launchAttachments: [{ contentBase64: 'arbitrary' }],
+        },
+        invocation,
+      ),
+    ).rejects.toThrow()
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
   })
 
   it('resolves approved copy identity from current platform knowledge instead of caller assertions', async () => {

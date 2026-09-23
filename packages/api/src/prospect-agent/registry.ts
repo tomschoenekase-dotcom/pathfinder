@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-launch-asset'
+import { venueLaunchAssetDescriptor } from '@pathfinder/contracts/venue-launch-asset'
 
 import {
   askAgentQuestionAction,
@@ -11,6 +13,7 @@ import {
 
 import prospectToolContracts from './tool-contracts.json'
 import { validateProspectCopyHandoff } from './copy-assistant'
+import { prospectLaunchAssetView, selectProspectLaunchAsset } from '../prospect-launch-assets'
 
 const prospectCapability = z.enum([
   'prospects.read',
@@ -78,6 +81,17 @@ const searchInput = z
   })
   .strict()
 const organizationInput = z.object({ organizationId: z.string().min(1).max(191) }).strict()
+const launchAssetsInput = z
+  .object({
+    organizationId: z.string().min(1).max(191),
+    prospectVenueId: z.string().min(1).max(191),
+  })
+  .strict()
+const selectLaunchAssetInput = launchAssetsInput
+  .extend({
+    selection: AnyVenueLaunchAssetSelectionSchema,
+  })
+  .strict()
 const campaignInput = z
   .object({
     campaignId: z.string().min(1).max(191),
@@ -94,6 +108,7 @@ const evidenceReference = z
 const draftInput = z
   .object({
     memberId: z.string().min(1).max(191),
+    launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
     subject: z.string().trim().min(1).max(998),
     textBody: z.string().trim().min(1).max(50_000),
     htmlBody: z.string().max(100_000).optional(),
@@ -183,6 +198,29 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.list_launch_assets'],
+    name: 'torchiko.prospects.list_launch_assets',
+    title: 'List current venue QR assets',
+    description: 'List server-verified QR asset descriptors for active prospect venue conversions.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.select_launch_asset'],
+    name: 'torchiko.prospects.select_launch_asset',
+    title: 'Select current venue QR asset',
+    description:
+      'Verify one exact current SVG, PNG, or PDF venue QR selection and return its descriptor.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
     ...prospectToolContracts.tools['torchiko.prospects.list_campaign_members'],
     name: 'torchiko.prospects.list_campaign_members',
     title: 'List campaign members',
@@ -259,7 +297,8 @@ export class ProspectAgentRegistryError extends Error {
       | 'CAPABILITY_REQUIRED'
       | 'INVALID_CONTEXT'
       | 'SCOPE_REQUIRED'
-      | 'OUT_OF_SCOPE',
+      | 'OUT_OF_SCOPE'
+      | 'STATE_HELD',
     message: string,
   ) {
     super(message)
@@ -378,6 +417,27 @@ function organizationScope(context: VerifiedProspectAgentContext) {
   return context.scope.mode === 'ALL'
     ? {}
     : { territoryId: { in: [...new Set(context.scope.territoryIds)] } }
+}
+
+async function requireScopedProspectVenue(
+  organizationId: string,
+  prospectVenueId: string,
+  context: VerifiedProspectAgentContext,
+) {
+  const venue = await db.prospectVenue.findFirst({
+    where: {
+      id: prospectVenueId,
+      organizationId,
+      archivedAt: null,
+      organization: organizationScope(context),
+    },
+    select: { id: true },
+  })
+  if (!venue)
+    throw new ProspectAgentRegistryError(
+      'OUT_OF_SCOPE',
+      'Prospect venue is outside the frozen scope',
+    )
 }
 
 export function createProspectAgentRegistry(
@@ -510,6 +570,24 @@ export function createProspectAgentRegistry(
             ])
             return { prospect, liveVenue: venue ? { ...venue, places, knowledge } : null }
           }
+          case 'torchiko.prospects.list_launch_assets': {
+            const input = launchAssetsInput.parse(rawInput)
+            await requireScopedProspectVenue(input.organizationId, input.prospectVenueId, context)
+            return prospectLaunchAssetView(input.prospectVenueId)
+          }
+          case 'torchiko.prospects.select_launch_asset': {
+            const input = selectLaunchAssetInput.parse(rawInput)
+            await requireScopedProspectVenue(input.organizationId, input.prospectVenueId, context)
+            try {
+              const asset = await selectProspectLaunchAsset(input.prospectVenueId, input.selection)
+              return venueLaunchAssetDescriptor(asset)
+            } catch {
+              throw new ProspectAgentRegistryError(
+                'STATE_HELD',
+                'Selected venue QR is stale or unavailable; list current assets and choose again',
+              )
+            }
+          }
           case 'torchiko.prospects.list_campaign_members': {
             const input = campaignInput.parse(rawInput)
             return db.prospectCampaignMember.findMany({
@@ -634,14 +712,39 @@ export function createProspectAgentRegistry(
             })
             const member = await db.prospectCampaignMember.findFirst({
               where: { id: input.memberId, organization: organizationScope(context) },
-              select: { id: true },
+              select: { id: true, venueId: true },
             })
             if (!member)
               throw new ProspectAgentRegistryError(
                 'OUT_OF_SCOPE',
                 'Campaign member is out of scope',
               )
-            return saveProspectOutreachDraftAction({
+            let selectedAsset: Awaited<ReturnType<typeof selectProspectLaunchAsset>> | undefined
+            if (input.launchAssetSelection) {
+              if (!member.venueId)
+                throw new ProspectAgentRegistryError(
+                  'STATE_HELD',
+                  'A current converted venue is required before attaching its QR',
+                )
+              try {
+                selectedAsset = await selectProspectLaunchAsset(
+                  member.venueId,
+                  input.launchAssetSelection,
+                )
+              } catch {
+                throw new ProspectAgentRegistryError(
+                  'STATE_HELD',
+                  'Selected venue QR is stale or unavailable; list current assets and choose again',
+                )
+              }
+            }
+            const verifiedCurrentPrintAssets =
+              selectedAsset?.schema === 'torchiko.venue-launch-asset/2' &&
+              selectedAsset.format === 'PDF' &&
+              member.venueId
+                ? [{ prospectVenueId: member.venueId, asset: selectedAsset }]
+                : undefined
+            const saved = await saveProspectOutreachDraftAction({
               memberId: input.memberId,
               subject: input.subject,
               textBody: input.textBody,
@@ -657,6 +760,7 @@ export function createProspectAgentRegistry(
                 template: input.template,
                 prompt: input.prompt,
                 warnings: input.warnings,
+                ...(selectedAsset ? { launchAttachments: [selectedAsset] } : {}),
                 copyHandoff,
                 lineage: {
                   agentRunId: context.agentRunId,
@@ -669,10 +773,12 @@ export function createProspectAgentRegistry(
                 },
               },
               ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
+              ...(verifiedCurrentPrintAssets ? { verifiedCurrentPrintAssets } : {}),
               // The domain action retains its compatibility capability spelling. The registry
               // is the server-authoritative boundary and has already verified the AgentRun.
               actor: { type: 'AGENT', id: context.actorId, capabilities: ['prospects:draft'] },
             })
+            return { id: saved.id, status: saved.status, version: saved.version }
           }
           case 'torchiko.prospects.ask_operator': {
             const input = questionInput.parse(rawInput)

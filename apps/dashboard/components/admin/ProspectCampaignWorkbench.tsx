@@ -17,6 +17,31 @@ import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 
 const CAMPAIGN_READ_TIMEOUT_MS = 15_000
 
+function launchAttachmentDetails(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return []
+  const attachments = (snapshot as Record<string, unknown>).launchAttachments
+  if (!Array.isArray(attachments)) return []
+  return attachments.map((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const asset = value as Record<string, unknown>
+    if (
+      typeof asset.filename !== 'string' ||
+      typeof asset.mimeType !== 'string' ||
+      typeof asset.publicUrl !== 'string' ||
+      typeof asset.sha256 !== 'string' ||
+      typeof asset.sizeBytes !== 'number'
+    )
+      return null
+    return {
+      filename: asset.filename,
+      mimeType: asset.mimeType,
+      publicUrl: asset.publicUrl,
+      sha256: asset.sha256,
+      sizeBytes: asset.sizeBytes,
+    }
+  })
+}
+
 type Campaign = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectCampaign']['query']>
 >
@@ -737,6 +762,13 @@ export function ProspectCampaignWorkbench({
                     >
                       {draft.textBody}
                     </div>
+                    {launchAttachmentDetails(draft.groundingSnapshot).map((asset, index) => (
+                      <p key={index} className="mt-3 break-all text-xs leading-5 text-slate-700">
+                        {asset
+                          ? `Attachment: ${asset.filename} · ${asset.mimeType} · ${asset.sizeBytes} bytes · ${asset.publicUrl} · SHA-256 ${asset.sha256}`
+                          : 'Attachment details invalid; return this draft for revision.'}
+                      </p>
+                    ))}
                   </article>
                 ) : null}
                 {editing ? (
@@ -887,6 +919,16 @@ export function ProspectCampaignWorkbench({
                         <p className="mt-2 break-all font-mono text-[10px] text-slate-500">
                           content {item.contentHashSnapshot}
                         </p>
+                        {launchAttachmentDetails(item.headerSnapshot).map((asset, index) => (
+                          <p
+                            key={index}
+                            className="mt-2 break-all text-xs leading-5 text-slate-700"
+                          >
+                            {asset
+                              ? `Frozen attachment: ${asset.filename} · ${asset.mimeType} · ${asset.sizeBytes} bytes · ${asset.publicUrl} · SHA-256 ${asset.sha256}`
+                              : 'Frozen attachment details invalid; do not release this batch.'}
+                          </p>
+                        ))}
                       </li>
                     ))}
                   </ul>

@@ -1,12 +1,25 @@
 import type { CorrespondenceProvider } from './provider'
+import { checkedLaunchAttachments } from './venue-launch-mime'
 import { normalizeUntrustedCorrespondenceBody } from './content-safety'
+import { CorrespondenceProviderError } from './types'
 import type {
   FrozenCorrespondence,
   NormalizedProviderMessage,
   ProviderExternalRef,
   ProviderMailboxRef,
   ProviderSendResult,
+  SendOperationExpectation,
+  SendOperationLookup,
 } from './types'
+
+type FakeSendOperationLookupInput = Parameters<CorrespondenceProvider['lookupSendOperation']>[0] & {
+  expected?: SendOperationExpectation
+}
+type FakeCorrespondenceProvider = CorrespondenceProvider & {
+  state: FakeCorrespondenceState
+} & Readonly<{
+    lookupSendOperation(input: FakeSendOperationLookupInput): Promise<SendOperationLookup>
+  }>
 
 export type FakeCorrespondenceState = {
   sent: FrozenCorrespondence[]
@@ -26,7 +39,7 @@ function ref(mailbox: ProviderMailboxRef, id: string): ProviderExternalRef {
 export function createFakeCorrespondenceProvider(input?: {
   state?: FakeCorrespondenceState
   now?: () => Date
-}): CorrespondenceProvider & { state: FakeCorrespondenceState } {
+}): FakeCorrespondenceProvider {
   const state: FakeCorrespondenceState = input?.state ?? {
     sent: [],
     messages: new Map(),
@@ -43,18 +56,36 @@ export function createFakeCorrespondenceProvider(input?: {
     'AMBIGUOUS_SEND_LOOKUP',
     'HEALTH',
   ] as const)
-  const provider: CorrespondenceProvider & { state: FakeCorrespondenceState } = {
+  const provider: FakeCorrespondenceProvider = {
     key: 'FAKE',
     capabilities,
     state,
     async sendOne(message) {
+      const attachments = checkedLaunchAttachments(message.attachments)
+      const previous = state.sent.find(
+        (item) => item.providerIdempotencyKey === message.providerIdempotencyKey,
+      )
+      if (previous) {
+        if (JSON.stringify(previous) !== JSON.stringify(message))
+          throw new CorrespondenceProviderError('INVALID_INPUT', 'Fake idempotency payload changed')
+        const retained = state.messages.get(`message-${message.operationId}`)
+        if (!retained)
+          throw new CorrespondenceProviderError('PERMANENT', 'Fake accepted message missing')
+        return {
+          operationId: message.operationId,
+          message: retained.message,
+          thread: retained.thread,
+          rfcMessageId: message.rfcMessageId,
+          acceptedAt: retained.internalDate,
+        }
+      }
       const failure = state.failures.get(message.operationId)
       if (failure) throw failure
-      state.sent.push(message)
+      state.sent.push(structuredClone(message))
       const result: ProviderSendResult = {
         operationId: message.operationId,
         message: ref(message.mailbox, `message-${message.operationId}`),
-        thread: ref(message.mailbox, `thread-${message.operationId}`),
+        thread: ref(message.mailbox, message.providerThreadId ?? `thread-${message.operationId}`),
         rfcMessageId: message.rfcMessageId,
         acceptedAt: now(),
       }
@@ -72,7 +103,13 @@ export function createFakeCorrespondenceProvider(input?: {
         internalDate: result.acceptedAt,
         direction: 'OUTBOUND',
         body: normalizeUntrustedCorrespondenceBody({ text: message.textBody }),
-        attachments: [],
+        attachments: attachments.map((asset, index) => ({
+          providerAttachmentId: `fake-attachment-${index}`,
+          filename: asset.filename,
+          mimeType: asset.mimeType,
+          sizeBytes: asset.sizeBytes,
+          downloadPolicy: 'METADATA_ONLY' as const,
+        })),
       })
       return result
     },
@@ -116,11 +153,27 @@ export function createFakeCorrespondenceProvider(input?: {
       return this.startWatch(input)
     },
     async stopWatch() {},
-    async lookupSendOperation({ operationId, rfcMessageId }) {
-      const message = [...state.messages.values()].find(
-        (candidate) => candidate.rfcMessageId === rfcMessageId,
+    async lookupSendOperation({
+      mailbox,
+      operationId,
+      rfcMessageId,
+      expected,
+    }: FakeSendOperationLookupInput) {
+      const matches = [...state.messages.values()].filter(
+        (candidate) =>
+          candidate.rfcMessageId === rfcMessageId &&
+          candidate.message.providerAccountId === mailbox.providerAccountId &&
+          candidate.message.mailboxId === mailbox.mailboxId,
       )
+      if (matches.length > 1)
+        return { state: 'AMBIGUOUS', candidateMessageIds: matches.map((m) => m.message.externalId) }
+      const message = matches[0]
       if (!message) return { state: 'NOT_FOUND' }
+      const sent = state.sent.find(
+        (item) => item.operationId === operationId && item.rfcMessageId === rfcMessageId,
+      )
+      if (!sent || (expected && !matchesFakeExpectation(sent, expected)))
+        return { state: 'NOT_FOUND' }
       return {
         state: 'FOUND',
         result: {
@@ -143,4 +196,21 @@ export function createFakeCorrespondenceProvider(input?: {
     },
   }
   return provider
+}
+
+function matchesFakeExpectation(sent: FrozenCorrespondence, expected: SendOperationExpectation) {
+  const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+  return (
+    sameEmail(sent.from.email, expected.senderEmail) &&
+    sameEmail(sent.recipient.email, expected.recipientEmail) &&
+    sent.subject.trim() === expected.subject.trim() &&
+    sent.textBody.replace(/\r\n?/gu, '\n') === expected.textBody.replace(/\r\n?/gu, '\n') &&
+    (expected.providerThreadId === undefined ||
+      sent.providerThreadId === expected.providerThreadId) &&
+    (expected.inReplyTo === undefined || sent.inReplyTo === expected.inReplyTo) &&
+    (expected.references === undefined ||
+      JSON.stringify(sent.references) === JSON.stringify(expected.references)) &&
+    JSON.stringify(checkedLaunchAttachments(sent.attachments)) ===
+      JSON.stringify(checkedLaunchAttachments(expected.attachments))
+  )
 }

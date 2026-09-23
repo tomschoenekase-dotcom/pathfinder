@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { VenueLaunchAssetSchema, type VenueLaunchAsset } from './venue-launch-asset'
+import { AnyVenueLaunchAssetSchema, type VenueLaunchAsset } from './venue-launch-asset'
 
 export function parseVenueLaunchAsset(value: unknown): VenueLaunchAsset {
-  const asset = VenueLaunchAssetSchema.parse(value)
+  const asset = AnyVenueLaunchAssetSchema.parse(value)
   const bytes = Buffer.from(asset.contentBase64, 'base64')
   if (
     bytes.toString('base64') !== asset.contentBase64 ||
@@ -10,6 +10,14 @@ export function parseVenueLaunchAsset(value: unknown): VenueLaunchAsset {
     createHash('sha256').update(bytes).digest('hex') !== asset.sha256
   )
     throw new Error('LAUNCH_ASSET_BYTES_CHANGED: exact QR byte length and SHA-256 required')
+  if (asset.schema === 'torchiko.venue-launch-asset/2') {
+    const signature =
+      asset.format === 'PNG'
+        ? Buffer.from('89504e470d0a1a0a', 'hex')
+        : Buffer.from('%PDF-', 'ascii')
+    if (!bytes.subarray(0, signature.length).equals(signature))
+      throw new Error('LAUNCH_ASSET_FORMAT_INVALID: content signature must match selected format')
+  }
   return asset
 }
 export function parseVenueLaunchAttachments(value: unknown): VenueLaunchAsset[] {

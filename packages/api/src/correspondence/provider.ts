@@ -8,6 +8,7 @@ import type {
   ProviderSyncPage,
   ProviderWatch,
   SendOperationLookup,
+  SendOperationExpectation,
 } from './types'
 
 export type CorrespondenceProvider = Readonly<{
@@ -50,6 +51,7 @@ export type CorrespondenceProvider = Readonly<{
     mailbox: ProviderMailboxRef
     operationId: string
     rfcMessageId: string
+    expected?: SendOperationExpectation
   }): Promise<SendOperationLookup>
   health(mailbox: ProviderMailboxRef): Promise<ProviderHealth>
 }>

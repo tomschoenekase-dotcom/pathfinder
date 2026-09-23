@@ -8,6 +8,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
+ENV NODE_OPTIONS=--max-old-space-size=4096
 ARG NEXT_PUBLIC_WEB_URL
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_AFTER_SIGN_OUT_URL
@@ -22,10 +23,14 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/prisma-engine/query-engine.node
+RUN apk add --no-cache fontconfig
 
 COPY --from=builder --chown=node:node /app/apps/dashboard/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
 COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
+COPY --from=builder --chown=node:node /app/packages/api/node_modules/sharp /app/packages/api/node_modules/sharp
+COPY --from=builder --chown=node:node /app/packages/api/assets/fonts /usr/share/fonts/torchiko
+RUN fc-cache -f
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0

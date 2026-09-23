@@ -1,7 +1,13 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import {
+  AnyVenueLaunchAssetSelectionSchema,
+  venueLaunchAssetDescriptor,
+} from '@pathfinder/contracts/venue-launch-asset'
+import { launchAttachmentsFromSnapshot } from '@pathfinder/contracts/venue-launch-asset-node'
 
 import {
+  db,
   admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
@@ -10,6 +16,7 @@ import {
   evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
+  type VerifiedCurrentProspectPrintAsset,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
@@ -27,6 +34,10 @@ import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
+import {
+  resolveVerifiedCurrentPrintAssets,
+  selectProspectLaunchAsset,
+} from '../../prospect-launch-assets'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -38,6 +49,78 @@ function mapError(error: unknown): never {
         ? 'CONFLICT'
         : 'BAD_REQUEST'
   throw new TRPCError({ code, message: error.message })
+}
+
+async function frozenPdfProofs(
+  snapshots: readonly Readonly<{ prospectVenueId: string | null; snapshot: unknown }>[],
+) {
+  try {
+    const proofs = []
+    for (const item of snapshots) {
+      const attachments = launchAttachmentsFromSnapshot(item.snapshot)
+      if (
+        !attachments.some(
+          (asset) => asset.schema === 'torchiko.venue-launch-asset/2' && asset.format === 'PDF',
+        )
+      )
+        continue
+      if (!item.prospectVenueId)
+        throw new Error('PDF attachment is not bound to an active prospect venue')
+      proofs.push(...(await resolveVerifiedCurrentPrintAssets(item.prospectVenueId, item.snapshot)))
+    }
+    return proofs
+  } catch {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'Frozen PDF is stale or could not be verified against the current venue',
+    })
+  }
+}
+
+async function currentBatchPdfProofs(batchId: string) {
+  const batch = await db.prospectSendBatch.findUnique({
+    where: { id: batchId },
+    select: {
+      items: { select: { draft: { select: { venueId: true, groundingSnapshot: true } } } },
+    },
+  })
+  return frozenPdfProofs(
+    (batch?.items ?? []).map(({ draft }) => ({
+      prospectVenueId: draft.venueId,
+      snapshot: draft.groundingSnapshot,
+    })),
+  )
+}
+
+async function currentDraftPdfProofs(draftIds: readonly string[]) {
+  const drafts = await db.prospectOutreachDraft.findMany({
+    where: { id: { in: [...new Set(draftIds)] } },
+    select: { venueId: true, groundingSnapshot: true },
+  })
+  return frozenPdfProofs(
+    drafts.map((draft) => ({
+      prospectVenueId: draft.venueId,
+      snapshot: draft.groundingSnapshot,
+    })),
+  )
+}
+
+function descriptorOnlyDraft<T extends { groundingSnapshot: unknown }>(draft: T): T {
+  const attachments = launchAttachmentsFromSnapshot(draft.groundingSnapshot)
+  if (!attachments.length) return draft
+  const snapshot =
+    draft.groundingSnapshot &&
+    typeof draft.groundingSnapshot === 'object' &&
+    !Array.isArray(draft.groundingSnapshot)
+      ? (draft.groundingSnapshot as Record<string, unknown>)
+      : {}
+  return {
+    ...draft,
+    groundingSnapshot: {
+      ...snapshot,
+      launchAttachments: attachments.map(venueLaunchAssetDescriptor),
+    },
+  }
 }
 
 const adminProspectCrmOutreachActionsRouter = router({
@@ -101,20 +184,56 @@ const adminProspectCrmOutreachActionsRouter = router({
           textBody: prospectBoundedText(50_000),
           htmlBody: z.string().max(100_000).optional(),
           groundingSnapshot: z.record(z.unknown()),
+          launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
         })
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        saveProspectOutreachDraftAction({
+      withTenantIsolationBypass(async () => {
+        const snapshot = input.groundingSnapshot
+        if (Object.prototype.hasOwnProperty.call(snapshot, 'launchAttachments')) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Supply a current asset selection, not attachment bytes',
+          })
+        }
+        let groundingSnapshot: Record<string, unknown> = snapshot
+        let verifiedCurrentPrintAssets: VerifiedCurrentProspectPrintAsset[] = []
+        if (input.launchAssetSelection) {
+          const member = await db.prospectCampaignMember.findUnique({
+            where: { id: input.memberId },
+            select: { venueId: true },
+          })
+          if (!member?.venueId)
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'A converted prospect venue is required for this asset',
+            })
+          const asset = await selectProspectLaunchAsset(
+            member.venueId,
+            input.launchAssetSelection,
+          ).catch(() => {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Selected venue QR is stale; list current assets and choose again',
+            })
+          })
+          groundingSnapshot = { ...snapshot, launchAttachments: [asset] }
+          if (asset.schema === 'torchiko.venue-launch-asset/2' && asset.format === 'PDF') {
+            verifiedCurrentPrintAssets = [{ prospectVenueId: member.venueId, asset }]
+          }
+        }
+        const saved = await saveProspectOutreachDraftAction({
           memberId: input.memberId,
           subject: input.subject,
           textBody: input.textBody,
-          groundingSnapshot: input.groundingSnapshot,
+          groundingSnapshot,
+          verifiedCurrentPrintAssets,
           ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
           actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
-      ),
+        }).catch(mapError)
+        return descriptorOnlyDraft(saved)
+      }),
     ),
 
   reviewProspectOutreachDraft: adminProcedure
@@ -130,17 +249,28 @@ const adminProspectCrmOutreachActionsRouter = router({
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        reviewProspectOutreachDraftAction({
+      withTenantIsolationBypass(async () => {
+        const draft = await db.prospectOutreachDraft.findUnique({
+          where: { id: input.draftId },
+          select: { venueId: true, groundingSnapshot: true },
+        })
+        const verifiedCurrentPrintAssets = draft
+          ? await frozenPdfProofs([
+              { prospectVenueId: draft.venueId, snapshot: draft.groundingSnapshot },
+            ])
+          : []
+        const reviewed = await reviewProspectOutreachDraftAction({
           draftId: input.draftId,
           approve: input.approve,
+          verifiedCurrentPrintAssets,
           ...(input.reason !== undefined ? { reason: input.reason } : {}),
           ...(input.acknowledgedEscalations !== undefined
             ? { acknowledgedEscalations: input.acknowledgedEscalations }
             : {}),
           actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
-      ),
+        }).catch(mapError)
+        return descriptorOnlyDraft(reviewed)
+      }),
     ),
 
   stageProspectSendBatch: adminProcedure
@@ -154,10 +284,12 @@ const adminProspectCrmOutreachActionsRouter = router({
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        stageProspectSendBatchAction({ ...input, actor: prospectActor(ctx.session.userId) }).catch(
-          mapError,
-        ),
+      withTenantIsolationBypass(async () =>
+        stageProspectSendBatchAction({
+          ...input,
+          verifiedCurrentPrintAssets: await currentDraftPdfProofs(input.draftIds),
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError),
       ),
     ),
 
@@ -180,6 +312,7 @@ const adminProspectCrmOutreachActionsRouter = router({
       withTenantIsolationBypass(async () => {
         const approved = await approveProspectSendBatchAction({
           ...input,
+          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
           actor: prospectActor(ctx.session.userId),
         }).catch(mapError)
         await publishCrmOperationalSignal({
@@ -221,6 +354,7 @@ const adminProspectCrmOutreachActionsRouter = router({
         }
         const released = await releaseProspectSendBatchAction({
           ...input,
+          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
           actor: prospectActor(ctx.session.userId),
         }).catch(mapError)
         const dispatch = await Promise.allSettled(

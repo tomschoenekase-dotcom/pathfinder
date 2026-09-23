@@ -75,12 +75,31 @@ describe('prospect correspondence worker safety', () => {
       textBody: 'Body',
       rfcMessageId: '<torchiko.operation-1@torchiko.com>',
       references: [],
+      attachments: [
+        {
+          schema: 'torchiko.venue-launch-asset/1',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          release: { kind: 'LEGACY', id: 'legacy:venue-1', revisionSha256: 'a'.repeat(64) },
+          publicUrl: 'https://guide.example.com/venue/chat?source=qr',
+          filename: 'venue-qr.svg',
+          mimeType: 'image/svg+xml',
+          sizeBytes: 4,
+          sha256: 'b'.repeat(64),
+          contentBase64: 'PHN2Zz4=',
+        },
+      ],
     } as const
 
     await expect(
       sendOrRecoverProspectCorrespondence(provider as never, frozen, 2),
     ).resolves.toEqual(result)
     expect(provider.lookupSendOperation).toHaveBeenCalledOnce()
+    expect(provider.lookupSendOperation.mock.calls[0]?.[0].expected).toMatchObject({
+      senderEmail: 'internal@example.test',
+      recipientEmail: 'prospect@example.test',
+      attachments: frozen.attachments,
+    })
     expect(provider.sendOne).not.toHaveBeenCalled()
   })
 

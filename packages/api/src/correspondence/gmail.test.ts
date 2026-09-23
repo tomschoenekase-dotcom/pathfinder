@@ -8,6 +8,9 @@ import {
   type GmailCredentialLeaseProvider,
 } from './gmail'
 import { CorrespondenceProviderError, type ProviderMailboxRef } from './types'
+import { createHash } from 'node:crypto'
+import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
+import { launchMimeBoundary } from './venue-launch-mime'
 
 const mailbox: ProviderMailboxRef = {
   provider: 'GMAIL',
@@ -15,6 +18,20 @@ const mailbox: ProviderMailboxRef = {
   mailboxId: 'mailbox-1',
   mailboxAddress: 'outreach@torchiko.com',
   credentialRef: 'encrypted-credential-ref-1',
+}
+
+const qrBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+const qrAsset: VenueLaunchAsset = {
+  schema: 'torchiko.venue-launch-asset/1',
+  tenantId: 'tenant',
+  venueId: 'venue',
+  release: { kind: 'NATIVE', id: 'release', revisionSha256: 'a'.repeat(64) },
+  publicUrl: 'https://example.com/chat?source=qr',
+  filename: 'venue-qr.svg',
+  mimeType: 'image/svg+xml',
+  sizeBytes: qrBytes.length,
+  sha256: createHash('sha256').update(qrBytes).digest('hex'),
+  contentBase64: qrBytes.toString('base64'),
 }
 
 function gmailMessage(overrides: Partial<GmailApiMessage> = {}): GmailApiMessage {
@@ -72,6 +89,103 @@ function setup(clientOverrides: Partial<GmailApiClient> = {}) {
 }
 
 describe('Gmail correspondence provider', () => {
+  it('sends deterministic multipart QR bytes and recovers only the exact SENT envelope and bytes', async () => {
+    const candidate = gmailMessage({
+      labelIds: ['SENT'],
+      headers: {
+        from: mailbox.mailboxAddress,
+        to: 'person@example.org',
+        subject: 'Subject',
+        'message-id': '<qr@torchiko.com>',
+        'in-reply-to': '<old@torchiko.com>',
+        references: '<older@torchiko.com> <old@torchiko.com>',
+      },
+      textBody: 'Approved new body only.',
+      htmlBody: null,
+      attachments: [
+        {
+          id: 'qr-1',
+          filename: qrAsset.filename,
+          mimeType: qrAsset.mimeType,
+          sizeBytes: qrAsset.sizeBytes,
+          contentBase64Url: qrBytes.toString('base64url'),
+        },
+      ],
+      hasUnexpectedMimeParts: false,
+    })
+    let changed = false
+    const { provider, client } = setup({
+      findByRfcMessageId: vi.fn(async () => [
+        changed
+          ? {
+              ...candidate,
+              attachments: [
+                {
+                  ...candidate.attachments![0]!,
+                  contentBase64Url: Buffer.from('other').toString('base64url'),
+                },
+              ],
+            }
+          : candidate,
+      ]),
+    })
+    const frozen = {
+      operationId: 'qr',
+      providerIdempotencyKey: 'qr',
+      mailbox,
+      recipient: { email: 'person@example.org' },
+      from: { email: mailbox.mailboxAddress },
+      subject: 'Subject',
+      textBody: 'Approved new body only.',
+      rfcMessageId: '<qr@torchiko.com>',
+      inReplyTo: '<old@torchiko.com>',
+      references: ['<older@torchiko.com>', '<old@torchiko.com>'],
+      attachments: [qrAsset],
+    }
+    await provider.sendOne(frozen)
+    const raw = vi.mocked(client.sendMessage).mock.calls[0]![0].rawBase64Url
+    const mime = Buffer.from(raw, 'base64url').toString('utf8')
+    expect(mime).toContain('Content-Type: multipart/mixed; boundary=')
+    expect(mime).toContain('Content-Disposition: attachment; filename="venue-qr.svg"')
+    const boundary = launchMimeBoundary('qr', frozen.rfcMessageId)
+    const encodedText = mime
+      .split('Content-Transfer-Encoding: base64\r\n\r\n')[1]!
+      .split(`\r\n--${boundary}`)[0]!
+    const sentBody = Buffer.from(encodedText.replaceAll('\r\n', ''), 'base64').toString('utf8')
+    expect(sentBody).toBe(frozen.textBody)
+    expect(sentBody).not.toContain('old@torchiko.com')
+    expect(mime).toContain('In-Reply-To: <old@torchiko.com>')
+    expect(mime).toContain(qrAsset.contentBase64)
+    await provider.sendOne(frozen)
+    expect(vi.mocked(client.sendMessage).mock.calls[1]![0].rawBase64Url).toBe(raw)
+    const input = {
+      mailbox,
+      operationId: 'qr',
+      rfcMessageId: frozen.rfcMessageId,
+      expected: {
+        senderEmail: mailbox.mailboxAddress,
+        recipientEmail: frozen.recipient.email,
+        subject: frozen.subject,
+        textBody: frozen.textBody,
+        attachments: [qrAsset],
+        inReplyTo: frozen.inReplyTo,
+        references: frozen.references,
+      },
+    }
+    await expect(provider.lookupSendOperation(input)).resolves.toMatchObject({ state: 'FOUND' })
+    await expect(
+      provider.lookupSendOperation({
+        ...input,
+        expected: { ...input.expected, providerThreadId: 'other-thread' },
+      }),
+    ).resolves.toMatchObject({ state: 'NOT_FOUND' })
+    changed = true
+    await expect(provider.lookupSendOperation(input)).resolves.toMatchObject({ state: 'NOT_FOUND' })
+    await expect(
+      provider.sendOne({ ...frozen, attachments: [{ ...qrAsset, sha256: 'b'.repeat(64) }] }),
+    ).rejects.toThrow()
+  })
+
   it('sends one frozen text message through a credential lease without exposing tokens in results', async () => {
     const { client, provider } = setup()
     const result = await provider.sendOne({
@@ -95,6 +209,7 @@ describe('Gmail correspondence provider', () => {
     })
     const raw = vi.mocked(client.sendMessage).mock.calls[0]![0].rawBase64Url
     const mime = Buffer.from(raw, 'base64url').toString('utf8')
+    expect(mime).toContain('Content-Type: text/plain; charset=UTF-8')
     expect(mime).toContain('To: "Curator" <curator@example.org>')
     expect(mime).toContain('\r\n\r\nHello')
     expect(mime).not.toContain('<p>Hello</p>')
@@ -171,7 +286,22 @@ describe('Gmail correspondence provider', () => {
   })
 
   it('supports watch renewal, reconciliation, and provider lookup without live Google calls', async () => {
-    const { client, provider } = setup()
+    const { client, provider } = setup({
+      findByRfcMessageId: vi.fn(async () => [
+        gmailMessage({
+          labelIds: ['SENT'],
+          headers: {
+            from: `"Torchiko, Ops" <${mailbox.mailboxAddress}>`,
+            to: '"Doe, Jane" <person@example.org>',
+            subject: 'Subject',
+            'message-id': '<send@torchiko.com>',
+          },
+          textBody: 'line1\r\nline2\r\n\r\n  🌿',
+          htmlBody: null,
+          attachments: [],
+        }),
+      ]),
+    })
     const [watch, sync, lookup] = await Promise.all([
       provider.renewWatch({ mailbox, topicName: 'projects/test/topics/gmail' }),
       provider.reconcile({ mailbox, after: new Date('2026-08-19T00:00:00Z'), pageSize: 50 }),
@@ -179,12 +309,117 @@ describe('Gmail correspondence provider', () => {
         mailbox,
         operationId: 'operation-1',
         rfcMessageId: '<send@torchiko.com>',
+        expected: {
+          senderEmail: mailbox.mailboxAddress,
+          recipientEmail: 'person@example.org',
+          subject: 'Subject',
+          textBody: 'line1\nline2\n\n  🌿',
+        },
       }),
     ])
     expect(watch.cursor).toBe('104')
     expect(sync.mode).toBe('FULL_RECONCILIATION')
     expect(lookup.state).toBe('FOUND')
+    await expect(
+      provider.lookupSendOperation({
+        mailbox,
+        operationId: 'operation-1',
+        rfcMessageId: '<send@torchiko.com>',
+      }),
+    ).resolves.toMatchObject({ state: 'FOUND' })
     expect(client.watch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    'inbound candidate',
+    'wrong recipient',
+    'wrong body',
+    'unexpected cc',
+    'unexpected bcc',
+    'html body',
+    'attachment',
+  ] as const)('holds recovery for a %s', async (kind) => {
+    const headers: Record<string, string> = {
+      from: mailbox.mailboxAddress,
+      to: 'person@example.org',
+      subject: 'Subject',
+      'message-id': '<send@torchiko.com>',
+    }
+    if (kind === 'inbound candidate') headers.from = 'person@example.org'
+    if (kind === 'wrong recipient') headers.to = 'other@example.org'
+    const candidateExtra =
+      kind === 'unexpected cc'
+        ? { headers: { cc: 'copy@example.org' } }
+        : kind === 'unexpected bcc'
+          ? { headers: { bcc: 'hidden@example.org' } }
+          : kind === 'html body'
+            ? { htmlBody: '<p>unexpected</p>' }
+            : kind === 'attachment'
+              ? {
+                  attachments: [
+                    { id: 'a', filename: 'x.txt', mimeType: 'text/plain', sizeBytes: 1 },
+                  ],
+                }
+              : {}
+    const { provider } = setup({
+      findByRfcMessageId: vi.fn(async () => [
+        gmailMessage({
+          labelIds: kind === 'inbound candidate' ? ['INBOX'] : ['SENT'],
+          textBody: kind === 'wrong body' ? 'tampered' : 'Text',
+          ...candidateExtra,
+          headers: {
+            ...headers,
+            ...(kind === 'unexpected cc' ? { cc: 'copy@example.org' } : {}),
+            ...(kind === 'unexpected bcc' ? { bcc: 'hidden@example.org' } : {}),
+          },
+        }),
+      ]),
+    })
+    await expect(
+      provider.lookupSendOperation({
+        mailbox,
+        operationId: 'operation-1',
+        rfcMessageId: '<send@torchiko.com>',
+        expected: {
+          senderEmail: mailbox.mailboxAddress,
+          recipientEmail: 'person@example.org',
+          subject: 'Subject',
+          textBody: 'Text',
+        },
+      }),
+    ).resolves.toEqual({ state: 'NOT_FOUND' })
+  })
+
+  it('holds duplicate exact Gmail recovery candidates as ambiguous', async () => {
+    const candidate = gmailMessage({
+      id: 'candidate-1',
+      labelIds: ['SENT'],
+      headers: {
+        from: mailbox.mailboxAddress,
+        to: 'person@example.org',
+        subject: 'Subject',
+        'message-id': '<send@torchiko.com>',
+      },
+      textBody: 'Text',
+      htmlBody: null,
+      attachments: [],
+    })
+    const { provider } = setup({
+      findByRfcMessageId: vi.fn(async () => [candidate, { ...candidate, id: 'candidate-2' }]),
+    })
+    await expect(
+      provider.lookupSendOperation({
+        mailbox,
+        operationId: 'operation-1',
+        rfcMessageId: '<send@torchiko.com>',
+        expected: {
+          senderEmail: mailbox.mailboxAddress,
+          recipientEmail: 'person@example.org',
+          subject: 'Subject',
+          textBody: 'Text',
+        },
+      }),
+    ).resolves.toEqual({ state: 'AMBIGUOUS', candidateMessageIds: ['candidate-1', 'candidate-2'] })
   })
 
   it('fails closed when the mailbox credential reference is absent', async () => {

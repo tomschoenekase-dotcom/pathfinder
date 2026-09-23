@@ -3,6 +3,7 @@
   "private": true,
   "exports": {
     "./custom-character-publication": "./src/lib/custom-character-publication.ts",
+    "./venue-qr-pdf": "./src/lib/venue-qr-pdf.ts",
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
