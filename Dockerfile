@@ -28,7 +28,8 @@ RUN apk add --no-cache fontconfig
 COPY --from=builder --chown=node:node /app/apps/dashboard/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
 COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
-COPY --from=builder --chown=node:node /app/packages/api/node_modules/sharp /app/packages/api/node_modules/sharp
+RUN mkdir -p /app/packages/api/node_modules \
+  && ln -s ../../../apps/dashboard/node_modules/sharp /app/packages/api/node_modules/sharp
 COPY --from=builder --chown=node:node /app/packages/api/assets/fonts /usr/share/fonts/torchiko
 RUN fc-cache -f
 
