@@ -305,8 +305,17 @@ jobs:
         if: always()
         run: |
           python3 - <<'PY'
+          import json
           from pathlib import Path
           for p in sorted(Path('../qa').glob('http-*/*')):
               if p.name in ('RESOURCE-RECEIPT.json', 'HTTP-ACCEPTANCE.json', 'migration.log', 'migration-failure-detail.log', 'acceptance.log'):
                   print('\n--- SYNTHETIC RECEIPT: ' + str(p) + ' ---\n' + p.read_text())
+              if p.name in ('RESOURCE-RECEIPT.json', 'HTTP-ACCEPTANCE.json'):
+                  message = json.dumps(json.loads(p.read_text()), ensure_ascii=True)
+                  print('::notice title=' + p.name + '::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          report = Path('../qa/closeout-vitest.json')
+          if report.exists():
+              data = json.loads(report.read_text())
+              counts = {k: data.get(k) for k in ('success', 'numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests')}
+              print('::notice title=CLOSEOUT-VITEST-COUNTS::' + json.dumps(counts))
           PY
