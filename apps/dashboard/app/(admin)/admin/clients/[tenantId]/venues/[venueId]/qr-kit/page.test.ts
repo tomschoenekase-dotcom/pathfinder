@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({ getClientVenue: vi.fn(), getVenueLaunchAsset: 
 vi.mock('../../../../../../../../lib/admin-caller', () => ({
   createAdminCaller: vi.fn(async () => ({ admin: mocks })),
 }))
+vi.mock('../../../../../../../../lib/trpc', () => ({ useTRPCClient: () => ({}) }))
 
 import AdminVenueQrKitPage from './page'
 
