@@ -267,6 +267,8 @@ jobs:
         run: pnpm --dir apps/web exec vitest run components/VenueChatExperience.test.tsx components/ChatWindow.test.tsx components/visitor-ui-copy.test.ts lib/trpc.test.tsx lib/pending-chat-turn.test.ts lib/bounded-client-request.test.ts hooks/useSession.test.tsx hooks/useGuestVisitContext.test.tsx --pool=forks --maxWorkers=1
       - name: Verify final combined chat API conversation and replay contracts
         run: pnpm --dir packages/api exec vitest run src/routers/chat.test.ts src/lib/conversation-learning-candidate.test.ts src/lib/capture-conversation-learning.test.ts --pool=forks --maxWorkers=1
+      - name: Build and verify browser bundles contain no server secrets
+        run: pnpm verify:client-bundles
       - name: Install the pinned Chromium runtime for visual smoke tests
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
       - name: Verify phone, tablet, and desktop core-product rendering
@@ -291,8 +293,6 @@ jobs:
           path: artifacts/mobile-visual/**/results/**/guest-visit-*.png
           if-no-files-found: warn
           retention-days: 7
-      - name: Build and verify browser bundles contain no server secrets
-        run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
         run: pnpm test:browser-foundation
       - name: Verify Packet 2 automated accessibility contracts

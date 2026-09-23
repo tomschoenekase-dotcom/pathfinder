@@ -14,7 +14,7 @@ const dashboardLayout = await readFile(path.join(root, 'apps/dashboard/app/layou
 
 test('responsive browser CI failures retain a bounded secret-free diagnostic tail', () => {
   const step = workflow.match(
-    /- name: Verify phone, tablet, and desktop core-product rendering[\s\S]*?(?=\n\s+- name: Build and verify browser bundles)/u,
+    /- name: Verify phone, tablet, and desktop core-product rendering[\s\S]*?(?=\n\s+- name: Retain text-first visitor fixture screenshots)/u,
   )?.[0]
 
   assert.ok(step)
@@ -25,6 +25,19 @@ test('responsive browser CI failures retain a bounded secret-free diagnostic tai
   assert.match(step, /::error title=Responsive browser gate failed::\$safe_line/u)
   assert.match(step, /line\/\/'%'\/'%25'/u)
   assert.doesNotMatch(step, /printenv|env\s|set\s+-x|DATABASE_URL|SECRET|TOKEN/iu)
+})
+
+test('the unchanged bundle build gate reports bounded compiler diagnostics before the long browser suite', async () => {
+  const build = workflow.indexOf('- name: Build and verify browser bundles contain no server secrets')
+  const visual = workflow.indexOf('- name: Verify phone, tablet, and desktop core-product rendering')
+  assert.ok(build >= 0 && build < visual)
+  assert.equal(workflow.match(/run: pnpm verify:client-bundles/gu)?.length, 1)
+  const verifier = await readFile(path.join(root, 'scripts/verify-client-bundle-secrets.mjs'), 'utf8')
+  assert.match(verifier, /process\.env\.GITHUB_ACTIONS === 'true'/u)
+  assert.match(verifier, /createDiagnosticAnnotation\([\s\S]*80,[\s\S]*8_000,/u)
+  assert.match(verifier, /::error title=Client bundle build failed::/u)
+  assert.match(verifier, /process\.exitCode = reportOperatorCliFailure/u)
+  assert.doesNotMatch(verifier, /console\.(?:error|log)\(result\.(?:stdout|stderr)\)/u)
 })
 
 test('held final recovery and API contracts execute before the broad visual gate', async () => {

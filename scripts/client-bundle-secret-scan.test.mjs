@@ -3,6 +3,8 @@ import { readFile, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 import {
   CLIENT_BUNDLE_SECRET_CANARIES,
@@ -77,6 +79,36 @@ test('the build environment replaces server credentials and removes build-servic
   assert.equal(environment.DATABASE_URL, CLIENT_BUNDLE_SECRET_CANARIES.DATABASE_URL.value)
   assert.equal(environment.NEXT_TELEMETRY_DISABLED, '1')
 })
+
+for (const hosted of [false, true]) {
+  test(`failed compiler output is ${hosted ? 'bounded and redacted in Actions' : 'opaque outside Actions'}`, async () => {
+    const root = await fixtureRoot('pathfinder-build-diagnostic-')
+    const fakePackageManager = join(root, 'fake-pnpm.mjs')
+    await writeFile(fakePackageManager, [
+      "console.log('discarded context\\n'.repeat(120))",
+      "console.error('API_TOKEN=synthetic-must-not-appear')",
+      "console.error('components/Fixture.tsx(3,5): error TS2345: fixture-only compile failure')",
+      'process.exitCode = 17',
+    ].join('\n'))
+    const result = spawnSync(process.execPath, [
+      fileURLToPath(new URL('./verify-client-bundle-secrets.mjs', import.meta.url)),
+    ], {
+      env: { ...process.env, npm_execpath: fakePackageManager, GITHUB_ACTIONS: String(hosted) },
+      encoding: 'utf8', timeout: 10_000, maxBuffer: 32 * 1024, windowsHide: true,
+    })
+    assert.equal(result.error, undefined)
+    assert.notEqual(result.status, 0)
+    const output = result.stdout + result.stderr
+    assert.doesNotMatch(output, /synthetic-must-not-appear/u)
+    assert.match(output, /client-bundle-verification.failed/u)
+    if (hosted) {
+      assert.match(output, /::error title=Client bundle build failed::/u)
+      assert.match(output, /API_TOKEN=\[REDACTED\]/u)
+      assert.match(output, /components\/Fixture\.tsx\(3,5\): error TS2345/u)
+      assert.ok(result.stderr.length < 8_500)
+    } else assert.doesNotMatch(output, /fixture-only|discarded context|::error/u)
+  })
+}
 
 test('clean static, public, and prerender outputs pass without scanning server JavaScript', async () => {
   const root = await fixtureRoot()
