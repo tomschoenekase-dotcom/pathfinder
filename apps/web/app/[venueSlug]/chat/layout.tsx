@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import type { Metadata, Viewport } from 'next'
 import { notFound } from 'next/navigation'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
+import { getPublicVenue } from '../../../lib/public-venue'
 import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { TRPCProvider } from '../../../lib/trpc'
 
@@ -25,14 +25,6 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   themeColor: '#0f172a',
-}
-
-async function getPublicVenue(venueSlug: string) {
-  const ctx = await createTRPCContext({
-    req: new Request('https://pathfinder.local/public-venue'),
-  })
-
-  return appRouter.createCaller(ctx).venue.getBySlug({ slug: venueSlug })
 }
 
 export async function generateMetadata({ params }: VenueChatMetadataProps): Promise<Metadata> {

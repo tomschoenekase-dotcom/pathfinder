@@ -322,6 +322,57 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
   })
 
+  it('uses only the matching server-admitted public venue and still restores its history', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.anonymousToken = token
+    mocks.sessionId = 'session-1'
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    mocks.client.chat.history.query.mockResolvedValueOnce({
+      messages: [{ role: 'assistant' as const, content: 'Welcome back.' }],
+    })
+
+    render(
+      <VenueChatExperience
+        venueSlug="museum"
+        initialVenue={{ slug: 'museum', venue: activeVenue }}
+      />,
+    )
+
+    await screen.findByText('Latest: Welcome back.')
+    expect(mocks.getBySlug).not.toHaveBeenCalled()
+    expect(mocks.client.chat.history.query).toHaveBeenCalledWith(
+      { venueId: activeVenue.id, anonymousToken: token },
+      expect.anything(),
+    )
+  })
+
+  it('does not use an admitted venue from a different route or for a second layer', async () => {
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    const view = render(
+      <VenueChatExperience
+        venueSlug="museum"
+        initialVenue={{ slug: 'another-venue', venue: activeVenue }}
+      />,
+    )
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' }, expect.anything())
+
+    view.unmount()
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(
+      <VenueChatExperience
+        venueSlug="museum"
+        secondLayerKey="private-access"
+        initialVenue={{ slug: 'museum', venue: activeVenue }}
+      />,
+    )
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    expect(mocks.getBySlug).toHaveBeenCalledWith(
+      { slug: 'museum', secondLayerKey: 'private-access' },
+      expect.anything(),
+    )
+  })
+
   it('maps restored temporary fallback history and suppresses expansion', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174097'
     mocks.anonymousToken = token

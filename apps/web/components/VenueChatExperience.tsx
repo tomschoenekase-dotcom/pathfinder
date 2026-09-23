@@ -38,6 +38,7 @@ import type { FinalizedVoiceTranscriptLine } from './VoiceControl'
 
 type VenueChatExperienceProps = {
   venueSlug: string
+  initialVenue?: { slug: string; venue: VenueSummary }
   presentation?: VenueChatPresentation
   initialDraft?: string
   entrySource?: GuestEntrySource
@@ -125,6 +126,7 @@ function publicGuestErrorCode(error: unknown): GuestPublicErrorCodeType | null {
 
 export function VenueChatExperience({
   venueSlug,
+  initialVenue,
   presentation = 'standalone',
   initialDraft = '',
   entrySource,
@@ -286,18 +288,21 @@ export function VenueChatExperience({
       lastSyncedPosRef.current = null
       resetAnalytics()
       try {
-        const result = await runBoundedClientRequest({
-          parentSignal: controller.signal,
-          timeoutMs: VISITOR_READ_TIMEOUT_MS,
-          request: (signal) =>
-            client.venue.getBySlug.query(
-              {
-                slug: venueSlug,
-                ...(secondLayerKey ? { secondLayerKey } : {}),
-              },
-              { signal },
-            ),
-        })
+        const result =
+          initialVenue?.slug === venueSlug && !secondLayerKey
+            ? initialVenue.venue
+            : await runBoundedClientRequest({
+                parentSignal: controller.signal,
+                timeoutMs: VISITOR_READ_TIMEOUT_MS,
+                request: (signal) =>
+                  client.venue.getBySlug.query(
+                    {
+                      slug: venueSlug,
+                      ...(secondLayerKey ? { secondLayerKey } : {}),
+                    },
+                    { signal },
+                  ),
+              })
         if (disposed || conversationEpochRef.current !== epoch) return
         setVenueState({ slug: venueSlug, venue: result })
         setTemporaryCharacterState('attention', 900)
@@ -367,6 +372,7 @@ export function VenueChatExperience({
   }, [
     client,
     experienceStorageScope,
+    initialVenue,
     resetAnalytics,
     secondLayerKey,
     setTemporaryCharacterState,
