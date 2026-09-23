@@ -75,6 +75,34 @@ describe('conversation learning candidate discovery', () => {
     ).toBeNull()
   })
 
+  it.each([
+    'We have 20 minutes and our children like trains. What should we see?',
+    'We need a quieter place and step-free access. What is known here?',
+    'We are on the second floor. Where should we go?',
+    "We're on the second floor.",
+    'We’re near the north entrance.',
+    "We've got 20 minutes today.",
+    'Our children are five and seven.',
+    'Our family has 20 minutes left today.',
+    'Our group needs a quiet place near the entrance.',
+    "I'm hungry.",
+    'I’m near the north entrance.',
+  ])('does not interpret ordinary personal/group context as a venue fact: %s', (message) => {
+    expect(classifyConversationLearningCandidate(message)).toBeNull()
+  })
+
+  it('retains actual observations and venue assertions rather than excluding every plural lead', () => {
+    expect(
+      classifyConversationLearningCandidate('We noticed the placard says the train was built in 1900.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION', verification: 'UNVERIFIED' })
+    expect(
+      classifyConversationLearningCandidate('Our museum has a train collection.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION', verification: 'UNVERIFIED' })
+    expect(
+      classifyConversationLearningCandidate('We noticed the north entrance is closed today.'),
+    ).toMatchObject({ kind: 'TEMPORARY_UPDATE', verification: 'UNVERIFIED' })
+  })
+
   it.each(['The display is ugly.', 'This exhibit is boring and terrible.', 'The guide is stupid.'])(
     'does not turn subjective opinion or abuse into a factual candidate: %s',
     (message) => {

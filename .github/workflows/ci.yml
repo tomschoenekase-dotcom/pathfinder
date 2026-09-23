@@ -266,7 +266,7 @@ jobs:
       - name: Verify final combined visitor denial, Stop, draft and recovery contracts
         run: pnpm --dir apps/web exec vitest run components/VenueChatExperience.test.tsx components/ChatWindow.test.tsx components/visitor-ui-copy.test.ts lib/trpc.test.tsx lib/pending-chat-turn.test.ts lib/bounded-client-request.test.ts hooks/useSession.test.tsx hooks/useGuestVisitContext.test.tsx --pool=forks --maxWorkers=1
       - name: Verify final combined chat API conversation and replay contracts
-        run: pnpm --dir packages/api exec vitest run src/routers/chat.test.ts --pool=forks --maxWorkers=1
+        run: pnpm --dir packages/api exec vitest run src/routers/chat.test.ts src/lib/conversation-learning-candidate.test.ts src/lib/capture-conversation-learning.test.ts --pool=forks --maxWorkers=1
       - name: Install the pinned Chromium runtime for visual smoke tests
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
       - name: Verify phone, tablet, and desktop core-product rendering
