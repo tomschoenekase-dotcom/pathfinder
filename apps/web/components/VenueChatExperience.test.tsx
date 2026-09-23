@@ -1133,7 +1133,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'محادثة جديدة' })).toBeTruthy()
-    fireEvent.click(screen.getByText('إرشادات الذكاء الاصطناعي'))
+    fireEvent.click(screen.getByText('إرشادات الذكاء الاصطناعي', { selector: 'summary' }))
     const guidance = screen.getByRole('note', { name: 'إرشادات الذكاء الاصطناعي' })
     expect(guidance.getAttribute('lang')).toBe('ar')
     expect(guidance.getAttribute('dir')).toBe('rtl')
@@ -1149,9 +1149,10 @@ describe('VenueChatExperience presentation boundary', () => {
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
       await screen.findByRole('heading', { name: 'Museum' })
-      const disclosure = screen.getByText('AI guidance').closest('details')
+      const summary = screen.getByText('AI guidance', { selector: 'summary' })
+      const disclosure = summary.closest('details')
       expect(disclosure?.open).toBe(false)
-      fireEvent.click(screen.getByText('AI guidance'))
+      fireEvent.click(summary)
       expect(disclosure?.open).toBe(true)
       expect(screen.getByRole('note', { name: 'AI guidance' }).textContent).toContain(
         'AI-generated answers can be wrong',
