@@ -110,12 +110,14 @@ export function createAiInvocationId(): string {
   return randomUUID()
 }
 
-function priceUnitsPerToken(usdPerMillionTokens: number): bigint {
+function ceilingPriceUnitsPerToken(usdPerMillionTokens: number): bigint {
   const units = usdPerMillionTokens * 100
-  if (!Number.isSafeInteger(units) || units < 0) {
-    throw new Error('AI registry pricing must resolve to exact 1e-8 USD units per token')
+  if (!Number.isFinite(units) || units < 0) {
+    throw new Error('AI registry pricing must be a nonnegative finite number')
   }
-  return BigInt(units)
+  const nearest = Math.round(units)
+  if (Math.abs(units - nearest) < 1e-9) return BigInt(nearest)
+  return BigInt(Math.ceil(units))
 }
 
 export function textAttemptCostCeilingUnits(params: {
@@ -144,9 +146,9 @@ export function textAttemptCostCeilingUnits(params: {
     params.spec.pricingUsdPerMillionTokens.cacheRead,
   )
   return (
-    BigInt(params.spec.maxBillableInputTokens) * priceUnitsPerToken(inputRate) +
+    BigInt(params.spec.maxBillableInputTokens) * ceilingPriceUnitsPerToken(inputRate) +
     BigInt(params.maxOutputTokens) *
-      priceUnitsPerToken(params.spec.pricingUsdPerMillionTokens.output)
+      ceilingPriceUnitsPerToken(params.spec.pricingUsdPerMillionTokens.output)
   )
 }
 
@@ -163,7 +165,7 @@ export function embeddingAttemptCostCeilingUnits(params: {
   }
   return (
     BigInt(params.spec.maxBillableInputTokens) *
-    priceUnitsPerToken(params.spec.inputUsdPerMillionTokens)
+    ceilingPriceUnitsPerToken(params.spec.inputUsdPerMillionTokens)
   )
 }
 

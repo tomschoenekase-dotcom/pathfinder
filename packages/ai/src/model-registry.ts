@@ -9,6 +9,7 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT: 'guest-chat',
   GUEST_CHAT_DEEPSEEK_FLASH: 'guest-chat-deepseek-flash',
   GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
+  GUEST_CHAT_LUNA: 'guest-chat-luna',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -52,6 +53,26 @@ function openAiMiniSpec(maxOutputTokens: number): AiModelSpec {
       output: 2,
       cacheWrite: 0.25,
       cacheRead: 0.025,
+    },
+  }
+}
+
+function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
+  return {
+    provider: 'openai',
+    model: 'gpt-6-luna',
+    costTier: 'ECONOMY',
+    maxOutputTokens,
+    timeoutMs: 15_000,
+    maxAttempts: 2,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
+    pricingVersion: 'openai-standard-public-2026-09-22',
+    pricingUsdPerMillionTokens: {
+      input: 0.1,
+      output: 0.5,
+      cacheWrite: 0.125,
+      cacheRead: 0.01,
     },
   }
 }
@@ -167,6 +188,7 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   }),
   // Explicit provider-diversity candidate. Anthropic remains the platform
   // default until a governed workload/client/venue override selects this key.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(512),
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),
