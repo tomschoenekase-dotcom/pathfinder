@@ -338,3 +338,12 @@
     max-height: 72px;
   }
 }
+@media (max-width: 360px) and (max-height: 400px) {
+  .identityCopy p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
