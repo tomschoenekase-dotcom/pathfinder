@@ -24,7 +24,7 @@ import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
-import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
+import { getVisitorStateCopy, getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 import { useChatViewportHeight } from '../hooks/useChatViewportHeight'
@@ -81,7 +81,7 @@ export function VenueChatShell(props: {
     permission: Parameters<typeof LocationBanner>[0]['permission']
     refresh: () => void
   }
-  onSend: (message: string) => void
+  onSend: (message: string) => void | boolean
   onRequestMore?: () => void
   requestMoreLabel?: string
   onDraftChange?: (draft: string) => void
@@ -90,6 +90,7 @@ export function VenueChatShell(props: {
   onStopResponse?: () => void
   stopResponseLabel?: string
   conversationLocked?: boolean
+  isRestoringHistory?: boolean
   onNewConversation: () => void
   onPlaceView: (placeId: string) => void
   onPlaceClick: (placeId: string) => void
@@ -127,6 +128,7 @@ export function VenueChatShell(props: {
     onStopResponse,
     stopResponseLabel,
     conversationLocked = false,
+    isRestoringHistory = false,
     onNewConversation,
     onPlaceView,
     onPlaceClick,
@@ -164,6 +166,13 @@ export function VenueChatShell(props: {
   const hasLocation =
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
+  const canSubmitMessage =
+    isOnline && !isSending && Boolean(anonymousToken) && !conversationLocked && !isRestoringHistory
+
+  function sendGuestMessage(message: string) {
+    if (!canSubmitMessage) return false
+    return onSend(message)
+  }
   const [bannerLoad, setBannerLoad] = useState<{
     src: string | null
     status: 'loading' | 'ready' | 'failed'
@@ -193,14 +202,16 @@ export function VenueChatShell(props: {
       lang={languagePresentation.code}
       dir={languagePresentation.direction}
       className={`${styles.shell} flex flex-col`}
-      data-keyboard-open={viewportHeight !== undefined || undefined}
+      data-keyboard-open={viewportHeight !== undefined ? true : undefined}
       style={
         {
           backgroundColor: palette.bg,
-          height: viewportHeight,
+          height: viewportHeight?.height,
+          '--chat-keyboard-offset-x': `${viewportHeight?.offsetLeft ?? 0}px`,
+          '--chat-keyboard-offset-y': `${viewportHeight?.offsetTop ?? 0}px`,
           '--chat-keyboard-composer-max':
             viewportHeight !== undefined
-              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight * 0.2)))}px`
+              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight.height * 0.2)))}px`
               : undefined,
           fontFamily: fontFamily(venue.chatFont),
           '--chat-accent': palette.accent,
@@ -329,7 +340,7 @@ export function VenueChatShell(props: {
             messages={messages}
             language={language}
             assistantLabel={guideName}
-            onSend={onSend}
+            onSend={sendGuestMessage}
             {...(onRequestMore ? { onRequestMore } : {})}
             {...(requestMoreLabel ? { requestMoreLabel } : {})}
             {...(onDraftChange ? { onDraftChange } : {})}
@@ -338,6 +349,10 @@ export function VenueChatShell(props: {
             {...(onStopResponse ? { onStopResponse } : {})}
             {...(stopResponseLabel ? { stopResponseLabel } : {})}
             conversationLocked={conversationLocked}
+            sendDisabled={isRestoringHistory || !anonymousToken}
+            {...(isRestoringHistory
+              ? { restoringStatusLabel: getVisitorStateCopy(language)[0] }
+              : {})}
             isLoading={isSending}
             isOnline={isOnline}
             errorMessage={localizeVisitorShellError(sendError, language)}
@@ -367,8 +382,8 @@ export function VenueChatShell(props: {
                   venueCategory={venue.category ?? undefined}
                   guideMode={venue.guideMode}
                   locationAvailable={hasLocation}
-                  disabled={!isOnline || conversationLocked}
-                  onSend={onSend}
+                  disabled={!canSubmitMessage}
+                  onSend={sendGuestMessage}
                 />
               </div>
             }

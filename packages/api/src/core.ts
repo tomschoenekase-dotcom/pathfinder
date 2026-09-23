@@ -28,6 +28,12 @@ export function publicTRPCError(options: {
   return error
 }
 
+/** Only codes deliberately marked public may cross the private chat stream. */
+export function getPublicTRPCErrorCode(error: unknown): GuestPublicErrorCode | null {
+  if (!(error instanceof TRPCError)) return null
+  return (error as PublicTRPCError)[PUBLIC_ERROR_CODE] ?? null
+}
+
 export const t = initTRPC.context<TRPCContext>().create({
   transformer: superjson,
   errorFormatter({ error, shape }) {

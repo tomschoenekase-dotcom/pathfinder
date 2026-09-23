@@ -4,12 +4,14 @@ const mocks = vi.hoisted(() => ({
   createContext: vi.fn(),
   stream: vi.fn(),
   safeParse: vi.fn(),
+  publicCode: vi.fn(),
 }))
 
 vi.mock('@pathfinder/api', () => ({
   ChatSendInput: { safeParse: mocks.safeParse },
   createTRPCContext: mocks.createContext,
   streamChatTurn: mocks.stream,
+  getPublicTRPCErrorCode: mocks.publicCode,
 }))
 
 import { POST } from './route'
@@ -28,6 +30,7 @@ beforeEach(() => {
     yield { type: 'delta', delta: 'Near', providerFirstTextMs: 20, requestFirstTextMs: 30 }
     yield { type: 'complete', result: { response: 'Nearby.', sessionId: 'session-1' } }
   })
+  mocks.publicCode.mockReturnValue(null)
 })
 
 describe('private-body chat streaming route', () => {
@@ -84,5 +87,22 @@ describe('private-body chat streaming route', () => {
     expect(response.status).toBe(400)
     expect(mocks.createContext).not.toHaveBeenCalled()
     expect(mocks.stream).not.toHaveBeenCalled()
+  })
+
+  it('carries only an explicitly public recovery code in a stream error', async () => {
+    mocks.stream.mockImplementation(async function* () {
+      throw new Error('private provider details')
+    })
+    mocks.publicCode.mockReturnValue('OUTCOME_AMBIGUOUS')
+    const response = await POST(
+      new Request('https://guide.example/api/chat-stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    )
+    const body = await response.text()
+    expect(body).toContain('OUTCOME_AMBIGUOUS')
+    expect(body).not.toContain('private provider details')
   })
 })

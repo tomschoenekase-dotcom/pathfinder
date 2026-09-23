@@ -238,6 +238,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
   it('restores focus to the composer after a request finishes', () => {
     const onSend = vi.fn()
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus')
     const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
     const composer = screen.getByRole('textbox', { name: 'Ask a question' })
     composer.focus()
@@ -248,6 +249,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     view.rerender(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
 
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Ask a question' }))
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
   })
 
   it('does not steal focus moved to another control while a request is running', () => {
@@ -382,6 +384,42 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(onSend).toHaveBeenCalledWith('Is there a cafe?')
     expect((composer as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('keeps the draft when the send handoff is rejected', () => {
+    const onSend = vi.fn(() => false)
+    render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(composer, { target: { value: '  Keep this question  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(onSend).toHaveBeenCalledWith('Keep this question')
+    expect((composer as HTMLTextAreaElement).value).toBe('  Keep this question  ')
+  })
+
+  it('keeps the draft editable but blocks sending while history is restoring', () => {
+    const onSend = vi.fn()
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        sendDisabled
+        restoringStatusLabel="Loading conversation…"
+      />,
+    )
+
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Keep this until history is ready' } })
+    fireEvent.keyDown(composer, { key: 'Enter' })
+
+    expect(onSend).not.toHaveBeenCalled()
+    expect(composer.value).toBe('Keep this until history is ready')
+    expect(screen.getByText('Loading conversation…').getAttribute('role')).toBe('status')
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
   })
 
   it('preserves an editable draft but blocks send and exact retry while offline', () => {

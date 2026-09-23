@@ -741,6 +741,50 @@ describe('chat router', () => {
       expect(anthropicCreate).not.toHaveBeenCalled()
     })
 
+    it('starts release and provider-health reads while adjacent identity is pending', async () => {
+      setupHappyPath('The elephants are nearby.')
+
+      let resolveAdjacent!: (value: null) => void
+      guestTurnActions.readAdjacentIdentity.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveAdjacent = resolve
+        }),
+      )
+      let resolveSnapshot!: (value: {
+        path: 'LEGACY'
+        reason: 'SERVER_DISABLED'
+        releaseId: null
+        state: null
+      }) => void
+      resolveNativeGuestReadSnapshotAction.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSnapshot = resolve
+        }),
+      )
+      let resolveProviderHealth!: (value: string[]) => void
+      readActiveUnhealthyAiProviders.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveProviderHealth = resolve
+        }),
+      )
+
+      const send = caller.chat.send(sendInput)
+      await vi.waitFor(() => expect(guestTurnActions.readAdjacentIdentity).toHaveBeenCalledOnce())
+
+      expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce()
+      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledOnce()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+
+      resolveSnapshot({ path: 'LEGACY', reason: 'SERVER_DISABLED', releaseId: null, state: null })
+      resolveProviderHealth([])
+      resolveAdjacent(null)
+
+      await expect(send).resolves.toMatchObject({ response: 'The elephants are nearby.' })
+      expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce()
+      expect(embeddingCreate).toHaveBeenCalledOnce()
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       guestTurnActions.reserve.mockResolvedValueOnce({

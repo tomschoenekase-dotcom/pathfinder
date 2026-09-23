@@ -38,14 +38,16 @@ async function loadVenue(slug: string): Promise<VenueLookup> {
 
   try {
     const caller = appRouter.createCaller(ctx)
-    const venue = await caller.venue.getBySlug({ slug })
-    try {
-      const media = await caller.venue.mediaBySlug({ slug })
-      return { status: 'ready', venue, media: media.items, mediaStatus: 'ready' }
-    } catch {
-      // Media is an enhancement. A derivative-list outage must not block the visitor guide.
-      return { status: 'ready', venue, media: [], mediaStatus: 'unavailable' }
-    }
+    // Both public reads depend on the slug, not on one another. A media outage
+    // remains optional and never changes the venue's admission decision.
+    const [venue, media] = await Promise.all([
+      caller.venue.getBySlug({ slug }),
+      caller.venue.mediaBySlug({ slug }).then(
+        (result) => ({ items: result.items, status: 'ready' as const }),
+        () => ({ items: [] as PublicVenueMediaItem[], status: 'unavailable' as const }),
+      ),
+    ])
+    return { status: 'ready', venue, media: media.items, mediaStatus: media.status }
   } catch (error) {
     const failure = classifyPublicVenueLookupError(error)
     if (failure === 'not-found' || failure === 'temporarily-unavailable') {

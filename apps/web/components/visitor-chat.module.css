@@ -24,6 +24,9 @@
 .shell[data-keyboard-open] .composerField textarea {
   max-height: var(--chat-keyboard-composer-max, 96px);
 }
+.shell[data-keyboard-open] {
+  transform: translate3d(var(--chat-keyboard-offset-x, 0px), var(--chat-keyboard-offset-y, 0px), 0);
+}
 .headerInner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -53,10 +53,13 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
           let receivedBytes = 0
           const acceptLine = (line: string) => {
             if (!line) return
-            const event = JSON.parse(line) as { type?: string; code?: string }
+            const event = JSON.parse(line) as { type?: string; code?: string; publicCode?: string }
             if (event.type === 'error') {
               throw Object.assign(new Error('Chat stream failed.'), {
-                data: { code: event.code ?? 'INTERNAL_SERVER_ERROR' },
+                data: {
+                  code: event.code ?? 'INTERNAL_SERVER_ERROR',
+                  ...(event.publicCode ? { publicCode: event.publicCode } : {}),
+                },
               })
             }
             observer.next({ result: { data: event } })

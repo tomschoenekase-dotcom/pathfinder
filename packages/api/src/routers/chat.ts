@@ -742,6 +742,20 @@ const chatReadRouter = router({
       turnId: reservation.turnId,
       claimId,
     }
+    // Keep one immutable release snapshot for this turn, and overlap that read
+    // with adjacent-turn identity and provider-health checks.
+    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
+      client: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+    }).then(
+      (snapshot) => ({ ok: true as const, snapshot }),
+      (error: unknown) => ({ ok: false as const, error }),
+    )
+    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
+      (providers) => ({ ok: true as const, providers }),
+      () => ({ ok: false as const }),
+    )
     const adjacentPending = await readAdjacentGuestPlaceIdentityPendingAction({
       client: ctx.db,
       claim: turnOperationBase,
@@ -750,46 +764,41 @@ const chatReadRouter = router({
     let acceptedAdjacentIdentityName: string | null = null
     let effectiveIdentityQuery = trimmedInput
     if (adjacentPending) {
-      const [exactCandidates, identitySnapshot] = await Promise.all([
-        ctx.db.place.findMany({
-          where: {
-            tenantId: venue.tenantId,
-            venueId: input.venueId,
-            isActive: true,
-            visibility: includeSecondLayer ? { in: ['PUBLIC', 'SECOND_LAYER'] } : 'PUBLIC',
-            name: { equals: adjacentPending.requestedName, mode: 'insensitive' },
-          },
-          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
-          take: 65,
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            itemType: true,
-            shortDescription: true,
-            longDescription: true,
-            lat: true,
-            lng: true,
-            tags: true,
-            areaName: true,
-            hours: true,
-            photoUrl: true,
-            sourceType: true,
-            sourceName: true,
-            sourceUrl: true,
-          },
-        }),
-        resolveNativeGuestReadSnapshotAction({
-          client: ctx.db,
+      const exactCandidates = await ctx.db.place.findMany({
+        where: {
           tenantId: venue.tenantId,
           venueId: input.venueId,
-        }),
-      ])
+          isActive: true,
+          visibility: includeSecondLayer ? { in: ['PUBLIC', 'SECOND_LAYER'] } : 'PUBLIC',
+          name: { equals: adjacentPending.requestedName, mode: 'insensitive' },
+        },
+        orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+        take: 65,
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          itemType: true,
+          shortDescription: true,
+          longDescription: true,
+          lat: true,
+          lng: true,
+          tags: true,
+          areaName: true,
+          hours: true,
+          photoUrl: true,
+          sourceType: true,
+          sourceName: true,
+          sourceUrl: true,
+        },
+      })
       // Exactly 65 rows means the bounded same-name universe may be truncated.
       // Do not turn that incomplete set into identity certainty.
       if (exactCandidates.length < 65) {
+        const nativeReadResult = await nativeReadSnapshotPromise
+        if (!nativeReadResult.ok) throw nativeReadResult.error
         const authorizedCandidates = applyNativeGuestContentRead({
-          snapshot: identitySnapshot,
+          snapshot: nativeReadResult.snapshot,
           legacyPlaces: exactCandidates,
           legacyKnowledgeEntries: [],
         }).places
@@ -846,10 +855,8 @@ const chatReadRouter = router({
         },
       }).catch(() => undefined)
     }
-    let unhealthyProviders: Awaited<ReturnType<typeof readActiveUnhealthyAiProviders>>
-    try {
-      unhealthyProviders = await readActiveUnhealthyAiProviders(ctx.db)
-    } catch {
+    const providerHealthResult = await providerHealthPromise
+    if (!providerHealthResult.ok) {
       await failGuestChatTurnAction({
         client: ctx.db,
         claim: { ...turnOperationBase, failureCode: 'PRE_DISPATCH_FAILURE' },
@@ -861,6 +868,7 @@ const chatReadRouter = router({
         publicCode: 'TRANSIENT_FAILURE',
       })
     }
+    const unhealthyProviders = providerHealthResult.providers
     let embeddingDispatched = false
     const queryEmbeddingPromise = unhealthyProviders.includes('openai')
       ? skipGuestChatProviderOperationAction({
@@ -959,6 +967,7 @@ const chatReadRouter = router({
       activeUpdates,
       tenantEngagement,
       engagementQuestions,
+      nativeReadResult,
     ] = await Promise.all([
       queryEmbeddingPromise,
       ctx.db.message.findMany({
@@ -1041,7 +1050,10 @@ const chatReadRouter = router({
           intensity: true,
         },
       }),
+      nativeReadSnapshotPromise,
     ])
+    if (!nativeReadResult.ok) throw nativeReadResult.error
+    const nativeReadSnapshot = nativeReadResult.snapshot
 
     if (
       historyDesc.length === 1 &&
@@ -1092,11 +1104,6 @@ const chatReadRouter = router({
       input.visitContext,
       NEAREST_PLACES_LIMIT,
     )
-    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
-      client: ctx.db,
-      tenantId: venue.tenantId,
-      venueId: input.venueId,
-    })
     const entryPlacePromise =
       input.entryPlaceId && ctx.experienceScope === 'PUBLIC'
         ? ctx.db.place.findFirst({
@@ -1226,10 +1233,7 @@ const chatReadRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
-    const [nativeReadSnapshot, legacyEntryPlace] = await Promise.all([
-      nativeReadSnapshotPromise,
-      entryPlacePromise,
-    ])
+    const legacyEntryPlace = await entryPlacePromise
     const entryRead = legacyEntryPlace
       ? applyNativeGuestContentRead({
           snapshot: nativeReadSnapshot,

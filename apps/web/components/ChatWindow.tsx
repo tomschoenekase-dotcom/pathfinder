@@ -27,7 +27,7 @@ type Message = {
 
 type ChatWindowProps = {
   messages: Message[]
-  onSend: (message: string) => void
+  onSend: (message: string) => void | boolean
   onRequestMore?: () => void
   requestMoreLabel?: string
   onDraftChange?: (draft: string) => void
@@ -36,6 +36,8 @@ type ChatWindowProps = {
   onStopResponse?: () => void
   stopResponseLabel?: string
   conversationLocked?: boolean
+  sendDisabled?: boolean
+  restoringStatusLabel?: string
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
@@ -66,6 +68,8 @@ export function ChatWindow({
   onStopResponse,
   stopResponseLabel = 'Stop response',
   conversationLocked = false,
+  sendDisabled = false,
+  restoringStatusLabel,
   isLoading,
   errorMessage = null,
   accentColor,
@@ -148,7 +152,7 @@ export function ChatWindow({
         activeElement === sendButtonRef.current
 
       if (focusRemainsInComposer) {
-        composerRef.current?.focus()
+        composerRef.current?.focus({ preventScroll: true })
       }
 
       shouldRestoreComposerFocusRef.current = false
@@ -189,18 +193,26 @@ export function ChatWindow({
   function submit() {
     const nextMessage = draft.trim()
 
-    if (!nextMessage || isLoading || !isOnline || conversationLocked) {
+    if (!nextMessage || isLoading || !isOnline || conversationLocked || sendDisabled) {
       return
     }
+
+    // A parent can reject a send synchronously while session/history state settles.
+    // In that case the visitor keeps the text they already wrote.
+    if (onSend(nextMessage) === false) return
 
     setDraft('')
     followLatestRef.current = true
     shouldRestoreComposerFocusRef.current = true
-    onSend(nextMessage)
   }
 
   return (
     <section className={`${styles.window} flex min-h-0 flex-1 flex-col overflow-hidden`}>
+      {restoringStatusLabel ? (
+        <p className="flex-shrink-0 px-5 py-2 text-sm text-[var(--chat-text-muted)]" role="status">
+          {restoringStatusLabel}
+        </p>
+      ) : null}
       <div
         ref={scrollRef}
         className={`${styles.conversation} min-h-0 flex-1 space-y-5 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]`}
@@ -237,7 +249,11 @@ export function ChatWindow({
               onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
-              {...(message.role === 'assistant' && !isLoading && isOnline && !conversationLocked
+              {...(message.role === 'assistant' &&
+              !isLoading &&
+              isOnline &&
+              !conversationLocked &&
+              !sendDisabled
                 ? { onChoiceSelect: onSend }
                 : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
@@ -257,7 +273,7 @@ export function ChatWindow({
             <button
               type="button"
               onClick={onRequestMore}
-              disabled={isLoading || !isOnline || conversationLocked}
+              disabled={isLoading || !isOnline || conversationLocked || sendDisabled}
               className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
             >
               {requestMoreLabel}
@@ -351,14 +367,27 @@ export function ChatWindow({
             ref={sendButtonRef}
             style={{
               backgroundColor:
-                isOnline && !isLoading && draft.trim().length > 0 ? accentColor : undefined,
+                isOnline &&
+                !isLoading &&
+                !conversationLocked &&
+                !sendDisabled &&
+                draft.trim().length > 0
+                  ? accentColor
+                  : undefined,
               color:
-                isOnline && !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
+                isOnline &&
+                !isLoading &&
+                !conversationLocked &&
+                !sendDisabled &&
+                draft.trim().length > 0
+                  ? accentContrastColor
+                  : undefined,
             }}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
             disabled={
               !isOnline ||
               conversationLocked ||
+              sendDisabled ||
               (isLoading ? !onStopResponse : draft.trim().length === 0)
             }
             type="button"

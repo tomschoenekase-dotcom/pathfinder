@@ -1,6 +1,11 @@
 import { getTRPCErrorFromUnknown } from '@trpc/server'
 
-import { ChatSendInput, createTRPCContext, streamChatTurn } from '@pathfinder/api'
+import {
+  ChatSendInput,
+  createTRPCContext,
+  getPublicTRPCErrorCode,
+  streamChatTurn,
+} from '@pathfinder/api'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,8 +67,11 @@ export async function POST(request: Request): Promise<Response> {
         }
       } catch (cause) {
         const error = getTRPCErrorFromUnknown(cause)
+        const publicCode = getPublicTRPCErrorCode(error)
         controller.enqueue(
-          encoder.encode(`${JSON.stringify({ type: 'error', code: error.code })}\n`),
+          encoder.encode(
+            `${JSON.stringify({ type: 'error', code: error.code, ...(publicCode ? { publicCode } : {}) })}\n`,
+          ),
         )
       } finally {
         controller.close()

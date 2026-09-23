@@ -705,10 +705,11 @@ export function VenueChatExperience({
     }
   }
 
-  function handleSend(raw: string, responseIntent: 'DEFAULT' | 'EXPAND' = 'DEFAULT') {
+  function handleSend(raw: string, responseIntent: 'DEFAULT' | 'EXPAND' = 'DEFAULT'): boolean {
     const message = raw.trim()
     if (
       !isOnline ||
+      isBooting ||
       !venue ||
       !anonymousToken ||
       !message ||
@@ -716,7 +717,7 @@ export function VenueChatExperience({
       reconciliationRequiredRef.current ||
       recoveryMode === 'load-history'
     )
-      return
+      return false
     abandonPendingOptimistic()
     const epoch = conversationEpochRef.current
     const operationId = browserUuid()
@@ -724,7 +725,7 @@ export function VenueChatExperience({
       setSendError(
         'This browser cannot create a private message identity. Please try another browser.',
       )
-      return
+      return false
     }
     const input: ChatSendInput = {
       operationId,
@@ -747,6 +748,7 @@ export function VenueChatExperience({
     const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
     pendingTurnRef.current = turn
     void dispatchTurn(turn, true)
+    return true
   }
 
   function handleRetry() {
@@ -825,6 +827,7 @@ export function VenueChatExperience({
   function handleNewConversation(freshVisit = false) {
     if (
       !isOnline ||
+      isBooting ||
       !venue ||
       !anonymousToken ||
       isSending ||
@@ -860,7 +863,7 @@ export function VenueChatExperience({
     endSession(venue.id, previousToken, previousStartedAt)
   }
 
-  if (isBooting || venueState?.slug !== venueSlug) return <VenueChatSkeleton language={language} />
+  if (venueState?.slug !== venueSlug) return <VenueChatSkeleton language={language} />
   if (isVenueUnavailable)
     return (
       <VenueTemporarilyUnavailable
@@ -907,6 +910,7 @@ export function VenueChatExperience({
       presentation={presentation}
       messages={messages}
       isSending={isSending}
+      isRestoringHistory={isBooting}
       sendError={sendError}
       anonymousToken={anonymousToken}
       language={language}
@@ -926,9 +930,7 @@ export function VenueChatExperience({
           />
         ) : null
       }
-      onSend={(message) => {
-        handleSend(message)
-      }}
+      onSend={(message) => handleSend(message)}
       {...(messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK'
         ? { onRequestMore: () => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND') }
         : {})}

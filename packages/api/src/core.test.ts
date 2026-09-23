@@ -64,6 +64,27 @@ afterEach(() => {
 })
 
 describe('tRPC production error boundary', () => {
+  it('exports a stream code only from an explicitly public error', async () => {
+    const { getPublicTRPCErrorCode, publicTRPCError } = await import('./core')
+    expect(
+      getPublicTRPCErrorCode(
+        publicTRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Outcome is unknown',
+          publicCode: 'OUTCOME_AMBIGUOUS',
+        }),
+      ),
+    ).toBe('OUTCOME_AMBIGUOUS')
+    expect(
+      getPublicTRPCErrorCode(
+        new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'private details',
+        }),
+      ),
+    ).toBeNull()
+  })
+
   it.each(['unexpected', 'explicit-server'] as const)(
     'masks %s server failures in an actual HTTP response',
     async (path) => {
