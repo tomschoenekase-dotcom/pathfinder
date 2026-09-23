@@ -89,18 +89,7 @@ const requestPayloadByAction = {
     })
     .strict(),
   VALIDATE: z.object({}).strict(),
-  EXPORT: z.union([
-    z.object({ includeEditableSource: z.boolean().default(true) }).strict(),
-    z
-      .object({
-        includeEditableSource: z.boolean().default(true),
-        workflowStage: z.literal('ANIMATION_PREPARATION'),
-        approvedAppearanceFingerprint: sha256,
-        motionCapability: z.literal('rigid-source'),
-        publicationAuthorized: z.literal(false),
-      })
-      .strict(),
-  ]),
+  EXPORT: z.object({ includeEditableSource: z.boolean().default(true) }).strict(),
 } satisfies Record<JobAction, z.ZodTypeAny>
 
 function stable(value: unknown): string {

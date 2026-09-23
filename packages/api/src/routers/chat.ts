@@ -61,7 +61,7 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
-import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
+import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
@@ -742,20 +742,6 @@ const chatReadRouter = router({
       turnId: reservation.turnId,
       claimId,
     }
-    // Keep one immutable release snapshot for this turn, and overlap that read
-    // with adjacent-turn identity and provider-health checks.
-    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
-      client: ctx.db,
-      tenantId: venue.tenantId,
-      venueId: input.venueId,
-    }).then(
-      (snapshot) => ({ ok: true as const, snapshot }),
-      (error: unknown) => ({ ok: false as const, error }),
-    )
-    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
-      (providers) => ({ ok: true as const, providers }),
-      () => ({ ok: false as const }),
-    )
     const adjacentPending = await readAdjacentGuestPlaceIdentityPendingAction({
       client: ctx.db,
       claim: turnOperationBase,
@@ -764,41 +750,46 @@ const chatReadRouter = router({
     let acceptedAdjacentIdentityName: string | null = null
     let effectiveIdentityQuery = trimmedInput
     if (adjacentPending) {
-      const exactCandidates = await ctx.db.place.findMany({
-        where: {
+      const [exactCandidates, identitySnapshot] = await Promise.all([
+        ctx.db.place.findMany({
+          where: {
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            isActive: true,
+            visibility: includeSecondLayer ? { in: ['PUBLIC', 'SECOND_LAYER'] } : 'PUBLIC',
+            name: { equals: adjacentPending.requestedName, mode: 'insensitive' },
+          },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+          take: 65,
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            itemType: true,
+            shortDescription: true,
+            longDescription: true,
+            lat: true,
+            lng: true,
+            tags: true,
+            areaName: true,
+            hours: true,
+            photoUrl: true,
+            sourceType: true,
+            sourceName: true,
+            sourceUrl: true,
+          },
+        }),
+        resolveNativeGuestReadSnapshotAction({
+          client: ctx.db,
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          isActive: true,
-          visibility: includeSecondLayer ? { in: ['PUBLIC', 'SECOND_LAYER'] } : 'PUBLIC',
-          name: { equals: adjacentPending.requestedName, mode: 'insensitive' },
-        },
-        orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
-        take: 65,
-        select: {
-          id: true,
-          name: true,
-          type: true,
-          itemType: true,
-          shortDescription: true,
-          longDescription: true,
-          lat: true,
-          lng: true,
-          tags: true,
-          areaName: true,
-          hours: true,
-          photoUrl: true,
-          sourceType: true,
-          sourceName: true,
-          sourceUrl: true,
-        },
-      })
+        }),
+      ])
       // Exactly 65 rows means the bounded same-name universe may be truncated.
       // Do not turn that incomplete set into identity certainty.
       if (exactCandidates.length < 65) {
-        const nativeReadResult = await nativeReadSnapshotPromise
-        if (!nativeReadResult.ok) throw nativeReadResult.error
         const authorizedCandidates = applyNativeGuestContentRead({
-          snapshot: nativeReadResult.snapshot,
+          snapshot: identitySnapshot,
           legacyPlaces: exactCandidates,
           legacyKnowledgeEntries: [],
         }).places
@@ -855,8 +846,10 @@ const chatReadRouter = router({
         },
       }).catch(() => undefined)
     }
-    const providerHealthResult = await providerHealthPromise
-    if (!providerHealthResult.ok) {
+    let unhealthyProviders: Awaited<ReturnType<typeof readActiveUnhealthyAiProviders>>
+    try {
+      unhealthyProviders = await readActiveUnhealthyAiProviders(ctx.db)
+    } catch {
       await failGuestChatTurnAction({
         client: ctx.db,
         claim: { ...turnOperationBase, failureCode: 'PRE_DISPATCH_FAILURE' },
@@ -868,7 +861,6 @@ const chatReadRouter = router({
         publicCode: 'TRANSIENT_FAILURE',
       })
     }
-    const unhealthyProviders = providerHealthResult.providers
     let embeddingDispatched = false
     const queryEmbeddingPromise = unhealthyProviders.includes('openai')
       ? skipGuestChatProviderOperationAction({
@@ -967,7 +959,6 @@ const chatReadRouter = router({
       activeUpdates,
       tenantEngagement,
       engagementQuestions,
-      nativeReadResult,
     ] = await Promise.all([
       queryEmbeddingPromise,
       ctx.db.message.findMany({
@@ -1050,10 +1041,7 @@ const chatReadRouter = router({
           intensity: true,
         },
       }),
-      nativeReadSnapshotPromise,
     ])
-    if (!nativeReadResult.ok) throw nativeReadResult.error
-    const nativeReadSnapshot = nativeReadResult.snapshot
 
     if (
       historyDesc.length === 1 &&
@@ -1104,6 +1092,11 @@ const chatReadRouter = router({
       input.visitContext,
       NEAREST_PLACES_LIMIT,
     )
+    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
+      client: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+    })
     const entryPlacePromise =
       input.entryPlaceId && ctx.experienceScope === 'PUBLIC'
         ? ctx.db.place.findFirst({
@@ -1233,7 +1226,10 @@ const chatReadRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
-    const legacyEntryPlace = await entryPlacePromise
+    const [nativeReadSnapshot, legacyEntryPlace] = await Promise.all([
+      nativeReadSnapshotPromise,
+      entryPlacePromise,
+    ])
     const entryRead = legacyEntryPlace
       ? applyNativeGuestContentRead({
           snapshot: nativeReadSnapshot,
@@ -2184,24 +2180,30 @@ const chatReadRouter = router({
    * yet — the chat page treats that as a fresh conversation.
    */
   history: publicProcedure.input(ChatHistoryInput).query(async ({ ctx, input }) => {
-    const deniedLimit = await checkRateLimitsOrdered([
-      {
-        key: 'ratelimit:chat-history:ingress:global',
-        maxRequests: HISTORY_GLOBAL_LIMIT,
-        windowSeconds: 60,
-      },
-      {
-        key: `ratelimit:chat-history:venue:${input.venueId}`,
-        maxRequests: HISTORY_VENUE_LIMIT,
-        windowSeconds: 60,
-      },
-      {
-        key: `ratelimit:chat-history:session:${input.venueId}:${input.anonymousToken}`,
-        maxRequests: HISTORY_SESSION_LIMIT,
-        windowSeconds: 60,
-      },
-    ])
-    if (deniedLimit !== 0) {
+    const globallyAllowed = await checkRateLimit(
+      'ratelimit:chat-history:ingress:global',
+      HISTORY_GLOBAL_LIMIT,
+      60,
+    )
+    if (!globallyAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+    }
+
+    const venueAllowed = await checkRateLimit(
+      `ratelimit:chat-history:venue:${input.venueId}`,
+      HISTORY_VENUE_LIMIT,
+      60,
+    )
+    if (!venueAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+    }
+
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:chat-history:session:${input.venueId}:${input.anonymousToken}`,
+      HISTORY_SESSION_LIMIT,
+      60,
+    )
+    if (!sessionAllowed) {
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
     }
 

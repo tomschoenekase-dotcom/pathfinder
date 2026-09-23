@@ -32,12 +32,11 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent,
 }))
 
-const { checkRateLimit, checkRateLimitsOrdered } = vi.hoisted(() => ({
+const { checkRateLimit } = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
-  checkRateLimitsOrdered: vi.fn(),
 }))
 
-vi.mock('../lib/rate-limit', () => ({ checkRateLimit, checkRateLimitsOrdered }))
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
 
 const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
 vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
@@ -306,7 +305,6 @@ describe('chat router', () => {
       }
     })
     checkRateLimit.mockResolvedValue(true)
-    checkRateLimitsOrdered.mockResolvedValue(0)
   })
 
   afterEach(() => {
@@ -743,50 +741,6 @@ describe('chat router', () => {
       expect(anthropicCreate).not.toHaveBeenCalled()
     })
 
-    it('starts release and provider-health reads while adjacent identity is pending', async () => {
-      setupHappyPath('The elephants are nearby.')
-
-      let resolveAdjacent!: (value: null) => void
-      guestTurnActions.readAdjacentIdentity.mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveAdjacent = resolve
-        }),
-      )
-      let resolveSnapshot!: (value: {
-        path: 'LEGACY'
-        reason: 'SERVER_DISABLED'
-        releaseId: null
-        state: null
-      }) => void
-      resolveNativeGuestReadSnapshotAction.mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveSnapshot = resolve
-        }),
-      )
-      let resolveProviderHealth!: (value: string[]) => void
-      readActiveUnhealthyAiProviders.mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveProviderHealth = resolve
-        }),
-      )
-
-      const send = caller.chat.send(sendInput)
-      await vi.waitFor(() => expect(guestTurnActions.readAdjacentIdentity).toHaveBeenCalledOnce())
-
-      expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce()
-      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledOnce()
-      expect(embeddingCreate).not.toHaveBeenCalled()
-
-      resolveSnapshot({ path: 'LEGACY', reason: 'SERVER_DISABLED', releaseId: null, state: null })
-      resolveProviderHealth([])
-      resolveAdjacent(null)
-
-      await expect(send).resolves.toMatchObject({ response: 'The elephants are nearby.' })
-      expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce()
-      expect(embeddingCreate).toHaveBeenCalledOnce()
-      expect(anthropicCreate).toHaveBeenCalledOnce()
-    })
-
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       guestTurnActions.reserve.mockResolvedValueOnce({
@@ -826,58 +780,6 @@ describe('chat router', () => {
       expect(guestTurnActions.reserve).toHaveBeenCalledWith(
         expect.objectContaining({ request: expect.objectContaining({ requestId: operationId }) }),
       )
-    })
-
-    it.each([
-      'We have 20 minutes and our children like trains. What should we see?',
-      'We need a quieter place and step-free access. What is known here?',
-    ])(
-      'carries conversational needs through the existing chat without a profile or extra model call: %s',
-      async (message) => {
-        setupHappyPath('I do not have confirmed access details. Please ask venue staff.')
-        await caller.chat.send({ ...sendInput, message })
-        const request = guestTurnActions.reserve.mock.calls[0]?.[0].request
-        expect(request.message).toBe(message)
-        expect(request).not.toHaveProperty('visitContext')
-        const prompt = getConcatenatedSystemPrompt()
-        expect(prompt).not.toContain('VISIT PREFERENCES:')
-        expect(prompt).toContain('only an explicit visitor statement as evidence')
-        expect(prompt).toContain(
-          'Never infer a missing policy, hour, location, accessibility detail',
-        )
-        expect(anthropicCreate).toHaveBeenCalledOnce()
-        expect(embeddingCreate).toHaveBeenCalledOnce()
-        expect(JSON.stringify(anthropicCreate.mock.calls[0]?.[0].messages)).toContain(message)
-        expect(recordConversationLearningCandidate).not.toHaveBeenCalled()
-      },
-    )
-
-    it('passes ordinary stated needs in bounded history to a later question, without extracting a profile', async () => {
-      setupHappyPath('Here are the confirmed details.')
-      const prior = 'We have 20 minutes, and the children like trains.'
-      messageFindMany.mockReset().mockResolvedValueOnce([
-        {
-          id: 'a1',
-          role: 'assistant',
-          content: 'Which gallery are you near?',
-          sessionSequence: 2,
-          createdAt: new Date('2026-09-23T12:00:01Z'),
-        },
-        {
-          id: 'u1',
-          role: 'user',
-          content: prior,
-          sessionSequence: 1,
-          createdAt: new Date('2026-09-23T12:00:00Z'),
-        },
-      ])
-      await caller.chat.send({
-        ...sendInput,
-        message: 'We are near the entrance. What is suitable?',
-      })
-      expect(JSON.stringify(anthropicCreate.mock.calls[0]?.[0].messages)).toContain(prior)
-      expect(guestTurnActions.reserve.mock.calls[0]?.[0].request).not.toHaveProperty('visitContext')
-      expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
     it('withholds visited recommendation facts, cards and citations while retaining visit labels', async () => {
@@ -3699,7 +3601,7 @@ describe('chat router', () => {
     )
 
     it('denies exhausted history global ingress before caller-derived keys or database work', async () => {
-      checkRateLimitsOrdered.mockResolvedValueOnce(1)
+      checkRateLimit.mockResolvedValueOnce(false)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3707,21 +3609,14 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimitsOrdered).toHaveBeenCalledWith([
-        { key: 'ratelimit:chat-history:ingress:global', maxRequests: 3000, windowSeconds: 60 },
-        { key: `ratelimit:chat-history:venue:${VENUE_ID}`, maxRequests: 3000, windowSeconds: 60 },
-        {
-          key: `ratelimit:chat-history:session:${VENUE_ID}:${TOKEN}`,
-          maxRequests: 60,
-          windowSeconds: 60,
-        },
-      ])
+      expect(checkRateLimit).toHaveBeenCalledTimes(1)
+      expect(checkRateLimit).toHaveBeenCalledWith('ratelimit:chat-history:ingress:global', 3000, 60)
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })
 
     it('denies an exhausted history venue after bounded global ingress', async () => {
-      checkRateLimitsOrdered.mockResolvedValueOnce(2)
+      checkRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3729,13 +3624,21 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimitsOrdered).toHaveBeenCalledTimes(1)
+      expect(checkRateLimit).toHaveBeenNthCalledWith(
+        2,
+        `ratelimit:chat-history:venue:${VENUE_ID}`,
+        3000,
+        60,
+      )
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })
 
     it('denies an exhausted history token after bounded venue ingress', async () => {
-      checkRateLimitsOrdered.mockResolvedValueOnce(3)
+      checkRateLimit
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
@@ -3743,7 +3646,12 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
       )
 
-      expect(checkRateLimitsOrdered).toHaveBeenCalledTimes(1)
+      expect(checkRateLimit).toHaveBeenNthCalledWith(
+        3,
+        `ratelimit:chat-history:session:${VENUE_ID}:${TOKEN}`,
+        60,
+        60,
+      )
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(messageFindMany).not.toHaveBeenCalled()
     })

@@ -1,9 +1,16 @@
 import { NayukiQrCode, NayukiQrSegment } from './venue-qr-nayuki'
 
 type QrMatrix = boolean[][]
+type QrCode = { getModules(): QrMatrix }
+type QrEncoder = {
+  Ecc: { MEDIUM: unknown }
+  encodeSegments(segments: unknown[], errorCorrection: unknown, minVersion: number,
+    maxVersion: number, mask: number, boostLevel: boolean): QrCode
+}
+type QrSegments = { makeSegments(value: string): unknown[] }
 
-const encoder = NayukiQrCode
-const segments = NayukiQrSegment
+const encoder = NayukiQrCode as QrEncoder
+const segments = NayukiQrSegment as QrSegments
 
 /** Path grouping matches qrcode.react 4.2.0's SVG renderer. */
 function darkModulePath(modules: QrMatrix, margin: number): string {
@@ -19,8 +26,7 @@ function darkModulePath(modules: QrMatrix, margin: number): string {
       if (x === row.length - 1) {
         if (!dark) return
         if (start === null) operations.push(`M${x + margin},${y + margin} h1v1H${x + margin}z`)
-        else
-          operations.push(`M${start + margin},${y + margin} h${x + 1 - start}v1H${start + margin}z`)
+        else operations.push(`M${start + margin},${y + margin} h${x + 1 - start}v1H${start + margin}z`)
         return
       }
       if (dark && start === null) start = x
@@ -32,14 +38,8 @@ function darkModulePath(modules: QrMatrix, margin: number): string {
 /** Pure, deterministic SVG QR: 208 px, medium ECC, four-module quiet zone. */
 export function renderVenueQrSvg(publicUrl: string): string {
   if (!publicUrl || publicUrl.length > 2_000) throw new Error('Invalid venue QR URL')
-  const code = encoder.encodeSegments(
-    segments.makeSegments(publicUrl),
-    encoder.Ecc.MEDIUM,
-    1,
-    40,
-    -1,
-    true,
-  )
+  const code = encoder.encodeSegments(segments.makeSegments(publicUrl), encoder.Ecc.MEDIUM,
+    1, 40, -1, true)
   const modules = code.getModules()
   const dimension = modules.length + 8
   const path = darkModulePath(modules, 4)

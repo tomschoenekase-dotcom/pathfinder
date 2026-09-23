@@ -1,42 +1,12 @@
 import { clerkClient, currentUser as clerkCurrentUser } from '@clerk/nextjs/server'
 import { TRPCError } from '@trpc/server'
-import {
-  applicationTenantId,
-  applicationUserId,
-  providerOrganizationId,
-  providerUserId,
-} from './identity-binding'
 
-export { auth } from './auth'
-
-type ApplicationUser = Pick<
-  NonNullable<Awaited<ReturnType<typeof clerkCurrentUser>>>,
-  | 'id'
-  | 'publicMetadata'
-  | 'emailAddresses'
-  | 'primaryEmailAddressId'
-  | 'firstName'
-  | 'lastName'
-  | 'imageUrl'
->
-
-export async function currentUser(): Promise<ApplicationUser | null> {
-  const user = await clerkCurrentUser()
-  return user === null
-    ? null
-    : {
-        id: applicationUserId(user.id),
-        publicMetadata: user.publicMetadata,
-        emailAddresses: user.emailAddresses,
-        primaryEmailAddressId: user.primaryEmailAddressId,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        imageUrl: user.imageUrl,
-      }
+export async function currentUser() {
+  return clerkCurrentUser()
 }
 
-export async function requireAuth(): Promise<ApplicationUser> {
-  const user = await currentUser()
+export async function requireAuth() {
+  const user = await clerkCurrentUser()
 
   if (user === null) {
     throw new TRPCError({
@@ -94,21 +64,19 @@ export async function validateExistingOrganizationOwner(input: {
   emailAddress: string
 }): Promise<ValidatedOrganizationOwner> {
   try {
-    const organizationId = providerOrganizationId(input.organizationId)
-    const userId = providerUserId(input.userId)
     const client = await clerkClient()
     const [organization, user, memberships] = await Promise.all([
-      client.organizations.getOrganization({ organizationId }),
-      client.users.getUser(userId),
+      client.organizations.getOrganization({ organizationId: input.organizationId }),
+      client.users.getUser(input.userId),
       client.organizations.getOrganizationMembershipList({
-        organizationId,
-        userId: [userId],
+        organizationId: input.organizationId,
+        userId: [input.userId],
         limit: 2,
       }),
     ])
 
     const membership = memberships.data.find(
-      (candidate) => candidate.publicUserData?.userId === userId,
+      (candidate) => candidate.publicUserData?.userId === input.userId,
     )
     const emailAddress =
       user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
@@ -119,8 +87,8 @@ export async function validateExistingOrganizationOwner(input: {
     )
 
     if (
-      organization.id !== organizationId ||
-      user.id !== userId ||
+      organization.id !== input.organizationId ||
+      user.id !== input.userId ||
       !membership ||
       (membership.role !== 'org:admin' && membership.role !== 'org:owner') ||
       !emailAddress ||
@@ -133,10 +101,10 @@ export async function validateExistingOrganizationOwner(input: {
     }
 
     return {
-      organizationId: applicationTenantId(organization.id),
+      organizationId: organization.id,
       organizationName: organization.name,
       organizationSlug: organization.slug ?? organization.id,
-      userId: applicationUserId(user.id),
+      userId: user.id,
       emailAddress,
     }
   } catch (error) {
@@ -165,11 +133,11 @@ export async function createOrganization(input: {
     const client = await clerkClient()
     const organization = await client.organizations.createOrganization({
       name: input.name,
-      createdBy: providerUserId(input.createdByUserId),
+      createdBy: input.createdByUserId,
     })
 
     return {
-      id: applicationTenantId(organization.id),
+      id: organization.id,
       name: organization.name,
       slug: organization.slug ?? input.slug,
     }
@@ -212,10 +180,10 @@ export async function inviteOrganizationMember(input: {
   try {
     const client = await clerkClient()
     const invitation = await client.organizations.createOrganizationInvitation({
-      organizationId: providerOrganizationId(input.organizationId),
+      organizationId: input.organizationId,
       emailAddress: input.emailAddress,
       role: input.role,
-      inviterUserId: providerUserId(input.inviterUserId),
+      inviterUserId: input.inviterUserId,
     })
 
     return { id: invitation.id }
@@ -263,7 +231,7 @@ export async function listPendingOrganizationInvitations(
 ): Promise<PendingOrganizationInvitation[]> {
   const client = await clerkClient()
   const { data } = await client.organizations.getOrganizationInvitationList({
-    organizationId: providerOrganizationId(organizationId),
+    organizationId,
     status: ['pending'],
   })
 

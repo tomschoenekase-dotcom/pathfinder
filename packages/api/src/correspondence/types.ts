@@ -83,6 +83,8 @@ export type NormalizedProviderMessage = Readonly<{
 
 export type ProviderSyncPage = Readonly<{
   messages: readonly NormalizedProviderMessage[]
+  /** Definitively unavailable message refs retained for durable quarantine before cursor commit. */
+  unavailableMessages?: readonly ProviderExternalRef[]
   /** Durable provider history cursor to persist only after all pages are ingested. */
   cursor: string
   /** Opaque page token; never persist this as the durable history cursor. */
@@ -111,7 +113,6 @@ export type SendOperationLookup =
   | Readonly<{ state: 'FOUND'; result: ProviderSendResult }>
   | Readonly<{ state: 'AMBIGUOUS'; candidateMessageIds: readonly string[] }>
 
-/** The immutable envelope needed to match a potentially accepted send safely. */
 export type SendOperationExpectation = Readonly<{
   senderEmail: string
   recipientEmail: string

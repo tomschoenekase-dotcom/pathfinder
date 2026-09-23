@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -7,6 +9,14 @@ import {
 } from './prospect-package-commit-actions'
 
 describe('staging package commit state', () => {
+  it('does not infer contact readiness or permission from workbook presence', () => {
+    const source = readFileSync(
+      new URL('./prospect-package-commit-actions.ts', import.meta.url),
+      'utf8',
+    )
+    expect(source).toContain("emailReadiness: 'UNKNOWN'")
+    expect(source).toContain("permissionState: 'UNKNOWN'")
+  })
   it('reclaims expired records with one bounded token and returns only records it won', async () => {
     const claimedRecords = [{ id: 'record-1', externalRecordId: 'prospect-1' }]
     const tx = {

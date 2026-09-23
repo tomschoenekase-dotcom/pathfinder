@@ -1,9 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-launch-asset'
 
 import {
-  db,
   admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
@@ -12,7 +10,6 @@ import {
   evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
-  type VerifiedCurrentProspectPrintAsset,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
@@ -30,13 +27,9 @@ import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
-import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
-import {
-  currentBatchPdfProofs,
-  currentDraftPdfProofs,
-  descriptorOnlyDraft,
-  frozenPdfProofs,
-} from './prospect-crm-outreach-assets'
+import { verifyNativeOriginRuntime } from '../../prospect-sales-workflow'
+import { requestProspectMailboxReconciliation } from '../../prospect-mailbox-reconciliation'
+import { readProspectReplyContent, retainProspectReplyContent } from '../../prospect-reply-content'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -51,6 +44,22 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachActionsRouter = router({
+  readProspectReplyContent: adminProcedure.use(requireCrmProspectOutreach)
+    .input(z.object({ messageId: id, threadId: id, organizationId: id }).strict())
+    .mutation(({ ctx, input }) => readProspectReplyContent(input, ctx.session.userId)),
+  retainProspectReplyContent: adminProcedure.use(requireCrmProspectOutreach)
+    .input(z.object({ retentionDays: z.number().int().min(1).max(30), expected: z.object({
+      canonicalMessageId: id, canonicalThreadId: id, organizationId: id,
+      providerAccountId: id, providerMessageId: id, providerThreadId: id,
+      sourceReference: z.string().min(1).max(1000), rawBodySha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    }).strict() }).strict())
+    .mutation(({ ctx, input }) => retainProspectReplyContent(input, ctx.session.userId)),
+  reconcileProspectMailbox: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ providerAccountId: id, expectedUpdatedAt: z.string().datetime() }).strict())
+    .mutation(({ ctx, input }) => withTenantIsolationBypass(() =>
+      requestProspectMailboxReconciliation({ ...input, actorId: ctx.session.userId }),
+    )),
   admitProspectStagingPackage: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(z.object({ package: z.unknown() }).strict())
@@ -111,56 +120,24 @@ const adminProspectCrmOutreachActionsRouter = router({
           textBody: prospectBoundedText(50_000),
           htmlBody: z.string().max(100_000).optional(),
           groundingSnapshot: z.record(z.unknown()),
-          launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
         })
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const snapshot = input.groundingSnapshot
-        if (Object.prototype.hasOwnProperty.call(snapshot, 'launchAttachments')) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Supply a current asset selection, not attachment bytes',
-          })
-        }
-        let groundingSnapshot: Record<string, unknown> = snapshot
-        let verifiedCurrentPrintAssets: VerifiedCurrentProspectPrintAsset[] = []
-        if (input.launchAssetSelection) {
-          const member = await db.prospectCampaignMember.findUnique({
-            where: { id: input.memberId },
-            select: { venueId: true },
-          })
-          if (!member?.venueId)
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'A converted prospect venue is required for this asset',
-            })
-          const asset = await selectProspectLaunchAsset(
-            member.venueId,
-            input.launchAssetSelection,
-          ).catch(() => {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'Selected venue QR is stale; list current assets and choose again',
-            })
-          })
-          groundingSnapshot = { ...snapshot, launchAttachments: [asset] }
-          if (asset.schema === 'torchiko.venue-launch-asset/2' && asset.format === 'PDF') {
-            verifiedCurrentPrintAssets = [{ prospectVenueId: member.venueId, asset }]
-          }
-        }
-        const saved = await saveProspectOutreachDraftAction({
-          memberId: input.memberId,
-          subject: input.subject,
-          textBody: input.textBody,
-          groundingSnapshot,
-          verifiedCurrentPrintAssets,
-          ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
-        return descriptorOnlyDraft(saved)
-      }),
+      withTenantIsolationBypass(() =>
+        saveProspectOutreachDraftAction(
+          {
+            memberId: input.memberId,
+            subject: input.subject,
+            textBody: input.textBody,
+            groundingSnapshot: input.groundingSnapshot,
+            ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError),
+      ),
     ),
 
   reviewProspectOutreachDraft: adminProcedure
@@ -172,32 +149,32 @@ const adminProspectCrmOutreachActionsRouter = router({
           approve: z.boolean(),
           reason: z.string().trim().max(2000).optional(),
           acknowledgedEscalations: z.array(z.string().trim().max(100)).max(20).optional(),
+          expectedContentHash: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/u)
+            .optional(),
         })
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const draft = await db.prospectOutreachDraft.findUnique({
-          where: { id: input.draftId },
-          select: { venueId: true, groundingSnapshot: true },
-        })
-        const verifiedCurrentPrintAssets = draft
-          ? await frozenPdfProofs([
-              { prospectVenueId: draft.venueId, snapshot: draft.groundingSnapshot },
-            ])
-          : []
-        const reviewed = await reviewProspectOutreachDraftAction({
-          draftId: input.draftId,
-          approve: input.approve,
-          verifiedCurrentPrintAssets,
-          ...(input.reason !== undefined ? { reason: input.reason } : {}),
-          ...(input.acknowledgedEscalations !== undefined
-            ? { acknowledgedEscalations: input.acknowledgedEscalations }
-            : {}),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
-        return descriptorOnlyDraft(reviewed)
-      }),
+      withTenantIsolationBypass(() =>
+        reviewProspectOutreachDraftAction(
+          {
+            draftId: input.draftId,
+            approve: input.approve,
+            ...(input.expectedContentHash !== undefined
+              ? { expectedContentHash: input.expectedContentHash }
+              : {}),
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+            ...(input.acknowledgedEscalations !== undefined
+              ? { acknowledgedEscalations: input.acknowledgedEscalations }
+              : {}),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError),
+      ),
     ),
 
   stageProspectSendBatch: adminProcedure
@@ -207,16 +184,24 @@ const adminProspectCrmOutreachActionsRouter = router({
         .object({
           campaignId: id,
           draftIds: z.array(id).min(1).max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
+          expectedContentHashes: z.record(z.string().regex(/^[a-f0-9]{64}$/u)).optional(),
         })
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () =>
-        stageProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentDraftPdfProofs(input.draftIds),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
+      withTenantIsolationBypass(() =>
+        stageProspectSendBatchAction(
+          {
+            campaignId: input.campaignId,
+            draftIds: input.draftIds,
+            ...(input.expectedContentHashes !== undefined
+              ? { expectedContentHashes: input.expectedContentHashes }
+              : {}),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError),
       ),
     ),
 
@@ -237,11 +222,14 @@ const adminProspectCrmOutreachActionsRouter = router({
     )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
-        const approved = await approveProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const approved = await approveProspectSendBatchAction(
+          {
+            ...input,
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         await publishCrmOperationalSignal({
           input: {
             signal: 'batch_awaiting_release',
@@ -279,11 +267,14 @@ const adminProspectCrmOutreachActionsRouter = router({
             message: 'Prospect outreach delivery is disabled',
           })
         }
-        const released = await releaseProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const released = await releaseProspectSendBatchAction(
+          {
+            ...input,
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         const dispatch = await Promise.allSettled(
           released.outboxIds.map((outboxId) => enqueueProspectOutreach({ outboxId })),
         )

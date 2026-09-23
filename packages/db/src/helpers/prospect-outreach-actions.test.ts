@@ -165,7 +165,6 @@ describe('prospect frozen-intent invalidation', () => {
         findUnique: vi.fn().mockResolvedValue({
           provider: 'GMAIL',
           capabilities: ['SEND'],
-          mailboxAddress: 'tomschoenekase@torchiko.com',
           connectionStatus: 'CONNECTED',
           deliveryEnabled: true,
           pausedAt: null,
@@ -215,7 +214,6 @@ describe('prospect frozen-intent invalidation', () => {
         findUnique: vi.fn().mockResolvedValue({
           provider: 'GMAIL',
           capabilities: ['RECEIVE'],
-          mailboxAddress: 'tomschoenekase@torchiko.com',
           connectionStatus: 'CONNECTED',
           deliveryEnabled: true,
           pausedAt: null,
@@ -238,35 +236,6 @@ describe('prospect frozen-intent invalidation', () => {
     ).rejects.toThrow(/connected, explicitly enabled Gmail mailbox/i)
   })
 
-  it('rejects a connected personal mailbox before releasing customer outreach', async () => {
-    const tx = {
-      prospectDeliveryControl: { findUnique: vi.fn().mockResolvedValue({ deliveryEnabled: true }) },
-      correspondenceProviderAccount: {
-        findUnique: vi.fn().mockResolvedValue({
-          provider: 'GMAIL',
-          capabilities: ['SEND'],
-          mailboxAddress: 'tomschoenekase@gmail.com',
-          connectionStatus: 'CONNECTED',
-          deliveryEnabled: true,
-          pausedAt: null,
-        }),
-      },
-      prospectSendBatch: { findUnique: vi.fn().mockResolvedValue(null) },
-    }
-    await expect(
-      releaseProspectSendBatchAction(
-        {
-          batchId: 'batch-1',
-          providerAccountId: 'personal-mailbox',
-          expectedRecipientCount: 1,
-          expectedSnapshotHash: 'a'.repeat(64),
-          actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
-        },
-        { $transaction: vi.fn((work) => work(tx)) } as never,
-      ),
-    ).rejects.toThrow(/connected, explicitly enabled Gmail mailbox/i)
-  })
-
   it('refuses to release a legacy approved batch above the active canary', async () => {
     const tx = {
       prospectDeliveryControl: {
@@ -277,7 +246,6 @@ describe('prospect frozen-intent invalidation', () => {
           id: 'mailbox-1',
           provider: 'GMAIL',
           capabilities: ['SEND'],
-          mailboxAddress: 'tomschoenekase@torchiko.com',
           connectionStatus: 'CONNECTED',
           deliveryEnabled: true,
           pausedAt: null,

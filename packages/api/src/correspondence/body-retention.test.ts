@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { projectGmailBodyForPersistence } from './body-retention'
+import {
+  gmailBodyPersistencePolicyFromEnvironment,
+  projectGmailBodyForPersistence,
+} from './body-retention'
 import type { NormalizedProviderMessage } from './types'
 
 const message = {
@@ -21,6 +24,24 @@ const message = {
 } as NormalizedProviderMessage
 
 describe('Gmail durable body projection', () => {
+  it.each([
+    [undefined, { mode: 'SOURCE_ONLY' }],
+    ['', { mode: 'SOURCE_ONLY' }],
+    ['1', { mode: 'TEMPORARY', retentionDays: 1 }],
+    ['30', { mode: 'TEMPORARY', retentionDays: 30 }],
+  ] as const)('resolves the bounded worker retention opt-in %j', (value, expected) => {
+    expect(gmailBodyPersistencePolicyFromEnvironment(value)).toEqual(expected)
+  })
+
+  it.each(['0', '31', '1.5', ' 7', '7 ', 'true', '999999999999999999999'])(
+    'fails closed for invalid worker retention configuration %j',
+    (value) => {
+      expect(() => gmailBodyPersistencePolicyFromEnvironment(value)).toThrow(
+        /integer from 1 to 30 days/,
+      )
+    },
+  )
+
   it('defaults to source-only while preserving a bounded observation and retrieval link', () => {
     expect(
       projectGmailBodyForPersistence({

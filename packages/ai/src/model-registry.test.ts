@@ -23,20 +23,6 @@ describe('text model registry', () => {
     })
   })
 
-  it('pins the Luna guest-chat candidate to GPT-6 Luna pricing', () => {
-    expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_LUNA)).toMatchObject({
-      provider: 'openai',
-      model: 'gpt-6-luna',
-      pricingVersion: 'openai-standard-public-2026-09-22',
-      pricingUsdPerMillionTokens: {
-        input: 0.1,
-        output: 0.5,
-        cacheWrite: 0.125,
-        cacheRead: 0.01,
-      },
-    })
-  })
-
   it('pins direct DeepSeek visitor-chat canaries to conservative peak rates', () => {
     expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_FLASH)).toMatchObject({
       provider: 'deepseek',

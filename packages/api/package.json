@@ -2,8 +2,10 @@
   "name": "@pathfinder/api",
   "private": true,
   "exports": {
+    "./prospect-geography-local": "./src/prospect-geography-local.ts",
+    "./chicago-intelligence-contract": "./src/chicago-intelligence-contract.ts",
+    "./chicago-intelligence-local": "./src/chicago-intelligence-local.ts",
     "./custom-character-publication": "./src/lib/custom-character-publication.ts",
-    "./venue-qr-pdf": "./src/lib/venue-qr-pdf.ts",
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
@@ -27,7 +29,12 @@
     "./deployment-storage-key": "./src/lib/deployment-storage-key.ts",
     "./venue-media-delivery": "./src/lib/venue-media-delivery.ts",
     "./guest-place-media": "./src/lib/guest-place-media.ts",
-    "./founder-absence-observation": "./src/founder-absence-observation.ts"
+    "./founder-absence-observation": "./src/founder-absence-observation.ts",
+    "./prospect-research-reader": "./src/prospect-research-reader.ts",
+    "./prospect-sales-workflow": "./src/prospect-sales-workflow.ts",
+    "./prospect-sales-contract": "./src/prospect-sales-contract.ts",
+    "./prospect-writer-contract": "./src/prospect-writer-contract.ts",
+    "./prospect-first-send-contract": "./src/prospect-first-send-contract.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

@@ -13,8 +13,6 @@ import { nativeCoreVisibleStateHash } from '@pathfinder/contracts/native-venue-d
 import { PublicCharacterProjectionSchema } from '@pathfinder/contracts/character-system'
 import {
   canonicalCharacterRuntimePack,
-  CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES,
-  CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES,
   createPublicFamilyRig,
   PublicFamilyRigSchema,
   type CharacterRuntimePack,
@@ -50,8 +48,8 @@ const HASH = /^[a-f0-9]{64}$/
 const RELEASE = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_PIXELS = 16_777_216
-const MAX_FILE_BYTES = CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES
-const MAX_PACK_BYTES = CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES
+const MAX_FILE_BYTES = 512 * 1024
+const MAX_PACK_BYTES = 2 * 1024 * 1024
 const digest = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex')
 
 function artifact(

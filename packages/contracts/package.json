@@ -59,8 +59,7 @@
     "./guest-conversation-disposition": "./src/guest-conversation-disposition.ts",
     "./venue-launch-asset": "./src/venue-launch-asset.ts",
     "./venue-launch-asset-node": "./src/venue-launch-asset-node.ts",
-    "./venue-qr-svg": "./src/venue-qr-svg.ts",
-    "./venue-qr-print": "./src/venue-qr-print.ts"
+    "./venue-qr-svg": "./src/venue-qr-svg.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

@@ -135,7 +135,7 @@ describe.skipIf(!enabled)('canonical CRM disposable safety', () => {
         data: {
           provider: 'GMAIL',
           externalAccountId: `gmail-${suffix}`,
-          mailboxAddress: 'tomschoenekase@torchiko.com',
+          mailboxAddress: `mailbox-${suffix}@example.test`,
           connectionStatus: 'CONNECTED',
           capabilities: ['SEND', 'RECEIVE', 'RECONCILE'],
           credentialReferenceId: `encrypted-credential-ref-${suffix}`,

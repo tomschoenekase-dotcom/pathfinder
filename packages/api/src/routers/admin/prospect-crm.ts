@@ -1,4 +1,5 @@
 import { mergeRouters } from '../../core'
+import { adminProspectCrmChicagoRouter } from './prospect-crm-chicago'
 import { adminProspectCrmCoreRouter } from './prospect-crm-core'
 import { adminProspectCrmDuplicatesRouter } from './prospect-crm-duplicates'
 import { adminProspectCrmDirectoryRouter } from './prospect-crm-directory'
@@ -9,8 +10,11 @@ import { adminProspectCrmMutationsRouter } from './prospect-crm-mutations'
 import { adminProspectCrmOutreachRouter } from './prospect-crm-outreach'
 import { adminProspectCrmSavedViewsRouter } from './prospect-crm-saved-views'
 import { adminProspectCrmTerritoriesRouter } from './prospect-crm-territories'
+import { adminProspectCrmSalesRouter } from './prospect-crm-sales'
+import { adminProspectCrmCohortsRouter } from './prospect-crm-cohorts'
 
 export const adminProspectCrmRouter = mergeRouters(
+  adminProspectCrmChicagoRouter,
   adminProspectCrmCoreRouter,
   adminProspectCrmDirectoryRouter,
   adminProspectCrmMutationsRouter,
@@ -21,4 +25,6 @@ export const adminProspectCrmRouter = mergeRouters(
   adminProspectCrmIntelligenceRouter,
   adminProspectCrmOutreachRouter,
   adminProspectCrmSavedViewsRouter,
+  adminProspectCrmSalesRouter,
+  adminProspectCrmCohortsRouter,
 )

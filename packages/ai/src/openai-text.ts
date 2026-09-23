@@ -52,7 +52,7 @@ export type OpenAiResponsesClient = {
         instructions: string
         input: AiMessage[]
         max_output_tokens: number
-        reasoning: { effort: 'none' | 'minimal' }
+        reasoning: { effort: 'minimal' }
         store: false
         stream?: boolean
       },
@@ -73,10 +73,6 @@ const openAiStreamEventSchema = z.discriminatedUnion('type', [
 ])
 
 type OpenAiResponsesProviderId = Extract<AiTextProviderId, 'openai' | 'deepseek'>
-
-function reasoningEffort(model: string): 'none' | 'minimal' {
-  return model === 'gpt-6-luna' ? 'none' : 'minimal'
-}
 
 const OPENAI_RESPONSES_PROVIDER_CONFIG: Record<
   OpenAiResponsesProviderId,
@@ -170,7 +166,7 @@ export async function createOpenAiTextResponse(params: {
       instructions: params.system.map((block) => block.text).join('\n\n'),
       input: params.messages,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: reasoningEffort(params.spec.model) },
+      reasoning: { effort: 'minimal' },
       store: false,
     },
     { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
@@ -221,7 +217,7 @@ export async function createOpenAiTextStream(params: {
       instructions: params.system.map((block) => block.text).join('\n\n'),
       input: params.messages,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: reasoningEffort(params.spec.model) },
+      reasoning: { effort: 'minimal' },
       store: false,
       stream: true,
     },

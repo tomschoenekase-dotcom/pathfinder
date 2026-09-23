@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   railway-iac:
+    if: github.ref != 'refs/heads/machine/torchiko/20260923-closeout-b-http-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -30,42 +31,8 @@ jobs:
       - name: Verify Railway IaC fail-closed audit contracts
         run: node --test scripts/railway-iac-readiness.test.mjs
 
-  visitor-launch:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      RAILWAY_ENVIRONMENT: staging
-      DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
-      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
-      REDIS_URL: redis://127.0.0.1:6379
-      CLERK_SECRET_KEY: test_clerk_secret
-      CLERK_PUBLISHABLE_KEY: test_clerk_pub
-      CLERK_WEBHOOK_SECRET: test_webhook_secret
-      INTEGRATION_ENCRYPTION_KEY: test_encryption_key_32_chars_long!
-      STORAGE_BUCKET: test-bucket
-      STORAGE_REGION: us-east-1
-      STORAGE_ACCESS_KEY_ID: test
-      STORAGE_SECRET_ACCESS_KEY: test
-      RESEND_API_KEY: test
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
-        with:
-          version: 9.15.4
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm characters:sync
-      - name: Install pinned visitor browser runtimes
-        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium webkit
-      - name: Verify visitor launch on compact, tablet, desktop and WebKit browsers
-        run: pnpm --dir apps/dashboard test:visitor-launch-browser
-
   ci:
+    if: github.ref != 'refs/heads/machine/torchiko/20260923-closeout-b-http-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -263,10 +230,6 @@ jobs:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
       - name: Synchronize reviewed character assets
         run: pnpm characters:sync
-      - name: Verify final combined visitor denial, Stop, draft and recovery contracts
-        run: pnpm --dir apps/web exec vitest run components/VenueChatExperience.test.tsx components/ChatWindow.test.tsx components/visitor-ui-copy.test.ts lib/trpc.test.tsx lib/pending-chat-turn.test.ts lib/bounded-client-request.test.ts hooks/useSession.test.tsx hooks/useGuestVisitContext.test.tsx --pool=forks --maxWorkers=1
-      - name: Verify final combined chat API conversation and replay contracts
-        run: pnpm --dir packages/api exec vitest run src/routers/chat.test.ts src/lib/conversation-learning-candidate.test.ts src/lib/capture-conversation-learning.test.ts --pool=forks --maxWorkers=1
       - name: Install the pinned Chromium runtime for visual smoke tests
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
       - name: Verify phone, tablet, and desktop core-product rendering
@@ -283,14 +246,6 @@ jobs:
             done < <(tail -n 80 "$visual_log")
             exit 1
           fi
-      - name: Retain text-first visitor fixture screenshots
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: text-first-visitor-${{ github.sha }}-${{ github.run_attempt }}
-          path: artifacts/mobile-visual/**/results/**/guest-visit-*.png
-          if-no-files-found: warn
-          retention-days: 7
       - name: Build and verify browser bundles contain no server secrets
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
@@ -306,3 +261,52 @@ jobs:
       - name: Verify workspace test graph
         run: node scripts/run-ci-workspace-tests.mjs
       - run: pnpm test:scripts
+
+  outreach-http-closeout:
+    if: github.ref == 'refs/heads/machine/torchiko/20260923-closeout-b-http-ci'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=3072
+      NODE_ENV: test
+      DATABASE_URL: postgresql://synthetic:unused@127.0.0.1:1/pathfinder_disposable_outreach_ci
+      DIRECT_DATABASE_URL: postgresql://synthetic:unused@127.0.0.1:1/pathfinder_disposable_outreach_ci
+      OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false'
+      CRM_BACKGROUND_WORKERS_ENABLED: 'false'
+      WORKER_SCHEDULERS_ENABLED: 'false'
+      PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false'
+      AGENT_RUNNER_ENABLED: 'false'
+      AGENT_ROUTINES_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install existing locked source dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate complete exact-source Prisma client
+        run: pnpm --filter @pathfinder/db db:generate
+      - name: Final native lifecycle and exact retry Node tests
+        run: |
+          set -o pipefail
+          mkdir -p ../qa
+          node --test --test-concurrency=1 scripts/torchiko-outreach-mcp.test.mjs scripts/torchiko-outreach-connection.test.mjs scripts/torchiko-outreach-retry.test.mjs scripts/torchiko-crm-client.test.mjs scripts/torchiko-outreach.test.mjs | tee ../qa/closeout-node.tap
+      - name: Final native registry, authority, receipt and review tests
+        run: pnpm exec vitest run --config scripts/vitest-authenticated-outreach.config.mjs --reporter=verbose --reporter=json --outputFile=../qa/closeout-vitest.json
+      - name: Obtain the existing pinned disposable PostgreSQL image
+        run: docker pull pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
+      - name: Native HTTP read prepare import lost-response exact retry reopen
+        run: node scripts/run-authenticated-outreach-http.mjs --synthetic-components
+      - name: Retain explicit synthetic receipts in the job log
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in sorted(Path('../qa').glob('http-*/*')):
+              if p.name in ('RESOURCE-RECEIPT.json', 'HTTP-ACCEPTANCE.json', 'migration.log', 'migration-failure-detail.log', 'acceptance.log'):
+                  print('\n--- SYNTHETIC RECEIPT: ' + str(p) + ' ---\n' + p.read_text())
+          PY

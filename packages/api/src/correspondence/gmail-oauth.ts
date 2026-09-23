@@ -359,7 +359,7 @@ export function createGmailOAuthRuntime(input: {
               ],
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
+              syncCursor: null,
               deliveryEnabled: false,
               createdBy: args.requestedBy,
               updatedBy: args.requestedBy,
@@ -367,7 +367,6 @@ export function createGmailOAuthRuntime(input: {
             update: {
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
               healthErrorCode: null,
               healthErrorSummary: null,
               deliveryEnabled: false,

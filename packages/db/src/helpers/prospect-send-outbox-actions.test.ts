@@ -1,52 +1,155 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { launchAttachmentsSha256 } from '@pathfinder/contracts/venue-launch-asset-node'
-import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
-import { renderVenueQrSvg } from '@pathfinder/contracts/venue-qr-svg'
-
-const attachmentMocks = vi.hoisted(() => ({ current: vi.fn() }))
-vi.mock('./prospect-launch-attachments', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./prospect-launch-attachments')>()
-  return { ...actual, requireCurrentProspectLaunchAttachments: attachmentMocks.current }
-})
 
 import {
+  claimProspectAmbiguousRecoveryAction,
   claimProspectSendOutboxAction,
   foldProspectEmailStatus,
   recordProspectSendFailureAction,
   revalidateProspectSendOutboxClaimAction,
 } from './prospect-send-outbox-actions'
-import { prospectOperationalContentHash } from './prospect-launch-attachments'
 
-const qrUrl = 'https://guide.example.com/venue/chat?source=qr'
-const qrBytes = Buffer.from(renderVenueQrSvg(qrUrl), 'utf8')
-const frozenAsset: VenueLaunchAsset = {
-  schema: 'torchiko.venue-launch-asset/1',
-  tenantId: 'tenant-1',
-  venueId: 'venue-1',
-  release: { kind: 'LEGACY', id: 'legacy:venue-1', revisionSha256: 'a'.repeat(64) },
-  publicUrl: qrUrl,
-  filename: 'venue-qr.svg',
-  mimeType: 'image/svg+xml',
-  sizeBytes: qrBytes.length,
-  sha256: createHash('sha256').update(qrBytes).digest('hex'),
-  contentBase64: qrBytes.toString('base64'),
-}
-const pdfBytes = Buffer.from('%PDF-1.4 frozen fixture')
-const frozenPdfAsset: VenueLaunchAsset = {
-  schema: 'torchiko.venue-launch-asset/2',
-  tenantId: 'tenant-1',
-  venueId: 'venue-1',
-  release: { kind: 'LEGACY', id: 'legacy:venue-1', revisionSha256: 'a'.repeat(64) },
-  publicUrl: qrUrl,
-  format: 'PDF',
-  generatorVersion: 'qr-print-v1',
-  filename: 'venue-qr.pdf',
-  mimeType: 'application/pdf',
-  sizeBytes: pdfBytes.length,
-  sha256: createHash('sha256').update(pdfBytes).digest('hex'),
-  contentBase64: pdfBytes.toString('base64'),
-}
+describe('prospect ambiguous recovery claim', () => {
+  const now = new Date('2026-08-22T16:00:00.000Z')
+  const operation = (overrides: Record<string, unknown> = {}) => ({
+    id: 'outbox-1',
+    operationId: '00000000-0000-4000-8000-000000000001',
+    providerAccountId: 'account-1',
+    providerIdempotencyKey: 'outbox-key-1',
+    status: 'CLAIMED',
+    attemptCount: 2,
+    claimOwner: 'worker-1',
+    claimExpiresAt: new Date('2026-08-22T16:02:00.000Z'),
+    providerAccount: {
+      id: 'account-1',
+      provider: 'GMAIL',
+      externalAccountId: 'google-account-1',
+      credentialReferenceId: 'credential-ref-1',
+      mailboxAddress: 'outreach@torchiko.com',
+    },
+    sendItem: {
+      id: 'item-1',
+      idempotencyKey: 'outbox-key-1',
+      recipientEmailSnapshot: 'person@example.org',
+      subjectSnapshot: 'Subject',
+      textBodySnapshot: 'Frozen body',
+      htmlBodySnapshot: null,
+      headerSnapshot: { nativeSalesOrigin: { source: 'old-approved-source' } },
+    },
+    ...overrides,
+  })
+
+  it('returns the frozen operation without rechecking mutable authority or source state', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      prospectSendOutbox: {
+        updateMany,
+        findUnique: vi.fn().mockResolvedValue(operation()),
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      claimProspectAmbiguousRecoveryAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toMatchObject({
+      provider: 'GMAIL',
+      providerAccountId: 'account-1',
+      mailboxAddress: 'outreach@torchiko.com',
+      recipient: 'person@example.org',
+      subject: 'Subject',
+      textBody: 'Frozen body',
+      attemptCount: 2,
+    })
+    expect(tx.prospectSendOutbox.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'outbox-1' } }),
+    )
+    // Recovery claim itself never consults delivery controls, recipient suppression, replies, or
+    // native-source freshness; the worker performs lookup-only reconciliation from these snapshots.
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ attemptCount: { increment: 1 } }) }),
+    )
+  })
+
+  it('releases and holds a malformed frozen account/envelope identity', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      prospectSendOutbox: {
+        updateMany,
+        findUnique: vi.fn().mockResolvedValue(
+          operation({ providerAccountId: 'different-account' }),
+        ),
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      claimProspectAmbiguousRecoveryAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBeNull()
+    expect(updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: 'outbox-1', status: 'CLAIMED', claimOwner: 'worker-1' },
+        data: expect.objectContaining({
+          status: 'AMBIGUOUS',
+          claimOwner: null,
+          lastErrorCode: 'AMBIGUOUS_SEND',
+        }),
+      }),
+    )
+  })
+
+  it('does not claim an ambiguous operation with no prior provider attempt', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 })
+    const findUnique = vi.fn()
+    const tx = { prospectSendOutbox: { updateMany, findUnique } }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      claimProspectAmbiguousRecoveryAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBeNull()
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ attemptCount: { gt: 0 } }) }),
+    )
+    expect(findUnique).not.toHaveBeenCalled()
+  })
+
+  it.each(['wrong owner', 'expired lease'] as const)(
+    'holds a recovery claim when the post-claim lease is %s',
+    async (state) => {
+      const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+      const claimed = operation({
+        ...(state === 'wrong owner'
+          ? { claimOwner: 'other-worker' }
+          : { claimExpiresAt: new Date('2026-08-22T15:59:00.000Z') }),
+      })
+      const tx = {
+        prospectSendOutbox: {
+          updateMany,
+          findUnique: vi.fn().mockResolvedValue(claimed),
+        },
+      }
+      const client = { $transaction: vi.fn((work) => work(tx)) }
+
+      await expect(
+        claimProspectAmbiguousRecoveryAction(
+          { outboxId: 'outbox-1', workerId: 'worker-1', now },
+          client as never,
+        ),
+      ).resolves.toBeNull()
+      if (state === 'wrong owner') expect(updateMany).toHaveBeenCalledOnce()
+      else expect(updateMany).toHaveBeenCalledTimes(2)
+    },
+  )
+})
+
 describe('prospect provider event folding', () => {
   it.each([
     ['DELIVERED', 'SENT', 'DELIVERED'],
@@ -148,7 +251,11 @@ describe('prospect last-mile delivery authority', () => {
             pausedAt: null,
             connectionStatus: 'CONNECTED',
           },
-          sendItem: { id: 'item-1', batch: { campaign: { pausedAt: null, status: 'ACTIVE' } } },
+          sendItem: {
+            id: 'item-1',
+            member: { organizationId: 'org-1' },
+            batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+          },
         }),
         update: vi.fn(),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -231,6 +338,7 @@ describe('prospect last-mile delivery authority', () => {
           sendItem: {
             id: 'item-1',
             recipientEmailSnapshot: 'removed@torchiko.test',
+            member: { organizationId: 'org-1' },
             batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
           },
         }),
@@ -527,213 +635,7 @@ describe('prospect send claim rate reservation', () => {
   })
 })
 
-describe('prospect frozen launch attachment readback', () => {
-  const now = new Date('2026-08-22T16:00:00.000Z')
-
-  it('leases a provider-ambiguous operation for lookup only without fresh send authority', async () => {
-    const recipient = 'recipient@example.test'
-    const snapshot = { launchAttachments: [frozenPdfAsset] }
-    const previous = {
-      id: 'outbox-1',
-      operationId: '00000000-0000-4000-8000-000000000001',
-      providerAccountId: 'mailbox-1',
-      status: 'AMBIGUOUS',
-      lastErrorCode: 'AMBIGUOUS_SEND',
-      availableAt: new Date(now.valueOf() - 1_000),
-      claimOwner: null,
-      claimExpiresAt: null,
-      attemptCount: 1,
-      providerIdempotencyKey: 'outbox-key-1',
-      providerAccount: {
-        id: 'mailbox-1',
-        provider: 'GMAIL',
-        externalAccountId: 'me',
-        credentialReferenceId: 'credential-1',
-        mailboxAddress: 'tomschoenekase@torchiko.com',
-        dailySendCap: 100,
-        perDomainDailyCap: 100,
-        minimumDelaySeconds: 0,
-        jitterSeconds: 0,
-      },
-      sendItem: {
-        id: 'item-1',
-        batchId: 'batch-1',
-        recipientEmailSnapshot: recipient,
-        subjectSnapshot: 'Subject',
-        textBodySnapshot: 'Exact approved text',
-        htmlBodySnapshot: null,
-        contentHashSnapshot: prospectOperationalContentHash(
-          recipient,
-          'Subject',
-          'Exact approved text',
-          '',
-          snapshot,
-        ),
-        headerSnapshot: {
-          ...snapshot,
-          launchAttachmentsSha256: launchAttachmentsSha256([frozenPdfAsset]),
-        },
-        draft: { groundingSnapshot: snapshot },
-        batch: { campaignId: 'campaign-1', campaign: { dailySendCap: 100 } },
-      },
-    }
-    const current = {
-      ...previous,
-      status: 'CLAIMED',
-      claimOwner: 'worker-1',
-      claimExpiresAt: new Date(now.valueOf() + 120_000),
-      attemptCount: 2,
-    }
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
-      prospectSendOutbox: {
-        findUnique: vi.fn().mockResolvedValueOnce(previous).mockResolvedValueOnce(current),
-        count: vi.fn().mockResolvedValue(0),
-        findFirst: vi.fn().mockResolvedValue(null),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-      prospectDeliveryControl: { findUnique: vi.fn() },
-      prospectEmailMessage: { findFirst: vi.fn() },
-    }
-    const client = { $transaction: vi.fn((work) => work(tx)) }
-    const recovered = await claimProspectSendOutboxAction(
-      { outboxId: 'outbox-1', workerId: 'worker-1', now },
-      client as never,
-    )
-    expect(recovered).toMatchObject({
-      attemptCount: 2,
-      textBody: 'Exact approved text',
-      launchAttachments: [frozenPdfAsset],
-    })
-    expect(tx.prospectDeliveryControl.findUnique).not.toHaveBeenCalled()
-    expect(tx.prospectEmailMessage.findFirst).not.toHaveBeenCalled()
-    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            expect.objectContaining({ status: 'AMBIGUOUS', attemptCount: { lt: 4 } }),
-          ]),
-        }),
-      }),
-    )
-    tx.prospectSendOutbox.findUnique.mockReset().mockResolvedValue({
-      ...previous,
-      attemptCount: 4,
-    })
-    await expect(
-      claimProspectSendOutboxAction(
-        { outboxId: 'outbox-1', workerId: 'worker-1', now },
-        client as never,
-      ),
-    ).resolves.toBeNull()
-    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledTimes(1)
-  })
-
-  it('returns the exact reviewed attachment from the leased outbox send', async () => {
-    const recipient = 'prospect@example.test'
-    const snapshot = { launchAttachments: [frozenAsset] }
-    const contentHashSnapshot = prospectOperationalContentHash(
-      recipient,
-      'A visitor guide',
-      'Scan the attached code.',
-      '',
-      snapshot,
-    )
-    const pending = {
-      id: 'outbox-1',
-      operationId: '00000000-0000-4000-8000-000000000001',
-      providerAccountId: 'mailbox-1',
-      status: 'PENDING',
-      availableAt: new Date(now.valueOf() - 60_000),
-      claimOwner: null,
-      claimExpiresAt: null,
-      attemptCount: 0,
-      providerIdempotencyKey: 'outbox-key-1',
-      providerAccount: {
-        id: 'mailbox-1',
-        provider: 'GMAIL',
-        externalAccountId: 'me',
-        credentialReferenceId: 'credential-1',
-        mailboxAddress: 'sender@example.test',
-        dailySendCap: 100,
-        perDomainDailyCap: 100,
-        minimumDelaySeconds: 0,
-        jitterSeconds: 0,
-        deliveryEnabled: true,
-        pausedAt: null,
-        connectionStatus: 'CONNECTED',
-      },
-      sendItem: {
-        id: 'item-1',
-        batchId: 'batch-1',
-        recipientEmailSnapshot: recipient,
-        recipientIdentityHash: createHash('sha256').update(recipient).digest('hex'),
-        subjectSnapshot: 'A visitor guide',
-        textBodySnapshot: 'Scan the attached code.',
-        htmlBodySnapshot: null,
-        contentHashSnapshot,
-        headerSnapshot: {
-          launchAttachments: [frozenAsset],
-          launchAttachmentsSha256: launchAttachmentsSha256([frozenAsset]),
-        },
-        draft: { groundingSnapshot: snapshot },
-        batch: {
-          campaignId: 'campaign-1',
-          campaign: { dailySendCap: 100, pausedAt: null, status: 'ACTIVE' },
-        },
-        member: {
-          contact: {
-            normalizedEmail: recipient,
-            archivedAt: null,
-            doNotContact: false,
-            emailReadiness: 'VALID',
-            permissionState: 'LEGITIMATE_INTEREST_RECORDED',
-            suppressedAt: null,
-            unsubscribedAt: null,
-          },
-        },
-      },
-    }
-    const claimed = {
-      ...pending,
-      status: 'CLAIMED',
-      claimOwner: 'worker-1',
-      claimExpiresAt: new Date(now.valueOf() + 120_000),
-      attemptCount: 1,
-    }
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
-      prospectSendOutbox: {
-        findUnique: vi.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(claimed),
-        count: vi.fn().mockResolvedValue(0),
-        findFirst: vi.fn().mockResolvedValue(null),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-      prospectDeliveryControl: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({ deliveryEnabled: true, internalOnly: false, internalAllowlist: [] }),
-      },
-      prospectSendItem: { update: vi.fn() },
-      prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
-    }
-    const client = {
-      $transaction: vi.fn((work) => work(tx)),
-      prospectSendBatch: { findUnique: vi.fn(), update: vi.fn() },
-      prospectSendItem: { count: vi.fn() },
-    }
-
-    const frozen = await claimProspectSendOutboxAction(
-      { outboxId: 'outbox-1', workerId: 'worker-1', now },
-      client as never,
-    )
-
-    expect(frozen?.launchAttachments).toEqual([frozenAsset])
-  })
-})
-
 describe('prospect reply stop boundary', () => {
-  beforeEach(() => attachmentMocks.current.mockReset())
   const now = new Date('2026-08-22T16:00:00.000Z')
   const createdAt = new Date('2026-08-22T15:00:00.000Z')
   const recipient = 'prospect@example.test'
@@ -836,55 +738,6 @@ describe('prospect reply stop boundary', () => {
       }),
       select: { id: true },
     })
-  })
-
-  it('revalidates frozen PDF bytes through the trusted persisted-attachment path', async () => {
-    attachmentMocks.current.mockResolvedValueOnce([frozenPdfAsset])
-    const attachmentHash = launchAttachmentsSha256([frozenPdfAsset])
-    const contentHash = prospectOperationalContentHash(
-      recipient,
-      'Approved subject',
-      'Approved body',
-      '',
-      { launchAttachments: [frozenPdfAsset] },
-    )
-    const claimed = operation()
-    const current = {
-      ...claimed,
-      sendItem: {
-        ...claimed.sendItem,
-        batchId: 'batch-1',
-        subjectSnapshot: 'Approved subject',
-        textBodySnapshot: 'Approved body',
-        htmlBodySnapshot: null,
-        contentHashSnapshot: contentHash,
-        headerSnapshot: {
-          launchAttachments: [frozenPdfAsset],
-          launchAttachmentsSha256: attachmentHash,
-        },
-        draft: {
-          venueId: 'venue-1',
-          groundingSnapshot: { launchAttachments: [frozenPdfAsset] },
-        },
-        member: {
-          ...claimed.sendItem.member,
-          venue: { id: 'venue-1' },
-        },
-      },
-    }
-    const { client } = clientFor(current)
-
-    await expect(
-      revalidateProspectSendOutboxClaimAction(
-        { outboxId: 'outbox-1', workerId: 'worker-1', now },
-        client as never,
-      ),
-    ).resolves.toBe(true)
-    expect(attachmentMocks.current).toHaveBeenCalledWith(
-      'venue-1',
-      [frozenPdfAsset],
-      expect.objectContaining({ allowFrozenVerifiedPrintAttachments: true }),
-    )
   })
 
   it('cancels when the bounded canonical inbound lookup finds a reply', async () => {

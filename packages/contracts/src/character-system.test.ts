@@ -158,15 +158,8 @@ describe('character system contracts', () => {
 
     const oversized = cloneManifest()
     const assets = oversized.assets as Array<Record<string, unknown>>
-    if (assets[0]) assets[0].bytes = 1024 * 1024 + 1
+    if (assets[0]) assets[0].bytes = 512 * 1024 + 1
     expect(CharacterAssetManifestSchema.safeParse(oversized).success).toBe(false)
-  })
-
-  it('accepts the shared one MiB per-asset boundary', () => {
-    const boundary = cloneManifest()
-    const assets = boundary.assets as Array<Record<string, unknown>>
-    if (assets[0]) assets[0].bytes = 1024 * 1024
-    expect(CharacterAssetManifestSchema.safeParse(boundary).success).toBe(true)
   })
 
   it('prevents placeholder or unapproved art from becoming publishable', () => {

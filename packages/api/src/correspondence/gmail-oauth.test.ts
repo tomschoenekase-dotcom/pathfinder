@@ -119,12 +119,14 @@ describe('createGmailOAuthRuntime', () => {
     expect(mocks.upsertAccount).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({
+          syncCursor: null,
           deliveryEnabled: false,
           capabilities: expect.arrayContaining(['CALENDAR_READ', 'MEET_TRANSCRIPTS']),
         }),
         update: expect.objectContaining({ deliveryEnabled: false }),
       }),
     )
+    expect(mocks.upsertAccount.mock.calls[0]![0].update).not.toHaveProperty('syncCursor')
     expect(mocks.audit).toHaveBeenCalled()
   })
 

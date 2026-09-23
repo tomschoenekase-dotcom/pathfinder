@@ -40,11 +40,7 @@ const location =
   /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|ground|upper|lower|basement)\s+floor\b|\b(?:north|south|east|west|front|rear|main|side)\s+(?:entrance|door|stair|stairs|wing|gallery|room|building)\b|\b(?:beside|behind|near|next to|across from|between|at the)\b/iu
 const factualLead =
   /^(?:the|this|that|our|a|an|i\s+(?:think|believe|understand|noticed|remember|saw|read|heard|found)|according to|the placard|the sign|staff said)\b/iu
-// Visit needs and group circumstances belong to the conversation, not the
-// venue-fact review queue. Preserve observational leads such as "we noticed"
-// and venue assertions such as "our museum has" for the existing classifier.
-const personalAssertion =
-  /^(?:my\b|(?:i|we)\s+(?:am|are|was|were|have|had|need|want|like|prefer)\b|i['’]m\b|we['’](?:re|ve)\b|our\s+(?:children|kids|family|group|party)\b)/iu
+const personalAssertion = /^(?:my\b|i\s+(?:am|'m|was|have|had)\b|i\s+need\b)/iu
 const hedge =
   /\b(?:i\s+(?:think|believe|guess)|it\s+seems?|apparently|possibly|probably|may be|might be|if i remember|i'm not sure)\b/iu
 const pureCopularOpinion =

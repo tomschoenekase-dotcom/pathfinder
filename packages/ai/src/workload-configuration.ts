@@ -191,7 +191,6 @@ function budgetIncreases(current: string | null, next: string | null): boolean {
 
 export function resolveAiWorkloadConfiguration(params: {
   workloadId: AiWorkloadId
-  defaultPrimaryModelKey?: AiWorkloadId
   clientId?: string
   venueId?: string
   overrides?: unknown[]
@@ -201,23 +200,18 @@ export function resolveAiWorkloadConfiguration(params: {
 
   const base = AI_CENTRAL_MODEL_REGISTRY[params.workloadId]
   if (!base) throw new Error('Unknown AI workload')
-  const defaultPrimaryModelKey = params.defaultPrimaryModelKey ?? params.workloadId
-  const defaultModel = AI_CENTRAL_MODEL_REGISTRY[defaultPrimaryModelKey]
-  if (!defaultModel || defaultModel.kind !== base.kind) {
-    throw new Error('AI workload default model is incompatible')
-  }
 
   const effective: AiEffectiveWorkloadConfiguration = {
     configurationVersion: AI_CONFIGURATION_VERSION,
     workloadId: params.workloadId,
     kind: base.kind,
-    primaryModelKey: defaultPrimaryModelKey,
+    primaryModelKey: params.workloadId,
     fallback: { enabled: false, modelKeys: [] },
-    timeoutMs: defaultModel.limits.timeoutMs,
-    maxAttempts: defaultModel.limits.maxAttempts,
-    maxOutputTokens: defaultModel.limits.maxOutputTokens ?? null,
+    timeoutMs: base.limits.timeoutMs,
+    maxAttempts: base.limits.maxAttempts,
+    maxOutputTokens: base.limits.maxOutputTokens ?? null,
     requestBudgetCeilingE8Usd: null,
-    model: defaultModel,
+    model: base,
     sources: {
       primaryModelKey: 'PLATFORM',
       fallback: 'PLATFORM',

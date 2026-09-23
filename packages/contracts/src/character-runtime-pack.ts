@@ -1,8 +1,5 @@
 import { z } from 'zod'
 
-export const CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES = 1 * 1024 * 1024
-export const CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES = 2 * 1024 * 1024
-
 // This is a prepared renderer input, not approval or publication authority.
 // The exporter verifies dimensions and digests against the actual embedded bytes.
 const Id = z
@@ -45,7 +42,11 @@ export const RuntimePackAssetSchema = z
     mediaType: z.enum(['image/svg+xml', 'image/png']),
     width: Dimension,
     height: Dimension,
-    bytes: z.number().int().min(1).max(CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES),
+    bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(512 * 1024),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
@@ -96,10 +97,7 @@ function validatePack(
     new Set(pack.assets.map((a) => a.path)).size !== pack.assets.length
   )
     reject('Asset identities and paths must be unique.')
-  if (
-    pack.assets.reduce((total, asset) => total + asset.bytes, 0) >
-    CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES
-  )
+  if (pack.assets.reduce((total, asset) => total + asset.bytes, 0) > 2 * 1024 * 1024)
     reject('Runtime pack exceeds the initial byte budget.')
   for (const asset of pack.assets) {
     if (!asset.path.endsWith(asset.mediaType === 'image/png' ? '.png' : '.svg'))

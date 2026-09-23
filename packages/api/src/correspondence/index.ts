@@ -30,6 +30,12 @@ export {
   type VerifiedGooglePubSubIdentity,
 } from './google-pubsub'
 export { createPrismaInboundCorrespondenceStore } from './prisma-inbound-store'
-export { projectGmailBodyForPersistence, type GmailBodyPersistencePolicy } from './body-retention'
+export { readExactSourceOnlyReplyContent, type ExactSourceOnlyReplySelection } from './exact-reply-content'
+export { retainSelectedSourceOnlyReply, type SelectedReplyRetentionExpectation } from './selected-reply-retention'
+export {
+  gmailBodyPersistencePolicyFromEnvironment,
+  projectGmailBodyForPersistence,
+  type GmailBodyPersistencePolicy,
+} from './body-retention'
 export type { CorrespondenceProvider } from './provider'
 export * from './types'

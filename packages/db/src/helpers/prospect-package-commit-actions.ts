@@ -10,6 +10,7 @@ type HumanActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 type JsonMap = Record<string, unknown>
 type CommitTx = Pick<
   Client,
+  | 'prospectTerritory'
   | 'prospectOrganization'
   | 'prospectOpportunity'
   | 'prospectVenue'
@@ -110,31 +111,38 @@ export async function approveProspectStagingPackageCommitAction(
     if (!source || !source.packageHash || !source.sourceWorkbookHash) {
       throw new ProspectPackageCommitError('NOT_FOUND', 'Admitted staging package not found')
     }
+    const packageManifest = manifest(source)
+    const hasDrafts = Number(object(packageManifest.counts).DRAFT ?? 0) > 0
+    const campaignId = hasDrafts ? stableId('pcampaign', source.packageHash) : null
+    if (source.status === 'COMPLETE') {
+      return { importId: source.id, campaignId, status: source.status, replayed: true }
+    }
     if (!['DRAFT', 'PROCESSING', 'PARTIAL'].includes(source.status)) {
       throw new ProspectPackageCommitError('CONFLICT', 'Staging package cannot enter commit state')
     }
-    const packageManifest = manifest(source)
     const packageId = text(packageManifest.packageId) ?? source.id
-    const campaignId = stableId('pcampaign', source.packageHash)
-    await tx.prospectOutreachCampaign.upsert({
-      where: { id: campaignId },
-      create: {
-        id: campaignId,
-        name: `Imported inert drafts: ${packageId}`.slice(0, 191),
-        description:
-          'Package-import holding campaign. Drafts require normal human review and release.',
-        status: 'DRAFT',
-        cohortSnapshot: {
-          importId: source.id,
-          packageHash: source.packageHash,
-          sourceWorkbookHash: source.sourceWorkbookHash,
+    // A source-only import is not a campaign. Retain inert-draft support only
+    // for packages that actually contain separately reviewed draft records.
+    if (campaignId)
+      await tx.prospectOutreachCampaign.upsert({
+        where: { id: campaignId },
+        create: {
+          id: campaignId,
+          name: `Imported inert drafts: ${packageId}`.slice(0, 191),
+          description:
+            'Package-import holding campaign. Drafts require normal human review and release.',
+          status: 'DRAFT',
+          cohortSnapshot: {
+            importId: source.id,
+            packageHash: source.packageHash,
+            sourceWorkbookHash: source.sourceWorkbookHash,
+          },
+          playbookVersion: text(object(packageManifest.lineage).promptVersion) ?? 'package-v1',
+          createdBy: input.actor.id,
+          updatedBy: input.actor.id,
         },
-        playbookVersion: text(object(packageManifest.lineage).promptVersion) ?? 'package-v1',
-        createdBy: input.actor.id,
-        updatedBy: input.actor.id,
-      },
-      update: {},
-    })
+        update: {},
+      })
     const approvedAt = new Date()
     const approved = await tx.prospectImport.update({
       where: { id: source.id },
@@ -271,6 +279,24 @@ async function mapProspect(record: ClaimedSourceRecord, tx: CommitTx): Promise<C
   const organizationId =
     existingOrganizationId ?? stableId('porg', record.sourceWorkbookHash, organizationExternalId)
   const website = text(normalized.website, raw.Website)
+  const territoryName = text(normalized.territory)
+  const territoryId = territoryName
+    ? stableId('pterritory', record.sourceWorkbookHash, normalizedName(territoryName))
+    : null
+  if (territoryName && territoryId) {
+    await tx.prospectTerritory.upsert({
+      where: { id: territoryId },
+      create: {
+        id: territoryId,
+        name: territoryName,
+        code: `workbook-${hash(`${record.sourceWorkbookHash}\n${normalizedName(territoryName)}`).slice(0, 24)}`,
+        description: 'Imported workbook territory; source sheet name retained verbatim.',
+        createdBy: 'system:prospect-package-import',
+        updatedBy: 'system:prospect-package-import',
+      },
+      update: {},
+    })
+  }
   if (duplicateOutcome === 'LINK') {
     const exists = await tx.prospectOrganization.findUnique({
       where: { id: organizationId },
@@ -291,6 +317,7 @@ async function mapProspect(record: ClaimedSourceRecord, tx: CommitTx): Promise<C
         headquartersCity: text(normalized.city),
         headquartersRegion: text(normalized.region),
         headquartersCountry: text(normalized.country),
+        territoryId,
         source: 'HERMES_STAGING',
         researchProvenance: [
           { importId: record.importId, externalRecordId: record.externalRecordId },
@@ -351,6 +378,7 @@ async function mapProspect(record: ClaimedSourceRecord, tx: CommitTx): Promise<C
         region: text(normalized.region, raw.State, raw.Region),
         postalCode: text(normalized.postalCode, raw.PostalCode),
         country: text(normalized.country, raw.Country),
+        territoryId,
         fitAttributes: json(object(normalized.fitAttributes)),
         researchSources: [{ importId: record.importId, externalRecordId: record.externalRecordId }],
         createdBy: 'system:prospect-package-import',
@@ -405,9 +433,16 @@ async function mapContact(record: ClaimedSourceRecord, tx: CommitTx): Promise<Ca
       normalizedEmail: email,
       phone: text(normalized.phone, raw.Phone),
       source: 'HERMES_STAGING',
-      provenance: [{ importId: record.importId, externalRecordId: record.externalRecordId }],
-      emailReadiness: email ? 'REVIEW_REQUIRED' : 'UNKNOWN',
-      permissionState: 'REVIEW_REQUIRED',
+      provenance: [
+        {
+          importId: record.importId,
+          externalRecordId: record.externalRecordId,
+          sourceRole: text(normalized.sourceRole) ?? 'SOURCE_FIELDS_RECORDED',
+          verification: 'UNKNOWN',
+        },
+      ],
+      emailReadiness: 'UNKNOWN',
+      permissionState: 'UNKNOWN',
       createdBy: 'system:prospect-package-import',
       updatedBy: 'system:prospect-package-import',
     },
@@ -687,6 +722,21 @@ export async function finalizeProspectStagingPackageAction(
       where: { importId: input.importId },
       _count: { _all: true },
     })
+    const expectedCounts = object(manifest(source).counts)
+    for (const kind of KIND_ORDER) {
+      const expected = expectedCounts[kind]
+      if (typeof expected === 'number') {
+        const actual = rows
+          .filter((row) => row.recordKind === kind)
+          .reduce((sum, row) => sum + row._count._all, 0)
+        if (actual !== expected) {
+          throw new ProspectPackageCommitError(
+            'CONFLICT',
+            `Source-record count mismatch for ${kind}`,
+          )
+        }
+      }
+    }
     const unfinished = rows
       .filter((row) => ['PENDING', 'PROCESSING'].includes(row.processingStatus))
       .reduce((sum, row) => sum + row._count._all, 0)
@@ -708,6 +758,19 @@ export async function finalizeProspectStagingPackageAction(
     })
     const reconciliation = {
       total: source.totalRows,
+      sourceRowsAccepted: rows
+        .filter((row) => row.recordKind === 'PROSPECT' && row.processingStatus === 'COMPLETE')
+        .reduce((sum, row) => sum + row._count._all, 0),
+      sourceRowsRejected: rows
+        .filter(
+          (row) =>
+            row.recordKind === 'PROSPECT' &&
+            ['FAILED', 'QUARANTINED'].includes(row.processingStatus),
+        )
+        .reduce((sum, row) => sum + row._count._all, 0),
+      sourceRowsSkipped: rows
+        .filter((row) => row.recordKind === 'PROSPECT' && row.processingStatus === 'SKIPPED')
+        .reduce((sum, row) => sum + row._count._all, 0),
       sourceRecords: rows.reduce((sum, row) => sum + row._count._all, 0),
       imported,
       skipped,
@@ -716,12 +779,27 @@ export async function finalizeProspectStagingPackageAction(
       errors,
       truncatedErrors: failed > errors.length,
     }
+    if (source.status === 'COMPLETE') {
+      if (failed) {
+        throw new ProspectPackageCommitError(
+          'CONFLICT',
+          'Completed package has non-complete source records',
+        )
+      }
+      return {
+        finalized: true,
+        unfinished: 0,
+        status: source.status,
+        reconciliation,
+        replayed: true,
+      }
+    }
     const completed = await tx.prospectImport.update({
       where: { id: source.id },
       data: {
         status: failed ? 'PARTIAL' : 'COMPLETE',
-        importedRows: imported,
-        failedRows: failed,
+        importedRows: reconciliation.sourceRowsAccepted,
+        failedRows: reconciliation.sourceRowsRejected,
         reconciliation,
         completedAt: now,
         progressCursor: 'COMPLETE',

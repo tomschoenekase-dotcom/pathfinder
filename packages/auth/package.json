@@ -2,10 +2,7 @@
   "name": "@pathfinder/auth",
   "private": true,
   "exports": {
-    ".": "./src/index.ts",
-    "./server": "./src/server.ts",
-    "./identity-binding": "./src/identity-binding.ts",
-    "./client": "./src/client.ts"
+    ".": "./src/index.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

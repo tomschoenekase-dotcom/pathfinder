@@ -104,12 +104,8 @@ function normalizeMessage(value: unknown): GmailApiMessage {
   }
   const attachments = parts.flatMap((part) => {
     const body = object(part.body)
-    if (
-      typeof part.filename !== 'string' ||
-      !part.filename ||
-      (typeof body.attachmentId !== 'string' && typeof body.data !== 'string')
-    )
-      return []
+    if (typeof part.filename !== 'string' || !part.filename ||
+        (typeof body.attachmentId !== 'string' && typeof body.data !== 'string')) return []
     return [
       {
         id: typeof body.attachmentId === 'string' ? body.attachmentId : '',
@@ -122,23 +118,13 @@ function normalizeMessage(value: unknown): GmailApiMessage {
   })
   const hasUnexpectedMimeParts = parts.some((part) => {
     const mimeType = typeof part.mimeType === 'string' ? part.mimeType.toLowerCase() : ''
-    if (
-      !mimeType ||
-      mimeType.startsWith('multipart/') ||
-      ['text/plain', 'text/html'].includes(mimeType)
-    )
-      return false
+    if (!mimeType || mimeType.startsWith('multipart/') || ['text/plain', 'text/html'].includes(mimeType)) return false
     const body = object(part.body)
-    return !(
-      ['image/svg+xml', 'image/png', 'application/pdf'].includes(mimeType) &&
-      typeof part.filename === 'string' &&
-      part.filename.length > 0 &&
-      (typeof body.attachmentId === 'string' || typeof body.data === 'string')
-    )
+    return !(mimeType === 'image/svg+xml' && typeof part.filename === 'string' &&
+      part.filename.length > 0 && (typeof body.attachmentId === 'string' || typeof body.data === 'string'))
   })
   const nonemptyPlaintextPartCount = parts.filter((part) => {
-    if (typeof part.mimeType !== 'string' || part.mimeType.toLowerCase() !== 'text/plain')
-      return false
+    if (typeof part.mimeType !== 'string' || part.mimeType.toLowerCase() !== 'text/plain') return false
     return Boolean(decode(object(part.body).data))
   }).length
   return {
@@ -250,10 +236,34 @@ export function createGmailApiClient(
         path: `messages/${encodeURIComponent(messageId)}?format=full`,
       }),
     )
-  const hydrate = async (accessToken: string, mailboxAddress: string, ids: readonly string[]) =>
-    Promise.all(
-      [...new Set(ids)].slice(0, 100).map((id) => getMessage(accessToken, mailboxAddress, id)),
-    )
+  const hydrate = async (accessToken: string, mailboxAddress: string, ids: readonly string[]) => {
+    const unique = [...new Set(ids)]
+    const messages: GmailApiMessage[] = []
+    const unavailableMessageIds: string[] = []
+    // Gmail history pages may contain more than 100 messageAdded IDs even though
+    // the list endpoint itself is capped at 100 results. Hydrate every ID in
+    // bounded chunks so advancing the caller's cursor can never silently omit
+    // additions. A failed chunk rejects the whole operation before a page/cursor
+    // can be returned to the sync owner.
+    for (let offset = 0; offset < unique.length; offset += 100) {
+      const chunk = unique.slice(offset, offset + 100)
+      const results = await Promise.all(
+        chunk.map(async (id) => {
+          try {
+            return { id, message: await getMessage(accessToken, mailboxAddress, id) }
+          } catch (error) {
+            if (error instanceof GmailApiError && error.kind === 'NOT_FOUND') return { id, message: null }
+            throw error
+          }
+        }),
+      )
+      for (const result of results) {
+        if (result.message) messages.push(result.message)
+        else unavailableMessageIds.push(result.id)
+      }
+    }
+    return { messages, unavailableMessageIds }
+  }
 
   return {
     async sendMessage(args) {
@@ -301,7 +311,7 @@ export function createGmailApiClient(
         })
       })
       return {
-        messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
+        ...(await hydrate(args.accessToken, args.mailboxAddress, ids)),
         historyId: required(response.historyId, 'history ID'),
         ...(typeof response.nextPageToken === 'string'
           ? { nextPageToken: response.nextPageToken }
@@ -309,6 +319,8 @@ export function createGmailApiClient(
       }
     },
     async listMessages(args) {
+      const historyId = args.historyId ??
+        (await call({ ...args, path: 'profile' })).historyId
       const query = new URLSearchParams({
         maxResults: String(Math.min(args.pageSize, 100)),
         q: `after:${Math.floor(args.after.getTime() / 1_000)}`,
@@ -319,10 +331,9 @@ export function createGmailApiClient(
         const message = object(item)
         return typeof message.id === 'string' ? [message.id] : []
       })
-      const profile = await call({ ...args, path: 'profile' })
       return {
-        messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
-        historyId: required(profile.historyId, 'history ID'),
+        ...(await hydrate(args.accessToken, args.mailboxAddress, ids)),
+        historyId: required(historyId, 'history ID'),
         ...(typeof response.nextPageToken === 'string'
           ? { nextPageToken: response.nextPageToken }
           : {}),
@@ -355,40 +366,28 @@ export function createGmailApiClient(
         return typeof message.id === 'string' ? [message.id] : []
       })
       const hydrated = await hydrate(args.accessToken, args.mailboxAddress, ids)
-      if (!args.expectedAttachments?.length) return hydrated
-      const approved = hydrated.filter(
-        (message) =>
-          message.labelIds.includes('SENT') &&
-          message.headers['message-id'] === args.rfcMessageId &&
-          message.attachments !== undefined &&
-          message.attachments.length === args.expectedAttachments?.length &&
-          message.attachments.every(
-            (item, index) =>
-              item.filename === args.expectedAttachments?.[index]?.filename &&
-              item.mimeType === args.expectedAttachments?.[index]?.mimeType &&
-              item.sizeBytes === args.expectedAttachments?.[index]?.sizeBytes,
-          ),
+      if (!args.expectedAttachments?.length) return hydrated.messages
+      const approved = hydrated.messages.filter((message) =>
+        message.labelIds.includes('SENT') && message.headers['message-id'] === args.rfcMessageId &&
+        message.attachments !== undefined &&
+        message.attachments.length === args.expectedAttachments?.length &&
+        message.attachments.every((item, index) => item.filename === args.expectedAttachments?.[index]?.filename &&
+          item.mimeType === args.expectedAttachments?.[index]?.mimeType &&
+          item.sizeBytes === args.expectedAttachments?.[index]?.sizeBytes),
       )
-      return Promise.all(
-        approved.map(async (message) => ({
-          ...message,
-          attachments: await Promise.all(
-            (message.attachments ?? []).map(async (attachment) => {
-              if (attachment.contentBase64Url !== undefined) return attachment
-              if (!attachment.id)
-                throw new GmailApiError('PERMANENT', 'Gmail attachment body was unavailable')
-              const body = await call({
-                ...args,
-                path: `messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(attachment.id)}`,
-              })
-              const data = required(body.data, 'attachment data')
-              if (data.length > 180_000)
-                throw new GmailApiError('PERMANENT', 'Gmail attachment exceeded QR size limit')
-              return { ...attachment, contentBase64Url: data }
-            }),
-          ),
+      return Promise.all(approved.map(async (message) => ({
+        ...message,
+        attachments: await Promise.all((message.attachments ?? []).map(async (attachment) => {
+          if (attachment.contentBase64Url !== undefined) return attachment
+          if (!attachment.id) throw new GmailApiError('PERMANENT', 'Gmail attachment body was unavailable')
+          const body = await call({ ...args,
+            path: `messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(attachment.id)}`,
+          })
+          const data = required(body.data, 'attachment data')
+          if (data.length > 180_000) throw new GmailApiError('PERMANENT', 'Gmail attachment exceeded QR size limit')
+          return { ...attachment, contentBase64Url: data }
         })),
-      )
+      })))
     },
     async getProfile(args) {
       const response = await call({ ...args, path: 'profile' })

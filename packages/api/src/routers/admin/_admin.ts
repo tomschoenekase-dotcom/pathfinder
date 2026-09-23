@@ -1,4 +1,3 @@
-import { adminVenueLaunchAssetsRouter } from './venue-launch-assets'
 import { mergeRouters } from '../../core'
 import { adminConversationLearningRouter } from './conversation-learning'
 import { adminCharacterCandidateReviewsRouter } from './character-candidate-reviews'
@@ -86,7 +85,6 @@ import { adminIntakeMediaAssetRouter } from './venue-media'
 import { adminCharacterFactoryRouter } from './character-factory'
 
 export const adminRouter = mergeRouters(
-  adminVenueLaunchAssetsRouter,
   adminConversationLearningRouter,
   adminCharacterCandidateReviewsRouter,
   adminOverviewRouter,

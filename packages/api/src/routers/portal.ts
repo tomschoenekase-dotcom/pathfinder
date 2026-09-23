@@ -7,14 +7,12 @@ import {
 import {
   createPreviewFeedbackRequestAction,
   createSupportRequestAction,
-  resolveVenueLaunchSource,
   SupportActionError,
   tenantSupportRequestAccessWhere,
   type TenantSupportRole,
 } from '@pathfinder/db'
 import { z } from 'zod'
 
-import { renderVenueLaunchAsset } from '../lib/venue-launch-asset'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { tenantProcedure } from '../trpc'
@@ -315,28 +313,6 @@ export function clientPreviewLifecycleFailureState(error: unknown): 'SUPERSEDED'
 }
 
 export const portalRouter = router({
-  getVenueLaunchAsset: tenantProcedure
-    .input(
-      z
-        .object({
-          venueId: z.string().min(1).max(191),
-          format: z.enum(['SVG', 'PNG', 'PDF']).optional(),
-        })
-        .strict(),
-    )
-    .query(async ({ ctx, input }) => {
-      const source = await ctx.db.$transaction(
-        (client) =>
-          resolveVenueLaunchSource({
-            client,
-            tenantId: ctx.session.activeTenantId,
-            venueId: input.venueId,
-            configuredOrigin: process.env.NEXT_PUBLIC_WEB_URL,
-          }),
-        { isolationLevel: 'RepeatableRead' },
-      )
-      return source ? renderVenueLaunchAsset(source, input.format) : null
-    }),
   getOnboardingJourney: tenantProcedure
     .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
     .query(async ({ ctx, input }) => {

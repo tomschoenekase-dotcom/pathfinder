@@ -95,7 +95,7 @@ function hslToHex(h: number, s: number, l: number): string {
 
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s
   const p = 2 * l - q
-  const hh = (((h % 360) + 360) % 360) / 360
+  const hh = ((h % 360) + 360) / 360
 
   const r = Math.round(hueToRgb(p, q, hh + 1 / 3) * 255)
   const g = Math.round(hueToRgb(p, q, hh) * 255)

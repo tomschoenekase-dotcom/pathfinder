@@ -357,11 +357,6 @@ export async function resolveRuntimeAiWorkloadConfiguration(
       'Venue AI configuration resolution requires its tenant',
     )
   }
-  const defaultPrimaryModelKey =
-    input.workloadId === 'guest-chat' &&
-    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna'
-      ? ('guest-chat-luna' as const)
-      : undefined
   // Preserve the built-in registry during rolling deploys and in narrow test
   // doubles that predate the configuration delegates. An unavailable override
   // store must not invent or broaden a route.
@@ -372,7 +367,6 @@ export async function resolveRuntimeAiWorkloadConfiguration(
   ) {
     return resolveAiWorkloadConfiguration({
       workloadId: input.workloadId,
-      ...(defaultPrimaryModelKey ? { defaultPrimaryModelKey } : {}),
       ...(input.tenantId ? { clientId: input.tenantId } : {}),
       ...(input.venueId ? { venueId: input.venueId } : {}),
     })
@@ -428,7 +422,6 @@ export async function resolveRuntimeAiWorkloadConfiguration(
   }
   return resolveAiWorkloadConfiguration({
     workloadId: input.workloadId,
-    ...(defaultPrimaryModelKey ? { defaultPrimaryModelKey } : {}),
     ...(input.tenantId ? { clientId: input.tenantId } : {}),
     ...(input.venueId ? { venueId: input.venueId } : {}),
     overrides,

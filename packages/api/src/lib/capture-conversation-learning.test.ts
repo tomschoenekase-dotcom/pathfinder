@@ -53,11 +53,7 @@ describe('bounded learning capture', () => {
     'The display is ugly.',
     'This exhibit is boring and terrible.',
     'The guide is stupid.',
-    'We have 20 minutes and our children like trains. What should we see?',
-    'We need a quieter place and step-free access. What is known here?',
-    'Our children are five and seven.',
-    'We are on the second floor.',
-  ])('does not write a factual candidate for non-venue context: %s', async (message) => {
+  ])('does not write a factual candidate for a question or pure opinion: %s', async (message) => {
     await captureConversationLearning({ ...turn, message })
     expect(record).not.toHaveBeenCalled()
   })

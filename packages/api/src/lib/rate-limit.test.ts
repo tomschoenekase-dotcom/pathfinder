@@ -50,7 +50,7 @@ vi.mock('ioredis', () => ({
   }),
 }))
 
-import { _resetRateLimitForTesting, checkRateLimit, checkRateLimitsOrdered } from './rate-limit'
+import { _resetRateLimitForTesting, checkRateLimit } from './rate-limit'
 
 describe('checkRateLimit', () => {
   beforeEach(() => {
@@ -198,64 +198,5 @@ describe('checkRateLimit', () => {
     expect(configState.logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'rate_limit.redis_url_missing', failClosed: false }),
     )
-  })
-})
-
-describe('checkRateLimitsOrdered', () => {
-  const limits = [
-    { key: 'global', maxRequests: 3000, windowSeconds: 60 },
-    { key: 'venue', maxRequests: 3000, windowSeconds: 60 },
-    { key: 'session', maxRequests: 60, windowSeconds: 60 },
-  ]
-
-  beforeEach(() => {
-    _resetRateLimitForTesting()
-    redisMockState.instances.length = 0
-    redisMockState.nextEvalResult = 0
-    redisMockState.nextEvalError = null
-    redisMockState.nextConstructorError = null
-    configState.env.REDIS_URL = 'redis://localhost:6379'
-    configState.env.RAILWAY_ENVIRONMENT = 'staging'
-    configState.logger.warn.mockReset()
-  })
-
-  it('checks all three limits in one atomic ordered Redis operation', async () => {
-    await expect(checkRateLimitsOrdered(limits)).resolves.toBe(0)
-    expect(redisMockState.instances[0]?.eval).toHaveBeenCalledWith(
-      expect.stringMatching(/for i = 1, #KEYS[\s\S]*INCR[\s\S]*TTL[\s\S]*EXPIRE[\s\S]*return i/),
-      3,
-      'global',
-      'venue',
-      'session',
-      3000,
-      60,
-      3000,
-      60,
-      60,
-      60,
-    )
-  })
-
-  it('returns the first denied limit without consulting the database', async () => {
-    redisMockState.nextEvalResult = 2
-    await expect(checkRateLimitsOrdered(limits)).resolves.toBe(2)
-  })
-
-  it('fails closed in production when Redis errors', async () => {
-    configState.env.RAILWAY_ENVIRONMENT = 'production'
-    redisMockState.nextEvalError = new Error('Redis unavailable')
-    await expect(checkRateLimitsOrdered(limits)).resolves.toBe(1)
-  })
-
-  it('preserves order and stops after denial in the staging memory fallback', async () => {
-    configState.env.REDIS_URL = undefined
-    const bounded = [
-      { key: 'ordered:global', maxRequests: 1, windowSeconds: 60 },
-      { key: 'ordered:venue', maxRequests: 2, windowSeconds: 60 },
-    ]
-    await expect(checkRateLimitsOrdered(bounded)).resolves.toBe(0)
-    await expect(checkRateLimitsOrdered(bounded)).resolves.toBe(1)
-    await expect(checkRateLimit('ordered:venue', 2, 60)).resolves.toBe(true)
-    await expect(checkRateLimit('ordered:venue', 2, 60)).resolves.toBe(false)
   })
 })

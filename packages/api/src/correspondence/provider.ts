@@ -7,8 +7,8 @@ import type {
   ProviderSendResult,
   ProviderSyncPage,
   ProviderWatch,
-  SendOperationLookup,
   SendOperationExpectation,
+  SendOperationLookup,
 } from './types'
 
 export type CorrespondenceProvider = Readonly<{
@@ -42,6 +42,8 @@ export type CorrespondenceProvider = Readonly<{
     mailbox: ProviderMailboxRef
     after: Date
     pageToken?: string
+    /** Anchor captured before the first full-reconciliation page. */
+    historyId?: string
     pageSize: number
   }): Promise<ProviderSyncPage>
   startWatch(input: { mailbox: ProviderMailboxRef; topicName: string }): Promise<ProviderWatch>
@@ -51,6 +53,7 @@ export type CorrespondenceProvider = Readonly<{
     mailbox: ProviderMailboxRef
     operationId: string
     rfcMessageId: string
+    /** Exact frozen envelope/body required for safe recovery; absent means hold. */
     expected?: SendOperationExpectation
   }): Promise<SendOperationLookup>
   health(mailbox: ProviderMailboxRef): Promise<ProviderHealth>

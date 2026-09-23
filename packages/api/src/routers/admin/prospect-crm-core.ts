@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, withTenantIsolationBypass, SALES_PREPARATION_SOURCE } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { prospectStage } from './prospect-crm-common'
@@ -27,7 +27,28 @@ export const adminProspectCrmCoreRouter = router({
             },
             venues: { orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }] },
             contacts: { orderBy: [{ archivedAt: 'asc' }, { fullName: 'asc' }] },
-            sources: { orderBy: { createdAt: 'desc' }, take: 200 },
+            sources: {
+              where: { sourceType: { not: SALES_PREPARATION_SOURCE } },
+              orderBy: { createdAt: 'desc' },
+              take: 200,
+              include: {
+                importRow: {
+                  select: {
+                    sheetName: true,
+                    originalRowNumber: true,
+                    import: {
+                      select: {
+                        id: true,
+                        fileName: true,
+                        fileHash: true,
+                        createdAt: true,
+                        status: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
             activities: { orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: 100 },
             summaries: {
               where: { status: { in: ['CURRENT', 'STALE'] } },
@@ -94,11 +115,14 @@ export const adminProspectCrmCoreRouter = router({
               orderBy: { lastMessageAt: 'desc' },
               take: 50,
               include: {
+                _count: { select: { messages: true } },
                 messages: {
                   orderBy: { occurredAt: 'desc' },
                   take: 100,
                   select: {
                     id: true,
+                    organizationId: true,
+                    providerAccount: { select: { provider: true, mailboxAddress: true } },
                     direction: true,
                     status: true,
                     fromAddress: true,
@@ -134,6 +158,7 @@ export const adminProspectCrmCoreRouter = router({
                       },
                     },
                     bodyRetentionState: true,
+                    bodyExpiresAt: true,
                     sourceReference: true,
                     attachmentMetadata: true,
                     attachmentRetentionRequests: {
@@ -161,6 +186,7 @@ export const adminProspectCrmCoreRouter = router({
                 },
               },
             },
+            _count: { select: { emailThreads: true } },
             followups: { orderBy: { dueAt: 'asc' }, take: 100 },
             campaignMembers: {
               orderBy: { updatedAt: 'desc' },
@@ -186,6 +212,30 @@ export const adminProspectCrmCoreRouter = router({
           },
         })
         if (!prospect) throw new TRPCError({ code: 'NOT_FOUND', message: 'Prospect not found' })
+        const importHistory = await db.prospectImportSourceRecord.findMany({
+          where: { canonicalOrganizationId: input.organizationId },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            externalRecordId: true,
+            rawPayload: true,
+            recordKind: true,
+            sourceWorkbookHash: true,
+            processedAt: true,
+            processingStatus: true,
+            import: {
+              select: {
+                id: true,
+                fileName: true,
+                fileHash: true,
+                createdAt: true,
+                status: true,
+                packageHash: true,
+              },
+            },
+          },
+        })
         const currentRelationship = prospect.customerRelationships.find(
           (relationship) => relationship.status === 'ACTIVE',
         )
@@ -194,6 +244,7 @@ export const adminProspectCrmCoreRouter = router({
         )
         return {
           ...prospect,
+          importHistory,
           // Temporary read-only compatibility projection for the pre-correction dashboard.
           conversion: currentRelationship
             ? {

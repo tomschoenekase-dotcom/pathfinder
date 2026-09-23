@@ -2,16 +2,14 @@ import { z } from 'zod'
 
 import {
   CharacterRuntimePackSchema,
-  CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES,
-  CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES,
   PublicFamilyRigSchema,
   createPublicFamilyRig,
   type PublicFamilyRig,
 } from './character-runtime-pack'
 
 export const CHARACTER_SYSTEM_SCHEMA_VERSION = 1 as const
-export const CHARACTER_ASSET_INITIAL_FILE_BUDGET_BYTES = CHARACTER_RUNTIME_PACK_ASSET_MAX_BYTES
-export const CHARACTER_ASSET_INITIAL_PACK_BUDGET_BYTES = CHARACTER_RUNTIME_PACK_TOTAL_MAX_BYTES
+export const CHARACTER_ASSET_INITIAL_FILE_BUDGET_BYTES = 512 * 1024
+export const CHARACTER_ASSET_INITIAL_PACK_BUDGET_BYTES = 2 * 1024 * 1024
 
 export const CHARACTER_STATES = [
   'idle',

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { Queue, type JobsOptions } from 'bullmq'
 
@@ -821,17 +821,43 @@ export async function enqueueWelcomeEmail(
 
 export async function enqueueProspectOutreach(
   payload: SendProspectOutreachJobPayload,
+  options: { recovery?: boolean } = {},
 ): Promise<void> {
   if (!payload.outboxId || payload.outboxId.length > 191)
     throw new Error('Valid outbox identity is required')
   const identity = createHash('sha256')
     .update(`torchiko-prospect-outbox-v2:${payload.outboxId}`)
     .digest('hex')
-  await getQueue(SEND_EMAIL_QUEUE).add(SEND_PROSPECT_OUTREACH_JOB, payload, {
+  const queue = getQueue(SEND_EMAIL_QUEUE)
+  const stableJobId = `send-prospect-outbox-${identity}`
+  let jobId = stableJobId
+  let retryAfterFailedBeforeClaim = false
+  if (options.recovery) {
+    // Retryable and expired-lease operations have a durable provider attempt.
+    // The worker uses that attempt count to select exact provider lookup only.
+    jobId = `send-prospect-outbox-recovery-${identity}-${randomUUID()}`
+  } else {
+    // A worker can fail before it claims the PENDING row (for example, a
+    // composition/configuration guard). Keep that failed job as evidence, but
+    // do not let its stable ID block a later legal first claim.
+    const retained = await queue.getJob(stableJobId)
+    if (retained && await retained.getState() === 'failed') {
+      retryAfterFailedBeforeClaim = true
+      jobId = `send-prospect-outbox-retry-${identity}-${randomUUID()}`
+    }
+  }
+  await queue.add(SEND_PROSPECT_OUTREACH_JOB, payload, {
     ...sendProspectOutreachJobOptions,
-    jobId: `send-prospect-outbox-${identity}`,
+    jobId,
   })
-  logger.info({ action: 'jobs.send-prospect-outbox.enqueued', outboxId: payload.outboxId })
+  logger.info({
+    action: options.recovery
+      ? 'jobs.send-prospect-outbox.recovery-enqueued'
+      : retryAfterFailedBeforeClaim
+        ? 'jobs.send-prospect-outbox.retry-after-failed-before-claim-enqueued'
+        : 'jobs.send-prospect-outbox.enqueued',
+    outboxId: payload.outboxId,
+  })
 }
 
 export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<void> {
