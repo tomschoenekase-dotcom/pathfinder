@@ -6,6 +6,7 @@ import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 import tochiDevelopmentManifest from '../../../../../assets/characters/tochi/v0-development/manifest.json'
 import { AiControlsForm } from '../../../components/AiControlsForm'
 import { ChatDesignForm } from '../../../components/ChatDesignForm'
+import { buildGuestChatUrl, resolveGuestWebOrigin } from '../../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../../lib/server-caller'
 
 type AiControlsPageProps = {
@@ -65,21 +66,44 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
   const initialVenueId = venues.some((venue) => venue.id === venueQuery)
     ? venueQuery!
     : venues[0]!.id
-  const configurations = await Promise.all(
-    venues.map(async (venue) => ({
-      id: venue.id,
-      name: venue.name,
-      configuration: await caller.venue.getBotConfiguration({ venueId: venue.id }),
-      profiles: await caller.venue.listPersonalityProfiles({ venueId: venue.id }),
-    })),
-  )
-  const brandingAssetsByVenue = Object.fromEntries(
-    await Promise.all(
+  const [configurations, brandingAssets, lifecycleRows] = await Promise.all([
+    Promise.all(
+      venues.map(async (venue) => ({
+        id: venue.id,
+        name: venue.name,
+        configuration: await caller.venue.getBotConfiguration({ venueId: venue.id }),
+        profiles: await caller.venue.listPersonalityProfiles({ venueId: venue.id }),
+      })),
+    ),
+    Promise.all(
       venues.map(
         async (venue) =>
           [venue.id, await caller.venue.listApprovedBrandingAssets({ venueId: venue.id })] as const,
       ),
     ),
+    caller.portal.getVenueLifecycles(),
+  ])
+  const brandingAssetsByVenue = Object.fromEntries(brandingAssets)
+  const guideOrigin = resolveGuestWebOrigin(
+    process.env.NEXT_PUBLIC_WEB_URL,
+    process.env.RAILWAY_ENVIRONMENT,
+  )
+  const allowLocalGuide = process.env.NODE_ENV === 'development'
+  const safeGuideUrl = buildGuestChatUrl(guideOrigin, 'appearance-preview', {
+    allowLoopbackHttp: allowLocalGuide,
+  })
+  const previewEnvironmentAllowed =
+    process.env.RAILWAY_ENVIRONMENT !== 'production' &&
+    (process.env.RAILWAY_ENVIRONMENT === 'staging' || allowLocalGuide)
+  const previewOrigin =
+    previewEnvironmentAllowed && safeGuideUrl ? new URL(safeGuideUrl).origin : undefined
+  const visitorUrlsByVenue = Object.fromEntries(
+    venues.map((venue) => [
+      venue.id,
+      lifecycleRows.find((row) => row.venueId === venue.id)?.lifecycle.state === 'LIVE'
+        ? buildGuestChatUrl(guideOrigin, venue.slug, { allowLoopbackHttp: allowLocalGuide })
+        : null,
+    ]),
   )
 
   const characterRolloutVisible =
@@ -124,7 +148,7 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
             Choose a built-in colour theme, accent, and typeface for this venue’s public visitor
-            guide. Changes save to the venue and appear in the visitor chat immediately.
+            guide. Save your choices, then open the visitor guide to see the saved appearance.
           </p>
           <div className="mt-6">
             <ChatDesignForm
@@ -132,6 +156,8 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
               canEdit={canEditBranding}
               initialVenueId={initialVenueId}
               brandingAssetsByVenue={brandingAssetsByVenue}
+              {...(previewOrigin ? { previewOrigin } : {})}
+              visitorUrlsByVenue={visitorUrlsByVenue}
             />
           </div>
         </section>

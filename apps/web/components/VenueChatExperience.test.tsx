@@ -315,7 +315,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="embed" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(mocks.geolocationEnabled).not.toHaveBeenCalledWith(true)
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
@@ -346,7 +346,7 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
-  it('finishes a warm history read before starting the competing session mutation', async () => {
+  it('starts session admission alongside a warm history read without losing history', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174088'
     mocks.anonymousToken = token
     window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
@@ -367,11 +367,11 @@ describe('VenueChatExperience presentation boundary', () => {
     )
 
     await waitFor(() => expect(mocks.client.chat.history.query).toHaveBeenCalledOnce())
-    expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce())
 
     await act(async () => resolveHistory({ messages: [{ role: 'assistant', content: 'Ready.' }] }))
     await screen.findByText('Latest: Ready.')
-    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce())
+    expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce()
   })
 
   it('does not use an admitted venue from a different route or for a second layer', async () => {
@@ -382,7 +382,7 @@ describe('VenueChatExperience presentation boundary', () => {
         initialVenue={{ slug: 'another-venue', venue: activeVenue }}
       />,
     )
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' }, expect.anything())
 
     view.unmount()
@@ -394,7 +394,7 @@ describe('VenueChatExperience presentation boundary', () => {
         initialVenue={{ slug: 'museum', venue: activeVenue }}
       />,
     )
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(mocks.getBySlug).toHaveBeenCalledWith(
       { slug: 'museum', secondLayerKey: 'private-access' },
       expect.anything(),
@@ -513,7 +513,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await screen.findByText('Messages: 1')
     expect(mocks.voiceControlProps?.onTranscriptLine).toBeTypeOf('function')
     const line = {
@@ -562,7 +562,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.client.chat.stream = { subscribe }
 
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
 
@@ -612,7 +612,7 @@ describe('VenueChatExperience presentation boundary', () => {
     }
 
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     act(() => {
       handlers?.onData({
@@ -663,7 +663,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.client.chat.stream = { subscribe }
 
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
@@ -711,7 +711,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.client.chat.stream = { subscribe }
 
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
     expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
@@ -756,7 +756,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.client.chat.stream = { subscribe }
 
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
@@ -787,7 +787,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValue(activeVenue)
     const view = render(<VenueChatExperience venueSlug="museum" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(screen.getByText(/Route planner for venue-1: waiting for session/)).toBeTruthy()
 
     mocks.sessionId = 'session-1'
@@ -801,7 +801,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     const view = render(<VenueChatExperience venueSlug="museum" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
     expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
@@ -821,7 +821,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     mocks.client.chat.send.mutate.mockReturnValueOnce(new Promise(() => {}))
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     const send = screen.getByRole('button', { name: 'Send test message' })
     fireEvent.click(send)
     fireEvent.click(send)
@@ -847,7 +847,7 @@ describe('VenueChatExperience presentation boundary', () => {
         replayed: true,
       })
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await screen.findByRole('button', { name: 'إعادة محاولة الرسالة نفسها' })
@@ -875,7 +875,7 @@ describe('VenueChatExperience presentation boundary', () => {
         replayed: false,
       })
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await screen.findByRole('button', { name: 'Retry same message' })
     const firstId = mocks.client.chat.send.mutate.mock.calls[0]?.[0].operationId
@@ -904,7 +904,7 @@ describe('VenueChatExperience presentation boundary', () => {
         replayed: false,
       })
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     expect(await screen.findByText('Messages: 2', {}, { timeout: 5_000 })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
@@ -920,7 +920,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174104'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
     const firstId = mocks.client.chat.send.mutate.mock.calls[0]?.[0].operationId
@@ -948,7 +948,7 @@ describe('VenueChatExperience presentation boundary', () => {
           },
         })) as never)
       render(<VenueChatExperience venueSlug="museum" />)
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
       expect(await screen.findByText('Messages: 2')).toBeTruthy()
       expect(mocks.client.chat.history.query).toHaveBeenCalledWith(
@@ -976,7 +976,7 @@ describe('VenueChatExperience presentation boundary', () => {
         },
       })) as never)
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     expect(await screen.findByText(/will not be retried/i)).toBeTruthy()
     expect(screen.getByText('Messages: 0')).toBeTruthy()
@@ -1002,7 +1002,7 @@ describe('VenueChatExperience presentation boundary', () => {
           },
         })) as never)
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     const check = await screen.findByRole('button', { name: 'Check conversation' })
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
@@ -1023,7 +1023,7 @@ describe('VenueChatExperience presentation boundary', () => {
       mocks.getBySlug.mockResolvedValueOnce(activeVenue)
       mocks.client.chat.send.mutate.mockRejectedValueOnce(codedError(code))
       render(<VenueChatExperience venueSlug="museum" />)
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
       expect(await screen.findByText(/could not be accepted/i)).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
@@ -1043,7 +1043,7 @@ describe('VenueChatExperience presentation boundary', () => {
         replayed: false,
       })
     render(<VenueChatExperience venueSlug="museum" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
       timeout: 5_000,
     })
@@ -1074,7 +1074,7 @@ describe('VenueChatExperience presentation boundary', () => {
         codedError('SERVICE_UNAVAILABLE', publicCode),
       )
       render(<VenueChatExperience venueSlug="museum" />)
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
         timeout: 5_000,
       })
@@ -1088,7 +1088,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="webview" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(screen.queryByText(/Powered by/)).toBeNull()
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.getByRole('note', { name: 'AI guidance' })).toBeTruthy()
@@ -1128,7 +1128,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
 
     expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
@@ -1148,7 +1148,7 @@ describe('VenueChatExperience presentation boundary', () => {
       mocks.getBySlug.mockResolvedValueOnce(activeVenue)
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       const disclosure = screen.getByText('AI guidance').closest('details')
       expect(disclosure?.open).toBe(false)
       fireEvent.click(screen.getByText('AI guidance'))
@@ -1170,7 +1170,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     expect(mocks.client.chat.session.mutate).toHaveBeenCalledWith({
       venueId: activeVenue.id,
@@ -1195,7 +1195,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
       const localizedEmptyState = screen.getByText('Ask the guide').closest('[lang="ar"]')
       expect(localizedEmptyState?.getAttribute('dir')).toBe('rtl')
@@ -1225,7 +1225,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -1249,7 +1249,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
     fireEvent.click(screen.getByRole('button', { name: 'أخبرني المزيد عن ذلك' }))
 
@@ -1292,7 +1292,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
-      await screen.findByRole('heading', { name: 'Museum Guide' })
+      await screen.findByRole('heading', { name: 'Museum' })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
       await screen.findByText('Cards: 1')
       fireEvent.click(screen.getByRole('button', { name: 'View place-1' }))
@@ -1324,7 +1324,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
@@ -1349,7 +1349,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
@@ -1370,7 +1370,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
@@ -1564,7 +1564,7 @@ describe('VenueChatExperience presentation boundary', () => {
       />,
     )
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
     expect(mocks.client.chat.send.mutate).toHaveBeenNthCalledWith(
@@ -1587,7 +1587,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="embed" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => {
@@ -1651,7 +1651,7 @@ describe('VenueChatExperience presentation boundary', () => {
     })
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     expect(await screen.findByText('Latest reply kind: TEMPORARY_FALLBACK')).toBeTruthy()
@@ -1736,7 +1736,7 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByText('Messages: 2')
 
     view.rerender(<VenueChatExperience venueSlug="aquarium" presentation="standalone" />)
-    await screen.findByRole('heading', { name: 'Aquarium Guide' })
+    await screen.findByRole('heading', { name: 'Aquarium' })
     expect(screen.getByText('Messages: 0')).toBeTruthy()
 
     resolveOldSend({ response: 'Late museum answer.', sessionId: 'session-old', places: [] })
@@ -1754,7 +1754,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(mocks.client.chat.history.query).not.toHaveBeenCalled()
   })
 
@@ -1764,7 +1764,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByRole('heading', { name: 'Museum' })
     expect(
       await screen.findByText('This browser cannot create a private chat session.'),
     ).toBeTruthy()
@@ -1794,7 +1794,7 @@ describe('VenueChatExperience presentation boundary', () => {
     await waitFor(() => expect(mocks.client.chat.history.query).toHaveBeenCalledOnce())
 
     view.rerender(<VenueChatExperience venueSlug="aquarium" presentation="standalone" />)
-    await screen.findByRole('heading', { name: 'Aquarium Guide' })
+    await screen.findByRole('heading', { name: 'Aquarium' })
 
     resolveOldHistory({ messages: [{ role: 'assistant', content: 'Late museum history.' }] })
     await waitFor(() => expect(screen.getByText('Messages: 0')).toBeTruthy())

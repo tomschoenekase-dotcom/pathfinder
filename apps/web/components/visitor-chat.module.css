@@ -44,9 +44,21 @@
   min-width: 0;
   margin: 0;
   gap: 8px;
+  align-items: flex-start;
+}
+.identityCopy {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
 }
 .identity h1 {
   font-size: 1.0625rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.identityCopy p {
+  font-size: 0.75rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -124,6 +136,16 @@
 .composerField button {
   flex-shrink: 0;
   padding-inline: 12px;
+}
+.composerField button.stopButton {
+  border-color: var(--chat-border);
+  background: var(--chat-card);
+  color: var(--chat-text);
+  white-space: nowrap;
+}
+.composerField button.stopButton:hover {
+  border-color: var(--chat-accent-text);
+  opacity: 1;
 }
 .welcome {
   padding: 24px 0 20px;

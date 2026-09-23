@@ -1,4 +1,14 @@
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+const STAGING_WEB_ORIGIN = 'https://staging-web-staging-bbeb.up.railway.app'
+
+/** Keep the approved staging visitor origin usable when its optional public URL is unset. */
+export function resolveGuestWebOrigin(
+  configuredOrigin: string | null | undefined,
+  environment: string | undefined,
+): string | null | undefined {
+  if (configuredOrigin?.trim()) return configuredOrigin
+  return environment === 'staging' ? STAGING_WEB_ORIGIN : configuredOrigin
+}
 
 type GuestChatUrlOptions = {
   allowLoopbackHttp?: boolean

@@ -278,6 +278,7 @@ export function VenueChatFixture({
   font,
   accent,
   branding = 'none',
+  readOnly = false,
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -292,6 +293,7 @@ export function VenueChatFixture({
   font?: string | undefined
   accent?: string | undefined
   branding?: VisitorFixtureBranding
+  readOnly?: boolean
 }) {
   const [clientMounted, setClientMounted] = useState(false)
 
@@ -340,6 +342,7 @@ export function VenueChatFixture({
                     : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
+          conversationLocked={readOnly}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
           language={language}

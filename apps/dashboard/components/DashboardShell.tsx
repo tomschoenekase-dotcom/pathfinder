@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
+  ChevronDown,
   CreditCard,
   Headphones,
   Home,
@@ -50,6 +51,12 @@ const onboardingNavigationItems = [
   { href: '#materials', label: 'Your information', icon: Library },
   { href: '/support', label: 'Questions & help', icon: Headphones },
   { href: '/settings', label: 'Account', icon: Settings },
+] as const
+
+const clientNavigationGroups = [
+  { label: 'Your guide', routes: ['Information', 'Updates', 'Visitor experience'] },
+  { label: 'Activity', routes: ['Reports'] },
+  { label: 'Account', routes: ['Payment', 'Account'] },
 ] as const
 
 function isActivePath(pathname: string, href: string) {
@@ -250,40 +257,111 @@ export function DashboardShellView({
   const navigation = (
     <>
       <nav className="mt-6 flex-1" aria-label="Client portal navigation">
-        {visibleNavigationItems.map((item) => {
-          const Icon = item.icon
-          const active = item.href
-            ? item.href.includes('#')
-              ? item.href.startsWith(`${pathname}#`)
-              : isActivePath(pathname, item.href)
-            : true
-          const className = [
-            'relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
-            active
-              ? 'border-[#f2a65a] bg-white/8 text-white'
-              : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
-          ].join(' ')
-          const content = (
-            <>
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              <span>{item.label}</span>
-            </>
-          )
-          return item.href ? (
-            <Link
-              key={`${item.label}-${item.href}`}
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              className={className}
-            >
-              {content}
-            </Link>
-          ) : (
-            <span key={item.label} aria-current="page" className={className}>
-              {content}
-            </span>
-          )
-        })}
+        {onboardingPath ? (
+          visibleNavigationItems.map((item) => {
+            const Icon = item.icon
+            const active = item.href
+              ? item.href.includes('#')
+                ? item.href.startsWith(`${pathname}#`)
+                : isActivePath(pathname, item.href)
+              : true
+            const className = [
+              'relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
+              active
+                ? 'border-[#f2a65a] bg-white/8 text-white'
+                : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
+            ].join(' ')
+            const content = (
+              <>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span>{item.label}</span>
+              </>
+            )
+            return item.href ? (
+              <Link
+                key={`${item.label}-${item.href}`}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={className}
+              >
+                {content}
+              </Link>
+            ) : (
+              <span key={item.label} aria-current="page" className={className}>
+                {content}
+              </span>
+            )
+          })
+        ) : (
+          <>
+            {visibleNavigationItems
+              .filter((item) => item.label === 'Today' || item.label === 'Help & changes')
+              .map((item) => {
+                const Icon = item.icon
+                const active = isActivePath(pathname, item.href ?? '/')
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href ?? '/'}
+                    aria-current={active ? 'page' : undefined}
+                    className={`relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent ${active ? 'border-[#f2a65a] bg-white/8 text-white' : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    <span>{item.label === 'Today' ? 'Home' : item.label}</span>
+                  </Link>
+                )
+              })}
+            {clientNavigationGroups.map((group) => {
+              const groupItems = visibleNavigationItems.filter((item) =>
+                (group.routes as readonly string[]).includes(item.label),
+              )
+              if (groupItems.length === 0) return null
+              const containsCurrentRoute = groupItems.some((item) =>
+                item.href ? isActivePath(pathname, item.href) : false,
+              )
+              return (
+                <details
+                  key={group.label}
+                  open={containsCurrentRoute}
+                  className="mt-1 border-t border-white/10 pt-1"
+                >
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-pf-light/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent [&::-webkit-details-marker]:hidden">
+                    {group.label}
+                    <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  </summary>
+                  <div className="ml-3 border-l border-white/15 pl-2">
+                    {groupItems.map((item) => {
+                      const Icon = item.icon
+                      const active = item.href ? isActivePath(pathname, item.href) : false
+                      const className = [
+                        'relative flex min-h-11 items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
+                        active
+                          ? 'border-[#f2a65a] bg-white/8 text-white'
+                          : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
+                      ].join(' ')
+                      return item.href ? (
+                        <Link
+                          key={`${item.label}-${item.href}`}
+                          href={item.href}
+                          aria-current={active ? 'page' : undefined}
+                          className={className}
+                        >
+                          <Icon className="h-4 w-4" aria-hidden="true" />
+                          <span>{item.label}</span>
+                        </Link>
+                      ) : (
+                        <span key={item.label} aria-current="page" className={className}>
+                          <Icon className="h-4 w-4" aria-hidden="true" />
+                          <span>{item.label}</span>
+                        </span>
+                      )
+                    })}
+                  </div>
+                </details>
+              )
+            })}
+          </>
+        )}
         {isPlatformAdmin ? (
           <Link
             href="/admin"

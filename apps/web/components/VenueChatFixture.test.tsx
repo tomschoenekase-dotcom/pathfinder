@@ -53,7 +53,7 @@ describe('VenueChatFixture', () => {
     )
 
     expect(container.querySelector('[data-character-layout]')).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Museum Guide' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeTruthy()
   })
 
   it('renders deterministic long-conversation and error controls', async () => {
@@ -170,16 +170,18 @@ describe('VenueChatFixture', () => {
 
     fireEvent.load(images[0]!)
     expect(header.getAttribute('data-branding-banner-state')).toBe('ready')
-    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain('text-white')
+    expect(
+      screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' }).className,
+    ).toContain('text-white')
     expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('text-white')
 
     fireEvent.error(images[0]!)
     fireEvent.error(images[1]!)
     expect(header.querySelectorAll('img')).toHaveLength(0)
     expect(header.getAttribute('data-branding-banner-state')).toBe('failed')
-    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain(
-      'text-[var(--chat-text)]',
-    )
+    expect(
+      screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' }).className,
+    ).toContain('text-[var(--chat-text)]')
     expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain(
       'text-[var(--chat-text)]',
     )

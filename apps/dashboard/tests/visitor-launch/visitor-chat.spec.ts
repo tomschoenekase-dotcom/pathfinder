@@ -161,7 +161,7 @@ test('approved chat branding remains usable on a short mobile viewport', async (
   await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
   await expect(header.locator('img')).toHaveCount(2)
   await expect.poll(() => interceptedAssets.length).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(/text-white/u)
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(/text-white/u)
   await expect(page.getByRole('button', { name: 'Clear chat' })).toHaveClass(/text-white/u)
   await expectViewportIntegrity(page)
   await expectComposerReachable(page)
@@ -192,7 +192,7 @@ test('fresh chat branding delivery failure preserves short-mobile controls', asy
   await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
   await expect(header.locator('img')).toHaveCount(0)
   await expect.poll(() => interceptedAssets.length).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(
     /text-\[var\(--chat-text\)\]/u,
   )
   await expectViewportIntegrity(page)

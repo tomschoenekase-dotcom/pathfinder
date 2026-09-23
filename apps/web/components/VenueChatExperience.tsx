@@ -383,9 +383,7 @@ export function VenueChatExperience({
   useEffect(() => {
     let disposed = false
     async function ensureSession() {
-      // Let the restored conversation finish its bounded read before starting
-      // the session mutation. Both touch the same remote database on warm entry.
-      if (!isOnline || isBooting || !venue || !anonymousToken) return
+      if (!isOnline || !venue || !anonymousToken) return
       if (lat === null || lng === null) lastSyncedPosRef.current = null
       if (lat !== null && lng !== null && lastSyncedPosRef.current) {
         if (
@@ -421,18 +419,7 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [
-    anonymousToken,
-    client,
-    isBooting,
-    isOnline,
-    lat,
-    lng,
-    secondLayerKey,
-    setSessionId,
-    venue,
-    visitorId,
-  ])
+  }, [anonymousToken, client, isOnline, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
 
   function turnScopeIsCurrent(turn: PendingTurn) {
     return (
