@@ -1,0 +1,14 @@
+.layout {
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+}
+
+.layout > [data-fixture='visitor-chat'] {
+  min-height: 0;
+  flex: 1;
+}
+
+.layout > [data-fixture='visitor-chat'] > :first-child {
+  height: 100%;
+}
