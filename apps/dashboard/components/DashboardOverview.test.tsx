@@ -67,7 +67,7 @@ describe('DashboardOverview client portal', () => {
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
-    expect(screen.getByRole('link', { name: 'QR / print materials' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Open QR code' }).getAttribute('href')).toBe(
       '/venues/riverside/qr-kit',
     )
   })
@@ -88,7 +88,7 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.getByRole('link', { name: 'QR / print materials' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Open QR code' }).getAttribute('href')).toBe(
       '/venues/venue%20%2F%20one/qr-kit',
     )
 
@@ -104,7 +104,7 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.queryByRole('link', { name: 'QR / print materials' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open QR code' })).toBeNull()
   })
 
   it('keeps a completed live venue out of onboarding mode', () => {
@@ -119,7 +119,7 @@ describe('DashboardOverview client portal', () => {
     )
 
     expect(screen.getByRole('link', { name: /Open visitor guide/ })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'QR / print materials' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open QR code' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/start|continue setup|onboarding|begin setup/iu)
   })
 

@@ -257,7 +257,7 @@ export function DashboardOverviewView({
                   className="inline-flex min-h-11 items-center justify-center gap-2 border border-pf-light px-4 text-sm font-semibold text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
                 >
                   <QrCode className="h-4 w-4" aria-hidden="true" />
-                  QR / print materials
+                  Open QR code
                 </Link>
               </div>
             ) : null}
