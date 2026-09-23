@@ -141,30 +141,34 @@
   border-color: var(--chat-border);
   background: var(--chat-card);
   color: var(--chat-text);
-  white-space: nowrap;
+  max-width: 55%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-block: 8px;
+  line-height: 1.3;
 }
 .composerField button.stopButton:hover {
   border-color: var(--chat-accent-text);
   opacity: 1;
 }
 .welcome {
-  padding: 24px 0 20px;
+  padding: 16px 0 12px;
   border: 0;
   border-radius: 0;
   background: none;
   box-shadow: none;
 }
 .welcome h2 {
-  max-width: 15ch;
-  font-size: clamp(1.8rem, 7.8vw, 2.6rem);
-  line-height: 1.08;
-  letter-spacing: -0.035em;
+  max-width: 24ch;
+  font-size: clamp(1.375rem, 5.5vw, 1.75rem);
+  line-height: 1.25;
+  letter-spacing: -0.025em;
   font-weight: 600;
 }
 .welcome p {
   max-width: 42ch;
-  margin-top: 16px;
-  line-height: 1.65;
+  margin-top: 10px;
+  line-height: 1.6;
 }
 .prompts {
   display: grid;
@@ -173,9 +177,9 @@
 }
 .prompt {
   justify-content: space-between;
-  min-height: 58px;
+  min-height: 48px;
   gap: 16px;
-  padding: 12px 0;
+  padding: 10px 0;
   border: 0;
   border-bottom: 1px solid var(--chat-border);
   border-radius: 0;
@@ -189,6 +193,7 @@
   color: var(--chat-accent-text);
 }
 .promptArrow {
+  flex-shrink: 0;
   font-size: 18px;
   color: var(--chat-accent-text);
 }
@@ -209,6 +214,14 @@
   padding: 11px 15px;
   font-size: 15px;
   line-height: 1.6;
+}
+.back:focus-visible,
+.toolbar > button:focus-visible,
+.toolbar select:focus-visible,
+.prompt:focus-visible,
+.composerField > button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 .footer {
   flex-shrink: 0;
@@ -308,7 +321,7 @@
     padding-block: 10px 6px;
   }
   .conversation:has(.welcome) .welcome h2 {
-    font-size: 1.65rem;
+    font-size: 1.375rem;
   }
   .conversation:has(.welcome) .welcome p {
     margin-top: 8px;
@@ -330,7 +343,7 @@
     padding-inline: 24px;
   }
   .welcome {
-    padding-block: 40px 28px;
+    padding-block: 24px 16px;
   }
 }
 @media (max-height: 400px) {

@@ -257,7 +257,9 @@ export function ChatWindow({
         }}
       >
         {conversationTools}
-        {messages.length === 0 && emptyState ? emptyState : null}
+        {messages.length === 0 && !isLoading && !errorMessage && !restoringStatusLabel
+          ? emptyState
+          : null}
 
         {messages.map((message, index) => (
           <div key={message.id ?? `${message.role}-${index}`}>
@@ -439,7 +441,7 @@ export function ChatWindow({
                 <span className="text-base leading-none" aria-hidden="true">
                   ■
                 </span>
-                <span className="ml-2" aria-hidden="true">
+                <span className="ms-2" aria-hidden="true">
                   {stopResponseLabel}
                 </span>
               </>

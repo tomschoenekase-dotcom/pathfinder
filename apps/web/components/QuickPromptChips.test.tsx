@@ -7,6 +7,24 @@ import { QuickPromptChips, buildPrompts } from './QuickPromptChips'
 describe('QuickPromptChips', () => {
   afterEach(cleanup)
 
+  it('keeps a named prompt group without another visible instruction heading', () => {
+    render(<QuickPromptChips onSend={vi.fn()} />)
+    const group = screen.getByRole('region', { name: 'Start with a question' })
+    expect(screen.queryByText('Start with a question')).toBeNull()
+    expect(group.querySelectorAll('button')).toHaveLength(3)
+  })
+
+  it('retains the localized prompt group and explicit selection', () => {
+    const onSend = vi.fn()
+    render(<QuickPromptChips language="日本語" guideMode="non_location" onSend={onSend} />)
+    expect(screen.getByRole('region', { name: '質問から始めましょう' })).toBeTruthy()
+    expect(onSend).not.toHaveBeenCalled()
+    fireEvent.click(screen.getAllByRole('button')[0]!)
+    expect(onSend).toHaveBeenCalledWith(
+      buildPrompts(undefined, undefined, 'non_location', '日本語')[0],
+    )
+  })
+
   it('calls onSend with the selected prompt text', () => {
     const onSend = vi.fn()
 

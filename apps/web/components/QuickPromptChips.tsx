@@ -250,10 +250,7 @@ export function QuickPromptChips({
   const startLabel = LANGUAGE_START_LABELS[language] ?? LANGUAGE_START_LABELS['English']!
 
   return (
-    <section className="mb-4">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--chat-text-muted)]">
-        {startLabel}
-      </p>
+    <section className="mb-4" aria-label={startLabel}>
       <div className={styles.prompts}>
         {prompts.map((prompt) => (
           <button

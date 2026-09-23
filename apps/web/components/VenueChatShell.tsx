@@ -101,6 +101,7 @@ export function VenueChatShell(props: {
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
   visitContext?: GuestVisitContextInput
+  /** Compatibility only: visitor context is expressed in the conversation, not a form. */
   visitPreferences?: ReactNode
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
@@ -139,7 +140,6 @@ export function VenueChatShell(props: {
     onMessageFeedback,
     voiceControl,
     visitContext,
-    visitPreferences,
     routePlanner,
     connectionState = 'online',
   } = props
@@ -167,7 +167,6 @@ export function VenueChatShell(props: {
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
   const usesGenericGuideName = guideName === venue.name || guideName === `${venue.name} Guide`
-  const identitySubtitle = usesGenericGuideName ? aiGuidanceLabel : guideName
   const canSubmitMessage =
     isOnline && !isSending && Boolean(anonymousToken) && !conversationLocked && !isRestoringHistory
 
@@ -269,13 +268,15 @@ export function VenueChatShell(props: {
               >
                 {venue.name}
               </h1>
-              <p
-                lang={usesGenericGuideName ? languagePresentation.code : ''}
-                dir="auto"
-                className={banner ? 'text-white/85' : 'text-[var(--chat-text-muted)]'}
-              >
-                {identitySubtitle}
-              </p>
+              {!usesGenericGuideName ? (
+                <p
+                  lang=""
+                  dir="auto"
+                  className={banner ? 'text-white/85' : 'text-[var(--chat-text-muted)]'}
+                >
+                  {guideName}
+                </p>
+              ) : null}
             </div>
             {venue.experienceLabel ? (
               <span
@@ -323,7 +324,6 @@ export function VenueChatShell(props: {
             conversationTools={
               <>
                 {routePlanner}
-                {visitPreferences}
                 <LocationBanner
                   permission={location.permission}
                   onRefresh={location.refresh}

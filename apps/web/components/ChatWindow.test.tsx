@@ -42,6 +42,43 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
+  it('replaces introductory prompts with current recovery instead of stacking both', () => {
+    const onRetry = vi.fn()
+    const { rerender } = render(
+      <ChatWindow messages={[]} onSend={vi.fn()} emptyState={<h2>Start here</h2>} />,
+    )
+    expect(screen.getByRole('heading', { name: 'Start here' })).toBeTruthy()
+    rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        emptyState={<h2>Start here</h2>}
+        errorMessage="Your conversation could not be restored."
+        onRetry={onRetry}
+        retryLabel="Check conversation"
+      />,
+    )
+    expect(screen.queryByRole('heading', { name: 'Start here' })).toBeNull()
+    expect(screen.getByRole('alert').closest('[role="log"]')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
+    expect(onRetry).toHaveBeenCalledOnce()
+    expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('does not show fresh-chat prompts during restoration or first-response loading', () => {
+    const input = { messages: [], onSend: vi.fn(), emptyState: <h2>Start here</h2> }
+    const { rerender } = render(
+      <ChatWindow {...input} restoringStatusLabel="Restoring your conversation" />,
+    )
+    expect(screen.getByText('Restoring your conversation')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Start here' })).toBeNull()
+    rerender(<ChatWindow {...input} isLoading onStopResponse={vi.fn()} />)
+    expect(screen.queryByRole('heading', { name: 'Start here' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Stop response' })).toBeTruthy()
+    rerender(<ChatWindow {...input} />)
+    expect(screen.getByRole('heading', { name: 'Start here' })).toBeTruthy()
+  })
+
   it('labels durable voice history without offering text-message feedback for transcript rows', () => {
     const onFeedback = vi.fn()
     render(
