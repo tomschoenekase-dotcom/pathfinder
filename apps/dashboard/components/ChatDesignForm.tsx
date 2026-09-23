@@ -392,7 +392,9 @@ export function ChatDesignForm({
             ? saved.chatTheme
             : chatTheme
       const savedDarkMode = saved.chatTheme ? saved.chatTheme === 'dark' : darkMode
-      const savedAccentColor = saved.chatAccentColor ?? accentOverride ?? ''
+      // A canonical null means the override was cleared, not that the response omitted it.
+      const savedAccentColor =
+        saved.chatAccentColor !== undefined ? (saved.chatAccentColor ?? '') : (accentOverride ?? '')
       const savedFont = isFontValue(saved.chatFont) ? saved.chatFont : chatFont
       const savedLogoUrl = saved.hasLogo === false ? null : chatLogoUrl
       const savedBannerUrl = saved.hasBanner === false ? null : chatBannerUrl
@@ -402,6 +404,14 @@ export function ChatDesignForm({
       setChatFont(savedFont)
       setChatLogoUrl(savedLogoUrl)
       setChatBannerUrl(savedBannerUrl)
+      const savedLogoDerivativeId =
+        saved.chatLogoDerivativeId !== undefined ? saved.chatLogoDerivativeId : chatLogoDerivativeId
+      const savedBannerDerivativeId =
+        saved.chatBannerDerivativeId !== undefined
+          ? saved.chatBannerDerivativeId
+          : chatBannerDerivativeId
+      setChatLogoDerivativeId(savedLogoDerivativeId)
+      setChatBannerDerivativeId(savedBannerDerivativeId)
       const savedShowPhotos = saved.chatShowPhotos ?? chatShowPhotos
       const savedShowLinks = saved.chatShowLinks ?? chatShowLinks
       setChatShowPhotos(savedShowPhotos)
@@ -413,8 +423,8 @@ export function ChatDesignForm({
         chatFont: savedFont,
         chatLogoUrl: savedLogoUrl,
         chatBannerUrl: savedBannerUrl,
-        chatLogoDerivativeId: saved.chatLogoDerivativeId ?? chatLogoDerivativeId,
-        chatBannerDerivativeId: saved.chatBannerDerivativeId ?? chatBannerDerivativeId,
+        chatLogoDerivativeId: savedLogoDerivativeId,
+        chatBannerDerivativeId: savedBannerDerivativeId,
         chatShowPhotos: savedShowPhotos,
         chatShowLinks: savedShowLinks,
       }

@@ -349,6 +349,70 @@ describe('ChatDesignForm', () => {
     ).toBe(true)
   })
 
+  it('honors a canonical null accent instead of claiming the submitted override was saved', async () => {
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatTheme: 'forest',
+      chatAccentColor: null,
+      chatFont: 'inter',
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(<ChatDesignForm venues={venues} previewOrigin="https://staging-web.example.test" />)
+    fireEvent.change(screen.getByLabelText('Custom accent colour'), {
+      target: { value: '#ABCDEF' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await screen.findByRole('status')
+    expect(screen.getByLabelText<HTMLInputElement>('Custom accent colour').value).toBe('')
+    const preview = new URL(
+      screen.getByRole('link', { name: 'Preview appearance' }).getAttribute('href')!,
+    )
+    expect(preview.searchParams.has('accent')).toBe(false)
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[1]!.id } })
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[0]!.id } })
+    expect(screen.getByLabelText<HTMLInputElement>('Custom accent colour').value).toBe('')
+  })
+
+  it('reconciles cleared canonical derivative selections before the next save', async () => {
+    const derivativeId = '11111111-1111-4111-8111-111111111111'
+    const brandedVenue = {
+      ...venues[0]!,
+      chatLogoDerivativeId: derivativeId,
+      chatBannerDerivativeId: derivativeId,
+    }
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatLogoDerivativeId: null,
+      chatBannerDerivativeId: null,
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(
+      <ChatDesignForm
+        venues={[brandedVenue]}
+        brandingAssetsByVenue={{
+          [brandedVenue.id]: {
+            items: [
+              {
+                derivativeId,
+                assetId: '22222222-2222-4222-8222-222222222222',
+                altText: 'Reviewed fixture asset',
+                caption: null,
+                deliveryPath: '/api/venue-media/fixture',
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await screen.findByRole('status')
+    expect(screen.getByLabelText<HTMLSelectElement>('logo asset').value).toBe('')
+    expect(screen.getByLabelText<HTMLSelectElement>('banner asset').value).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await waitFor(() => expect(mocks.updateChatDesign).toHaveBeenCalledTimes(2))
+    expect(mocks.updateChatDesign.mock.calls[1]![0]).not.toHaveProperty('chatLogoDerivativeId')
+    expect(mocks.updateChatDesign.mock.calls[1]![0]).not.toHaveProperty('chatBannerDerivativeId')
+  })
+
   it('starts on the venue selected by the client route', () => {
     render(<ChatDesignForm venues={venues} initialVenueId={venues[1]!.id} />)
 
