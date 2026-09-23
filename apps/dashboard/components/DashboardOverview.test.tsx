@@ -187,7 +187,7 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.getByText(/updated exact preview is being prepared/i)).toBeTruthy()
+    expect(screen.getByText(/updated preview is being prepared/i)).toBeTruthy()
     expect(screen.queryByRole('link', { name: /open preview|visitor experience/i })).toBeNull()
 
     rerender(
