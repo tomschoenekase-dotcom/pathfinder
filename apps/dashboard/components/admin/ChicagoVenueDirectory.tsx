@@ -966,6 +966,7 @@ function ChicagoDataHealth({
           tabIndex={0}
         >
           <table className="w-full min-w-[880px] table-fixed text-left text-sm">
+            <caption className="sr-only">Venue research gaps by geography and category</caption>
             <colgroup>
               <col className="w-[160px]" />
               <col className="w-[280px]" />

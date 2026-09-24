@@ -74,11 +74,14 @@ describe('authenticated county controls — isolated UI transport, not hosted au
     fireEvent.change(screen.getByLabelText('County GEOID filter'), { target: { value: '17031' } })
     fireEvent.click(screen.getByRole('button', { name: 'Load county work' }))
     await waitFor(() =>
-      expect(api.readCountyResearch.query).toHaveBeenCalledWith({
-        countyGeoid: '17031',
-        page: 1,
-        limit: 10,
-      }),
+      expect(api.readCountyResearch.query).toHaveBeenCalledWith(
+        {
+          countyGeoid: '17031',
+          page: 1,
+          limit: 10,
+        },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
     )
     expect(api.claimCountyResearch.mutate).not.toHaveBeenCalled()
   })

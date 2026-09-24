@@ -40,9 +40,9 @@ describe('explicit local no-send mutation boundary', () => {
     expect(response.headers.get('cache-control')).toBe('no-store, private')
     expect(response.headers.has('access-control-allow-origin')).toBe(false)
     expect(mocks.action).toHaveBeenCalledWith(input, {
-      type: 'HUMAN',
+      type: 'SYSTEM',
       role: 'PLATFORM_ADMIN',
-      id: 'local:no-send-operator',
+      id: 'synthetic:crm-meaning:local-operator',
     })
     expect(Object.keys(route).sort()).toEqual(['GET', 'POST', 'dynamic'])
   })
