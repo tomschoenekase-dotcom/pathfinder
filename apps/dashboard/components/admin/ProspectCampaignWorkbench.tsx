@@ -723,7 +723,7 @@ export function ProspectCampaignWorkbench({
                         onClick={() => {
                           setEditingMember(member.id)
                           setSubject(
-                            `Torchiko for ${member.venue?.name ?? member.organization.canonicalName}`,
+                            `Torchiko at ${member.venue?.name ?? member.organization.canonicalName}`,
                           )
                           setBody('')
                         }}
