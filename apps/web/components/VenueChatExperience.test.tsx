@@ -1106,11 +1106,26 @@ describe('VenueChatExperience presentation boundary', () => {
   it('rotates operation identity after each confirmed successful turn', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174104'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let completeFirstTurn!: () => void
+    mocks.client.chat.send.mutate.mockReturnValueOnce(
+      new Promise((resolve) => {
+        completeFirstTurn = () =>
+          resolve({ response: 'First confirmed answer.', sessionId: 'session-1', places: [] })
+      }),
+    )
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
     const firstId = mocks.client.chat.send.mutate.mock.calls[0]?.[0].operationId
+    // Invocation is not completion: an in-flight turn must still fence a new one.
+    fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Messages: 1')).toBeTruthy()
+    await act(async () => completeFirstTurn())
+    expect(await screen.findByText('Latest: First confirmed answer.')).toBeTruthy()
+    expect(screen.getByText('Messages: 2')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0].operationId).not.toBe(firstId)
