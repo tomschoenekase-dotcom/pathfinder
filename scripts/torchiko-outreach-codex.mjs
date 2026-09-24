@@ -10,6 +10,7 @@ try {
   // model. Local doctors remain available; none is authentication evidence.
   if (process.argv.length === 3 && process.argv[2] === 'start') outreachConnectionConfig(process.env)
   const profile = await loadOutreachProfile(root), route = await discoverOutreachCodex()
+  if (profile.model !== route.model) throw new Error('The reviewed outreach model does not match the installed Codex route.')
   if (process.argv.length === 2 || process.argv[2] === 'doctor') console.log(JSON.stringify({ ...route, outreachBridge: outreachBridgeStatus(),
     launchScopedMcp: 'torchiko_outreach; supplied only to this launched Codex process, no global config mutation' }, null, 2))
   else if (process.argv.length === 3 && process.argv[2] === 'start') {

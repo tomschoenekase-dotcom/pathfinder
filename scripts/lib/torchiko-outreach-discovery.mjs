@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 export async function loadOutreachProfile(root) {
   const profile = JSON.parse(await readFile(path.join(root, '.agents/skills/torchiko-outreach/runtime-profile.json'), 'utf8'))
   if (profile.schema !== 'torchiko.outreach-runtime-profile/1' || profile.sender !== 'tomschoenekase@torchiko.com' ||
+      profile.model !== 'gpt-6-sol' ||
       profile.deliveryEnabled !== false || typeof profile.vault !== 'string' || !path.isAbsolute(profile.vault))
     throw new Error('The reviewed private outreach runtime profile is invalid; do not guess an account or source path.')
   const vault = await realpath(profile.vault)
@@ -39,7 +40,7 @@ export async function discoverOutreachCodex({ localAppData = process.env.LOCALAP
   const login = run(chosen.file, ['login', 'status'])
   const statusText = String(login.stdout ?? '') + String(login.stderr ?? '')
   return { schema: 'torchiko.codex-operating-route/1', executable: chosen.file,
-    version: chosen.version.text, model: 'gpt-6-astra',
+    version: chosen.version.text, model: 'gpt-6-sol',
     login: login.status === 0 && /logged in using chatgpt/iu.test(statusText) ? 'EXISTING_CHATGPT_LOGIN' : 'AUTHENTICATION_NOT_CONFIRMED',
     inspected: installed.map(v => ({ executable: v.file, version: v.version.text })),
     nativeCrmAuthentication: 'SEPARATE_LIVE_GRANT_REQUIRED', mailboxAuthentication: 'SEPARATE_COMPANY_ACCOUNT_REQUIRED',

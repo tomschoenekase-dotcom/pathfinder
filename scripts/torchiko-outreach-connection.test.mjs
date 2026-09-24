@@ -7,7 +7,7 @@ const caps = ['prospects.read', 'prospects.native-writer', 'prospects.correspond
 function fixture(overrides = {}) {
   const calls = [], cancelled = [], clock = { value: Date.now() }, settings = env()
   let scheduled
-  const task = { id: 'SYN-RUN', venueId: 'SYN-VENUE', modelProvider: 'codex-bridge', modelName: 'gpt-6-astra',
+  const task = { id: 'SYN-RUN', venueId: 'SYN-VENUE', modelProvider: 'codex-bridge', modelName: 'gpt-6-sol',
     leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', leaseExpiresAt: new Date(clock.value + 90000).toISOString(),
     agent: { accessCapabilities: caps }, scope: { accessCapabilities: caps } }
   const connection = createOutreachConnection({ env: settings, now: () => clock.value,

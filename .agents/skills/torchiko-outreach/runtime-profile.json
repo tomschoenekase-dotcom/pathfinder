@@ -2,6 +2,6 @@
   "schema": "torchiko.outreach-runtime-profile/1",
   "vault": "C:/Users/tomsc/Downloads/AwesomeVault",
   "sender": "tomschoenekase@torchiko.com",
-  "model": "gpt-6-astra",
+  "model": "gpt-6-sol",
   "deliveryEnabled": false
 }

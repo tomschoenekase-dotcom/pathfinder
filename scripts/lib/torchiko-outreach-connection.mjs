@@ -68,7 +68,7 @@ export function createOutreachConnection({ env = process.env, fetchImpl = global
     leaseExpiresAt = null, nativeCallProven = false, closing = null, confirmedImport = null
   try { config = outreachConnectionConfig(env) } catch (error) { failure = error.code; phase = 'HELD' }
   const workerKey = `outreach-${randomUUID()}`
-  const modelName = 'gpt-6-astra'
+  const modelName = 'gpt-6-sol'
   const stopTimer = () => { if (timer !== undefined) cancel(timer); timer = undefined }
   const hold = code => { failure = code; phase = 'HELD'; stopTimer(); return outreachHold(code) }
   const session = () => ({ venueId: config.venueId, sessionId: config.sessionId })

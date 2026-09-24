@@ -347,7 +347,7 @@ async function main() {
           accessCapabilities: caps,
           autonomyLevel: 'READ_ONLY',
           defaultProvider: 'codex-bridge',
-          defaultModel: 'gpt-6-astra',
+          defaultModel: 'gpt-6-sol',
           enabled: true,
           createdBy: actor.id,
         },
@@ -367,7 +367,7 @@ async function main() {
         },
         status: 'QUEUED',
         modelProvider: 'codex-bridge',
-        modelName: 'gpt-6-astra',
+        modelName: 'gpt-6-sol',
         initiatedByType: 'HUMAN',
         initiatedById: actor.id,
       }
