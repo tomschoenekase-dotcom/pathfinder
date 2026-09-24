@@ -1289,7 +1289,9 @@ export async function stageProspectImportRowsAction(
     await tx.prospectImport.update({
       where: { id: input.importId },
       data: {
-        status: 'DRY_RUN_READY',
+        // Source-backed imports stage many batches under one worker lease. Only the
+        // source worker may mark the complete workbook ready after its final report.
+        status: prospectImport.sourceObjectKey ? 'DRAFT' : 'DRY_RUN_READY',
         totalRows,
         validRows: count('VALID'),
         warningRows: count('WARNING'),
@@ -1426,6 +1428,9 @@ export async function approveProspectImportAction(
     }
     if (prospectImport.status !== 'DRY_RUN_READY') {
       throw new ProspectActionError('CONFLICT', 'Import dry run is not ready')
+    }
+    if (prospectImport.sourceObjectKey && prospectImport.progressCursor !== 'DRY_RUN_READY') {
+      throw new ProspectActionError('CONFLICT', 'Workbook staging has not finished')
     }
     const unresolvedDuplicates = await tx.prospectImportRow.count({
       where: { importId: input.importId, status: 'DUPLICATE_REVIEW' },

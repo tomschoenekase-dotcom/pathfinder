@@ -24,10 +24,13 @@ describe.skipIf(!enabled)('PC-local immutable prospect workbook pipeline', () =>
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(
       workbook,
-      XLSX.utils.json_to_sheet([
-        { venue_name: `Storage Hall ${suffix}`, city: 'Chicago', email: 'hello@example.test' },
-        { venue_name: `Storage Museum ${suffix}`, city: 'Evanston', email: 'info@example.test' },
-      ]),
+      XLSX.utils.json_to_sheet(
+        Array.from({ length: 251 }, (_, index) => ({
+          venue_name: `Storage Venue ${index} ${suffix}`,
+          city: index % 2 ? 'Evanston' : 'Chicago',
+          email: `venue-${index}@example.test`,
+        })),
+      ),
       'Chicago',
     )
     const bytes = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
@@ -90,13 +93,25 @@ describe.skipIf(!enabled)('PC-local immutable prospect workbook pipeline', () =>
         data: { progressCursor: 'MAPPED' },
       })
     })
-    await withTenantIsolationBypass(() => stageProspectImportSource(importId))
+    let renewals = 0
+    await withTenantIsolationBypass(() =>
+      stageProspectImportSource(importId, async () => {
+        renewals += 1
+        const inProgress = await db.prospectImport.findUniqueOrThrow({ where: { id: importId } })
+        expect(inProgress.status).toBe('DRAFT')
+      }),
+    )
     await withTenantIsolationBypass(async () => {
       const result = await db.prospectImport.findUniqueOrThrow({ where: { id: importId } })
-      expect(result).toMatchObject({ totalRows: 2, progressCursor: 'DRY_RUN_READY' })
+      expect(renewals).toBe(2)
+      expect(result).toMatchObject({
+        status: 'DRY_RUN_READY',
+        totalRows: 251,
+        progressCursor: 'DRY_RUN_READY',
+      })
       expect(result.reportHash).toMatch(/^[a-f0-9]{64}$/u)
-      expect(await db.prospectImportRow.count({ where: { importId } })).toBe(2)
-      expect(await db.prospectImportReportEntry.count({ where: { importId } })).toBe(2)
+      expect(await db.prospectImportRow.count({ where: { importId } })).toBe(251)
+      expect(await db.prospectImportReportEntry.count({ where: { importId } })).toBe(251)
     })
-  }, 30_000)
+  }, 120_000)
 })
