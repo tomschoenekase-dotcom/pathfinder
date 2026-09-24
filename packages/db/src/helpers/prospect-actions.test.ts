@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   archiveProspectAction,
+  approveProspectImportAction,
   beginProspectImportAction,
   commitProspectImportBatchAction,
   convertPublicInterestToProspectAction,
@@ -138,6 +139,50 @@ describe('prospect action safety boundaries', () => {
         actor,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('keeps a source-backed batch in draft and blocks approval before finalization', async () => {
+    const prospectImport = {
+      id: 'source-import',
+      status: 'DRAFT',
+      sourceObjectKey: 'immutable/workbook.xlsx',
+      progressCursor: 'MAPPED',
+    }
+    const update = vi.fn().mockResolvedValue(prospectImport)
+    const tx = {
+      prospectImport: { findUnique: vi.fn().mockResolvedValue(prospectImport), update },
+      prospectImportSheet: { findMany: vi.fn().mockResolvedValue([{ sheetName: 'Chicago' }]) },
+      prospectOrganization: { findMany: vi.fn().mockResolvedValue([]) },
+      prospectImportRow: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({}),
+        groupBy: vi.fn().mockResolvedValue([{ status: 'VALID', _count: { _all: 1 } }]),
+      },
+    }
+    const client = {
+      $transaction: async (operation: (value: typeof tx) => unknown) => operation(tx),
+    }
+    await stageProspectImportRowsAction(
+      {
+        importId: 'source-import',
+        rows: [
+          {
+            sheetName: 'Chicago',
+            originalRowNumber: 2,
+            sourceValues: { venue_name: 'Storage Hall' },
+            normalizedValues: { venueName: 'Storage Hall', city: 'Chicago' },
+          },
+        ],
+        actor,
+      },
+      client as never,
+    )
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'DRAFT' }) }),
+    )
+    await expect(
+      approveProspectImportAction({ importId: 'source-import', actor }, client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('scans beyond the former 20,000-organization duplicate ceiling in bounded chunks', async () => {

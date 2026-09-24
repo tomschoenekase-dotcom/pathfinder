@@ -460,9 +460,16 @@ export function ProspectImportWorkbench() {
       for (let poll = 0; poll < 300; poll += 1) {
         await waitForProspectImportPoll(signal)
         result = await refreshImport(importId, signal)
-        if (result.prospectImport.status === 'DRY_RUN_READY') break
+        if (
+          result.prospectImport.status === 'DRY_RUN_READY' &&
+          result.prospectImport.progressCursor === 'DRY_RUN_READY'
+        )
+          break
       }
-      if (result.prospectImport.status !== 'DRY_RUN_READY') {
+      if (
+        result.prospectImport.status !== 'DRY_RUN_READY' ||
+        result.prospectImport.progressCursor !== 'DRY_RUN_READY'
+      ) {
         throw new Error('Dry-run staging continues in the background; reopen this import shortly')
       }
       await refreshHistory(signal)
