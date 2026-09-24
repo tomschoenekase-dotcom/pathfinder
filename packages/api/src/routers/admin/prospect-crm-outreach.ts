@@ -4,9 +4,7 @@ import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-
 
 import {
   db,
-  admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
-  approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
@@ -29,7 +27,7 @@ import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
-import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
+import { enqueueProspectOutreach } from '@pathfinder/jobs'
 import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
 import {
   currentBatchPdfProofs,
@@ -38,8 +36,7 @@ import {
   frozenPdfProofs,
 } from './prospect-crm-outreach-assets'
 import { verifyNativeOriginRuntime } from '../../prospect-sales-workflow'
-import { requestProspectMailboxReconciliation } from '../../prospect-mailbox-reconciliation'
-import { readProspectReplyContent, retainProspectReplyContent } from '../../prospect-reply-content'
+import { adminProspectCrmOutreachIntakeRouter } from './prospect-crm-outreach-intake'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -54,66 +51,6 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachActionsRouter = router({
-  readProspectReplyContent: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ messageId: id, threadId: id, organizationId: id }).strict())
-    .mutation(({ ctx, input }) => readProspectReplyContent(input, ctx.session.userId)),
-  retainProspectReplyContent: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(
-      z
-        .object({
-          retentionDays: z.number().int().min(1).max(30),
-          expected: z
-            .object({
-              canonicalMessageId: id,
-              canonicalThreadId: id,
-              organizationId: id,
-              providerAccountId: id,
-              providerMessageId: id,
-              providerThreadId: id,
-              sourceReference: z.string().min(1).max(1000),
-              rawBodySha256: z.string().regex(/^[a-f0-9]{64}$/u),
-            })
-            .strict(),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) => retainProspectReplyContent(input, ctx.session.userId)),
-  reconcileProspectMailbox: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ providerAccountId: id, expectedUpdatedAt: z.string().datetime() }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        requestProspectMailboxReconciliation({ ...input, actorId: ctx.session.userId }),
-      ),
-    ),
-  admitProspectStagingPackage: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ package: z.unknown() }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        admitProspectStagingPackageAction({
-          package: input.package,
-          actor: prospectActor(ctx.session.userId),
-        }),
-      ),
-    ),
-
-  approveProspectStagingPackageCommit: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ importId: id }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const approved = await approveProspectStagingPackageCommitAction({
-          importId: input.importId,
-          actor: prospectActor(ctx.session.userId),
-        })
-        await enqueueProspectImportCommit({ importId: input.importId })
-        return approved
-      }),
-    ),
-
   createProspectCampaign: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(
@@ -424,5 +361,6 @@ const adminProspectCrmOutreachActionsRouter = router({
 
 export const adminProspectCrmOutreachRouter = mergeRouters(
   adminProspectCrmOutreachReadRouter,
+  adminProspectCrmOutreachIntakeRouter,
   adminProspectCrmOutreachActionsRouter,
 )
