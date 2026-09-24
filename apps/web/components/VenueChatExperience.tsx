@@ -723,7 +723,6 @@ export function VenueChatExperience({
   async function retryHistoryBootstrap() {
     const failure = historyBootstrapFailureRef.current
     if (!failure || activeOperationRef.current !== null || historyBootstrapAbortRef.current) return
-    historyBootstrapAbortRef.current?.abort()
     const controller = new AbortController()
     historyBootstrapAbortRef.current = controller
     setIsSending(true)
