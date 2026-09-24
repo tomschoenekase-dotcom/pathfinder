@@ -156,19 +156,16 @@ jobs:
       - name: Start disposable S3-compatible storage
         run: |
           docker run --name pathfinder-disposable-media-ci --detach \
-            --publish 127.0.0.1:59000:9000 \
-            --env MINIO_ROOT_USER=synthetic-access \
-            --env MINIO_ROOT_PASSWORD=synthetic-secret \
-            quay.io/minio/minio@sha256:3f97c5651cb6662b880c787a232b6b34fec8d8922e08d6617b25d241a21164bb \
-            server /data
+            --publish 127.0.0.1:59000:9090 \
+            adobe/s3mock@sha256:65cf60155a2e235fe7d5bf6c633747d6fc7ed93f9f5a6727d86470026b83c2a2
           for attempt in {1..30}; do
-            curl --fail --silent http://127.0.0.1:59000/minio/health/ready && exit 0
+            curl --fail --silent http://127.0.0.1:59000/ && exit 0
             sleep 1
           done
           docker logs pathfinder-disposable-media-ci
           exit 1
       - name: Verify disposable media storage contract
-        run: pnpm --dir packages/api exec vitest run src/lib/media-storage.integration.test.ts --pool=forks --maxWorkers=1
+        run: pnpm --dir packages/api exec vitest run src/lib/media-storage.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=30000
         env:
           RUN_MEDIA_STORAGE_INTEGRATION: '1'
           STORAGE_ENDPOINT: http://127.0.0.1:59000

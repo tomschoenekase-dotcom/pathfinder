@@ -192,7 +192,7 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
         const port = {
           '5432/tcp': 49_151,
           '6379/tcp': 49_152,
-          '9000/tcp': 49_153,
+          '9090/tcp': 49_153,
           '3310/tcp': 49_154,
         }[internal]
         return { status: 0, stdout: `127.0.0.1:${port}\n`, stderr: '' }
