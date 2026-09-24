@@ -1573,6 +1573,12 @@ describe('VenueChatExperience presentation boundary', () => {
       expect.objectContaining({ entryPlaceId: 'case-12-second' }),
     )
 
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send different message' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate).toHaveBeenNthCalledWith(
