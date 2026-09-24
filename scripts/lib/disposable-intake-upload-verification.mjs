@@ -440,8 +440,14 @@ export async function runDisposableServiceShakedown({
   const reportPath = join(reportDirectory, 'vitest.json')
   let primaryError
   let result
+  const phase = (name) => {
+    if (env.CI === 'true') {
+      stdout.write(`${JSON.stringify({ action: 'disposable-shakedown.phase', phase: name })}\n`)
+    }
+  }
 
   try {
+    phase('inspect-resources')
     for (const name of Object.values(names)) {
       if (exactContainerNames(spawnSyncImpl, runtime, name).length !== 0) {
         refuse('Generated disposable container identity already exists')
@@ -491,6 +497,7 @@ export async function runDisposableServiceShakedown({
       ['--name', names.clamav, '--publish', '127.0.0.1::3310', DISPOSABLE_INTAKE_IMAGES.clamav],
       'Disposable ClamAV start',
     )
+    phase('containers-started')
 
     const postgresPort = publishedPort(spawnSyncImpl, runtime, names.postgres, 5432, 'PostgreSQL')
     const redisPort = publishedPort(spawnSyncImpl, runtime, names.redis, 6379, 'Redis')
@@ -510,6 +517,7 @@ export async function runDisposableServiceShakedown({
         return check.status === 0
       },
     })
+    phase('postgres-ready')
     await waitFor({
       description: 'Disposable Redis',
       waitImpl,
@@ -523,24 +531,35 @@ export async function runDisposableServiceShakedown({
         return check.status === 0 && String(check.stdout).trim() === 'PONG'
       },
     })
+    phase('redis-ready')
     await waitFor({
       description: 'Disposable S3 storage',
       waitImpl,
       probe: async () => {
+        let timeout
         try {
-          const response = await fetchImpl(`http://127.0.0.1:${minioPort}/`)
+          const response = await Promise.race([
+            fetchImpl(`http://127.0.0.1:${minioPort}/`),
+            new Promise((_, reject) => {
+              timeout = setTimeout(() => reject(new Error('S3 storage probe timed out')), 5_000)
+            }),
+          ])
           return response.ok
         } catch {
           return false
+        } finally {
+          clearTimeout(timeout)
         }
       },
     })
+    phase('s3-ready')
     await waitFor({
       description: 'Disposable ClamAV',
       waitImpl,
       attempts: 360,
       probe: async () => containerHealth(spawnSyncImpl, runtime, names.clamav) === 'healthy',
     })
+    phase('clamav-ready')
 
     const databaseUrl = `postgresql://${encodeURIComponent(postgresUser)}:${encodeURIComponent(postgresPassword)}@127.0.0.1:${postgresPort}/${database}`
     sensitiveTokens.push(databaseUrl)
@@ -552,6 +571,7 @@ export async function runDisposableServiceShakedown({
       spawnSyncImpl,
       sensitiveTokens,
     })
+    phase('migrated')
     result = runIntegration({
       env,
       resources: {
@@ -572,10 +592,12 @@ export async function runDisposableServiceShakedown({
       sensitiveTokens,
       integration: configuration.integration,
     })
+    phase('integration-passed')
   } catch (error) {
     primaryError = error
   }
 
+  phase('cleanup')
   const cleanupErrors = []
   for (const name of Object.values(names).reverse()) {
     try {
