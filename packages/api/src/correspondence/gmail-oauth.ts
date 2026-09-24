@@ -12,8 +12,6 @@ const GOOGLE_REQUEST_TIMEOUT_MS = 30_000
 const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
-  'https://www.googleapis.com/auth/meetings.space.readonly',
 ] as const
 
 type Fetch = typeof fetch
@@ -255,7 +253,8 @@ export function createGmailOAuthRuntime(input: {
         response_type: 'code',
         access_type: 'offline',
         prompt: 'consent',
-        include_granted_scopes: 'true',
+        // Keep a prior Google grant from widening this mailbox connection.
+        include_granted_scopes: 'false',
         scope: GOOGLE_WORKSPACE_SCOPES.join(' '),
         state,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'),
@@ -359,7 +358,7 @@ export function createGmailOAuthRuntime(input: {
               ],
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
+              syncCursor: null,
               deliveryEnabled: false,
               createdBy: args.requestedBy,
               updatedBy: args.requestedBy,
@@ -367,7 +366,6 @@ export function createGmailOAuthRuntime(input: {
             update: {
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
               healthErrorCode: null,
               healthErrorSummary: null,
               deliveryEnabled: false,

@@ -48,6 +48,35 @@ const admittedChat = `
   })
 `
 
+test('local no-send review classification is pinned to the exact tested route and methods', () => {
+  const source = 'apps/dashboard/app/dev-fixtures/prospect-research/sales/route.ts'
+  const entry = {
+    source,
+    methods: ['GET', 'POST'],
+    exposure: 'development-loopback-only',
+    controlProfile: 'development-loopback-no-send-review',
+    behavioralEvidence: [
+      'apps/dashboard/app/dev-fixtures/prospect-research/sales/route.test.ts',
+      'packages/api/src/routers/admin/prospect-crm-sales.test.ts',
+    ],
+  }
+  const audit = (value) =>
+    auditPublicSurfaceManifest({
+      discoveredTrpc: [],
+      discoveredHttp: [{ source: value.source, methods: value.methods }],
+      publicApiPaths: [],
+      manifest: { version: 1, trpc: [], http: [value], dashboardPublicApiPaths: [] },
+    })
+  assert.deepEqual(audit(entry), [])
+  for (const changed of [
+    { ...entry, source: 'apps/dashboard/app/api/arbitrary/route.ts' },
+    { ...entry, methods: ['DELETE', 'GET', 'POST'] },
+    { ...entry, behavioralEvidence: [] },
+  ]) {
+    assert.ok(audit(changed).some((message) => message.includes('no-send review profile')))
+  }
+})
+
 test('discovers mounted public procedures and resolves a local admitted builder', () => {
   const result = discoverPublicTrpcSurfaces(
     fixtureModules(admittedChat),

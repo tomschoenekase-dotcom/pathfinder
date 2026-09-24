@@ -3,24 +3,6 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import {
-  buildBootstrapReport,
-  buildConversationReplay,
-  buildConversationAssessment,
-  buildCompanyBrainStatus,
-  buildDoctorReport,
-  buildRepositoryMap,
-  buildToolCoverageReport,
-  findTests,
-  listAgentTools,
-  listFixtures,
-  loadScenarioRegistry,
-  loadCompanyBrainScenarioRegistry,
-  simulateScenarioLocation,
-  simulateScenarioTime,
-  simulateScenarioVisitor,
-} from './lib/torchiko-developer-tools.mjs'
-import { executeSyntheticScenarioReset } from './lib/synthetic-scenario-worlds.mjs'
 import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -51,6 +33,30 @@ function emit(value) {
 
 async function main() {
   const [group, action, ...rest] = positional
+  if (group === 'crm') {
+    const { runCrmCommand, CrmClientError } = await import('./lib/torchiko-crm-client.mjs')
+    try {
+      return emit(await runCrmCommand([action, ...rest], readBoundedStdin))
+    } catch (error) {
+      emit({
+        schema: 'torchiko.local-crm-client-error/1',
+        code: error instanceof CrmClientError ? error.code : 'LOCAL_CRM_CLIENT_FAILURE',
+        message: 'The local CRM command did not complete.',
+        SEND_AUTHORIZED: false,
+      })
+      process.exitCode = 1
+      return
+    }
+  }
+  // Read-only CRM diagnostics and its bounded native writer route must not
+  // depend on TypeScript/build tooling or load scenario mutation owners.
+  const {
+    buildBootstrapReport, buildConversationReplay, buildConversationAssessment,
+    buildCompanyBrainStatus, buildDoctorReport, buildRepositoryMap,
+    buildToolCoverageReport, findTests, listAgentTools, listFixtures,
+    loadScenarioRegistry, loadCompanyBrainScenarioRegistry, simulateScenarioLocation,
+    simulateScenarioTime, simulateScenarioVisitor,
+  } = await import('./lib/torchiko-developer-tools.mjs')
   if (group === 'dev' && action === 'bootstrap') return emit(await buildBootstrapReport(root))
   if (group === 'doctor' && action === undefined) {
     const report = await buildDoctorReport(root)
@@ -75,6 +81,7 @@ async function main() {
   }
   if (group === 'scenarios' && action === 'reset' && rest.length > 0) {
     try {
+      const { executeSyntheticScenarioReset } = await import('./lib/synthetic-scenario-worlds.mjs')
       return emit(await executeSyntheticScenarioReset({ root, args: rest }))
     } catch {
       process.exitCode = reportOperatorCliFailure({

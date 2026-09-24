@@ -4,9 +4,7 @@ import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-
 
 import {
   db,
-  admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
-  approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
@@ -29,7 +27,7 @@ import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
-import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
+import { enqueueProspectOutreach } from '@pathfinder/jobs'
 import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
 import {
   currentBatchPdfProofs,
@@ -37,6 +35,8 @@ import {
   descriptorOnlyDraft,
   frozenPdfProofs,
 } from './prospect-crm-outreach-assets'
+import { verifyNativeOriginRuntime } from '../../prospect-sales-workflow'
+import { adminProspectCrmOutreachIntakeRouter } from './prospect-crm-outreach-intake'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -51,32 +51,6 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachActionsRouter = router({
-  admitProspectStagingPackage: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ package: z.unknown() }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        admitProspectStagingPackageAction({
-          package: input.package,
-          actor: prospectActor(ctx.session.userId),
-        }),
-      ),
-    ),
-
-  approveProspectStagingPackageCommit: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ importId: id }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const approved = await approveProspectStagingPackageCommitAction({
-          importId: input.importId,
-          actor: prospectActor(ctx.session.userId),
-        })
-        await enqueueProspectImportCommit({ importId: input.importId })
-        return approved
-      }),
-    ),
-
   createProspectCampaign: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(
@@ -150,15 +124,19 @@ const adminProspectCrmOutreachActionsRouter = router({
             verifiedCurrentPrintAssets = [{ prospectVenueId: member.venueId, asset }]
           }
         }
-        const saved = await saveProspectOutreachDraftAction({
-          memberId: input.memberId,
-          subject: input.subject,
-          textBody: input.textBody,
-          groundingSnapshot,
-          verifiedCurrentPrintAssets,
-          ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const saved = await saveProspectOutreachDraftAction(
+          {
+            memberId: input.memberId,
+            subject: input.subject,
+            textBody: input.textBody,
+            groundingSnapshot,
+            verifiedCurrentPrintAssets,
+            ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         return descriptorOnlyDraft(saved)
       }),
     ),
@@ -172,6 +150,10 @@ const adminProspectCrmOutreachActionsRouter = router({
           approve: z.boolean(),
           reason: z.string().trim().max(2000).optional(),
           acknowledgedEscalations: z.array(z.string().trim().max(100)).max(20).optional(),
+          expectedContentHash: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/u)
+            .optional(),
         })
         .strict(),
     )
@@ -186,16 +168,23 @@ const adminProspectCrmOutreachActionsRouter = router({
               { prospectVenueId: draft.venueId, snapshot: draft.groundingSnapshot },
             ])
           : []
-        const reviewed = await reviewProspectOutreachDraftAction({
-          draftId: input.draftId,
-          approve: input.approve,
-          verifiedCurrentPrintAssets,
-          ...(input.reason !== undefined ? { reason: input.reason } : {}),
-          ...(input.acknowledgedEscalations !== undefined
-            ? { acknowledgedEscalations: input.acknowledgedEscalations }
-            : {}),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const reviewed = await reviewProspectOutreachDraftAction(
+          {
+            draftId: input.draftId,
+            approve: input.approve,
+            verifiedCurrentPrintAssets,
+            ...(input.expectedContentHash !== undefined
+              ? { expectedContentHash: input.expectedContentHash }
+              : {}),
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+            ...(input.acknowledgedEscalations !== undefined
+              ? { acknowledgedEscalations: input.acknowledgedEscalations }
+              : {}),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         return descriptorOnlyDraft(reviewed)
       }),
     ),
@@ -207,16 +196,25 @@ const adminProspectCrmOutreachActionsRouter = router({
         .object({
           campaignId: id,
           draftIds: z.array(id).min(1).max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
+          expectedContentHashes: z.record(z.string().regex(/^[a-f0-9]{64}$/u)).optional(),
         })
         .strict(),
     )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () =>
-        stageProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentDraftPdfProofs(input.draftIds),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
+        stageProspectSendBatchAction(
+          {
+            campaignId: input.campaignId,
+            draftIds: input.draftIds,
+            ...(input.expectedContentHashes
+              ? { expectedContentHashes: input.expectedContentHashes }
+              : {}),
+            verifiedCurrentPrintAssets: await currentDraftPdfProofs(input.draftIds),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError),
       ),
     ),
 
@@ -237,11 +235,15 @@ const adminProspectCrmOutreachActionsRouter = router({
     )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
-        const approved = await approveProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const approved = await approveProspectSendBatchAction(
+          {
+            ...input,
+            verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         await publishCrmOperationalSignal({
           input: {
             signal: 'batch_awaiting_release',
@@ -279,11 +281,15 @@ const adminProspectCrmOutreachActionsRouter = router({
             message: 'Prospect outreach delivery is disabled',
           })
         }
-        const released = await releaseProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
+        const released = await releaseProspectSendBatchAction(
+          {
+            ...input,
+            verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
+            actor: prospectActor(ctx.session.userId),
+          },
+          undefined,
+          verifyNativeOriginRuntime,
+        ).catch(mapError)
         const dispatch = await Promise.allSettled(
           released.outboxIds.map((outboxId) => enqueueProspectOutreach({ outboxId })),
         )
@@ -355,5 +361,6 @@ const adminProspectCrmOutreachActionsRouter = router({
 
 export const adminProspectCrmOutreachRouter = mergeRouters(
   adminProspectCrmOutreachReadRouter,
+  adminProspectCrmOutreachIntakeRouter,
   adminProspectCrmOutreachActionsRouter,
 )

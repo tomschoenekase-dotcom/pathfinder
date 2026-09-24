@@ -83,6 +83,8 @@ export type NormalizedProviderMessage = Readonly<{
 
 export type ProviderSyncPage = Readonly<{
   messages: readonly NormalizedProviderMessage[]
+  /** Provider IDs that were listed but unavailable during hydration. */
+  unavailableMessages?: readonly ProviderExternalRef[]
   /** Durable provider history cursor to persist only after all pages are ingested. */
   cursor: string
   /** Opaque page token; never persist this as the durable history cursor. */

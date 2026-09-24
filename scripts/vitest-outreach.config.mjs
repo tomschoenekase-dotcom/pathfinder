@@ -1,0 +1,18 @@
+export default {
+  test: { environment: 'node', pool: 'forks', maxWorkers: 1, minWorkers: 1,
+    include: ['packages/api/src/prospect-outreach-cohort-contract.test.ts',
+      'packages/api/src/prospect-outreach-cohort.test.ts',
+      'apps/dashboard/components/admin/ProspectOutreachCohortWorkspace.test.tsx',
+      'packages/api/src/prospect-agent/registry-native-writer.test.ts',
+      'packages/api/src/prospect-agent/registry.test.ts',
+      'packages/api/src/prospect-sales-workflow.test.ts',
+      'packages/api/src/prospect-writer-contract.test.ts',
+      'packages/config/src/local-crm-sales-components.test.ts',
+      'packages/api/src/prospect-agent/registry-chicago.test.ts',
+      'packages/api/src/chicago-intelligence-maintenance.test.ts',
+      'packages/api/src/chicago-intelligence-research.test.ts',
+      'packages/api/src/prospect-mailbox-reconciliation.test.ts',
+      'packages/api/src/prospect-reply-content.test.ts',
+      'packages/api/src/correspondence/first-send-boundary.test.ts'],
+    passWithNoTests: false },
+}

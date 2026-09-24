@@ -119,7 +119,8 @@ function mcpToolMetadata(source, runtimeBindings) {
 
 function prospectToolMetadata(source, contracts) {
   const start = source.indexOf('export const PROSPECT_AGENT_TOOL_DEFINITIONS')
-  const end = source.indexOf('] as const', start)
+  const definitionEnd = source.indexOf('type ToolName', start)
+  const end = source.lastIndexOf('] as const', definitionEnd)
   if (start < 0 || end < 0) return []
   return [...source.slice(start, end).matchAll(/\{([\s\S]*?)\n\s*\},?/gu)]
     .map((match) => match[1])

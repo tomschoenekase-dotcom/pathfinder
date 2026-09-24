@@ -7690,9 +7690,110 @@ model ProspectTerritory {
   updatedAt     DateTime               @updatedAt @map("updated_at")
   organizations ProspectOrganization[]
   venues        ProspectVenue[]
+  researchDefinitions ProspectTerritoryDefinition[]
+  legacyGeographies   ProspectVenueGeography[] @relation("ProspectGeographyLegacy")
 
   @@index([archivedAt, name])
   @@map("prospect_territories")
+}
+
+/// Frozen, owner-approved county partition. New geography versions append; no in-place rebuild.
+model ProspectGeographyModel {
+  version           String @id @db.VarChar(100)
+  registryHash      String @unique @map("registry_hash") @db.Char(64)
+  countyVintage     String @map("county_vintage") @db.VarChar(100)
+  approvalReference String @map("approval_reference") @db.VarChar(1000)
+  approvedAt        DateTime @map("approved_at")
+  approvedBy        String @map("approved_by") @db.VarChar(191)
+  sourceManifest    Json @map("source_manifest")
+  createdAt         DateTime @default(now()) @map("created_at")
+  definitions       ProspectTerritoryDefinition[]
+  venueGeographies  ProspectVenueGeography[]
+  @@map("prospect_geography_models")
+}
+
+/// Code-to-native-ID bridge, versioned independently of old workbook labels.
+model ProspectTerritoryDefinition {
+  modelVersion String @map("model_version") @db.VarChar(100)
+  code         String @db.VarChar(100)
+  territoryId  String @map("territory_id")
+  name         String
+  kind         String @db.VarChar(100)
+  states       Json
+  model        ProspectGeographyModel @relation(fields: [modelVersion], references: [version], onDelete: Restrict, onUpdate: Restrict)
+  territory    ProspectTerritory @relation(fields: [territoryId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  counties     ProspectCountyAssignment[]
+  @@id([modelVersion, code])
+  @@unique([modelVersion, code, territoryId])
+  @@unique([modelVersion, territoryId])
+  @@map("prospect_territory_definitions")
+}
+
+/// Exactly one owner per county/equivalent in a frozen geography version.
+model ProspectCountyAssignment {
+  modelVersion  String @map("model_version") @db.VarChar(100)
+  countyGeoid   String @map("county_geoid") @db.Char(5)
+  territoryCode String @map("territory_code") @db.VarChar(100)
+  territoryId   String @map("territory_id")
+  state         String @db.Char(2)
+  countyName    String @map("county_name")
+  definition    ProspectTerritoryDefinition @relation(fields: [modelVersion, territoryCode, territoryId], references: [modelVersion, code, territoryId], onDelete: Restrict, onUpdate: Restrict)
+  venueGeographies ProspectVenueGeography[]
+  researchLease    ProspectCountyResearchLease?
+  @@id([modelVersion, countyGeoid])
+  @@unique([modelVersion, countyGeoid, territoryId])
+  @@index([modelVersion, territoryCode])
+  @@map("prospect_county_assignments")
+}
+
+/// One whole-county research lease. Attempts, renewals, findings and outcomes use
+/// the existing immutable intelligence receipts/audit owner, never fake organizations.
+model ProspectCountyResearchLease {
+  modelVersion     String @map("model_version") @db.VarChar(100)
+  countyGeoid      String @map("county_geoid") @db.Char(5)
+  territoryId      String @map("territory_id")
+  generation       Int @default(1)
+  status           String @db.VarChar(32)
+  claimToken       String @unique @map("claim_token") @db.Uuid
+  actorId          String @map("actor_id") @db.VarChar(191)
+  actorRunId       String @map("actor_run_id") @db.VarChar(191)
+  authorityContext String @map("authority_context") @db.VarChar(400)
+  leaseExpiresAt   DateTime @map("lease_expires_at")
+  claimedAt        DateTime @default(now()) @map("claimed_at")
+  plannedCells     Json @map("planned_cells")
+  outcome          Json @default("{}")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  county           ProspectCountyAssignment @relation(fields: [modelVersion, countyGeoid, territoryId], references: [modelVersion, countyGeoid, territoryId], onDelete: Restrict, onUpdate: Restrict, map: "prospect_county_research_lease_county_fkey")
+
+  @@id([modelVersion, countyGeoid])
+  @@index([territoryId, status, leaseExpiresAt], map: "prospect_county_research_lease_status_idx")
+  @@unique([modelVersion, countyGeoid, territoryId], map: "prospect_county_research_lease_identity_key")
+  @@map("prospect_county_research_leases")
+}
+
+/// Physical-site research geography, never HQ geography, marketing consent or identity merge.
+model ProspectVenueGeography {
+  venueId           String @id @map("venue_id")
+  modelVersion      String @map("model_version") @db.VarChar(100)
+  countyGeoid       String? @map("county_geoid") @db.Char(5)
+  territoryId       String? @map("territory_id")
+  legacyTerritoryId String? @map("legacy_territory_id")
+  status            String @default("GEO_HOLD") @db.VarChar(32)
+  reason            String @db.VarChar(2000)
+  evidenceIds       Json @default("[]") @map("evidence_ids")
+  anchor            Json @default("{}")
+  revision          Int @default(1)
+  createdBy         String @map("created_by") @db.VarChar(191)
+  updatedBy         String @map("updated_by") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  venue             ProspectVenue @relation(fields: [venueId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  model             ProspectGeographyModel @relation(fields: [modelVersion], references: [version], onDelete: Restrict, onUpdate: Restrict)
+  county            ProspectCountyAssignment? @relation(fields: [modelVersion, countyGeoid, territoryId], references: [modelVersion, countyGeoid, territoryId], onDelete: Restrict, onUpdate: Restrict)
+  legacyTerritory   ProspectTerritory? @relation("ProspectGeographyLegacy", fields: [legacyTerritoryId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@index([modelVersion, status, territoryId])
+  @@index([legacyTerritoryId, status])
+  @@map("prospect_venue_geographies")
 }
 
 model ProspectTag {
@@ -7984,6 +8085,10 @@ model ProspectVenue {
   createdAt                  DateTime                            @default(now()) @map("created_at")
   updatedAt                  DateTime                            @updatedAt @map("updated_at")
   organization               ProspectOrganization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  geography                  ProspectVenueGeography?
+  intelligence               ProspectVenueIntelligence?
+  intelligenceRankings       ProspectVenueRanking[]
+  intelligenceReviews        ProspectIntelligenceReview[]
   territory                  ProspectTerritory?                  @relation(fields: [territoryId], references: [id], onDelete: Restrict)
   contacts                   ProspectContact[]
   activities                 ProspectActivity[]
@@ -8005,6 +8110,84 @@ model ProspectVenue {
   @@index([territoryId, stage, priority])
   @@index([nextActionAt, archivedAt])
   @@map("prospect_venues")
+}
+
+/// Current intelligence extends the native venue. Original import records and evidence remain immutable.
+model ProspectVenueIntelligence {
+  venueId           String        @id @map("venue_id")
+  identityKey       String        @unique @map("identity_key")
+  revision          Int           @default(1)
+  territoryName     String        @default("Chicago Metro") @map("territory_name")
+  confidence        String        @default("unknown")
+  fields            Json          @default("{}")
+  contactClaims     Json          @default("[]") @map("contact_claims")
+  rankingInput      Json          @default("{}") @map("ranking_input")
+  rankingSnapshot   Json          @default("{}") @map("ranking_snapshot")
+  rankingVersion    String        @map("ranking_version")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  venue             ProspectVenue @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([territoryName, updatedAt])
+  @@map("prospect_venue_intelligence")
+}
+
+/// Append-only snapshots allow exact version comparisons; no old score is rewritten.
+model ProspectVenueRanking {
+  id            String        @id
+  venueId       String        @map("venue_id")
+  version       String
+  inputHash     String        @map("input_hash") @db.Char(64)
+  asOf          String        @map("as_of") @db.VarChar(10)
+  input         Json
+  snapshot      Json
+  createdAt     DateTime      @default(now()) @map("created_at")
+  venue         ProspectVenue @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([venueId, version, inputHash, asOf])
+  @@index([venueId, createdAt])
+  @@map("prospect_venue_rankings")
+}
+
+/// Durable retry identity: same key+payload returns the original receipt, even after head changes.
+model ProspectIntelligenceReceipt {
+  id             String   @id
+  actorId        String   @map("actor_id")
+  actorType      String   @map("actor_type")
+  runId          String   @map("run_id")
+  idempotencyKey String   @map("idempotency_key")
+  operation      String
+  inputHash      String   @map("input_hash") @db.Char(64)
+  venueId        String?  @map("venue_id")
+  beforeState    Json     @map("before_state")
+  afterState     Json     @map("after_state")
+  result         Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([actorId, runId, idempotencyKey])
+  @@index([venueId, createdAt])
+  @@map("prospect_intelligence_receipts")
+}
+
+/// Field/contact quarantine, ambiguous identity, and same-operator proposals share one non-destructive queue.
+model ProspectIntelligenceReview {
+  id          String         @id
+  venueId     String?        @map("venue_id")
+  kind        String
+  status      String         @default("OPEN")
+  revision    Int            @default(1)
+  reason      String
+  original    Json
+  sourceHash  String?        @map("source_hash")
+  decision    Json?
+  createdBy   String         @map("created_by")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  venue       ProspectVenue? @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([status, kind, createdAt])
+  @@index([venueId, status])
+  @@map("prospect_intelligence_reviews")
 }
 
 model ProspectContact {
@@ -8488,14 +8671,16 @@ model ProspectCampaignMember {
 /// Versioned draft. Approval freezes the content hash and recipient snapshot.
 model ProspectOutreachDraft {
   id                String                   @id @default(cuid())
-  campaignId        String                   @map("campaign_id")
-  memberId          String                   @map("member_id")
+  campaignId        String?                  @map("campaign_id")
+  memberId          String?                  @map("member_id")
+  /// Non-campaign, permanently NO-SEND series. SQL enforces the disjoint modes.
+  preparationKey    String?                  @map("preparation_key") @db.Char(64)
   organizationId    String                   @map("organization_id")
   venueId           String?                  @map("venue_id")
   contactId         String?                  @map("contact_id")
   version           Int                      @default(1)
   status            ProspectDraftStatus      @default(NEEDS_REVIEW)
-  toEmail           String                   @map("to_email") @db.VarChar(320)
+  toEmail           String?                  @map("to_email") @db.VarChar(320)
   subject           String                   @db.VarChar(998)
   textBody          String                   @map("text_body")
   htmlBody          String?                  @map("html_body")
@@ -8508,8 +8693,8 @@ model ProspectOutreachDraft {
   approvedAt        DateTime?                @map("approved_at")
   rejectedReason    String?                  @map("rejected_reason") @db.VarChar(2000)
   createdAt         DateTime                 @default(now()) @map("created_at")
-  campaign          ProspectOutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  member            ProspectCampaignMember   @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  campaign          ProspectOutreachCampaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  member            ProspectCampaignMember?   @relation(fields: [memberId], references: [id], onDelete: Restrict)
   organization      ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   venue             ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
   contact           ProspectContact?         @relation(fields: [contactId], references: [id], onDelete: Restrict)
@@ -8517,6 +8702,8 @@ model ProspectOutreachDraft {
   followupSchedules ProspectFollowup[]       @relation("ProspectFollowupDraft")
 
   @@unique([memberId, version])
+  @@unique([preparationKey, version], map: "prospect_outreach_drafts_preparation_revision_key")
+  @@index([venueId, preparationKey, createdAt], map: "prospect_outreach_drafts_preparation_venue_idx")
   @@index([campaignId, status, createdAt])
   @@map("prospect_outreach_drafts")
 }

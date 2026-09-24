@@ -1,0 +1,323 @@
+{
+  "schema": "torchiko.native-sales-source-manifest/1",
+  "baseCommit": "aace14ae6ee8bc87b8556dcdfda208004d20c87d",
+  "implementationCommit": "5799a7b76f4de210d755a03acacd3e281f78b6cd",
+  "files": [
+    {
+      "path": "apps/dashboard/app/dev-fixtures/prospect-research/[prospectId]/page.tsx",
+      "gitBlob": "3a28d9e980ff20ee798f8b36b94dd03df5202081",
+      "gitBytes": 1734,
+      "gitSha256": "e0b840c92635e4e214f35792896971f8c5471e810ddcafd973cbf9c89027e842",
+      "workingSha256": "e0b840c92635e4e214f35792896971f8c5471e810ddcafd973cbf9c89027e842"
+    },
+    {
+      "path": "apps/dashboard/app/dev-fixtures/prospect-research/sales/route.test.ts",
+      "gitBlob": "2ebbd70034b3eb33312afe8948f59c1b26173563",
+      "gitBytes": 3513,
+      "gitSha256": "00e02be765768abc175e92debf61f4aa965069392951b7835f4ce3241c46b48f",
+      "workingSha256": "00e02be765768abc175e92debf61f4aa965069392951b7835f4ce3241c46b48f"
+    },
+    {
+      "path": "apps/dashboard/app/dev-fixtures/prospect-research/sales/route.ts",
+      "gitBlob": "ca423faf3625cb4288f92c52aed8f18c2dbc6df3",
+      "gitBytes": 2681,
+      "gitSha256": "773266fefbbec8ef4293852d1f48590a5d7ee287bc15a7f8ae49fdf9f155b520",
+      "workingSha256": "773266fefbbec8ef4293852d1f48590a5d7ee287bc15a7f8ae49fdf9f155b520"
+    },
+    {
+      "path": "apps/dashboard/components/admin/ProspectDetailView.tsx",
+      "gitBlob": "e5d72537d0f594f7cdc01c4a70efbbeb281ac437",
+      "gitBytes": 33574,
+      "gitSha256": "e5a0f24698e128288c9cf1cc6cf90a4e19618911208ba6158ce5197d894ec518",
+      "workingSha256": "e5a0f24698e128288c9cf1cc6cf90a4e19618911208ba6158ce5197d894ec518"
+    },
+    {
+      "path": "apps/dashboard/components/admin/ProspectSalesReviewPanel.test.tsx",
+      "gitBlob": "f8d8b93bbaac82345254af758680a973d3b53e8f",
+      "gitBytes": 8035,
+      "gitSha256": "f981e88825bf2500086879384482a44953543f752a1057a90f6d4546be0365cf",
+      "workingSha256": "f981e88825bf2500086879384482a44953543f752a1057a90f6d4546be0365cf"
+    },
+    {
+      "path": "apps/dashboard/components/admin/ProspectSalesReviewPanel.tsx",
+      "gitBlob": "f66852fc508e9cea4991904d928a8b8a4e324f89",
+      "gitBytes": 25301,
+      "gitSha256": "906daaf61140fb7efa440a049bf42a047aba8943ee306233a82513c788226f02",
+      "workingSha256": "906daaf61140fb7efa440a049bf42a047aba8943ee306233a82513c788226f02"
+    },
+    {
+      "path": "apps/dashboard/lib/local-prospect-sales-boundary.ts",
+      "gitBlob": "a8ead4ce6517a812a03c555eb0be14071aa5c8fb",
+      "gitBytes": 701,
+      "gitSha256": "5d1adf8510f2334176f5a2c4522cb6d7c854236384cf86e34cecb44c51166dac",
+      "workingSha256": "5d1adf8510f2334176f5a2c4522cb6d7c854236384cf86e34cecb44c51166dac"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/directory-desktop.png",
+      "gitBlob": "f7ed11861bdf0e6d198c473992f65ad47742ad2f",
+      "gitBytes": 80829,
+      "gitSha256": "7d038cedcd4a388286a27c91b2d9677837ec5685b82107710591b4f42de4efc7",
+      "workingSha256": "7d038cedcd4a388286a27c91b2d9677837ec5685b82107710591b4f42de4efc7"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/form-route-desktop.png",
+      "gitBlob": "06710220eb686fa3c58984f64b33e0c64ab07b18",
+      "gitBytes": 198615,
+      "gitSha256": "05edf1b3c1ff5a178082d3de43352b32774a333e7a118bb66f5e3ea0e8390d3a",
+      "workingSha256": "05edf1b3c1ff5a178082d3de43352b32774a333e7a118bb66f5e3ea0e8390d3a"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/native-suppression-320.png",
+      "gitBlob": "e708286a8197ecebd31ed8d4b6be207d53e6456b",
+      "gitBytes": 166464,
+      "gitSha256": "a8fe5ee94ee829033a98222c157ef3685549bb63ff4211a4f974c2fe10daff8b",
+      "workingSha256": "a8fe5ee94ee829033a98222c157ef3685549bb63ff4211a4f974c2fe10daff8b"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/outreach-reviewed-desktop.png",
+      "gitBlob": "6027962945d07a3e7e1b9a7f4fa4a576afc9cc3b",
+      "gitBytes": 206460,
+      "gitSha256": "a77bfadb4026392f8a195907bc08bee2c019f317b64a494d52eb14bcea361165",
+      "workingSha256": "a77bfadb4026392f8a195907bc08bee2c019f317b64a494d52eb14bcea361165"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/research-required-320.png",
+      "gitBlob": "1e598146767e469b15be641cfa64f5b0df4d4e13",
+      "gitBytes": 205556,
+      "gitSha256": "948d29835522c8369f727bd23169c550003a40a57be72feeec48f5956b32ac10",
+      "workingSha256": "948d29835522c8369f727bd23169c550003a40a57be72feeec48f5956b32ac10"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/synthetic-response-desktop.png",
+      "gitBlob": "98ec6eced764a9c6bca0ac2281735e24586bb9ee",
+      "gitBytes": 250313,
+      "gitSha256": "1a8545486e1ab51ef96c974c3ad3058749a493eef82d9a0a85a964e259e140dc",
+      "workingSha256": "1a8545486e1ab51ef96c974c3ad3058749a493eef82d9a0a85a964e259e140dc"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/synthetic-response-narrow.png",
+      "gitBlob": "87c5b23763a2c91f3b5fcc534ca6a27b61a8ac0f",
+      "gitBytes": 245541,
+      "gitSha256": "e94ddcad3a2a6e835463702fcf04ef95ef970bc87a6888e933d1b15121c3d7e8",
+      "workingSha256": "e94ddcad3a2a6e835463702fcf04ef95ef970bc87a6888e933d1b15121c3d7e8"
+    },
+    {
+      "path": "docs/crm-sales-20260921/ADAPTER-CONTRACTS.md",
+      "gitBlob": "12266ad942c31495c1ceb0c790e9d7810b6d458d",
+      "gitBytes": 8137,
+      "gitSha256": "9dd61d1844b80d79209680e0644d0d85b2691ed947e6c91b6d65b1678bdecf9f",
+      "workingSha256": "9dd61d1844b80d79209680e0644d0d85b2691ed947e6c91b6d65b1678bdecf9f"
+    },
+    {
+      "path": "docs/crm-sales-20260921/HANDOFF.md",
+      "gitBlob": "62dda03a0f6eaaf144fc442989bc9fd12db08bd7",
+      "gitBytes": 6407,
+      "gitSha256": "4f35887fa668d1a1b1e2492667a24a7f7216da9e5a3e26f9810383fc0fb8cc28",
+      "workingSha256": "4f35887fa668d1a1b1e2492667a24a7f7216da9e5a3e26f9810383fc0fb8cc28"
+    },
+    {
+      "path": "docs/crm-sales-20260921/NATIVE-OWNERS.md",
+      "gitBlob": "e6f4b31f91b17966aeee01328da7d4fd595d79e1",
+      "gitBytes": 6122,
+      "gitSha256": "7bf67ac48c627f7dc5b471f4fb8ed2733b1829b0b87d0d64f78d9e4221ad9331",
+      "workingSha256": "7bf67ac48c627f7dc5b471f4fb8ed2733b1829b0b87d0d64f78d9e4221ad9331"
+    },
+    {
+      "path": "docs/crm-sales-20260921/UX-AUDIT.md",
+      "gitBlob": "71d50400851bbc3f827332f372a9d7bb1e55e2f7",
+      "gitBytes": 3072,
+      "gitSha256": "8a7ddd7a8397beb48d8f0fec96f01328e7a1f2576f5359000750ee101c6b730e",
+      "workingSha256": "8a7ddd7a8397beb48d8f0fec96f01328e7a1f2576f5359000750ee101c6b730e"
+    },
+    {
+      "path": "packages/api/package.json",
+      "gitBlob": "2d751ba4b2b702fd93a933c93e6b3d0cbed2d816",
+      "gitBytes": 2925,
+      "gitSha256": "ed483822c1a6dc2149a400f52f12ef98c90426955c8eafaa10fbff13ec3ece32",
+      "workingSha256": "ed483822c1a6dc2149a400f52f12ef98c90426955c8eafaa10fbff13ec3ece32"
+    },
+    {
+      "path": "packages/api/src/prospect-sales-contract.ts",
+      "gitBlob": "10debc4c428ac78f4702fea40670525d5ed5855f",
+      "gitBytes": 2684,
+      "gitSha256": "d64cfd061f11c1ca5998d878a33f35d3bbc2c65f574e3b41d02a31755029163e",
+      "workingSha256": "d64cfd061f11c1ca5998d878a33f35d3bbc2c65f574e3b41d02a31755029163e"
+    },
+    {
+      "path": "packages/api/src/prospect-sales-workflow.ts",
+      "gitBlob": "04bdf0cdef0db5c33a1090b17759324b6ec53b4a",
+      "gitBytes": 17078,
+      "gitSha256": "2c5f86d842716d7d37a77b1d9aeeab3abfd92a717f284674a864467d03654915",
+      "workingSha256": "2c5f86d842716d7d37a77b1d9aeeab3abfd92a717f284674a864467d03654915"
+    },
+    {
+      "path": "packages/api/src/routers/admin/prospect-crm-sales.test.ts",
+      "gitBlob": "7a1773568834ee9828e16aceef906fbd9a0eaea5",
+      "gitBytes": 2782,
+      "gitSha256": "91b7063db995c391e912e48583e31b4c7d0f5e988d6d4f3780308b803206b632",
+      "workingSha256": "91b7063db995c391e912e48583e31b4c7d0f5e988d6d4f3780308b803206b632"
+    },
+    {
+      "path": "packages/api/src/routers/admin/prospect-crm-sales.ts",
+      "gitBlob": "cecde767c895ebd421786443513db31d42432c02",
+      "gitBytes": 1450,
+      "gitSha256": "6652fd5003d4fab3157d2e8c022e7c0d38f9acea5bf57fde8e5cf9cf5786666f",
+      "workingSha256": "6652fd5003d4fab3157d2e8c022e7c0d38f9acea5bf57fde8e5cf9cf5786666f"
+    },
+    {
+      "path": "packages/api/src/routers/admin/prospect-crm.ts",
+      "gitBlob": "2a2aabaf7057da37227f7362b32e2c8aa4c88f32",
+      "gitBytes": 1300,
+      "gitSha256": "b3899a83a32b770a2fb96225163c5802cf635b43ad2fb1b7914af66d8ff5944f",
+      "workingSha256": "b3899a83a32b770a2fb96225163c5802cf635b43ad2fb1b7914af66d8ff5944f"
+    },
+    {
+      "path": "packages/api/src/testing/public-surface-manifest.json",
+      "gitBlob": "84e031e9d66450e1e87554b61253dda71a3dd3e8",
+      "gitBytes": 15840,
+      "gitSha256": "43b8f87b77f85911c6cda0a960a786e2fefeff30dc0d06991806a67358250755",
+      "workingSha256": "43b8f87b77f85911c6cda0a960a786e2fefeff30dc0d06991806a67358250755"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260921050000_native_sales_no_send/migration.sql",
+      "gitBlob": "987191afbba2ac3bda3a5489d0a0a46eabfedb2e",
+      "gitBytes": 3359,
+      "gitSha256": "30238e6ee96057b0e9a1229c5c44ac0517a634356daf8103732eca87138f5308",
+      "workingSha256": "30238e6ee96057b0e9a1229c5c44ac0517a634356daf8103732eca87138f5308"
+    },
+    {
+      "path": "packages/db/prisma/schema.prisma",
+      "gitBlob": "eba7816d57f323ecdf99f5d40b39a3b11d9e8499",
+      "gitBytes": 607731,
+      "gitSha256": "d0d978d9362d463c34e8af3935babe60d0ef61da813da858dc0808f3d0456021",
+      "workingSha256": "c8a9b38fc3de825c54cdb46f9ed98e3165f321bb7963c3fc1d29b13491e94565"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-outreach-actions.ts",
+      "gitBlob": "b6db0a3260b938c5e7345111528e9f0e97bf906f",
+      "gitBytes": 22371,
+      "gitSha256": "8ac1cce77df260c2f977bdf18fda44d9fef663381ebe87ee3d2208a06f11f23a",
+      "workingSha256": "8ac1cce77df260c2f977bdf18fda44d9fef663381ebe87ee3d2208a06f11f23a"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-package-commit-disposable.integration.test.ts",
+      "gitBlob": "b6db1f994171e86b26da8a83d71176c079bcc3fd",
+      "gitBytes": 6876,
+      "gitSha256": "4f60f19cff5900577bac8c242c683195cd07c49f2f6ca65a0e4ccacbaf46dd29",
+      "workingSha256": "4f60f19cff5900577bac8c242c683195cd07c49f2f6ca65a0e4ccacbaf46dd29"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-sales-actions.test.ts",
+      "gitBlob": "ab5ffd16bfd8146633a777335becca473688a45d",
+      "gitBytes": 8609,
+      "gitSha256": "4f3bdec7fab73077ab90125ff9c3e5becc23487f2b6c28c605e6a515e3cb0358",
+      "workingSha256": "4f3bdec7fab73077ab90125ff9c3e5becc23487f2b6c28c605e6a515e3cb0358"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-sales-actions.ts",
+      "gitBlob": "12939bf0cbcaf307d157cd9c1919cde59dc3e6aa",
+      "gitBytes": 15552,
+      "gitSha256": "6ef813ab26233eff079faea83f7f98329bce4c9070b86c4b07519cb46c18af07",
+      "workingSha256": "6ef813ab26233eff079faea83f7f98329bce4c9070b86c4b07519cb46c18af07"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-sales-correspondence.ts",
+      "gitBlob": "41bad9762a1be94488b47238542e97d77353d02d",
+      "gitBytes": 11354,
+      "gitSha256": "df56e9894f17ec1f2317e5f5b8fb4dc3cd023b49873315373b28936c3a2c654c",
+      "workingSha256": "df56e9894f17ec1f2317e5f5b8fb4dc3cd023b49873315373b28936c3a2c654c"
+    },
+    {
+      "path": "packages/db/src/helpers/prospect-sales-snapshot.ts",
+      "gitBlob": "d5e59f8d696bceba8e31ffc5e8ee92f93dd206d5",
+      "gitBytes": 9023,
+      "gitSha256": "b2e887d0b9848f2204da0e135249d12116ff5ede1525332cac305b37ac905b56",
+      "workingSha256": "b2e887d0b9848f2204da0e135249d12116ff5ede1525332cac305b37ac905b56"
+    },
+    {
+      "path": "packages/db/src/index.ts",
+      "gitBlob": "8e2e4e3fba8b8313b6329a02e563ea8b0e726582",
+      "gitBytes": 50361,
+      "gitSha256": "e2507c1bf46983a280822a6a05e81467ef71687b65cb976a8b61ea4f62045b85",
+      "workingSha256": "e2507c1bf46983a280822a6a05e81467ef71687b65cb976a8b61ea4f62045b85"
+    },
+    {
+      "path": "scripts/accept-native-crm-sales.ts",
+      "gitBlob": "99619bd3415fe4fe65040d8f41b89171d3b16073",
+      "gitBytes": 28250,
+      "gitSha256": "36a9b014b0066ac2a0e7a14ba85be7f7bb695bff54fb98f718c5154c782658e3",
+      "workingSha256": "36a9b014b0066ac2a0e7a14ba85be7f7bb695bff54fb98f718c5154c782658e3"
+    },
+    {
+      "path": "scripts/admin-router-modularity.test.mjs",
+      "gitBlob": "c8ed05c7ce44bce5e08c80f410f9898256f3a3e0",
+      "gitBytes": 15525,
+      "gitSha256": "9ad9f45509226e4681a648d53e8c37bce4608dab74648e2f295239bc826ec06c",
+      "workingSha256": "9ad9f45509226e4681a648d53e8c37bce4608dab74648e2f295239bc826ec06c"
+    },
+    {
+      "path": "scripts/agent-tool-coverage.json",
+      "gitBlob": "a34826f7f398e3ed5f859297d04f26f3ad92fcf0",
+      "gitBytes": 42914,
+      "gitSha256": "af2f00030023d9498fe8cb435ddfa9e52c3afa29fda7c0b48393b12e13cfbfb5",
+      "workingSha256": "af2f00030023d9498fe8cb435ddfa9e52c3afa29fda7c0b48393b12e13cfbfb5"
+    },
+    {
+      "path": "scripts/crm-sales/component_bridge.py",
+      "gitBlob": "552687267c4486f8a992eeffe115c4429bebbaf5",
+      "gitBytes": 21491,
+      "gitSha256": "8e48b27b63b18bfe4c042a6c54e04dd031f129214255095cf740468a41f40a9c",
+      "workingSha256": "8e48b27b63b18bfe4c042a6c54e04dd031f129214255095cf740468a41f40a9c"
+    },
+    {
+      "path": "scripts/crm-sales/test_component_bridge.py",
+      "gitBlob": "86313643eb95d1c12192af31fc8860819ccc98bd",
+      "gitBytes": 9662,
+      "gitSha256": "2cf80f2664eae340b4b25749ebf156ceb3c21315a5ba7d8788536cab64f822b9",
+      "workingSha256": "2cf80f2664eae340b4b25749ebf156ceb3c21315a5ba7d8788536cab64f822b9"
+    },
+    {
+      "path": "scripts/crm-sales/verify_retained_readback.py",
+      "gitBlob": "c793b8dfed9b09d88d186b1dd2be50207f845125",
+      "gitBytes": 9857,
+      "gitSha256": "6ba43e9baf9f822ba3aeef6192143e4b2ae97de2b0a28466c5b022ea9ed5ff33",
+      "workingSha256": "6ba43e9baf9f822ba3aeef6192143e4b2ae97de2b0a28466c5b022ea9ed5ff33"
+    },
+    {
+      "path": "scripts/lib/public-surface-inventory.mjs",
+      "gitBlob": "470ba15f6e0fa6a29cfce5858148e84cbcc329e1",
+      "gitBytes": 29926,
+      "gitSha256": "43be528d51692e594f01552ef4861b859186941989a7a61cbd1b71ffbd47a56d",
+      "workingSha256": "43be528d51692e594f01552ef4861b859186941989a7a61cbd1b71ffbd47a56d"
+    },
+    {
+      "path": "scripts/public-surface-boundary.test.mjs",
+      "gitBlob": "77602730eac8dae8969c1df309b6ee227bea0cad",
+      "gitBytes": 14766,
+      "gitSha256": "e9e649fd6326061d215ad9bd8ac330561f679941ca6389781d76551ad37d9e75",
+      "workingSha256": "e9e649fd6326061d215ad9bd8ac330561f679941ca6389781d76551ad37d9e75"
+    },
+    {
+      "path": "scripts/run-local-crm-research.ps1",
+      "gitBlob": "c25a2692e4f4a6eeb6b2c92086872bad36229f57",
+      "gitBytes": 4890,
+      "gitSha256": "d1b7b671015ef3f48e1a088c5ea7bfd5013ed13686248fbf89c56cef8e3bdffa",
+      "workingSha256": "d1b7b671015ef3f48e1a088c5ea7bfd5013ed13686248fbf89c56cef8e3bdffa"
+    },
+    {
+      "path": "scripts/verify-native-crm-sales-browser.mjs",
+      "gitBlob": "604e02893811e0a7f0215293d500d6c1ff4c46e7",
+      "gitBytes": 15213,
+      "gitSha256": "4fb2d53715cf970edae3351e47340ce0c075a6823f69518b7536a9b51fd5f1af",
+      "workingSha256": "4fb2d53715cf970edae3351e47340ce0c075a6823f69518b7536a9b51fd5f1af"
+    },
+    {
+      "path": "scripts/verify-tenant-bypass-boundary.mjs",
+      "gitBlob": "8b77380ba11148cf24ba09c476e743884210d485",
+      "gitBytes": 38956,
+      "gitSha256": "fbb3890ab617076aa5494beccbabe679db1ed96b09f3530685578d4de2c7ea9f",
+      "workingSha256": "fbb3890ab617076aa5494beccbabe679db1ed96b09f3530685578d4de2c7ea9f"
+    }
+  ],
+  "scope": "Owned implementation, focused tests, contracts, handoff and seven accepted screenshots only. No original generated files or dependency payloads."
+}

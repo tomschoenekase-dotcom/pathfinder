@@ -12,6 +12,26 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Exact opt-in retained-loopback geography proposals and reads only. No human
+  // acceptance, geography assignment, credentials or sending in this adapter.
+  ['packages/api/src/prospect-geography-local.ts', 1],
+  // Explicit opt-in, exact retained-loopback DB only. Native admin or guarded
+  // local operator; bounded reads and CAS-fenced preparation/review, never send.
+  // Extra call: exact bound immutable import receipt before mutable readback;
+  // native writer/operator authority is checked before entering this owner.
+  ['packages/api/src/prospect-sales-workflow.ts', 3],
+  // Authenticated admin health projection for one fixed company sender. At
+  // most two matches; no credentials, provider calls or account mutation.
+  ['packages/api/src/routers/admin/prospect-crm-sales.ts', 1],
+  // Exact message, organization, thread and scoped agent source-only reader.
+  ['packages/api/src/prospect-reply-content.ts', 1],
+  // Human-selected exact source/hash: one read and one bound retention CAS.
+  ['packages/api/src/correspondence/selected-reply-retention.ts', 2],
+  // No-send groups: list, preview, human lifecycle, reserve, claim, checkpoint,
+  // complete review read and human read-ack. All require authenticated grants
+  // and complete organization scope; mutations revalidate and use serializable
+  // CAS. None invokes a provider, send approval, outbox or delivery control.
+  ['packages/api/src/prospect-outreach-cohort.ts', 8],
   // Public custom PNG assets resolve one active unique venue slug, then require
   // its exact tenant/venue, current native head, flags and verified export receipt.
   // Caller paths never provide tenant identities or private storage references.
@@ -75,7 +95,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
-  ['apps/workers/src/processors/gmail-sync.ts', 4],
+  // Native sync: exact mailbox, receipt finalization and connected-account
+  // scheduler fanout. Cursor CAS moved to the preserved inbound store owner.
+  ['apps/workers/src/processors/gmail-sync.ts', 3],
   // Platform maintenance scans a bounded set of STALE summaries, then each
   // canonical refresh re-enters one exact tenant+organization scope.
   ['apps/workers/src/processors/account-summary-refresh.ts', 1],
@@ -251,7 +273,9 @@ const approvedCallCounts = new Map([
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 4],
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 2],
+  // Exact thread reads moved to a separate admin module; scope checks and bypass count are preserved.
+  ['packages/api/src/routers/admin/prospect-crm-thread-read.ts', 2],
   // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
   ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
@@ -261,11 +285,16 @@ const approvedCallCounts = new Map([
   // explicit audited actor and no customer-tenant procedure exposure.
   ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 9],
   ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
-  ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
+  ['packages/api/src/routers/admin/prospect-crm-territories.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  // Includes one authenticated, exact-account reconciliation request. No account
+  // activation, wildcard fanout, provider call or send authorization is granted.
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 11],
+  // These three existing bypasses moved with the exact reply, mailbox reconciliation,
+  // and staging-package intake procedures; their total grant count is unchanged.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-intake.ts', 3],
   // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
   // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
   ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],
@@ -280,6 +309,11 @@ const approvedCallCounts = new Map([
   ['apps/dashboard/lib/character-import.ts', 1],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+  // Platform-admin Chicago intelligence uses one bounded wrapper; agent calls retain registry scope.
+  ['packages/api/src/routers/admin/prospect-crm-chicago.ts', 1],
+  // Explicit development opt-in and exact disposable loopback database only;
+  // local caller retains the authenticated admin router's Chicago constraints.
+  ['packages/api/src/chicago-intelligence-local.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.
   // The human-only inbox performs one bounded list and one append-only review transaction;
   // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
@@ -289,7 +323,9 @@ const approvedCallCounts = new Map([
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
-  ['packages/api/src/correspondence/prisma-inbound-store.ts', 11],
+  // Reconciled receipt leases, retry-safe canonical reply signals and exact
+  // provider/account/message identities plus cursor compare-and-swap.
+  ['packages/api/src/correspondence/prisma-inbound-store.ts', 18],
   // Capability-checked platform CRM agent tools have no tenant authority or send capability.
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],

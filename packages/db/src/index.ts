@@ -10,6 +10,30 @@ export {
   type ProspectLaunchAttachmentValidationOptions,
   type ProspectLaunchReadClient,
 } from './helpers/prospect-launch-attachments'
+import type { Prisma } from '@prisma/client'
+export type DbTransactionClient = Prisma.TransactionClient
+export type DbInputJsonValue = Prisma.InputJsonValue
+export {
+  proposeProspectGeography,
+  listProspectGeographyProposals,
+  resolveProspectGeographyProposal,
+} from './helpers/prospect-geography-review'
+export * from './helpers/prospect-territory-registry'
+export * from './helpers/prospect-territory-actions'
+export * from './helpers/prospect-territory-read'
+export {
+  claimCountyResearch,
+  renewCountyResearch,
+  releaseCountyResearch,
+  completeCountyResearch,
+  readCountyResearch,
+  type CountyResearchActor,
+} from './helpers/prospect-county-research'
+export {
+  submitCountyDiscovery,
+  readCountyDiscoveries,
+  decideCountyDiscovery,
+} from './helpers/prospect-county-discovery'
 export {
   readSupportPortableExport,
   SUPPORT_PORTABLE_EXPORT_LIMITS,
@@ -1390,6 +1414,7 @@ export {
   stageProspectSendBatchAction,
 } from './helpers/prospect-outreach-actions'
 export {
+  claimProspectAmbiguousRecoveryAction,
   claimProspectSendOutboxAction,
   finalizeProspectSendBatch,
   foldProspectEmailStatus,
@@ -1471,6 +1496,16 @@ export * from './helpers/agent-workflow-activation-actions'
 export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'
 export * from './helpers/agent-routine-actions'
+export * from './helpers/prospect-sales-snapshot'
+export * from './helpers/prospect-reply-projection'
+export * from './helpers/prospect-sales-actions'
+export * from './helpers/prospect-sales-meaning'
+export * from './helpers/prospect-source-admission'
+export * from './helpers/prospect-sales-writer'
+export * from './helpers/prospect-native-writer-agent'
+export * from './helpers/prospect-native-origin'
+export * from './helpers/prospect-native-handoff'
+export * from './helpers/prospect-sales-correspondence'
 export * from './helpers/intake-v1-package-draft-proposal-actions'
 export * from './helpers/intake-v1-package-machine-authority'
 
@@ -1499,3 +1534,7 @@ export {
   GuestConversationDispositionAuthorizationInput,
   GuestConversationDispositionAuthorityError,
 } from './helpers/guest-conversation-disposition-authority'
+
+export * from './helpers/venue-launch-source'
+export * from './helpers/prospect-launch-attachments'
+export * from './helpers/chicago-venue-ranking'

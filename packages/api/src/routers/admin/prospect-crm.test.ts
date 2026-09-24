@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   providerAccounts: vi.fn(),
   followups: vi.fn(),
   prospect: vi.fn(),
+  importHistory: vi.fn().mockResolvedValue([]),
   reviewContactReadiness: vi.fn(),
   prepareAttachmentRetention: vi.fn(),
   reviewAttachmentRetention: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  SALES_PREPARATION_SOURCE: 'CRM_SALES_PREPARATION_V1',
   PROSPECT_OUTREACH_MAX_BATCH: 500,
   PROSPECT_OUTREACH_MAX_COHORT: 5_000,
   PROSPECT_OUTREACH_RELEASE_POLICY: {
@@ -67,6 +69,7 @@ vi.mock('@pathfinder/db', () => ({
     correspondenceProviderAccount: { findMany: mocks.providerAccounts },
     prospectFollowup: { findMany: mocks.followups },
     prospectOrganization: { findUnique: mocks.prospect },
+    prospectImportSourceRecord: { findMany: mocks.importHistory },
     prospectOnboardingDeliveryAttempt: { findFirst: mocks.onboardingAttempt },
   },
 }))
@@ -368,7 +371,7 @@ describe('admin prospect CRM router', () => {
       organizationId: 'org-1',
     })
 
-    expect(result).toEqual({ customerRelationships: [], conversion: null })
+    expect(result).toEqual({ customerRelationships: [], conversion: null, importHistory: [] })
     const query = mocks.prospect.mock.calls[0]?.[0]
     const messageSelect = query?.include?.emailThreads?.include?.messages?.select
     expect(messageSelect).toMatchObject({

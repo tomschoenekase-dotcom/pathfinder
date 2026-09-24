@@ -7,6 +7,7 @@ import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query'
 import superjson from 'superjson'
 
 import type { AppRouter } from '@pathfinder/api'
+import { shouldLogDashboardOperation } from './trpc-log-policy'
 
 export const TRPC_ENDPOINT = '/api/trpc'
 
@@ -21,8 +22,7 @@ function createBrowserTRPCClient(): DashboardTRPCClient {
     links: [
       loggerLink({
         enabled: (options) =>
-          process.env.NODE_ENV === 'development' ||
-          (options.direction === 'down' && options.result instanceof Error),
+          shouldLogDashboardOperation(options, process.env.NODE_ENV === 'development'),
       }),
       httpBatchLink({
         transformer: superjson,

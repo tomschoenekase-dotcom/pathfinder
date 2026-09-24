@@ -18,6 +18,9 @@ const CONTROL_PROFILES = new Set([
   'bounded-signed-webhook',
   'bounded-machine-credential-ingress',
   'handler-platform-admin',
+  'development-loopback-read',
+  'development-loopback-no-send-review',
+  'development-loopback-research',
 ])
 const CANONICAL_PROCEDURE_BUILDERS = new Map([
   ['publicProcedure', 't.procedure'],
@@ -45,6 +48,9 @@ const HTTP_PROFILE_POLICY = new Map([
   ['bounded-signed-webhook', 'signature-authenticated-public-ingress'],
   ['bounded-machine-credential-ingress', 'machine-credential-authenticated-public-ingress'],
   ['handler-platform-admin', 'handler-platform-admin'],
+  ['development-loopback-read', 'development-loopback-only'],
+  ['development-loopback-no-send-review', 'development-loopback-only'],
+  ['development-loopback-research', 'development-loopback-only'],
 ])
 const TRPC_ENTRY_KEYS = new Set([
   'path',
@@ -680,6 +686,32 @@ export function auditPublicSurfaceManifest({
           violations.push(`${kind}:${id ?? 'unknown'}: control profile is incompatible`)
         }
         if (
+          entry.controlProfile === 'development-loopback-read' &&
+          (![
+            'apps/dashboard/app/dev-fixtures/prospect-research/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/workspace/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/workspace/sales/route.ts',
+          ].includes(entry.source) ||
+            stable(entry.methods) !== stable(['GET']) ||
+            !entry.behavioralEvidence?.includes(entry.source.replace('/route.ts', '/route.test.ts')))
+        ) {
+          violations.push(
+            `${kind}:${id ?? 'unknown'}: loopback-only profile requires the exact reviewed GET adapter and runtime boundary tests`,
+          )
+        }
+        if (
+          entry.controlProfile === 'development-loopback-research' &&
+          (![
+            'apps/dashboard/app/dev-fixtures/prospect-research/chicago/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/territories/data/route.ts',
+          ].includes(entry.source) ||
+            stable(entry.methods) !== stable(['GET', 'POST']) ||
+            !entry.behavioralEvidence?.includes(entry.source.replace('/route.ts', '/route.test.ts')) ||
+            !entry.behavioralEvidence?.includes('apps/dashboard/lib/local-prospect-research-boundary.test.ts'))
+        ) {
+          violations.push(`${kind}:${id ?? 'unknown'}: research fixture requires exact loopback route, methods, and runtime boundary tests`)
+        }
+        if (
           !Array.isArray(entry.methods) ||
           entry.methods.length === 0 ||
           entry.methods.some((method) => !HTTP_METHODS.has(method)) ||
@@ -687,6 +719,21 @@ export function auditPublicSurfaceManifest({
           stable([...entry.methods].sort()) !== stable(entry.methods)
         ) {
           violations.push(`${kind}:${id ?? 'unknown'}: invalid methods`)
+        }
+        if (
+          entry.controlProfile === 'development-loopback-no-send-review' &&
+          (entry.source !== 'apps/dashboard/app/dev-fixtures/prospect-research/sales/route.ts' ||
+            stable(entry.methods) !== stable(['GET', 'POST']) ||
+            !entry.behavioralEvidence?.includes(
+              'apps/dashboard/app/dev-fixtures/prospect-research/sales/route.test.ts',
+            ) ||
+            !entry.behavioralEvidence?.includes(
+              'packages/api/src/routers/admin/prospect-crm-sales.test.ts',
+            ))
+        ) {
+          violations.push(
+            `${kind}:${id ?? 'unknown'}: no-send review profile requires the exact opted-in CRM route and runtime authority tests`,
+          )
         }
       }
       if (!Array.isArray(entry?.behavioralEvidence)) {

@@ -3,6 +3,7 @@ import { ExternalLink, MessageSquareText } from 'lucide-react'
 import { safeGmailSourceUrl } from '../../lib/gmail-source-url'
 import { ProspectAttachmentRetentionControl } from './ProspectAttachmentRetentionControl'
 import { ProspectInboundReplyReviewControl } from './ProspectInboundReplyReviewControl'
+import { ProspectReplyContentControl } from './ProspectReplyContentControl'
 
 type Attachment = {
   providerAttachmentId: string
@@ -47,6 +48,10 @@ function attachments(value: unknown): Attachment[] {
 
 type ProspectCorrespondenceMessage = {
   id: string
+  organizationId?: string
+  providerAccount?: { provider: string; mailboxAddress: string } | null
+  bodyRetentionState?: string
+  bodyExpiresAt?: Date | string | null
   direction: string
   status: string
   fromAddress: string
@@ -90,15 +95,18 @@ type ProspectCorrespondenceMessage = {
 type ProspectCorrespondenceThread = {
   id: string
   subject: string | null
+  _count?: { messages: number }
   messages: ProspectCorrespondenceMessage[]
 }
 
 export function ProspectCorrespondenceHistory({
   threads,
+  totalThreadCount = threads.length,
   enableRetentionActions = false,
   enableReplyReviewActions = false,
 }: {
   threads: ProspectCorrespondenceThread[]
+  totalThreadCount?: number
   enableRetentionActions?: boolean
   enableReplyReviewActions?: boolean
 }) {
@@ -113,9 +121,19 @@ export function ProspectCorrespondenceHistory({
         operational preview and links back to the original when available.
       </p>
       {!threads.length ? (
-        <p className="mt-4 text-sm text-slate-500">No email correspondence recorded yet.</p>
+        <p className="mt-4 text-sm text-slate-500">
+          No email correspondence is recorded in this CRM view. Mailbox coverage may be incomplete;
+          check the connected account and synchronization state before treating this as no prior
+          contact.
+        </p>
       ) : (
         <div className="mt-4 space-y-4">
+          {totalThreadCount > threads.length ? (
+            <p className="text-sm font-semibold text-amber-900">
+              Showing the latest {threads.length} of {totalThreadCount} recorded threads. Older
+              correspondence is outside this view.
+            </p>
+          ) : null}
           {threads.map((thread) => (
             <article key={thread.id} className="rounded-xl border border-slate-200">
               <div className="border-b border-slate-100 px-4 py-3">
@@ -123,8 +141,16 @@ export function ProspectCorrespondenceHistory({
                   {thread.subject ?? 'Email thread'}
                 </h3>
                 <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                  {thread.messages.length} message{thread.messages.length === 1 ? '' : 's'}
+                  {thread.messages.length} of {thread._count?.messages ?? thread.messages.length}{' '}
+                  recorded message
+                  {(thread._count?.messages ?? thread.messages.length) === 1 ? '' : 's'}
                 </p>
+                {(thread._count?.messages ?? thread.messages.length) > thread.messages.length ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-900">
+                    Older messages are outside this bounded preview; check the source mailbox for
+                    full context.
+                  </p>
+                ) : null}
               </div>
               <ol className="divide-y divide-slate-100">
                 {thread.messages.map((message) => {
@@ -150,6 +176,34 @@ export function ProspectCorrespondenceHistory({
                       <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
                         {message.bodyPreview ?? 'No compact preview is available.'}
                       </p>
+                      {message.providerAccount?.provider === 'FAKE' ||
+                      message.sourceReference?.startsWith('synthetic:') ? (
+                        <p className="mt-2 text-sm font-semibold text-amber-900">
+                          Synthetic QA correspondence · not evidence of customer contact.
+                        </p>
+                      ) : null}
+                      {message.bodyRetentionState === 'TEMPORARY' ? (
+                        <p className="mt-2 text-xs text-slate-700">
+                          Temporary reply body{' '}
+                          {message.bodyExpiresAt &&
+                          new Date(message.bodyExpiresAt).getTime() > Date.now()
+                            ? `available until ${new Date(message.bodyExpiresAt).toLocaleString()}`
+                            : 'expired; it cannot support a new preparation'}
+                          . Full mailbox history may still be incomplete.
+                        </p>
+                      ) : null}
+                      {enableRetentionActions &&
+                      message.direction === 'INBOUND' &&
+                      message.bodyRetentionState === 'NOT_STORED' &&
+                      message.providerAccount?.provider === 'GMAIL' &&
+                      message.organizationId ? (
+                        <ProspectReplyContentControl
+                          key={message.id}
+                          messageId={message.id}
+                          threadId={thread.id}
+                          organizationId={message.organizationId}
+                        />
+                      ) : null}
                       {sourceUrl ? (
                         <a
                           href={sourceUrl}

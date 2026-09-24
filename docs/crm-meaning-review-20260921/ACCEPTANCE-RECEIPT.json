@@ -1,0 +1,154 @@
+{
+  "schema": "torchiko.crm-meaning-local-acceptance/1",
+  "observedAt": "2026-09-21T06:58:06.053115+00:00",
+  "sourceCommit": "d67a625b2121144e674a86822c2ff667f80b0664",
+  "status": "NATIVE_SOURCE_BOUND_REVIEW_EXERCISED_NO_SEND",
+  "sourceStillExact": true,
+  "focusedTests": [
+    {
+      "receipt": "native-unit-r003.json",
+      "passed": 22,
+      "failed": 0,
+      "pending": 0,
+      "files": [
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/packages/db/src/helpers/prospect-sales-actions.test.ts",
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/packages/db/src/helpers/prospect-sales-meaning.test.ts"
+      ]
+    },
+    {
+      "receipt": "api-unit-r002.json",
+      "passed": 23,
+      "failed": 0,
+      "pending": 0,
+      "files": [
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/packages/api/src/prospect-meaning-contract.test.ts",
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/packages/api/src/routers/admin/prospect-crm-sales.test.ts"
+      ]
+    },
+    {
+      "receipt": "ui-unit-r003.json",
+      "passed": 13,
+      "failed": 0,
+      "pending": 0,
+      "files": [
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/apps/dashboard/components/admin/ProspectClaimMeaningReview.test.tsx",
+        "C:/Users/tomsc/Downloads/PathFinder-crm-research-20260919/apps/dashboard/components/admin/ProspectSalesReviewPanel.test.tsx"
+      ]
+    }
+  ],
+  "actualComposerIntegrationTests": 28,
+  "totalFocusedTests": 86,
+  "nativeAcceptance": {
+    "receipt": "native-r004.json",
+    "passed": true,
+    "checks": 47
+  },
+  "realBrowser": {
+    "receipt": "browser-r003/receipt.json",
+    "passed": true,
+    "checks": 70,
+    "screenshots": [
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\unsupported-claim-inspection-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\recorded-unsupported-findings-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\source-bound-reviewed-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\source-bound-reviewed-narrow.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\recorded-evidence-320.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\reply-evidence-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-meaning-review-20260921-r001\\browser-r003\\changed-inbound-stale-narrow.png"
+    ],
+    "accessibility": [
+      {
+        "label": "Desktop meaning review",
+        "passes": 21,
+        "violations": []
+      },
+      {
+        "label": "375px meaning review",
+        "passes": 21,
+        "violations": []
+      },
+      {
+        "label": "375px stale reply",
+        "passes": 18,
+        "violations": []
+      }
+    ],
+    "resourceSamples": [
+      {
+        "label": "Before the one owned browser",
+        "FreeDiskGiB": 8.219,
+        "FreeRamGiB": 7.895
+      },
+      {
+        "label": "After desktop and narrow proof",
+        "FreeDiskGiB": 8.202,
+        "FreeRamGiB": 6.786
+      },
+      {
+        "label": "Before closing the owned browser",
+        "FreeDiskGiB": 8.205,
+        "FreeRamGiB": 6.894
+      }
+    ],
+    "browserVersion": "153.0.4234.48",
+    "ownedBrowserClosed": true
+  },
+  "typecheckReceipt": "typecheck-execution-receipt.json",
+  "typechecks": [
+    {
+      "coreSessionId": 6632,
+      "exitCode": 0,
+      "execution": "Three commands ran serially, with explicit exit on nonzero after each command",
+      "commands": [
+        "pnpm --dir packages/db exec tsc --noEmit --incremental false --pretty false",
+        "pnpm --dir packages/api exec tsc --noEmit --incremental false --pretty false",
+        "pnpm --dir apps/dashboard exec tsc --noEmit --incremental false --pretty false"
+      ],
+      "output": "",
+      "typechecksPassed": 3,
+      "testWorkers": 0
+    },
+    {
+      "coreSessionId": 34948,
+      "exitCode": 0,
+      "execution": "The 22-test native unit rerun completed, then the dashboard no-emit typecheck completed against the restored original dirty next-env.d.ts and tsconfig.json",
+      "commands": [
+        "pnpm --dir apps/dashboard exec tsc --noEmit --incremental false --pretty false"
+      ],
+      "typecheckOutput": "",
+      "preservedConfiguration": true,
+      "typechecksPassed": 1
+    }
+  ],
+  "upstreamFilesUnchanged": 234,
+  "zeroStateReadback": {
+    "campaigns": 0,
+    "batches": 0,
+    "sendItems": 0,
+    "outbox": 0,
+    "followups": 0,
+    "humanInboundReview": 0,
+    "deliveryEnabled": 0,
+    "approvedNativeDrafts": 0,
+    "realMessages": 0
+  },
+  "sourceAndContactCoverage": "Exact P03 native source/contact fingerprints were unchanged across native and browser draft/review actions. Existing synthetic message and review rows were compared directly during inbound append acceptance.",
+  "fullDatabaseFingerprintSweep": {
+    "executed": false,
+    "passed": null,
+    "receipt": "preservation-r001-BLOCKED.json",
+    "helperSyntaxVerifiedOnly": true
+  },
+  "limits": [
+    "No final claim of 42-table/41-table full-row preservation: that follow-up command was blocked before execution.",
+    "Desktop connector observe failed -32602. Actual installed Edge desktop-sized/narrow browser proof passed instead.",
+    "Original Composer annotation, language and meaning entrypoints were invoked; its separate upstream filesystem-bundle wrapper was not invoked.",
+    "No human-authenticated review or Tom approval was fabricated. All acceptance mutations have explicit synthetic SYSTEM attribution.",
+    "No runtime model call occurs in the UI. Submitted judgments remain attributed assessments, not semantic entailment proof.",
+    "Actual Approved Language had zero approved/selected entries. This lane never approves library wording.",
+    "New ordinary-reply fixture turns are explicitly synthetic outbound/inbound data, not actual sends. Multiple-unanswered holds remain enforced by the unchanged correspondence reducer.",
+    "No full production build, full monorepo suite, deployment, live email, crawl, worker, model or provider activation was attempted.",
+    "The bounded UI exposes recent review history; the underlying immutable ledger is retained rather than rewritten or truncated."
+  ],
+  "SEND_AUTHORIZED": false
+}

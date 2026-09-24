@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   synchronize: vi.fn(),
   renewWatch: vi.fn(),
   publish: vi.fn(),
+  createStore: vi.fn(() => ({})),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -30,7 +31,7 @@ vi.mock('@pathfinder/api/correspondence', async (importOriginal) => {
     createGmailApiClient: vi.fn(() => ({})),
     createGmailOAuthRuntime: vi.fn(() => ({ credentials: {} })),
     createGmailCorrespondenceProvider: vi.fn(() => ({})),
-    createPrismaInboundCorrespondenceStore: vi.fn(() => ({})),
+    createPrismaInboundCorrespondenceStore: mocks.createStore,
     createInboundCorrespondenceService: vi.fn(() => ({
       synchronize: mocks.synchronize,
       renewWatch: mocks.renewWatch,
@@ -45,6 +46,7 @@ import { processGmailSyncJob } from './gmail-sync'
 describe('Gmail sync worker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.GMAIL_BODY_RETENTION_DAYS
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'client'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'secret'
     process.env.GMAIL_OAUTH_REDIRECT_URI = 'https://example.test/callback'
@@ -61,6 +63,10 @@ describe('Gmail sync worker', () => {
     mocks.publish.mockResolvedValue({ published: true })
   })
 
+  afterEach(() => {
+    delete process.env.GMAIL_BODY_RETENTION_DAYS
+  })
+
   it('marks a durable Pub/Sub receipt only after synchronization succeeds', async () => {
     mocks.synchronize.mockResolvedValue({ processed: 2 })
     await processGmailSyncJob({
@@ -74,23 +80,49 @@ describe('Gmail sync worker', () => {
         data: expect.objectContaining({ status: 'PROCESSED' }),
       }),
     )
+    expect(mocks.createStore).toHaveBeenCalledWith({
+      bodyPersistence: { mode: 'SOURCE_ONLY' },
+    })
   })
 
-  it('falls back to full reconciliation after an expired Gmail history cursor', async () => {
-    mocks.synchronize
-      .mockRejectedValueOnce(
-        new CorrespondenceProviderError('HISTORY_CURSOR_EXPIRED', 'cursor expired'),
-      )
-      .mockResolvedValueOnce({ mode: 'FULL_RECONCILIATION' })
+  it('passes an explicit bounded temporary retention policy to the normal worker store', async () => {
+    process.env.GMAIL_BODY_RETENTION_DAYS = '7'
+    mocks.synchronize.mockResolvedValue({ processed: 1 })
+
     await processGmailSyncJob({
       providerAccountId: 'account-1',
       trigger: 'SCHEDULED_RECONCILIATION',
     })
-    expect(mocks.update).toHaveBeenCalledWith({
-      where: { id: 'account-1' },
-      data: { syncCursor: null },
+
+    expect(mocks.createStore).toHaveBeenCalledWith({
+      bodyPersistence: { mode: 'TEMPORARY', retentionDays: 7 },
     })
-    expect(mocks.synchronize).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed before composing a worker service for invalid retention configuration', async () => {
+    process.env.GMAIL_BODY_RETENTION_DAYS = '31'
+
+    await expect(
+      processGmailSyncJob({
+        providerAccountId: 'account-1',
+        trigger: 'SCHEDULED_RECONCILIATION',
+      }),
+    ).rejects.toThrow(/integer from 1 to 30 days/)
+    expect(mocks.createStore).not.toHaveBeenCalled()
+  })
+
+  it('leaves an expired cursor reset to the synchronization service that owns its checkpoint', async () => {
+    mocks.synchronize.mockRejectedValueOnce(
+      new CorrespondenceProviderError('HISTORY_CURSOR_EXPIRED', 'cursor expired'),
+    )
+    await expect(
+      processGmailSyncJob({
+        providerAccountId: 'account-1',
+        trigger: 'SCHEDULED_RECONCILIATION',
+      }),
+    ).rejects.toThrow('cursor expired')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.synchronize).toHaveBeenCalledTimes(1)
   })
 
   it('renews watches using the configured exact Pub/Sub topic', async () => {

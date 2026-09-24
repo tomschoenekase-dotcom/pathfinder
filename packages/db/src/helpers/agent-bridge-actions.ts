@@ -213,8 +213,12 @@ export async function claimAgentBridgeTask(input: {
   sessionId: string
   venueId: string
   workerKey?: string
+  /** Optional narrowing only. A foreground outreach chat must never take the
+   * next unrelated queued task when its reviewed run is unavailable. */
+  runId?: string
   credential: VerifiedMcpCredentialScope
 }) {
+  const selectedRunId = z.string().trim().min(1).max(191).optional().parse(input.runId)
   assertCredential(input.credential, input.venueId)
   const session = await db.agentBridgeSession.findFirst({
     where: {
@@ -255,6 +259,7 @@ export async function claimAgentBridgeTask(input: {
   const now = new Date()
   const runs = await db.agentRun.findMany({
     where: {
+      ...(selectedRunId === undefined ? {} : { id: selectedRunId }),
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
       modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
@@ -281,6 +286,7 @@ export async function claimAgentBridgeTask(input: {
   })
   let claimed: Awaited<ReturnType<typeof claimAgentRunExecution>> | null = null
   for (const run of runs) {
+    if (selectedRunId !== undefined && run.id !== selectedRunId) continue
     if (!workerMatchesRun(run.scopeSnapshot, worker)) continue
     try {
       claimed = await claimAgentRunExecution({

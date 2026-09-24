@@ -41,6 +41,7 @@ import {
   enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
   enqueueMediaIngestion,
+  enqueueProspectOutreach,
   enqueueGenerationDispatchKick,
   enqueueIntakeV1FileExtraction,
   enqueueIntakeV1SourceProcessing,
@@ -76,6 +77,50 @@ describe('job enqueues', () => {
     vi.clearAllMocks()
     mocks.add.mockResolvedValue({ id: 'generated' })
     mocks.getJob.mockResolvedValue(null)
+  })
+
+  it('keeps ordinary prospect sends deterministic while expired-lease recovery gets a fresh job', async () => {
+    const payload = { outboxId: 'outbox-1' }
+
+    await enqueueProspectOutreach(payload)
+    await enqueueProspectOutreach(payload)
+    await enqueueProspectOutreach(payload, { recovery: true })
+    await enqueueProspectOutreach(payload, { recovery: true })
+
+    const options = mocks.add.mock.calls.map(([, , value]) => value as { jobId: string })
+    expect(options[0]?.jobId).toBe(options[1]?.jobId)
+    expect(options[0]?.jobId).toMatch(/^send-prospect-outbox-[0-9a-f]{64}$/u)
+    expect(options[2]?.jobId).toMatch(/^send-prospect-outbox-recovery-[0-9a-f]{64}-/u)
+    expect(options[3]?.jobId).toMatch(/^send-prospect-outbox-recovery-[0-9a-f]{64}-/u)
+    expect(options[2]?.jobId).not.toBe(options[3]?.jobId)
+    expect(mocks.add).toHaveBeenNthCalledWith(
+      3,
+      'send-prospect-outreach',
+      payload,
+      expect.objectContaining({ attempts: 4, removeOnFail: 10000 }),
+    )
+  })
+
+  it('does not let a retained failed job block a still-pending operation before its first claim', async () => {
+    const retained = { getState: vi.fn(async () => 'failed') }
+    mocks.getJob.mockResolvedValue(retained)
+
+    await enqueueProspectOutreach({ outboxId: 'outbox-1' })
+
+    expect(mocks.getJob).toHaveBeenCalledWith(expect.stringMatching(/^send-prospect-outbox-/u))
+    expect(retained.getState).toHaveBeenCalledOnce()
+    expect(mocks.add).toHaveBeenCalledWith(
+      'send-prospect-outreach',
+      { outboxId: 'outbox-1' },
+      expect.objectContaining({
+        jobId: expect.stringMatching(/^send-prospect-outbox-retry-[0-9a-f]{64}-/u),
+        removeOnFail: 10000,
+      }),
+    )
+    expect(mocks.loggerInfo).toHaveBeenCalledWith({
+      action: 'jobs.send-prospect-outbox.retry-after-failed-before-claim-enqueued',
+      outboxId: 'outbox-1',
+    })
   })
 
   it('keeps agent execution default-off and uses a deterministic run job when enabled', async () => {

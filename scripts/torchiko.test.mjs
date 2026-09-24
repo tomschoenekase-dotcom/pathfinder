@@ -85,7 +85,7 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   )
   const prospectTools = tools.tools.filter((tool) => tool.family === 'prospect-agent')
   const prospectNames = new Set(prospectTools.map((tool) => tool.name))
-  assert.equal(prospectTools.length, 10)
+  assert.equal(prospectTools.length, 24)
   assert.equal(
     prospectTools.every(
       (tool) =>
@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 547)
+  assert.equal(report.operations.total, 594)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
-  assert.equal(report.operations.counts.byKind.query, 238)
-  assert.equal(report.operations.counts.byKind.mutation, 309)
+  assert.equal(report.operations.counts.byKind.query, 254)
+  assert.equal(report.operations.counts.byKind.mutation, 340)
   assert.equal(report.operations.bindings.healthy, true)
   assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
   assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)

@@ -1,8 +1,27 @@
 import type { NormalizedProviderMessage } from './types'
+import { projectReplyText } from './reply-text'
 
 export type GmailBodyPersistencePolicy =
   | Readonly<{ mode: 'SOURCE_ONLY' }>
   | Readonly<{ mode: 'TEMPORARY'; retentionDays: number }>
+
+/**
+ * Resolve the worker's explicit retention opt-in. An unset value preserves the
+ * source-only boundary; every configured value must be a whole number of days.
+ */
+export function gmailBodyPersistencePolicyFromEnvironment(
+  value: string | undefined,
+): GmailBodyPersistencePolicy {
+  if (value === undefined || value === '') return { mode: 'SOURCE_ONLY' }
+  if (!/^[1-9][0-9]*$/u.test(value)) {
+    throw new Error('Gmail body retention configuration must be an integer from 1 to 30 days')
+  }
+  const retentionDays = Number(value)
+  if (!Number.isSafeInteger(retentionDays) || retentionDays > 30) {
+    throw new Error('Gmail body retention configuration must be an integer from 1 to 30 days')
+  }
+  return { mode: 'TEMPORARY', retentionDays }
+}
 
 export function projectGmailBodyForPersistence(input: {
   message: NormalizedProviderMessage
@@ -19,10 +38,15 @@ export function projectGmailBodyForPersistence(input: {
     throw new Error('Temporary Gmail body retention must be between 1 and 30 days')
   }
   const common = {
-    bodyPreview: input.message.body.text.replace(/\s+/gu, ' ').trim().slice(0, 500) || null,
-    sourceReference: `https://mail.google.com/mail/u/${encodeURIComponent(
-      input.message.message.mailboxId,
-    )}/#all/${encodeURIComponent(input.message.message.externalId)}`,
+    bodyPreview:
+      projectReplyText(input.message.body.text).text.replace(/\s+/gu, ' ').trim().slice(0, 500) ||
+      null,
+    sourceReference:
+      input.message.message.provider === 'FAKE'
+        ? `synthetic:crm-sales:fake-provider:${input.message.message.externalId}`
+        : `https://mail.google.com/mail/u/${encodeURIComponent(
+            input.message.message.mailboxId,
+          )}/#all/${encodeURIComponent(input.message.message.externalId)}`,
   }
   if (policy.mode === 'SOURCE_ONLY') {
     return {

@@ -148,7 +148,11 @@ describe('prospect last-mile delivery authority', () => {
             pausedAt: null,
             connectionStatus: 'CONNECTED',
           },
-          sendItem: { id: 'item-1', batch: { campaign: { pausedAt: null, status: 'ACTIVE' } } },
+          sendItem: {
+            id: 'item-1',
+            member: { organizationId: 'org-1' },
+            batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+          },
         }),
         update: vi.fn(),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -231,6 +235,7 @@ describe('prospect last-mile delivery authority', () => {
           sendItem: {
             id: 'item-1',
             recipientEmailSnapshot: 'removed@torchiko.test',
+            member: { organizationId: 'org-1' },
             batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
           },
         }),

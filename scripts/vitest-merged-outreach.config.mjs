@@ -1,0 +1,27 @@
+export default {
+  test: {
+    environment: 'node',
+    pool: 'forks',
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+    include: [
+      'packages/db/src/helpers/prospect-outreach-actions.test.ts',
+      'packages/db/src/helpers/prospect-send-outbox-actions.test.ts',
+      'apps/workers/src/processors/send-prospect-outreach.test.ts',
+      'packages/api/src/correspondence/gmail-oauth.test.ts',
+      'packages/api/src/correspondence/gmail-http-client.test.ts',
+      'packages/api/src/correspondence/gmail.test.ts',
+      'packages/api/src/correspondence/inbound-sync.test.ts',
+      'packages/api/src/correspondence/venue-launch-mime.test.ts',
+      'apps/dashboard/components/admin/ProspectCampaignWorkbench.test.tsx',
+      'apps/dashboard/components/admin/ProspectOutreachCenter.test.tsx',
+      'packages/api/src/prospect-launch-assets.test.ts',
+      'packages/api/src/lib/venue-launch-asset.test.ts',
+      'packages/contracts/src/venue-launch-asset.test.ts',
+      'packages/contracts/src/venue-qr-print.test.ts',
+      'packages/db/src/helpers/venue-launch-source.test.ts',
+      'apps/workers/src/processors/venue-launch-outbox.test.ts',
+    ],
+  },
+}

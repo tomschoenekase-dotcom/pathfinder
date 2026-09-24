@@ -37,6 +37,7 @@ const fixture = {
       {
         id: 'prospect-1',
         canonicalName: 'Harbor Museum',
+        _count: { sources: 1 },
         venues: [{ name: 'Harbor Museum' }],
         territory: { name: 'Chicago' },
         opportunity: {

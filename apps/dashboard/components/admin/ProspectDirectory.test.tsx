@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  historyReplace: vi.fn(),
   listProspectSavedViews: vi.fn(),
   listProspects: vi.fn(),
   saveProspectView: vi.fn(),
@@ -42,6 +43,7 @@ import { ProspectDirectory } from './ProspectDirectory'
 const prospect = {
   id: 'prospect-1',
   canonicalName: 'Harbor Museum',
+  _count: { sources: 1 },
   venues: [{ name: 'Harbor Museum' }],
   territory: { name: 'Chicago' },
   opportunity: {
@@ -65,11 +67,16 @@ function deferred<T>() {
 describe('ProspectDirectory request lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(window.history, 'replaceState').mockImplementation(mocks.historyReplace)
+    window.localStorage.clear()
     mocks.listProspectSavedViews.mockResolvedValue([])
     mocks.listProspects.mockResolvedValue({ items: [prospect], nextCursor: null })
   })
 
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('passes cancellable transport signals to initial directory reads', async () => {
     render(<ProspectDirectory />)
@@ -79,7 +86,7 @@ describe('ProspectDirectory request lifecycle', () => {
       signal: expect.any(AbortSignal),
     })
     expect(mocks.listProspects).toHaveBeenCalledWith(
-      { limit: 100 },
+      { limit: 100, sort: 'UPDATED' },
       { signal: expect.any(AbortSignal) },
     )
   })
@@ -124,5 +131,50 @@ describe('ProspectDirectory request lifecycle', () => {
 
     rendered.unmount()
     expect(pageSignal?.aborted).toBe(true)
+  })
+
+  it('does not let a late filter change replace navigation into a record', async () => {
+    render(<ProspectDirectory />)
+    const link = await screen.findByRole('link', { name: /^Harbor Museum/ })
+    // Prevent jsdom navigation while allowing the real link handler to run.
+    link.addEventListener('click', (event) => event.preventDefault())
+    fireEvent.click(link)
+    mocks.historyReplace.mockClear()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search prospects' }), {
+      target: { value: 'late result filter' },
+    })
+    expect(mocks.historyReplace).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it('keeps filters usable after opening a record in another tab', async () => {
+    render(<ProspectDirectory />)
+    const link = await screen.findByRole('link', { name: /^Harbor Museum/ })
+    link.addEventListener('click', (event) => event.preventDefault())
+    fireEvent.click(link, { ctrlKey: true })
+    mocks.historyReplace.mockClear()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search prospects' }), {
+      target: { value: 'another museum' },
+    })
+    expect(mocks.historyReplace).toHaveBeenCalledWith(
+      null,
+      '',
+      expect.stringContaining('search=another+museum'),
+    )
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it('leaves remembered filters unchanged when this browser cannot serialize cross-tab writes', async () => {
+    render(<ProspectDirectory />)
+    await screen.findByText('Harbor Museum')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remember filters' }))
+
+    expect(
+      await screen.findByText(
+        'This browser cannot safely remember filters across tabs. The filter link still works.',
+      ),
+    ).toBeTruthy()
+    expect(window.localStorage.length).toBe(0)
   })
 })

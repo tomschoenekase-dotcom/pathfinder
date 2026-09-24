@@ -514,6 +514,10 @@ and each revision-bearing frame-policy response to a healthy deployment that
 reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
 production authorization, or M4 approval.
 
+## 2026-09-24 reviewed source extension
+
+The isolated three-message test candidate adds four migrations after the frozen 250-row lineage: `20260921050000_native_sales_no_send`, `20260922180000_chicago_venue_intelligence`, `20260922234500_prospect_county_territories`, and `20260923014500_prospect_county_research_leases`. The 254-file source manifest is `57cb04a4165c78db2be8ea0bd2e9eea72527a1f8fd5bf298efb7a7dbfbf3d112`. The service-level setting is `PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-254-20260924`. The earlier 250-row deployment notes above remain historical; a fresh staged backup and restore proof is required for this extension.
+
 ## Post-resolution external exercise archive — INERT, DO NOT EXECUTE
 
 Every remaining section in this file is retained only as historical design input for a future
