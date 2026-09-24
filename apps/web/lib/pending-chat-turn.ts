@@ -5,7 +5,7 @@ import type { AppRouter } from '@pathfinder/api'
 export type RecoverableChatInput = inferRouterInputs<AppRouter>['chat']['send'] & {
   operationId: string
 }
-type Scope = { venueId: string; anonymousToken: string; secondLayerKey?: string }
+type Scope = Pick<RecoverableChatInput, 'venueId' | 'anonymousToken' | 'secondLayerKey'>
 const MAX_RECOVERY_CHARACTERS = 16_384
 
 function key(scope: Scope): string {

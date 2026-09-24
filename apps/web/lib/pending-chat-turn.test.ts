@@ -40,6 +40,16 @@ describe('tab-scoped exact pending turn', () => {
       readPendingChatTurn({ ...input, secondLayerKey: '123e4567-e89b-42d3-a456-426614174004' }),
     ).toEqual({ kind: 'invalid' })
   })
+  it('accepts the API optional-field shape without weakening employee scope checks', () => {
+    const apiInput: RecoverableChatInput = { ...input, secondLayerKey: undefined }
+    expect(rememberPendingChatTurn(apiInput)).toBe(true)
+    expect(readPendingChatTurn(apiInput)).toEqual({ kind: 'found', input })
+    expect(
+      readPendingChatTurn({ ...apiInput, secondLayerKey: '123e4567-e89b-42d3-a456-426614174004' }),
+    ).toEqual({ kind: 'invalid' })
+    forgetPendingChatTurn(apiInput)
+    expect(readPendingChatTurn(apiInput)).toEqual({ kind: 'empty' })
+  })
   it.each([
     '{',
     JSON.stringify({ version: 2, input }),
