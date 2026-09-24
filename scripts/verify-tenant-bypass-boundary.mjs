@@ -291,7 +291,10 @@ const approvedCallCounts = new Map([
   // converted venue through its exact, already-validated conversion tenant+venue identity.
   // Includes one authenticated, exact-account reconciliation request. No account
   // activation, wildcard fanout, provider call or send authorization is granted.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 14],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 11],
+  // These three existing bypasses moved with the exact reply, mailbox reconciliation,
+  // and staging-package intake procedures; their total grant count is unchanged.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-intake.ts', 3],
   // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
   // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
   ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],
