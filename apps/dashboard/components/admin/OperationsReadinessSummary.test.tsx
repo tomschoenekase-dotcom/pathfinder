@@ -68,6 +68,13 @@ const readiness = {
       totalDepth: 5,
       totalFailed: 2,
       oldestAgeMs: 12_000,
+      queues: [
+        {
+          name: 'send-email',
+          depth: 5,
+          counts: { waiting: 4, delayed: 1, active: 0 },
+        },
+      ],
     },
   },
   boundaries: {},
@@ -90,6 +97,9 @@ describe('operations readiness summary', () => {
     expect(screen.getByText(/does not prove AI-provider execution/i)).toBeTruthy()
     expect(screen.getByText('Terminal jobs / 60 min').parentElement?.textContent).toContain('12')
     expect(screen.getByText('Live queue').parentElement?.textContent).toContain('5 queued')
+    expect(screen.getByText('Queues with pending work').parentElement?.textContent).toContain(
+      'send-email',
+    )
     expect(screen.getByText('Provider wait').parentElement?.textContent).toContain('p95 3.1 s')
     expect(screen.getByText('Estimated provider cost').parentElement?.textContent).toContain(
       '$0.12345678',
