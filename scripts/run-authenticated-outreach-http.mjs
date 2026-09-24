@@ -147,8 +147,7 @@ try {
     `GRANT CONNECT ON DATABASE ${database} TO ${role};\nGRANT USAGE ON SCHEMA public TO ${role};\n` +
     `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};\n` +
     `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};\n`)
-  const req = createRequire(path.join(root, 'package.json'))
-  const result = spawnSync(process.execPath, [req.resolve('tsx/cli'), path.join(root, 'scripts/accept-authenticated-outreach-http.ts')],
+  const result = spawnSync(process.execPath, [rootRequire.resolve('tsx/cli'), path.join(root, 'scripts/accept-authenticated-outreach-http.ts')],
     { cwd: root, env, encoding: 'utf8', windowsHide: true, timeout: 300000, maxBuffer: 2000000 })
   writeFileSync(path.join(output, 'acceptance.log'), safe(`${result.stdout ?? ''}\n${result.stderr ?? ''}`), { flag: 'wx' })
   receipt.acceptancePassed = result.status === 0
