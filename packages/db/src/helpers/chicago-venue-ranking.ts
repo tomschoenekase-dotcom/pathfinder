@@ -228,7 +228,16 @@ function categoryIssue(category: string | null | undefined): string | null {
   if (category.length > 120)
     return 'Category exceeds 120 characters; source value retained, but no taxonomy prior is admissible until reviewed.'
   const label = category.replace(/_/g, ' ').trim()
-  if (label.split(/\s+/).length > 12 || /[\r\n\u0000-\u001f\u007f<>={}\[\]]|:\/\//u.test(label))
+  if (
+    label.split(/\s+/).length > 12 ||
+    [...label].some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    ) ||
+    /[<>{}=]/u.test(label) ||
+    label.includes('[') ||
+    label.includes(']') ||
+    label.includes('://')
+  )
     return 'Category contains prose or malformed label content; source value retained for taxonomy review.'
   if (/\b(?:not|no|unknown|uncertain|unverified|maybe|possibly|tbd|or)\b|\?/i.test(label))
     return 'Category is ambiguous, negated or uncertain; source value retained for taxonomy review.'

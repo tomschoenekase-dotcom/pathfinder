@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { db } from '../client'
 import {
   CountyDiscoveryCandidate,
   SubmitCountyDiscoveryInput,
@@ -191,7 +190,8 @@ async function resultForActor(
 ) {
   // Persisted global matching IDs are operator-only. Re-project using CURRENT
   // scope on every response/retry instead of trusting a frozen old projection.
-  const { globalIdentityMatches: _global, ...publicResult } = result
+  const publicResult = { ...result }
+  delete publicResult.globalIdentityMatches
   const candidate = CountyDiscoveryCandidate.safeParse(result.candidate)
   const identities = candidate.success
     ? await nativeIdentityCheck(tx, candidate.data)

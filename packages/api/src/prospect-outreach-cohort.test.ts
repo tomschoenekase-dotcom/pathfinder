@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- The test models a dynamic disposable Prisma transaction. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@pathfinder/db', () => ({
   db: {},

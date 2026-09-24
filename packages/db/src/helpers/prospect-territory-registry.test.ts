@@ -74,7 +74,8 @@ describe('approved county partition', () => {
   })
   it('cannot mutate loaded geography', () =>
     expect(() => {
-      ;(PROSPECT_TERRITORY_REGISTRY.counties as { geoid: string }[])[0]!.geoid = '99999'
+      const county = (PROSPECT_TERRITORY_REGISTRY.counties as { geoid: string }[])[0]!
+      county.geoid = '99999'
     }).toThrow())
   it('hashes independent of object key order', () =>
     expect(geographyHash({ a: 1, b: 2 })).toBe(geographyHash({ b: 2, a: 1 })))

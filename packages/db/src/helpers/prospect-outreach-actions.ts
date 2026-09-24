@@ -103,10 +103,9 @@ export type ProspectCampaignCreateInput = {
 export async function createProspectCampaignAction(
   input: ProspectCampaignCreateInput,
   client: Client = db,
-  verify?: NativeOriginVerifier,
 ) {
   requireHuman(input.actor)
-  return client.$transaction((tx) => createProspectCampaignActionInTransaction(input, tx, verify), {
+  return client.$transaction((tx) => createProspectCampaignActionInTransaction(input, tx), {
     isolationLevel: 'Serializable',
     timeout: 30_000,
   })
@@ -115,7 +114,6 @@ export async function createProspectCampaignAction(
 export async function createProspectCampaignActionInTransaction(
   input: ProspectCampaignCreateInput,
   tx: SalesTransaction,
-  verify?: NativeOriginVerifier,
 ) {
   requireHuman(input.actor)
   const ids = [...new Set(input.organizationIds)]

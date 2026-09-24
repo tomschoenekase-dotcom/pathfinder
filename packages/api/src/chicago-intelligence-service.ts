@@ -209,7 +209,7 @@ export async function queryChicagoVenueRows(
 ): Promise<ChicagoDirectoryResult> {
   const input = chicagoDirectoryInput.parse(raw)
   const all = (await market(scope, input.lifecycle)).map(rowFor)
-  let rows = all.filter(
+  const rows = all.filter(
     (row) =>
       (!input.query ||
         [row.name, row.organizationName, row.city, row.state, row.category]

@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     if (!reader) return reply({ error: 'A local preparation action is required' }, 400)
     const chunks: Uint8Array[] = []
     let bytes = 0
-    while (true) {
+    for (;;) {
       const next = await reader.read()
       if (next.done) break
       bytes += next.value.byteLength

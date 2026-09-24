@@ -228,7 +228,10 @@ export async function proposeProspectGeography(raw: unknown, actor: GeographyAct
     })
     if (!county) throw new ProspectGeographyError('CONFLICT', 'County bridge missing')
     requireScope(actor, county.territoryId)
-    const { idempotencyKey: _key, researchClaim, ...proposal } = input
+    const { researchClaim } = input
+    const proposal = Object.fromEntries(
+      Object.entries(input).filter(([key]) => key !== 'idempotencyKey' && key !== 'researchClaim'),
+    )
     // Cross-worker identical proposals converge without changing any venue identity.
     const reviewId = `geop_${geographyHash(proposal).slice(0, 32)}`
     const existing = await tx.prospectIntelligenceReview.findUnique({ where: { id: reviewId } })

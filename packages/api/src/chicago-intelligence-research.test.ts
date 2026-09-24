@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Dynamic disposable transaction fixture exercises CAS and rollback paths. */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { ChicagoActor } from './chicago-intelligence-service'

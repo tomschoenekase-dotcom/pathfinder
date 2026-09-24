@@ -1,4 +1,3 @@
-import { launchAttachmentsFromSnapshot } from '@pathfinder/contracts/venue-launch-asset-node'
 import { createHash, randomUUID } from 'node:crypto'
 
 import type { CorrespondenceProvider, FrozenCorrespondence } from '@pathfinder/api/correspondence'

@@ -11,7 +11,6 @@ vi.mock('./prospect-launch-attachments', async (importOriginal) => {
 })
 
 import {
-  claimProspectAmbiguousRecoveryAction,
   claimProspectSendOutboxAction,
   foldProspectEmailStatus,
   recordProspectSendFailureAction,

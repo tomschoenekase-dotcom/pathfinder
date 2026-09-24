@@ -1,6 +1,5 @@
 import {
   db,
-  salesJson,
   ProspectSalesError,
   requireSalesOperator,
   NATIVE_HANDOFF_SCHEMA,

@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     let size = 0
     const chunks: Uint8Array[] = []
     try {
-      while (true) {
+      for (;;) {
         const part = await reader.read()
         if (part.done) break
         size += part.value.byteLength

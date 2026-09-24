@@ -6,7 +6,13 @@ export const chicagoPublicUrl = z
   .string()
   .max(2000)
   .refine((value) => {
-    if (!/^https?:\/\/[^/?#@]+(?:[/?#]|$)/i.test(value) || /[\s\\\u0000-\u001f\u007f]/u.test(value))
+    if (
+      !/^https?:\/\/[^/?#@]+(?:[/?#]|$)/i.test(value) ||
+      /[\s\\]/u.test(value) ||
+      [...value].some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    )
       return false
     try {
       const url = new URL(value)

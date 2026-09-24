@@ -132,11 +132,9 @@ describe('venue launch preparation to native writer boundary', () => {
     const persisted = decodeSalesComponent(stored!.capturedValue)
     expect(persisted.launchAttachments).toEqual([asset])
     const { task } = await readNativeWriterTask('prospect', component, client as never)
-    expect(task.launchAttachments).toEqual(
-      [{ ...asset, contentBase64: undefined }].map(
-        ({ contentBase64: _bytes, ...descriptor }) => descriptor,
-      ),
-    )
+    expect(task.launchAttachments).toEqual([
+      Object.fromEntries(Object.entries(asset).filter(([key]) => key !== 'contentBase64')),
+    ])
     expect(JSON.stringify(task)).not.toContain(asset.contentBase64)
     expect(task.binding.launchAttachmentsSha256).toMatch(/^[a-f0-9]{64}$/u)
     const subject = 'Venue visit'

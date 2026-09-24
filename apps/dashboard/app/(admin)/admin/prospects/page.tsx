@@ -1,4 +1,5 @@
 import { isCrmFeatureAvailable } from '@pathfinder/config/feature-flags'
+import Link from 'next/link'
 
 import { ProspectDirectory } from '../../../../components/admin/ProspectDirectory'
 import { createAdminCaller } from '../../../../lib/admin-caller'
@@ -11,9 +12,9 @@ export default async function ProspectDirectoryPage() {
   return (
     <>
       <div className="px-6 pt-4">
-        <a href="/admin/prospects/preparation" className="text-sm underline">
+        <Link href="/admin/prospects/preparation" className="text-sm underline">
           Outreach preparation and exact group review
-        </a>
+        </Link>
       </div>
       <ProspectDirectory
         defaultScope="chicago"

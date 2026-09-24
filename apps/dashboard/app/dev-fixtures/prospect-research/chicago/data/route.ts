@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     if (!reader) return failure('BAD_REQUEST', 'Request body required', 400)
     let length = 0
     const chunks: Uint8Array[] = []
-    while (true) {
+    for (;;) {
       const part = await reader.read()
       if (part.done) break
       length += part.value.byteLength

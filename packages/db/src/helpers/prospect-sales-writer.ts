@@ -21,7 +21,6 @@ import {
   SALES_PREPARATION_SOURCE,
   salesHash,
   type SalesClient,
-  type SalesTransaction,
 } from './prospect-sales-snapshot'
 import {
   requireSalesOperator,

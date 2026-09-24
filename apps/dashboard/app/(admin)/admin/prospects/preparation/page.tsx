@@ -1,13 +1,14 @@
 import { ProspectOutreachCohortWorkspace } from '../../../../../components/admin/ProspectOutreachCohortWorkspace'
+import Link from 'next/link'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 export const dynamic = 'force-dynamic'
 export default async function ProspectPreparationPage() {
   await createAdminCaller()
   return (
     <div className="space-y-6 p-6">
-      <a href="/admin/prospects" className="text-sm underline">
+      <Link href="/admin/prospects" className="text-sm underline">
         ← Back to prospects
-      </a>
+      </Link>
       <header>
         <h1 className="text-2xl font-semibold">Outreach preparation</h1>
         <p className="mt-2 text-slate-600">
