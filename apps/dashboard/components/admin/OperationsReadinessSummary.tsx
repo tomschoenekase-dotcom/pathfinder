@@ -35,6 +35,10 @@ function estimatedCost(value: string) {
 }
 
 export function OperationsReadinessSummary({ readiness }: { readiness: Readiness }) {
+  const queuedWork =
+    readiness.queue.live.status === 'observed'
+      ? readiness.queue.live.queues.filter((queue) => queue.depth > 0)
+      : []
   const requirements = [
     [
       'Data and migrations',
@@ -222,6 +226,22 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
             <dd className="text-xs text-slate-600">Not automatically a current incident</dd>
           </div>
         </dl>
+        {queuedWork.length > 0 ? (
+          <div className="mt-4 border-t border-slate-300/70 pt-3">
+            <h4 className="text-xs font-bold text-slate-950">Queues with pending work</h4>
+            <ul className="mt-2 space-y-1 text-xs text-slate-700">
+              {queuedWork.map((queue) => (
+                <li key={queue.name} className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="break-all font-semibold">{queue.name}</span>
+                  <span>
+                    {queue.depth.toLocaleString('en-US')} queued · {queue.counts.waiting} waiting ·{' '}
+                    {queue.counts.delayed} delayed · {queue.counts.active} active
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       <p className="mt-4 text-xs leading-5 text-slate-600">
