@@ -1302,7 +1302,7 @@ export async function stageProspectImportRowsAction(
       },
     })
     return { staged, totalRows, counts }
-  }, { maxWait: 10_000, timeout: 30_000 })
+  }, { maxWait: 10_000, timeout: 60_000 })
 }
 
 /** Reclaim a source-backed dry run that an older worker marked ready mid-workbook.

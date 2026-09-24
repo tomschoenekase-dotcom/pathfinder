@@ -16,7 +16,7 @@ const MAX_COLUMNS = 100
 const MAX_CELL_CHARACTERS = 10_000
 const MAX_ROW_BYTES = 256 * 1024
 // Keep each duplicate-check transaction short on a remote production database.
-const STAGE_BATCH_ROWS = 50
+const STAGE_BATCH_ROWS = 10
 
 const FIELD_KEYS = new Set([
   'venueName',
