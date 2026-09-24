@@ -202,7 +202,7 @@ describe('venue launch preparation to native writer boundary', () => {
     }
     expect(() =>
       nativeMeaningBinding(draft as never, { ...persisted, launchAttachments: [changedIdentity] }),
-    ).toThrow(/LAUNCH_ASSET_SNAPSHOT_CHANGED/u)
+    ).toThrow(/Launch attachment selection changed after review/u)
     expect(() =>
       nativeMeaningBinding(
         {
@@ -211,7 +211,7 @@ describe('venue launch preparation to native writer boundary', () => {
         } as never,
         persisted,
       ),
-    ).toThrow(/LAUNCH_ASSET_SNAPSHOT_CHANGED/u)
+    ).toThrow(/Launch attachment selection changed after review/u)
     const reviewInput = {
       venueId: 'prospect',
       draftId: draft.id as string,
@@ -227,7 +227,7 @@ describe('venue launch preparation to native writer boundary', () => {
       release: { ...asset.release, revisionSha256: 'd'.repeat(64) },
     })
     await expect(reviewNativeSalesDraft(reviewInput, client as never)).rejects.toThrow(
-      /LAUNCH_ASSET_STALE/u,
+      /Launch asset is stale; reload the current venue QR/u,
     )
     const review = await reviewNativeSalesDraft(reviewInput, client as never)
     expect(review.evidence).toMatchObject({
@@ -248,7 +248,7 @@ describe('venue launch preparation to native writer boundary', () => {
         ...client,
         prospectLocationConversion: { findMany: vi.fn().mockResolvedValue([]) },
       } as never),
-    ).rejects.toThrow(/VENUE_MISMATCH/u)
+    ).rejects.toThrow(/Launch asset does not belong to an active converted venue/u)
     mock.source.mockResolvedValueOnce({
       tenantId: 'tenant',
       venueId: 'venue',
@@ -258,7 +258,7 @@ describe('venue launch preparation to native writer boundary', () => {
     })
     await expect(
       requireCurrentProspectLaunchAttachments('prospect', [asset], client as never),
-    ).rejects.toThrow(/LAUNCH_ASSET_STALE/u)
+    ).rejects.toThrow(/Launch asset is stale; reload the current venue QR/u)
     await expect(
       requireCurrentProspectLaunchAttachments(
         'prospect',
@@ -280,6 +280,6 @@ describe('venue launch preparation to native writer boundary', () => {
         ],
         client as never,
       ),
-    ).rejects.toThrow(/LAUNCH_ASSET_BYTES_MISMATCH/u)
+    ).rejects.toThrow(/Launch asset bytes do not match the canonical QR renderer/u)
   })
 })

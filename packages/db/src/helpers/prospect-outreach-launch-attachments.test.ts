@@ -39,7 +39,7 @@ const snapshot = { source: 'crm-preparation', launchAttachments: [launchAsset] }
 const contentHash = prospectOperationalContentHash(recipient, subject, body, '', snapshot)
 
 describe('prospect outreach launch attachment freeze', () => {
-  it('requires the reviewed manifest hash and freezes the exact attachment at staging', async () => {
+  it('rejects launch attachments without a native origin before staging', async () => {
     mocks.current.mockImplementation(async (_prospectVenueId, value) => value)
     const draft = {
       id: 'draft-1',
@@ -72,31 +72,22 @@ describe('prospect outreach launch attachment freeze', () => {
     }
     const client = { $transaction: vi.fn((work) => work(tx)) }
 
-    await stageProspectSendBatchAction(
-      { campaignId: 'campaign-1', draftIds: ['draft-1'], actor },
-      client as never,
-    )
-
-    const { data } = tx.prospectSendBatch.create.mock.calls[0]![0]
-    const frozenItem = data.items.create[0]
-    expect(frozenItem.contentHashSnapshot).toBe(contentHash)
-    expect(frozenItem.headerSnapshot.launchAttachments).toEqual([launchAsset])
-    expect(frozenItem.headerSnapshot.launchAttachmentsSha256).toBe(
-      launchAttachmentsSha256([launchAsset]),
-    )
-    expect(data.snapshotHash).toBe(
-      createHash('sha256')
-        .update(`draft-1:${contentHash}:${recipient}:${launchAttachmentsSha256([launchAsset])}`)
-        .digest('hex'),
-    )
+    await expect(
+      stageProspectSendBatchAction(
+        { campaignId: 'campaign-1', draftIds: ['draft-1'], actor },
+        client as never,
+      ),
+    ).rejects.toThrow(/LAUNCH_ASSET_NATIVE_ORIGIN_REQUIRED/u)
+    expect(tx.prospectSendBatch.create).not.toHaveBeenCalled()
   })
 
-  it('does not approve an attachment whose digest was omitted from the reviewed draft hash', async () => {
+  it('keeps NO-SEND preparations outside campaign approval', async () => {
     mocks.current.mockImplementation(async (_prospectVenueId, value) => value)
     const tx = {
       prospectOutreachDraft: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'draft-1',
+          preparationKey: 'preparation-1',
           memberId: 'member-1',
           venueId: 'prospect-venue-1',
           status: 'NEEDS_REVIEW',
@@ -119,7 +110,7 @@ describe('prospect outreach launch attachment freeze', () => {
         { draftId: 'draft-1', approve: true, actor },
         client as never,
       ),
-    ).rejects.toThrow(/content or launch attachments changed/i)
+    ).rejects.toThrow(/NO-SEND preparation is not a campaign approval candidate/u)
     expect(tx.prospectOutreachDraft.update).not.toHaveBeenCalled()
   })
 

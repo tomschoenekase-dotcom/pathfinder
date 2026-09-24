@@ -8,7 +8,10 @@ function fixture(stage: string | null, campaignMemberId: string | null = 'member
       findUnique: vi.fn().mockResolvedValue(stage ? { id: 'opportunity-1', stage } : null),
       update: vi.fn().mockResolvedValue({}),
     },
-    prospectActivity: { create: vi.fn().mockResolvedValue({ id: 'activity-1' }) },
+    prospectActivity: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'activity-1' }),
+    },
     prospectCampaignMember: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     prospectStageHistory: { create: vi.fn().mockResolvedValue({}) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -27,6 +30,19 @@ function fixture(stage: string | null, campaignMemberId: string | null = 'member
 }
 
 describe('recordProspectInboundReplyAction', () => {
+  it('returns the existing activity for a replayed canonical message', async () => {
+    const { tx, client, input } = fixture('CONTACTED')
+    tx.prospectActivity.findUnique.mockResolvedValueOnce({ id: 'provider-reply-existing' })
+
+    await expect(recordProspectInboundReplyAction(input, client as never)).resolves.toMatchObject({
+      activityId: 'provider-reply-existing',
+      opportunityId: null,
+      stageChanged: false,
+    })
+    expect(tx.prospectOpportunity.findUnique).not.toHaveBeenCalled()
+    expect(tx.prospectActivity.create).not.toHaveBeenCalled()
+  })
+
   it.each(['CONTACTED', 'FOLLOW_UP_DUE'])(
     'advances an outreach-stage opportunity from %s to REPLIED with history and audit evidence',
     async (stage) => {
