@@ -44,6 +44,27 @@ const threads = [
 ]
 
 describe('ProspectCorrespondenceHistory', () => {
+  it('states that an empty local view cannot establish no prior mailbox contact', () => {
+    render(<ProspectCorrespondenceHistory threads={[]} />)
+    expect(screen.getByText(/Mailbox coverage may be incomplete/u)).toBeTruthy()
+  })
+
+  it('exposes omitted thread and message coverage', () => {
+    render(
+      <ProspectCorrespondenceHistory
+        threads={[
+          {
+            ...threads[0]!,
+            _count: { messages: 101 },
+          },
+        ]}
+        totalThreadCount={52}
+      />,
+    )
+    expect(screen.getByText(/latest 1 of 52 recorded threads/u)).toBeTruthy()
+    expect(screen.getByText(/Older messages are outside this bounded preview/u)).toBeTruthy()
+  })
+
   it('renders compact evidence and an exact Gmail source link', () => {
     render(<ProspectCorrespondenceHistory threads={threads} />)
     expect(screen.getByText('We updated our visitor hours for September.')).toBeTruthy()

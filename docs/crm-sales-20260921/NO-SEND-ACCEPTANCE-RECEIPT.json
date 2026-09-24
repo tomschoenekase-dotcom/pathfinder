@@ -1,0 +1,350 @@
+{
+  "status": "ACCEPTED_LOCAL_NO_SEND_SLICE",
+  "createdAt": "2026-09-21T05:34:31.919433+00:00",
+  "implementationCommit": "5799a7b76f4de210d755a03acacd3e281f78b6cd",
+  "baseCommit": "aace14ae6ee8bc87b8556dcdfda208004d20c87d",
+  "branch": "codex/torchiko-crm-research-20260919",
+  "worktree": "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919",
+  "scope": "PREPARE / REVIEW / STATE ONLY; not production or whole-repository release acceptance",
+  "SEND_AUTHORIZED": false,
+  "senderAvailable": false,
+  "realMessagesSent": 0,
+  "productionTouched": false,
+  "workbookReimported": false,
+  "newWorktreeCreated": false,
+  "dependenciesReinstalled": false,
+  "productionBuildRun": false,
+  "database": {
+    "container": "torchiko-crm-research-db-20260919",
+    "name": "pathfinder_disposable_crm_research_20260919",
+    "host": "127.0.0.1",
+    "port": 58617,
+    "runningAtHandoff": true,
+    "originalTableProjectionsUnchanged": 42,
+    "originalContactsStillUnknown": 8212,
+    "totals": {
+      "audit_logs": 2,
+      "prospect_activities": 39,
+      "prospect_campaign_members": 0,
+      "prospect_contact_suppression_events": 1,
+      "prospect_contacts": 8213,
+      "prospect_conversions": 0,
+      "prospect_customer_relationships": 0,
+      "prospect_delivery_control": 1,
+      "prospect_duplicate_candidates": 0,
+      "prospect_email_attachment_retention_requests": 0,
+      "prospect_email_events": 0,
+      "prospect_email_messages": 2,
+      "prospect_email_thread_providers": 1,
+      "prospect_email_threads": 1,
+      "prospect_email_webhook_receipts": 0,
+      "prospect_followups": 0,
+      "prospect_import_report_entries": 0,
+      "prospect_import_rows": 0,
+      "prospect_import_sheets": 0,
+      "prospect_import_source_records": 41662,
+      "prospect_imports": 1,
+      "prospect_inbound_quarantines": 0,
+      "prospect_inbound_reply_reviews": 0,
+      "prospect_location_conversions": 0,
+      "prospect_onboarding_delivery_attempts": 0,
+      "prospect_opportunities": 16725,
+      "prospect_organization_tags": 0,
+      "prospect_organizations": 16726,
+      "prospect_outreach_campaigns": 0,
+      "prospect_outreach_drafts": 16,
+      "prospect_research_attempts": 0,
+      "prospect_research_jobs": 0,
+      "prospect_saved_views": 0,
+      "prospect_send_batches": 0,
+      "prospect_send_items": 0,
+      "prospect_send_outbox": 0,
+      "prospect_source_evidence": 16742,
+      "prospect_stage_history": 0,
+      "prospect_tags": 0,
+      "prospect_territories": 85,
+      "prospect_venues": 16726,
+      "public_interest_prospect_conversions": 0
+    },
+    "drafts": {
+      "kind": "drafts",
+      "rows": 16,
+      "unsafe": 0,
+      "forms": 2
+    },
+    "providers": {
+      "kind": "providers",
+      "rows": 1,
+      "enabled": 0,
+      "notExplicitSynthetic": 0
+    },
+    "messages": {
+      "kind": "messages",
+      "rows": 2,
+      "notExplicitSynthetic": 0
+    },
+    "syntheticHoldFixture": true,
+    "preparationCount": 17,
+    "retainedUnusableLegacyPreparations": 6
+  },
+  "validation": {
+    "focusedReports": [
+      {
+        "file": "focused-db.json",
+        "passedTests": 27,
+        "failedTests": 0
+      },
+      {
+        "file": "focused-api.json",
+        "passedTests": 10,
+        "failedTests": 0
+      },
+      {
+        "file": "focused-dashboard.json",
+        "passedTests": 28,
+        "failedTests": 0
+      }
+    ],
+    "focusedTotal": 65,
+    "originalComponentTests": {
+      "passed": 16,
+      "failed": 0
+    },
+    "nativeInitialChecks": 57,
+    "nativeFinalRepeatChecks": 55,
+    "firstIngestionOnlyChecksAlreadyProven": 2,
+    "browser": {
+      "passedChecks": 44,
+      "browserVersion": "153.0.4234.48",
+      "screenshotCount": 7,
+      "widths": [1440, 375, 320],
+      "keyboardTabEnter": true,
+      "noOverflow": true,
+      "accessibility": [
+        {
+          "label": "Desktop review",
+          "passes": 18,
+          "violations": []
+        },
+        {
+          "label": "375px response review",
+          "passes": 18,
+          "violations": []
+        },
+        {
+          "label": "320px held state",
+          "passes": 15,
+          "violations": []
+        }
+      ]
+    },
+    "retainedReadbackChecks": 27,
+    "typechecks": {
+      "db": "PASS",
+      "api": "PASS",
+      "dashboard": "PASS",
+      "dashboardWithPreservedPreTaskConfig": "PASS"
+    },
+    "publicBoundary": "PASS",
+    "publicBoundaryTests": 11,
+    "tenantBypassBoundary": "PASS",
+    "rawSqlBoundary": "PASS",
+    "tenantProcedureCoverage": "PASS",
+    "agentOperationInventory": "PASS_NEW_LOCAL_OPERATIONS_INTENTIONALLY_UNBOUND"
+  },
+  "preservation": {
+    "preexistingGeneratedDiffUnchanged": true,
+    "normalizedDiffSha256": "2690e6793279ef6561edac95aeb17ec3247422a3590c5519d1a0cfdf481e0400",
+    "files": {
+      "apps/dashboard/next-env.d.ts": "6902ed943c3fc642ee66cae54f04765d7b3331309d39c79b241bd3578a440ea4",
+      "apps/dashboard/tsconfig.json": "127b6f212c9527cc51931abb193204b1ca4357910029450dc4af04858140a45c"
+    }
+  },
+  "baselineFindings": {
+    "adminModularity": {
+      "status": "PRE_EXISTING_FAILURE_RETAINED",
+      "file": "packages/api/src/routers/admin/prospect-crm-core.ts",
+      "sourceUnchangedFromBase": true,
+      "physicalLines": 440,
+      "checkerReportedLines": 440,
+      "budget": 400,
+      "sha256": "a6f0cfde366e81943d222a3aaa7c601f9915d4dcdb082af67273d316ae2f941b"
+    },
+    "aiProviderBoundary": {
+      "status": "RETAINED_BASELINE_BUILD_ARTIFACT_SCAN_FAILURE",
+      "files": [
+        {
+          "path": "apps/dashboard/.next-crm-build/standalone/packages/ai/package.json",
+          "bytes": 753,
+          "modifiedUtc": "2026-09-20T03:22:59.338703+00:00",
+          "sha256": "04529dfbf1b5a30a0a29621aef3db1a41a36e0f2bb5acc548c510fcbcb4561f9"
+        },
+        {
+          "path": "apps/dashboard/.next-crm-build-final/standalone/packages/ai/package.json",
+          "bytes": 753,
+          "modifiedUtc": "2026-09-20T03:22:59.338703+00:00",
+          "sha256": "04529dfbf1b5a30a0a29621aef3db1a41a36e0f2bb5acc548c510fcbcb4561f9"
+        }
+      ]
+    }
+  },
+  "sourceContext": {
+    "packet": "C:\\Users\\tomsc\\Downloads\\AwesomeVault\\95 AI Staging\\Source Context\\torchiko\\20260921T042158Z-ba0aa8bc",
+    "factualCoreSha256": "1e2ec6f9605d44568f4c0d8a7fe64c673f3dab4a6ebdf120c786b4e56864bdb8",
+    "freshnessVerified": true,
+    "scope": "Partial bounded packet, not whole-project knowledge"
+  },
+  "limitations": [
+    "Original Composer currently admits five exact source-row crosswalks; other prospects receive bounded real Gate questions and fail visibly before unsupported preparation.",
+    "Original Composer prepares source-bound writing context; the operator/writer supplies the normal draft. No automatic generative writer or research executor.",
+    "WLT/integrity/risk checks do not claim full Composer semantic or claim-annotation validation. Exact operator review is not semantic certification, Tom approval, or send approval.",
+    "Only explicitly synthetic native correspondence fixtures; no real inbox connection.",
+    "Original Approved Language has zero approved entries; none were promoted.",
+    "Failed attempts and unusable legacy serialization snapshots are retained, not deleted or accepted."
+  ],
+  "runtime": {
+    "preview": "STOPPED_AFTER_ACCEPTANCE",
+    "port": 58618,
+    "restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local-crm-research.ps1 -Mode preview -EnableSalesPreparation"
+  },
+  "evidence": [
+    {
+      "path": "artifacts/crm-sales-20260921-r001/db-before.json",
+      "bytes": 7094,
+      "sha256": "2d28b130a58aaed07433ff9ec39529e21d5e2ae4caa0201c3c2a226ef7c1e1a7"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/preserved-generated-diff.patch",
+      "bytes": 1388,
+      "sha256": "b956de7f7b5a1574cf5d1c144d437cf3ec0558135b82aa810501cf3fc11b3c2c"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/native-acceptance-1789966453168.json",
+      "bytes": 9070,
+      "sha256": "beee1ac6f0fcdd3cd66742fbb94d1131794fd8386467be0aa27ea59ab2449cca"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/native-acceptance-1789967738451.json",
+      "bytes": 8811,
+      "sha256": "4272a650096ec6c508246664c3a0d37404afa33ecf17985b71272011eeabebe2"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/focused-db.json",
+      "bytes": 10175,
+      "sha256": "4e31c215a124386f92c998f458928b046f774edbcff8e08ab587309c73a28489"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/focused-api.json",
+      "bytes": 3799,
+      "sha256": "1e7169d2bf4a9423a19e6c78e6782f5bced8ea749e1a099448379af2e35390a8"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/focused-dashboard.json",
+      "bytes": 11139,
+      "sha256": "35f1eff9bc60b9550c13b5c7efcaa8657a6c57e270d84526cf44f3977a601237"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/component-tests.log",
+      "bytes": 4176,
+      "sha256": "84bdd99862da8e2a5fe02df3b5ce6518bd4468080b61e5c542883492e31730dd"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/typecheck-db.log",
+      "bytes": 288,
+      "sha256": "16a23d9b621b8610c9a994277e09f283f14cf42010b3d87ae898b75383e1792e"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/typecheck-api.log",
+      "bytes": 292,
+      "sha256": "32d4fb897e0951d53680a2a52f2f874ae6136c47f3d2aad3dc288060b829018f"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/typecheck-dashboard.log",
+      "bytes": 260,
+      "sha256": "a6e6dbdcb68c515dee68ebd66b3435157cfd35d5523340a5bab5d8c41d86fb5a"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/typecheck-dashboard-preserved-config.log",
+      "bytes": 260,
+      "sha256": "a6e6dbdcb68c515dee68ebd66b3435157cfd35d5523340a5bab5d8c41d86fb5a"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/public-boundary-tests.log",
+      "bytes": 1964,
+      "sha256": "aa46f82ee12bef0792904e5419b29e2e07aa179ce086f5d3dbcab2959ece78b1"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/public-boundary-final.log",
+      "bytes": 476,
+      "sha256": "4a00a173e00e94a22dd3ea478b4fa3b583e0a128369aca3796f9dd01cf8566e5"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/tenant-boundary.log",
+      "bytes": 166,
+      "sha256": "ad245a6a1350b8a6ae12a806262b6d3a00debeffd138ccc03e89f2dffb19dcb3"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/agent-tool-coverage-final.json",
+      "bytes": 445729,
+      "sha256": "8466f6bad916d196edf72eac630b00a0b5d204d82325b876767b677f6426a9ad"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/admin-modularity.log",
+      "bytes": 2006,
+      "sha256": "e19f6446adb338bbfa7e72cbcd0f6a42fec3beab0634359a5763fdee5ebba7e5"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/receipt.json",
+      "bytes": 22718,
+      "sha256": "f1a9e8427ce3b1ff83fa2e35ead953410bd7652a4e9c010d18094f894964fe9e"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/retained-readback-r001.json",
+      "bytes": 173873,
+      "sha256": "d3bd510a3c9f041481c1f911f5419ba39eb54e3d0a4a15c6d8778c3a33e2d443"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/directory-desktop.png",
+      "bytes": 80829,
+      "sha256": "7d038cedcd4a388286a27c91b2d9677837ec5685b82107710591b4f42de4efc7"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/outreach-reviewed-desktop.png",
+      "bytes": 206460,
+      "sha256": "a77bfadb4026392f8a195907bc08bee2c019f317b64a494d52eb14bcea361165"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/synthetic-response-desktop.png",
+      "bytes": 250313,
+      "sha256": "1a8545486e1ab51ef96c974c3ad3058749a493eef82d9a0a85a964e259e140dc"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/synthetic-response-narrow.png",
+      "bytes": 245541,
+      "sha256": "e94ddcad3a2a6e835463702fcf04ef95ef970bc87a6888e933d1b15121c3d7e8"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/research-required-320.png",
+      "bytes": 205556,
+      "sha256": "948d29835522c8369f727bd23169c550003a40a57be72feeec48f5956b32ac10"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/native-suppression-320.png",
+      "bytes": 166464,
+      "sha256": "a8fe5ee94ee829033a98222c157ef3685549bb63ff4211a4f974c2fe10daff8b"
+    },
+    {
+      "path": "artifacts/crm-sales-20260921-r001/browser-r003/form-route-desktop.png",
+      "bytes": 198615,
+      "sha256": "05edf1b3c1ff5a178082d3de43352b32774a333e7a118bb66f5e3ea0e8390d3a"
+    }
+  ],
+  "schemaChange": {
+    "migration": "20260921050000_native_sales_no_send",
+    "appliedToRetainedLocalDatabase": true,
+    "newTables": 0,
+    "nativeOwner": "ProspectOutreachDraft",
+    "change": "Disjoint non-campaign preparation mode and immutable revision/source/review/frozen-recipient guards"
+  },
+  "schema": "torchiko.native-no-send-sales-acceptance/1"
+}

@@ -28,6 +28,11 @@ const bypassTenantIsolationStorage =
   tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage ?? new AsyncLocalStorage<boolean>()
 tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIsolationStorage
 const APPEND_ONLY_MODELS = [
+  'ProspectGeographyModel',
+  'ProspectTerritoryDefinition',
+  'ProspectCountyAssignment',
+  'ProspectIntelligenceReceipt',
+  'ProspectVenueRanking',
   'SemanticConflictResolution',
   'SemanticDuplicateResolution',
   'SemanticReviewedDecline',

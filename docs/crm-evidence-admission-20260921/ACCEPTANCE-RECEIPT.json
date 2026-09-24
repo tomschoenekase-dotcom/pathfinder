@@ -1,0 +1,768 @@
+{
+  "schema": "torchiko.native-evidence-local-acceptance/1",
+  "sourceCommit": "553261252b9bb58d9096998c492c07c903496dc0",
+  "status": "NATIVE_EVIDENCE_AND_UI_VERIFIED_NO_SEND_WITH_GENERATED_RESTORE_BLOCK",
+  "sourceStillExact": true,
+  "target": {
+    "organizationId": "porg_00061105e8861987c4b5210b",
+    "venueId": "pvenue_00061105e8861987c4b5210b",
+    "name": "Centralia Historical Society Museum"
+  },
+  "originalIdentityHash": "2bf611889f92baf4a84c9b8c036d45470f3915155145027bdeacbbfbed4abf3e",
+  "captureId": "native-capture_b06cf5f02caf9fb4ebce85e20384224bc89d2562",
+  "underlyingSourcePagesGenuine": true,
+  "technicalQaSelectionOnly": true,
+  "assessmentRecorder": "Explicitly synthetic SYSTEM, not authenticated human or Tom action",
+  "focusedTests": [
+    {
+      "group": "python",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-python-1790019534597131600/receipt.json",
+      "passedTests": 43,
+      "exitCodes": [
+        0
+      ]
+    },
+    {
+      "group": "composer",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-composer-1790019545357836000/receipt.json",
+      "passedTests": 4,
+      "exitCodes": [
+        0
+      ]
+    },
+    {
+      "group": "db",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-db-1790019546343624600/receipt.json",
+      "passedTests": 30,
+      "exitCodes": [
+        0
+      ]
+    },
+    {
+      "group": "api",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-api-1790019549845655000/receipt.json",
+      "passedTests": 37,
+      "exitCodes": [
+        0
+      ]
+    },
+    {
+      "group": "ui",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-ui-1790019555770689600/receipt.json",
+      "passedTests": 16,
+      "exitCodes": [
+        0
+      ]
+    },
+    {
+      "group": "types",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790019572287537700/receipt.json",
+      "passedTests": null,
+      "exitCodes": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "group": "boundaries",
+      "receipt": "artifacts/crm-evidence-admission-20260921-r001/checks-boundaries-1790019671267451000/receipt.json",
+      "passedTests": null,
+      "exitCodes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "totalFocusedTests": 130,
+  "nativeAcceptance": {
+    "receipt": "native-full-r002.json",
+    "checks": 28,
+    "passed": true,
+    "noSendCounts": {
+      "campaigns": 0,
+      "batches": 0,
+      "sendItems": 0,
+      "outbox": 0,
+      "enabledProviders": 0,
+      "approvedDrafts": 0,
+      "realMessages": 0
+    }
+  },
+  "browser": {
+    "receipt": "browser-r003/receipt.json",
+    "checks": 56,
+    "passed": true,
+    "screenshots": [
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\native-capture-before-admission-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\unsupported-native-claim-held.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\native-reviewed-no-send-desktop.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\native-evidence-narrow.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\native-meaning-320.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\changed-source-stale-review.png",
+      "C:\\Users\\tomsc\\Downloads\\PathFinder-crm-research-20260919\\artifacts\\crm-evidence-admission-20260921-r001\\browser-r003\\form-route-evidence-narrow.png"
+    ],
+    "accessibility": [
+      {
+        "label": "1440px complete review",
+        "violations": [],
+        "passes": 21
+      },
+      {
+        "label": "375px native evidence",
+        "violations": [],
+        "passes": 21
+      },
+      {
+        "label": "375px unresolved evidence",
+        "violations": [],
+        "passes": 21
+      }
+    ],
+    "ownedBrowserClosed": true
+  },
+  "finalView": {
+    "venueId": "pvenue_00061105e8861987c4b5210b",
+    "snapshotHash": "a7a5e12f923cf064ea51aed977e3c57bb5c7fafea1d678e3d10d5aa8f62f8d3a",
+    "routing": {
+      "kind": "email",
+      "value": "cenhis@socket.net",
+      "publicSnapshotStatus": "ATTRIBUTED_OFFICIAL_CAPTURE",
+      "nativeContactId": "pcontact_61f805afedf1c190e0d6512a",
+      "readiness": "UNKNOWN",
+      "permission": "UNKNOWN"
+    },
+    "draft": {
+      "id": "sales-draft_8ab555052cd611244033430da79a13fd605ed4b8",
+      "version": 13,
+      "subject": "Could a small visitor guide be useful?",
+      "body": "Hi,\n\nCentralia Historical Society Museum.\n\nWould it be useful to explore a small question-based guide for one room or a few objects? It could use material you choose and stay focused on that part of a visit.\n\nWould a short conversation about that idea make sense?\n\nThanks,\nTom",
+      "contentHash": "c3772fe80d14d83fb49bcf373da99a1dec02b2d075b20df2dbeaab287cad914d",
+      "state": "REVIEWED_NO_SEND",
+      "preparationId": "sales-prep_7ec2a3f841d09a2e3c91c31e48f1b69443f981d6",
+      "previousDraftId": "sales-draft_4235277d7d718f7e817c0c810aba7590e579e2a4",
+      "warnings": [
+        "Attributed meaning assessment recorded. This is not authenticated human review, semantic certification or send approval."
+      ]
+    },
+    "claimReview": {
+      "boundIdentity": {
+        "draftId": "sales-draft_8ab555052cd611244033430da79a13fd605ed4b8",
+        "preparationId": "sales-prep_7ec2a3f841d09a2e3c91c31e48f1b69443f981d6",
+        "recipientKind": "email",
+        "recipientValue": "cenhis@socket.net",
+        "sourceSnapshotHash": "a7a5e12f923cf064ea51aed977e3c57bb5c7fafea1d678e3d10d5aa8f62f8d3a",
+        "threadId": "",
+        "inboundId": ""
+      },
+      "bindingHash": "51d8b0df397618abe5500d12f3a393fff3f6945bcc46f5671e0f57ea7d7973b0",
+      "stale": false,
+      "status": "ASSESSED_NO_SEND",
+      "readReviewRecorded": true,
+      "sources": [
+        {
+          "claim_id": "N-IDENTITY",
+          "category": "SOURCE FACT",
+          "text": "Centralia Historical Society Museum",
+          "source_id": "native-capture_b06cf5f02caf9fb4ebce85e20384224bc89d2562:PAGE-2",
+          "source_pointer": "/claims/0; normalized-text[396:468]",
+          "capture_sha256": "752dd91dc0dc2af8d319a9b72b082e85f7e5aa7da90713ffeb707abfa62627d7",
+          "observed_at": "2026-09-21T18:59:45.088118+00:00",
+          "retrieved_at": "2026-09-21T18:59:45.088197+00:00",
+          "quote": "Centralia Historical Society Museum 319 E. Sneed St. Centralia, MO 65240",
+          "evidence_sha256": "7cb12e45757d1c05bdce9b667db075d206dd45ee94c703863ee7f0d547f599a3",
+          "limitation": "Attributed official-page snapshot; exact quote mapping, not authenticated human judgment or semantic proof. Explicitly published in the captured museum page; source quotation only, not consent or purchasing authority.",
+          "url": "https://centraliamomuseum.org/contact-us/"
+        },
+        {
+          "claim_id": "N-DESCRIPTION",
+          "category": "SOURCE FACT",
+          "text": "Three complete floors of incredible displays detailing the rich history of Centralia.",
+          "source_id": "native-capture_b06cf5f02caf9fb4ebce85e20384224bc89d2562:PAGE-1",
+          "source_pointer": "/claims/2; normalized-text[573:658]",
+          "capture_sha256": "019a8ad1a2e9dfaaf48c72548da3ad37b65f9eea0279171e124d0ae62af440a0",
+          "observed_at": "2026-09-21T18:59:44.246324+00:00",
+          "retrieved_at": "2026-09-21T18:59:44.246416+00:00",
+          "quote": "Three complete floors of incredible displays detailing the rich history of Centralia.",
+          "evidence_sha256": "30981f76ff5c1f956cb0f671234db1dc6b5ae0f4a785e0163a4d12cfabe2480a",
+          "limitation": "Attributed official-page snapshot; exact quote mapping, not authenticated human judgment or semantic proof. Explicitly published in the captured museum page; source quotation only, not consent or purchasing authority.",
+          "url": "https://centraliamomuseum.org/"
+        },
+        {
+          "claim_id": "T-SENDER",
+          "category": "TASK CONSTRAINT",
+          "text": "The proposed sender is Tom, working on Torchiko.",
+          "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+          "source_pointer": "/sender",
+          "evidence_sha256": "87a94b439bbda10659be4282e77b1409aa61a42631700a0a1a2432cd7cbb110c",
+          "limitation": "Task-supplied sender, not credential or impersonation authority.",
+          "url": null
+        },
+        {
+          "claim_id": "H-SCOPE",
+          "category": "SALES HYPOTHESIS",
+          "text": "Propose exploring a small guide using material the venue chooses. This is a discussion, not a deployment, price, visit or promised result.",
+          "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+          "source_pointer": "/supplied_facts/0",
+          "evidence_sha256": "18cfa3607c93f2f3612cc127250f60bf8ca6468723336a189454c485770e217e",
+          "limitation": "Caller-supplied task/proposal, not externally verified fact or agreed commitment.",
+          "url": null
+        },
+        {
+          "claim_id": "H-ASK",
+          "category": "SALES HYPOTHESIS",
+          "text": "Ask whether a brief conversation about the idea would be useful. No meeting, price or delivery is agreed.",
+          "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+          "source_pointer": "/supplied_facts/1",
+          "evidence_sha256": "472adf4ae496ab6c8e4c9ec6d38110fbdb327adf9c7edffd0d31794019998cb7",
+          "limitation": "Caller-supplied task/proposal, not externally verified fact or agreed commitment.",
+          "url": null
+        }
+      ],
+      "questions": [],
+      "current": {
+        "id": "sales-meaning_406016859ca9ef00f77d3d9ac515fa4e5e58e8f1",
+        "status": "ASSESSED_NO_SEND",
+        "bindingHash": "51d8b0df397618abe5500d12f3a393fff3f6945bcc46f5671e0f57ea7d7973b0",
+        "recordedAt": "2026-09-21T19:43:33.972Z",
+        "reviewer": {
+          "kind": "model",
+          "identity": "GPT-6 Astra Pro — explicitly synthetic browser acceptance assessment, not Tom"
+        },
+        "recordedBy": {
+          "type": "SYSTEM",
+          "id": "synthetic:crm-meaning:local-operator",
+          "synthetic": true
+        },
+        "annotations": [
+          {
+            "annotation_id": "subject-0-38",
+            "section": "subject",
+            "start": 0,
+            "end": 38,
+            "quote": "Could a small visitor guide be useful?",
+            "category": "SALES HYPOTHESIS",
+            "claim_ids": [
+              "H-SCOPE"
+            ],
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+            "answers": []
+          },
+          {
+            "annotation_id": "body-0-3",
+            "section": "body",
+            "start": 0,
+            "end": 3,
+            "quote": "Hi,",
+            "category": "NONFACTUAL",
+            "claim_ids": [],
+            "reason": "An ordinary greeting or closing asserts no venue fact.",
+            "answers": []
+          },
+          {
+            "annotation_id": "body-5-41",
+            "section": "body",
+            "start": 5,
+            "end": 41,
+            "quote": "Centralia Historical Society Museum.",
+            "category": "SOURCE FACT",
+            "claim_ids": [
+              "N-IDENTITY"
+            ],
+            "reason": "The captured native identity supports only the venue name. Any added exhibit, price or completed visit is a deliberately unsupported adversarial test.",
+            "answers": []
+          },
+          {
+            "annotation_id": "body-43-207",
+            "section": "body",
+            "start": 43,
+            "end": 207,
+            "quote": "Would it be useful to explore a small question-based guide for one room or a few objects? It could use material you choose and stay focused on that part of a visit.",
+            "category": "SALES HYPOTHESIS",
+            "claim_ids": [
+              "H-SCOPE"
+            ],
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+            "answers": []
+          },
+          {
+            "annotation_id": "body-209-263",
+            "section": "body",
+            "start": 209,
+            "end": 263,
+            "quote": "Would a short conversation about that idea make sense?",
+            "category": "SALES HYPOTHESIS",
+            "claim_ids": [
+              "H-ASK"
+            ],
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+            "answers": []
+          },
+          {
+            "annotation_id": "body-265-276",
+            "section": "body",
+            "start": 265,
+            "end": 276,
+            "quote": "Thanks,\nTom",
+            "category": "NONFACTUAL",
+            "claim_ids": [],
+            "reason": "An ordinary greeting or closing asserts no venue fact.",
+            "answers": []
+          }
+        ],
+        "assessments": [
+          {
+            "annotation_id": "subject-0-38",
+            "verdict": "hypothetical",
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+          },
+          {
+            "annotation_id": "body-0-3",
+            "verdict": "nonfactual",
+            "reason": "An ordinary greeting or closing asserts no venue fact."
+          },
+          {
+            "annotation_id": "body-5-41",
+            "verdict": "supported",
+            "reason": "The captured native identity supports only the venue name. Any added exhibit, price or completed visit is a deliberately unsupported adversarial test."
+          },
+          {
+            "annotation_id": "body-43-207",
+            "verdict": "hypothetical",
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+          },
+          {
+            "annotation_id": "body-209-263",
+            "verdict": "hypothetical",
+            "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+          },
+          {
+            "annotation_id": "body-265-276",
+            "verdict": "nonfactual",
+            "reason": "An ordinary greeting or closing asserts no venue fact."
+          }
+        ],
+        "languageUses": [],
+        "answers": [],
+        "unsupportedClaims": [],
+        "findings": [],
+        "unresolvedHolds": [],
+        "operationalHolds": [
+          "Exact human review and approval of this recipient, subject and body are absent.",
+          "Suppression, consent, current thread and duplicate-send checks remain with the operational owner.",
+          "Public evidence is a dated snapshot, not a deliverability or current authority test.",
+          "No sending or form submission is implemented or authorized."
+        ],
+        "claimEvidence": [
+          {
+            "annotation": {
+              "annotation_id": "subject-0-38",
+              "section": "subject",
+              "start": 0,
+              "end": 38,
+              "quote": "Could a small visitor guide be useful?",
+              "category": "SALES HYPOTHESIS",
+              "claim_ids": [
+                "H-SCOPE"
+              ],
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "subject-0-38",
+              "verdict": "hypothetical",
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+            },
+            "sources": [
+              {
+                "category": "SALES HYPOTHESIS",
+                "claim_id": "H-SCOPE",
+                "evidence_sha256": "18cfa3607c93f2f3612cc127250f60bf8ca6468723336a189454c485770e217e",
+                "limitation": "Caller-supplied task/proposal, not externally verified fact or agreed commitment.",
+                "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+                "source_pointer": "/supplied_facts/0",
+                "text": "Propose exploring a small guide using material the venue chooses. This is a discussion, not a deployment, price, visit or promised result.",
+                "url": null
+              }
+            ],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          },
+          {
+            "annotation": {
+              "annotation_id": "body-0-3",
+              "section": "body",
+              "start": 0,
+              "end": 3,
+              "quote": "Hi,",
+              "category": "NONFACTUAL",
+              "claim_ids": [],
+              "reason": "An ordinary greeting or closing asserts no venue fact.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "body-0-3",
+              "verdict": "nonfactual",
+              "reason": "An ordinary greeting or closing asserts no venue fact."
+            },
+            "sources": [],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          },
+          {
+            "annotation": {
+              "annotation_id": "body-5-41",
+              "section": "body",
+              "start": 5,
+              "end": 41,
+              "quote": "Centralia Historical Society Museum.",
+              "category": "SOURCE FACT",
+              "claim_ids": [
+                "N-IDENTITY"
+              ],
+              "reason": "The captured native identity supports only the venue name. Any added exhibit, price or completed visit is a deliberately unsupported adversarial test.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "body-5-41",
+              "verdict": "supported",
+              "reason": "The captured native identity supports only the venue name. Any added exhibit, price or completed visit is a deliberately unsupported adversarial test."
+            },
+            "sources": [
+              {
+                "capture_sha256": "752dd91dc0dc2af8d319a9b72b082e85f7e5aa7da90713ffeb707abfa62627d7",
+                "category": "SOURCE FACT",
+                "claim_id": "N-IDENTITY",
+                "evidence_sha256": "7cb12e45757d1c05bdce9b667db075d206dd45ee94c703863ee7f0d547f599a3",
+                "limitation": "Attributed official-page snapshot; exact quote mapping, not authenticated human judgment or semantic proof. Explicitly published in the captured museum page; source quotation only, not consent or purchasing authority.",
+                "observed_at": "2026-09-21T18:59:45.088118+00:00",
+                "quote": "Centralia Historical Society Museum 319 E. Sneed St. Centralia, MO 65240",
+                "retrieved_at": "2026-09-21T18:59:45.088197+00:00",
+                "source_id": "native-capture_b06cf5f02caf9fb4ebce85e20384224bc89d2562:PAGE-2",
+                "source_pointer": "/claims/0; normalized-text[396:468]",
+                "text": "Centralia Historical Society Museum",
+                "url": "https://centraliamomuseum.org/contact-us/"
+              }
+            ],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          },
+          {
+            "annotation": {
+              "annotation_id": "body-43-207",
+              "section": "body",
+              "start": 43,
+              "end": 207,
+              "quote": "Would it be useful to explore a small question-based guide for one room or a few objects? It could use material you choose and stay focused on that part of a visit.",
+              "category": "SALES HYPOTHESIS",
+              "claim_ids": [
+                "H-SCOPE"
+              ],
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "body-43-207",
+              "verdict": "hypothetical",
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+            },
+            "sources": [
+              {
+                "category": "SALES HYPOTHESIS",
+                "claim_id": "H-SCOPE",
+                "evidence_sha256": "18cfa3607c93f2f3612cc127250f60bf8ca6468723336a189454c485770e217e",
+                "limitation": "Caller-supplied task/proposal, not externally verified fact or agreed commitment.",
+                "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+                "source_pointer": "/supplied_facts/0",
+                "text": "Propose exploring a small guide using material the venue chooses. This is a discussion, not a deployment, price, visit or promised result.",
+                "url": null
+              }
+            ],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          },
+          {
+            "annotation": {
+              "annotation_id": "body-209-263",
+              "section": "body",
+              "start": 209,
+              "end": 263,
+              "quote": "Would a short conversation about that idea make sense?",
+              "category": "SALES HYPOTHESIS",
+              "claim_ids": [
+                "H-ASK"
+              ],
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "body-209-263",
+              "verdict": "hypothetical",
+              "reason": "This is a conditional proposal or question from task direction, not a commitment or established venue need."
+            },
+            "sources": [
+              {
+                "category": "SALES HYPOTHESIS",
+                "claim_id": "H-ASK",
+                "evidence_sha256": "472adf4ae496ab6c8e4c9ec6d38110fbdb327adf9c7edffd0d31794019998cb7",
+                "limitation": "Caller-supplied task/proposal, not externally verified fact or agreed commitment.",
+                "source_id": "request:CRM-native-a7a5e12f923cf064ea51aed9-ec86f9b6",
+                "source_pointer": "/supplied_facts/1",
+                "text": "Ask whether a brief conversation about the idea would be useful. No meeting, price or delivery is agreed.",
+                "url": null
+              }
+            ],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          },
+          {
+            "annotation": {
+              "annotation_id": "body-265-276",
+              "section": "body",
+              "start": 265,
+              "end": 276,
+              "quote": "Thanks,\nTom",
+              "category": "NONFACTUAL",
+              "claim_ids": [],
+              "reason": "An ordinary greeting or closing asserts no venue fact.",
+              "answers": []
+            },
+            "assessment": {
+              "annotation_id": "body-265-276",
+              "verdict": "nonfactual",
+              "reason": "An ordinary greeting or closing asserts no venue fact."
+            },
+            "sources": [],
+            "unknownClaimIds": [],
+            "supportIsAttributedAssessment": true
+          }
+        ]
+      },
+      "history": [
+        {
+          "id": "sales-meaning_406016859ca9ef00f77d3d9ac515fa4e5e58e8f1",
+          "draftId": "sales-draft_8ab555052cd611244033430da79a13fd605ed4b8",
+          "contentHash": "c3772fe80d14d83fb49bcf373da99a1dec02b2d075b20df2dbeaab287cad914d",
+          "bindingHash": "51d8b0df397618abe5500d12f3a393fff3f6945bcc46f5671e0f57ea7d7973b0",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": true
+        },
+        {
+          "id": "sales-meaning_2c677dc5643960327edefbb1cd0dc8ab9665fa81",
+          "draftId": "sales-draft_4235277d7d718f7e817c0c810aba7590e579e2a4",
+          "contentHash": "198e64e29c8a5704c0624fc3be832ddfa11b692b67d5ab6c5de73440ef3ff771",
+          "bindingHash": "3a7f7f38032e98392ca52b85bfbf2b728e49a6ea58a7feb5791ac775cf276d8f",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_70f45c6726f7e1699df8d2dbc321bd21f41f5613",
+          "draftId": "sales-draft_77a981b7e04f7518f1b721548cc687601fb4164f",
+          "contentHash": "219f415bec8ff31f8ddc9dd341fadea063b5d1bba2f3db18390d6a9990d5eb5d",
+          "bindingHash": "edca191ac4cce1e818e4af9611b30c6b053ce238a72ed4357b081301e66d607e",
+          "status": "BLOCKED",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_6c0ade7afd6c2e8051cb0cc5ed69a2604a728689",
+          "draftId": "sales-draft_c0f18e26ca3c1483b9b3a79bf4a2c318f7a5e257",
+          "contentHash": "bd398c7da35711f0ed3ec4689f9173e013aba20ba49003f5081d2a27dac54a62",
+          "bindingHash": "560a49a91b721b866912807a982b69c768e54cf2d6230a20ad5af0ee6930ba67",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_b6b458b15a3f585ad81d37de99a8a25c26643e4e",
+          "draftId": "sales-draft_bef61638b3534248b18d96f71aec756c339214c0",
+          "contentHash": "f8aa63bb9817285ec48136e1ea28293e2bb3a8bbe91d2e1877eeacf12ad7690b",
+          "bindingHash": "59276000150ddf8cb79d20b21f76a6c859ad1cd47183e6f708b403d9cd90d086",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_6153969268f3a85542dbcd97a48c469e11cde11c",
+          "draftId": "sales-draft_d504544059dacdf3e1448fce88a89fee80b47e7b",
+          "contentHash": "abdafc3535953d6d9b98bba0300204f218ae22509e07211a174e422a243ca615",
+          "bindingHash": "ffc076f769faeaecdb8143dd1eb1f73c2185123b16c4dd1e590e976b0096a937",
+          "status": "BLOCKED",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_ae5112fb9e8ac1428fcee32a6efe08bd4e2cb67b",
+          "draftId": "sales-draft_467e9b110d2ef7d92937783fb8a28ce9c4111a21",
+          "contentHash": "5a972091e03f26b6741e0aa0cde690a56da7d09ba723ffe432bd5b2acd60d002",
+          "bindingHash": "226b2820f28748d419e5eb50a42db721a89322b84883496435c3dba8925d2ebd",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_3da64200b656a2f2087cec6ef4e570413832eec6",
+          "draftId": "sales-draft_ac511511890bdd22f6d5cef9faacd11182c4f626",
+          "contentHash": "0839454a8b85099d13b7325936f7e5690274b9bbc047821f0e5bc3754c0db0b6",
+          "bindingHash": "c33044c7a420c54577218adf1e7cd83353a64535e74271df20c8556db64619d4",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_1340e411a99f03b8a31a9c62c7a9668c18a97d82",
+          "draftId": "sales-draft_cbc0cc6ca370a0d30dcc6863c494b1528cadb981",
+          "contentHash": "428ab4557556d85366f2aafd0ed29c4c836b4117bbb0e86ec492d1e01c2ca44a",
+          "bindingHash": "6419c82ab8a6033edc2347780ae575efe43a629ab714d36d5f1202641b012838",
+          "status": "BLOCKED",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_4abb7635dd6333f010e3cc875efceaf046e61f30",
+          "draftId": "sales-draft_2f90a2ad8f828c92a3afadea7f2954330cfab4e6",
+          "contentHash": "52207ac54e0400b1cc3e2ba03c894d459d3dd21d347803fa9dc603866db2a3b4",
+          "bindingHash": "620ac68ea7883dd3d1e36777f960ee13987411e796239d05ab02beafb2d3585b",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_fd8422e1013732614ce37520421ab628c7c0d7d2",
+          "draftId": "sales-draft_71a098f1aec6e66aca4ce305c9d25f4d3e134afa",
+          "contentHash": "56171a6be84b763dfc71cb7c21c8725b6acc92af9514695e9d7ae2c598a6ce9e",
+          "bindingHash": "1b3cb07c8db33018f5751fb3e516200d4a776efc0966aa0518845c6761d45913",
+          "status": "ASSESSED_NO_SEND",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_be909435f19d2634799f760f0828c72e1fe6a73e",
+          "draftId": "sales-draft_359b76fea6d6498be9e419c02ac6f61c491bf945",
+          "contentHash": "80266f4240d4a5aab1d9bb1916fe77a4d936aee18c8c349a73334151ddc0ca0e",
+          "bindingHash": "5b1889b8f3ed23c2333dfe870ec19557c24dc5062c016c21024da7ed7e58abbc",
+          "status": "BLOCKED",
+          "applicable": false
+        },
+        {
+          "id": "sales-meaning_d3dcf0579bad65b48316a4c94afce710f4e4702c",
+          "draftId": "sales-draft_eac239c6188cd62b2b6582fe239e45a8e11c00a8",
+          "contentHash": "b08337c994d87feb5179545d14594449d2d24d4598aa1c2305ea626a5fbe6ae1",
+          "bindingHash": "9ccd8a5af7ceac486d233571fedae8163e2d6f6304756990c57c3e68d1db394e",
+          "status": "BLOCKED",
+          "applicable": false
+        }
+      ]
+    },
+    "SEND_AUTHORIZED": false
+  },
+  "initialMissingEvidenceProof": "before-native.json; stage-native-r001.json; browser-r001/receipt.json prefix and initial source-inspection screenshot",
+  "failuresRetained": [
+    "browser-r001/receipt.json",
+    "browser-r001/ASSERTION-RECONCILIATION.md",
+    "generated-restore-BLOCKED.json"
+  ],
+  "generatedRestoredToOriginal": false,
+  "limitations": [
+    "Desktop observation and cross-chat session discovery returned tool-not-found; actual installed Edge was exercised instead.",
+    "The exact next-env.d.ts preview-pointer/line-ending restoration was blocked before execution. Original bytes remain in preview-r001/next-env.before.txt; tsconfig is unchanged; neither generated file is committed.",
+    "No new all-42-table fingerprint sweep is claimed. Exact selected-prospect native/import/contact/source rows and retained review rows were compared.",
+    "Native source authenticity and natural-language entailment remain attributed judgments, not deterministic certification.",
+    "One unique-import nonpilot, general email/form or unresolved routing, cold review-only scope; existing nonpilot threads remain held.",
+    "No sender, bulk research, automatic writer, Approved Language approval, production build/deployment or new worktree."
+  ],
+  "artifactSha256s": {
+    "artifacts/crm-evidence-admission-20260921-r001/before-native.json": "06614280dcd064bba1dbebe618740686d7799265f7c57a39869f7368e22f5748",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-harness-before-format.mjs": "075f396304bc6a2052665e18f09758fb14ea565b711743282393cad113bf8494",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r001/ASSERTION-RECONCILIATION.md": "175ec96f1547b86c43410890a7e8a0b190d0855b1712f220d36aef28bb6140b8",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r001/failure-state.png": "35fa157e4b90656bea4f5c7d06ab9dc1cd781bb3326a38387c2f0922fad99f1e",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r001/native-capture-before-admission-desktop.png": "11c034588efd5858a60575220f936e804372f1af5479869198ada69f4313f9ae",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r001/receipt.json": "c97d50386a37490ceecdb4f8f4aa86b7e2abb7ea78bc70518ec923f2cebea7aa",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r001/unsupported-native-claim-held.png": "22577cb185f2e1ffe6c1ae21397c1fbc6daa669594dcdafe079e63f51af9dbdc",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/changed-source-stale-review.png": "324d62412094cfc78e51e2a055adfb67ae4a580046fc6bb7712f4f0573be0d57",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/form-route-evidence-narrow.png": "75dad03094daac57b4b3c9ca436295a8dc54eec60b7b3a16f3f1c4e3484c2446",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/native-capture-before-admission-desktop.png": "10520f9d2108364ef7b47ded9386404864572db949e51777b6cd75f2aedb9396",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/native-evidence-narrow.png": "5e681e34bcd43343345f4485346c037abeaae6b95ece46d162a976e6fcf13518",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/native-meaning-320.png": "4c64e62d97cb205118e266f4a828af75c5a76318d980449feccbe4bf2aee5fff",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/native-reviewed-no-send-desktop.png": "db4bf290c58111b922d1c138d516844baefbafd6f10ad6e1a50b507b9fce3411",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/receipt.json": "aae9e4ebe4850990d787781f8865928c6a64b253182cef68a07fbc85cddfc0da",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r002/unsupported-native-claim-held.png": "5d5b509e626ad7f40d29f020dcbc8ec58a3fd0c1ce536fe9e2929bf0b21a39cd",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/changed-source-stale-review.png": "2eb8a393a851b955446ce10d5e7cd89a6c4e315ceb21623c69bd897e1d004e67",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/form-route-evidence-narrow.png": "07720cb0091434afb0eaa6e9c02e7178c7f217396c314a7c7dab05aad9c349a0",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/native-capture-before-admission-desktop.png": "0a7db87006164fb6dc5c53a30bf03df48b949dd5c163ee2e895e569e20d020c7",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/native-evidence-narrow.png": "87affed0dda3c33c28de39532bb4865d35883d16e7e1dbdf8c10728247010abf",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/native-meaning-320.png": "ad2ca62d4f7a536a6d3f16b6336a9480baa9c49a2e90c12a0b7610ae10d95186",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/native-reviewed-no-send-desktop.png": "8840ef4a6b4caaa121e9f91bf8f84ff848d5b59d288261e177eaaf444a2ba907",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/receipt.json": "e886197de58774677b48f662b51b31c8e6bbc7aa7d5b30b0a0827ab6747c8baa",
+    "artifacts/crm-evidence-admission-20260921-r001/browser-r003/unsupported-native-claim-held.png": "70ac13251cc5449a69d7547ee2cb68c8dbf444967a6efd4d741ed021152c7717",
+    "artifacts/crm-evidence-admission-20260921-r001/build_capture_record.py": "fbae07752c6ad7917bdc5b69bc844d285b502f324ff414fb67f06c00529baa40",
+    "artifacts/crm-evidence-admission-20260921-r001/capture-record.json": "a62f6e9d35d469f406443353150ad3033b9d5b483b4fbf428f29a09b8f6ff85b",
+    "artifacts/crm-evidence-admission-20260921-r001/capture_official.py": "5b5ef85475841d419332b8e9e70710b06d4cc1263b521bd35783d6bddd34d465",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-1-receipt.json": "e7718a2df6fe4a78dae2e46685907c6b808448f24ffc5df789ee897a68386677",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-1.html": "019a8ad1a2e9dfaaf48c72548da3ad37b65f9eea0279171e124d0ae62af440a0",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-1.visible.txt": "8058fb1b304511d47ad7aa8b2285a7d5ab10abab80cd069719fb41a56077ff55",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-2-receipt.json": "60e009f100ac6fb2da5a3ee68e401c934e5c5cbc7caedce9f95fe13212cc2954",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-2.html": "752dd91dc0dc2af8d319a9b72b082e85f7e5aa7da90713ffeb707abfa62627d7",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/page-2.visible.txt": "843a352c33c8bc4a3ab243c55e82b1f4be56ceec7e9b15dc7bc4ad09b209fee9",
+    "artifacts/crm-evidence-admission-20260921-r001/captures-r001/receipt.json": "d0b8d69443177616e2c3f090466554d080b5365a2722fd2b4b2cffa17540615e",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-api-1790018221088831700/0.log": "a2dff6b304d8b878124c2ae83692d4cb92b078fee688eea71f7ad91bc39202c9",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-api-1790018221088831700/receipt.json": "e4e83531ed2cf9f1916d769f60bc13e831e7f3cd68c17b27ca69ccb861902862",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-api-1790019549845655000/0.log": "66156f208a90600ab65f33b5ad3bb8b554143bcbd92685fd2c91d45226de3152",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-api-1790019549845655000/receipt.json": "97717cd6d255c516e5b956b981ab393c473e8fbbff395bd06994da94566d51f2",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-boundaries-1790019671267451000/0.log": "9c71d335cb87fd88c1c788159355d7b4c77a1374ce3ca8606eac296e857769d9",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-boundaries-1790019671267451000/1.log": "f3da6953835e9175df9996c4073f02b792ba44766a4c96844e6ac0a1617fa489",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-boundaries-1790019671267451000/2.log": "e52b03dff480ff9ecbcc920328311a0df2172167ae01ea0b185b233803386afe",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-boundaries-1790019671267451000/receipt.json": "367a00586d8131a3cfeef99714ed54d1daf40f8a60dbe5a0a03dedfb93882784",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-composer-1790019545357836000/0.log": "976fe6a14b4b5f341c7368070a4ea9f585fefba287517722e9af0989483e8245",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-composer-1790019545357836000/receipt.json": "4d8d4c1f28e3030b4183ac4f7e09e2098241057f6472c453209b392e5d6e6459",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-db-1790018216615285200/0.log": "75b494ac04d0d106756297605399eed99b1b5085bf14ab32e9d3653b429940e2",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-db-1790018216615285200/receipt.json": "3fc9db680ad894f4bd89872c25920529309bf5479c60a12c86060ee4db5fa072",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-db-1790019546343624600/0.log": "0ca550509da0190f38cdcda2b2153e641f15735aa993298805c506e331c87878",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-db-1790019546343624600/receipt.json": "3e75da7d6728bb41c6cebb96d19a7e4cd25cf7b03dffe6fa4c7717b445e28395",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-python-1790018057631750800/0.log": "be6421266900305a231d6a8ba6fdc5f0533845abe4d6c35ed411007463e74e85",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-python-1790018057631750800/receipt.json": "adff0968febddbc239c647fdb0593cebbc99df86432b321d0aa4679d2b255ec7",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-python-1790019534597131600/0.log": "9d89f03c5ce12146003ffbe921b97c843f95b67eb6222930e9afe2f41cedf09f",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-python-1790019534597131600/receipt.json": "1ea6542ca993da00e11414434599489188b068fa370f8b622410ac51f42f9ac1",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790018067954853900/0.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790018067954853900/1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790018067954853900/2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790018067954853900/receipt.json": "9e9729a3bc741c18054685f4e3df1ec0c757e467adb066409a4290f291d7ee08",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790019572287537700/0.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790019572287537700/1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790019572287537700/2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-types-1790019572287537700/receipt.json": "bf213c9aec36448baa3a029b319857dfd9d6259b7c37649f82054ea46a612127",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-ui-1790018227659586700/0.log": "4828968f8299b879b32e530f5873b3bf5126b60f897987b2e5f19c9908535b15",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-ui-1790018227659586700/receipt.json": "1c782766f9f1d0a8292425f072426e36ec24dfa795557baf338e7c7cfa6355ba",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-ui-1790019555770689600/0.log": "d0bcc6bfcfb902ca7772c31c33916549009bc70953c1e7db29df9eba834fbece",
+    "artifacts/crm-evidence-admission-20260921-r001/checks-ui-1790019555770689600/receipt.json": "93def29357101deabc72171a23c4372b7ca8cdfe85bf14ccd5f7d0130264df53",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/apply-check.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/apply-check.stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/composer-native-catalog.patch": "2a1a06af9108a902603cf08da2a602327234b84ec96a6046e181a91fece6c5fa",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/postimage/implementation/composer.py": "0077f2f6448a1c94c2acead0e9a1bd725a7584ad04bd779f57af580d62c63a3c",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/postimage/implementation/native_catalog.py": "99729ba05c4784a614697e1fc5a0a447f36932e61fbfee0f57f092af92519c6b",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/postimage/tests/test_native_catalog.py": "c9cfa0a6e85e3187e5701bd7cd6258a88356c42cf1164aa99b8c000de05b0923",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/preimage/implementation/composer.py": "8e6dff387bcd8f82fcc3bf3bcd39c92c2abc8db7b743e73aa90e8c14eae37e49",
+    "artifacts/crm-evidence-admission-20260921-r001/composer-seam-r001/receipt.json": "0322f3a4a7a67a19533765801c327b78e0cc76b5d54b54b6d81e9e928fa9705e",
+    "artifacts/crm-evidence-admission-20260921-r001/composer.py.before": "8e6dff387bcd8f82fcc3bf3bcd39c92c2abc8db7b743e73aa90e8c14eae37e49",
+    "artifacts/crm-evidence-admission-20260921-r001/dependencies-before.json": "6408798439b91f4a27a4a05cf471423a28744e11605af996b2a18851296c5e13",
+    "artifacts/crm-evidence-admission-20260921-r001/EXECUTION.md": "ffddfd186db88195dda5f4694638c46fde7454f48c587666762669f2ce896e93",
+    "artifacts/crm-evidence-admission-20260921-r001/final-native-readback.json": "62092296099189310817fc25e03ef974ef064d30ede844756f7a5fc0b29d1a3e",
+    "artifacts/crm-evidence-admission-20260921-r001/format-ast-reconciliation-r002.json": "742a0fe3e04c1878d88151f85a5acbf03ead65865adb1115ce6f08fce955a588",
+    "artifacts/crm-evidence-admission-20260921-r001/format-ast-reconciliation.json": "8d73e866d7cb1128f86a933ed2967062485ecfd58aa501e402acb44a57e3f19d",
+    "artifacts/crm-evidence-admission-20260921-r001/format-reconciliation.json": "d15b60c9ec9dfbcad33cb810d7d7526ad2bbc301f3282ef9534ffc6b3f9a8465",
+    "artifacts/crm-evidence-admission-20260921-r001/generated-restore-BLOCKED.json": "fefbcfd5fc40b9b1ec47896136fa54d43587a03928e02c322a8a612e24bf0baf",
+    "artifacts/crm-evidence-admission-20260921-r001/native-full-r001.json": "742bdec9e5de3ad899af745ae162380a3e3af827942e8fac83590a0717a6adf9",
+    "artifacts/crm-evidence-admission-20260921-r001/native-full-r002.json": "f50d9a9061aaf844ce2a7f482e07520271269367a93edc4dba236c84fe3eb772",
+    "artifacts/crm-evidence-admission-20260921-r001/pilot-compatibility-before.json": "82fa75528844c0a6b282c29daa3006ebec319b088833275029ccb54234afe240",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/next-env.before.txt": "6902ed943c3fc642ee66cae54f04765d7b3331309d39c79b241bd3578a440ea4",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/OWNERSHIP-RECONCILIATION.md": "3b5c774fff458580b3b0cf22fc2963df52b03bb9d2ad41e9c8040520ef703195",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/preview-owner.json": "9de9b34e2913af5a3eb19ed7005ad99461c022b6d643e3404d602f3849e00660",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/preview-stopped.json": "a1041c9a931f297674f516fc1cd4f4793af7a37f17d64d17250a252e4cc57e0f",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/preview.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/preview.stdout.log": "955cee781deba6d6dcaa25a7de938f79262326511eed5b9ad5ed7ad5e82735c3",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r001/tsconfig.before.txt": "127b6f212c9527cc51931abb193204b1ca4357910029450dc4af04858140a45c",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/next-env.before.txt": "fca437bdf20443bbdc6cf552a32c1bc66b9926b4443ad5deb572d22edf1dc370",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/preview-owner.json": "01e5b5fa6fc703f6f977d19ff01f7c3ba5d6c7cebb582299b91d3454a7fed32d",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/preview-stopped.json": "73f921b25ce3fd48be2ef34b4a506854c9372b54a2b1aac604dc2de79a6da76b",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/preview.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/preview.stdout.log": "78d81589626533515983c65642975b15a00aef19f21f2332e0499f987eb29e6c",
+    "artifacts/crm-evidence-admission-20260921-r001/preview-r002/tsconfig.before.txt": "127b6f212c9527cc51931abb193204b1ca4357910029450dc4af04858140a45c",
+    "artifacts/crm-evidence-admission-20260921-r001/record_delivery.py": "3a806123183a368e4f4077a55b617c14fadc919d4b2c78e8d15a8b3c35764975",
+    "artifacts/crm-evidence-admission-20260921-r001/stage-native-r001.json": "59f8f3f236ce480221c5051d58c3de18e92ef42c45eabadfc9bcf93bc4ac9907"
+  },
+  "humanApproval": "ABSENT",
+  "semanticCertification": false,
+  "SEND_AUTHORIZED": false
+}

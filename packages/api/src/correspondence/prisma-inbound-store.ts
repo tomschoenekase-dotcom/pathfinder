@@ -14,6 +14,7 @@ import type {
   ReceiptState,
   ThreadMatchCandidate,
 } from './inbound-sync'
+import { SyncCursorConflictError as CursorConflict } from './inbound-sync'
 import { projectGmailBodyForPersistence, type GmailBodyPersistencePolicy } from './body-retention'
 
 const receiptStatus: Record<
@@ -28,6 +29,10 @@ const receiptStatus: Record<
   PERMANENT_FAILURE: 'PERMANENTLY_FAILED',
 }
 
+function isUniqueConflict(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
 function canonicalReceiptState(
   status:
     | 'RECEIVED'
@@ -40,6 +45,35 @@ function canonicalReceiptState(
   if (status === 'RETRYABLE') return 'RETRYABLE_FAILURE'
   if (status === 'PERMANENTLY_FAILED') return 'PERMANENT_FAILURE'
   return status
+}
+
+function boundMessageId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const value = (payload as Record<string, unknown>).messageExternalId
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function receiptRecord(row: {
+  id: string
+  provider: string
+  providerAccountId: string | null
+  providerMailboxKey: string
+  providerEventId: string
+  status: Parameters<typeof canonicalReceiptState>[0]
+  createdAt: Date
+  attemptCount: number
+}) {
+  if (!row.providerAccountId) throw new Error('Provider receipt has no account identity')
+  return {
+    id: row.id,
+    provider: row.provider as 'GMAIL' | 'FAKE',
+    providerAccountId: row.providerAccountId,
+    mailboxId: row.providerMailboxKey,
+    externalReceiptId: row.providerEventId,
+    state: canonicalReceiptState(row.status),
+    receivedAt: row.createdAt,
+    attemptCount: row.attemptCount,
+  }
 }
 
 function healthFailureSummary(operation: 'INCREMENTAL_SYNC' | 'RECONCILIATION' | 'WATCH_RENEWAL') {
@@ -100,11 +134,16 @@ export function createPrismaInboundCorrespondenceStore(
   return {
     async receiveReceipt(input) {
       return withTenantIsolationBypass(async () => {
+        if (!input.messageExternalId || input.messageExternalId.length > 191) {
+          throw new Error('Provider receipt requires one exact message ID')
+        }
         const account = await db.correspondenceProviderAccount.findUnique({
           where: { id: input.providerAccountId },
-          select: { id: true },
+          select: { id: true, provider: true, externalAccountId: true },
         })
         if (!account) throw new Error('Provider account does not exist')
+        if (account.provider !== input.provider || account.externalAccountId !== input.mailboxId)
+          throw new Error('Provider receipt account/mailbox mismatch')
         const existing = await db.prospectEmailWebhookReceipt.findUnique({
           where: {
             provider_providerMailboxKey_providerEventId: {
@@ -115,50 +154,122 @@ export function createPrismaInboundCorrespondenceStore(
           },
         })
         if (existing) {
+          if (existing.providerAccountId !== input.providerAccountId)
+            throw new Error('Existing provider receipt belongs to another account')
+          if (boundMessageId(existing.payload) !== input.messageExternalId)
+            throw new Error('Provider receipt event ID conflicts with its exact message reference')
           return {
             inserted: false,
-            receipt: {
-              id: existing.id,
-              provider: input.provider,
-              providerAccountId: input.providerAccountId,
-              mailboxId: input.mailboxId,
-              externalReceiptId: input.externalReceiptId,
-              state: canonicalReceiptState(existing.status),
-              receivedAt: existing.createdAt,
-            },
+            receipt: receiptRecord(existing),
           }
         }
-        const receipt = await db.prospectEmailWebhookReceipt.create({
-          data: {
+        let receipt: { id: string }
+        try {
+          receipt = await db.prospectEmailWebhookReceipt.create({
+            data: {
+              provider: input.provider,
+              providerAccountId: input.providerAccountId,
+              providerMailboxKey: input.mailboxId,
+              providerEventId: input.externalReceiptId,
+              eventType: 'provider.message.notification',
+              payload: { mailboxId: input.mailboxId, messageExternalId: input.messageExternalId },
+              createdAt: input.receivedAt,
+            },
+          })
+        } catch (error) {
+          if (!isUniqueConflict(error)) throw error
+          const raced = await db.prospectEmailWebhookReceipt.findUnique({
+            where: {
+              provider_providerMailboxKey_providerEventId: {
+                provider: input.provider,
+                providerMailboxKey: input.mailboxId,
+                providerEventId: input.externalReceiptId,
+              },
+            },
+          })
+          if (!raced || raced.providerAccountId !== input.providerAccountId) throw error
+          if (boundMessageId(raced.payload) !== input.messageExternalId)
+            throw new Error('Provider receipt event ID conflicts with its exact message reference')
+          return {
+            inserted: false,
+            receipt: receiptRecord(raced),
+          }
+        }
+        return {
+          inserted: true,
+          receipt: {
+            id: receipt.id,
             provider: input.provider,
             providerAccountId: input.providerAccountId,
-            providerMailboxKey: input.mailboxId,
-            providerEventId: input.externalReceiptId,
-            eventType: 'provider.message.notification',
-            payload: { mailboxId: input.mailboxId },
-            createdAt: input.receivedAt,
+            mailboxId: input.mailboxId,
+            externalReceiptId: input.externalReceiptId,
+            state: 'RECEIVED' as const,
+            receivedAt: input.receivedAt,
+            attemptCount: 0,
           },
-        })
-        return { inserted: true, receipt: { ...input, id: receipt.id, state: 'RECEIVED' } }
+        }
       })
     },
-    async markReceiptState(receiptId, state) {
-      await withTenantIsolationBypass(() =>
-        db.prospectEmailWebhookReceipt.update({
-          where: { id: receiptId },
+    async claimReceipt(receiptId, claimedAt) {
+      const leaseUntil = new Date(claimedAt.getTime() + 5 * 60_000)
+      const result = await withTenantIsolationBypass(() =>
+        db.prospectEmailWebhookReceipt.updateMany({
+          where: {
+            id: receiptId,
+            OR: [
+              { status: { in: ['RECEIVED', 'RETRYABLE'] } },
+              {
+                status: 'PROCESSING',
+                OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: claimedAt } }],
+              },
+            ],
+          },
           data: {
-            status: receiptStatus[state],
+            status: 'PROCESSING',
             attemptCount: { increment: 1 },
+            nextAttemptAt: leaseUntil,
+            processingError: null,
+          },
+        }),
+      )
+      const row = await withTenantIsolationBypass(() =>
+        db.prospectEmailWebhookReceipt.findUniqueOrThrow({ where: { id: receiptId } }),
+      )
+      return {
+        receipt: receiptRecord(row),
+        claimed:
+          result.count === 1 &&
+          row.status === 'PROCESSING' &&
+          row.nextAttemptAt?.getTime() === leaseUntil.getTime(),
+      }
+    },
+    async markReceiptState(input) {
+      if (input.state === 'PROCESSING' || input.state === 'RECEIVED')
+        throw new Error('Receipt finalization requires a result state')
+      const result = await withTenantIsolationBypass(() =>
+        db.prospectEmailWebhookReceipt.updateMany({
+          where: {
+            id: input.receiptId,
+            status: 'PROCESSING',
+            attemptCount: input.attemptCount,
+          },
+          data: {
+            status: receiptStatus[input.state],
+            nextAttemptAt: null,
             processingError:
-              state === 'RETRYABLE_FAILURE'
-                ? 'Provider message retrieval failed before canonical ingestion.'
+              input.state === 'RETRYABLE_FAILURE'
+                ? 'Provider message retrieval or canonical ingestion failed.'
                 : null,
-            ...(['PROCESSED', 'QUARANTINED', 'PERMANENT_FAILURE'].includes(state)
+            ...(['PROCESSED', 'QUARANTINED', 'PERMANENT_FAILURE'].includes(input.state)
               ? { processedAt: new Date() }
               : {}),
           },
         }),
       )
+      const row = await withTenantIsolationBypass(() =>
+        db.prospectEmailWebhookReceipt.findUniqueOrThrow({ where: { id: input.receiptId } }),
+      )
+      return { receipt: receiptRecord(row), applied: result.count === 1 }
     },
     async findThreadCandidates(message) {
       return withTenantIsolationBypass(async () => {
@@ -196,7 +307,10 @@ export function createPrismaInboundCorrespondenceStore(
         )
         const referenced = references.length
           ? await db.prospectEmailMessage.findMany({
-              where: { internetMessageId: { in: references } },
+              where: {
+                internetMessageId: { in: references },
+                providerAccountId: message.message.providerAccountId,
+              },
               select: { thread: { include } },
               take: 20,
             })
@@ -206,7 +320,12 @@ export function createPrismaInboundCorrespondenceStore(
           .slice(0, 20)
         const participantThreads = participantEmails.length
           ? await db.prospectEmailThread.findMany({
-              where: { contact: { normalizedEmail: { in: participantEmails } } },
+              where: {
+                contact: { normalizedEmail: { in: participantEmails }, emailReadiness: 'VALID' },
+                providerMappings: {
+                  some: { providerAccountId: message.message.providerAccountId },
+                },
+              },
               include,
               take: 20,
             })
@@ -238,15 +357,44 @@ export function createPrismaInboundCorrespondenceStore(
               providerMessageId: input.message.message.externalId,
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+            threadId: true,
+            providerAccountId: true,
+            internetMessageId: true,
+            fromAddress: true,
+            subject: true,
+            textBody: true,
+          },
         })
-        if (existing) return { canonicalMessageId: existing.id, inserted: false }
+        if (existing) {
+          if (
+            existing.threadId !== thread.id ||
+            existing.providerAccountId !== input.message.message.providerAccountId ||
+            existing.internetMessageId !== input.message.rfcMessageId ||
+            existing.fromAddress !== input.message.from[0]?.email ||
+            existing.subject !== input.message.subject ||
+            (existing.textBody !== null && existing.textBody !== input.message.body.text)
+          )
+            throw new Error('Conflicting provider message replay; canonical history is retained')
+          return { canonicalMessageId: existing.id, inserted: false }
+        }
         const bodyProjection = projectGmailBodyForPersistence({
           message: input.message,
           ingestedAt: input.ingestedAt,
           policy: bodyPersistence,
         })
         const created = await db.$transaction(async (tx) => {
+          const mapping = await tx.prospectEmailThreadProvider.findUnique({
+            where: {
+              providerAccountId_providerThreadId: {
+                providerAccountId: input.message.thread.providerAccountId,
+                providerThreadId: input.message.thread.externalId,
+              },
+            },
+          })
+          if (mapping && mapping.threadId !== thread.id)
+            throw new Error('Provider thread mapping changed during inbound admission')
           const message = await tx.prospectEmailMessage.create({
             data: {
               threadId: thread.id,
@@ -302,15 +450,71 @@ export function createPrismaInboundCorrespondenceStore(
     },
     async appendRelationshipReply(input) {
       await withTenantIsolationBypass(() => recordProspectInboundReplyAction(input))
-      await publishCrmOperationalSignal({
-        input: {
-          signal: 'reply_received',
-          scope: { kind: 'platform' },
-          linkedObjectType: 'ProspectEmailMessage',
-          linkedObjectId: input.canonicalMessageId,
-          summary: 'A Gmail reply was matched to one canonical prospect thread.',
-        },
-      })
+      const providerEventId = `reply-signal:${input.canonicalMessageId}`
+      const eventIdentity = {
+        providerAccountId: input.providerAccountId,
+        providerEventId,
+      }
+      try {
+        await withTenantIsolationBypass(() =>
+          db.$transaction(async (tx) => {
+            const existing = await tx.prospectEmailEvent.findUnique({
+              where: { providerAccountId_providerEventId: eventIdentity },
+            })
+            if (existing) {
+              if (
+                existing.emailMessageId !== input.canonicalMessageId ||
+                existing.eventType !== 'crm.reply_received.signal'
+              )
+                throw new Error('Reply signal marker conflicts with canonical message')
+              return
+            }
+            const account = await tx.correspondenceProviderAccount.findUniqueOrThrow({
+              where: { id: input.providerAccountId },
+              select: { provider: true },
+            })
+            await publishCrmOperationalSignal({
+              client: tx,
+              input: {
+                signal: 'reply_received',
+                scope: { kind: 'platform' },
+                linkedObjectType: 'ProspectEmailMessage',
+                linkedObjectId: input.canonicalMessageId,
+                summary:
+                  account.provider === 'FAKE'
+                    ? 'SYNTHETIC FAKE-provider reply was matched to its isolated canonical rehearsal thread; no venue sent it.'
+                    : 'A Gmail reply was matched to one canonical prospect thread.',
+              },
+            })
+            await tx.prospectEmailEvent.create({
+              data: {
+                emailMessageId: input.canonicalMessageId,
+                providerAccountId: input.providerAccountId,
+                providerEventId,
+                eventType: 'crm.reply_received.signal',
+                payload: {
+                  canonicalThreadId: input.canonicalThreadId,
+                  prospectOrganizationId: input.prospectOrganizationId,
+                },
+                occurredAt: input.occurredAt,
+              },
+            })
+          }),
+        )
+      } catch (error) {
+        if (!isUniqueConflict(error)) throw error
+        const winner = await withTenantIsolationBypass(() =>
+          db.prospectEmailEvent.findUnique({
+            where: { providerAccountId_providerEventId: eventIdentity },
+          }),
+        )
+        if (
+          !winner ||
+          winner.emailMessageId !== input.canonicalMessageId ||
+          winner.eventType !== 'crm.reply_received.signal'
+        )
+          throw error
+      }
     },
     async holdFollowups(input) {
       if (input.followupIds.length === 0) return
@@ -326,39 +530,97 @@ export function createPrismaInboundCorrespondenceStore(
     },
     async quarantine(input) {
       const accountId = input.message?.message.providerAccountId ?? null
-      const quarantine = await withTenantIsolationBypass<{ id: string }>(() =>
-        db.prospectInboundQuarantine.create({
-          data: {
-            receiptId: input.receiptId,
-            providerAccountId: accountId,
-            reason: input.reason,
-            detail: quarantineDetail(input.reason),
-            ...(input.message
-              ? {
-                  messageSnapshot: json({
-                    providerMessageId: input.message.message.externalId,
-                    providerThreadId: input.message.thread.externalId,
-                    rfcMessageId: input.message.rfcMessageId,
-                    from: input.message.from,
-                    to: input.message.to,
-                    subject: input.message.subject,
-                    occurredAt: input.message.internalDate,
-                  }),
-                }
-              : {}),
-            candidateThreadIds: [...(input.candidateThreadIds ?? [])],
-            occurredAt: input.occurredAt,
-          },
-          select: { id: true },
-        }),
-      )
+      const identity = input.receiptId
+        ? `receipt:${input.receiptId}`
+        : input.message
+          ? [
+              'message',
+              input.reason,
+              input.message.message.provider,
+              input.message.message.providerAccountId,
+              input.message.message.mailboxId,
+              input.message.message.externalId,
+            ].join(':')
+          : null
+      const quarantineId = identity
+        ? `inbound-quarantine-${createHash('sha256').update(identity).digest('hex').slice(0, 40)}`
+        : undefined
+      let quarantine: { id: string }
+      try {
+        quarantine = await withTenantIsolationBypass<{ id: string }>(() =>
+          db.prospectInboundQuarantine.create({
+            data: {
+              ...(quarantineId ? { id: quarantineId } : {}),
+              receiptId: input.receiptId,
+              providerAccountId: accountId,
+              reason: input.reason,
+              detail: quarantineDetail(input.reason),
+              ...(input.message
+                ? {
+                    messageSnapshot: json({
+                      providerMessageId: input.message.message.externalId,
+                      providerThreadId: input.message.thread.externalId,
+                      rfcMessageId: input.message.rfcMessageId,
+                      from: input.message.from,
+                      to: input.message.to,
+                      subject: input.message.subject,
+                      occurredAt: input.message.internalDate,
+                    }),
+                  }
+                : {}),
+              candidateThreadIds: [...(input.candidateThreadIds ?? [])],
+              occurredAt: input.occurredAt,
+            },
+            select: { id: true },
+          }),
+        )
+      } catch (error) {
+        if (!quarantineId || !isUniqueConflict(error)) throw error
+        quarantine = { id: quarantineId }
+      }
+      // A receipt-only quarantine has no trustworthy provider source in this
+      // input. For a supplied message, label it only when both provider refs
+      // agree and the canonical account still owns that mailbox.
+      let providerLabel = 'provider'
+      const messageRef = input.message?.message
+      const threadRef = input.message?.thread
+      if (
+        messageRef &&
+        threadRef &&
+        messageRef.provider === threadRef.provider &&
+        messageRef.providerAccountId === threadRef.providerAccountId &&
+        messageRef.mailboxId === threadRef.mailboxId
+      ) {
+        try {
+          const account = await withTenantIsolationBypass(() =>
+            db.correspondenceProviderAccount.findUnique({
+              where: { id: messageRef.providerAccountId },
+              select: { provider: true, externalAccountId: true },
+            }),
+          )
+          if (
+            account?.provider === messageRef.provider &&
+            account.externalAccountId === messageRef.mailboxId
+          ) {
+            providerLabel =
+              account.provider === 'FAKE'
+                ? 'SYNTHETIC FAKE-provider'
+                : account.provider === 'GMAIL'
+                  ? 'Gmail'
+                  : 'provider'
+          }
+        } catch {
+          // Quarantine and its operational signal remain durable with neutral
+          // wording if provenance cannot be read at signal time.
+        }
+      }
       await publishCrmOperationalSignal({
         input: {
           signal: 'gmail_sync_failed',
           scope: { kind: 'platform' },
           linkedObjectType: 'ProspectInboundQuarantine',
           linkedObjectId: quarantine.id,
-          summary: `Inbound Gmail content was quarantined: ${input.reason}.`,
+          summary: `Inbound ${providerLabel} content was quarantined: ${input.reason}.`,
         },
       })
     },
@@ -372,9 +634,15 @@ export function createPrismaInboundCorrespondenceStore(
       return account?.syncCursor ?? null
     },
     async commitSyncCursor(input) {
-      await withTenantIsolationBypass(() =>
-        db.correspondenceProviderAccount.update({
-          where: { id: input.mailbox.providerAccountId },
+      const result = await withTenantIsolationBypass(() =>
+        db.correspondenceProviderAccount.updateMany({
+          where: {
+            id: input.mailbox.providerAccountId,
+            provider: input.mailbox.provider,
+            externalAccountId: input.mailbox.mailboxId,
+            syncCursor: input.expectedCursor,
+            connectionStatus: { in: ['CONNECTED', 'DEGRADED'] },
+          },
           data: {
             syncCursor: input.cursor,
             lastSuccessfulSyncAt: input.completedAt,
@@ -387,12 +655,30 @@ export function createPrismaInboundCorrespondenceStore(
           },
         }),
       )
+      if (result.count !== 1) throw new CursorConflict()
+    },
+    async clearExpiredSyncCursor(input) {
+      const result = await withTenantIsolationBypass(() =>
+        db.correspondenceProviderAccount.updateMany({
+          where: {
+            id: input.mailbox.providerAccountId,
+            provider: input.mailbox.provider,
+            externalAccountId: input.mailbox.mailboxId,
+            syncCursor: input.expectedCursor,
+            connectionStatus: { in: ['CONNECTED', 'DEGRADED'] },
+          },
+          data: { syncCursor: null },
+        }),
+      )
+      if (result.count !== 1) throw new CursorConflict()
     },
     async saveWatch(input) {
       await withTenantIsolationBypass(() =>
         db.correspondenceProviderAccount.update({
           where: { id: input.mailbox.providerAccountId },
-          data: { watchExpiration: input.watch.expiresAt, syncCursor: input.watch.cursor },
+          // Watch renewal is transport state only. The ingestion cursor advances
+          // exclusively after synchronize() durably handles every page/message.
+          data: { watchExpiration: input.watch.expiresAt },
         }),
       )
     },

@@ -53,6 +53,43 @@ const credential = {
 describe('agent bridge actions', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('narrows an explicit foreground claim without falling back to another queued run', async () => {
+    mocks.sessionFind.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      provider: 'CODEX_SUBSCRIPTION',
+      supportedModels: ['subscription-default'],
+    })
+    // Defensive assertion as well as the native SQL predicate: an unexpected
+    // adapter response must not widen the requested operation.
+    mocks.runFindMany.mockResolvedValue([{ id: 'unrelated-run', scopeSnapshot: {} }])
+    expect(
+      await claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        runId: 'selected-run',
+        credential: credential as never,
+      }),
+    ).toEqual({ task: null })
+    expect(mocks.runFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'selected-run',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+        }),
+      }),
+    )
+    expect(mocks.claim).not.toHaveBeenCalled()
+    await expect(
+      claimAgentBridgeTask({
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        runId: ' ',
+        credential: credential as never,
+      }),
+    ).rejects.toThrow()
+  })
+
   it('registers only against an active exact-scope machine credential and stores no secret material', async () => {
     mocks.externalFind.mockResolvedValue({ id: 'credential-1', scopeKey: 'venue-1' })
     mocks.sessionFind.mockResolvedValue(null)

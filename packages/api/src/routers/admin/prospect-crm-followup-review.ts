@@ -22,6 +22,7 @@ export async function getProspectOutreachReadinessProjection() {
         watchExpiration: true,
         healthErrorCode: true,
         healthErrorSummary: true,
+        updatedAt: true,
       },
       orderBy: { mailboxAddress: 'asc' },
     }),

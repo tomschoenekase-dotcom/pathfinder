@@ -1,4 +1,5 @@
 import { db } from '../client'
+import { createHash } from 'node:crypto'
 import { writeAuditLogStrict } from './audit'
 
 type Client = typeof db
@@ -18,6 +19,18 @@ export async function recordProspectInboundReplyAction(
   client: Client = db,
 ) {
   return client.$transaction(async (tx) => {
+    const replyActivityId =
+      'provider-reply_' +
+      createHash('sha256').update(input.canonicalMessageId).digest('hex').slice(0, 40)
+    const replay = await tx.prospectActivity.findUnique({ where: { id: replyActivityId } })
+    if (replay)
+      return {
+        activityId: replay.id,
+        opportunityId: null,
+        fromStage: null,
+        toStage: null,
+        stageChanged: false,
+      }
     const opportunity = await tx.prospectOpportunity.findUnique({
       where: { organizationId: input.prospectOrganizationId },
       select: { id: true, stage: true },
@@ -26,6 +39,7 @@ export async function recordProspectInboundReplyAction(
 
     const activity = await tx.prospectActivity.create({
       data: {
+        id: replyActivityId,
         organizationId: input.prospectOrganizationId,
         contactId: input.contactId,
         type: 'REPLY_RECEIVED',

@@ -8,6 +8,7 @@ import {
   prospectOnboardingDeliveryAttemptSelect,
 } from './prospect-onboarding-delivery-attempt'
 import { ProspectActionError, type ProspectActor } from './prospect-actions'
+import { recordProspectSuppressionInTransaction } from './prospect-contactability-actions'
 
 type Client = typeof db
 
@@ -70,9 +71,10 @@ function attentionCopy(disposition: ProspectInboundReplyDisposition) {
       }
     case 'SUPPRESSION_REQUEST':
       return {
-        title: 'Prospect suppression request needs confirmation',
+        title: 'Prospect suppression request applied',
         summary: 'A human classified the matched reply as a suppression request.',
-        recommendedAction: 'Confirm suppression is active before any further correspondence.',
+        recommendedAction:
+          'Contact suppression is active. Do not send; restoration requires the separate authorized owner.',
       }
     case 'OTHER':
       return {
@@ -220,6 +222,29 @@ export async function reviewProspectInboundReplyAction(
       })
 
       let deliveryAttempt = null
+      if (review.disposition === 'SUPPRESSION_REQUEST') {
+        if (
+          !message.contactId ||
+          message.contact?.organizationId !== message.organizationId ||
+          message.contact.normalizedEmail !== message.fromAddress.toLowerCase()
+        )
+          throw new ProspectActionError(
+            'CONFLICT',
+            'Suppression requires an exact matched sender/contact; resolve identity without marking suppression applied',
+          )
+        await recordProspectSuppressionInTransaction(
+          {
+            contactId: message.contactId,
+            eventType: 'UNSUBSCRIBED',
+            source: 'INBOUND_MESSAGE',
+            reasonCode: 'HUMAN_REVIEWED_SUPPRESSION_REQUEST',
+            reason,
+            evidence: { messageId, reviewId: review.id, sourceReference: message.sourceReference },
+            actor: { type: 'HUMAN', role: 'PLATFORM_ADMIN', id: input.actor.id },
+          },
+          tx,
+        )
+      }
       if (review.disposition === 'POSITIVE_INTEREST') {
         if (!message.venue || !message.venueId || !message.contact || !message.contactId) {
           throw new ProspectActionError(

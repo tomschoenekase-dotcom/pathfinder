@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { db } from '@pathfinder/db'
 
 import {
   _setProspectCorrespondenceProviderForTesting,
@@ -14,6 +15,7 @@ describe('prospect correspondence worker safety', () => {
   const originalAllowlist = process.env.PROSPECT_OUTREACH_INTERNAL_ALLOWLIST
 
   afterEach(() => {
+    vi.restoreAllMocks()
     process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = original
     process.env.PROSPECT_OUTREACH_RECIPIENT_MODE = originalMode
     process.env.PROSPECT_OUTREACH_INTERNAL_ALLOWLIST = originalAllowlist
@@ -29,11 +31,13 @@ describe('prospect correspondence worker safety', () => {
     expect(isProspectRecipientAllowed('prospect@external.test')).toBe(true)
   })
 
-  it('stays dark before any database claim or provider resolution', async () => {
+  it('allows only a bounded recovery status read while delivery is disabled', async () => {
     process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = 'false'
+    const statusRead = vi.spyOn(db.prospectSendOutbox, 'findUnique').mockResolvedValue(null)
     await expect(processSendProspectOutreachJob({ outboxId: 'outbox-1' })).rejects.toThrow(
       'disabled',
     )
+    expect(statusRead).toHaveBeenCalledOnce()
   })
 
   it('uses durable outbox identity rather than a mutable draft or recipient', () => {
@@ -50,8 +54,18 @@ describe('prospect correspondence worker safety', () => {
     const acceptedAt = new Date('2026-08-22T16:00:00.000Z')
     const result = {
       operationId: 'operation-1',
-      message: { provider: 'GMAIL', externalId: 'message-1' },
-      thread: { provider: 'GMAIL', externalId: 'thread-1' },
+      message: {
+        provider: 'GMAIL',
+        providerAccountId: 'mailbox-1',
+        mailboxId: 'me',
+        externalId: 'message-1',
+      },
+      thread: {
+        provider: 'GMAIL',
+        providerAccountId: 'mailbox-1',
+        mailboxId: 'me',
+        externalId: 'thread-1',
+      },
       rfcMessageId: '<torchiko.operation-1@torchiko.com>',
       acceptedAt,
     }

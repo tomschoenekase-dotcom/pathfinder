@@ -52,17 +52,34 @@ describe('prospect outbox dispatcher', () => {
     expect(enqueueProspectOutreach).not.toHaveBeenCalled()
   })
 
-  it('re-publishes pending and expired durable operations by outbox identity', async () => {
-    findMany.mockResolvedValue([{ id: 'outbox-1' }, { id: 'outbox-2' }])
+  it('keeps only first-attempt intent deterministic and uses fresh recovery enqueues after it runs', async () => {
+    findMany.mockResolvedValue([
+      { id: 'outbox-1', status: 'PENDING' },
+      { id: 'outbox-2', status: 'CLAIMED' },
+      { id: 'outbox-3', status: 'RETRYABLE' },
+    ])
     enqueueProspectOutreach.mockResolvedValue(undefined)
 
     await expect(dispatchPendingProspectOutbox(new Date('2026-08-20T12:00:00Z'))).resolves.toEqual({
-      discovered: 2,
-      enqueued: 2,
+      discovered: 3,
+      enqueued: 3,
       failed: 0,
     })
     expect(enqueueProspectOutreach).toHaveBeenNthCalledWith(1, { outboxId: 'outbox-1' })
-    expect(enqueueProspectOutreach).toHaveBeenNthCalledWith(2, { outboxId: 'outbox-2' })
+    expect(enqueueProspectOutreach).toHaveBeenNthCalledWith(
+      2,
+      { outboxId: 'outbox-2' },
+      {
+        recovery: true,
+      },
+    )
+    expect(enqueueProspectOutreach).toHaveBeenNthCalledWith(
+      3,
+      { outboxId: 'outbox-3' },
+      {
+        recovery: true,
+      },
+    )
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -80,7 +97,10 @@ describe('prospect outbox dispatcher', () => {
   })
 
   it('keeps failed publication durable for the next scan', async () => {
-    findMany.mockResolvedValue([{ id: 'outbox-1' }, { id: 'outbox-2' }])
+    findMany.mockResolvedValue([
+      { id: 'outbox-1', status: 'PENDING' },
+      { id: 'outbox-2', status: 'CLAIMED' },
+    ])
     enqueueProspectOutreach
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('redis unavailable'))

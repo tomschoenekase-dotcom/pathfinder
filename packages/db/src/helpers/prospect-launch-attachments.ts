@@ -90,8 +90,10 @@ export async function readProspectLaunchLinks(
 export async function requireCurrentProspectLaunchAttachments(
   prospectVenueId: string,
   value: unknown,
-  options: ProspectLaunchAttachmentValidationOptions = {},
+  optionsOrClient: ProspectLaunchAttachmentValidationOptions | ProspectLaunchReadClient = {},
 ): Promise<VenueLaunchAsset[]> {
+  const options: ProspectLaunchAttachmentValidationOptions =
+    'prospectLocationConversion' in optionsOrClient ? { client: optionsOrClient } : optionsOrClient
   const client = options.client ?? db
   const configuredOrigin = options.configuredOrigin ?? process.env.NEXT_PUBLIC_WEB_URL
   const attachments = parseVenueLaunchAttachments(value)

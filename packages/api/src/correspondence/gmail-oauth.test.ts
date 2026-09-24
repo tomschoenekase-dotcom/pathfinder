@@ -96,12 +96,10 @@ describe('createGmailOAuthRuntime', () => {
 
     expect(authorization.searchParams.get('access_type')).toBe('offline')
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256')
-    expect(authorization.searchParams.get('scope')?.split(' ')).toEqual(
-      expect.arrayContaining([
-        'https://www.googleapis.com/auth/calendar.events.readonly',
-        'https://www.googleapis.com/auth/meetings.space.readonly',
-      ]),
-    )
+    expect(authorization.searchParams.get('scope')?.split(' ')).toEqual([
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/gmail.send',
+    ])
     expect(authorization.searchParams.get('scope')).not.toContain('drive')
     expect(mocks.attempt).not.toHaveProperty('state', state)
 
@@ -119,12 +117,14 @@ describe('createGmailOAuthRuntime', () => {
     expect(mocks.upsertAccount).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({
+          syncCursor: null,
           deliveryEnabled: false,
           capabilities: expect.arrayContaining(['CALENDAR_READ', 'MEET_TRANSCRIPTS']),
         }),
         update: expect.objectContaining({ deliveryEnabled: false }),
       }),
     )
+    expect(mocks.upsertAccount.mock.calls[0]![0].update).not.toHaveProperty('syncCursor')
     expect(mocks.audit).toHaveBeenCalled()
   })
 

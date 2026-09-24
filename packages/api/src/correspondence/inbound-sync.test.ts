@@ -5,6 +5,7 @@ import {
   chooseThreadMatch,
   createInboundCorrespondenceService,
   foldDeliveryState,
+  SyncCursorConflictError,
   type InboundCorrespondenceStore,
   type ReceiptRecord,
   type ThreadMatchCandidate,
@@ -58,12 +59,14 @@ function createStore(input?: {
   events?: string[]
 }) {
   const events = input?.events ?? []
+  let currentCursor = input?.cursor ?? null
   const receipts = new Map<string, ReceiptRecord>()
   const calls = {
     replies: [] as unknown[],
     holds: [] as unknown[],
     quarantines: [] as unknown[],
     cursors: [] as unknown[],
+    cursorClears: [] as unknown[],
     health: [] as unknown[],
     watches: [] as unknown[],
     receiptStates: [] as unknown[],
@@ -75,19 +78,56 @@ function createStore(input?: {
       const existing = receipts.get(key)
       if (existing) return { receipt: existing, inserted: false }
       const created: ReceiptRecord = {
-        ...receipt,
+        provider: receipt.provider,
+        providerAccountId: receipt.providerAccountId,
+        mailboxId: receipt.mailboxId,
+        externalReceiptId: receipt.externalReceiptId,
+        receivedAt: receipt.receivedAt,
         id: `receipt-${receipts.size + 1}`,
         state: 'RECEIVED',
+        attemptCount: 0,
       }
       receipts.set(key, created)
       return { receipt: created, inserted: true }
     },
-    async markReceiptState(receiptId, state) {
+    async claimReceipt(receiptId) {
+      const entry = [...receipts.entries()].find(([, value]) => value.id === receiptId)
+      if (!entry) throw new Error('receipt missing')
+      const [key, current] = entry
+      if (
+        current.state === 'PROCESSED' ||
+        current.state === 'QUARANTINED' ||
+        current.state === 'PERMANENT_FAILURE' ||
+        current.state === 'PROCESSING'
+      )
+        return { receipt: current, claimed: false }
+      const next = {
+        ...current,
+        state: 'PROCESSING' as const,
+        attemptCount: current.attemptCount + 1,
+      }
+      receipts.set(key, next)
+      events.push('receipt:PROCESSING')
+      calls.receiptStates.push({ receiptId, state: 'PROCESSING' })
+      return { receipt: next, claimed: true }
+    },
+    async markReceiptState({ receiptId, attemptCount, state }) {
       events.push(`receipt:${state}`)
       calls.receiptStates.push({ receiptId, state })
       for (const [key, value] of receipts) {
-        if (value.id === receiptId) receipts.set(key, { ...value, state })
+        if (
+          value.id === receiptId &&
+          value.state === 'PROCESSING' &&
+          value.attemptCount === attemptCount
+        ) {
+          const next = { ...value, state }
+          receipts.set(key, next)
+          return { receipt: next, applied: true }
+        }
       }
+      const current = [...receipts.values()].find((value) => value.id === receiptId)
+      if (!current) throw new Error('receipt missing')
+      return { receipt: current, applied: false }
     },
     async findThreadCandidates() {
       return input?.candidates ?? [candidate()]
@@ -106,11 +146,16 @@ function createStore(input?: {
       calls.quarantines.push(value)
     },
     async getSyncCursor() {
-      return input?.cursor ?? null
+      return currentCursor
     },
     async commitSyncCursor(value) {
       events.push('cursor-committed')
       calls.cursors.push(value)
+      currentCursor = value.cursor
+    },
+    async clearExpiredSyncCursor(value) {
+      calls.cursorClears.push(value)
+      currentCursor = null
     },
     async saveWatch(value) {
       calls.watches.push(value)
@@ -139,11 +184,19 @@ describe('inbound correspondence synchronization', () => {
       message: message().message,
     }
 
-    await service.receiveNotification(receipt)
+    const first = await service.receiveNotification(receipt)
     const duplicate = await service.receiveNotification(receipt)
 
     expect(events.indexOf('receipt-committed')).toBeLessThan(events.indexOf('provider-retrieved'))
+    expect(first).toMatchObject({
+      state: 'PROCESSED',
+      receipt: {
+        state: 'PROCESSED',
+        attemptCount: 1,
+      },
+    })
     expect(duplicate.state).toBe('DUPLICATE')
+    expect(duplicate.receipt.state).toBe('PROCESSED')
     expect(retrieve).toHaveBeenCalledTimes(1)
   })
 
@@ -364,6 +417,159 @@ describe('inbound correspondence synchronization', () => {
     ])
     expect(watch.mailboxId).toBe(mailbox.mailboxId)
     expect(fixture.calls.watches).toHaveLength(1)
+  })
+
+  it('rejects a continuing page without a token instead of checkpointing omitted messages', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'syncIncremental').mockResolvedValue({
+      messages: [message()],
+      cursor: 'unsafe-cursor',
+      nextPageToken: null,
+      hasMore: true,
+      mode: 'INCREMENTAL',
+    })
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.synchronize(mailbox)).rejects.toThrow('incomplete correspondence page')
+    expect(fixture.calls.cursors).toHaveLength(0)
+  })
+
+  it('rejects a repeated page token before a cursor can advance', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'syncIncremental').mockResolvedValue({
+      messages: [],
+      cursor: 'unsafe-cursor',
+      nextPageToken: 'same-page',
+      hasMore: true,
+      mode: 'INCREMENTAL',
+    })
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.synchronize(mailbox)).rejects.toThrow(
+      'repeated a correspondence page token',
+    )
+    expect(fixture.calls.cursors).toHaveLength(0)
+  })
+
+  it('clears only its expired history cursor and then fully reconciles', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'syncIncremental').mockRejectedValueOnce(
+      new CorrespondenceProviderError('HISTORY_CURSOR_EXPIRED', 'expired'),
+    )
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.synchronize(mailbox)).resolves.toMatchObject({
+      mode: 'FULL_RECONCILIATION',
+    })
+    expect(fixture.calls.cursorClears).toEqual([{ mailbox, expectedCursor: 'cursor-before' }])
+    expect(fixture.calls.cursors).toEqual([
+      expect.objectContaining({ expectedCursor: null, mode: 'FULL_RECONCILIATION' }),
+    ])
+  })
+
+  it('does not mark account health failed when another run wins the checkpoint', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const store: InboundCorrespondenceStore = {
+      ...fixture.store,
+      async commitSyncCursor() {
+        throw new SyncCursorConflictError()
+      },
+    }
+    const service = createInboundCorrespondenceService({ provider, store })
+
+    await expect(service.synchronize(mailbox)).rejects.toThrow(SyncCursorConflictError)
+    expect(fixture.calls.health).toHaveLength(0)
+  })
+
+  it('durably quarantines unavailable history messages before advancing the cursor', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    let attempt = 0
+    vi.spyOn(provider, 'syncIncremental').mockImplementation(async () => ({
+      messages: [],
+      unavailableMessages: [{ ...mailbox, externalId: 'missing-message' }],
+      cursor: `history-after-missing-${++attempt}`,
+      nextPageToken: null,
+      hasMore: false,
+      mode: 'INCREMENTAL',
+    }))
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.synchronize(mailbox)).resolves.toMatchObject({
+      cursor: 'history-after-missing-1',
+      processed: 0,
+    })
+    expect(fixture.calls.quarantines).toHaveLength(1)
+    expect(fixture.calls.quarantines[0]).toMatchObject({
+      reason: 'PROVIDER_MESSAGE_NOT_FOUND',
+      message: null,
+    })
+    expect(fixture.calls.cursors).toHaveLength(1)
+
+    await service.synchronize(mailbox)
+    expect(fixture.calls.quarantines).toHaveLength(1)
+  })
+
+  it('does not advance the cursor when unavailable-message quarantine fails', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'syncIncremental').mockResolvedValue({
+      messages: [],
+      unavailableMessages: [{ ...mailbox, externalId: 'missing-message' }],
+      cursor: 'history-after-missing',
+      nextPageToken: null,
+      hasMore: false,
+      mode: 'INCREMENTAL',
+    })
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const store: InboundCorrespondenceStore = {
+      ...fixture.store,
+      async quarantine() {
+        throw new Error('quarantine storage unavailable')
+      },
+    }
+    const service = createInboundCorrespondenceService({ provider, store })
+
+    await expect(service.synchronize(mailbox)).rejects.toThrow('quarantine storage unavailable')
+    expect(fixture.calls.cursors).toHaveLength(0)
+  })
+
+  it('does not checkpoint an unavailable message while another receipt attempt is unfinished', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'syncIncremental').mockResolvedValue({
+      messages: [],
+      unavailableMessages: [{ ...mailbox, externalId: 'missing-message' }],
+      cursor: 'unsafe-cursor',
+      nextPageToken: null,
+      hasMore: false,
+      mode: 'INCREMENTAL',
+    })
+    const fixture = createStore({ cursor: 'cursor-before' })
+    const store: InboundCorrespondenceStore = {
+      ...fixture.store,
+      async claimReceipt() {
+        return {
+          claimed: false,
+          receipt: {
+            id: 'receipt-in-progress',
+            provider: mailbox.provider,
+            providerAccountId: mailbox.providerAccountId,
+            mailboxId: mailbox.mailboxId,
+            externalReceiptId: 'event-1',
+            state: 'PROCESSING',
+            receivedAt: new Date('2026-09-22T00:00:00.000Z'),
+            attemptCount: 1,
+          },
+        }
+      },
+    }
+    const service = createInboundCorrespondenceService({ provider, store })
+
+    await expect(service.synchronize(mailbox)).rejects.toThrow('still being quarantined')
+    expect(fixture.calls.cursors).toHaveLength(0)
   })
 
   it('retains untrusted-data policy and bounds oversized synchronized content', async () => {

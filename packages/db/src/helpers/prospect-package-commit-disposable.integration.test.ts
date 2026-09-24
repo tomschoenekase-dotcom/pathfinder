@@ -138,7 +138,9 @@ suite('staging package disposable commit', () => {
         where: { id: records.find((record) => record.recordKind === 'DRAFT')!.canonicalDraftId! },
       })
       expect(draft).toMatchObject({ status: 'NEEDS_REVIEW', approvedAt: null, approvedBy: null })
-      expect(await db.prospectSendBatch.count({ where: { campaignId: draft!.campaignId } })).toBe(0)
+      // This fixture is still a campaign draft; local NO-SEND preparations have no campaign.
+      if (!draft?.campaignId) throw new Error('Expected the imported campaign draft fixture')
+      expect(await db.prospectSendBatch.count({ where: { campaignId: draft.campaignId } })).toBe(0)
       expect(
         await db.prospectSendOutbox.count({ where: { sendItem: { draftId: draft!.id } } }),
       ).toBe(0)

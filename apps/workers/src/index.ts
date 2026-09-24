@@ -73,9 +73,7 @@ import {
   PROSPECT_IMPORT_RETRY_BACKOFF,
   PROSPECT_IMPORT_STAGE_JOB,
   SEND_EMAIL_QUEUE,
-  SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
-  SEND_PROSPECT_OUTREACH_JOB,
   SEND_PROSPECT_OUTREACH_RETRY_BACKOFF,
   type AnalyticsEnrichmentJobPayload,
   type AgentRunJobPayload,
@@ -86,8 +84,6 @@ import {
   type GuestAnswerAttributionEvaluationJobPayload,
   type GenerationDispatchKickJobPayload,
   type GmailSyncJobPayload,
-  type SendWelcomeEmailJobPayload,
-  type SendProspectOutreachJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -129,8 +125,7 @@ import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
 import { processGmailSyncJob } from './processors/gmail-sync'
-import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
-import { processSendProspectOutreachJob } from './processors/send-prospect-outreach'
+import { handleSendEmailQueueJob } from './processors/send-email-queue'
 import { startProspectOutboxDispatcher } from './processors/prospect-outbox-dispatcher'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
@@ -547,25 +542,6 @@ async function handleWeeklyReportQueueJob(
   }
 
   throw new Error(`Unsupported weekly report job: ${job.name}`)
-}
-
-async function handleSendEmailQueueJob(
-  job: Job<SendWelcomeEmailJobPayload | SendProspectOutreachJobPayload>,
-) {
-  if (job.name === SEND_WELCOME_EMAIL_JOB) {
-    await processSendWelcomeEmailJob(
-      job.data as SendWelcomeEmailJobPayload,
-      getJobExecutionMetadata(job),
-    )
-    return
-  }
-
-  if (job.name === SEND_PROSPECT_OUTREACH_JOB) {
-    await processSendProspectOutreachJob(job.data as SendProspectOutreachJobPayload)
-    return
-  }
-
-  throw new Error(`Unsupported send-email job: ${job.name}`)
 }
 
 async function handleMediaIngestionQueueJob(

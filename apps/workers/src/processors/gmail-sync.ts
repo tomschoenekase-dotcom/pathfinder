@@ -5,6 +5,7 @@ import {
   createGmailOAuthRuntime,
   createInboundCorrespondenceService,
   createPrismaInboundCorrespondenceStore,
+  gmailBodyPersistencePolicyFromEnvironment,
   type ProviderMailboxRef,
 } from '@pathfinder/api/correspondence'
 import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pathfinder/db'
@@ -79,7 +80,11 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
   })
   const service = createInboundCorrespondenceService({
     provider,
-    store: createPrismaInboundCorrespondenceStore(),
+    store: createPrismaInboundCorrespondenceStore({
+      bodyPersistence: gmailBodyPersistencePolicyFromEnvironment(
+        process.env.GMAIL_BODY_RETENTION_DAYS,
+      ),
+    }),
   })
 
   try {
@@ -89,29 +94,9 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
       return await service.renewWatch(mailbox, topic)
     }
 
-    try {
-      const result = await service.synchronize(mailbox)
-      if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
-      return result
-    } catch (error) {
-      if (
-        !(error instanceof CorrespondenceProviderError) ||
-        error.code !== 'HISTORY_CURSOR_EXPIRED'
-      ) {
-        throw error
-      }
-      // A stale Gmail history cursor is recoverable. Clearing it deliberately switches the
-      // service to its bounded full-reconciliation path; push delivery remains only a hint.
-      await withTenantIsolationBypass(() =>
-        db.correspondenceProviderAccount.update({
-          where: { id: payload.providerAccountId },
-          data: { syncCursor: null },
-        }),
-      )
-      const result = await service.synchronize(mailbox)
-      if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
-      return result
-    }
+    const result = await service.synchronize(mailbox)
+    if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
+    return result
   } catch (error) {
     const errorCode =
       error instanceof CorrespondenceProviderError ? error.code : 'GMAIL_SYNC_FAILED'

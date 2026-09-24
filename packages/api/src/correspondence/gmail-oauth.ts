@@ -12,8 +12,6 @@ const GOOGLE_REQUEST_TIMEOUT_MS = 30_000
 const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
-  'https://www.googleapis.com/auth/meetings.space.readonly',
 ] as const
 
 type Fetch = typeof fetch
@@ -359,7 +357,7 @@ export function createGmailOAuthRuntime(input: {
               ],
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
+              syncCursor: null,
               deliveryEnabled: false,
               createdBy: args.requestedBy,
               updatedBy: args.requestedBy,
@@ -367,7 +365,6 @@ export function createGmailOAuthRuntime(input: {
             update: {
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
               healthErrorCode: null,
               healthErrorSummary: null,
               deliveryEnabled: false,

@@ -432,12 +432,16 @@ export function createAgentBridgeRegistry(
     claimTask: (raw: unknown, rawContext: unknown) => {
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
       const input = sessionScope
-        .extend({ workerKey: z.string().trim().min(1).max(191).optional() })
+        .extend({
+          workerKey: z.string().trim().min(1).max(191).optional(),
+          runId: z.string().trim().min(1).max(191).optional(),
+        })
         .parse(raw)
       return claimAgentBridgeTask({
         sessionId: input.sessionId,
         venueId: input.venueId,
         ...(input.workerKey ? { workerKey: input.workerKey } : {}),
+        ...(input.runId ? { runId: input.runId } : {}),
         credential: context.credential,
       })
     },

@@ -1,3 +1,4 @@
+import type { SalesTransaction } from './prospect-sales-snapshot'
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 
@@ -99,71 +100,77 @@ export async function recordProspectSuppressionAction(
   },
   client: Client = db,
 ) {
+  return client.$transaction((tx) => recordProspectSuppressionInTransaction(input, tx))
+}
+
+export async function recordProspectSuppressionInTransaction(
+  input: Parameters<typeof recordProspectSuppressionAction>[0],
+  tx: SalesTransaction,
+) {
   if (!input.actor.id || !input.reasonCode.trim()) {
     throw new ProspectContactabilityError('INVALID_INPUT', 'Actor and reason code are required')
   }
-  return client.$transaction(async (tx) => {
-    const contact = await tx.prospectContact.findUnique({ where: { id: input.contactId } })
-    if (!contact) throw new ProspectContactabilityError('NOT_FOUND', 'Prospect contact not found')
-    const now = new Date()
-    const terminalSuppression = ['SUPPRESSED', 'UNSUBSCRIBED', 'HARD_BOUNCE', 'COMPLAINT'].includes(
-      input.eventType,
-    )
-    const saved = await tx.prospectContact.update({
-      where: { id: contact.id },
-      data: {
-        ...(terminalSuppression
-          ? {
-              doNotContact: true,
-              suppressedAt: now,
-              suppressionReason: input.reason?.trim() || input.reasonCode,
-              permissionState: input.eventType === 'UNSUBSCRIBED' ? 'OPTED_OUT' : 'PROHIBITED',
-            }
-          : {}),
-        ...(input.eventType === 'UNSUBSCRIBED' ? { unsubscribedAt: now } : {}),
-        ...(input.eventType === 'COMPLAINT' ? { complainedAt: now } : {}),
-        ...(input.eventType === 'HARD_BOUNCE' ? { lastHardBounceAt: now } : {}),
-        ...(input.eventType === 'SOFT_BOUNCE' ? { lastSoftBounceAt: now } : {}),
-        updatedBy: input.actor.id,
-      },
-    })
-    const event = await tx.prospectContactSuppressionEvent.create({
-      data: {
-        contactId: contact.id,
-        eventType: input.eventType,
-        source: input.source,
-        reasonCode: input.reasonCode.trim(),
-        reason: input.reason?.trim() || null,
-        provider: input.provider ?? null,
-        actorType: input.actor.type,
-        actorId: input.actor.id,
-        evidence: input.evidence ?? {},
-        occurredAt: now,
-      },
-    })
-    await writeAuditLogStrict(
-      {
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
-        action: `prospect.contactability.${input.eventType.toLowerCase()}`,
-        targetType: 'ProspectContact',
-        targetId: contact.id,
-        beforeState: {
-          doNotContact: contact.doNotContact,
-          permissionState: contact.permissionState,
-          suppressedAt: contact.suppressedAt?.toISOString() ?? null,
-        },
-        afterState: {
-          doNotContact: saved.doNotContact,
-          permissionState: saved.permissionState,
-          suppressedAt: saved.suppressedAt?.toISOString() ?? null,
-          eventId: event.id,
-        },
-      },
-      tx,
-    )
-    return { contact: saved, event }
+  const contact = await tx.prospectContact.findUnique({ where: { id: input.contactId } })
+  if (!contact) throw new ProspectContactabilityError('NOT_FOUND', 'Prospect contact not found')
+  const now = new Date()
+  const terminalSuppression = ['SUPPRESSED', 'UNSUBSCRIBED', 'HARD_BOUNCE', 'COMPLAINT'].includes(
+    input.eventType,
+  )
+  const saved = await tx.prospectContact.update({
+    where: { id: contact.id },
+    data: {
+      ...(terminalSuppression
+        ? {
+            doNotContact: true,
+            suppressedAt: now,
+            suppressionReason: input.reason?.trim() || input.reasonCode,
+            permissionState: input.eventType === 'UNSUBSCRIBED' ? 'OPTED_OUT' : 'PROHIBITED',
+          }
+        : {}),
+      ...(input.eventType === 'UNSUBSCRIBED' ? { unsubscribedAt: now } : {}),
+      ...(input.eventType === 'COMPLAINT' ? { complainedAt: now } : {}),
+      ...(input.eventType === 'HARD_BOUNCE' ? { lastHardBounceAt: now } : {}),
+      ...(input.eventType === 'SOFT_BOUNCE' ? { lastSoftBounceAt: now } : {}),
+      updatedBy: input.actor.id,
+    },
   })
+  const event = await tx.prospectContactSuppressionEvent.create({
+    data: {
+      contactId: contact.id,
+      eventType: input.eventType,
+      source: input.source,
+      reasonCode: input.reasonCode.trim(),
+      reason: input.reason?.trim() || null,
+      provider: input.provider ?? null,
+      actorType: input.actor.type,
+      actorId: input.actor.id,
+      evidence: input.evidence ?? {},
+      occurredAt: now,
+    },
+  })
+  await writeAuditLogStrict(
+    {
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+      action: `prospect.contactability.${input.eventType.toLowerCase()}`,
+      actorType: input.actor.type,
+      targetType: 'ProspectContact',
+      targetId: contact.id,
+      beforeState: {
+        doNotContact: contact.doNotContact,
+        permissionState: contact.permissionState,
+        suppressedAt: contact.suppressedAt?.toISOString() ?? null,
+      },
+      afterState: {
+        doNotContact: saved.doNotContact,
+        permissionState: saved.permissionState,
+        suppressedAt: saved.suppressedAt?.toISOString() ?? null,
+        eventId: event.id,
+      },
+    },
+    tx,
+  )
+  return { contact: saved, event }
 }
 
 /** Restoration is intentionally human-only and never erases suppression history. */

@@ -26,3 +26,9 @@ apps/web/public/characters/
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Private local CRM source packages, baseline backups and acceptance evidence.
+artifacts/crm-research-*/
+.next-crm-*/
+# Private exact model request bodies for native retry, never a second CRM.
+.outreach-retry/

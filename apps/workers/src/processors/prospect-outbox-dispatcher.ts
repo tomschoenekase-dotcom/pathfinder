@@ -42,12 +42,16 @@ export async function dispatchPendingProspectOutbox(
       ],
     },
     orderBy: [{ availableAt: 'asc' }, { id: 'asc' }],
-    select: { id: true },
+    select: { id: true, status: true },
     take: Math.max(1, Math.min(batchSize, 500)),
   })
 
   const results = await Promise.allSettled(
-    operations.map(({ id }) => enqueueProspectOutreach({ outboxId: id })),
+    operations.map(({ id, status }) =>
+      status === 'PENDING'
+        ? enqueueProspectOutreach({ outboxId: id })
+        : enqueueProspectOutreach({ outboxId: id }, { recovery: true }),
+    ),
   )
   const failed = results.filter((result) => result.status === 'rejected').length
   if (failed > 0) {

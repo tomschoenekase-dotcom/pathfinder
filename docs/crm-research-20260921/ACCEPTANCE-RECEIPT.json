@@ -1,0 +1,367 @@
+{
+  "schema": "torchiko.local-crm-acceptance/v1",
+  "observedAt": "2026-09-21T04:06:22.761650+00:00",
+  "status": "LOCAL_STAGING_ACCEPTED",
+  "productionAccepted": false,
+  "branch": "codex/torchiko-crm-research-20260919",
+  "parentHead": "1c743bad16b3b1d5c29d92b030a0ae8a2b7356eb",
+  "commitReceipt": "artifacts/crm-research-20260921-r001/DELIVERY.json",
+  "sourceSha256": "1e2d5c29aae124a616e5c037e9e75cfc4f35026ec838dbd39914a3bd8aa1d8ff",
+  "packageSemanticSha256": "5da402aff674ec35c989c9f31e4e1db94c299474523302af8925012037fe593e",
+  "immutablePackage": {
+    "path": "artifacts/crm-research-20260921-r001/canonical-package-r001.json",
+    "sha256": "c398fa718e671d15acd7aaa136b10c457dbfb06e3f1b0529995eec13cdd4c70e",
+    "bytes": 90226678
+  },
+  "importId": "cmuanw9lm00008tesd8bh23o6",
+  "databaseTarget": {
+    "host": "127.0.0.1",
+    "port": "58617",
+    "database": "pathfinder_disposable_crm_research_20260919"
+  },
+  "counts": {
+    "sourceRows": 16725,
+    "packageRecords": 41662,
+    "acceptedSourceRows": 16725,
+    "rejectedSourceRows": 0,
+    "skippedSourceRows": 0,
+    "organizations": 16725,
+    "venues": 16725,
+    "territories": 85,
+    "contacts": 8212,
+    "contactSourceRows": 6183,
+    "sourceRecords": 41662,
+    "sourceEvidence": 16725,
+    "sharedWebsiteGroups": 1005
+  },
+  "directWebsites": 14804,
+  "exceptions": {
+    "missing_website": 1921,
+    "missing_source_urls": 1528,
+    "missing_research_date": 247,
+    "owner_name_only_not_a_contact": 5,
+    "contact_without_source_urls": 2,
+    "contact_title_only": 8
+  },
+  "exceptionMeaning": "Retained source unknowns/interpretation boundaries, not rejected or skipped prospects.",
+  "contacts": {
+    "emailReadiness": "UNKNOWN",
+    "permissionState": "UNKNOWN",
+    "sourceCandidateRecords": 8212,
+    "independentlyVerifiedByThisImport": 0
+  },
+  "idempotency": {
+    "identicalPackageReplayed": true,
+    "newProcessedRecords": 0,
+    "unchangedFullRowTableFingerprints": 42,
+    "changedTables": []
+  },
+  "noOutreachCounts": {
+    "campaigns": 0,
+    "drafts": 0,
+    "sendBatches": 0,
+    "sendItems": 0,
+    "sendOutbox": 0,
+    "messages": 0,
+    "threads": 0,
+    "followups": 0
+  },
+  "SEND_AUTHORIZED": false,
+  "verification": {
+    "sourceChecks": 631930,
+    "nativeReadbackChecks": 858112,
+    "liveApiChecks": 51453,
+    "browserChecks": 20,
+    "browserScreenshots": 6,
+    "accessibilityViolations": 0,
+    "importUnitTests": 17,
+    "suites": [
+      {
+        "name": "DB",
+        "passed": 2148,
+        "skipped": 136,
+        "summary": "Tests  2148 passed | 136 skipped (2284)",
+        "evidence": {
+          "path": "artifacts/crm-research-20260921-r001/final-r001/db-suite.log",
+          "sha256": "41ca8f3d0eba762808155a16e2109a50cba5f8f781f49894eb1e5d7aff211945",
+          "bytes": 59314
+        }
+      },
+      {
+        "name": "API",
+        "passed": 2703,
+        "skipped": 108,
+        "summary": "Tests  2703 passed | 108 skipped (2811)",
+        "evidence": {
+          "path": "artifacts/crm-research-20260921-r001/final-r001/api-suite.log",
+          "sha256": "ba4e48692dc8682d42a11421a2bfb322d8495369ab9d510aefd4b9ae75c6db82",
+          "bytes": 49358
+        }
+      },
+      {
+        "name": "Dashboard",
+        "passed": 1566,
+        "skipped": 0,
+        "summary": "Tests  1566 passed (1566)",
+        "evidence": {
+          "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-suite-r004.log",
+          "sha256": "2a911c832c687be79d1aee72cf066cd14f952bdac9805be721243ef924448b76",
+          "bytes": 36766
+        }
+      }
+    ],
+    "workspaceTypecheck": "PASS",
+    "workspaceLint": "PASS",
+    "lintWarnings": "Existing warnings retained in the full log; zero errors.",
+    "boundaryChecks": [
+      "public-surfaces",
+      "tenant-procedures",
+      "tenant-registry",
+      "tenant-bypasses",
+      "raw-sql"
+    ],
+    "dashboardProductionBuild": "PASS",
+    "dashboardFinalTypecheck": "PASS"
+  },
+  "proofScope": [
+    "Real retained local PostgreSQL; native import, exact readback and replay.",
+    "Actual shared directory/detail components through a loopback read-only development adapter.",
+    "Admin router authorization is tested; authenticated hosted Clerk browser flow is not accepted.",
+    "Optional disposable integration tests remained skipped; retained DB acceptance is independently exercised.",
+    "Changed-workbook refresh is not accepted; native IDs are workbook-namespaced.",
+    "Future sales component integration is a concrete contract, not an installed adapter or sender."
+  ],
+  "retainedFailures": [
+    "Original PowerShell Stop harness misclassified native stderr banners/warnings as failures; native-exit reruns passed.",
+    "Dashboard r003 discovered vendored standalone build tests; default and .next-* exclusions fixed discovery. r004 is authoritative.",
+    "Desktop observe remains unavailable; actual Edge Playwright rendering supplied browser evidence.",
+    "Fresh API rerun invocation omitted --readback and did not run; retained api-live-acceptance-r001 is the 51453-check receipt.",
+    "Final DB snapshot succeeded; a subsequent console-tail print hit Windows cp1252 Unicode encoding. Snapshot remains valid."
+  ],
+  "preservedUncommittedGeneratedFiles": [
+    "apps/dashboard/next-env.d.ts",
+    "apps/dashboard/tsconfig.json"
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/crm-research-20260921-r001/dry-run-r002.json",
+      "sha256": "99b2ee6d10a3848de3751e776d626d13deadde354f57808ef43824c91bf37615",
+      "bytes": 681
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/full-import-r002.json",
+      "sha256": "972f4291cec7138d747523ab3fe2641a097bff3428558bb12603292fceee79ec",
+      "bytes": 1972
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/identical-import-replay-r001.json",
+      "sha256": "7a2e26693b55736efc348e952b0b67f15505893f6c3ea2ef6ec7bcb1bd603201",
+      "bytes": 1987
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/source-reconciliation-r001.json",
+      "sha256": "5d248bbf15dd5884aa1938803380ac42f7834e18c7b00aa31d82e9ebe59a35b8",
+      "bytes": 736212
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/db-before-replay.json",
+      "sha256": "98433e4ec966f576ed6e24c37ec735d24a16d6fddba1224a7921add58044c272",
+      "bytes": 7094
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/db-after-replay.json",
+      "sha256": "91d62078a383b412537872fec2b8695c9b81b1127851f7e4d6f3a813bd7b2b32",
+      "bytes": 7286
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/api-live-acceptance-r001.json",
+      "sha256": "cfc3609b29c5324b11b3be62ebf5b64ac268a2363776332e973a41259bb8dc1b",
+      "bytes": 15556
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/receipt.json",
+      "sha256": "ffce473c11e8f2799f11d8882072cee41f00b395fb1becb585834f641e33e4f3",
+      "bytes": 4680
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/api-live.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/api-suite.log",
+      "sha256": "ba4e48692dc8682d42a11421a2bfb322d8495369ab9d510aefd4b9ae75c6db82",
+      "bytes": 49358
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-build-r002-result.json",
+      "sha256": "ba5092f009e831acb97754ad08ee6097f20d8bf92b26d96a62dd97b2cb788b2c",
+      "bytes": 225
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-build-r002.log",
+      "sha256": "99b33052063d4c8b3bd752dafa25e52681b00b028aa0b7cfbd1e93fc8199733f",
+      "bytes": 37598
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-build.log",
+      "sha256": "d63522512bb4b5b2e275e24d3b0f70f1d1762e035f0a21ac219b1eac7b6f8da3",
+      "bytes": 144
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-final-results.json",
+      "sha256": "46631526f252380fd38812494009c1c99a1e9c48a667c85254e6ebc86e9db6d8",
+      "bytes": 265
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-final-typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-suite-r003.log",
+      "sha256": "5b13b4a7be1c6241d4d832633091a00b6a65dfafc9201573da36c6baeaf0e919",
+      "bytes": 71748
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-suite-r004.log",
+      "sha256": "2a911c832c687be79d1aee72cf066cd14f952bdac9805be721243ef924448b76",
+      "bytes": 36766
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/dashboard-suite.log",
+      "sha256": "1c356956b6708e503e6c1ab0b7c1d1667c8f16e89d1020db96da89630e7e2fce",
+      "bytes": 37026
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/db-final.json",
+      "sha256": "ed5196b5962badfae6bfbb24c9f3786e589efc4271633bce69e43639b19da4c1",
+      "bytes": 7285
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/db-fresh.json",
+      "sha256": "2036e1b40362e7d95c1c2fca3cfc01acc9e7bb8971fcd3f943d99a9e5e75e2b0",
+      "bytes": 7285
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/db-suite.log",
+      "sha256": "41ca8f3d0eba762808155a16e2109a50cba5f8f781f49894eb1e5d7aff211945",
+      "bytes": 59314
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/diff-check-r002.log",
+      "sha256": "65e974fb7d000b27de4265c4df05b420e91894b09ffb9e1efd5cbfc70dc5168a",
+      "bytes": 5556
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/diff-check.log",
+      "sha256": "2c01fbfa4e350f980d84c38c539a1bc31f2f5827fb70f6459c2c1c0fc940e05d",
+      "bytes": 886
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/full-readback.json",
+      "sha256": "88102d074a4a77abda194c34b7083eff7b946ba3f3dfa8f7e0dfb21d183f3b82",
+      "bytes": 60880
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/gate-results.json",
+      "sha256": "61b6fae4c88cc747b0ec6cdf75fe9b36ab605d799ce108d873896146b060446d",
+      "bytes": 2682
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/import-unit.log",
+      "sha256": "2dce82db3f08f8c5f8723aa117d0501070a21ad810cf6461ba8d752b859261bb",
+      "bytes": 3084
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/last-owned-format.log",
+      "sha256": "731853a8fe5f541d311a4c516a0d9b25aa2899d61acd5a257ead583dcdbd15b5",
+      "bytes": 280
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/native-gate-results-r002.json",
+      "sha256": "e3325ffd73cc85b4bf61c4476f99c4ce0d397f5c5bffbd213bcc86f5be7a1900",
+      "bytes": 367
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/public-surfaces.log",
+      "sha256": "7a0234d52512235681a261b20f42290c6967b2e8647237b228b6b775b96747cf",
+      "bytes": 778
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/raw-sql.log",
+      "sha256": "d4c551f27a281488cf85958d89c246f3b4b7696a59ee76a57e9f86af179930aa",
+      "bytes": 388
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/source-hashes.json",
+      "sha256": "b5132f92f6770fb59bdbd3a90ea179ad467bb3557f8956e746ab6ae5c80bfc6e",
+      "bytes": 514
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/tenant-bypasses.log",
+      "sha256": "15e6040683871138ed430d24c72ee1c1aac1fcc057a7baff2c83d0fb06b3e428",
+      "bytes": 466
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/tenant-procedures.log",
+      "sha256": "d37ca8f6ab7ece7f917e60669b1072127a71ceb9caf74be746f43e9c586ed9eb",
+      "bytes": 450
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/tenant-registry.log",
+      "sha256": "ab3c143d676b4edcbc38a88e3871da5a4bac7f9c787e046e361ee11396c6f032",
+      "bytes": 442
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/workspace-lint-r002.log",
+      "sha256": "2f056b5f59bc9c9f2f3f3560eda46085083b54d53ba6fa8e670b70e49a6b8a9a",
+      "bytes": 21972
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/workspace-lint.log",
+      "sha256": "77fcdecd7291a13caa17dc134c16e74709c1eb0cae6474f76f5a94519f6d0d11",
+      "bytes": 688
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/workspace-typecheck-r002.log",
+      "sha256": "5cb94dc3692f72ed68b102e4fb657a8c3c3e7093c855a31338c4742df1f0ce3c",
+      "bytes": 22932
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/final-r001/workspace-typecheck.log",
+      "sha256": "1df65bc6e8fc04e248a00ca179a75821a491180b6b38721422f31f578de5240a",
+      "bytes": 698
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/detail-missing-source-url-320.png",
+      "sha256": "e43a49a1d50e1d994350ab063047c7297beba5d7a1018f86bb075fade8569110",
+      "bytes": 259868
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/detail-owner-only-desktop.png",
+      "sha256": "8d7b694f3e46386469432376bb0e1523275beaea5f2a31a4ebfd0fb556b7fae0",
+      "bytes": 287529
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/detail-owner-only-mobile.png",
+      "sha256": "ed017bf777a409c776915a8657b73448a2bd0bbacb9d78b5fe7ebf0acaf2cbe8",
+      "bytes": 231259
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/directory-desktop.png",
+      "sha256": "6a155e78bbfb0d384f1e4feca808557f7082eea4392cc457460c475f09e2c88d",
+      "bytes": 155795
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/directory-mobile.png",
+      "sha256": "cf9314c061ed0af1d3847c129e6eae81b511db5209f793b3fe2c72decc5f8ebb",
+      "bytes": 47004
+    },
+    {
+      "path": "artifacts/crm-research-20260921-r001/browser-r007/directory-recoverable-error.png",
+      "sha256": "1afd0b68646d3ebf0202022ea1868b249e2f840472e7f06731585a85a23f9328",
+      "bytes": 73227
+    }
+  ]
+}

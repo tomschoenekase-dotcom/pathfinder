@@ -213,6 +213,7 @@ test('durable AI jobs defer while deterministic control-plane work remains avail
 
   assert.match(workers, /DAILY_ROLLUP_PROCESS_JOB[\s\S]{0,250}?processDailyRollupJob/u)
   assert.doesNotMatch(workers, /DAILY_ROLLUP_PROCESS_JOB[\s\S]{0,250}?runAiJobWithIncidentControl/u)
-  assert.match(workers, /SEND_WELCOME_EMAIL_JOB[\s\S]{0,250}?processSendWelcomeEmailJob/u)
-  assert.doesNotMatch(workers, /SEND_WELCOME_EMAIL_JOB[\s\S]{0,250}?runAiJobWithIncidentControl/u)
+  const sendEmailQueue = await source('apps/workers/src/processors/send-email-queue.ts')
+  assert.match(sendEmailQueue, /SEND_WELCOME_EMAIL_JOB[\s\S]{0,250}?processSendWelcomeEmailJob/u)
+  assert.doesNotMatch(sendEmailQueue, /SEND_WELCOME_EMAIL_JOB[\s\S]{0,250}?runAiJobWithIncidentControl/u)
 })

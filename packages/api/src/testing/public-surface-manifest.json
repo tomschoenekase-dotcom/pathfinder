@@ -334,6 +334,27 @@
       "behavioralEvidence": ["apps/web/app/api/health/route.test.ts"]
     },
     {
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/data/route.ts",
+      "methods": ["GET"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-read",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/data/route.test.ts",
+        "apps/dashboard/lib/local-prospect-research-boundary.test.ts",
+        "packages/api/src/prospect-research-reader.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/sales/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-no-send-review",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/sales/route.test.ts",
+        "packages/api/src/routers/admin/prospect-crm-sales.test.ts"
+      ]
+    },
+    {
       "source": "apps/web/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "procedure-controlled-public-transport",

@@ -206,6 +206,13 @@ export const PLATFORM_TABLES = [
   // unknown Stripe objects can be quarantined instead of discarded.
   'StripeWebhookReceipt',
   'ProspectTerritory',
+  'ProspectGeographyModel',
+  'ProspectTerritoryDefinition',
+  'ProspectCountyAssignment',
+  // County discovery is platform prospect work; exact county grants and verified
+  // actor/run/authority-context fencing are enforced by its native owner.
+  'ProspectCountyResearchLease',
+  'ProspectVenueGeography',
   'ProspectTag',
   'ProspectOrganizationTag',
   'CorrespondenceProviderAccount',
@@ -221,6 +228,10 @@ export const PLATFORM_TABLES = [
   'ProspectResearchJob',
   'ProspectResearchAttempt',
   'ProspectVenue',
+  'ProspectVenueIntelligence',
+  'ProspectVenueRanking',
+  'ProspectIntelligenceReceipt',
+  'ProspectIntelligenceReview',
   'ProspectContact',
   'ProspectContactSuppressionEvent',
   'ProspectOpportunity',

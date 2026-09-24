@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
@@ -8,6 +8,7 @@ export default defineConfig({
     minWorkers: 1,
     maxWorkers: 2,
     exclude: [
+      ...configDefaults.exclude,
       'tests/browser/**',
       'tests/visual/**',
       'tests/visitor-launch/**',
@@ -15,6 +16,8 @@ export default defineConfig({
       'tests/dashboard-performance/**',
       'node_modules/**',
       '.next/**',
+      // NEXT_DIST_DIR builds retain vendored standalone dependencies, not app tests.
+      '.next-*/**',
     ],
   },
 })

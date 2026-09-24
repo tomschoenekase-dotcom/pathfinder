@@ -13,6 +13,8 @@ import {
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
 } from './prospect-launch-attachments'
+import { isLocalFakeDelivery, type NativeOriginVerifier } from './prospect-native-origin'
+import { validateFrozenNativeOrigin } from './prospect-frozen-native-origin'
 
 type Client = typeof db
 type TransactionClient = Parameters<Parameters<Client['$transaction']>[0]>[0]
@@ -225,6 +227,7 @@ export async function finalizeProspectSendBatch(
 export async function claimProspectSendOutboxAction(
   input: { outboxId: string; workerId: string; leaseMs?: number; now?: Date },
   client: Client = db,
+  verify?: NativeOriginVerifier,
 ): Promise<FrozenProspectSend | null> {
   const now = input.now ?? new Date()
   const claimExpiresAt = new Date(now.getTime() + (input.leaseMs ?? 120_000))
@@ -236,8 +239,8 @@ export async function claimProspectSendOutboxAction(
         sendItem: {
           include: {
             batch: { include: { campaign: true } },
-            member: { include: { contact: true } },
             draft: true,
+            member: { include: { contact: true } },
           },
         },
       },
@@ -384,8 +387,8 @@ export async function claimProspectSendOutboxAction(
         sendItem: {
           include: {
             batch: { include: { campaign: true } },
-            member: { include: { contact: true } },
             draft: true,
+            member: { include: { contact: true } },
           },
         },
       },
@@ -471,11 +474,17 @@ export async function claimProspectSendOutboxAction(
       return { send: frozenSend, terminalBatchId: null }
     }
     const control = await tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } })
+    const rehearsal = isLocalFakeDelivery(
+      providerAccount,
+      [sendItem.member.organizationId],
+      [sendItem.recipientEmailSnapshot],
+    )
     if (
-      !deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
-      !providerAccount.deliveryEnabled ||
-      providerAccount.pausedAt ||
-      providerAccount.connectionStatus !== 'CONNECTED' ||
+      (!rehearsal &&
+        (!deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
+          !providerAccount.deliveryEnabled ||
+          providerAccount.pausedAt ||
+          providerAccount.connectionStatus !== 'CONNECTED')) ||
       sendItem.batch.campaign.pausedAt ||
       sendItem.batch.campaign.status === 'CANCELLED'
     ) {
@@ -555,7 +564,37 @@ export async function claimProspectSendOutboxAction(
       })
       return { send: null, terminalBatchId: sendItem.batchId }
     }
-    if (!providerAccount.credentialReferenceId) {
+    try {
+      const origin = await validateFrozenNativeOrigin(tx, sendItem, providerAccount, verify)
+      if (rehearsal && !origin)
+        throw new Error('Synthetic rehearsal requires an actual native preparation origin')
+    } catch (error) {
+      await tx.prospectSendOutbox.update({
+        where: { id: operation.id },
+        data: {
+          status: operation.attemptCount > 1 ? 'AMBIGUOUS' : 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          ambiguousSince: operation.attemptCount > 1 ? now : null,
+          lastErrorCode: 'NATIVE_SOURCE_REVIEW_STALE',
+          lastErrorRetryable: false,
+          lastErrorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 1000)
+              : 'Native source review is unavailable',
+        },
+      })
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: {
+          status: operation.attemptCount > 1 ? 'AMBIGUOUS' : 'CANCELLED',
+          lastErrorCode: 'NATIVE_SOURCE_REVIEW_STALE',
+        },
+      })
+      return { send: null, terminalBatchId: sendItem.batchId }
+    }
+    if (!providerAccount.credentialReferenceId && !rehearsal) {
       await tx.prospectSendOutbox.update({
         where: { id: operation.id },
         data: {
@@ -580,6 +619,98 @@ export async function claimProspectSendOutboxAction(
   return outcome.send
 }
 
+/** Reclaim an ambiguous operation solely for provider lookup and canonical
+ * persistence. The worker must never call sendOne with this claim, regardless
+ * of current delivery controls or business-source changes after acceptance. */
+export async function claimProspectAmbiguousRecoveryAction(
+  input: { outboxId: string; workerId: string; now?: Date },
+  client: Client = db,
+): Promise<FrozenProspectSend | null> {
+  const now = input.now ?? new Date()
+  return client.$transaction(async (tx) => {
+    const claimed = await tx.prospectSendOutbox.updateMany({
+      where: {
+        id: input.outboxId,
+        status: 'AMBIGUOUS',
+        claimOwner: null,
+        attemptCount: { gt: 0 },
+        lastErrorCode: { in: ['AMBIGUOUS_SEND', 'UNCLASSIFIED_PROVIDER_FAILURE'] },
+      },
+      data: {
+        status: 'CLAIMED',
+        claimOwner: input.workerId,
+        claimExpiresAt: new Date(now.getTime() + 120_000),
+        terminalAt: null,
+        attemptCount: { increment: 1 },
+      },
+    })
+    if (claimed.count !== 1) return null
+    const operation = await tx.prospectSendOutbox.findUnique({
+      where: { id: input.outboxId },
+      include: { providerAccount: true, sendItem: true },
+    })
+    const validFrozenIdentity = Boolean(
+      operation &&
+      operation.status === 'CLAIMED' &&
+      operation.claimOwner === input.workerId &&
+      operation.claimExpiresAt &&
+      operation.claimExpiresAt > now &&
+      Number.isInteger(operation.attemptCount) &&
+      operation.attemptCount >= 2 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+        operation.operationId,
+      ) &&
+      ['GMAIL', 'FAKE'].includes(operation.providerAccount.provider) &&
+      operation.providerAccountId === operation.providerAccount.id &&
+      operation.providerAccount.externalAccountId?.trim() &&
+      operation.providerAccount.mailboxAddress?.trim() &&
+      operation.providerIdempotencyKey?.trim() &&
+      operation.sendItem.id?.trim() &&
+      operation.sendItem.idempotencyKey === operation.providerIdempotencyKey &&
+      operation.sendItem.recipientEmailSnapshot?.trim() &&
+      typeof operation.sendItem.subjectSnapshot === 'string' &&
+      typeof operation.sendItem.textBodySnapshot === 'string',
+    )
+    if (!operation || !validFrozenIdentity) {
+      if (operation?.claimOwner === input.workerId) {
+        await tx.prospectSendOutbox.updateMany({
+          where: { id: operation.id, status: 'CLAIMED', claimOwner: input.workerId },
+          data: {
+            status: 'AMBIGUOUS',
+            claimOwner: null,
+            claimExpiresAt: null,
+            terminalAt: null,
+            lastErrorCode: 'AMBIGUOUS_SEND',
+            lastErrorRetryable: false,
+            lastErrorMessage:
+              'Frozen provider/account/envelope identity is malformed; reconciliation is held',
+          },
+        })
+      }
+      return null
+    }
+    return {
+      outboxId: operation.id,
+      operationId: operation.operationId,
+      claimOwner: input.workerId,
+      provider: operation.providerAccount.provider as 'GMAIL' | 'FAKE',
+      providerAccountId: operation.providerAccountId,
+      externalAccountId: operation.providerAccount.externalAccountId,
+      credentialReferenceId:
+        operation.providerAccount.credentialReferenceId ?? 'SYNTHETIC-NO-CREDENTIAL',
+      mailboxAddress: operation.providerAccount.mailboxAddress,
+      idempotencyKey: operation.providerIdempotencyKey,
+      attemptCount: operation.attemptCount,
+      recipient: operation.sendItem.recipientEmailSnapshot,
+      subject: operation.sendItem.subjectSnapshot,
+      textBody: operation.sendItem.textBodySnapshot,
+      htmlBody: operation.sendItem.htmlBodySnapshot,
+      headers: operation.sendItem.headerSnapshot,
+      launchAttachments: readFrozenLaunchAttachments(operation.sendItem),
+    }
+  })
+}
+
 /**
  * Revalidates the exact live claim immediately before a provider call. This closes the
  * ordinary claim-to-send stop window and fails closed when authority or the lease changed.
@@ -587,6 +718,7 @@ export async function claimProspectSendOutboxAction(
 export async function revalidateProspectSendOutboxClaimAction(
   input: { outboxId: string; workerId: string; now?: Date },
   client: Client = db,
+  verify?: NativeOriginVerifier,
 ): Promise<boolean> {
   let terminalBatchId: string | null = null
   const allowed = await client.$transaction(async (tx) => {
@@ -599,6 +731,7 @@ export async function revalidateProspectSendOutboxClaimAction(
           sendItem: {
             include: {
               batch: { include: { campaign: true } },
+              draft: true,
               member: {
                 include: {
                   venue: { select: { id: true } },
@@ -615,7 +748,6 @@ export async function revalidateProspectSendOutboxClaimAction(
                   },
                 },
               },
-              draft: true,
             },
           },
         },
@@ -632,13 +764,19 @@ export async function revalidateProspectSendOutboxClaimAction(
       return false
     }
     const { providerAccount, sendItem } = operation
+    const rehearsal = isLocalFakeDelivery(
+      providerAccount,
+      [sendItem.member.organizationId],
+      [sendItem.recipientEmailSnapshot],
+    )
     if (
-      !deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
-      providerAccount.provider === 'RESEND' ||
-      !providerAccount.capabilities.includes('SEND') ||
-      !providerAccount.deliveryEnabled ||
-      providerAccount.pausedAt ||
-      providerAccount.connectionStatus !== 'CONNECTED' ||
+      (!rehearsal &&
+        (!deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
+          providerAccount.provider === 'RESEND' ||
+          !providerAccount.capabilities.includes('SEND') ||
+          !providerAccount.deliveryEnabled ||
+          providerAccount.pausedAt ||
+          providerAccount.connectionStatus !== 'CONNECTED')) ||
       sendItem.batch.campaign.pausedAt ||
       sendItem.batch.campaign.status === 'CANCELLED'
     ) {
@@ -792,7 +930,45 @@ export async function revalidateProspectSendOutboxClaimAction(
       terminalBatchId = sendItem.batchId
       return false
     }
-    return true
+    try {
+      const origin = await validateFrozenNativeOrigin(tx, sendItem, providerAccount, verify)
+      if (rehearsal && !origin)
+        throw new Error('Synthetic rehearsal requires a native preparation origin')
+    } catch (error) {
+      const changed = await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operation.id,
+          status: 'CLAIMED',
+          claimOwner: input.workerId,
+          claimExpiresAt: { equals: operation.claimExpiresAt, gt: input.now ?? new Date() },
+        },
+        data: {
+          status: operation.attemptCount > 1 ? 'AMBIGUOUS' : 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          ambiguousSince: operation.attemptCount > 1 ? now : null,
+          lastErrorCode: 'NATIVE_SOURCE_REVIEW_STALE',
+          lastErrorRetryable: false,
+          lastErrorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 1000)
+              : 'Native source review unavailable',
+        },
+      })
+      if (changed.count === 1) {
+        await tx.prospectSendItem.update({
+          where: { id: sendItem.id },
+          data: {
+            status: operation.attemptCount > 1 ? 'AMBIGUOUS' : 'CANCELLED',
+            lastErrorCode: 'NATIVE_SOURCE_REVIEW_STALE',
+          },
+        })
+        terminalBatchId = sendItem.batchId
+      }
+      return false
+    }
+    return operation.claimExpiresAt > (input.now ?? new Date())
   })
   if (terminalBatchId) await finalizeProspectSendBatch(terminalBatchId, client)
   return allowed
@@ -831,6 +1007,9 @@ export async function recordProspectSendFailureAction(
       include: { sendItem: { select: { id: true, batchId: true } } },
     })
     if (!operation) throw new ProspectSendOutboxError('NOT_FOUND', 'Outbox operation not found')
+    // Acceptance can have committed before a later finalization failure. Never
+    // turn durable SENT back into failure or restore resend authority.
+    if (operation.status === 'SENT') return operation.sendItem.batchId
     const completed = await tx.prospectSendOutbox.updateMany({
       where: {
         id: operation.id,
@@ -889,6 +1068,16 @@ export async function recordProspectSendSuccessAction(
 ): Promise<void> {
   const acceptedAt = input.acceptedAt ?? new Date()
   const now = input.now ?? new Date()
+  if (
+    !input.providerMessageId?.trim() ||
+    !input.providerThreadId?.trim() ||
+    /[\r\n\0]/u.test(input.providerMessageId + input.providerThreadId) ||
+    !Number.isFinite(acceptedAt.getTime())
+  )
+    throw new ProspectSendOutboxError(
+      'CONFLICT',
+      'Provider acceptance requires genuine nonempty exact message/thread IDs and time',
+    )
   await client.$transaction(async (tx) => {
     const operation = await tx.prospectSendOutbox.findUnique({
       where: { id: input.outboxId },
@@ -903,6 +1092,63 @@ export async function recordProspectSendSuccessAction(
       },
     })
     if (!operation) throw new ProspectSendOutboxError('NOT_FOUND', 'Outbox operation not found')
+    const item = operation.sendItem
+    const headers =
+      item.headerSnapshot && typeof item.headerSnapshot === 'object'
+        ? (item.headerSnapshot as Record<string, unknown>)
+        : {}
+    const origin = headers.nativeSalesOrigin as
+      | {
+          reply?: {
+            threadId: string
+            providerThreadId: string
+            inReplyTo: string
+            references: string[]
+          }
+        }
+      | undefined
+    const reply = origin?.reply
+    const synthetic = operation.providerAccount.provider === 'FAKE'
+    if (reply && reply.providerThreadId !== input.providerThreadId)
+      throw new ProspectSendOutboxError(
+        'CONFLICT',
+        'Accepted reply changed provider thread; reconciliation required',
+      )
+    const mapped = await tx.prospectEmailThreadProvider.findUnique({
+      where: {
+        providerAccountId_providerThreadId: {
+          providerAccountId: operation.providerAccountId,
+          providerThreadId: input.providerThreadId,
+        },
+      },
+      include: { thread: true },
+    })
+    if (
+      mapped &&
+      (mapped.thread.organizationId !== item.member.organizationId ||
+        mapped.thread.venueId !== item.member.venueId ||
+        (reply && mapped.threadId !== reply.threadId))
+    )
+      throw new ProspectSendOutboxError(
+        'CONFLICT',
+        'Provider thread is owned by a different canonical prospect; reconciliation required',
+      )
+    if (operation.status === 'SENT') {
+      const recorded = await tx.prospectEmailMessage.findUnique({ where: { sendItemId: item.id } })
+      if (
+        !recorded ||
+        recorded.providerAccountId !== operation.providerAccountId ||
+        recorded.providerMessageId !== input.providerMessageId ||
+        recorded.internetMessageId !== (input.internetMessageId ?? null) ||
+        !mapped ||
+        recorded.threadId !== mapped.threadId
+      )
+        throw new ProspectSendOutboxError(
+          'CONFLICT',
+          'Conflicting replay of a retained provider acceptance; never append a second message',
+        )
+      return
+    }
     const completed = await tx.prospectSendOutbox.updateMany({
       where: {
         id: operation.id,
@@ -923,24 +1169,32 @@ export async function recordProspectSendSuccessAction(
         'Worker completion was rejected because its operation lease is no longer live',
       )
     }
-    const item = operation.sendItem
-    const canonicalThreadId = `pt_${createHash('sha256').update(item.id).digest('hex').slice(0, 24)}`
+    const canonicalThreadId =
+      reply?.threadId ??
+      mapped?.threadId ??
+      `${synthetic ? 'SYN-CRM-FIRSTSEND-' : 'pt_'}${createHash('sha256').update(item.id).digest('hex').slice(0, 24)}`
     const replyTokenHash = createHash('sha256')
       .update(`provider-thread:${canonicalThreadId}`)
       .digest('hex')
-    const thread = await tx.prospectEmailThread.upsert({
-      where: { replyTokenHash },
-      create: {
-        id: canonicalThreadId,
-        organizationId: item.member.organizationId,
-        venueId: item.member.venueId,
-        contactId: item.member.contactId,
-        subject: item.subjectSnapshot,
-        replyTokenHash,
-        lastMessageAt: acceptedAt,
-      },
-      update: { lastMessageAt: acceptedAt },
-    })
+    const thread =
+      reply || mapped
+        ? await tx.prospectEmailThread.update({
+            where: { id: canonicalThreadId },
+            data: { lastMessageAt: acceptedAt },
+          })
+        : await tx.prospectEmailThread.upsert({
+            where: { replyTokenHash },
+            create: {
+              id: canonicalThreadId,
+              organizationId: item.member.organizationId,
+              venueId: item.member.venueId,
+              contactId: item.member.contactId,
+              subject: item.subjectSnapshot,
+              replyTokenHash,
+              lastMessageAt: acceptedAt,
+            },
+            update: { lastMessageAt: acceptedAt },
+          })
     await tx.prospectEmailThreadProvider.upsert({
       where: {
         providerAccountId_providerThreadId: {
@@ -968,14 +1222,24 @@ export async function recordProspectSendSuccessAction(
         providerAccountId: operation.providerAccountId,
         providerMessageId: input.providerMessageId,
         internetMessageId: input.internetMessageId ?? null,
+        inReplyTo: reply?.inReplyTo ?? null,
+        references: reply?.references ?? [],
         fromAddress: operation.providerAccount.mailboxAddress,
         toAddresses: [item.recipientEmailSnapshot],
         subject: item.subjectSnapshot,
         bodyPreview: item.textBodySnapshot.replace(/\s+/gu, ' ').trim().slice(0, 500),
-        bodyRetentionState: 'NOT_STORED',
-        sourceReference: `https://mail.google.com/mail/u/${encodeURIComponent(
-          operation.providerAccount.mailboxAddress,
-        )}/#all/${encodeURIComponent(input.providerMessageId)}`,
+        bodyRetentionState: synthetic ? 'TEMPORARY' : 'NOT_STORED',
+        ...(synthetic
+          ? {
+              textBody: item.textBodySnapshot,
+              bodyExpiresAt: new Date(acceptedAt.getTime() + 86400000),
+            }
+          : {}),
+        sourceReference: synthetic
+          ? `synthetic:crm-sales:fake-provider:${input.providerMessageId}`
+          : `https://mail.google.com/mail/u/${encodeURIComponent(
+              operation.providerAccount.mailboxAddress,
+            )}/#all/${encodeURIComponent(input.providerMessageId)}`,
         occurredAt: acceptedAt,
       },
     })
@@ -999,12 +1263,18 @@ export async function recordProspectSendSuccessAction(
         venueId: item.member.venueId,
         contactId: item.member.contactId,
         type: 'OUTREACH_SENT',
-        summary: 'Approved prospect correspondence accepted by Gmail',
+        summary: synthetic
+          ? 'SYNTHETIC approval fixture: FAKE provider accepted rehearsal; no email sent'
+          : 'Approved prospect correspondence accepted by Gmail',
         evidence: {
           messageId: message.id,
           sendItemId: item.id,
           operationId: operation.operationId,
           providerAccountId: operation.providerAccountId,
+          provider: operation.providerAccount.provider,
+          syntheticRehearsal: synthetic,
+          providerMessageId: input.providerMessageId,
+          providerThreadId: input.providerThreadId,
         },
         actorId: 'system:prospect-correspondence',
         occurredAt: acceptedAt,

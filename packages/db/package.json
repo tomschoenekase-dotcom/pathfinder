@@ -2,7 +2,9 @@
   "name": "@pathfinder/db",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./prospect-territories": "./src/helpers/prospect-territory-contract.ts",
+    "./prospect-county-research": "./src/helpers/prospect-county-research-contract.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

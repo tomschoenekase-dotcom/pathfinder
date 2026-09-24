@@ -14,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   prospectVenueFindFirst: vi.fn(),
   launchAssetView: vi.fn(),
   selectLaunchAsset: vi.fn(),
+  readReply: vi.fn(),
 }))
+
+vi.mock('../prospect-reply-content', () => ({ readProspectReplyContentForAgent: mocks.readReply }))
 
 vi.mock('@pathfinder/db', () => ({
   db: {
@@ -92,8 +95,14 @@ describe('prospect agent registry', () => {
     expect(names).toContain('torchiko.prospects.ask_operator')
     expect(names).toContain('torchiko.prospects.list_launch_assets')
     expect(names).toContain('torchiko.prospects.select_launch_asset')
+    expect(names).toContain('torchiko.prospects.read_selected_reply_content')
+    expect(names).not.toContain('torchiko.prospects.retain_reply_content')
     expect(
-      names.some((name) => /approve|send|queue|convert|merge|delete|unsuppress/u.test(name)),
+      names.some(
+        (name) =>
+          /approve|send|queue|convert|merge|delete|unsuppress/u.test(name) &&
+          name !== 'torchiko.prospects.queue_venue_research',
+      ),
     ).toBe(false)
     expect(
       tools.every(
@@ -226,6 +235,91 @@ describe('prospect agent registry', () => {
     )
   })
 
+  it('requires both live and frozen correspondence access for selected reply plaintext', async () => {
+    mocks.agentRunFindFirst.mockResolvedValue({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      initiatedById: 'admin-1',
+      requestedOperation: 'operator_task',
+      modelProvider: 'codex-bridge',
+      modelName: 'gpt-test',
+      scopeSnapshot: {
+        accessCapabilities: ['prospects.read', 'prospects.correspondence.read'],
+        prospectScope: { mode: 'ALL' },
+        promptIdentity: 'crm-playbook@1',
+      },
+      agentIdentity: { id: 'agent-1', accessCapabilities: ['prospects.read'] },
+    })
+    const registry = createProspectAgentRegistry()
+    const input = { organizationId: 'org-1', threadId: 'thread-1', messageId: 'message-1' }
+    await expect(
+      registry.callTool('torchiko.prospects.read_selected_reply_content', input, invocation),
+    ).rejects.toMatchObject({ code: 'CAPABILITY_REQUIRED' })
+    expect(mocks.agentRunFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: invocation.agentRunId,
+          tenantId: invocation.tenantId,
+          venueId: invocation.venueId,
+          status: 'RUNNING',
+          executionLeaseToken: invocation.leaseToken,
+          executionBridgeSessionId: invocation.sessionId,
+          executionBridgeSession: expect.objectContaining({
+            credentialId: invocation.credentialId,
+            status: 'ONLINE',
+          }),
+        }),
+      }),
+    )
+    expect(mocks.readReply).not.toHaveBeenCalled()
+
+    mocks.agentRunFindFirst.mockResolvedValue({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      initiatedById: 'admin-1',
+      requestedOperation: 'operator_task',
+      modelProvider: 'codex-bridge',
+      modelName: 'gpt-test',
+      scopeSnapshot: {
+        accessCapabilities: ['prospects.read'],
+        prospectScope: { mode: 'ALL' },
+        promptIdentity: 'crm-playbook@1',
+      },
+      agentIdentity: {
+        id: 'agent-1',
+        accessCapabilities: ['prospects.read', 'prospects.correspondence.read'],
+      },
+    })
+    await expect(
+      registry.callTool('torchiko.prospects.read_selected_reply_content', input, invocation),
+    ).rejects.toMatchObject({ code: 'CAPABILITY_REQUIRED' })
+    expect(mocks.readReply).not.toHaveBeenCalled()
+  })
+
+  it('passes only verified territory scope to the authoritative selected-message resolver', async () => {
+    const input = { organizationId: 'org-1', threadId: 'thread-1', messageId: 'message-1' }
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(
+        context({
+          capabilities: ['prospects.correspondence.read'],
+          scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] },
+        }),
+      ),
+    })
+    const selected = { replyText: 'Selected reply', SEND_AUTHORIZED: false }
+    mocks.readReply.mockResolvedValue(selected)
+    await expect(
+      registry.callTool('torchiko.prospects.read_selected_reply_content', input, invocation),
+    ).resolves.toBe(selected)
+    expect(mocks.readReply).toHaveBeenCalledOnce()
+    expect(mocks.readReply).toHaveBeenCalledWith(input, 'agent-1', {
+      mode: 'TERRITORIES',
+      territoryIds: ['territory-1'],
+    })
+  })
+
   it('fails closed when a leased run has no explicit prospect scope', async () => {
     mocks.agentRunFindFirst.mockResolvedValue({
       id: 'run-1',
@@ -255,7 +349,17 @@ describe('prospect agent registry', () => {
     await registry.callTool('torchiko.prospects.search', {}, invocation)
     expect(mocks.organizationFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ territoryId: { in: ['territory-1'] } }),
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            {
+              venues: {
+                every: {
+                  AND: [{ territoryId: { not: null } }, { territoryId: { in: ['territory-1'] } }],
+                },
+              },
+            },
+          ]),
+        }),
       }),
     )
 

@@ -10,6 +10,7 @@
     "./logger": "./src/logger.ts",
     "./monitoring": "./src/monitoring.ts",
     "./release-identity": "./src/release-identity.ts",
+    "./local-crm-sales-components": "./src/local-crm-sales-components.ts",
     "./typescript/base.json": "./typescript/base.json",
     "./typescript/nextjs.json": "./typescript/nextjs.json"
   },
