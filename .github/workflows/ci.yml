@@ -307,14 +307,28 @@ jobs:
         if: always()
         run: |
           python3 - <<'PY'
-          import json
+          import base64, hashlib, json
           from pathlib import Path
+          def retain(p):
+              raw = p.read_bytes()
+              # Check annotations truncate long messages. Emit bounded chunks
+              # with the digest of the complete original bytes, not a partial
+              # success-shaped summary or an unchecked pasted transcript.
+              encoded = base64.b64encode(raw).decode('ascii')
+              parts = [encoded[i:i+3000] for i in range(0, len(encoded), 3000)]
+              identity = {'name': p.name, 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'parts': len(parts)}
+              print('::notice title=RECEIPT-MANIFEST-' + p.name + '::' + json.dumps(identity))
+              for i, part in enumerate(parts, 1):
+                  print('::notice title=RECEIPT-PART-' + p.name + '-' + str(i).zfill(3) + '::' + part)
           for p in sorted(Path('../qa').glob('http-*/*')):
               if p.name in ('RESOURCE-RECEIPT.json', 'HTTP-ACCEPTANCE.json', 'migration.log', 'migration-failure-detail.log', 'acceptance.log'):
                   print('\n--- SYNTHETIC RECEIPT: ' + str(p) + ' ---\n' + p.read_text())
               if p.name in ('RESOURCE-RECEIPT.json', 'HTTP-ACCEPTANCE.json'):
-                  message = json.dumps(json.loads(p.read_text()), ensure_ascii=True)
-                  print('::notice title=' + p.name + '::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                  data = json.loads(p.read_text())
+                  summary = {k: data.get(k) for k in ('passed', 'authenticatedHttp', 'componentMode', 'migrationPassed', 'acceptancePassed', 'discarded', 'failure') if k in data}
+                  summary['passedChecks'] = sum(c.get('passed') is True for c in data.get('checks', []))
+                  print('::notice title=SUMMARY-' + p.name + '::' + json.dumps(summary).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                  retain(p)
           report = Path('../qa/closeout-vitest.json')
           if report.exists():
               data = json.loads(report.read_text())

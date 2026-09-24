@@ -9,6 +9,7 @@ import { gzipSync } from 'node:zlib'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { setTimeout as delay } from 'node:timers/promises'
 
 async function main() {
   const root = path.resolve(__dirname, '..')
@@ -263,6 +264,18 @@ async function main() {
       `${origin}/api/agent-bridge/SYN-OTHER-TENANT/${ids.venueId}`)).status === 401)
     await adapter.close(); adapter = null
     for (const name of ['heartbeat-loss', 'cancellation', 'expiry']) {
+      if (name === 'cancellation') {
+        // The unchanged native HTTP owner permits 30 authenticated attempts
+        // per 60 seconds. The primary roundtrip plus heartbeat-loss fixture
+        // consumes that window. Pace separate fixtures only after the prior
+        // run was settled/released; never reset the limiter or reconnect a held
+        // client, and never silently retry an uncertain native operation.
+        const pausedAt = Date.now()
+        await delay(61_000)
+        receipt.ratePolicyPacing = { limit: 30, windowMs: 60_000, waitedMs: Date.now() - pausedAt,
+          policyOwner: 'packages/api/src/agent-bridge/http-core.ts', productionPolicyChanged: false,
+          limiterReset: false, uncertainOperationRetried: false }
+      }
       const selected = lifecycleRuns[name]
       connection = createOutreachConnection({ env: { ...env, TORCHIKO_OUTREACH_RUN_ID: selected.id },
         schedule: () => undefined, cancel: () => {} })
