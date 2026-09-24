@@ -96,6 +96,7 @@ describe('createGmailOAuthRuntime', () => {
 
     expect(authorization.searchParams.get('access_type')).toBe('offline')
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256')
+    expect(authorization.searchParams.get('include_granted_scopes')).toBe('false')
     expect(authorization.searchParams.get('scope')?.split(' ')).toEqual([
       'https://www.googleapis.com/auth/gmail.modify',
       'https://www.googleapis.com/auth/gmail.send',

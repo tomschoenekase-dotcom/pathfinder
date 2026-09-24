@@ -253,7 +253,8 @@ export function createGmailOAuthRuntime(input: {
         response_type: 'code',
         access_type: 'offline',
         prompt: 'consent',
-        include_granted_scopes: 'true',
+        // Keep a prior Google grant from widening this mailbox connection.
+        include_granted_scopes: 'false',
         scope: GOOGLE_WORKSPACE_SCOPES.join(' '),
         state,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'),
