@@ -342,7 +342,10 @@ export async function readProspectPhysicalGeography(
   })
   const row = native?.geography ?? null
   const venue = native
-    ? Object.fromEntries(Object.entries(native).filter(([key]) => key !== 'geography'))
+    ? (Object.fromEntries(Object.entries(native).filter(([key]) => key !== 'geography')) as Omit<
+        NonNullable<typeof native>,
+        'geography'
+      >)
     : null
   const evidence = ProspectPhysicalCountyEvidence.safeParse(row?.anchor)
   return {
