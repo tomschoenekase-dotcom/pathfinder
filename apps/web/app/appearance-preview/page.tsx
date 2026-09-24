@@ -3,6 +3,10 @@ import { notFound } from 'next/navigation'
 import { VenueChatFixture } from '../../components/VenueChatFixture'
 import { appearancePreviewAllowed, parseAppearancePreviewParams } from './preview-params'
 
+// The staging guard must run with the deployed service environment, not while
+// Next builds the image without its runtime Railway variables.
+export const dynamic = 'force-dynamic'
+
 export const metadata = {
   title: 'Appearance preview | Torchiko',
   robots: { index: false, follow: false },
