@@ -10,19 +10,22 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { buildShakedownChildEnv } from './lib/disposable-intake-upload-verification.mjs'
 import { runDisposableMigration, redactDatabaseOutput } from './lib/disposable-prisma-migration.mjs'
+import { fullPrismaSchemaTokenHash } from './lib/outreach-prisma-schema-contract.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const qaRoot = path.resolve(root, '../qa')
 const syntheticComponents = process.argv.length === 3 && process.argv[2] === '--synthetic-components'
 assert(process.argv.length === 2 || syntheticComponents, 'Only the explicit synthetic CI mode is supported')
 const rootRequire = createRequire(path.join(root, 'packages/db/package.json'))
-let clientMode
+let clientMode, generatedSchemaSha256 = null
+const sourceSchema = readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'), 'utf8')
 if (syntheticComponents) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Synthetic contract mode is confined to the existing isolated GitHub runner')
   const clientRequire = createRequire(rootRequire.resolve('@prisma/client/package.json'))
   const generated = readFileSync(clientRequire.resolve('.prisma/client/schema.prisma'), 'utf8')
-  assert.equal(generated.replaceAll('\r\n', '\n'), readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'), 'utf8').replaceAll('\r\n', '\n'),
+  assert.equal(fullPrismaSchemaTokenHash(generated), fullPrismaSchemaTokenHash(sourceSchema),
     'CI must generate the complete exact-source Prisma client, not borrow a compatible local client')
+  generatedSchemaSha256 = createHash('sha256').update(generated).digest('hex')
   clientMode = 'FULL_EXACT_SOURCE_SCHEMA'
 } else {
   const admission = JSON.parse(readFileSync(path.join(qaRoot, 'NATIVE-CLIENT-ADMISSION.json'), 'utf8'))
@@ -69,6 +72,7 @@ const safe = text => redactDatabaseOutput(String(text), [password, migrationPass
 const receipt = { schema: 'torchiko.authenticated-outreach-resource/1', database, role, container,
   clientMode, componentMode: env.TORCHIKO_AUTH_HTTP_COMPONENT_MODE,
   schemaSha256: createHash('sha256').update(readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'))).digest('hex'),
+  generatedSchemaSha256, fullSchemaTokenHash: fullPrismaSchemaTokenHash(sourceSchema),
   host: '127.0.0.1', port: null, image, ownershipLabel: 'torchiko-lane03-auth-http',
   originalCRMModified: false, existingDatabaseModified: false, sharedClusterRolesModified: false,
   startedAt: new Date().toISOString(), created: false, migrationPassed: false, acceptancePassed: false,

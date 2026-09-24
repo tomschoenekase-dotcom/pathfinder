@@ -296,7 +296,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../qa
-          node --test --test-concurrency=1 scripts/torchiko-outreach-mcp.test.mjs scripts/torchiko-outreach-connection.test.mjs scripts/torchiko-outreach-retry.test.mjs scripts/torchiko-crm-client.test.mjs scripts/torchiko-outreach.test.mjs | tee ../qa/closeout-node.tap
+          node --test --test-concurrency=1 scripts/torchiko-outreach-mcp.test.mjs scripts/torchiko-outreach-connection.test.mjs scripts/torchiko-outreach-retry.test.mjs scripts/torchiko-crm-client.test.mjs scripts/torchiko-outreach.test.mjs scripts/outreach-prisma-schema-contract.test.mjs | tee ../qa/closeout-node.tap
       - name: Final native registry, authority, receipt and review tests
         run: pnpm exec vitest run --config scripts/vitest-authenticated-outreach.config.mjs --reporter=verbose --reporter=json --outputFile=../qa/closeout-vitest.json
       - name: Obtain the existing pinned disposable PostgreSQL image
