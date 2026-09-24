@@ -19,6 +19,7 @@ const fixture = {
           nextAction: 'Review contact',
           nextActionAt: new Date('2026-09-01T12:00:00.000Z'),
         },
+        _count: { sources: 0, contacts: 0, outreachDrafts: 0 },
       },
     ],
     nextCursor: null,
