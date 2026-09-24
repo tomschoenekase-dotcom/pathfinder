@@ -65,6 +65,19 @@ const credential = {
 describe('agent bridge registry', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('forwards the exact optional foreground run without changing existing claim authority', async () => {
+    mocks.claim.mockResolvedValue({ task: null })
+    const registry = createAgentBridgeRegistry()
+    const scope = { sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', venueId: 'venue-1' }
+    await registry.claimTask({ ...scope, runId: 'selected-run', workerKey: 'foreground-writer' }, { credential })
+    expect(mocks.claim).toHaveBeenLastCalledWith({ ...scope, runId: 'selected-run',
+      workerKey: 'foreground-writer', credential })
+    await registry.claimTask(scope, { credential })
+    expect(mocks.claim).toHaveBeenLastCalledWith({ ...scope, credential })
+    expect(() => registry.claimTask({ ...scope, runId: ' ' }, { credential })).toThrow()
+    expect(mocks.claim).toHaveBeenCalledTimes(2)
+  })
+
   it('discovers character production only for an exact builder capability', () => {
     const registry = createAgentBridgeRegistry()
     expect(() => registry.listCharacterFactoryActions({}, { credential })).toThrow(

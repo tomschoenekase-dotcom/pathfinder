@@ -271,6 +271,8 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://synthetic:unused@127.0.0.1:1/pathfinder_disposable_outreach_ci
       DIRECT_DATABASE_URL: postgresql://synthetic:unused@127.0.0.1:1/pathfinder_disposable_outreach_ci
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_pub
       OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false'
       CRM_BACKGROUND_WORKERS_ENABLED: 'false'
       WORKER_SCHEDULERS_ENABLED: 'false'
@@ -318,4 +320,9 @@ jobs:
               data = json.loads(report.read_text())
               counts = {k: data.get(k) for k in ('success', 'numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests')}
               print('::notice title=CLOSEOUT-VITEST-COUNTS::' + json.dumps(counts))
+              for suite in data.get('testResults', []):
+                  if suite.get('status') == 'failed':
+                      message = json.dumps({'name': suite.get('name'), 'message': suite.get('message'),
+                          'failures': [a for a in suite.get('assertionResults', []) if a.get('status') == 'failed']})
+                      print('::error title=CLOSEOUT-VITEST-FAILURE::' + message[:16000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PY
