@@ -1303,6 +1303,62 @@ export async function stageProspectImportRowsAction(
   })
 }
 
+/** Reclaim a source-backed dry run that an older worker marked ready mid-workbook.
+ * Keep its immutable source, mapping, and already staged rows; the worker upserts
+ * the same row identities when it restarts from the mapped cursor.
+ */
+export async function resumeIncompleteProspectImportDryRunAction(
+  input: { importId: string; actor: ProspectActor },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  return client.$transaction(async (tx) => {
+    const before = await tx.prospectImport.findUnique({ where: { id: input.importId } })
+    if (!before) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    const unfinishedCursor =
+      before.progressCursor === 'MAPPED' || /^\d+:\d+$/u.test(before.progressCursor ?? '')
+    if (
+      !before.sourceObjectKey ||
+      !before.sourceObjectVersion ||
+      !unfinishedCursor ||
+      before.cancelRequestedAt ||
+      before.approvedAt ||
+      before.importedRows !== 0 ||
+      !['DRAFT', 'DRY_RUN_READY'].includes(before.status)
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Import is not an incomplete source dry run')
+    }
+    const changed = await tx.prospectImport.updateMany({
+      where: {
+        id: before.id,
+        status: before.status,
+        progressCursor: before.progressCursor,
+        cancelRequestedAt: null,
+        approvedAt: null,
+        importedRows: 0,
+      },
+      data: { status: 'DRAFT', progressCursor: 'MAPPED' },
+    })
+    if (changed.count !== 1) {
+      throw new ProspectActionError('CONFLICT', 'Import changed while retry was prepared')
+    }
+    const prospectImport = await tx.prospectImport.findUniqueOrThrow({ where: { id: before.id } })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_import.incomplete_dry_run_resumed',
+        targetType: 'ProspectImport',
+        targetId: before.id,
+        beforeState: { status: before.status, progressCursor: before.progressCursor },
+        afterState: { status: 'DRAFT', progressCursor: 'MAPPED' },
+      },
+      tx,
+    )
+    return prospectImport
+  })
+}
+
 export async function resolveProspectImportRowAction(
   input: {
     importId: string

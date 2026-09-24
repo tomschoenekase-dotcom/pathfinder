@@ -8,6 +8,7 @@ import {
   convertPublicInterestToProspectAction,
   createProspectAction,
   resolveProspectDuplicateAction,
+  resumeIncompleteProspectImportDryRunAction,
   scanProspectDuplicatesAction,
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
@@ -18,6 +19,67 @@ import { prospectSha256 } from './prospect-normalization'
 const actor = { type: 'HUMAN' as const, id: 'operator', role: 'PLATFORM_ADMIN' as const }
 
 describe('prospect action safety boundaries', () => {
+  it('reclaims the same incomplete source dry run without losing staged rows', async () => {
+    const importRecord = {
+      id: 'import-1',
+      status: 'DRY_RUN_READY',
+      progressCursor: 'MAPPED',
+      sourceObjectKey: 'retained/source',
+      sourceObjectVersion: 'v1',
+      cancelRequestedAt: null,
+      approvedAt: null,
+      importedRows: 0,
+    }
+    const tx = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue(importRecord),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValue({ ...importRecord, status: 'DRAFT', progressCursor: 'MAPPED' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      resumeIncompleteProspectImportDryRunAction(
+        { importId: importRecord.id, actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ status: 'DRAFT', progressCursor: 'MAPPED' })
+    expect(tx.prospectImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: importRecord.id, importedRows: 0 }),
+        data: { status: 'DRAFT', progressCursor: 'MAPPED' },
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to resume an already approved source import', async () => {
+    const tx = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'import-1',
+          status: 'DRY_RUN_READY',
+          progressCursor: 'MAPPED',
+          sourceObjectKey: 'retained/source',
+          sourceObjectVersion: 'v1',
+          cancelRequestedAt: null,
+          approvedAt: new Date(),
+          importedRows: 0,
+        }),
+        updateMany: vi.fn(),
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    await expect(
+      resumeIncompleteProspectImportDryRunAction({ importId: 'import-1', actor }, client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.prospectImport.updateMany).not.toHaveBeenCalled()
+  })
+
   it('reconciles an exact committed conversion after the losing transaction detects its duplicate', async () => {
     const operationId = '11111111-1111-4111-8111-111111111111'
     const submissionId = 'submission-concurrent'
