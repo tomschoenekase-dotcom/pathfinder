@@ -10,20 +10,39 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { buildShakedownChildEnv } from './lib/disposable-intake-upload-verification.mjs'
 import { runDisposableMigration, redactDatabaseOutput } from './lib/disposable-prisma-migration.mjs'
-import { fullPrismaSchemaTokenHash } from './lib/outreach-prisma-schema-contract.mjs'
+import { fullPrismaSchemaTokenHash, fullPrismaSchemaTokens } from './lib/outreach-prisma-schema-contract.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const qaRoot = path.resolve(root, '../qa')
 const syntheticComponents = process.argv.length === 3 && process.argv[2] === '--synthetic-components'
 assert(process.argv.length === 2 || syntheticComponents, 'Only the explicit synthetic CI mode is supported')
 const rootRequire = createRequire(path.join(root, 'packages/db/package.json'))
-let clientMode, generatedSchemaSha256 = null
+let clientMode, generatedSchemaSha256 = null, generatedSchemaTokenHash = null, canonicalSourceTokenHash = null
 const sourceSchema = readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'), 'utf8')
 if (syntheticComponents) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Synthetic contract mode is confined to the existing isolated GitHub runner')
   const clientRequire = createRequire(rootRequire.resolve('@prisma/client/package.json'))
   const generated = readFileSync(clientRequire.resolve('.prisma/client/schema.prisma'), 'utf8')
-  assert.equal(fullPrismaSchemaTokenHash(generated), fullPrismaSchemaTokenHash(sourceSchema),
+  const sourceTokens = fullPrismaSchemaTokens(sourceSchema), generatedTokens = fullPrismaSchemaTokens(generated)
+  const difference = sourceTokens.findIndex((value, index) => value !== generatedTokens[index])
+  console.log('::notice title=FULL-SCHEMA-GENERATED-DIAGNOSTIC::' + JSON.stringify({ firstTokenDifference: difference,
+    sourceTokens: sourceTokens.slice(Math.max(0, difference - 5), difference + 15),
+    generatedTokens: generatedTokens.slice(Math.max(0, difference - 5), difference + 15),
+    sourceTokenCount: sourceTokens.length, generatedTokenCount: generatedTokens.length }))
+  // Prisma may reorder attributes during native formatting. Ask that exact
+  // pinned CLI to canonicalize a disposable COPY; never rewrite source/schema
+  // or relax models. Compare the complete formatter result to generated tokens.
+  const schemaQa = path.join(qaRoot, 'schema-' + randomBytes(6).toString('hex'))
+  mkdirSync(schemaQa, { recursive: true })
+  const canonicalPath = path.join(schemaQa, 'full-source-copy.prisma')
+  writeFileSync(canonicalPath, sourceSchema, { flag: 'wx' })
+  const format = spawnSync(process.execPath, [rootRequire.resolve('prisma/build/index.js'), 'format', '--schema', canonicalPath],
+    { cwd: root, env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=384' }, encoding: 'utf8', timeout: 60000, maxBuffer: 200000 })
+  assert.equal(format.status, 0, 'Pinned native schema formatter must succeed on the full source copy')
+  assert.equal(readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'), 'utf8'), sourceSchema, 'Original schema must remain untouched')
+  generatedSchemaTokenHash = fullPrismaSchemaTokenHash(generated)
+  canonicalSourceTokenHash = fullPrismaSchemaTokenHash(readFileSync(canonicalPath, 'utf8'))
+  assert.equal(generatedSchemaTokenHash, canonicalSourceTokenHash,
     'CI must generate the complete exact-source Prisma client, not borrow a compatible local client')
   generatedSchemaSha256 = createHash('sha256').update(generated).digest('hex')
   clientMode = 'FULL_EXACT_SOURCE_SCHEMA'
@@ -73,6 +92,7 @@ const receipt = { schema: 'torchiko.authenticated-outreach-resource/1', database
   clientMode, componentMode: env.TORCHIKO_AUTH_HTTP_COMPONENT_MODE,
   schemaSha256: createHash('sha256').update(readFileSync(path.join(root, 'packages/db/prisma/schema.prisma'))).digest('hex'),
   generatedSchemaSha256, fullSchemaTokenHash: fullPrismaSchemaTokenHash(sourceSchema),
+  canonicalSourceTokenHash, generatedSchemaTokenHash,
   host: '127.0.0.1', port: null, image, ownershipLabel: 'torchiko-lane03-auth-http',
   originalCRMModified: false, existingDatabaseModified: false, sharedClusterRolesModified: false,
   startedAt: new Date().toISOString(), created: false, migrationPassed: false, acceptancePassed: false,

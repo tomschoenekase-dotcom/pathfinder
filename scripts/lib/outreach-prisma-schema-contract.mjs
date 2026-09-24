@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
  * Quoted literal bytes, token boundaries, identifiers and punctuation remain
  * exact. No model/enum/field is excluded from this full-schema admission.
  */
-export function fullPrismaSchemaTokenHash(schema) {
+export function fullPrismaSchemaTokens(schema) {
   if (typeof schema !== 'string' || schema.length === 0) throw new Error('Schema text required')
   const token = /\s+|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|[A-Za-z_][A-Za-z_0-9]*|\d+(?:\.\d+)?|[^\s"]/gy
   const tokens = []
@@ -21,5 +21,9 @@ export function fullPrismaSchemaTokenHash(schema) {
     tokens.push(value)
   }
   if (tokens.length === 0) throw new Error('Empty schema token stream')
-  return createHash('sha256').update(JSON.stringify(tokens)).digest('hex')
+  return tokens
+}
+
+export function fullPrismaSchemaTokenHash(schema) {
+  return createHash('sha256').update(JSON.stringify(fullPrismaSchemaTokens(schema))).digest('hex')
 }
