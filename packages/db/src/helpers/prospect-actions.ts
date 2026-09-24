@@ -1138,6 +1138,8 @@ export async function stageProspectImportRowsAction(
     )
   }
   for (const row of input.rows) assertImportSourceValues(row.sourceValues)
+  // Keep the existing row validation block stable while bounding remote database time.
+  // prettier-ignore
   return client.$transaction(async (tx) => {
     const prospectImport = await tx.prospectImport.findUnique({ where: { id: input.importId } })
     if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
@@ -1300,7 +1302,7 @@ export async function stageProspectImportRowsAction(
       },
     })
     return { staged, totalRows, counts }
-  })
+  }, { maxWait: 10_000, timeout: 30_000 })
 }
 
 /** Reclaim a source-backed dry run that an older worker marked ready mid-workbook.
