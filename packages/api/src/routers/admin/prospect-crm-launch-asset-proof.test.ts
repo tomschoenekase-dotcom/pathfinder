@@ -92,6 +92,8 @@ describe('CRM launch attachment API trust boundary', () => {
         groundingSnapshot: { evidence: [], launchAttachments: [pdfAsset] },
         verifiedCurrentPrintAssets: [{ prospectVenueId: 'prospect-venue-1', asset: pdfAsset }],
       }),
+      undefined,
+      expect.any(Function),
     )
     const snapshot = result.groundingSnapshot as { launchAttachments: unknown[] } | null
     expect(snapshot?.launchAttachments[0]).not.toHaveProperty('contentBase64')

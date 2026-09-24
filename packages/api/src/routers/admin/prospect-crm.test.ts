@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  SALES_PREPARATION_SOURCE: 'CRM_SALES_PREPARATION_V1',
   PROSPECT_OUTREACH_MAX_BATCH: 500,
   PROSPECT_OUTREACH_MAX_COHORT: 5_000,
   PROSPECT_OUTREACH_RELEASE_POLICY: {

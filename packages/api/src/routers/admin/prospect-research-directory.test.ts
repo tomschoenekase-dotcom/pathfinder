@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async (fn: () => unknown) => fn()),
 }))
 vi.mock('@pathfinder/db', () => ({
+  SALES_PREPARATION_SOURCE: 'CRM_SALES_PREPARATION_V1',
   db: { prospectOrganization: { findMany: mocks.rows, count: mocks.count } },
   withTenantIsolationBypass: mocks.bypass,
 }))
