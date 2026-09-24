@@ -152,24 +152,32 @@
   ],
   "http": [
     {
-      "source": "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.ts",
-      "methods": ["GET"],
-      "exposure": "intentional-public",
-      "controlProfile": "bounded-controlled-media-read",
+      "source": "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
       "behavioralEvidence": [
-        "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.test.ts",
-        "packages/api/src/lib/custom-character-publication.test.ts",
-        "packages/api/src/lib/custom-character-publication.disposable.integration.test.ts"
+        "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.test.ts"
       ]
     },
     {
-      "source": "apps/web/app/api/chat-stream/route.ts",
-      "methods": ["POST"],
-      "exposure": "intentional-public",
-      "controlProfile": "bounded-public-ai-stream",
+      "source": "apps/dashboard/app/api/admin/character-candidate-preview/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
       "behavioralEvidence": [
-        "apps/web/app/api/chat-stream/route.test.ts",
-        "packages/api/src/routers/chat-streaming.test.ts"
+        "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts",
+        "packages/api/src/routers/admin/character-candidate-reviews.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/admin/character-import/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/admin/character-import/route.test.ts",
+        "apps/dashboard/lib/character-import.test.ts"
       ]
     },
     {
@@ -180,6 +188,15 @@
       "behavioralEvidence": ["apps/dashboard/app/api/admin/impersonate/route.test.ts"]
     },
     {
+      "source": "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/agent-bridge/[tenantId]/[venueId]/route.ts",
       "methods": ["POST"],
       "exposure": "machine-credential-authenticated-public-ingress",
@@ -188,15 +205,6 @@
         "apps/dashboard/app/api/agent-bridge/[tenantId]/[venueId]/route.test.ts",
         "apps/dashboard/lib/middleware-access.test.ts",
         "packages/api/src/agent-bridge/http.test.ts"
-      ]
-    },
-    {
-      "source": "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts",
-      "methods": ["GET"],
-      "exposure": "handler-platform-admin",
-      "controlProfile": "handler-platform-admin",
-      "behavioralEvidence": [
-        "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.test.ts"
       ]
     },
     {
@@ -327,11 +335,14 @@
       ]
     },
     {
-      "source": "apps/web/app/api/health/route.ts",
-      "methods": ["GET"],
-      "exposure": "intentional-public",
-      "controlProfile": "bounded-public-health",
-      "behavioralEvidence": ["apps/web/app/api/health/route.test.ts"]
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/chicago/data/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-research",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/chicago/data/route.test.ts",
+        "apps/dashboard/lib/local-prospect-research-boundary.test.ts"
+      ]
     },
     {
       "source": "apps/dashboard/app/dev-fixtures/prospect-research/data/route.ts",
@@ -353,6 +364,53 @@
         "apps/dashboard/app/dev-fixtures/prospect-research/sales/route.test.ts",
         "packages/api/src/routers/admin/prospect-crm-sales.test.ts"
       ]
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/territories/data/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-research",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/territories/data/route.test.ts",
+        "apps/dashboard/lib/local-prospect-research-boundary.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/workspace/data/route.ts",
+      "methods": ["GET"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-read",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/workspace/data/route.test.ts",
+        "apps/dashboard/lib/local-prospect-research-boundary.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/dev-fixtures/prospect-research/workspace/sales/route.ts",
+      "methods": ["GET"],
+      "exposure": "development-loopback-only",
+      "controlProfile": "development-loopback-read",
+      "behavioralEvidence": [
+        "apps/dashboard/app/dev-fixtures/prospect-research/workspace/sales/route.test.ts",
+        "apps/dashboard/lib/local-prospect-research-boundary.test.ts"
+      ]
+    },
+    {
+      "source": "apps/web/app/api/chat-stream/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-public-ai-stream",
+      "behavioralEvidence": [
+        "apps/web/app/api/chat-stream/route.test.ts",
+        "packages/api/src/routers/chat-streaming.test.ts"
+      ]
+    },
+    {
+      "source": "apps/web/app/api/health/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-public-health",
+      "behavioralEvidence": ["apps/web/app/api/health/route.test.ts"]
     },
     {
       "source": "apps/web/app/api/trpc/[trpc]/route.ts",
@@ -379,32 +437,14 @@
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     },
     {
-      "source": "apps/dashboard/app/api/admin/character-candidate-preview/route.ts",
+      "source": "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.ts",
       "methods": ["GET"],
-      "exposure": "handler-platform-admin",
-      "controlProfile": "handler-platform-admin",
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-controlled-media-read",
       "behavioralEvidence": [
-        "apps/dashboard/app/api/admin/character-candidate-preview/route.test.ts",
-        "packages/api/src/routers/admin/character-candidate-reviews.test.ts"
-      ]
-    },
-    {
-      "source": "apps/dashboard/app/api/admin/character-import/route.ts",
-      "methods": ["POST"],
-      "exposure": "handler-platform-admin",
-      "controlProfile": "handler-platform-admin",
-      "behavioralEvidence": [
-        "apps/dashboard/app/api/admin/character-import/route.test.ts",
-        "apps/dashboard/lib/character-import.test.ts"
-      ]
-    },
-    {
-      "source": "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.ts",
-      "methods": ["POST"],
-      "exposure": "handler-platform-admin",
-      "controlProfile": "handler-platform-admin",
-      "behavioralEvidence": [
-        "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.test.ts"
+        "apps/web/app/characters/custom/[venueSlug]/[releaseId]/[runtimePackSha256]/[assetPath]/route.test.ts",
+        "packages/api/src/lib/custom-character-publication.test.ts",
+        "packages/api/src/lib/custom-character-publication.disposable.integration.test.ts"
       ]
     }
   ],

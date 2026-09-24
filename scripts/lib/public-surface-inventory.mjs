@@ -20,6 +20,7 @@ const CONTROL_PROFILES = new Set([
   'handler-platform-admin',
   'development-loopback-read',
   'development-loopback-no-send-review',
+  'development-loopback-research',
 ])
 const CANONICAL_PROCEDURE_BUILDERS = new Map([
   ['publicProcedure', 't.procedure'],
@@ -49,6 +50,7 @@ const HTTP_PROFILE_POLICY = new Map([
   ['handler-platform-admin', 'handler-platform-admin'],
   ['development-loopback-read', 'development-loopback-only'],
   ['development-loopback-no-send-review', 'development-loopback-only'],
+  ['development-loopback-research', 'development-loopback-only'],
 ])
 const TRPC_ENTRY_KEYS = new Set([
   'path',
@@ -685,15 +687,29 @@ export function auditPublicSurfaceManifest({
         }
         if (
           entry.controlProfile === 'development-loopback-read' &&
-          (entry.source !== 'apps/dashboard/app/dev-fixtures/prospect-research/data/route.ts' ||
+          (![
+            'apps/dashboard/app/dev-fixtures/prospect-research/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/workspace/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/workspace/sales/route.ts',
+          ].includes(entry.source) ||
             stable(entry.methods) !== stable(['GET']) ||
-            !entry.behavioralEvidence?.includes(
-              'apps/dashboard/app/dev-fixtures/prospect-research/data/route.test.ts',
-            ))
+            !entry.behavioralEvidence?.includes(entry.source.replace('/route.ts', '/route.test.ts')))
         ) {
           violations.push(
             `${kind}:${id ?? 'unknown'}: loopback-only profile requires the exact reviewed GET adapter and runtime boundary tests`,
           )
+        }
+        if (
+          entry.controlProfile === 'development-loopback-research' &&
+          (![
+            'apps/dashboard/app/dev-fixtures/prospect-research/chicago/data/route.ts',
+            'apps/dashboard/app/dev-fixtures/prospect-research/territories/data/route.ts',
+          ].includes(entry.source) ||
+            stable(entry.methods) !== stable(['GET', 'POST']) ||
+            !entry.behavioralEvidence?.includes(entry.source.replace('/route.ts', '/route.test.ts')) ||
+            !entry.behavioralEvidence?.includes('apps/dashboard/lib/local-prospect-research-boundary.test.ts'))
+        ) {
+          violations.push(`${kind}:${id ?? 'unknown'}: research fixture requires exact loopback route, methods, and runtime boundary tests`)
         }
         if (
           !Array.isArray(entry.methods) ||
