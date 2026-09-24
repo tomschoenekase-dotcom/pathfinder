@@ -160,7 +160,9 @@ export async function createProspectCampaignAction(
             archivedAt: null,
             doNotContact: false,
             normalizedEmail: { not: null },
-            emailReadiness: 'VALID',
+            // A campaign can retain drafts while a contact still needs human
+            // readiness review. Send staging and release keep the VALID gate.
+            emailReadiness: { not: 'INVALID' },
             permissionState: { notIn: ['OPTED_OUT', 'PROHIBITED'] },
             suppressedAt: null,
             unsubscribedAt: null,
@@ -261,7 +263,7 @@ export async function saveProspectOutreachDraftAction(
     if (
       !member.contact?.normalizedEmail ||
       member.contact.doNotContact ||
-      member.contact.emailReadiness !== 'VALID' ||
+      member.contact.emailReadiness === 'INVALID' ||
       member.contact.permissionState === 'OPTED_OUT' ||
       member.contact.permissionState === 'PROHIBITED' ||
       member.contact.suppressedAt ||
@@ -347,7 +349,7 @@ export async function saveProspectOutreachDraftAction(
     })
     await tx.prospectCampaignMember.update({
       where: { id: member.id },
-      data: { status: 'NEEDS_REVIEW' },
+      data: { status: 'DRAFTED' },
     })
     await tx.prospectActivity.create({
       data: {
