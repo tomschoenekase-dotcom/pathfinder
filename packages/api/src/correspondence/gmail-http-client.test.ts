@@ -84,6 +84,23 @@ describe('createGmailApiClient', () => {
     expect(found.message.textBody).toBe('Body')
   })
 
+  it('excludes unsent drafts from the full correspondence query', async () => {
+    const request = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/messages?')) return json({ messages: [] })
+      if (url.endsWith('/profile')) return json({ historyId: '103' })
+      throw new Error(`unexpected request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+    await client.listMessages({
+      accessToken: 'token',
+      mailboxAddress: recoveryMailbox.mailboxAddress,
+      after: new Date(0),
+      pageSize: 50,
+    })
+    const messagesUrl = new URL(String(request.mock.calls[0]?.[0]))
+    expect(messagesUrl.searchParams.get('q')).toBe('after:0 -in:drafts')
+  })
+
   it('fetches bounded QR bytes only for an explicit SENT recovery lookup', async () => {
     const bytes = Buffer.from('<svg/>')
     const asset: VenueLaunchAsset = {

@@ -289,6 +289,19 @@ describe('Gmail correspondence provider', () => {
     } satisfies Partial<CorrespondenceProviderError>)
   })
 
+  it('excludes unsent drafts from incremental and full correspondence scans', async () => {
+    const draft = gmailMessage({ id: 'unsent-draft', labelIds: ['DRAFT'] })
+    const sent = gmailMessage({ id: 'sent-mail', labelIds: ['SENT'] })
+    const { provider } = setup({
+      listHistory: vi.fn(async () => ({ messages: [draft, sent], historyId: '102' })),
+      listMessages: vi.fn(async () => ({ messages: [draft, sent], historyId: '103' })),
+    })
+    const incremental = await provider.syncIncremental({ mailbox, cursor: '100', pageSize: 50 })
+    const full = await provider.reconcile({ mailbox, after: new Date(0), pageSize: 50 })
+    expect(incremental.messages.map((message) => message.message.externalId)).toEqual(['sent-mail'])
+    expect(full.messages.map((message) => message.message.externalId)).toEqual(['sent-mail'])
+  })
+
   it('supports watch renewal, reconciliation, and provider lookup without live Google calls', async () => {
     const { client, provider } = setup({
       findByRfcMessageId: vi.fn(async () => [

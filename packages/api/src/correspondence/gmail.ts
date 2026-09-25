@@ -460,7 +460,11 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        // A draft is not correspondence, even when its From header is this mailbox.
+        // History can include draft edits regardless of the watch label filter.
+        messages: page.messages
+          .filter((message) => !message.labelIds.includes('DRAFT'))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),
@@ -478,7 +482,9 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        messages: page.messages
+          .filter((message) => !message.labelIds.includes('DRAFT'))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),

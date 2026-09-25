@@ -321,7 +321,7 @@ export function createGmailApiClient(
     async listMessages(args) {
       const query = new URLSearchParams({
         maxResults: String(Math.min(args.pageSize, 100)),
-        q: `after:${Math.floor(args.after.getTime() / 1_000)}`,
+        q: `after:${Math.floor(args.after.getTime() / 1_000)} -in:drafts`,
         ...(args.pageToken ? { pageToken: args.pageToken } : {}),
       })
       const response = await call({ ...args, path: `messages?${query}` })
