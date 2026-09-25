@@ -85,7 +85,14 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   )
   const prospectTools = tools.tools.filter((tool) => tool.family === 'prospect-agent')
   const prospectNames = new Set(prospectTools.map((tool) => tool.name))
-  assert.equal(prospectTools.length, 10)
+  assert.equal(prospectTools.length, 13)
+  for (const name of [
+    'torchiko.prospects.get_outreach_draft',
+    'torchiko.prospects.list_outreach_company_sources',
+    'torchiko.prospects.get_outreach_company_source',
+  ]) {
+    assert.ok(prospectNames.has(name))
+  }
   assert.equal(
     prospectTools.every(
       (tool) =>
