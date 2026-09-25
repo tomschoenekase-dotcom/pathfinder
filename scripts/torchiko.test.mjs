@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 552)
+  assert.equal(report.operations.total, 553)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
   assert.equal(report.operations.counts.byKind.query, 238)
-  assert.equal(report.operations.counts.byKind.mutation, 314)
+  assert.equal(report.operations.counts.byKind.mutation, 315)
   assert.equal(report.operations.bindings.healthy, true)
   assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
   assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)
@@ -166,6 +166,7 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   }
   for (const operationPath of [
     'admin.addSourcedProspectCampaignContact',
+    'admin.appendProspectCampaignEmailSourceEvidence',
     'admin.selectProspectCampaignContactRoute',
   ]) {
     assert.deepEqual(
@@ -177,7 +178,7 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
         surfaces: [],
         evidence: 'packages/api/src/routers/admin/prospect-crm.test.ts',
         decision:
-          'These source-backed contact creation and selection mutations remain human PLATFORM_ADMIN actions. No agent tool, approval, or sending surface is approved for either operation.',
+          'Appending exact operator-supplied source evidence, source-backed contact creation, and route selection remain human PLATFORM_ADMIN actions. No agent tool, approval, or sending surface is approved for these operations.',
       },
     )
   }

@@ -7,20 +7,14 @@ import {
   addSourcedProspectCampaignContactAction,
   appendProspectCampaignEmailSourceEvidenceAction,
   admitProspectStagingPackageAction,
-  approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
-  emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
-  PROSPECT_OUTREACH_RELEASE_POLICY,
   type VerifiedCurrentProspectPrintAsset,
-  publishCrmOperationalSignal,
-  releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
   saveProspectOutreachDraftAction,
   scheduleProspectFollowupAction,
-  stageProspectSendBatchAction,
   selectProspectCampaignContactRouteAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -33,14 +27,10 @@ import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
 import { adminProspectCrmOutreachGmailRouter } from './prospect-crm-outreach-gmail'
-import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
+import { adminProspectCrmOutreachDeliveryRouter } from './prospect-crm-outreach-delivery'
+import { enqueueProspectImportCommit } from '@pathfinder/jobs'
 import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
-import {
-  currentBatchPdfProofs,
-  currentDraftPdfProofs,
-  descriptorOnlyDraft,
-  frozenPdfProofs,
-} from './prospect-crm-outreach-assets'
+import { descriptorOnlyDraft, frozenPdfProofs } from './prospect-crm-outreach-assets'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -266,101 +256,6 @@ const adminProspectCrmOutreachBaseActionsRouter = router({
       }),
     ),
 
-  stageProspectSendBatch: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(
-      z
-        .object({
-          campaignId: id,
-          draftIds: z.array(id).min(1).max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () =>
-        stageProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentDraftPdfProofs(input.draftIds),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
-      ),
-    ),
-
-  approveProspectSendBatch: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(
-      z
-        .object({
-          batchId: id,
-          expectedRecipientCount: z
-            .number()
-            .int()
-            .min(1)
-            .max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
-          expectedSnapshotHash: z.string().length(64),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const approved = await approveProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
-        await publishCrmOperationalSignal({
-          input: {
-            signal: 'batch_awaiting_release',
-            scope: { kind: 'platform' },
-            linkedObjectType: 'ProspectSendBatch',
-            linkedObjectId: approved.id,
-            summary: `A frozen batch of ${approved.recipientCount} recipients is approved and awaiting a separate final release.`,
-          },
-        })
-        return approved
-      }),
-    ),
-
-  queueProspectSendBatch: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(
-      z
-        .object({
-          batchId: id,
-          expectedRecipientCount: z
-            .number()
-            .int()
-            .min(1)
-            .max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
-          expectedSnapshotHash: z.string().length(64),
-          providerAccountId: id,
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        if (process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED !== 'true') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'Prospect outreach delivery is disabled',
-          })
-        }
-        const released = await releaseProspectSendBatchAction({
-          ...input,
-          verifiedCurrentPrintAssets: await currentBatchPdfProofs(input.batchId),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapError)
-        const dispatch = await Promise.allSettled(
-          released.outboxIds.map((outboxId) => enqueueProspectOutreach({ outboxId })),
-        )
-        return {
-          ...released,
-          dispatched: dispatch.filter((result) => result.status === 'fulfilled').length,
-          pendingDispatch: dispatch.filter((result) => result.status === 'rejected').length,
-        }
-      }),
-    ),
-
   getProspectOutreachReadiness: adminProcedure
     .use(requireCrmProspectOutreach)
     .query(() => withTenantIsolationBypass(() => getProspectOutreachReadinessProjection())),
@@ -374,18 +269,6 @@ const adminProspectCrmOutreachBaseActionsRouter = router({
         if (!rehearsal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found' })
         return rehearsal
       }),
-    ),
-
-  emergencyStopProspectDelivery: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ reason: prospectBoundedText(2_000) }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        emergencyStopProspectDeliveryAction({
-          reason: input.reason,
-          actor: prospectActor(ctx.session.userId),
-        }),
-      ),
     ),
 
   scheduleProspectFollowup: adminProcedure
@@ -422,6 +305,7 @@ const adminProspectCrmOutreachBaseActionsRouter = router({
 const adminProspectCrmOutreachActionsRouter = mergeRouters(
   adminProspectCrmOutreachBaseActionsRouter,
   adminProspectCrmOutreachGmailRouter,
+  adminProspectCrmOutreachDeliveryRouter,
 )
 
 export const adminProspectCrmOutreachRouter = mergeRouters(

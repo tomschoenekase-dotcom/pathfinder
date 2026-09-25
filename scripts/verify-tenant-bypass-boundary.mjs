@@ -276,7 +276,10 @@ const approvedCallCounts = new Map([
   // provider content is fetched server-side and the native action rechecks recipient gates.
   // Source evidence capture, contact creation, and route selection add three platform-admin-only calls;
   // both preserve exact organization/venue scope and cannot approve or send.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 16],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 12],
+  // Human-only staging, approval, release, and emergency stop retain their existing
+  // platform-owned CRM scope after the delivery procedures move to a domain router.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-delivery.ts', 4],
   // Gmail draft import and link were split without broadening procedure authority;
   // both still require the admin CRM feature gate and exact account/member checks.
   ['packages/api/src/routers/admin/prospect-crm-outreach-gmail.ts', 2],
