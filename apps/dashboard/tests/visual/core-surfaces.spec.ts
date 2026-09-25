@@ -343,6 +343,33 @@ test('prospect rehearsal stays visibly no-send across real browser widths', asyn
   expect(runtimeErrors).toEqual([])
 })
 
+test('prospect contact route review stays grounded and keyboard reachable', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/prospect-crm?view=campaign`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  const toggle = page.getByRole('button', { name: 'Review contact route' })
+  await toggle.focus()
+  await expect(toggle).toBeFocused()
+  await toggle.press('Enter')
+  const panel = page.getByRole('region', {
+    name: 'Review contact route for West Loop Garden Center',
+  })
+  await expect(panel).toBeVisible()
+  await expect(panel.getByText(/does not grant permission to send/)).toBeVisible()
+  await panel.getByLabel('Exact public email').fill('visitors@example.test')
+  await panel.getByLabel('Public source URL').fill('https://example.test/contact')
+  await expect(panel.getByRole('button', { name: 'Record public source' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Send now' })).toBeDisabled()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'prospect-contact-route-review')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('human-reviewed prospect replies stay explicit and bounded across real browser widths', async ({
   page,
 }, testInfo) => {

@@ -227,6 +227,70 @@ describe('importExistingProspectGmailDraftAction', () => {
     expect(tx.prospectContact.create).not.toHaveBeenCalled()
   })
 
+  it('recovers the same retained contact after an uncertain exact save without adding another', async () => {
+    const { client, tx } = contactRouteClient()
+    const retained = {
+      id: 'retained-contact-1',
+      organizationId: 'org-1',
+      venueId: 'venue-1',
+      fullName: null,
+      title: null,
+      email: 'info@venue.example',
+      normalizedEmail: 'info@venue.example',
+      archivedAt: null,
+      source: 'SOURCE_EVIDENCE:evidence-1',
+      provenance: [{ evidenceId: 'evidence-1', sourceUrl: 'https://venue.example/contact' }],
+      permissionEvidence: { sourceEvidenceId: 'evidence-1', approvalGranted: false },
+      emailReadiness: 'REVIEW_REQUIRED',
+      permissionState: 'REVIEW_REQUIRED',
+      doNotContact: false,
+      suppressedAt: null,
+      unsubscribedAt: null,
+      complainedAt: null,
+      lastHardBounceAt: null,
+    }
+    vi.mocked(tx.prospectContact.findFirst).mockResolvedValueOnce(retained as never)
+    const result = await addSourcedProspectCampaignContactAction(
+      {
+        memberId: 'member-1',
+        email: 'INFO@VENUE.EXAMPLE',
+        sourceEvidenceId: 'evidence-1',
+        actor: admin,
+      },
+      client,
+    )
+    expect(result).toEqual(retained)
+    expect(tx.prospectContact.create).not.toHaveBeenCalled()
+    expect(tx.prospectActivity.create).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('never recovers an unrelated or suppressed contact as an exact retry', async () => {
+    const { client, tx } = contactRouteClient()
+    vi.mocked(tx.prospectContact.findFirst).mockResolvedValueOnce({
+      id: 'other-contact',
+      venueId: 'venue-1',
+      source: 'SOURCE_EVIDENCE:evidence-1',
+      provenance: [{ evidenceId: 'evidence-1', sourceUrl: 'https://venue.example/contact' }],
+      permissionEvidence: { sourceEvidenceId: 'evidence-1', approvalGranted: false },
+      emailReadiness: 'REVIEW_REQUIRED',
+      permissionState: 'REVIEW_REQUIRED',
+      doNotContact: true,
+    } as never)
+    await expect(
+      addSourcedProspectCampaignContactAction(
+        {
+          memberId: 'member-1',
+          email: 'info@venue.example',
+          sourceEvidenceId: 'evidence-1',
+          actor: admin,
+        },
+        client,
+      ),
+    ).rejects.toThrow(/already has that email route/u)
+    expect(tx.prospectContact.create).not.toHaveBeenCalled()
+  })
+
   it('rejects source evidence for a different venue or a different email', async () => {
     const { client, tx } = contactRouteClient()
     const sourceRead = tx.prospectSourceEvidence.findUnique

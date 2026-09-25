@@ -14,6 +14,7 @@ import {
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { ProspectContactRoutePanel } from './ProspectContactRoutePanel'
 
 const CAMPAIGN_READ_TIMEOUT_MS = 15_000
 
@@ -81,6 +82,7 @@ export function ProspectCampaignWorkbench({
     Record<string, boolean>
   >({})
   const [importingMemberId, setImportingMemberId] = useState<string | null>(null)
+  const [routingMemberId, setRoutingMemberId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
@@ -804,7 +806,7 @@ export function ProspectCampaignWorkbench({
                           setBody('')
                         }}
                         disabled={!member.contact?.email || member.contact.doNotContact}
-                        className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                        className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
                       >
                         Write draft
                       </button>
@@ -825,8 +827,48 @@ export function ProspectCampaignWorkbench({
                         Import existing Gmail draft
                       </button>
                     ) : null}
+                    {!draft &&
+                    member.status === 'SELECTED' &&
+                    campaign.status === 'DRAFT' &&
+                    member.venue ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setRoutingMemberId(routingMemberId === member.id ? null : member.id)
+                        }
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-40"
+                      >
+                        Review contact route
+                      </button>
+                    ) : null}
                   </div>
                 </div>
+                {routingMemberId === member.id && !draft ? (
+                  <ProspectContactRoutePanel
+                    memberId={member.id}
+                    venueName={member.venue?.name ?? member.organization.canonicalName}
+                    currentEmail={member.contact?.email ?? null}
+                    onClose={() => setRoutingMemberId(null)}
+                    onSelected={async (email) => {
+                      const readback = await client.admin.getProspectCampaign.query({ campaignId })
+                      const exactMember = readback.members.find((item) => item.id === member.id)
+                      if (
+                        exactMember?.contact?.email?.trim().toLowerCase() !== email.toLowerCase()
+                      ) {
+                        throw new Error(
+                          'The selected contact route could not be reopened. Inspect this CRM member before retrying.',
+                        )
+                      }
+                      setCampaign(readback)
+                      setRoutingMemberId(null)
+                      setNotice(
+                        `Selected ${email} as the review-required CRM contact route. Existing Gmail drafts remain unsent.`,
+                      )
+                      void refresh()
+                    }}
+                  />
+                ) : null}
                 {importingMemberId === member.id && !draft ? (
                   <div className="mt-4 max-w-2xl space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
                     <p className="text-xs leading-5 text-slate-700">
@@ -1083,7 +1125,7 @@ export function ProspectCampaignWorkbench({
                       <button
                         disabled={busy || !subject.trim() || !body.trim()}
                         onClick={() => void saveDraft(member.id)}
-                        className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                        className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
                       >
                         Save for review
                       </button>

@@ -78,7 +78,7 @@ const rehearsal = {
   },
   releasePolicy: readiness.policy.release,
   cohort: {
-    memberCount: 2,
+    memberCount: 3,
     maxCohort: 5000,
     technicalMaxBatch: 500,
     activeReleaseLimit: 50,
@@ -90,7 +90,7 @@ const rehearsal = {
     openOrganizationDuplicateCount: 0,
   },
   review: {
-    missingDraftCount: 0,
+    missingDraftCount: 1,
     draftsNeedingReviewCount: 1,
     approvedDraftCount: 1,
     approvalEvidenceMissingCount: 0,
@@ -222,6 +222,30 @@ const campaign = {
           createdAt: now,
         },
       ],
+    },
+    {
+      id: 'member-3',
+      campaignId: 'campaign-fixture',
+      organizationId: 'org-3',
+      venueId: 'venue-3',
+      contactId: 'contact-3',
+      status: 'SELECTED',
+      selection: {},
+      createdAt: now,
+      updatedAt: now,
+      organization: {
+        canonicalName: 'West Loop Garden Center',
+        relationshipTier: 'STANDARD',
+        priority: 'NORMAL',
+      },
+      venue: { name: 'West Loop Garden Center', city: 'Chicago', region: 'IL' },
+      contact: {
+        fullName: 'Morgan Reed',
+        title: 'Visitor Services',
+        email: 'morgan@example.test',
+        doNotContact: false,
+      },
+      drafts: [],
     },
   ],
   sendBatches: [
@@ -383,7 +407,7 @@ export default async function ProspectCrmFixture({
             <ProspectOutreachCenter
               fixture={{
                 campaigns: [
-                  { ...campaign, _count: { members: 2, drafts: 2, sendBatches: 1 } },
+                  { ...campaign, _count: { members: 3, drafts: 2, sendBatches: 1 } },
                 ] as never,
                 readiness: readiness as never,
               }}

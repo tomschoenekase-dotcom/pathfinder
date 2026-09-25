@@ -96,11 +96,11 @@ export async function appendProspectCampaignEmailSourceEvidenceAction(
   const email = normalizedContactEmail(input.email)
   const sourceUrl = publicHttpsSourceUrl(input.sourceUrl)
   const sourceLabel = input.sourceLabel?.trim() || OPERATOR_SOURCE_LABEL
-  if (
-    !input.memberId.trim() ||
-    sourceLabel.length > 300 ||
-    /[\u0000-\u001f\u007f]/u.test(sourceLabel)
-  )
+  const hasControlCharacter = Array.from(sourceLabel).some((character) => {
+    const code = character.codePointAt(0) ?? 0
+    return code <= 31 || code === 127
+  })
+  if (!input.memberId.trim() || sourceLabel.length > 300 || hasControlCharacter)
     throw new ProspectOutreachError('INVALID_INPUT', 'A bounded source page label is required')
 
   return client.$transaction(
@@ -338,7 +338,6 @@ export async function addSourcedProspectCampaignContactAction(
             organizationId: member.organizationId,
             normalizedEmail: { equals: email, mode: 'insensitive' },
           },
-          select: { id: true },
         }),
         tx.prospectDuplicateCandidate.findFirst({
           where: {
@@ -351,16 +350,47 @@ export async function addSourcedProspectCampaignContactAction(
           select: { id: true },
         }),
       ])
-      if (sameOrgEmail)
-        throw new ProspectOutreachError(
-          'CONFLICT',
-          'This organization already has that email route',
-        )
       if (duplicateCandidate)
         throw new ProspectOutreachError(
           'CONFLICT',
           'Unresolved organization identity or alias evidence blocks contact creation',
         )
+      if (sameOrgEmail) {
+        const provenance = sameOrgEmail.provenance
+        const permissionEvidence = sameOrgEmail.permissionEvidence
+        const exactRetry =
+          sameOrgEmail.venueId === member.venueId &&
+          sameOrgEmail.archivedAt === null &&
+          sameOrgEmail.source === `SOURCE_EVIDENCE:${evidence.id}` &&
+          sameOrgEmail.emailReadiness === 'REVIEW_REQUIRED' &&
+          sameOrgEmail.permissionState === 'REVIEW_REQUIRED' &&
+          !sameOrgEmail.doNotContact &&
+          sameOrgEmail.suppressedAt === null &&
+          sameOrgEmail.unsubscribedAt === null &&
+          sameOrgEmail.complainedAt === null &&
+          sameOrgEmail.lastHardBounceAt === null &&
+          (input.fullName?.trim() || null) === sameOrgEmail.fullName &&
+          (input.title?.trim() || null) === sameOrgEmail.title &&
+          Array.isArray(provenance) &&
+          provenance.some(
+            (entry) =>
+              entry !== null &&
+              typeof entry === 'object' &&
+              !Array.isArray(entry) &&
+              entry.evidenceId === evidence.id &&
+              entry.sourceUrl === evidence.sourceUrl,
+          ) &&
+          permissionEvidence !== null &&
+          typeof permissionEvidence === 'object' &&
+          !Array.isArray(permissionEvidence) &&
+          permissionEvidence.sourceEvidenceId === evidence.id &&
+          permissionEvidence.approvalGranted === false
+        if (exactRetry) return sameOrgEmail
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'This organization already has that email route',
+        )
+      }
 
       const contact = await tx.prospectContact.create({
         data: {
