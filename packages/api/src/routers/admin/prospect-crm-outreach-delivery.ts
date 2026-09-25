@@ -11,7 +11,7 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { enqueueProspectOutreach } from '@pathfinder/jobs'
-import { mergeRouters, router } from '../../core'
+import { router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
