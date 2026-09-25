@@ -211,14 +211,15 @@ describe('prospect action safety boundaries', () => {
       progressCursor: 'MAPPED',
     }
     const update = vi.fn().mockResolvedValue(prospectImport)
+    const createMany = vi.fn().mockResolvedValue({ count: 2 })
     const tx = {
       prospectImport: { findUnique: vi.fn().mockResolvedValue(prospectImport), update },
       prospectImportSheet: { findMany: vi.fn().mockResolvedValue([{ sheetName: 'Chicago' }]) },
       prospectOrganization: { findMany: vi.fn().mockResolvedValue([]) },
       prospectImportRow: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        upsert: vi.fn().mockResolvedValue({}),
-        groupBy: vi.fn().mockResolvedValue([{ status: 'VALID', _count: { _all: 1 } }]),
+        findMany: vi.fn().mockResolvedValue([]),
+        createMany,
+        groupBy: vi.fn().mockResolvedValue([{ status: 'VALID', _count: { _all: 2 } }]),
       },
     }
     const client = {
@@ -234,6 +235,12 @@ describe('prospect action safety boundaries', () => {
             sourceValues: { venue_name: 'Storage Hall' },
             normalizedValues: { venueName: 'Storage Hall', city: 'Chicago' },
           },
+          {
+            sheetName: 'Chicago',
+            originalRowNumber: 3,
+            sourceValues: { venue_name: 'River Hall' },
+            normalizedValues: { venueName: 'River Hall', city: 'Chicago' },
+          },
         ],
         actor,
       },
@@ -242,9 +249,68 @@ describe('prospect action safety boundaries', () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'DRAFT' }) }),
     )
+    expect(createMany).toHaveBeenCalledTimes(1)
+    expect(createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ originalRowNumber: 2 }),
+          expect.objectContaining({ originalRowNumber: 3 }),
+        ]),
+      }),
+    )
     await expect(
       approveProspectImportAction({ importId: 'source-import', actor }, client as never),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('restages the same row identity and preserves already imported rows', async () => {
+    const prospectImport = {
+      id: 'retry-import',
+      status: 'DRAFT',
+      sourceObjectKey: 'immutable/workbook.xlsx',
+    }
+    const updateRow = vi.fn().mockResolvedValue({})
+    const createMany = vi.fn()
+    const tx = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue(prospectImport),
+        update: vi.fn().mockResolvedValue(prospectImport),
+      },
+      prospectImportSheet: { findMany: vi.fn().mockResolvedValue([{ sheetName: 'Chicago' }]) },
+      prospectOrganization: { findMany: vi.fn().mockResolvedValue([]) },
+      prospectImportRow: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'existing', sheetName: 'Chicago', originalRowNumber: 2, status: 'WARNING' },
+          { id: 'finished', sheetName: 'Chicago', originalRowNumber: 3, status: 'IMPORTED' },
+        ]),
+        update: updateRow,
+        createMany,
+        groupBy: vi.fn().mockResolvedValue([
+          { status: 'VALID', _count: { _all: 1 } },
+          { status: 'IMPORTED', _count: { _all: 1 } },
+        ]),
+      },
+    }
+    const client = {
+      $transaction: async (operation: (value: typeof tx) => unknown) => operation(tx),
+    }
+    const result = await stageProspectImportRowsAction(
+      {
+        importId: 'retry-import',
+        rows: [2, 3].map((originalRowNumber) => ({
+          sheetName: 'Chicago',
+          originalRowNumber,
+          sourceValues: { venue_name: `Hall ${originalRowNumber}` },
+          normalizedValues: { venueName: `Hall ${originalRowNumber}` },
+        })),
+        actor,
+      },
+      client as never,
+    )
+    expect(result.staged).toBe(1)
+    expect(updateRow).toHaveBeenCalledOnce()
+    expect(updateRow).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'existing' } }))
+    expect(createMany).not.toHaveBeenCalled()
   })
 
   it('scans beyond the former 20,000-organization duplicate ceiling in bounded chunks', async () => {
