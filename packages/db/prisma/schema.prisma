@@ -8531,6 +8531,7 @@ model ProspectOutreachDraftGmailLink {
   providerDraftId   String                        @map("provider_draft_id") @db.VarChar(191)
   providerMessageId String                        @map("provider_message_id") @db.VarChar(191)
   contentHash       String                        @map("content_hash") @db.Char(64)
+  verificationStatus String                       @default("UNVERIFIED") @map("verification_status") @db.VarChar(32)
   createdBy         String                        @map("created_by") @db.VarChar(191)
   createdAt         DateTime                      @default(now()) @map("created_at")
   providerAccount   CorrespondenceProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Restrict, onUpdate: Restrict)

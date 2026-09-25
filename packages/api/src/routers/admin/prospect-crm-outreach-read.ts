@@ -73,7 +73,12 @@ export const adminProspectCrmOutreachReadRouter = router({
                   take: 1,
                   include: {
                     gmailLink: {
-                      select: { providerDraftId: true, providerMessageId: true, createdAt: true },
+                      select: {
+                        providerDraftId: true,
+                        providerMessageId: true,
+                        verificationStatus: true,
+                        createdAt: true,
+                      },
                     },
                   },
                 },
@@ -181,7 +186,12 @@ export const adminProspectCrmOutreachReadRouter = router({
               take: 1,
               include: {
                 gmailLink: {
-                  select: { providerDraftId: true, providerMessageId: true, createdAt: true },
+                  select: {
+                    providerDraftId: true,
+                    providerMessageId: true,
+                    verificationStatus: true,
+                    createdAt: true,
+                  },
                 },
               },
             },

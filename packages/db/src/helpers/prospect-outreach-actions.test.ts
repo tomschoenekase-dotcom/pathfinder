@@ -470,8 +470,8 @@ describe('existing Gmail draft linkage', () => {
         id: 'contact-1',
         normalizedEmail: 'hello@example.org',
         doNotContact: false,
-        emailReadiness: 'REVIEW_REQUIRED',
-        permissionState: 'REVIEW_REQUIRED',
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
         suppressedAt: null,
         unsubscribedAt: null,
         archivedAt: null,
@@ -530,6 +530,7 @@ describe('existing Gmail draft linkage', () => {
         providerDraftId: input.providerDraftId,
         providerMessageId: input.providerMessageId,
         contentHash: input.expectedContentHash,
+        verificationStatus: 'UNVERIFIED',
         createdBy: 'admin-1',
       },
     })
@@ -595,8 +596,8 @@ describe('existing Gmail draft linkage', () => {
         id: 'contact-1',
         normalizedEmail: 'hello@example.org',
         doNotContact: false,
-        emailReadiness: 'REVIEW_REQUIRED',
-        permissionState: 'REVIEW_REQUIRED',
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
         suppressedAt: null,
         unsubscribedAt: null,
         archivedAt: null,
@@ -624,6 +625,21 @@ describe('existing Gmail draft linkage', () => {
       code: 'CONFLICT',
     })
     expect(prior.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['UNKNOWN', 'LEGITIMATE_INTEREST_RECORDED'],
+    ['REVIEW_REQUIRED', 'LEGITIMATE_INTEREST_RECORDED'],
+    ['VALID', 'UNKNOWN'],
+    ['VALID', 'REVIEW_REQUIRED'],
+  ])('fails closed for readiness %s and permission %s', async (readiness, permission) => {
+    const blocked = setup()
+    blocked.draftRecord.contact.emailReadiness = readiness
+    blocked.draftRecord.contact.permissionState = permission
+    await expect(
+      linkExistingProspectGmailDraftAction(input, blocked.client as never),
+    ).rejects.toMatchObject({ code: 'SUPPRESSED' })
+    expect(blocked.create).not.toHaveBeenCalled()
   })
 
   it('rejects an active CRM customer relationship', async () => {

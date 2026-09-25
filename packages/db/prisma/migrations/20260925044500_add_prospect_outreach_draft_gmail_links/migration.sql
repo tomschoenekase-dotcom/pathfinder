@@ -5,6 +5,7 @@ CREATE TABLE "prospect_outreach_draft_gmail_links" (
   "provider_draft_id" VARCHAR(191) NOT NULL,
   "provider_message_id" VARCHAR(191) NOT NULL,
   "content_hash" CHAR(64) NOT NULL,
+  "verification_status" VARCHAR(32) NOT NULL DEFAULT 'UNVERIFIED',
   "created_by" VARCHAR(191) NOT NULL,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "prospect_outreach_draft_gmail_links_pkey" PRIMARY KEY ("id")
@@ -44,4 +45,4 @@ CREATE TRIGGER "prospect_outreach_draft_gmail_links_no_truncate"
   FOR EACH STATEMENT EXECUTE FUNCTION "reject_prospect_outreach_draft_gmail_link_mutation"();
 
 COMMENT ON TABLE "prospect_outreach_draft_gmail_links" IS
-  'Append-only association of a verified existing Gmail draft/message ID pair to one immutable CRM outreach draft version.';
+  'Append-only, explicitly UNVERIFIED association of claimed Gmail draft/message IDs to one immutable CRM outreach draft version; no Gmail provider readback is performed.';

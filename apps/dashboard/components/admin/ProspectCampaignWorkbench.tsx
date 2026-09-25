@@ -300,7 +300,7 @@ export function ProspectCampaignWorkbench({
       })
       setLinkingDraftId(null)
       setHistoryReviewConfirmed(false)
-      setNotice('Existing Gmail draft linked to this CRM version. Nothing was sent.')
+      setNotice('Gmail IDs saved as an UNVERIFIED association. Nothing was sent.')
       await refresh()
     } catch (error) {
       setRefreshError(
@@ -813,8 +813,11 @@ export function ProspectCampaignWorkbench({
                     ))}
                     {draft.gmailLink ? (
                       <p className="mt-4 border-t border-slate-200 pt-3 text-xs leading-5 text-slate-600">
-                        Gmail draft{' '}
-                        <code className="break-all">{draft.gmailLink.providerDraftId}</code>
+                        Gmail IDs attached ·{' '}
+                        <strong>
+                          {draft.gmailLink.verificationStatus} (not read back from Gmail)
+                        </strong>{' '}
+                        · draft <code className="break-all">{draft.gmailLink.providerDraftId}</code>
                         {' · '}message{' '}
                         <code className="break-all">{draft.gmailLink.providerMessageId}</code>
                       </p>
@@ -823,10 +826,12 @@ export function ProspectCampaignWorkbench({
                         {linkingDraftId === draft.id ? (
                           <div className="space-y-3">
                             <p className="text-xs leading-5 text-slate-600">
-                              Reopen the unsent business draft, match this CRM version, and search
-                              both mailboxes and known aliases for prior correspondence. The CRM
-                              cannot verify Gmail history while provider sync is inactive; this
-                              checkbox records your review.
+                              This saves the IDs as an UNVERIFIED operator-entered association; the
+                              server does not read the Gmail draft or verify its recipient, subject,
+                              or body. Reopen the unsent business draft, match it to this CRM
+                              version, and search both mailboxes and known aliases for prior
+                              correspondence. Gmail sync is inactive, so the checkbox records only
+                              your external review and is not proof of provider verification.
                             </p>
                             {!selectedTorchikoMailbox ? (
                               <p role="alert" className="text-xs font-semibold text-rose-700">
@@ -883,8 +888,8 @@ export function ProspectCampaignWorkbench({
                                 }
                                 className="mt-1 h-4 w-4 accent-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
                               />
-                              I personally confirmed the exact draft and checked both mailboxes for
-                              prior correspondence.
+                              I personally reviewed this Gmail draft and searched both mailboxes for
+                              prior correspondence (operator attestation only).
                             </label>
                             <div className="flex flex-wrap gap-2">
                               <button

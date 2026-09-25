@@ -235,7 +235,7 @@ describe('ProspectCampaignWorkbench release safety', () => {
     })
     fireEvent.click(
       screen.getByLabelText(
-        'I personally confirmed the exact draft and checked both mailboxes for prior correspondence.',
+        'I personally reviewed this Gmail draft and searched both mailboxes for prior correspondence (operator attestation only).',
       ),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Link these IDs' }))
@@ -250,7 +250,7 @@ describe('ProspectCampaignWorkbench release safety', () => {
         historyReviewConfirmed: true,
       }),
     )
-    expect(await screen.findByText(/Nothing was sent/u)).toBeTruthy()
+    expect(await screen.findByText(/UNVERIFIED association\. Nothing was sent/u)).toBeTruthy()
   })
 
   it('shows the exact frozen recipient/content and keeps approval separate from release', async () => {

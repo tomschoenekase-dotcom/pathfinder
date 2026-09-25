@@ -486,7 +486,8 @@ export async function linkExistingProspectGmailDraftAction(
         !contact.normalizedEmail ||
         contact.normalizedEmail.toLowerCase() !== draft.toEmail.trim().toLowerCase() ||
         contact.doNotContact ||
-        contact.emailReadiness === 'INVALID' ||
+        contact.emailReadiness !== 'VALID' ||
+        !['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) ||
         contact.permissionState === 'OPTED_OUT' ||
         contact.permissionState === 'PROHIBITED' ||
         contact.suppressedAt ||
@@ -553,6 +554,7 @@ export async function linkExistingProspectGmailDraftAction(
           providerDraftId,
           providerMessageId,
           contentHash: draft.contentHash,
+          verificationStatus: 'UNVERIFIED',
           createdBy: input.actor.id,
         },
       })
