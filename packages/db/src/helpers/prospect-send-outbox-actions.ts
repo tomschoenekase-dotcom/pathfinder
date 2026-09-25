@@ -147,8 +147,7 @@ function recipientEligibility(
     !contact.archivedAt &&
     !contact.doNotContact &&
     contact.emailReadiness === 'VALID' &&
-    contact.permissionState !== 'OPTED_OUT' &&
-    contact.permissionState !== 'PROHIBITED' &&
+    ['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) &&
     !contact.suppressedAt &&
     !contact.unsubscribedAt &&
     currentIdentityHash === expectedIdentityHash,

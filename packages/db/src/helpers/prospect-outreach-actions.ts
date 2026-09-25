@@ -687,8 +687,7 @@ export async function stageProspectSendBatchAction(
           draft.contact?.doNotContact ||
           !draft.contact?.normalizedEmail ||
           draft.contact.emailReadiness !== 'VALID' ||
-          draft.contact.permissionState === 'OPTED_OUT' ||
-          draft.contact.permissionState === 'PROHIBITED' ||
+          !['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(draft.contact.permissionState) ||
           Boolean(draft.contact.suppressedAt) ||
           Boolean(draft.contact.unsubscribedAt),
       )
@@ -1016,8 +1015,7 @@ export async function releaseProspectSendBatchAction(
         !contact.archivedAt &&
         !contact.doNotContact &&
         contact.emailReadiness === 'VALID' &&
-        contact.permissionState !== 'OPTED_OUT' &&
-        contact.permissionState !== 'PROHIBITED' &&
+        ['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) &&
         !contact.suppressedAt &&
         !contact.unsubscribedAt &&
         identityHash === item.recipientIdentityHash

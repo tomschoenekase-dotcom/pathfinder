@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { prospectOperationalContentHash } from './prospect-launch-attachments'
 
 import {
   approveProspectSendBatchAction,
@@ -62,6 +64,135 @@ describe('prospect outreach policy', () => {
       }),
     )
   })
+
+  it.each(['UNKNOWN', 'REVIEW_REQUIRED', 'OPTED_OUT', 'PROHIBITED'])(
+    'does not stage a batch when permission is %s',
+    async (permissionState) => {
+      const create = vi.fn()
+      const tx = {
+        prospectOutreachDraft: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'draft-1',
+              campaignId: 'campaign-1',
+              status: 'APPROVED',
+              contact: {
+                normalizedEmail: 'hello@example.org',
+                emailReadiness: 'VALID',
+                permissionState,
+                doNotContact: false,
+                suppressedAt: null,
+                unsubscribedAt: null,
+              },
+            },
+          ]),
+        },
+        prospectSendBatch: { create },
+      }
+
+      await expect(
+        stageProspectSendBatchAction(
+          {
+            campaignId: 'campaign-1',
+            draftIds: ['draft-1'],
+            actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+          },
+          { $transaction: vi.fn((work) => work(tx)) } as never,
+        ),
+      ).rejects.toMatchObject({ code: 'SUPPRESSED' })
+      expect(create).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['UNKNOWN', 'REVIEW_REQUIRED', 'OPTED_OUT', 'PROHIBITED'])(
+    'does not release a frozen batch when permission is %s',
+    async (permissionState) => {
+      const recipient = 'hello@example.org'
+      const subject = 'Torchiko at Example Museum'
+      const body = 'A reviewed message.'
+      const contentHash = prospectOperationalContentHash(recipient, subject, body, '', {})
+      const recipientIdentityHash = createHash('sha256').update(recipient).digest('hex')
+      const snapshotHash = createHash('sha256')
+        .update(`draft-1:${contentHash}:${recipient}`)
+        .digest('hex')
+      const createMany = vi.fn()
+      const tx = {
+        prospectDeliveryControl: {
+          findUnique: vi.fn().mockResolvedValue({ deliveryEnabled: true, internalOnly: false }),
+        },
+        correspondenceProviderAccount: {
+          findUnique: vi.fn().mockResolvedValue({
+            provider: 'GMAIL',
+            capabilities: ['SEND'],
+            connectionStatus: 'CONNECTED',
+            deliveryEnabled: true,
+            pausedAt: null,
+            mailboxAddress: 'tomschoenekase@torchiko.com',
+          }),
+        },
+        prospectSendBatch: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'batch-1',
+            status: 'APPROVED',
+            recipientCount: 1,
+            snapshotHash,
+            campaign: { pausedAt: null, status: 'DRAFT' },
+            items: [
+              {
+                id: 'item-1',
+                draftId: 'draft-1',
+                memberId: 'member-1',
+                recipientEmailSnapshot: recipient,
+                recipientIdentityHash,
+                subjectSnapshot: subject,
+                textBodySnapshot: body,
+                htmlBodySnapshot: null,
+                contentHashSnapshot: contentHash,
+                headerSnapshot: {},
+                idempotencyKey: 'idempotency-1',
+                draft: {
+                  id: 'draft-1',
+                  status: 'APPROVED',
+                  contentHash,
+                  toEmail: recipient,
+                  subject,
+                  textBody: body,
+                  htmlBody: null,
+                  groundingSnapshot: {},
+                  venueId: null,
+                  contact: {
+                    normalizedEmail: recipient,
+                    doNotContact: false,
+                    archivedAt: null,
+                    emailReadiness: 'VALID',
+                    permissionState,
+                    suppressedAt: null,
+                    unsubscribedAt: null,
+                  },
+                },
+              },
+            ],
+          }),
+          update: vi.fn(),
+        },
+        prospectSendOutbox: { createMany },
+      }
+
+      await expect(
+        releaseProspectSendBatchAction(
+          {
+            batchId: 'batch-1',
+            providerAccountId: 'gmail-account-1',
+            expectedRecipientCount: 1,
+            expectedSnapshotHash: snapshotHash,
+            actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+          },
+          { $transaction: vi.fn((work) => work(tx)) } as never,
+        ),
+      ).rejects.toMatchObject({ code: 'SUPPRESSED' })
+      expect(createMany).not.toHaveBeenCalled()
+    },
+  )
 
   it('flags business commitments and strategic prospects for explicit human review', () => {
     expect(
