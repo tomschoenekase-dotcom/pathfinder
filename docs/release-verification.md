@@ -28,6 +28,15 @@ Use `--report artifacts/release-verification/custom-name.json` to select a repos
 report path. The sibling Markdown report is generated automatically. Reports contain gate names,
 status and duration, but do not persist command output or environment values.
 
+On a fresh local checkout, the candidate profile's worker tests need process-scoped, synthetic
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, `CLERK_SECRET_KEY`, and `CLERK_PUBLISHABLE_KEY` values even
+when disposable integration tests are not opted in. Use a loopback disposable database name and
+synthetic Clerk strings, never live credentials. If the `ffmpeg-static` install did not
+place its binary in `node_modules`, set `FFMPEG_BIN` to a locally installed FFmpeg executable for
+the media tests; Turbo passes that test-only override through to workers. Set temporary paths to
+the assigned external machine workspace. Keep the resulting report's exact revision and note that
+a system FFmpeg override tests local media behavior rather than the bundled binary.
+
 After a clean candidate report and matching `pnpm staging:handoff`, use
 `pnpm release:evidence:prepare --assessment <report.json> --handoff <handoff.json>` to produce a
 deterministic, schema-compatible record payload. The command is offline and does not record,
