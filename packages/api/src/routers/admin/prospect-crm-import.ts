@@ -9,6 +9,7 @@ import {
   db,
   reserveProspectImportUploadAction,
   resolveProspectImportRowAction,
+  resumeIncompleteProspectImportDryRunAction,
   stageProspectImportRowsAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -348,11 +349,25 @@ export const adminProspectCrmImportRouter = router({
         })
         .strict(),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const prospectImport = await withTenantIsolationBypass(() =>
         db.prospectImport.findUnique({ where: { id: input.importId } }),
       )
       if (!prospectImport) throw new TRPCError({ code: 'NOT_FOUND', message: 'Import not found' })
+      if (
+        prospectImport.status === 'DRY_RUN_READY' &&
+        prospectImport.sourceObjectKey &&
+        prospectImport.progressCursor !== 'DRY_RUN_READY'
+      ) {
+        await withTenantIsolationBypass(() =>
+          resumeIncompleteProspectImportDryRunAction({
+            importId: input.importId,
+            actor: prospectActor(ctx.session.userId),
+          }).catch(mapProspectActionError),
+        )
+        await enqueueProspectImportStaging({ importId: input.importId })
+        return { queued: true, phase: 'staging' as const }
+      }
       if (prospectImport.status === 'DRAFT') {
         if (prospectImport.progressCursor === 'UPLOADED') {
           await enqueueProspectImportInspection({ importId: input.importId })
@@ -362,6 +377,12 @@ export const adminProspectCrmImportRouter = router({
           prospectImport.progressCursor === 'MAPPED' ||
           /^\d+:\d+$/u.test(prospectImport.progressCursor ?? '')
         ) {
+          await withTenantIsolationBypass(() =>
+            resumeIncompleteProspectImportDryRunAction({
+              importId: input.importId,
+              actor: prospectActor(ctx.session.userId),
+            }).catch(mapProspectActionError),
+          )
           await enqueueProspectImportStaging({ importId: input.importId })
           return { queued: true, phase: 'staging' as const }
         }

@@ -460,9 +460,16 @@ export function ProspectImportWorkbench() {
       for (let poll = 0; poll < 300; poll += 1) {
         await waitForProspectImportPoll(signal)
         result = await refreshImport(importId, signal)
-        if (result.prospectImport.status === 'DRY_RUN_READY') break
+        if (
+          result.prospectImport.status === 'DRY_RUN_READY' &&
+          result.prospectImport.progressCursor === 'DRY_RUN_READY'
+        )
+          break
       }
-      if (result.prospectImport.status !== 'DRY_RUN_READY') {
+      if (
+        result.prospectImport.status !== 'DRY_RUN_READY' ||
+        result.prospectImport.progressCursor !== 'DRY_RUN_READY'
+      ) {
         throw new Error('Dry-run staging continues in the background; reopen this import shortly')
       }
       await refreshHistory(signal)
@@ -521,6 +528,33 @@ export function ProspectImportWorkbench() {
         setProgress(
           'Import paused safely. Retry uses the same row identities and will not duplicate completed rows.',
         )
+        await refreshImport(detail.prospectImport.id, signal).catch(() => undefined)
+      }
+    } finally {
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
+    }
+  }
+
+  async function resumeIncompleteDryRun() {
+    if (!detail) return
+    const controller = beginPollingOperation()
+    const { signal } = controller
+    setBusy(true)
+    setError(null)
+    try {
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.retryProspectImportJob.mutate(
+          { importId: detail.prospectImport.id },
+          { signal: requestSignal },
+        ),
+      )
+      await refreshImport(detail.prospectImport.id, signal)
+      await refreshHistory(signal)
+      setProgress('The retained workbook and staged rows are being checked again by the worker.')
+    } catch (cause) {
+      if (!signal.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Dry-run retry failed.')
         await refreshImport(detail.prospectImport.id, signal).catch(() => undefined)
       }
     } finally {
@@ -783,6 +817,7 @@ export function ProspectImportWorkbench() {
                   type="button"
                   disabled={
                     busy ||
+                    detail.prospectImport.progressCursor !== 'DRY_RUN_READY' ||
                     detail.prospectImport.duplicateRows > 0 ||
                     detail.prospectImport.validRows + detail.prospectImport.warningRows === 0
                   }
@@ -790,6 +825,17 @@ export function ProspectImportWorkbench() {
                   className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   Approve reviewed rows and import
+                </button>
+              ) : null}
+              {detail.prospectImport.status === 'DRY_RUN_READY' &&
+              detail.prospectImport.progressCursor !== 'DRY_RUN_READY' ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void resumeIncompleteDryRun()}
+                  className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-900 disabled:opacity-50"
+                >
+                  Resume incomplete dry run
                 </button>
               ) : null}
               {!['COMPLETE', 'CANCELLED'].includes(detail.prospectImport.status) ? (
