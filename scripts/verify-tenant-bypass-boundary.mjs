@@ -274,7 +274,9 @@ const approvedCallCounts = new Map([
   // converted venue through its exact, already-validated conversion tenant+venue identity.
   // Exact existing-Gmail-draft import adds two admin-only platform account/member reads;
   // provider content is fetched server-side and the native action rechecks recipient gates.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  // Source-backed contact creation and route selection add two platform-admin-only calls;
+  // both preserve exact organization/venue scope and cannot approve or send.
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 15],
   // Gmail draft import and link were split without broadening procedure authority;
   // both still require the admin CRM feature gate and exact account/member checks.
   ['packages/api/src/routers/admin/prospect-crm-outreach-gmail.ts', 2],

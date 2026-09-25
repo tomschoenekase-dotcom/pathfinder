@@ -614,7 +614,7 @@ export function buildOperationBindings(operations, policy, toolCatalog) {
     result[entry.kind] = (result[entry.kind] ?? 0) + 1
     return result
   }, {})
-  const validKinds = new Set(['direct-tool', 'bounded-alternative'])
+  const validKinds = new Set(['direct-tool', 'bounded-alternative', 'unbound'])
   const invalidRules = rules
     .filter(
       (rule) =>
@@ -623,7 +623,7 @@ export function buildOperationBindings(operations, policy, toolCatalog) {
         !Array.isArray(rule.operations) ||
         rule.operations.length === 0 ||
         !Array.isArray(rule.surfaces) ||
-        rule.surfaces.length === 0 ||
+        (rule.kind === 'unbound' ? rule.surfaces.length !== 0 : rule.surfaces.length === 0) ||
         !rule.evidence ||
         !rule.decision,
     )

@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 550)
+  assert.equal(report.operations.total, 552)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
   assert.equal(report.operations.counts.byKind.query, 238)
-  assert.equal(report.operations.counts.byKind.mutation, 312)
+  assert.equal(report.operations.counts.byKind.mutation, 314)
   assert.equal(report.operations.bindings.healthy, true)
   assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
   assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)
@@ -161,6 +161,23 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
         surfaces: [],
         evidence: '',
         decision: 'No concrete agent surface has been reviewed for this operation.',
+      },
+    )
+  }
+  for (const operationPath of [
+    'admin.addSourcedProspectCampaignContact',
+    'admin.selectProspectCampaignContactRoute',
+  ]) {
+    assert.deepEqual(
+      report.operations.bindings.entries.find((operation) => operation.path === operationPath),
+      {
+        path: operationPath,
+        kind: 'unbound',
+        ruleId: 'admin-only-source-backed-contact-routing',
+        surfaces: [],
+        evidence: 'packages/api/src/routers/admin/prospect-crm.test.ts',
+        decision:
+          'These source-backed contact creation and selection mutations remain human PLATFORM_ADMIN actions. No agent tool, approval, or sending surface is approved for either operation.',
       },
     )
   }
@@ -261,6 +278,41 @@ test('declared but runtime-unbound tools cannot satisfy operation bindings', () 
     { ruleId: 'declared-only', surface: 'tool:pathfinder.declared_only' },
   ])
   assert.equal(report.healthy, false)
+})
+
+test('reviewed admin-only operations can be explicitly inventoried as unbound', () => {
+  const operations = [{ path: 'admin.contactRoute', kind: 'mutation' }]
+  const rule = {
+    id: 'admin-only-contact-route',
+    kind: 'unbound',
+    operations: ['admin.contactRoute'],
+    surfaces: [],
+    evidence: 'contact-route.test.ts',
+    decision: 'Human platform admin only; no agent surface is approved.',
+  }
+  const entries = [
+    {
+      path: 'admin.contactRoute',
+      kind: 'unbound',
+      ruleId: rule.id,
+      surfaces: [],
+      evidence: rule.evidence,
+    },
+  ]
+  const policy = {
+    operationInventory: { sha256: 'inventory' },
+    operationBindings: {
+      reviewed: {
+        operationInventorySha256: 'inventory',
+        sha256: operationBindingDigest(entries),
+      },
+      rules: [rule],
+    },
+  }
+  const report = buildOperationBindings(operations, policy, { resources: [], tools: [] })
+  assert.equal(report.healthy, true)
+  assert.deepEqual(report.unbound, ['admin.contactRoute'])
+  assert.equal(report.entries[0].ruleId, 'admin-only-contact-route')
 })
 
 test('coverage classification fails new unreviewed router names', () => {
