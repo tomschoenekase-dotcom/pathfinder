@@ -283,6 +283,186 @@ describe('prospect outreach policy', () => {
 })
 
 describe('prospect frozen-intent invalidation', () => {
+  it('freezes server-read source evidence in member scope and overwrites caller provenance', async () => {
+    const source = {
+      id: 'source-1',
+      organizationId: 'organization-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      sourceType: 'WEBSITE',
+      sourceUrl: 'https://museum.example/about',
+      sourceLabel: 'About page',
+      capturedValue: { phone: '312-555-0100' },
+      importRowId: null,
+      researchedAt: new Date('2026-09-24T12:00:00.000Z'),
+      createdBy: 'researcher-1',
+      createdAt: new Date('2026-09-24T12:01:00.000Z'),
+    }
+    const tx = {
+      prospectCampaignMember: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'member-1',
+          campaignId: 'campaign-1',
+          organizationId: 'organization-1',
+          venueId: 'venue-1',
+          contactId: 'contact-1',
+          contact: {
+            normalizedEmail: 'hello@example.org',
+            doNotContact: false,
+            emailReadiness: 'VALID',
+            permissionState: 'UNKNOWN',
+            suppressedAt: null,
+            unsubscribedAt: null,
+          },
+          organization: { relationshipTier: 'STANDARD' },
+          drafts: [],
+        }),
+        update: vi.fn(),
+      },
+      prospectSourceEvidence: { findMany: vi.fn().mockResolvedValue([source]) },
+      prospectOutreachDraft: {
+        create: vi.fn().mockImplementation(({ data }) => ({ id: 'draft-1', version: 1, ...data })),
+      },
+      prospectActivity: { create: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    const draft = await saveProspectOutreachDraftAction(
+      {
+        memberId: 'member-1',
+        subject: 'A grounded subject',
+        textBody: 'A grounded message.',
+        sourceEvidenceIds: ['source-1'],
+        groundingSnapshot: {
+          resolvedSourceEvidence: [{ id: 'source-1', sourceUrl: 'https://attacker.invalid' }],
+        },
+        actor: { type: 'AGENT', id: 'agent-1', capabilities: ['prospects:draft'] },
+      },
+      client as never,
+    )
+
+    expect(tx.prospectSourceEvidence.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['source-1'] },
+          organizationId: 'organization-1',
+          AND: [
+            { OR: [{ venueId: null }, { venueId: 'venue-1' }] },
+            { OR: [{ contactId: null }, { contactId: 'contact-1' }] },
+          ],
+        },
+      }),
+    )
+    const grounding = draft.groundingSnapshot as {
+      resolvedSourceEvidence: Array<Record<string, unknown>>
+    }
+    expect(grounding.resolvedSourceEvidence[0]).toMatchObject({
+      id: 'source-1',
+      organizationId: 'organization-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      sourceType: 'WEBSITE',
+      sourceUrl: 'https://museum.example/about',
+      sourceLabel: 'About page',
+      capturedValue: { phone: '312-555-0100' },
+      createdBy: 'researcher-1',
+      researchedAt: '2026-09-24T12:00:00.000Z',
+      createdAt: '2026-09-24T12:01:00.000Z',
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    })
+    expect(grounding.resolvedSourceEvidence[0]?.sourceUrl).not.toBe('https://attacker.invalid')
+  })
+
+  it('rejects duplicate and unavailable source evidence IDs before saving a draft', async () => {
+    const member = {
+      id: 'member-1',
+      organizationId: 'organization-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      contact: {
+        normalizedEmail: 'hello@example.org',
+        doNotContact: false,
+        emailReadiness: 'VALID',
+        permissionState: 'UNKNOWN',
+        suppressedAt: null,
+        unsubscribedAt: null,
+      },
+      organization: { relationshipTier: 'STANDARD' },
+      drafts: [],
+    }
+    const tx = {
+      prospectCampaignMember: { findUnique: vi.fn().mockResolvedValue(member), update: vi.fn() },
+      prospectSourceEvidence: { findMany: vi.fn().mockResolvedValue([]) },
+      prospectOutreachDraft: { create: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    const input = {
+      memberId: 'member-1',
+      subject: 'Subject',
+      textBody: 'Body',
+      groundingSnapshot: {},
+      actor: { type: 'AGENT' as const, id: 'agent-1', capabilities: ['prospects:draft'] },
+    }
+
+    await expect(
+      saveProspectOutreachDraftAction(
+        { ...input, sourceEvidenceIds: ['source-1', 'source-1'] },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.prospectSourceEvidence.findMany).not.toHaveBeenCalled()
+    await expect(
+      saveProspectOutreachDraftAction(
+        { ...input, sourceEvidenceIds: ['source-out-of-scope'] },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(tx.prospectOutreachDraft.create).not.toHaveBeenCalled()
+  })
+
+  it('removes caller-authored resolved evidence claims when no server IDs are supplied', async () => {
+    const tx = {
+      prospectCampaignMember: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'member-1',
+          organizationId: 'organization-1',
+          venueId: null,
+          contactId: 'contact-1',
+          contact: {
+            normalizedEmail: 'hello@example.org',
+            doNotContact: false,
+            emailReadiness: 'VALID',
+            permissionState: 'UNKNOWN',
+            suppressedAt: null,
+            unsubscribedAt: null,
+          },
+          organization: { relationshipTier: 'STANDARD' },
+          drafts: [],
+        }),
+        update: vi.fn(),
+      },
+      prospectOutreachDraft: {
+        create: vi.fn().mockImplementation(({ data }) => ({ id: 'draft-1', ...data })),
+      },
+      prospectActivity: { create: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    const saved = await saveProspectOutreachDraftAction(
+      {
+        memberId: 'member-1',
+        subject: 'Subject',
+        textBody: 'Body',
+        groundingSnapshot: {
+          resolvedSourceEvidence: [{ id: 'source-1', sourceUrl: 'https://attacker.invalid' }],
+        },
+        actor: { type: 'AGENT', id: 'agent-1', capabilities: ['prospects:draft'] },
+      },
+      client as never,
+    )
+
+    expect(saved.groundingSnapshot).not.toHaveProperty('resolvedSourceEvidence')
+  })
+
   it('retains an unsendable draft for a contact awaiting human readiness review', async () => {
     const tx = {
       prospectCampaignMember: {

@@ -113,6 +113,7 @@ const draftInput = z
     textBody: z.string().trim().min(1).max(50_000),
     htmlBody: z.string().max(100_000).optional(),
     evidence: z.array(evidenceReference).min(1).max(50),
+    sourceEvidenceIds: z.array(z.string().trim().min(1).max(191)).min(1).max(20).optional(),
     template: z
       .object({ id: z.string().trim().min(1).max(191), version: z.string().trim().min(1).max(100) })
       .strict(),
@@ -772,6 +773,9 @@ export function createProspectAgentRegistry(
                   correlationId: context.correlationId,
                 },
               },
+              ...(input.sourceEvidenceIds !== undefined
+                ? { sourceEvidenceIds: input.sourceEvidenceIds }
+                : {}),
               ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
               ...(verifiedCurrentPrintAssets ? { verifiedCurrentPrintAssets } : {}),
               // The domain action retains its compatibility capability spelling. The registry

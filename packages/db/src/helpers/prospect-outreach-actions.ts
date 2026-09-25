@@ -35,6 +35,20 @@ type VerifiedCurrentProspectPrintAsset = Readonly<{
   asset: VenueLaunchAsset
 }>
 
+const MAX_DRAFT_SOURCE_EVIDENCE = 20
+
+function resolvedSourceEvidenceSnapshot(snapshot: unknown, evidence: unknown[]) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return evidence.length ? { resolvedSourceEvidence: evidence } : snapshot
+  }
+  const record = snapshot as Record<string, unknown>
+  if (!evidence.length && !Object.hasOwn(record, 'resolvedSourceEvidence')) return snapshot
+  const rest = Object.fromEntries(
+    Object.entries(record).filter(([key]) => key !== 'resolvedSourceEvidence'),
+  )
+  return evidence.length ? { ...rest, resolvedSourceEvidence: evidence } : rest
+}
+
 export class ProspectOutreachError extends Error {
   constructor(
     readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT' | 'APPROVAL_REQUIRED' | 'SUPPRESSED',
@@ -230,6 +244,7 @@ export async function saveProspectOutreachDraftAction(
     textBody: string
     htmlBody?: string
     groundingSnapshot: unknown
+    sourceEvidenceIds?: readonly string[]
     verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: DraftActor
   },
@@ -264,6 +279,20 @@ export async function saveProspectOutreachDraftAction(
       },
     })
     if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
+    const sourceEvidenceIds = input.sourceEvidenceIds
+    if (sourceEvidenceIds !== undefined) {
+      if (
+        sourceEvidenceIds.length < 1 ||
+        sourceEvidenceIds.length > MAX_DRAFT_SOURCE_EVIDENCE ||
+        sourceEvidenceIds.some((id) => !id.trim()) ||
+        new Set(sourceEvidenceIds).size !== sourceEvidenceIds.length
+      ) {
+        throw new ProspectOutreachError(
+          'INVALID_INPUT',
+          `Between 1 and ${MAX_DRAFT_SOURCE_EVIDENCE} distinct source evidence IDs are required`,
+        )
+      }
+    }
     if (
       !member.contact?.normalizedEmail ||
       member.contact.doNotContact ||
@@ -275,14 +304,66 @@ export async function saveProspectOutreachDraftAction(
     ) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
+    let draftGroundingSnapshot = resolvedSourceEvidenceSnapshot(input.groundingSnapshot, [])
+    if (sourceEvidenceIds !== undefined) {
+      const evidence = await tx.prospectSourceEvidence.findMany({
+        where: {
+          id: { in: [...sourceEvidenceIds] },
+          organizationId: member.organizationId,
+          AND: [
+            { OR: [{ venueId: null }, { venueId: member.venueId }] },
+            { OR: [{ contactId: null }, { contactId: member.contactId }] },
+          ],
+        },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          organizationId: true,
+          venueId: true,
+          contactId: true,
+          sourceType: true,
+          sourceUrl: true,
+          sourceLabel: true,
+          capturedValue: true,
+          importRowId: true,
+          researchedAt: true,
+          createdBy: true,
+          createdAt: true,
+        },
+      })
+      if (evidence.length !== sourceEvidenceIds.length) {
+        throw new ProspectOutreachError(
+          'NOT_FOUND',
+          'One or more source evidence records are missing or outside the campaign member scope',
+        )
+      }
+      const resolved = evidence.map((item) => {
+        const fields = {
+          id: item.id,
+          organizationId: item.organizationId,
+          venueId: item.venueId,
+          contactId: item.contactId,
+          sourceType: item.sourceType,
+          sourceUrl: item.sourceUrl,
+          sourceLabel: item.sourceLabel,
+          capturedValue: item.capturedValue,
+          importRowId: item.importRowId,
+          researchedAt: item.researchedAt?.toISOString() ?? null,
+          createdBy: item.createdBy,
+          createdAt: item.createdAt.toISOString(),
+        }
+        return { ...fields, sha256: hash(JSON.stringify(fields)) }
+      })
+      draftGroundingSnapshot = resolvedSourceEvidenceSnapshot(draftGroundingSnapshot, resolved)
+    }
     const launchAttachments = await currentDraftLaunchAttachments(
       member.venueId,
-      input.groundingSnapshot,
+      draftGroundingSnapshot,
       tx,
       input.verifiedCurrentPrintAssets,
     )
     const groundingSnapshot = snapshotWithLaunchAttachments(
-      input.groundingSnapshot,
+      draftGroundingSnapshot,
       launchAttachments,
     )
     const previous = member.drafts[0]
