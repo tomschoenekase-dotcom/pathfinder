@@ -1378,6 +1378,7 @@ export {
   approveProspectSendBatchAction,
   createProspectCampaignAction,
   detectProspectDraftEscalations,
+  linkExistingProspectGmailDraftAction,
   PROSPECT_OUTREACH_MAX_BATCH,
   PROSPECT_OUTREACH_MAX_COHORT,
   PROSPECT_OUTREACH_COMPANY_SENDER,

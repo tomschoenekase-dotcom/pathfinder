@@ -307,6 +307,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectOutreachCampaign',
       'ProspectCampaignMember',
       'ProspectOutreachDraft',
+      'ProspectOutreachDraftGmailLink',
       'ProspectSendBatch',
       'ProspectSendItem',
       'ProspectSendOutbox',

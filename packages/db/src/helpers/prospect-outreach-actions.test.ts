@@ -4,6 +4,7 @@ import {
   approveProspectSendBatchAction,
   createProspectCampaignAction,
   detectProspectDraftEscalations,
+  linkExistingProspectGmailDraftAction,
   PROSPECT_OUTREACH_MAX_BATCH,
   PROSPECT_OUTREACH_MAX_COHORT,
   PROSPECT_OUTREACH_RELEASE_POLICY,
@@ -438,5 +439,220 @@ describe('prospect frozen-intent invalidation', () => {
         client as never,
       ),
     ).rejects.toThrow(/promotion requires reviewed evidence and a code change/i)
+  })
+})
+
+describe('existing Gmail draft linkage', () => {
+  const input = {
+    outreachDraftId: 'crm-draft-1',
+    providerAccountId: 'gmail-account-1',
+    providerDraftId: 'gmail-draft-1',
+    providerMessageId: 'gmail-message-1',
+    expectedContentHash: 'a'.repeat(64),
+    historyReviewConfirmed: true,
+    actor: { type: 'HUMAN' as const, id: 'admin-1', role: 'PLATFORM_ADMIN' as const },
+  }
+
+  function setup(overrides: Record<string, unknown> = {}) {
+    const existing = vi.fn().mockResolvedValue(null)
+    const create = vi
+      .fn()
+      .mockResolvedValue({ id: 'link-1', ...input, contentHash: input.expectedContentHash })
+    const draftRecord = {
+      id: input.outreachDraftId,
+      status: 'NEEDS_REVIEW',
+      contentHash: input.expectedContentHash,
+      organizationId: 'org-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      toEmail: 'hello@example.org',
+      contact: {
+        id: 'contact-1',
+        normalizedEmail: 'hello@example.org',
+        doNotContact: false,
+        emailReadiness: 'REVIEW_REQUIRED',
+        permissionState: 'REVIEW_REQUIRED',
+        suppressedAt: null,
+        unsubscribedAt: null,
+        archivedAt: null,
+        sourceImportRowId: null as string | null,
+      },
+      member: {
+        id: 'member-1',
+        status: 'DRAFTED',
+        organizationId: 'org-1',
+        venueId: 'venue-1',
+        contactId: 'contact-1',
+        drafts: [{ id: input.outreachDraftId }],
+        contact: { id: 'contact-1' },
+        organization: { opportunity: { stage: 'READY_FOR_OUTREACH' } },
+      },
+    }
+    const tx = {
+      prospectOutreachDraftGmailLink: { findFirst: existing, create },
+      correspondenceProviderAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: input.providerAccountId,
+          provider: 'GMAIL',
+          mailboxAddress: 'tomschoenekase@torchiko.com',
+          connectionStatus: 'CONNECTED',
+        }),
+      },
+      prospectOutreachDraft: { findUnique: vi.fn().mockResolvedValue(draftRecord) },
+      prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
+      prospectCustomerRelationship: { findFirst: vi.fn().mockResolvedValue(null) },
+      prospectImportRow: {
+        findUnique: vi.fn().mockResolvedValue({
+          status: 'IMPORTED',
+          import: { status: 'COMPLETE', failedRows: 0, duplicateRows: 0 },
+        }),
+      },
+      auditLog: { create: vi.fn() },
+      ...overrides,
+    }
+    return {
+      tx,
+      create,
+      existing,
+      draftRecord,
+      client: { $transaction: vi.fn((work) => work(tx)) },
+    }
+  }
+
+  it('stores exact IDs and version hash once after current suppression and relationship checks', async () => {
+    const { tx, create, client } = setup()
+    const result = await linkExistingProspectGmailDraftAction(input, client as never)
+    expect(result.id).toBe('link-1')
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        providerAccountId: input.providerAccountId,
+        outreachDraftId: input.outreachDraftId,
+        providerDraftId: input.providerDraftId,
+        providerMessageId: input.providerMessageId,
+        contentHash: input.expectedContentHash,
+        createdBy: 'admin-1',
+      },
+    })
+    expect(tx.prospectEmailMessage.findFirst).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1' },
+      select: { id: true },
+    })
+    expect(tx.auditLog.create).toHaveBeenCalled()
+  })
+
+  it('returns an exact retry and rejects an ID collision', async () => {
+    const exact = { ...input, contentHash: input.expectedContentHash }
+    const retry = setup()
+    retry.existing.mockResolvedValue(exact)
+    await expect(linkExistingProspectGmailDraftAction(input, retry.client as never)).resolves.toBe(
+      exact,
+    )
+    expect(retry.create).not.toHaveBeenCalled()
+
+    const collision = setup()
+    collision.existing.mockResolvedValue({ ...exact, outreachDraftId: 'another-crm-draft' })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, collision.client as never),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+  })
+
+  it('rejects suppressed contacts and previously contacted opportunities', async () => {
+    const suppressed = setup()
+    suppressed.tx.prospectOutreachDraft.findUnique.mockResolvedValueOnce({
+      id: input.outreachDraftId,
+      status: 'NEEDS_REVIEW',
+      contentHash: input.expectedContentHash,
+      organizationId: 'org-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      toEmail: 'hello@example.org',
+      contact: { id: 'contact-1', normalizedEmail: 'hello@example.org', doNotContact: true },
+      member: {
+        status: 'DRAFTED',
+        organizationId: 'org-1',
+        venueId: 'venue-1',
+        contactId: 'contact-1',
+        drafts: [{ id: input.outreachDraftId }],
+        organization: { opportunity: { stage: 'DISCOVERED' } },
+      },
+    })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, suppressed.client as never),
+    ).rejects.toMatchObject({ code: 'SUPPRESSED' })
+
+    const contacted = setup()
+    contacted.tx.prospectOutreachDraft.findUnique.mockResolvedValueOnce({
+      id: input.outreachDraftId,
+      status: 'NEEDS_REVIEW',
+      contentHash: input.expectedContentHash,
+      organizationId: 'org-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      toEmail: 'hello@example.org',
+      contact: {
+        id: 'contact-1',
+        normalizedEmail: 'hello@example.org',
+        doNotContact: false,
+        emailReadiness: 'REVIEW_REQUIRED',
+        permissionState: 'REVIEW_REQUIRED',
+        suppressedAt: null,
+        unsubscribedAt: null,
+        archivedAt: null,
+      },
+      member: {
+        status: 'DRAFTED',
+        organizationId: 'org-1',
+        venueId: 'venue-1',
+        contactId: 'contact-1',
+        drafts: [{ id: input.outreachDraftId }],
+        organization: { opportunity: { stage: 'CONTACTED' } },
+      },
+    })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, contacted.client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('rejects existing CRM correspondence even when the opportunity stage looks eligible', async () => {
+    const prior = setup()
+    prior.tx.prospectEmailMessage.findFirst.mockResolvedValue({ id: 'message-1' })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, prior.client as never),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(prior.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects an active CRM customer relationship', async () => {
+    const prior = setup()
+    prior.tx.prospectCustomerRelationship.findFirst.mockResolvedValue({ id: 'relationship-1' })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, prior.client as never),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(prior.create).not.toHaveBeenCalled()
+  })
+
+  it("waits for an imported lead's owning import to become terminal", async () => {
+    const pending = setup()
+    pending.draftRecord.contact.sourceImportRowId = 'source-row-1'
+    pending.tx.prospectImportRow.findUnique.mockResolvedValue({
+      status: 'IMPORTED',
+      import: { status: 'PROCESSING', failedRows: 0, duplicateRows: 0 },
+    })
+    await expect(
+      linkExistingProspectGmailDraftAction(input, pending.client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(pending.create).not.toHaveBeenCalled()
+
+    const completed = setup()
+    completed.draftRecord.contact.sourceImportRowId = 'source-row-1'
+    await expect(
+      linkExistingProspectGmailDraftAction(input, completed.client as never),
+    ).resolves.toMatchObject({ id: 'link-1' })
   })
 })

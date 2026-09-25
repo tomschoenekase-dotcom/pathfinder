@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   deliveries: vi.fn(),
   readiness: vi.fn(),
   rehearsal: vi.fn(),
+  gmailLink: vi.fn(),
 }))
 
 vi.mock('next/link', () => ({
@@ -37,6 +38,7 @@ vi.mock('../../lib/trpc', () => {
       getProspectOutreachReadiness: { query: mocks.readiness },
       getProspectNoSendRehearsal: { query: mocks.rehearsal },
       saveProspectOutreachDraft: { mutate: vi.fn() },
+      linkExistingGmailDraft: { mutate: mocks.gmailLink },
       reviewProspectOutreachDraft: { mutate: vi.fn() },
       stageProspectSendBatch: { mutate: vi.fn() },
     },
@@ -190,6 +192,65 @@ describe('ProspectCampaignWorkbench release safety', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('links one exact Gmail draft and message ID pair to the current CRM version', async () => {
+    const state = fixture('STAGED')
+    ;(
+      state.readiness as unknown as { accounts: { mailboxAddress: string }[] }
+    ).accounts[0]!.mailboxAddress = 'tomschoenekase@torchiko.com'
+    const draft = {
+      id: 'crm-draft-1',
+      version: 1,
+      status: 'NEEDS_REVIEW',
+      subject: 'Torchiko at Example Museum',
+      textBody: 'A verified draft body',
+      contentHash: 'a'.repeat(64),
+      groundingSnapshot: {},
+      escalationFlags: [],
+      gmailLink: null,
+    }
+    ;(state.campaign as unknown as { members: unknown[] }).members = [
+      {
+        id: 'member-1',
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        status: 'DRAFTED',
+        organization: {
+          canonicalName: 'Example Museum',
+          relationshipTier: 'STANDARD',
+          priority: 'NORMAL',
+        },
+        venue: { name: 'Example Museum', city: 'Chicago', region: 'IL' },
+        contact: { fullName: null, email: 'hello@example.org', doNotContact: false },
+        drafts: [draft],
+      },
+    ]
+    mocks.gmailLink.mockResolvedValue({ id: 'link-1' })
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={state} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link existing Gmail draft' }))
+    fireEvent.change(screen.getByLabelText('Gmail draft ID'), { target: { value: 'draft-abc' } })
+    fireEvent.change(screen.getByLabelText('Gmail message ID'), {
+      target: { value: 'message-def' },
+    })
+    fireEvent.click(
+      screen.getByLabelText(
+        'I personally confirmed the exact draft and checked both mailboxes for prior correspondence.',
+      ),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Link these IDs' }))
+
+    await waitFor(() =>
+      expect(mocks.gmailLink).toHaveBeenCalledWith({
+        outreachDraftId: 'crm-draft-1',
+        providerAccountId: 'mailbox-1',
+        providerDraftId: 'draft-abc',
+        providerMessageId: 'message-def',
+        expectedContentHash: 'a'.repeat(64),
+        historyReviewConfirmed: true,
+      }),
+    )
+    expect(await screen.findByText(/Nothing was sent/u)).toBeTruthy()
   })
 
   it('shows the exact frozen recipient/content and keeps approval separate from release', async () => {

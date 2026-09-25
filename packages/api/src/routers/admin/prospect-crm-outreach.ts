@@ -10,6 +10,7 @@ import {
   createProspectCampaignAction,
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
+  linkExistingProspectGmailDraftAction,
   ProspectOutreachError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
   type VerifiedCurrentProspectPrintAsset,
@@ -51,6 +52,29 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachActionsRouter = router({
+  linkExistingGmailDraft: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(
+      z
+        .object({
+          outreachDraftId: id,
+          providerAccountId: id,
+          providerDraftId: id,
+          providerMessageId: id,
+          expectedContentHash: z.string().regex(/^[a-f0-9]{64}$/u),
+          historyReviewConfirmed: z.literal(true),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        linkExistingProspectGmailDraftAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError),
+      ),
+    ),
+
   admitProspectStagingPackage: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(z.object({ package: z.unknown() }).strict())

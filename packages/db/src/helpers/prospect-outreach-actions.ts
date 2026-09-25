@@ -45,6 +45,10 @@ export class ProspectOutreachError extends Error {
   }
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
@@ -364,6 +368,223 @@ export async function saveProspectOutreachDraftAction(
     })
     return draft
   })
+}
+
+/** Attach a previously reopened Gmail draft to one exact CRM draft version. */
+export async function linkExistingProspectGmailDraftAction(
+  input: {
+    outreachDraftId: string
+    providerAccountId: string
+    providerDraftId: string
+    providerMessageId: string
+    expectedContentHash: string
+    historyReviewConfirmed: boolean
+    actor: HumanActor
+  },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  const providerDraftId = input.providerDraftId.trim()
+  const providerMessageId = input.providerMessageId.trim()
+  if (
+    !input.outreachDraftId.trim() ||
+    !input.providerAccountId.trim() ||
+    !providerDraftId ||
+    !providerMessageId ||
+    providerDraftId.length > 191 ||
+    providerMessageId.length > 191 ||
+    input.historyReviewConfirmed !== true ||
+    !/^[a-f0-9]{64}$/u.test(input.expectedContentHash)
+  ) {
+    throw new ProspectOutreachError(
+      'INVALID_INPUT',
+      'Exact Gmail IDs and CRM content hash are required',
+    )
+  }
+
+  const sameLink = (link: {
+    outreachDraftId: string
+    providerAccountId: string
+    providerDraftId: string
+    providerMessageId: string
+    contentHash: string
+  }) =>
+    link.outreachDraftId === input.outreachDraftId &&
+    link.providerAccountId === input.providerAccountId &&
+    link.providerDraftId === providerDraftId &&
+    link.providerMessageId === providerMessageId &&
+    link.contentHash === input.expectedContentHash
+
+  const findExisting = async (dbClient: Client) =>
+    dbClient.prospectOutreachDraftGmailLink.findFirst({
+      where: {
+        OR: [
+          { outreachDraftId: input.outreachDraftId },
+          { providerAccountId: input.providerAccountId, providerDraftId },
+          { providerAccountId: input.providerAccountId, providerMessageId },
+        ],
+      },
+    })
+
+  try {
+    return await client.$transaction(async (tx) => {
+      const existing = await findExisting(tx as Client)
+      if (existing) {
+        if (sameLink(existing)) return existing
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'A Gmail draft or CRM draft version is already linked',
+        )
+      }
+
+      const [providerAccount, draft] = await Promise.all([
+        tx.correspondenceProviderAccount.findUnique({ where: { id: input.providerAccountId } }),
+        tx.prospectOutreachDraft.findUnique({
+          where: { id: input.outreachDraftId },
+          include: {
+            contact: true,
+            member: {
+              include: {
+                contact: true,
+                organization: { include: { opportunity: true } },
+                drafts: { orderBy: { version: 'desc' }, take: 1, select: { id: true } },
+              },
+            },
+          },
+        }),
+      ])
+      if (!providerAccount || !draft) {
+        throw new ProspectOutreachError('NOT_FOUND', 'Gmail account or CRM draft was not found')
+      }
+      if (
+        providerAccount.provider !== 'GMAIL' ||
+        providerAccount.connectionStatus !== 'CONNECTED' ||
+        providerAccount.mailboxAddress.trim().toLowerCase() !== PROSPECT_OUTREACH_COMPANY_SENDER
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'A connected Torchiko Gmail account is required',
+        )
+      }
+      if (
+        draft.status !== 'NEEDS_REVIEW' ||
+        draft.member.status !== 'DRAFTED' ||
+        draft.member.drafts[0]?.id !== draft.id ||
+        draft.contentHash !== input.expectedContentHash
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'The CRM draft is no longer the current review version',
+        )
+      }
+      const contact = draft.contact
+      if (
+        !contact ||
+        contact.id !== draft.member.contactId ||
+        draft.organizationId !== draft.member.organizationId ||
+        draft.venueId !== draft.member.venueId ||
+        !contact.normalizedEmail ||
+        contact.normalizedEmail.toLowerCase() !== draft.toEmail.trim().toLowerCase() ||
+        contact.doNotContact ||
+        contact.emailReadiness === 'INVALID' ||
+        contact.permissionState === 'OPTED_OUT' ||
+        contact.permissionState === 'PROHIBITED' ||
+        contact.suppressedAt ||
+        contact.unsubscribedAt ||
+        contact.archivedAt
+      ) {
+        throw new ProspectOutreachError(
+          'SUPPRESSED',
+          'The CRM contact is suppressed or no longer matches',
+        )
+      }
+      if (contact.sourceImportRowId) {
+        const sourceRow = await tx.prospectImportRow.findUnique({
+          where: { id: contact.sourceImportRowId },
+          select: {
+            status: true,
+            import: { select: { status: true, failedRows: true, duplicateRows: true } },
+          },
+        })
+        if (
+          !sourceRow ||
+          sourceRow.status !== 'IMPORTED' ||
+          !['COMPLETE', 'PARTIAL'].includes(sourceRow.import.status) ||
+          sourceRow.import.failedRows !== 0 ||
+          sourceRow.import.duplicateRows !== 0
+        ) {
+          throw new ProspectOutreachError(
+            'CONFLICT',
+            'The source import must reach a terminal state first',
+          )
+        }
+      }
+      const stage = draft.member.organization.opportunity?.stage
+      if (
+        !stage ||
+        !['DISCOVERED', 'RESEARCHED', 'NEEDS_REVIEW', 'READY_FOR_OUTREACH'].includes(stage)
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Existing outreach or relationship history blocks this link',
+        )
+      }
+      const [priorMessage, activeRelationship] = await Promise.all([
+        tx.prospectEmailMessage.findFirst({
+          where: { organizationId: draft.organizationId },
+          select: { id: true },
+        }),
+        tx.prospectCustomerRelationship.findFirst({
+          where: { organizationId: draft.organizationId, status: 'ACTIVE' },
+          select: { id: true },
+        }),
+      ])
+      if (priorMessage || activeRelationship) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Existing CRM correspondence or customer relationship blocks this link',
+        )
+      }
+
+      const created = await tx.prospectOutreachDraftGmailLink.create({
+        data: {
+          providerAccountId: input.providerAccountId,
+          outreachDraftId: draft.id,
+          providerDraftId,
+          providerMessageId,
+          contentHash: draft.contentHash,
+          createdBy: input.actor.id,
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'prospect.outreach-draft.gmail-link.create',
+          targetType: 'ProspectOutreachDraftGmailLink',
+          targetId: created.id,
+          afterState: {
+            providerAccountId: created.providerAccountId,
+            outreachDraftId: created.outreachDraftId,
+            providerDraftId: created.providerDraftId,
+            providerMessageId: created.providerMessageId,
+            contentHash: created.contentHash,
+            historyReviewConfirmed: input.historyReviewConfirmed,
+          },
+        },
+        tx,
+      )
+      return created
+    })
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error
+    const existing = await findExisting(client)
+    if (existing && sameLink(existing)) return existing
+    throw new ProspectOutreachError(
+      'CONFLICT',
+      'A Gmail draft or CRM draft version is already linked',
+    )
+  }
 }
 
 export async function reviewProspectOutreachDraftAction(

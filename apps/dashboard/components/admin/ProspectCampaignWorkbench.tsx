@@ -71,6 +71,11 @@ export function ProspectCampaignWorkbench({
   const [editingMember, setEditingMember] = useState<string | null>(null)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [gmailLinkIds, setGmailLinkIds] = useState<
+    Record<string, { draftId: string; messageId: string }>
+  >({})
+  const [linkingDraftId, setLinkingDraftId] = useState<string | null>(null)
+  const [historyReviewConfirmed, setHistoryReviewConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
@@ -201,6 +206,8 @@ export function ProspectCampaignWorkbench({
   const selectedProviderAccount = readiness?.accounts?.find(
     (account) => account.id === providerAccountId,
   )
+  const selectedTorchikoMailbox =
+    selectedProviderAccount?.mailboxAddress.trim().toLowerCase() === 'tomschoenekase@torchiko.com'
   const selectedProviderReady = Boolean(
     selectedProviderAccount?.connectionStatus === 'CONNECTED' &&
     selectedProviderAccount.deliveryEnabled &&
@@ -266,6 +273,41 @@ export function ProspectCampaignWorkbench({
       })
       setNotice(approve ? 'Draft approved and frozen' : 'Draft returned for revision')
       await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function linkGmailDraft(draft: NonNullable<Campaign['members'][number]['drafts'][number]>) {
+    const ids = gmailLinkIds[draft.id]
+    if (
+      !providerAccountId ||
+      !selectedTorchikoMailbox ||
+      !historyReviewConfirmed ||
+      !ids?.draftId.trim() ||
+      !ids.messageId.trim()
+    )
+      return
+    setBusy(true)
+    try {
+      await client.admin.linkExistingGmailDraft.mutate({
+        outreachDraftId: draft.id,
+        providerAccountId,
+        providerDraftId: ids.draftId.trim(),
+        providerMessageId: ids.messageId.trim(),
+        expectedContentHash: draft.contentHash,
+        historyReviewConfirmed: true,
+      })
+      setLinkingDraftId(null)
+      setHistoryReviewConfirmed(false)
+      setNotice('Existing Gmail draft linked to this CRM version. Nothing was sent.')
+      await refresh()
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? `Gmail draft link could not be saved: ${error.message}`
+          : 'Gmail draft link could not be saved. Refresh the campaign and try again.',
+      )
     } finally {
       setBusy(false)
     }
@@ -769,6 +811,122 @@ export function ProspectCampaignWorkbench({
                           : 'Attachment details invalid; return this draft for revision.'}
                       </p>
                     ))}
+                    {draft.gmailLink ? (
+                      <p className="mt-4 border-t border-slate-200 pt-3 text-xs leading-5 text-slate-600">
+                        Gmail draft{' '}
+                        <code className="break-all">{draft.gmailLink.providerDraftId}</code>
+                        {' · '}message{' '}
+                        <code className="break-all">{draft.gmailLink.providerMessageId}</code>
+                      </p>
+                    ) : draft.status === 'NEEDS_REVIEW' ? (
+                      <div className="mt-4 border-t border-slate-200 pt-3">
+                        {linkingDraftId === draft.id ? (
+                          <div className="space-y-3">
+                            <p className="text-xs leading-5 text-slate-600">
+                              Reopen the unsent business draft, match this CRM version, and search
+                              both mailboxes and known aliases for prior correspondence. The CRM
+                              cannot verify Gmail history while provider sync is inactive; this
+                              checkbox records your review.
+                            </p>
+                            {!selectedTorchikoMailbox ? (
+                              <p role="alert" className="text-xs font-semibold text-rose-700">
+                                Select tomschoenekase@torchiko.com as the Gmail mailbox before
+                                linking.
+                              </p>
+                            ) : null}
+                            <label className="block text-xs font-semibold text-slate-700">
+                              Gmail draft ID
+                              <input
+                                required
+                                value={gmailLinkIds[draft.id]?.draftId ?? ''}
+                                onChange={(event) =>
+                                  setGmailLinkIds((current) => {
+                                    const value = current[draft.id] ?? {
+                                      draftId: '',
+                                      messageId: '',
+                                    }
+                                    return {
+                                      ...current,
+                                      [draft.id]: { ...value, draftId: event.target.value },
+                                    }
+                                  })
+                                }
+                                className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                              />
+                            </label>
+                            <label className="block text-xs font-semibold text-slate-700">
+                              Gmail message ID
+                              <input
+                                required
+                                value={gmailLinkIds[draft.id]?.messageId ?? ''}
+                                onChange={(event) =>
+                                  setGmailLinkIds((current) => {
+                                    const value = current[draft.id] ?? {
+                                      draftId: '',
+                                      messageId: '',
+                                    }
+                                    return {
+                                      ...current,
+                                      [draft.id]: { ...value, messageId: event.target.value },
+                                    }
+                                  })
+                                }
+                                className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                              />
+                            </label>
+                            <label className="flex items-start gap-2 text-xs leading-5 text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={historyReviewConfirmed}
+                                onChange={(event) =>
+                                  setHistoryReviewConfirmed(event.target.checked)
+                                }
+                                className="mt-1 h-4 w-4 accent-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                              />
+                              I personally confirmed the exact draft and checked both mailboxes for
+                              prior correspondence.
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={
+                                  busy ||
+                                  !providerAccountId ||
+                                  !selectedTorchikoMailbox ||
+                                  !historyReviewConfirmed ||
+                                  !gmailLinkIds[draft.id]?.draftId.trim() ||
+                                  !gmailLinkIds[draft.id]?.messageId.trim()
+                                }
+                                onClick={() => void linkGmailDraft(draft)}
+                                className="min-h-10 border border-slate-900 bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                              >
+                                Link these IDs
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setLinkingDraftId(null)}
+                                className="min-h-10 border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setHistoryReviewConfirmed(false)
+                              setLinkingDraftId(draft.id)
+                            }}
+                            className="min-h-10 border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                          >
+                            Link existing Gmail draft
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
                   </article>
                 ) : null}
                 {editing ? (
