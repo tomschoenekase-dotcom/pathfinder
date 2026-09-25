@@ -94,7 +94,12 @@ describe('EvaluationRuntimeGateControl', () => {
   })
 
   it('permits an immediate durable shutdown with current-state compare-and-set values', async () => {
-    mocks.mutate.mockResolvedValue({ executionEnabled: false })
+    let resolveMutation!: (value: { executionEnabled: boolean }) => void
+    mocks.mutate.mockReturnValue(
+      new Promise<{ executionEnabled: boolean }>((resolve) => {
+        resolveMutation = resolve
+      }),
+    )
     render(
       <EvaluationRuntimeGateControl
         tenantId="tenant_1"
@@ -123,7 +128,13 @@ describe('EvaluationRuntimeGateControl', () => {
         expectedTenantEnabled: true,
       }),
     )
-    expect(screen.getByText(/New evaluation execution is closed/)).toBeTruthy()
+    const closingButton = screen.getByRole('button', { name: 'Closing…' })
+    expect(closingButton.hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByText(/New evaluation execution is closed/)).toBeNull()
+
+    resolveMutation({ executionEnabled: false })
+    expect(await screen.findByText(/New evaluation execution is closed/)).toBeTruthy()
+    expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 
   it('does not present a stale flag as enabled under another tenant authorization', () => {
