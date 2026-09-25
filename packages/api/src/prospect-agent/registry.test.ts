@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   organizationFindFirst: vi.fn(),
   memberFindMany: vi.fn(),
   memberFindFirst: vi.fn(),
+  draftFindFirst: vi.fn(),
   knowledgeFindFirst: vi.fn(),
   saveDraft: vi.fn(),
   askQuestion: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('@pathfinder/db', () => ({
       findMany: mocks.memberFindMany,
       findFirst: mocks.memberFindFirst,
     },
+    prospectOutreachDraft: { findFirst: mocks.draftFindFirst },
     prospectVenue: { findFirst: mocks.prospectVenueFindFirst },
     companyKnowledgeItem: { findFirst: mocks.knowledgeFindFirst },
     venue: { findFirst: vi.fn() },
@@ -357,6 +359,73 @@ describe('prospect agent registry', () => {
         invocation,
       ),
     ).rejects.toThrow()
+  })
+
+  it('reads one exact scoped draft version and its frozen review evidence without review authority', async () => {
+    const saved = {
+      id: 'draft-1',
+      memberId: 'member-1',
+      version: 2,
+      status: 'NEEDS_REVIEW',
+      contentHash: 'a'.repeat(64),
+      groundingSnapshot: { resolvedSourceEvidence: [{ id: 'source-1', sha256: 'b'.repeat(64) }] },
+      generatedByType: 'AGENT',
+      generatedById: 'agent-1',
+      approvedBy: null,
+      approvedAt: null,
+      rejectedReason: null,
+      createdAt: new Date('2026-09-25T00:00:00.000Z'),
+    }
+    mocks.draftFindFirst.mockResolvedValue(saved)
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(
+        context({ scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] } }),
+      ),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.get_outreach_draft',
+        { memberId: 'member-1', draftId: 'draft-1' },
+        invocation,
+      ),
+    ).resolves.toEqual(saved)
+    expect(mocks.draftFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'draft-1',
+          memberId: 'member-1',
+          organization: { territoryId: { in: ['territory-1'] } },
+        },
+        select: expect.objectContaining({ groundingSnapshot: true, status: true }),
+      }),
+    )
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('requires read capability and rejects caller-supplied review authority', async () => {
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context({ capabilities: ['prospects.draft'] })),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.get_outreach_draft',
+        { memberId: 'member-1', draftId: 'draft-1' },
+        invocation,
+      ),
+    ).rejects.toMatchObject({ code: 'CAPABILITY_REQUIRED' })
+    expect(mocks.draftFindFirst).not.toHaveBeenCalled()
+
+    const readRegistry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context()),
+    })
+    await expect(
+      readRegistry.callTool(
+        'torchiko.prospects.get_outreach_draft',
+        { memberId: 'member-1', draftId: 'draft-1', approve: true },
+        invocation,
+      ),
+    ).rejects.toThrow()
+    expect(mocks.draftFindFirst).not.toHaveBeenCalled()
   })
 
   it('resolves an optional QR selection server-side and stores verified PDF proof without returning bytes', async () => {
