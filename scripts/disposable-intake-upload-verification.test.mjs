@@ -8,6 +8,7 @@ import {
   DISPOSABLE_INTAKE_IMAGES,
   buildShakedownChildEnv,
   parsePublishedPort,
+  probeDisposableMinioHealth,
   runDisposableGoldenVenueShakedown,
   runDisposableIntakeVerificationShakedown,
   runDisposableOperationsReadinessShakedown,
@@ -42,6 +43,30 @@ function passingReport() {
     testResults: [{ assertionResults: [{ status: 'passed' }] }],
   })
 }
+
+test('bounds a stalled disposable MinIO health probe and aborts it', async () => {
+  let signal
+  const stalledFetch = (_url, options) => {
+    signal = options.signal
+    return new Promise(() => {})
+  }
+  assert.equal(await probeDisposableMinioHealth(stalledFetch, 'http://127.0.0.1:9000', 20), false)
+  assert.equal(signal.aborted, true)
+  assert.equal(
+    await probeDisposableMinioHealth(async () => ({ ok: true }), 'http://127.0.0.1:9000', 20),
+    true,
+  )
+  assert.equal(
+    await probeDisposableMinioHealth(
+      async () => {
+        throw new Error('offline')
+      },
+      'http://127.0.0.1:9000',
+      20,
+    ),
+    false,
+  )
+})
 
 test('accepts only exact local Docker daemon and IPv4-loopback port evidence', () => {
   for (const image of Object.values(DISPOSABLE_INTAKE_IMAGES)) {
@@ -308,7 +333,9 @@ test('allows only the exact prospect-outreach disposable resource identity', asy
     ({ command, args }) => command === process.execPath && args.includes('vitest'),
   )
   assert.ok(integration)
-  assert.ok(integration.args.includes('src/helpers/prospect-outreach-disposable.integration.test.ts'))
+  assert.ok(
+    integration.args.includes('src/helpers/prospect-outreach-disposable.integration.test.ts'),
+  )
   assert.equal(runtime.childEnvironments[0].RUN_PROSPECT_OUTREACH_DB_INTEGRATION, '1')
 })
 

@@ -167,6 +167,34 @@ async function waitFor({ description, probe, waitImpl, attempts = 120, delayMs =
   fail(`${description} did not become ready`)
 }
 
+export async function probeDisposableMinioHealth(fetchImpl, url, timeoutMs = 2_000) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError('MinIO health probe timeout must be positive')
+  }
+  const controller = new AbortController()
+  let timeout
+  const deadline = new Promise((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort()
+      resolve(false)
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([
+      Promise.resolve()
+        .then(() => fetchImpl(url, { signal: controller.signal }))
+        .then(
+          (response) => response?.ok === true,
+          () => false,
+        ),
+      deadline,
+    ])
+  } finally {
+    clearTimeout(timeout)
+    controller.abort()
+  }
+}
+
 function containerHealth(spawnSyncImpl, runtime, containerName) {
   const result = runDocker(
     spawnSyncImpl,
@@ -530,14 +558,8 @@ export async function runDisposableServiceShakedown({
     await waitFor({
       description: 'Disposable MinIO',
       waitImpl,
-      probe: async () => {
-        try {
-          const response = await fetchImpl(`http://127.0.0.1:${minioPort}/minio/health/live`)
-          return response.ok
-        } catch {
-          return false
-        }
-      },
+      probe: () =>
+        probeDisposableMinioHealth(fetchImpl, `http://127.0.0.1:${minioPort}/minio/health/live`),
     })
     await waitFor({
       description: 'Disposable ClamAV',
