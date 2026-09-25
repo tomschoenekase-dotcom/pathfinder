@@ -164,6 +164,13 @@ function AdminFixture() {
                       totalDepth: 6,
                       totalFailed: 2,
                       oldestAgeMs: 14_000,
+                      queues: [
+                        {
+                          name: 'prospect-import',
+                          depth: 6,
+                          counts: { waiting: 4, delayed: 2, active: 0 },
+                        },
+                      ],
                     },
                   },
                 } as never
