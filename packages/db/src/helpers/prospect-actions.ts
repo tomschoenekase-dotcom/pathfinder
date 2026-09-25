@@ -2079,11 +2079,16 @@ export async function commitProspectImportBatchAction(
     select: { id: true },
   })
   const rows: Array<{ id: string }> = []
-  for (const candidate of candidates) {
-    if (rows.length >= limit) break
+  for (let offset = 0; offset < candidates.length && rows.length < limit; ) {
+    // Claim a bounded slice in one statement. If another worker wins some rows,
+    // read back only rows carrying our unique token and use the remaining budget
+    // on later candidates. This keeps the conditional lease fence intact while
+    // avoiding one UPDATE roundtrip per row in the uncontended case.
+    const slice = candidates.slice(offset, offset + (limit - rows.length))
+    offset += slice.length
     const claimed = await client.prospectImportRow.updateMany({
       where: {
-        id: candidate.id,
+        id: { in: slice.map((candidate) => candidate.id) },
         importId: input.importId,
         OR: [
           { status: { in: ['VALID', 'WARNING'] } },
@@ -2097,7 +2102,20 @@ export async function commitProspectImportBatchAction(
         claimExpiresAt: new Date(now.getTime() + 5 * 60_000),
       },
     })
-    if (claimed.count === 1) rows.push(candidate)
+    if (claimed.count === slice.length) {
+      rows.push(...slice)
+      continue
+    }
+    const claimedRows = await client.prospectImportRow.findMany({
+      where: {
+        id: { in: slice.map((candidate) => candidate.id) },
+        importId: input.importId,
+        claimToken,
+      },
+      orderBy: [{ sheetName: 'asc' }, { originalRowNumber: 'asc' }],
+      select: { id: true },
+    })
+    rows.push(...claimedRows)
   }
   let processed = 0
   let failed = 0

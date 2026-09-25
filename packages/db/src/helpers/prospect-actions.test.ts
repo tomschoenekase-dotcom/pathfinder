@@ -385,4 +385,119 @@ describe('prospect action safety boundaries', () => {
     )
     expect(JSON.stringify(rowUpdateMany.mock.calls)).not.toContain(privateError)
   })
+
+  it('claims an uncontended batch with one fenced update while preserving the requested limit', async () => {
+    const candidates = ['row-1', 'row-2', 'row-3'].map((id) => ({ id }))
+    const rowUpdateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: candidates.length })
+      .mockResolvedValue({ count: 1 })
+    const finalTransaction = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PARTIAL' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const client = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ status: 'APPROVED', cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PROCESSING' }),
+      },
+      prospectImportRow: {
+        findMany: vi.fn().mockResolvedValue(candidates),
+        updateMany: rowUpdateMany,
+        groupBy: vi.fn().mockResolvedValue([{ status: 'FAILED', _count: { _all: 3 } }]),
+      },
+      $transaction: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fixture import failure'))
+        .mockRejectedValueOnce(new Error('fixture import failure'))
+        .mockRejectedValueOnce(new Error('fixture import failure'))
+        .mockImplementationOnce((work) => work(finalTransaction)),
+    }
+
+    await expect(
+      commitProspectImportBatchAction(
+        { importId: 'import-1', limit: 3, workerId: 'worker-1', actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ processed: 0, failed: 3, done: true })
+
+    expect(rowUpdateMany).toHaveBeenCalledTimes(4)
+    expect(rowUpdateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['row-1', 'row-2', 'row-3'] },
+          importId: 'import-1',
+          OR: [
+            { status: { in: ['VALID', 'WARNING'] } },
+            { status: 'PROCESSING', claimExpiresAt: { lt: expect.any(Date) } },
+          ],
+        }),
+        data: expect.objectContaining({
+          status: 'PROCESSING',
+          claimToken: expect.any(String),
+          claimOwner: 'worker-1',
+          claimExpiresAt: expect.any(Date),
+        }),
+      }),
+    )
+    expect(client.prospectImportRow.findMany).toHaveBeenCalledOnce()
+  })
+
+  it('reads back only won leases after a claim race and fills the remaining batch slots', async () => {
+    const candidates = ['row-1', 'row-2', 'row-3', 'row-4'].map((id) => ({ id }))
+    const rowUpdateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValue({ count: 1 })
+    const rowFindMany = vi
+      .fn()
+      .mockResolvedValueOnce(candidates)
+      .mockResolvedValueOnce([{ id: 'row-1' }])
+    const finalTransaction = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PARTIAL' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const client = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ status: 'APPROVED', cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PROCESSING' }),
+      },
+      prospectImportRow: {
+        findMany: rowFindMany,
+        updateMany: rowUpdateMany,
+        groupBy: vi.fn().mockResolvedValue([{ status: 'FAILED', _count: { _all: 2 } }]),
+      },
+      $transaction: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fixture import failure'))
+        .mockRejectedValueOnce(new Error('fixture import failure'))
+        .mockImplementationOnce((work) => work(finalTransaction)),
+    }
+
+    await expect(
+      commitProspectImportBatchAction(
+        { importId: 'import-1', limit: 2, workerId: 'worker-1', actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ processed: 0, failed: 2, done: true })
+
+    const claimToken = rowUpdateMany.mock.calls[0]?.[0]?.data.claimToken
+    expect(claimToken).toEqual(expect.any(String))
+    expect(rowFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { id: { in: ['row-1', 'row-2'] }, importId: 'import-1', claimToken },
+      }),
+    )
+    expect(rowUpdateMany.mock.calls[0]?.[0]?.where.id).toEqual({ in: ['row-1', 'row-2'] })
+    expect(rowUpdateMany.mock.calls[1]?.[0]?.where.id).toEqual({ in: ['row-3'] })
+  })
 })
