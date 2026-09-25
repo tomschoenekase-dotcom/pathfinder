@@ -58,7 +58,7 @@ describe('DashboardOverview client portal', () => {
     expect(screen.getByText('Live')).toBeTruthy()
     expect(
       screen
-        .getAllByRole('link', { name: /Open visitor experience/ })
+        .getAllByRole('link', { name: /Open visitor guide/ })
         .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
     ).toBe(true)
     expect(screen.getByText('1 visitor update live')).toBeTruthy()
@@ -118,7 +118,7 @@ describe('DashboardOverview client portal', () => {
       />,
     )
 
-    expect(screen.getByRole('link', { name: /Open visitor experience/ })).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Open visitor guide/ })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open QR code' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/start|continue setup|onboarding|begin setup/iu)
   })
@@ -187,7 +187,7 @@ describe('DashboardOverview client portal', () => {
         chatUrl="https://guest.example/riverside"
       />,
     )
-    expect(screen.getByText(/updated exact preview is being prepared/i)).toBeTruthy()
+    expect(screen.getByText(/updated preview is being prepared/i)).toBeTruthy()
     expect(screen.queryByRole('link', { name: /open preview|visitor experience/i })).toBeNull()
 
     rerender(
@@ -207,7 +207,7 @@ describe('DashboardOverview client portal', () => {
     )
     expect(
       screen
-        .getAllByRole('link', { name: /Open visitor experience/ })
+        .getAllByRole('link', { name: /Open visitor guide/ })
         .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
     ).toBe(true)
   })
@@ -300,7 +300,7 @@ describe('DashboardOverview client portal', () => {
     expect(
       screen.getByRole('link', { name: 'Review the visitor experience' }).getAttribute('href'),
     ).toBe('/venues/riverside/preview/package-approved')
-    expect(screen.queryByRole('link', { name: 'Open visitor experience' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open visitor guide' })).toBeNull()
     expect(screen.queryByText('The essentials')).toBeNull()
     expect(screen.queryByText(/visitor updates live/i)).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)

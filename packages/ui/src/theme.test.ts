@@ -76,6 +76,31 @@ describe('getChatPalette', () => {
     expect(withOverride).toEqual(derived)
   })
 
+  it('uses the selected preset when a malformed custom accent is present', () => {
+    expect(getChatPalette('forest', '#ABC').accent).toBe('#2D6A4F')
+    expect(getChatPalette('forest', 'blue').accent).toBe('#2D6A4F')
+  })
+
+  it('keeps low-contrast light accents readable on surfaces and on filled controls', () => {
+    const palette = getChatPalette('default', '#FFFF00')
+
+    expect(palette.accent).toBe('#FFFF00')
+    expect(palette.accentText).not.toBe(palette.accent)
+    expect(contrastRatio(palette.bg, palette.accentText)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(palette.card, palette.accentText)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(palette.accent, palette.accentContrast)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps dark theme controls legible across preset and custom venue hues', () => {
+    for (const accent of ['#3A7BD5', '#D4607A', '#FFFF00']) {
+      const palette = getChatPalette('dark', accent)
+      expect(palette.isDark).toBe(true)
+      expect(contrastRatio(palette.accent, palette.accentContrast)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.bg, palette.text)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.card, palette.text)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it('falls back to the default preset accent for dark theme with no override', () => {
     const palette = getChatPalette('dark', null)
     expect(palette.accent).toBe(deriveNeonPalette('#3A7BD5').accent)

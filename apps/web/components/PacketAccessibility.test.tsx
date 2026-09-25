@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -127,6 +127,8 @@ describe('Packet 2 guest automated accessibility', () => {
       />,
     )
 
+    expect(screen.getByRole('heading', { level: 1, name: 'East Museum' })).toBeTruthy()
+    expect(screen.getByText('AI guidance', { selector: 'summary' })).toBeTruthy()
     await expectNoAutomatedViolations(container)
   })
 })

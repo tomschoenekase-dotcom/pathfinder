@@ -1,0 +1,34 @@
+.layout {
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+}
+
+.layout > [data-fixture='visitor-chat'] {
+  min-height: 0;
+  flex: 1;
+}
+
+.layout > [data-fixture='visitor-chat'] > :first-child {
+  height: 100%;
+}
+
+.compactNotice {
+  display: none;
+}
+
+@media (max-height: 400px) {
+  .notice {
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .fullNotice {
+    display: none;
+  }
+
+  .compactNotice {
+    display: block;
+  }
+}

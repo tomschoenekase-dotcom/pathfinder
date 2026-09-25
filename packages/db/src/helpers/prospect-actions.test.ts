@@ -312,7 +312,6 @@ describe('prospect action safety boundaries', () => {
     expect(updateRow).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'existing' } }))
     expect(createMany).not.toHaveBeenCalled()
   })
-
   it('scans beyond the former 20,000-organization duplicate ceiling in bounded chunks', async () => {
     const organizations = Array.from({ length: 20_001 }, (_, index) => ({
       id: `org-${String(index).padStart(6, '0')}`,

@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatWindow } from './ChatWindow'
@@ -177,6 +177,24 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(screen.getByRole('status').textContent).toBe('')
     expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
+  })
+
+  it('keeps the localized Stop response action visible while a reply is in progress', () => {
+    const onStopResponse = vi.fn()
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the gallery?' }]}
+        onSend={vi.fn()}
+        stopResponseLabel="Detener respuesta"
+        onStopResponse={onStopResponse}
+        isLoading
+      />,
+    )
+
+    const stopButton = screen.getByRole('button', { name: 'Detener respuesta' })
+    expect(stopButton.textContent).toContain('Detener respuesta')
+    fireEvent.click(stopButton)
+    expect(onStopResponse).toHaveBeenCalledOnce()
   })
 
   it('does not announce restored history but announces a newly added response', () => {
@@ -532,6 +550,48 @@ describe('ChatWindow accessibility and motion behavior', () => {
       (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
     ).toBe('Tell me about the Tide Clock.')
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('restores a tab draft for the same visitor scope and clears it after an accepted send', async () => {
+    const storageKey = 'torchiko:test-draft:venue-a:session-a'
+    window.sessionStorage.removeItem(storageKey)
+    const onSend = vi.fn()
+    const first = render(
+      <ChatWindow messages={[]} onSend={onSend} isLoading={false} draftStorageKey={storageKey} />,
+    )
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask a question' }), {
+      target: { value: 'Is the gallery quiet?' },
+    })
+    expect(window.sessionStorage.getItem(storageKey)).toBe('Is the gallery quiet?')
+    first.unmount()
+
+    render(
+      <ChatWindow messages={[]} onSend={onSend} isLoading={false} draftStorageKey={storageKey} />,
+    )
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
+      ).toBe('Is the gallery quiet?'),
+    )
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Ask a question' }), { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('Is the gallery quiet?')
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull()
+  })
+
+  it('does not restore another visitor scope’s draft', async () => {
+    const firstKey = 'torchiko:test-draft:venue-a:session-a'
+    const secondKey = 'torchiko:test-draft:venue-b:session-b'
+    window.sessionStorage.setItem(firstKey, 'First venue draft')
+    window.sessionStorage.removeItem(secondKey)
+    render(
+      <ChatWindow messages={[]} onSend={vi.fn()} isLoading={false} draftStorageKey={secondKey} />,
+    )
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
+      ).toBe(''),
+    )
+    window.sessionStorage.removeItem(firstKey)
   })
 
   it('keeps the next draft editable during a response while fencing sends', () => {

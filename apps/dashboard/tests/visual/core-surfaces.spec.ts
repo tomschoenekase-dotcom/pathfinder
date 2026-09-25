@@ -139,7 +139,7 @@ test('Guest PathFinder route planning is usable in a real browser', async ({ pag
   )
   await hideFrameworkDevChrome(page)
 
-  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Museum Tochi character status' })).toBeVisible()
   const plannerToggle = page.getByRole('button', { name: 'Plan a route' })
   await plannerToggle.focus()

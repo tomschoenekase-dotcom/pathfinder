@@ -15,7 +15,6 @@ import {
 
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
 import { SecondLayerSettings } from './SecondLayerSettings'
-import { TorchikoCore, type TorchikoCoreState } from './TorchikoCore'
 
 type DashboardOverviewProps = {
   venue: {
@@ -65,20 +64,6 @@ function PortalActionLink({
       {children}
     </Link>
   )
-}
-
-function coreStateFor(lifecycle: ClientPortalLifecycleView): TorchikoCoreState {
-  if (lifecycle.state === 'LIVE') return 'live'
-  if (lifecycle.state === 'CLIENT_PREVIEW' || lifecycle.state === 'READY') return 'ready'
-  if (
-    lifecycle.state === 'PROCESSING' ||
-    lifecycle.state === 'INTERNAL_REVIEW' ||
-    lifecycle.state === 'REVISIONS'
-  )
-    return 'processing'
-  if (lifecycle.state === 'COLLECTING') return 'share'
-  if (lifecycle.state === 'PAUSED' || lifecycle.state === 'OFFBOARDING') return 'questions'
-  return 'welcome'
 }
 
 export function DashboardOverview(props: DashboardOverviewProps) {
@@ -149,6 +134,7 @@ export function DashboardOverviewView({
         : []
   const visibleTasks = tasks ?? fallbackTasks
   const primaryTask = visibleTasks[0] ?? null
+  const primaryTaskOpensGuide = Boolean(primaryTask && chatUrl && primaryTask.href === chatUrl)
   const secondaryTasks = visibleTasks.slice(1)
   const previewUnavailable =
     lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state !== 'AVAILABLE'
@@ -191,34 +177,29 @@ export function DashboardOverviewView({
           ) : null}
         </header>
 
-        <section className="relative mt-6 overflow-hidden bg-pf-deep text-white shadow-[0_24px_60px_-36px_rgba(15,42,74,0.8)]">
-          <div
-            className="absolute right-[-5rem] top-[-3rem] h-52 w-52 rounded-full bg-[#4dbdc2]/10 blur-3xl"
-            aria-hidden="true"
-          />
-          <div className="grid min-h-[25rem] md:grid-cols-[minmax(0,1.15fr)_minmax(16rem,0.85fr)]">
-            <div className="relative z-10 flex flex-col justify-between px-6 py-8 sm:px-10 sm:py-11">
-              <div>
-                <p className="flex items-center gap-3 text-sm font-semibold text-[#9ee0df]">
-                  <span className="h-px w-7 bg-[#f2a65a]" aria-hidden="true" />
-                  {lifecycle.label}
-                </p>
-                <h2 className="mt-6 max-w-2xl text-3xl font-semibold tracking-[-0.035em] sm:text-4xl lg:text-[2.75rem] lg:leading-[1.08]">
-                  {lifecycle.headline}
-                </h2>
-                <p className="mt-4 max-w-xl text-base leading-7 text-pf-light/80">
-                  {lifecycle.summary}
-                </p>
-              </div>
-
+        <section
+          className="mt-6 border-y border-pf-light bg-white px-5 py-5 sm:px-7"
+          aria-labelledby="venue-status-heading"
+        >
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pf-primary">
+                {lifecycle.label}
+              </p>
+              <h2
+                id="venue-status-heading"
+                className="mt-1.5 text-xl font-semibold tracking-tight text-pf-deep sm:text-2xl"
+              >
+                {lifecycle.headline}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/75">{lifecycle.summary}</p>
               {primaryTask ? (
-                <div className="mt-9 border-l-2 border-[#f2a65a] pl-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f5c078]">
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-pf-primary">
                     {primaryTask.required ? 'Your next step' : 'Available now'}
                   </p>
-                  <h3 className="mt-2 text-xl font-semibold">{primaryTask.title}</h3>
                   {primaryTask.items?.length ? (
-                    <p className="mt-2 text-sm leading-6 text-pf-light/75">
+                    <p className="mt-1 text-sm leading-6 text-pf-deep/75">
                       {primaryTask.items.slice(0, 2).join(' · ')}
                       {primaryTask.additionalItemCount
                         ? ` · ${primaryTask.additionalItemCount} more in Help & changes`
@@ -227,55 +208,59 @@ export function DashboardOverviewView({
                   ) : null}
                   <PortalActionLink
                     href={primaryTask.href}
-                    className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 bg-white px-5 text-sm font-semibold text-pf-deep transition hover:bg-[#eaf7f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2a65a] focus-visible:ring-offset-2 focus-visible:ring-offset-pf-deep"
+                    className="mt-2 inline-flex min-h-11 items-center gap-2 bg-pf-primary px-4 text-sm font-semibold text-white hover:bg-pf-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
                   >
-                    {primaryTask.title}
+                    {primaryTaskOpensGuide ? 'Open visitor guide' : primaryTask.title}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </PortalActionLink>
                 </div>
-              ) : chatUrl && publicGuestLinkAvailable ? (
-                <a
-                  href={chatUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-9 inline-flex min-h-12 w-fit items-center justify-center gap-2 bg-white px-5 text-sm font-semibold text-pf-deep transition hover:bg-[#eaf7f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2a65a] focus-visible:ring-offset-2 focus-visible:ring-offset-pf-deep"
-                >
-                  Open visitor experience <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-                </a>
               ) : previewUnavailable ? (
                 <p
-                  className="mt-9 max-w-xl border-l-2 border-[#f2a65a] pl-5 text-sm leading-6 text-pf-light/80"
+                  className="mt-4 border-l-2 border-pf-accent pl-3 text-sm leading-6 text-pf-deep/75"
                   role="status"
                 >
                   {clientPreview.state === 'SUPERSEDED'
-                    ? 'An updated exact preview is being prepared. We will make it available here when it is ready.'
+                    ? 'An updated preview is being prepared. We will make it available here when it is ready.'
                     : 'This preview is temporarily unavailable. Torchiko will make a reviewed preview available here when it is ready.'}
                 </p>
-              ) : (
-                <p className="mt-9 text-sm font-medium text-[#9ee0df]">
+              ) : !chatUrl || !publicGuestLinkAvailable ? (
+                <p className="mt-4 text-sm font-medium text-pf-deep/75">
                   Nothing you need to do right now.
                 </p>
-              )}
-            </div>
-
-            <div className="relative flex min-h-44 items-center justify-center border-t border-white/10 bg-white/[0.025] px-6 py-7 sm:min-h-52 md:border-l md:border-t-0">
-              <TorchikoCore
-                state={coreStateFor(lifecycle)}
-                className={`max-w-[15rem] brightness-125 saturate-[0.85] sm:max-w-[18rem] md:max-w-[22rem] ${showLiveTools ? 'mb-16' : ''}`}
-              />
+              ) : null}
               {showLiveTools ? (
-                <div className="absolute bottom-6 left-6 right-6 border-t border-white/15 pt-4 sm:left-10 sm:right-10 lg:left-8 lg:right-8">
-                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-pf-light/80">
-                    Right now
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-white">
-                    {activeUpdates === 0
-                      ? 'No temporary visitor updates'
-                      : `${activeUpdates} visitor update${activeUpdates === 1 ? '' : 's'} live`}
-                  </p>
-                </div>
+                <p
+                  className="mt-4 border-t border-pf-light pt-3 text-sm font-medium text-pf-deep/75"
+                  role="status"
+                >
+                  {activeUpdates === 0
+                    ? 'No temporary visitor updates'
+                    : `${activeUpdates} visitor update${activeUpdates === 1 ? '' : 's'} live`}
+                </p>
               ) : null}
             </div>
+
+            {chatUrl && publicGuestLinkAvailable ? (
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:flex-col">
+                {!primaryTaskOpensGuide ? (
+                  <a
+                    href={chatUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 bg-pf-primary px-4 text-sm font-semibold text-white hover:bg-pf-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+                  >
+                    Open visitor guide <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
+                ) : null}
+                <Link
+                  href={`/venues/${encodeURIComponent(venue.id)}/qr-kit`}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 border border-pf-light px-4 text-sm font-semibold text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+                >
+                  <QrCode className="h-4 w-4" aria-hidden="true" />
+                  Open QR code
+                </Link>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -326,37 +311,6 @@ export function DashboardOverviewView({
                 </li>
               ))}
             </ol>
-          </section>
-        ) : null}
-
-        {publicGuestLinkAvailable && chatUrl ? (
-          <section
-            className="mt-10 border-y border-pf-light py-6"
-            aria-labelledby="launch-materials-heading"
-          >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
-                  Visitor access
-                </p>
-                <h2
-                  id="launch-materials-heading"
-                  className="mt-2 text-xl font-semibold text-pf-deep"
-                >
-                  Print or share your QR code
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-pf-deep/70">
-                  Download or print the one code visitors use to open your guide.
-                </p>
-              </div>
-              <Link
-                href={`/venues/${encodeURIComponent(venue.id)}/qr-kit`}
-                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
-              >
-                <QrCode className="h-4 w-4" aria-hidden="true" />
-                Open QR code
-              </Link>
-            </div>
           </section>
         ) : null}
 

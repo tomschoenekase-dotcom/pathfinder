@@ -232,7 +232,42 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.queryByRole('link', { name: 'Payment' })).toBeNull()
 
     rerender(<DashboardShell paymentAvailable>Payment content</DashboardShell>)
+    fireEvent.click(screen.getByText('Account', { selector: 'summary' }))
     expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
+  })
+
+  it('groups client destinations and preserves their existing paths and capability gates', () => {
+    pathname = '/information'
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    render(
+      <DashboardShell weeklyReportsAvailable paymentAvailable>
+        Guide
+      </DashboardShell>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/?venue=venue-1')
+    expect(screen.getByRole('link', { name: 'Information' }).getAttribute('href')).toBe(
+      '/information',
+    )
+    expect(screen.getByRole('link', { name: 'Information' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+    expect(screen.getByRole('link', { name: 'Updates' }).getAttribute('href')).toBe(
+      '/operational-updates',
+    )
+    expect(screen.getByRole('link', { name: 'Visitor experience' }).getAttribute('href')).toBe(
+      '/ai-controls',
+    )
+    fireEvent.click(screen.getByText('Activity', { selector: 'summary' }))
+    expect(screen.getByRole('link', { name: 'Reports' }).getAttribute('href')).toBe(
+      '/weekly-reports',
+    )
+    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+      '/support?venue=venue-1',
+    )
+    fireEvent.click(screen.getByText('Account', { selector: 'summary' }))
+    expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
+    expect(screen.getByRole('link', { name: 'Account' }).getAttribute('href')).toBe('/settings')
   })
 
   it('offers a skip link and moves route-change focus to the new page heading', async () => {

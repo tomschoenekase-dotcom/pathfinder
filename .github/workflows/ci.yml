@@ -30,6 +30,41 @@ jobs:
       - name: Verify Railway IaC fail-closed audit contracts
         run: node --test scripts/railway-iac-readiness.test.mjs
 
+  visitor-launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RAILWAY_ENVIRONMENT: staging
+      DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_pub
+      CLERK_WEBHOOK_SECRET: test_webhook_secret
+      INTEGRATION_ENCRYPTION_KEY: test_encryption_key_32_chars_long!
+      STORAGE_BUCKET: test-bucket
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: test
+      STORAGE_SECRET_ACCESS_KEY: test
+      RESEND_API_KEY: test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm characters:sync
+      - name: Install pinned visitor browser runtimes
+        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium webkit
+      - name: Verify visitor launch on compact, tablet, desktop and WebKit browsers
+        run: pnpm --dir apps/dashboard test:visitor-launch-browser
+
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 60

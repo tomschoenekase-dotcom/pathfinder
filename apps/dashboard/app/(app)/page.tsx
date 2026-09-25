@@ -3,7 +3,11 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardOverview, type ClientPortalTask } from '../../components/DashboardOverview'
-import { buildGuestChatUrl, buildSecondLayerChatUrl } from '../../lib/guest-chat-url'
+import {
+  buildGuestChatUrl,
+  buildSecondLayerChatUrl,
+  resolveGuestWebOrigin,
+} from '../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../lib/server-caller'
 
 type DashboardIndexPageProps = {
@@ -56,8 +60,12 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       update.startsAt <= now &&
       update.expiresAt > now,
   ).length
+  const guideOrigin = resolveGuestWebOrigin(
+    process.env.NEXT_PUBLIC_WEB_URL,
+    process.env.RAILWAY_ENVIRONMENT,
+  )
   const chatUrl = selectedVenue
-    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, selectedVenue.slug, {
+    ? buildGuestChatUrl(guideOrigin, selectedVenue.slug, {
         allowLoopbackHttp: process.env.NODE_ENV === 'development',
       })
     : null
@@ -161,7 +169,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
         updatedAt: secondLayer.updatedAt.toISOString(),
         url: secondLayer.secondLayerEnabled
           ? buildSecondLayerChatUrl(
-              process.env.NEXT_PUBLIC_WEB_URL,
+              guideOrigin,
               secondLayer.slug,
               secondLayer.secondLayerAccessKey,
               { allowLoopbackHttp: process.env.NODE_ENV === 'development' },
