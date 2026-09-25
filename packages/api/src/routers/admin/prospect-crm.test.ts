@@ -16,9 +16,12 @@ const mocks = vi.hoisted(() => ({
   reviewAttachmentRetention: vi.fn(),
   reviewInboundReply: vi.fn(),
   onboardingAttempt: vi.fn(),
+  addSourcedCampaignContact: vi.fn(),
+  selectCampaignContactRoute: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  addSourcedProspectCampaignContactAction: mocks.addSourcedCampaignContact,
   PROSPECT_OUTREACH_MAX_BATCH: 500,
   PROSPECT_OUTREACH_MAX_COHORT: 5_000,
   PROSPECT_OUTREACH_RELEASE_POLICY: {
@@ -47,6 +50,7 @@ vi.mock('@pathfinder/db', () => ({
   },
   withTenantIsolationBypass: mocks.bypass,
   createProspectAction: mocks.createProspect,
+  selectProspectCampaignContactRouteAction: mocks.selectCampaignContactRoute,
   prepareProspectEmailAttachmentRetentionAction: mocks.prepareAttachmentRetention,
   reviewProspectEmailAttachmentRetentionAction: mocks.reviewAttachmentRetention,
   reviewProspectInboundReplyAction: mocks.reviewInboundReply,
@@ -92,6 +96,37 @@ function context(isPlatformAdmin: boolean): TRPCContext {
 
 describe('admin prospect CRM router', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('routes source-backed contact creation and contact selection through the admin actor', async () => {
+    vi.stubEnv('CRM_PROSPECT_OUTREACH_ENABLED', 'true')
+    mocks.addSourcedCampaignContact.mockResolvedValue({ id: 'contact-2' })
+    mocks.selectCampaignContactRoute.mockResolvedValue({ changed: true })
+    const caller = testRouter.createCaller(context(true)).crm
+    await expect(
+      caller.addSourcedProspectCampaignContact({
+        memberId: 'member-1',
+        email: 'info@venue.example',
+        sourceEvidenceId: 'evidence-1',
+        fullName: 'Venue inbox',
+      }),
+    ).resolves.toEqual({ id: 'contact-2' })
+    await expect(
+      caller.selectProspectCampaignContactRoute({ memberId: 'member-1', contactId: 'contact-2' }),
+    ).resolves.toEqual({ changed: true })
+    expect(mocks.addSourcedCampaignContact).toHaveBeenCalledWith({
+      memberId: 'member-1',
+      email: 'info@venue.example',
+      sourceEvidenceId: 'evidence-1',
+      fullName: 'Venue inbox',
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+    expect(mocks.selectCampaignContactRoute).toHaveBeenCalledWith({
+      memberId: 'member-1',
+      contactId: 'contact-2',
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+    vi.unstubAllEnvs()
+  })
 
   it('reads an invitation draft only through its exact organization, venue, and message scope', async () => {
     mocks.onboardingAttempt.mockResolvedValueOnce({
@@ -215,11 +250,23 @@ describe('admin prospect CRM router', () => {
         evidence: 'Blocked review.',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    await expect(
+      caller.addSourcedProspectCampaignContact({
+        memberId: 'member-1',
+        email: 'info@venue.example',
+        sourceEvidenceId: 'evidence-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    await expect(
+      caller.selectProspectCampaignContactRoute({ memberId: 'member-1', contactId: 'contact-1' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.createProspect).not.toHaveBeenCalled()
     expect(mocks.prepareAttachmentRetention).not.toHaveBeenCalled()
     expect(mocks.reviewInboundReply).not.toHaveBeenCalled()
     expect(mocks.reviewContactReadiness).not.toHaveBeenCalled()
+    expect(mocks.addSourcedCampaignContact).not.toHaveBeenCalled()
+    expect(mocks.selectCampaignContactRoute).not.toHaveBeenCalled()
   })
 
   it('derives the human platform-admin actor from the authenticated session', async () => {

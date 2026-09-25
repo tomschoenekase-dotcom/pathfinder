@@ -34,6 +34,273 @@ export function isTerminalProspectOutreachImportRow(
   )
 }
 
+function normalizedContactEmail(value: string): string {
+  const email = value.trim().toLowerCase()
+  if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) {
+    throw new ProspectOutreachError('INVALID_INPUT', 'A valid sourced contact email is required')
+  }
+  return email
+}
+
+async function readSelectableMember(tx: Client, memberId: string) {
+  const member = await tx.prospectCampaignMember.findUnique({
+    where: { id: memberId },
+    include: {
+      campaign: true,
+      organization: { include: { opportunity: true } },
+      venue: true,
+      drafts: { select: { id: true }, take: 1 },
+      sendItems: { select: { id: true }, take: 1 },
+    },
+  })
+  if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
+  if (
+    member.campaign.status !== 'DRAFT' ||
+    member.campaign.pausedAt ||
+    member.status !== 'SELECTED' ||
+    member.drafts.length ||
+    member.sendItems.length ||
+    member.organization.archivedAt ||
+    !member.venueId ||
+    !member.venue ||
+    member.venue.archivedAt
+  ) {
+    throw new ProspectOutreachError(
+      'CONFLICT',
+      'Only an undrafted selected member in an active draft campaign can change contact route',
+    )
+  }
+  return member
+}
+
+/** Append a source-backed venue contact in review-required state; this never grants permission. */
+export async function addSourcedProspectCampaignContactAction(
+  input: {
+    memberId: string
+    email: string
+    sourceEvidenceId: string
+    fullName?: string
+    title?: string
+    actor: HumanActor
+  },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  const email = normalizedContactEmail(input.email)
+  if (!input.memberId.trim() || !input.sourceEvidenceId.trim())
+    throw new ProspectOutreachError('INVALID_INPUT', 'Member and source evidence IDs are required')
+
+  return client.$transaction(
+    async (tx) => {
+      const member = await readSelectableMember(tx as Client, input.memberId)
+      const evidence = await tx.prospectSourceEvidence.findUnique({
+        where: { id: input.sourceEvidenceId },
+        select: {
+          id: true,
+          organizationId: true,
+          venueId: true,
+          contactId: true,
+          sourceUrl: true,
+          sourceType: true,
+          capturedValue: true,
+        },
+      })
+      const captured = evidence?.capturedValue
+      const evidenceEmail =
+        captured && typeof captured === 'object' && !Array.isArray(captured)
+          ? (captured as Record<string, unknown>).email
+          : undefined
+      if (
+        !evidence ||
+        evidence.organizationId !== member.organizationId ||
+        evidence.venueId !== member.venueId ||
+        (evidence.contactId !== null && evidence.contactId !== member.contactId) ||
+        typeof evidenceEmail !== 'string' ||
+        normalizedContactEmail(evidenceEmail) !== email ||
+        !evidence.sourceUrl?.trim()
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Source evidence must identify this venue and the exact contact email',
+        )
+      }
+      const [sameOrgEmail, duplicateCandidate] = await Promise.all([
+        tx.prospectContact.findFirst({
+          where: {
+            organizationId: member.organizationId,
+            normalizedEmail: { equals: email, mode: 'insensitive' },
+          },
+          select: { id: true },
+        }),
+        tx.prospectDuplicateCandidate.findFirst({
+          where: {
+            status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] },
+            OR: [
+              { organizationAId: member.organizationId },
+              { organizationBId: member.organizationId },
+            ],
+          },
+          select: { id: true },
+        }),
+      ])
+      if (sameOrgEmail)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'This organization already has that email route',
+        )
+      if (duplicateCandidate)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Unresolved organization identity or alias evidence blocks contact creation',
+        )
+
+      const contact = await tx.prospectContact.create({
+        data: {
+          organizationId: member.organizationId,
+          venueId: member.venueId,
+          fullName: input.fullName?.trim() || null,
+          title: input.title?.trim() || null,
+          email,
+          normalizedEmail: email,
+          source: `SOURCE_EVIDENCE:${evidence.id}`,
+          provenance: [{ evidenceId: evidence.id, sourceUrl: evidence.sourceUrl }],
+          emailReadiness: 'REVIEW_REQUIRED',
+          permissionState: 'REVIEW_REQUIRED',
+          permissionEvidence: { sourceEvidenceId: evidence.id, approvalGranted: false },
+          createdBy: input.actor.id,
+          updatedBy: input.actor.id,
+        },
+      })
+      await tx.prospectActivity.create({
+        data: {
+          organizationId: member.organizationId,
+          venueId: member.venueId,
+          contactId: contact.id,
+          type: 'CONTACT_ADDED',
+          summary: 'Source-backed contact added for campaign routing review',
+          evidence: { sourceEvidenceId: evidence.id, sourceUrl: evidence.sourceUrl },
+          actorId: input.actor.id,
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'prospect.outreach-contact.source-added',
+          targetType: 'ProspectContact',
+          targetId: contact.id,
+          afterState: {
+            organizationId: member.organizationId,
+            venueId: member.venueId,
+            sourceEvidenceId: evidence.id,
+            email,
+            emailReadiness: 'REVIEW_REQUIRED',
+            permissionState: 'REVIEW_REQUIRED',
+          },
+        },
+        tx,
+      )
+      return contact
+    },
+    { isolationLevel: 'Serializable' },
+  )
+}
+
+/** Change only contactId on the same selected member after verifying exact venue identity. */
+export async function selectProspectCampaignContactRouteAction(
+  input: { memberId: string; contactId: string; actor: HumanActor },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  if (!input.memberId.trim() || !input.contactId.trim())
+    throw new ProspectOutreachError('INVALID_INPUT', 'Member and contact IDs are required')
+
+  return client.$transaction(
+    async (tx) => {
+      const member = await readSelectableMember(tx as Client, input.memberId)
+      const contact = await tx.prospectContact.findUnique({
+        where: { id: input.contactId },
+        include: { sources: { select: { id: true, organizationId: true, venueId: true } } },
+      })
+      if (
+        !contact ||
+        contact.organizationId !== member.organizationId ||
+        contact.venueId !== member.venueId ||
+        contact.archivedAt ||
+        !contact.normalizedEmail ||
+        !contact.sources.some(
+          (source) =>
+            source.organizationId === member.organizationId && source.venueId === member.venueId,
+        )
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Selected contact must have source evidence for the same organization and venue',
+        )
+      }
+      const duplicate = await tx.prospectContact.findFirst({
+        where: {
+          organizationId: member.organizationId,
+          normalizedEmail: { equals: contact.normalizedEmail, mode: 'insensitive' },
+          id: { not: contact.id },
+        },
+        select: { id: true },
+      })
+      const duplicateCandidate = await tx.prospectDuplicateCandidate.findFirst({
+        where: {
+          status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] },
+          OR: [
+            { organizationAId: member.organizationId },
+            { organizationBId: member.organizationId },
+          ],
+        },
+        select: { id: true },
+      })
+      if (duplicate || duplicateCandidate)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Duplicate email route or unresolved organization identity blocks selection',
+        )
+      if (member.contactId === contact.id) return { member, contact, changed: false }
+
+      const updated = await tx.prospectCampaignMember.updateMany({
+        where: {
+          id: member.id,
+          status: 'SELECTED',
+          campaign: { status: 'DRAFT', pausedAt: null },
+          drafts: { none: {} },
+          sendItems: { none: {} },
+        },
+        data: { contactId: contact.id },
+      })
+      if (updated.count !== 1)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Campaign member changed during contact selection',
+        )
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'prospect.outreach-contact.route-selected',
+          targetType: 'ProspectCampaignMember',
+          targetId: member.id,
+          afterState: {
+            memberId: member.id,
+            previousContactId: member.contactId,
+            contactId: contact.id,
+            emailReadiness: contact.emailReadiness,
+            permissionState: contact.permissionState,
+          },
+        },
+        tx,
+      )
+      return { member: { ...member, contactId: contact.id }, contact, changed: true }
+    },
+    { isolationLevel: 'Serializable' },
+  )
+}
+
 /** Import one exact provider-read Gmail draft. The provider draft ID is the stable idempotency key. */
 export async function importExistingProspectGmailDraftAction(
   input: {

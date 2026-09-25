@@ -4,6 +4,7 @@ import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-
 
 import {
   db,
+  addSourcedProspectCampaignContactAction,
   admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
@@ -19,6 +20,7 @@ import {
   saveProspectOutreachDraftAction,
   scheduleProspectFollowupAction,
   stageProspectSendBatchAction,
+  selectProspectCampaignContactRouteAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -52,6 +54,44 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachBaseActionsRouter = router({
+  addSourcedProspectCampaignContact: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(
+      z
+        .object({
+          memberId: id,
+          email: z.string().trim().email().max(320),
+          sourceEvidenceId: id,
+          fullName: z.string().trim().max(300).optional(),
+          title: z.string().trim().max(300).optional(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        addSourcedProspectCampaignContactAction({
+          memberId: input.memberId,
+          email: input.email,
+          sourceEvidenceId: input.sourceEvidenceId,
+          ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError),
+      ),
+    ),
+
+  selectProspectCampaignContactRoute: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ memberId: id, contactId: id }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        selectProspectCampaignContactRouteAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError),
+      ),
+    ),
+
   admitProspectStagingPackage: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(z.object({ package: z.unknown() }).strict())
