@@ -158,6 +158,64 @@ describe('createGmailOAuthRuntime', () => {
     ).resolves.toBe('leased-access-token')
   })
 
+  it('reads an existing draft by stable provider ID and verifies the connected mailbox identity', async () => {
+    const transport = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('oauth2.googleapis.com')) {
+        return new Response(JSON.stringify({ access_token: 'access', refresh_token: 'refresh' }), {
+          status: 200,
+        })
+      }
+      if (url.endsWith('/users/me/profile')) {
+        return new Response(
+          JSON.stringify({ emailAddress: 'tomschoenekase@torchiko.com', historyId: '100' }),
+          { status: 200 },
+        )
+      }
+      if (url.endsWith('/users/tomschoenekase%40torchiko.com/drafts/stable-draft?format=full')) {
+        return new Response(
+          JSON.stringify({
+            id: 'stable-draft',
+            message: {
+              id: 'rotated-message',
+              threadId: 'thread-1',
+              internalDate: '100',
+              labelIds: ['DRAFT'],
+              payload: {
+                headers: [{ name: 'From', value: 'tomschoenekase@torchiko.com' }],
+                parts: [
+                  {
+                    mimeType: 'text/plain',
+                    body: { data: Buffer.from('hello').toString('base64url'), size: 5 },
+                  },
+                ],
+                body: { size: 0 },
+              },
+            },
+          }),
+          { status: 200 },
+        )
+      }
+      throw new Error(`unexpected Gmail request ${url}`)
+    })
+    const runtime = createGmailOAuthRuntime({ configuration, fetch: transport })
+    const state = new URL(await runtime.begin('operator-1')).searchParams.get('state')!
+    await runtime.complete({ state, code: 'oauth-code', requestedBy: 'operator-1' })
+    const result = await runtime.readDraft({
+      credentialReferenceId: String(mocks.credential!.id),
+      mailboxAddress: 'tomschoenekase@torchiko.com',
+      providerDraftId: 'stable-draft',
+    })
+    expect(result.id).toBe('stable-draft')
+    expect(result.message.id).toBe('rotated-message')
+    expect(result.authenticatedMailboxAddress).toBe('tomschoenekase@torchiko.com')
+    expect(
+      transport.mock.calls.some(([url]) =>
+        String(url).includes('/drafts/stable-draft?format=full'),
+      ),
+    ).toBe(true)
+  })
+
   it('bounds and cancels a stalled OAuth token response', async () => {
     let canceled = false
     const body = new ReadableStream({

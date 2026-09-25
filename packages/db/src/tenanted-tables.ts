@@ -238,6 +238,7 @@ export const PLATFORM_TABLES = [
   'ProspectOutreachCampaign',
   'ProspectCampaignMember',
   'ProspectOutreachDraft',
+  'ProspectOutreachDraftGmailLink',
   'ProspectSendBatch',
   'ProspectSendItem',
   'ProspectSendOutbox',

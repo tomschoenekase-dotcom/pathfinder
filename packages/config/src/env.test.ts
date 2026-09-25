@@ -256,6 +256,29 @@ describe('OUTBOUND_PROVIDER_WORKERS_ENABLED', () => {
   })
 })
 
+describe('GMAIL_CORRESPONDENCE_WORKERS_ENABLED', () => {
+  it('defaults disabled and accepts only an explicit boolean enable', () => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
+        .GMAIL_CORRESPONDENCE_WORKERS_ENABLED,
+    ).toBe(false)
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GMAIL_CORRESPONDENCE_WORKERS_ENABLED: 'true',
+      }).GMAIL_CORRESPONDENCE_WORKERS_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GMAIL_CORRESPONDENCE_WORKERS_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('operational alert delivery environment', () => {
   it('defaults both delivery routes off', () => {
     expect(envSchema.parse(requiredEnvironment)).toMatchObject({

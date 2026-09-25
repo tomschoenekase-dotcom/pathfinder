@@ -7762,6 +7762,7 @@ model CorrespondenceProviderAccount {
   calendarSyncStates    GoogleCalendarSyncState[]
   calendarMeetings      CompanyMeeting[]
   transcriptArtifacts   CompanyMeetingTranscriptArtifact[]
+  prospectDraftLinks    ProspectOutreachDraftGmailLink[]
 
   @@unique([provider, externalAccountId])
   @@unique([provider, mailboxAddress])
@@ -8515,10 +8516,31 @@ model ProspectOutreachDraft {
   contact           ProspectContact?         @relation(fields: [contactId], references: [id], onDelete: Restrict)
   sendItems         ProspectSendItem[]
   followupSchedules ProspectFollowup[]       @relation("ProspectFollowupDraft")
+  gmailLink         ProspectOutreachDraftGmailLink?
 
   @@unique([memberId, version])
   @@index([campaignId, status, createdAt])
   @@map("prospect_outreach_drafts")
+}
+
+/// Immutable association of one reopened provider draft to one CRM draft version.
+model ProspectOutreachDraftGmailLink {
+  id                String                        @id @default(cuid())
+  providerAccountId String                        @map("provider_account_id")
+  outreachDraftId   String                        @unique @map("outreach_draft_id")
+  providerDraftId   String                        @map("provider_draft_id") @db.VarChar(191)
+  providerMessageId String                        @map("provider_message_id") @db.VarChar(191)
+  contentHash       String                        @map("content_hash") @db.Char(64)
+  verificationStatus String                       @default("UNVERIFIED") @map("verification_status") @db.VarChar(32)
+  createdBy         String                        @map("created_by") @db.VarChar(191)
+  createdAt         DateTime                      @default(now()) @map("created_at")
+  providerAccount   CorrespondenceProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  outreachDraft     ProspectOutreachDraft         @relation(fields: [outreachDraftId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([providerAccountId, providerDraftId], map: "prospect_outreach_draft_gmail_links_account_draft_key")
+  @@unique([providerAccountId, providerMessageId], map: "prospect_outreach_draft_gmail_links_account_message_key")
+  @@index([providerAccountId, createdAt])
+  @@map("prospect_outreach_draft_gmail_links")
 }
 
 model ProspectSendBatch {

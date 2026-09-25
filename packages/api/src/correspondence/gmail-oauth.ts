@@ -229,6 +229,30 @@ export function createGmailOAuthRuntime(input: {
 
   return {
     credentials,
+    async readDraft(args: {
+      credentialReferenceId: string
+      mailboxAddress: string
+      providerDraftId: string
+    }) {
+      const lease = await credentials.lease(args.credentialReferenceId)
+      return lease.withAccessToken(async (accessToken) => {
+        const profile = await gmail.getProfile({ accessToken, mailboxAddress: 'me' })
+        if (
+          profile.emailAddress.trim().toLowerCase() !== args.mailboxAddress.trim().toLowerCase()
+        ) {
+          throw new GmailApiError(
+            'AUTHENTICATION',
+            'Authenticated Gmail identity does not match the connected mailbox',
+          )
+        }
+        const draft = await gmail.getDraft({
+          accessToken,
+          mailboxAddress: profile.emailAddress,
+          draftId: args.providerDraftId,
+        })
+        return { authenticatedMailboxAddress: profile.emailAddress, ...draft }
+      })
+    },
     async begin(requestedBy: string) {
       const state = randomBytes(32).toString('base64url')
       const verifier = randomBytes(48).toString('base64url')

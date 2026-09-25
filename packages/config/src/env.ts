@@ -37,6 +37,7 @@ const rawEnvSchema = z
     // credentials, queues, consumers, schedulers, or accidental outbound calls.
     OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+    GMAIL_CORRESPONDENCE_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Canonical V1 website research is a separately dark worker capability.
@@ -299,6 +300,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
   OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
   CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
+  GMAIL_CORRESPONDENCE_WORKERS_ENABLED: values.GMAIL_CORRESPONDENCE_WORKERS_ENABLED === 'true',
   INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED:
     values.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true',
   INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED:

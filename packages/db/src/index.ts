@@ -1378,6 +1378,7 @@ export {
   approveProspectSendBatchAction,
   createProspectCampaignAction,
   detectProspectDraftEscalations,
+  linkExistingProspectGmailDraftAction,
   PROSPECT_OUTREACH_MAX_BATCH,
   PROSPECT_OUTREACH_MAX_COHORT,
   PROSPECT_OUTREACH_COMPANY_SENDER,
@@ -1390,6 +1391,10 @@ export {
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
 } from './helpers/prospect-outreach-actions'
+export {
+  importExistingProspectGmailDraftAction,
+  isTerminalProspectOutreachImportRow,
+} from './helpers/prospect-outreach-import-actions'
 export {
   claimProspectSendOutboxAction,
   finalizeProspectSendBatch,

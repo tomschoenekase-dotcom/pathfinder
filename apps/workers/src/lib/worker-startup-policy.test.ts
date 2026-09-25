@@ -67,6 +67,47 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits only the Gmail correspondence consumer with providers disabled', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        GMAIL_CORRESPONDENCE_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'gmail-correspondence-only',
+      requiredEnvironmentKeys: [
+        'REDIS_URL',
+        'DATABASE_URL',
+        'DIRECT_DATABASE_URL',
+        'GOOGLE_OAUTH_CLIENT_ID',
+        'GOOGLE_OAUTH_CLIENT_SECRET',
+        'GMAIL_OAUTH_REDIRECT_URI',
+        'INTEGRATION_ENCRYPTION_KEY',
+      ],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it('rejects Gmail correspondence with provider-enabled or another isolated runtime', () => {
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        GMAIL_CORRESPONDENCE_WORKERS_ENABLED: 'true',
+      }),
+    ).toThrow('requires the isolated provider-disabled runtime')
+
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        CRM_BACKGROUND_WORKERS_ENABLED: 'true',
+        GMAIL_CORRESPONDENCE_WORKERS_ENABLED: 'true',
+      }),
+    ).toThrow('Provider-disabled isolated worker modes cannot be combined')
+  })
+
   it('permits a provider-independent authoritative upload verification runtime', () => {
     expect(
       resolveWorkerStartupPolicy({
@@ -263,6 +304,7 @@ describe('worker startup policy', () => {
 
   it.each([
     'CRM_BACKGROUND_WORKERS_ENABLED',
+    'GMAIL_CORRESPONDENCE_WORKERS_ENABLED',
     'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
     'EVALUATION_RUNNER_ENABLED',
     'OUTBOUND_PROVIDER_WORKERS_ENABLED',
@@ -295,6 +337,7 @@ describe('worker startup policy', () => {
         flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
         flag !== 'WORKER_SCHEDULERS_ENABLED' &&
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
+        flag !== 'GMAIL_CORRESPONDENCE_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
         flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
         flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&

@@ -199,9 +199,11 @@ export async function validateDispositionMaintenancePlan(plan, now = Date.now())
     refuse('required source binding absent')
   const manifest = await readMigrationManifest(resolve(root, 'packages/db/prisma'))
   if (
-    manifest.names.length !== 250 ||
+    manifest.names.length !== 251 ||
     manifest.names[248] !== '20260912080000_add_guest_conversation_disposition' ||
-    manifest.names.at(-1) !== '20260918190000_add_agent_routines'
+    manifest.names[249] !== '20260918190000_add_agent_routines' ||
+    manifest.names[250] !== '20260925044500_add_prospect_outreach_draft_gmail_links' ||
+    manifest.names.at(-1) !== '20260925044500_add_prospect_outreach_draft_gmail_links'
   )
     refuse('source migration endpoint')
   if (
@@ -253,7 +255,7 @@ export async function verifyDispositionDatabaseSource(target) {
   const rows = await target.query(
     `SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM (SELECT migration_name,checksum,finished_at,rolled_back_at,logs FROM public._prisma_migrations ORDER BY migration_name LIMIT 251) x`,
   )
-  if (!Array.isArray(rows) || rows.length !== 250) refuse('database migration endpoint')
+  if (!Array.isArray(rows) || rows.length !== 251) refuse('database migration endpoint')
   if (ledgerState(rows, manifest) !== 'complete') refuse('current ledger')
   const final = rows[248],
     name = manifest.names[248]
@@ -302,7 +304,7 @@ export async function verifyDispositionDatabaseSource(target) {
     `SELECT jsonb_build_object('tables',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'),'invalidIndexes',(SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND (NOT i.indisvalid OR NOT i.indisready)),'unvalidatedConstraints',(SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND NOT c.convalidated))`,
   )
   if (
-    integrity.tables !== 267 ||
+    integrity.tables !== 268 ||
     integrity.invalidIndexes !== 0 ||
     integrity.unvalidatedConstraints !== 0
   )

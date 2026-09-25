@@ -73,7 +73,7 @@ for (const viewport of [
       await page.goto(`${dashboardBaseUrl}/dev-fixtures/public-family-rig?${query}`, {
         waitUntil: 'domcontentloaded',
       })
-      await expect(stage).toHaveAttribute('data-fixture-ready', 'true')
+      await expect(stage).toHaveAttribute('data-fixture-ready', 'true', { timeout: 30_000 })
     }
 
     async function expectHealthyLayers(state: 'idle' | 'speaking') {

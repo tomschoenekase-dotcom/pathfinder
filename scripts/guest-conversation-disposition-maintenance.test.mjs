@@ -20,7 +20,7 @@ import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../p
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
-test('250 maintenance source verification accepts the exact current ledger and refuses drift before body reads', async () => {
+test('251 maintenance source verification accepts the exact current ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -41,13 +41,14 @@ test('250 maintenance source verification accepts the exact current ledger and r
   let calls = 0
   await verifyDispositionDatabaseSource({
     query: async () =>
-      [rows, functions, { tables: 267, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
+      [rows, functions, { tables: 268, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
   })
   assert.equal(calls, 3)
   for (const [index, patch] of [
     [247, { checksum: '0'.repeat(64) }],
     [248, { checksum: '0'.repeat(64) }],
     [249, { checksum: '0'.repeat(64) }],
+    [250, { checksum: '0'.repeat(64) }],
     [248, { finished_at: null }],
     [248, { logs: 'synthetic failure' }],
   ]) {

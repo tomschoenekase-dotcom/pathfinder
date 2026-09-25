@@ -75,7 +75,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
-  ['apps/workers/src/processors/gmail-sync.ts', 4],
+  // The exact-account correspondence processor has three platform-account reads/writes.
+  // Expired cursors now reconcile without an extra broad cursor-clearing write.
+  ['apps/workers/src/processors/gmail-sync.ts', 3],
   // Platform maintenance scans a bounded set of STALE summaries, then each
   // canonical refresh re-enters one exact tenant+organization scope.
   ['apps/workers/src/processors/account-summary-refresh.ts', 1],
@@ -255,12 +257,13 @@ const approvedCallCounts = new Map([
   // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
   ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
-  // Human platform-admin import operations act on platform-owned source reservations and staged
-  // rows. Retry/recovery has three scoped calls, including two that resume only an incomplete,
-  // source-backed dry run through the audited, compare-and-set recovery action. No customer-tenant
-  // procedure receives this bypass.
+  // Two additional platform-admin recovery calls resume only the same immutable import
+  // source/cursor after strict action preconditions; they cannot approve or commit it.
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 11],
-  ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 5],
+  // The same platform-admin retry route was split into a bounded router module;
+  // its three bypass calls retain the exact import ID, cursor and action guards.
+  ['packages/api/src/routers/admin/prospect-crm-import-retry.ts', 3],
+  ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
   // Human platform-admin contact-readiness review is a platform-owned CRM mutation with an
   // explicit audited actor and no customer-tenant procedure exposure.
   ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 9],
@@ -269,7 +272,15 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
+  // Exact existing-Gmail-draft import adds two admin-only platform account/member reads;
+  // provider content is fetched server-side and the native action rechecks recipient gates.
   ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  // Gmail draft import and link were split without broadening procedure authority;
+  // both still require the admin CRM feature gate and exact account/member checks.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-gmail.ts', 2],
+  // Human platform admin may enqueue one exact connected Gmail account for read-only
+  // history reconciliation. It cannot enqueue a wildcard or prospect send job.
+  ['packages/api/src/routers/admin/prospect-crm-gmail-sync.ts', 1],
   // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
   // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
   ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],

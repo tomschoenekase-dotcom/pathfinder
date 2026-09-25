@@ -46,6 +46,64 @@ const recoveryMailbox: ProviderMailboxRef = {
 }
 
 describe('createGmailApiClient', () => {
+  it('reads an exact stable Gmail draft ID and returns the provider’s current message ID', async () => {
+    const responseMessage = {
+      ...message('current-message-2'),
+      labelIds: ['DRAFT'],
+      payload: {
+        headers: [
+          { name: 'From', value: 'tomschoenekase@torchiko.com' },
+          { name: 'To', value: 'venue@example.org' },
+          { name: 'Subject', value: 'Torchiko at Example Venue' },
+          { name: 'Message-ID', value: '<current@example.com>' },
+        ],
+        parts: [
+          {
+            mimeType: 'text/plain',
+            body: { data: Buffer.from('Body').toString('base64url'), size: 4 },
+          },
+        ],
+        body: { size: 0 },
+      },
+    }
+    const request = vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).endsWith('/drafts/stable-draft-id?format=full')) {
+        throw new Error(`unexpected request ${url}`)
+      }
+      return json({ id: 'stable-draft-id', message: responseMessage })
+    })
+    const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+    const found = await client.getDraft({
+      accessToken: 'token',
+      mailboxAddress: 'me',
+      draftId: 'stable-draft-id',
+    })
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      'https://gmail.test/v1/users/me/drafts/stable-draft-id?format=full',
+    )
+    expect(found.id).toBe('stable-draft-id')
+    expect(found.message.id).toBe('current-message-2')
+    expect(found.message.labelIds).toContain('DRAFT')
+    expect(found.message.textBody).toBe('Body')
+  })
+
+  it('excludes unsent drafts from the full correspondence query', async () => {
+    const request = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/messages?')) return json({ messages: [] })
+      if (url.endsWith('/profile')) return json({ historyId: '103' })
+      throw new Error(`unexpected request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+    await client.listMessages({
+      accessToken: 'token',
+      mailboxAddress: recoveryMailbox.mailboxAddress,
+      after: new Date(0),
+      pageSize: 50,
+    })
+    const messagesUrl = new URL(String(request.mock.calls[0]?.[0]))
+    expect(messagesUrl.searchParams.get('q')).toBe('after:0 -in:drafts')
+  })
+
   it('fetches bounded QR bytes only for an explicit SENT recovery lookup', async () => {
     const bytes = Buffer.from('<svg/>')
     const asset: VenueLaunchAsset = {

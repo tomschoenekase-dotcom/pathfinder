@@ -11,6 +11,7 @@ try {
       successAction: 'prospect-outreach.disposable-shakedown.passed',
       proofScope: [
         'fresh-migration-chain',
+        'immutable-existing-gmail-draft-link-persistence-and-exact-retry',
         'human-reviewed-frozen-batch-release',
         'internal-only-disposable-gmail-account',
         'provider-dark-claim',
@@ -22,7 +23,7 @@ try {
       integration: {
         packageDirectory: 'packages/db',
         testFile: 'src/helpers/prospect-outreach-disposable.integration.test.ts',
-        expectedPassed: 1,
+        expectedPassed: 2,
         environment: {
           RUN_PROSPECT_OUTREACH_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',

@@ -161,7 +161,9 @@ test('approved chat branding remains usable on a short mobile viewport', async (
   await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
   await expect(header.locator('img')).toHaveCount(2)
   await expect.poll(() => interceptedAssets.length).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(/text-white/u)
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(
+    /text-white/u,
+  )
   await expect(page.getByRole('button', { name: 'Clear chat' })).toHaveClass(/text-white/u)
   await expectViewportIntegrity(page)
   await expectComposerReachable(page)

@@ -35,6 +35,20 @@ type VerifiedCurrentProspectPrintAsset = Readonly<{
   asset: VenueLaunchAsset
 }>
 
+const MAX_DRAFT_SOURCE_EVIDENCE = 20
+
+function resolvedSourceEvidenceSnapshot(snapshot: unknown, evidence: unknown[]) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return evidence.length ? { resolvedSourceEvidence: evidence } : snapshot
+  }
+  const record = snapshot as Record<string, unknown>
+  if (!evidence.length && !Object.hasOwn(record, 'resolvedSourceEvidence')) return snapshot
+  const rest = Object.fromEntries(
+    Object.entries(record).filter(([key]) => key !== 'resolvedSourceEvidence'),
+  )
+  return evidence.length ? { ...rest, resolvedSourceEvidence: evidence } : rest
+}
+
 export class ProspectOutreachError extends Error {
   constructor(
     readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT' | 'APPROVAL_REQUIRED' | 'SUPPRESSED',
@@ -43,6 +57,10 @@ export class ProspectOutreachError extends Error {
     super(message)
     this.name = 'ProspectOutreachError'
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
 function hash(value: string): string {
@@ -160,7 +178,9 @@ export async function createProspectCampaignAction(
             archivedAt: null,
             doNotContact: false,
             normalizedEmail: { not: null },
-            emailReadiness: 'VALID',
+            // A campaign can retain drafts while a contact still needs human
+            // readiness review. Send staging and release keep the VALID gate.
+            emailReadiness: { not: 'INVALID' },
             permissionState: { notIn: ['OPTED_OUT', 'PROHIBITED'] },
             suppressedAt: null,
             unsubscribedAt: null,
@@ -224,6 +244,7 @@ export async function saveProspectOutreachDraftAction(
     textBody: string
     htmlBody?: string
     groundingSnapshot: unknown
+    sourceEvidenceIds?: readonly string[]
     verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: DraftActor
   },
@@ -258,10 +279,24 @@ export async function saveProspectOutreachDraftAction(
       },
     })
     if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
+    const sourceEvidenceIds = input.sourceEvidenceIds
+    if (sourceEvidenceIds !== undefined) {
+      if (
+        sourceEvidenceIds.length < 1 ||
+        sourceEvidenceIds.length > MAX_DRAFT_SOURCE_EVIDENCE ||
+        sourceEvidenceIds.some((id) => !id.trim()) ||
+        new Set(sourceEvidenceIds).size !== sourceEvidenceIds.length
+      ) {
+        throw new ProspectOutreachError(
+          'INVALID_INPUT',
+          `Between 1 and ${MAX_DRAFT_SOURCE_EVIDENCE} distinct source evidence IDs are required`,
+        )
+      }
+    }
     if (
       !member.contact?.normalizedEmail ||
       member.contact.doNotContact ||
-      member.contact.emailReadiness !== 'VALID' ||
+      member.contact.emailReadiness === 'INVALID' ||
       member.contact.permissionState === 'OPTED_OUT' ||
       member.contact.permissionState === 'PROHIBITED' ||
       member.contact.suppressedAt ||
@@ -269,14 +304,66 @@ export async function saveProspectOutreachDraftAction(
     ) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
+    let draftGroundingSnapshot = resolvedSourceEvidenceSnapshot(input.groundingSnapshot, [])
+    if (sourceEvidenceIds !== undefined) {
+      const evidence = await tx.prospectSourceEvidence.findMany({
+        where: {
+          id: { in: [...sourceEvidenceIds] },
+          organizationId: member.organizationId,
+          AND: [
+            { OR: [{ venueId: null }, { venueId: member.venueId }] },
+            { OR: [{ contactId: null }, { contactId: member.contactId }] },
+          ],
+        },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          organizationId: true,
+          venueId: true,
+          contactId: true,
+          sourceType: true,
+          sourceUrl: true,
+          sourceLabel: true,
+          capturedValue: true,
+          importRowId: true,
+          researchedAt: true,
+          createdBy: true,
+          createdAt: true,
+        },
+      })
+      if (evidence.length !== sourceEvidenceIds.length) {
+        throw new ProspectOutreachError(
+          'NOT_FOUND',
+          'One or more source evidence records are missing or outside the campaign member scope',
+        )
+      }
+      const resolved = evidence.map((item) => {
+        const fields = {
+          id: item.id,
+          organizationId: item.organizationId,
+          venueId: item.venueId,
+          contactId: item.contactId,
+          sourceType: item.sourceType,
+          sourceUrl: item.sourceUrl,
+          sourceLabel: item.sourceLabel,
+          capturedValue: item.capturedValue,
+          importRowId: item.importRowId,
+          researchedAt: item.researchedAt?.toISOString() ?? null,
+          createdBy: item.createdBy,
+          createdAt: item.createdAt.toISOString(),
+        }
+        return { ...fields, sha256: hash(JSON.stringify(fields)) }
+      })
+      draftGroundingSnapshot = resolvedSourceEvidenceSnapshot(draftGroundingSnapshot, resolved)
+    }
     const launchAttachments = await currentDraftLaunchAttachments(
       member.venueId,
-      input.groundingSnapshot,
+      draftGroundingSnapshot,
       tx,
       input.verifiedCurrentPrintAssets,
     )
     const groundingSnapshot = snapshotWithLaunchAttachments(
-      input.groundingSnapshot,
+      draftGroundingSnapshot,
       launchAttachments,
     )
     const previous = member.drafts[0]
@@ -347,7 +434,7 @@ export async function saveProspectOutreachDraftAction(
     })
     await tx.prospectCampaignMember.update({
       where: { id: member.id },
-      data: { status: 'NEEDS_REVIEW' },
+      data: { status: 'DRAFTED' },
     })
     await tx.prospectActivity.create({
       data: {
@@ -362,6 +449,225 @@ export async function saveProspectOutreachDraftAction(
     })
     return draft
   })
+}
+
+/** Attach a previously reopened Gmail draft to one exact CRM draft version. */
+export async function linkExistingProspectGmailDraftAction(
+  input: {
+    outreachDraftId: string
+    providerAccountId: string
+    providerDraftId: string
+    providerMessageId: string
+    expectedContentHash: string
+    historyReviewConfirmed: boolean
+    actor: HumanActor
+  },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  const providerDraftId = input.providerDraftId.trim()
+  const providerMessageId = input.providerMessageId.trim()
+  if (
+    !input.outreachDraftId.trim() ||
+    !input.providerAccountId.trim() ||
+    !providerDraftId ||
+    !providerMessageId ||
+    providerDraftId.length > 191 ||
+    providerMessageId.length > 191 ||
+    input.historyReviewConfirmed !== true ||
+    !/^[a-f0-9]{64}$/u.test(input.expectedContentHash)
+  ) {
+    throw new ProspectOutreachError(
+      'INVALID_INPUT',
+      'Exact Gmail IDs and CRM content hash are required',
+    )
+  }
+
+  const sameLink = (link: {
+    outreachDraftId: string
+    providerAccountId: string
+    providerDraftId: string
+    providerMessageId: string
+    contentHash: string
+  }) =>
+    link.outreachDraftId === input.outreachDraftId &&
+    link.providerAccountId === input.providerAccountId &&
+    link.providerDraftId === providerDraftId &&
+    link.providerMessageId === providerMessageId &&
+    link.contentHash === input.expectedContentHash
+
+  const findExisting = async (dbClient: Client) =>
+    dbClient.prospectOutreachDraftGmailLink.findFirst({
+      where: {
+        OR: [
+          { outreachDraftId: input.outreachDraftId },
+          { providerAccountId: input.providerAccountId, providerDraftId },
+          { providerAccountId: input.providerAccountId, providerMessageId },
+        ],
+      },
+    })
+
+  try {
+    return await client.$transaction(async (tx) => {
+      const existing = await findExisting(tx as Client)
+      if (existing) {
+        if (sameLink(existing)) return existing
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'A Gmail draft or CRM draft version is already linked',
+        )
+      }
+
+      const [providerAccount, draft] = await Promise.all([
+        tx.correspondenceProviderAccount.findUnique({ where: { id: input.providerAccountId } }),
+        tx.prospectOutreachDraft.findUnique({
+          where: { id: input.outreachDraftId },
+          include: {
+            contact: true,
+            member: {
+              include: {
+                contact: true,
+                organization: { include: { opportunity: true } },
+                drafts: { orderBy: { version: 'desc' }, take: 1, select: { id: true } },
+              },
+            },
+          },
+        }),
+      ])
+      if (!providerAccount || !draft) {
+        throw new ProspectOutreachError('NOT_FOUND', 'Gmail account or CRM draft was not found')
+      }
+      if (
+        providerAccount.provider !== 'GMAIL' ||
+        providerAccount.connectionStatus !== 'CONNECTED' ||
+        providerAccount.mailboxAddress.trim().toLowerCase() !== PROSPECT_OUTREACH_COMPANY_SENDER
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'A connected Torchiko Gmail account is required',
+        )
+      }
+      if (
+        draft.status !== 'NEEDS_REVIEW' ||
+        draft.member.status !== 'DRAFTED' ||
+        draft.member.drafts[0]?.id !== draft.id ||
+        draft.contentHash !== input.expectedContentHash
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'The CRM draft is no longer the current review version',
+        )
+      }
+      const contact = draft.contact
+      if (
+        !contact ||
+        contact.id !== draft.member.contactId ||
+        draft.organizationId !== draft.member.organizationId ||
+        draft.venueId !== draft.member.venueId ||
+        !contact.normalizedEmail ||
+        contact.normalizedEmail.toLowerCase() !== draft.toEmail.trim().toLowerCase() ||
+        contact.doNotContact ||
+        contact.emailReadiness !== 'VALID' ||
+        !['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) ||
+        contact.permissionState === 'OPTED_OUT' ||
+        contact.permissionState === 'PROHIBITED' ||
+        contact.suppressedAt ||
+        contact.unsubscribedAt ||
+        contact.archivedAt
+      ) {
+        throw new ProspectOutreachError(
+          'SUPPRESSED',
+          'The CRM contact is suppressed or no longer matches',
+        )
+      }
+      if (contact.sourceImportRowId) {
+        const sourceRow = await tx.prospectImportRow.findUnique({
+          where: { id: contact.sourceImportRowId },
+          select: {
+            status: true,
+            import: { select: { status: true, failedRows: true, duplicateRows: true } },
+          },
+        })
+        if (
+          !sourceRow ||
+          sourceRow.status !== 'IMPORTED' ||
+          !['COMPLETE', 'PARTIAL'].includes(sourceRow.import.status) ||
+          sourceRow.import.failedRows !== 0 ||
+          sourceRow.import.duplicateRows !== 0
+        ) {
+          throw new ProspectOutreachError(
+            'CONFLICT',
+            'The source import must reach a terminal state first',
+          )
+        }
+      }
+      const stage = draft.member.organization.opportunity?.stage
+      if (
+        !stage ||
+        !['DISCOVERED', 'RESEARCHED', 'NEEDS_REVIEW', 'READY_FOR_OUTREACH'].includes(stage)
+      ) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Existing outreach or relationship history blocks this link',
+        )
+      }
+      const [priorMessage, activeRelationship] = await Promise.all([
+        tx.prospectEmailMessage.findFirst({
+          where: { organizationId: draft.organizationId },
+          select: { id: true },
+        }),
+        tx.prospectCustomerRelationship.findFirst({
+          where: { organizationId: draft.organizationId, status: 'ACTIVE' },
+          select: { id: true },
+        }),
+      ])
+      if (priorMessage || activeRelationship) {
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Existing CRM correspondence or customer relationship blocks this link',
+        )
+      }
+
+      const created = await tx.prospectOutreachDraftGmailLink.create({
+        data: {
+          providerAccountId: input.providerAccountId,
+          outreachDraftId: draft.id,
+          providerDraftId,
+          providerMessageId,
+          contentHash: draft.contentHash,
+          verificationStatus: 'UNVERIFIED',
+          createdBy: input.actor.id,
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'prospect.outreach-draft.gmail-link.create',
+          targetType: 'ProspectOutreachDraftGmailLink',
+          targetId: created.id,
+          afterState: {
+            providerAccountId: created.providerAccountId,
+            outreachDraftId: created.outreachDraftId,
+            providerDraftId: created.providerDraftId,
+            providerMessageId: created.providerMessageId,
+            contentHash: created.contentHash,
+            historyReviewConfirmed: input.historyReviewConfirmed,
+          },
+        },
+        tx,
+      )
+      return created
+    })
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error
+    const existing = await findExisting(client)
+    if (existing && sameLink(existing)) return existing
+    throw new ProspectOutreachError(
+      'CONFLICT',
+      'A Gmail draft or CRM draft version is already linked',
+    )
+  }
 }
 
 export async function reviewProspectOutreachDraftAction(
@@ -462,8 +768,7 @@ export async function stageProspectSendBatchAction(
           draft.contact?.doNotContact ||
           !draft.contact?.normalizedEmail ||
           draft.contact.emailReadiness !== 'VALID' ||
-          draft.contact.permissionState === 'OPTED_OUT' ||
-          draft.contact.permissionState === 'PROHIBITED' ||
+          !['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(draft.contact.permissionState) ||
           Boolean(draft.contact.suppressedAt) ||
           Boolean(draft.contact.unsubscribedAt),
       )
@@ -791,8 +1096,7 @@ export async function releaseProspectSendBatchAction(
         !contact.archivedAt &&
         !contact.doNotContact &&
         contact.emailReadiness === 'VALID' &&
-        contact.permissionState !== 'OPTED_OUT' &&
-        contact.permissionState !== 'PROHIBITED' &&
+        ['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) &&
         !contact.suppressedAt &&
         !contact.unsubscribedAt &&
         identityHash === item.recipientIdentityHash

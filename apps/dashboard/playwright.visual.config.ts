@@ -3,8 +3,26 @@ import { randomUUID } from 'node:crypto'
 
 const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
 const visitorBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.0.1:3000'
+const managedServers = process.env.PLAYWRIGHT_MANAGED_SERVERS === '1'
 const externalServers =
-  process.env.PLAYWRIGHT_DASHBOARD_BASE_URL || process.env.PLAYWRIGHT_VISITOR_BASE_URL
+  !managedServers &&
+  (process.env.PLAYWRIGHT_DASHBOARD_BASE_URL || process.env.PLAYWRIGHT_VISITOR_BASE_URL)
+
+function managedLoopbackPort(baseUrl: string): number {
+  const parsed = new URL(baseUrl)
+  const port = Number(parsed.port)
+  if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || !port) {
+    throw new Error('Managed visual fixture servers require an explicit loopback HTTP port')
+  }
+  return port
+}
+
+const visitorServerCommand = managedServers
+  ? `node ../../scripts/sync-character-assets.mjs && pnpm --dir ../web exec next dev --port ${managedLoopbackPort(visitorBaseUrl)}`
+  : 'pnpm --dir ../web dev'
+const dashboardServerCommand = managedServers
+  ? `node ../../scripts/sync-character-assets.mjs && pnpm exec next dev --port ${managedLoopbackPort(dashboardBaseUrl)}`
+  : 'pnpm dev'
 // Playwright clears outputDir before a run. Keep each invocation's proof separate
 // so later visual work cannot erase screenshots referenced by retained evidence.
 // Config is loaded again in worker processes. Inherit one ID for this invocation.
@@ -33,14 +51,14 @@ export default defineConfig({
     : {
         webServer: [
           {
-            command: 'pnpm --dir ../web dev',
+            command: visitorServerCommand,
             url: `${visitorBaseUrl}/dev-fixtures/visitor-chat`,
             env: { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
             reuseExistingServer: !process.env.CI,
             timeout: 180_000,
           },
           {
-            command: 'pnpm dev',
+            command: dashboardServerCommand,
             url: `${dashboardBaseUrl}/dev-fixtures/portal-home`,
             env: {
               NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '',

@@ -10,6 +10,8 @@ import {
 import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pathfinder/db'
 import type { GmailSyncJobPayload } from '@pathfinder/jobs'
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+
 function configuration() {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
@@ -55,6 +57,15 @@ async function markNotificationReceipt(receiptId: string, success: boolean) {
 }
 
 export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
+  if (
+    payload.trigger === 'FULL_RECONCILIATION' &&
+    (payload.providerAccountId === '*' ||
+      payload.providerAccountId.trim() !== payload.providerAccountId ||
+      !payload.requestId ||
+      !UUID_PATTERN.test(payload.requestId))
+  ) {
+    throw new Error('Full Gmail reconciliation requires one exact account and request identity')
+  }
   if (payload.providerAccountId === '*') {
     if (payload.trigger === 'PUBSUB_NOTIFICATION') {
       throw new Error('A Pub/Sub notification must target one exact Gmail account')
@@ -67,7 +78,7 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
       }),
     )
     for (const account of accounts) {
-      await processGmailSyncJob({ providerAccountId: account.id, trigger: payload.trigger })
+      await processGmailSyncJob({ ...payload, providerAccountId: account.id })
     }
     return { accountsProcessed: accounts.length }
   }
@@ -90,25 +101,22 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
     }
 
     try {
-      const result = await service.synchronize(mailbox)
+      const result =
+        payload.trigger === 'FULL_RECONCILIATION'
+          ? await service.synchronize(mailbox, { fullReconciliation: true })
+          : await service.synchronize(mailbox)
       if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
       return result
     } catch (error) {
       if (
         !(error instanceof CorrespondenceProviderError) ||
-        error.code !== 'HISTORY_CURSOR_EXPIRED'
+        error.code !== 'HISTORY_CURSOR_EXPIRED' ||
+        payload.trigger === 'FULL_RECONCILIATION'
       ) {
         throw error
       }
-      // A stale Gmail history cursor is recoverable. Clearing it deliberately switches the
-      // service to its bounded full-reconciliation path; push delivery remains only a hint.
-      await withTenantIsolationBypass(() =>
-        db.correspondenceProviderAccount.update({
-          where: { id: payload.providerAccountId },
-          data: { syncCursor: null },
-        }),
-      )
-      const result = await service.synchronize(mailbox)
+      // Keep the durable cursor until the full reconciliation finishes and commits its replacement.
+      const result = await service.synchronize(mailbox, { fullReconciliation: true })
       if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
       return result
     }

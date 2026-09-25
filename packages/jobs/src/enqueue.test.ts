@@ -35,6 +35,7 @@ vi.mock('./connection', () => ({ getBullMQConnection: vi.fn(() => ({})) }))
 import {
   closeJobQueues,
   enqueueAgentRun,
+  enqueueGmailSync,
   enqueueAnswerAnalysis,
   enqueueAnswerAnalysisDispatch,
   enqueueAnswerAnalysisRecovery,
@@ -91,6 +92,36 @@ describe('job enqueues', () => {
       { tenantId: 'tenant_1', runId: 'run_1' },
       expect.objectContaining({ jobId: 'agent-run-run_1', attempts: 3 }),
     )
+  })
+
+  it('enqueues one exact-account full Gmail reconciliation with a stable request id', async () => {
+    const payload = {
+      providerAccountId: 'gmail-account-1',
+      trigger: 'FULL_RECONCILIATION' as const,
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    }
+    await enqueueGmailSync(payload)
+
+    expect(mocks.add).toHaveBeenCalledWith(
+      'gmail-sync-full-reconciliation',
+      payload,
+      expect.objectContaining({
+        attempts: 8,
+        backoff: { type: 'exponential', delay: 30_000 },
+        jobId: expect.stringMatching(/^gmail-sync-[a-f0-9]{64}$/u),
+      }),
+    )
+  })
+
+  it('refuses wildcard full Gmail reconciliation before touching the queue', async () => {
+    await expect(
+      enqueueGmailSync({
+        providerAccountId: '*',
+        trigger: 'FULL_RECONCILIATION',
+        requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+    ).rejects.toThrow('one exact account')
+    expect(mocks.add).not.toHaveBeenCalled()
   })
 
   it('redrives a retained failed agent run job', async () => {

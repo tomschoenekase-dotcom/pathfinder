@@ -315,10 +315,12 @@ describe('inbound correspondence synchronization', () => {
         mode: 'FULL_RECONCILIATION',
       }
     })
-    const fixture = createStore({ cursor: null })
+    const fixture = createStore({ cursor: 'cursor-before-backfill' })
     const service = createInboundCorrespondenceService({ provider, store: fixture.store })
 
-    await expect(service.synchronize(mailbox)).rejects.toThrow('secret@private-host')
+    await expect(service.synchronize(mailbox, { fullReconciliation: true })).rejects.toThrow(
+      'secret@private-host',
+    )
     expect(fixture.calls.cursors).toHaveLength(0)
     expect(fixture.calls.health).toContainEqual(
       expect.objectContaining({
@@ -327,6 +329,49 @@ describe('inbound correspondence synchronization', () => {
     )
     expect(fixture.calls.health[0]).not.toHaveProperty('detail')
     expect(JSON.stringify(fixture.calls.health)).not.toContain('secret')
+  })
+
+  it('forces a paginated historical scan when an OAuth cursor already exists', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    const reconcile = vi
+      .spyOn(provider, 'reconcile')
+      .mockResolvedValueOnce({
+        messages: [message()],
+        cursor: 'cursor-page-1',
+        nextPageToken: 'page-2',
+        hasMore: true,
+        mode: 'FULL_RECONCILIATION',
+      })
+      .mockResolvedValueOnce({
+        messages: [message({ message: { ...mailbox, externalId: 'provider-message-2' } })],
+        cursor: 'cursor-page-2',
+        nextPageToken: null,
+        hasMore: false,
+        mode: 'FULL_RECONCILIATION',
+      })
+    const incremental = vi.spyOn(provider, 'syncIncremental')
+    const fixture = createStore({ cursor: 'oauth-profile-history-cursor' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.synchronize(mailbox, { fullReconciliation: true })).resolves.toEqual({
+      mode: 'FULL_RECONCILIATION',
+      cursor: 'cursor-page-2',
+      processed: 2,
+    })
+
+    expect(incremental).not.toHaveBeenCalled()
+    expect(reconcile).toHaveBeenCalledTimes(2)
+    expect(reconcile).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ mailbox, after: new Date(0) }),
+    )
+    expect(reconcile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ mailbox, after: new Date(0), pageToken: 'page-2' }),
+    )
+    expect(fixture.calls.cursors).toEqual([
+      expect.objectContaining({ cursor: 'cursor-page-2', mode: 'FULL_RECONCILIATION' }),
+    ])
   })
 
   it('records code-derived watch health without provider exception text', async () => {

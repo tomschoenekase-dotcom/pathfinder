@@ -320,6 +320,45 @@ describe('prospect agent registry', () => {
     )
   })
 
+  it('accepts evidence IDs and rejects caller-supplied resolved evidence fields', async () => {
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1', venueId: 'venue-1' })
+    mocks.saveDraft.mockResolvedValue({ id: 'draft-1', status: 'NEEDS_REVIEW', version: 1 })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    const input = {
+      memberId: 'member-1',
+      subject: 'Hello',
+      textBody: 'Body',
+      evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+      sourceEvidenceIds: ['source-1'],
+      template: { id: 'intro', version: '1' },
+      prompt: { id: 'draft', version: '1' },
+    }
+    await registry.callTool('torchiko.prospects.save_outreach_draft', input, invocation)
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceEvidenceIds: ['source-1'],
+        groundingSnapshot: expect.objectContaining({
+          evidence: [expect.objectContaining({ kind: 'CRM_FIELD', trust: 'CANONICAL_CRM_DATA' })],
+        }),
+      }),
+    )
+
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.save_outreach_draft',
+        {
+          ...input,
+          resolvedSourceEvidence: [{ id: 'source-1', sourceUrl: 'https://attacker.invalid' }],
+        },
+        invocation,
+      ),
+    ).rejects.toThrow()
+  })
+
   it('resolves an optional QR selection server-side and stores verified PDF proof without returning bytes', async () => {
     const asset = {
       schema: 'torchiko.venue-launch-asset/2',

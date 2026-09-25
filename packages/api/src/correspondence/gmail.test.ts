@@ -65,6 +65,10 @@ function setup(clientOverrides: Partial<GmailApiClient> = {}) {
   const client: GmailApiClient = {
     sendMessage: vi.fn(async () => ({ id: 'sent-1', threadId: 'thread-1' })),
     getMessage: vi.fn(async () => gmailMessage()),
+    getDraft: vi.fn(async () => ({
+      id: 'draft-1',
+      message: gmailMessage({ id: 'current-1', labelIds: ['DRAFT'] }),
+    })),
     getThread: vi.fn(async () => [gmailMessage()]),
     listHistory: vi.fn(async () => ({ messages: [gmailMessage()], historyId: '102' })),
     listMessages: vi.fn(async () => ({ messages: [gmailMessage()], historyId: '103' })),
@@ -283,6 +287,19 @@ describe('Gmail correspondence provider', () => {
     ).rejects.toMatchObject({
       code: 'HISTORY_CURSOR_EXPIRED',
     } satisfies Partial<CorrespondenceProviderError>)
+  })
+
+  it('excludes unsent drafts from incremental and full correspondence scans', async () => {
+    const draft = gmailMessage({ id: 'unsent-draft', labelIds: ['DRAFT'] })
+    const sent = gmailMessage({ id: 'sent-mail', labelIds: ['SENT'] })
+    const { provider } = setup({
+      listHistory: vi.fn(async () => ({ messages: [draft, sent], historyId: '102' })),
+      listMessages: vi.fn(async () => ({ messages: [draft, sent], historyId: '103' })),
+    })
+    const incremental = await provider.syncIncremental({ mailbox, cursor: '100', pageSize: 50 })
+    const full = await provider.reconcile({ mailbox, after: new Date(0), pageSize: 50 })
+    expect(incremental.messages.map((message) => message.message.externalId)).toEqual(['sent-mail'])
+    expect(full.messages.map((message) => message.message.externalId)).toEqual(['sent-mail'])
   })
 
   it('supports watch renewal, reconciliation, and provider lookup without live Google calls', async () => {

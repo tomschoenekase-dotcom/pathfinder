@@ -6,6 +6,7 @@ describe('worker runtime output privacy', () => {
   it('keeps direct runtime error writers code-only', async () => {
     for (const file of [
       'crm-background.ts',
+      'gmail-correspondence-only-runtime.ts',
       'founder-absence-observer-runtime.ts',
       'intake-upload-verification-runtime.ts',
     ]) {

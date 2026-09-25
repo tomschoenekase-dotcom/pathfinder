@@ -15,6 +15,8 @@ const MAX_ROWS = 100_000
 const MAX_COLUMNS = 100
 const MAX_CELL_CHARACTERS = 10_000
 const MAX_ROW_BYTES = 256 * 1024
+// Keep each duplicate-check transaction short on a remote production database.
+const STAGE_BATCH_ROWS = 10
 
 const FIELD_KEYS = new Set([
   'venueName',
@@ -256,7 +258,7 @@ export async function stageProspectImportSource(
       dateNF: 'yyyy-mm-dd',
       blankrows: false,
     })
-    for (let offset = 0; offset < rows.length; offset += 250) {
+    for (let offset = 0; offset < rows.length; offset += STAGE_BATCH_ROWS) {
       const current = await db.prospectImport.findUnique({
         where: { id: importId },
         select: { cancelRequestedAt: true },
@@ -268,7 +270,7 @@ export async function stageProspectImportSource(
         sourceValues: Record<string, string | number | boolean | null>
         normalizedValues: { venueName: string }
       }> = []
-      for (const [index, raw] of rows.slice(offset, offset + 250).entries()) {
+      for (const [index, raw] of rows.slice(offset, offset + STAGE_BATCH_ROWS).entries()) {
         const originalRowNumber = offset + index + 2
         try {
           if (Object.keys(raw).length > MAX_COLUMNS) throw new Error('row exceeds the column limit')

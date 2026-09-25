@@ -68,7 +68,20 @@ export const adminProspectCrmOutreachReadRouter = router({
                 contact: {
                   select: { fullName: true, title: true, email: true, doNotContact: true },
                 },
-                drafts: { orderBy: { version: 'desc' }, take: 1 },
+                drafts: {
+                  orderBy: { version: 'desc' },
+                  take: 1,
+                  include: {
+                    gmailLink: {
+                      select: {
+                        providerDraftId: true,
+                        providerMessageId: true,
+                        verificationStatus: true,
+                        createdAt: true,
+                      },
+                    },
+                  },
+                },
               },
             },
             sendBatches: {
@@ -168,7 +181,20 @@ export const adminProspectCrmOutreachReadRouter = router({
             },
             venue: { select: { name: true, city: true, region: true } },
             contact: { select: { fullName: true, title: true, email: true, doNotContact: true } },
-            drafts: { orderBy: { version: 'desc' }, take: 1 },
+            drafts: {
+              orderBy: { version: 'desc' },
+              take: 1,
+              include: {
+                gmailLink: {
+                  select: {
+                    providerDraftId: true,
+                    providerMessageId: true,
+                    verificationStatus: true,
+                    createdAt: true,
+                  },
+                },
+              },
+            },
           },
         })
         const items = rows.slice(0, input.limit).map((member) => ({

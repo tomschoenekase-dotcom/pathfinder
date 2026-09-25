@@ -8,6 +8,7 @@ import {
   createProspectAction,
   createProspectCampaignAction,
   db,
+  importExistingProspectGmailDraftAction,
   reviewProspectOutreachDraftAction,
   revalidateProspectSendOutboxClaimAction,
   releaseProspectSendBatchAction,
@@ -23,6 +24,123 @@ const enabled =
 
 describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
+
+  it('persists one immutable existing Gmail draft link and reopens the same native draft on retry', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `admin-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const email = `review-${suffix}@example.test`
+      const mailboxAddress = 'tomschoenekase@torchiko.com'
+      const prospect = await createProspectAction({
+        organization: { canonicalName: `Gmail Link Museum ${suffix}`, source: 'disposable-test' },
+        venue: { name: `Gmail Link Museum ${suffix}`, city: 'Chicago', region: 'IL' },
+        contact: { fullName: 'Avery Example', email, source: 'disposable-test' },
+        actor,
+      })
+      const campaign = await createProspectCampaignAction({
+        name: `Gmail Link Campaign ${suffix}`,
+        organizationIds: [prospect.organization.id],
+        cohortSnapshot: { source: 'disposable-test' },
+        actor,
+      })
+      const member = await db.prospectCampaignMember.findFirstOrThrow({
+        where: { campaignId: campaign.id, organizationId: prospect.organization.id },
+      })
+      const account = await db.correspondenceProviderAccount.upsert({
+        where: { provider_mailboxAddress: { provider: 'GMAIL', mailboxAddress } },
+        create: {
+          provider: 'GMAIL',
+          externalAccountId: `disposable-gmail-link-${suffix}`,
+          mailboxAddress,
+          capabilities: [],
+          connectionStatus: 'CONNECTED',
+          credentialReferenceId: `fake-credential-reference-${suffix}`,
+          lastReconciliationAt: new Date(),
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+        update: {
+          capabilities: [],
+          connectionStatus: 'CONNECTED',
+          lastReconciliationAt: new Date(),
+          deliveryEnabled: false,
+          updatedBy: actor.id,
+        },
+      })
+      const input = {
+        memberId: member.id,
+        providerAccountId: account.id,
+        providerDraftId: `stable-draft-${suffix}`,
+        providerMessageId: `message-${suffix}`,
+        fromEmail: mailboxAddress,
+        toEmail: email,
+        subject: `Torchiko at Gmail Link Museum ${suffix}`,
+        textBody: 'Hi, I am Tom Schoenekase. How could a visitor explore this museum?',
+        historyReviewConfirmed: true as const,
+        actor,
+      }
+      const first = await importExistingProspectGmailDraftAction(input)
+      expect(first.idempotent).toBe(false)
+      expect(first.draft.status).toBe('NEEDS_REVIEW')
+      const saved = await db.prospectOutreachDraftGmailLink.findUniqueOrThrow({
+        where: {
+          providerAccountId_providerDraftId: {
+            providerAccountId: account.id,
+            providerDraftId: input.providerDraftId,
+          },
+        },
+        include: { outreachDraft: true },
+      })
+      expect(saved).toMatchObject({
+        id: first.link.id,
+        providerMessageId: input.providerMessageId,
+        verificationStatus: 'VERIFIED',
+        contentHash: first.draft.contentHash,
+        outreachDraft: { id: first.draft.id, toEmail: email, textBody: input.textBody },
+      })
+      const retry = await importExistingProspectGmailDraftAction({
+        ...input,
+        providerMessageId: `rotated-message-${suffix}`,
+      })
+      expect(retry).toMatchObject({ idempotent: true, messageIdDrifted: true })
+      expect(retry.draft.id).toBe(first.draft.id)
+      expect(retry.link.id).toBe(saved.id)
+      await expect(
+        importExistingProspectGmailDraftAction({
+          ...input,
+          textBody: 'Changed body must not replace the retained draft.',
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        db.$executeRawUnsafe(
+          'UPDATE "prospect_outreach_draft_gmail_links" SET "provider_message_id" = $1 WHERE "id" = $2',
+          `tampered-${suffix}`,
+          saved.id,
+        ),
+      ).rejects.toThrow()
+      await expect(
+        db.$executeRawUnsafe(
+          'DELETE FROM "prospect_outreach_draft_gmail_links" WHERE "id" = $1',
+          saved.id,
+        ),
+      ).rejects.toThrow()
+      expect(
+        await db.prospectOutreachDraftGmailLink.findUniqueOrThrow({ where: { id: saved.id } }),
+      ).toMatchObject({
+        providerMessageId: input.providerMessageId,
+        contentHash: saved.contentHash,
+      })
+      expect(
+        await db.prospectOutreachDraftGmailLink.count({
+          where: { providerAccountId: account.id, providerDraftId: input.providerDraftId },
+        }),
+      ).toBe(1)
+    })
+  }, 30_000)
 
   it('proves review-gated release and a late-synced reply stops a claimed item before any provider call', async () => {
     await withTenantIsolationBypass(async () => {
@@ -119,8 +237,9 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       if (!contactId || !recipientEmail)
         throw new Error('Disposable prospect fixture requires contact')
       const mailboxAddress = 'tomschoenekase@torchiko.com'
-      const providerAccount = await db.correspondenceProviderAccount.create({
-        data: {
+      const providerAccount = await db.correspondenceProviderAccount.upsert({
+        where: { provider_mailboxAddress: { provider: 'GMAIL', mailboxAddress } },
+        create: {
           provider: 'GMAIL',
           externalAccountId: `disposable-gmail-${suffix}`,
           mailboxAddress,
@@ -133,6 +252,16 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
           minimumDelaySeconds: 0,
           jitterSeconds: 0,
           createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+        update: {
+          capabilities: ['SEND'],
+          connectionStatus: 'CONNECTED',
+          deliveryEnabled: true,
+          dailySendCap: 10,
+          perDomainDailyCap: 2,
+          minimumDelaySeconds: 0,
+          jitterSeconds: 0,
           updatedBy: actor.id,
         },
       })

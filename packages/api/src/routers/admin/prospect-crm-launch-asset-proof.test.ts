@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 
 const mocks = vi.hoisted(() => ({
   findMember: vi.fn(),
+  linkDraft: vi.fn(),
   saveDraft: vi.fn(),
   selectAsset: vi.fn(),
   resolveProofs: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@pathfinder/db', () => ({
   db: { prospectCampaignMember: { findUnique: mocks.findMember } },
   withTenantIsolationBypass: mocks.bypass,
+  linkExistingProspectGmailDraftAction: mocks.linkDraft,
   saveProspectOutreachDraftAction: mocks.saveDraft,
   PROSPECT_OUTREACH_RELEASE_POLICY: { maxRecipients: 50 },
   ProspectOutreachError: class ProspectOutreachError extends Error {},
@@ -75,6 +77,27 @@ describe('CRM launch attachment API trust boundary', () => {
       id: 'draft-1',
       ...input,
     }))
+    mocks.linkDraft.mockResolvedValue({ id: 'gmail-link-1' })
+  })
+
+  it('exposes exact Gmail draft linkage through the authenticated CRM outreach router', async () => {
+    const input = {
+      outreachDraftId: 'crm-draft-1',
+      providerAccountId: 'gmail-account-1',
+      providerDraftId: 'gmail-draft-1',
+      providerMessageId: 'gmail-message-1',
+      expectedContentHash: 'a'.repeat(64),
+      historyReviewConfirmed: true as const,
+    }
+    await expect(caller.crm.linkExistingGmailDraft(input)).resolves.toEqual({ id: 'gmail-link-1' })
+    expect(mocks.linkDraft).toHaveBeenCalledWith({
+      ...input,
+      actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+    })
+    await expect(
+      caller.crm.linkExistingGmailDraft({ ...input, expectedContentHash: 'bad' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.linkDraft).toHaveBeenCalledTimes(1)
   })
 
   it('resolves PDF bytes server-side from an exact selection and returns a descriptor only', async () => {

@@ -99,7 +99,7 @@ describe('prospect last-mile delivery authority', () => {
                 contact: {
                   normalizedEmail: email,
                   emailReadiness: 'VALID',
-                  permissionState: 'UNKNOWN',
+                  permissionState: 'LEGITIMATE_INTEREST_RECORDED',
                 },
               },
               batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
@@ -294,7 +294,7 @@ describe('prospect last-mile delivery authority', () => {
                 archivedAt: null,
                 doNotContact: false,
                 emailReadiness: 'VALID',
-                permissionState: 'UNKNOWN',
+                permissionState: 'LEGITIMATE_INTEREST_RECORDED',
                 suppressedAt: null,
                 unsubscribedAt: null,
               },
@@ -737,7 +737,11 @@ describe('prospect reply stop boundary', () => {
   const now = new Date('2026-08-22T16:00:00.000Z')
   const createdAt = new Date('2026-08-22T15:00:00.000Z')
   const recipient = 'prospect@example.test'
-  const operation = (memberStatus = 'QUEUED', attemptCount = 1) => ({
+  const operation = (
+    memberStatus = 'QUEUED',
+    attemptCount = 1,
+    permissionState = 'LEGITIMATE_INTEREST_RECORDED',
+  ) => ({
     id: 'outbox-1',
     attemptCount,
     status: 'CLAIMED',
@@ -765,7 +769,7 @@ describe('prospect reply stop boundary', () => {
           archivedAt: null,
           doNotContact: false,
           emailReadiness: 'VALID',
-          permissionState: 'UNKNOWN',
+          permissionState,
           suppressedAt: null,
           unsubscribedAt: null,
         },
@@ -813,6 +817,30 @@ describe('prospect reply stop boundary', () => {
     )
     expect(tx.prospectEmailMessage.findFirst).not.toHaveBeenCalled()
   })
+
+  it.each(['UNKNOWN', 'REVIEW_REQUIRED', 'OPTED_OUT', 'PROHIBITED'])(
+    'suppresses a claimed send when permission is %s',
+    async (permissionState) => {
+      const { client, tx } = clientFor(operation('QUEUED', 1, permissionState))
+      await expect(
+        revalidateProspectSendOutboxClaimAction(
+          { outboxId: 'outbox-1', workerId: 'worker-1', now },
+          client as never,
+        ),
+      ).resolves.toBe(false)
+      expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'SUPPRESSED',
+            lastErrorCode: 'CONTACT_SUPPRESSED',
+          }),
+        }),
+      )
+      expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'SUPPRESSED' }) }),
+      )
+    },
+  )
 
   it('queries exact organization/contact/from scope and createdAt boundary', async () => {
     const { client, tx } = clientFor()

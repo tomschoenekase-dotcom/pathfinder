@@ -23,20 +23,24 @@ vi.mock('@pathfinder/db', () => ({
   publishCrmOperationalSignal: mocks.publish,
 }))
 
-vi.mock('@pathfinder/api/correspondence', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@pathfinder/api/correspondence')>()
-  return {
-    ...actual,
-    createGmailApiClient: vi.fn(() => ({})),
-    createGmailOAuthRuntime: vi.fn(() => ({ credentials: {} })),
-    createGmailCorrespondenceProvider: vi.fn(() => ({})),
-    createPrismaInboundCorrespondenceStore: vi.fn(() => ({})),
-    createInboundCorrespondenceService: vi.fn(() => ({
-      synchronize: mocks.synchronize,
-      renewWatch: mocks.renewWatch,
-    })),
-  }
-})
+vi.mock('@pathfinder/api/correspondence', () => ({
+  CorrespondenceProviderError: class CorrespondenceProviderError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  createGmailApiClient: vi.fn(() => ({})),
+  createGmailOAuthRuntime: vi.fn(() => ({ credentials: {} })),
+  createGmailCorrespondenceProvider: vi.fn(() => ({})),
+  createPrismaInboundCorrespondenceStore: vi.fn(() => ({})),
+  createInboundCorrespondenceService: vi.fn(() => ({
+    synchronize: mocks.synchronize,
+    renewWatch: mocks.renewWatch,
+  })),
+}))
 
 import { CorrespondenceProviderError } from '@pathfinder/api/correspondence'
 
@@ -76,7 +80,7 @@ describe('Gmail sync worker', () => {
     )
   })
 
-  it('falls back to full reconciliation after an expired Gmail history cursor', async () => {
+  it('falls back to full reconciliation after an expired Gmail history cursor without clearing it first', async () => {
     mocks.synchronize
       .mockRejectedValueOnce(
         new CorrespondenceProviderError('HISTORY_CURSOR_EXPIRED', 'cursor expired'),
@@ -86,11 +90,49 @@ describe('Gmail sync worker', () => {
       providerAccountId: 'account-1',
       trigger: 'SCHEDULED_RECONCILIATION',
     })
-    expect(mocks.update).toHaveBeenCalledWith({
-      where: { id: 'account-1' },
-      data: { syncCursor: null },
-    })
+    expect(mocks.update).not.toHaveBeenCalled()
     expect(mocks.synchronize).toHaveBeenCalledTimes(2)
+    expect(mocks.synchronize).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerAccountId: 'account-1' }),
+      { fullReconciliation: true },
+    )
+  })
+
+  it('forces an exact-account full historical reconciliation on request', async () => {
+    mocks.synchronize.mockResolvedValue({ mode: 'FULL_RECONCILIATION', processed: 42 })
+    await processGmailSyncJob({
+      providerAccountId: 'account-1',
+      trigger: 'FULL_RECONCILIATION',
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })
+    expect(mocks.findMany).not.toHaveBeenCalled()
+    expect(mocks.synchronize).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: 'account-1' }),
+      { fullReconciliation: true },
+    )
+  })
+
+  it('rejects an all-account full reconciliation before enumerating mailboxes', async () => {
+    await expect(
+      processGmailSyncJob({
+        providerAccountId: '*',
+        trigger: 'FULL_RECONCILIATION',
+        requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+    ).rejects.toThrow('one exact account')
+    expect(mocks.findMany).not.toHaveBeenCalled()
+    expect(mocks.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('rejects a full reconciliation without a UUID request identity before reading the account', async () => {
+    await expect(
+      processGmailSyncJob({
+        providerAccountId: 'account-1',
+        trigger: 'FULL_RECONCILIATION',
+        requestId: 'retry-me',
+      }),
+    ).rejects.toThrow('one exact account and request identity')
+    expect(mocks.findUnique).not.toHaveBeenCalled()
   })
 
   it('renews watches using the configured exact Pub/Sub topic', async () => {

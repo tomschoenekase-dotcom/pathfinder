@@ -151,6 +151,10 @@ jobs:
         env:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      - name: Verify prospect outreach source and existing Gmail draft persistence
+        run: pnpm --dir packages/db exec vitest run src/helpers/prospect-outreach-disposable.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_PROSPECT_OUTREACH_DB_INTEGRATION: '1'
       - name: Start disposable S3-compatible storage
         run: |
           docker run --name pathfinder-disposable-media-ci --detach \

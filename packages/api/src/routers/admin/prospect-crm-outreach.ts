@@ -29,6 +29,7 @@ import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
+import { adminProspectCrmOutreachGmailRouter } from './prospect-crm-outreach-gmail'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
 import {
@@ -50,7 +51,7 @@ function mapError(error: unknown): never {
   throw new TRPCError({ code, message: error.message })
 }
 
-const adminProspectCrmOutreachActionsRouter = router({
+const adminProspectCrmOutreachBaseActionsRouter = router({
   admitProspectStagingPackage: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(z.object({ package: z.unknown() }).strict())
@@ -352,6 +353,11 @@ const adminProspectCrmOutreachActionsRouter = router({
       ),
     ),
 })
+
+const adminProspectCrmOutreachActionsRouter = mergeRouters(
+  adminProspectCrmOutreachBaseActionsRouter,
+  adminProspectCrmOutreachGmailRouter,
+)
 
 export const adminProspectCrmOutreachRouter = mergeRouters(
   adminProspectCrmOutreachReadRouter,

@@ -22,7 +22,8 @@ import {
   inspectProspectImportUpload,
   signProspectImportUpload,
 } from '../../prospect-import-storage'
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
+import { adminProspectCrmImportRetryRouter } from './prospect-crm-import-retry'
 import { adminProcedure } from '../../trpc'
 import {
   mapProspectActionError,
@@ -36,7 +37,7 @@ import {
   ProspectImportLimitError,
 } from './prospect-import-limits'
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/)
-export const adminProspectCrmImportRouter = router({
+const adminProspectCrmImportBaseRouter = router({
   reserveProspectImportUpload: adminProcedure
     .input(
       z
@@ -358,3 +359,8 @@ export const adminProspectCrmImportRouter = router({
       ),
     ),
 })
+
+export const adminProspectCrmImportRouter = mergeRouters(
+  adminProspectCrmImportBaseRouter,
+  adminProspectCrmImportRetryRouter,
+)

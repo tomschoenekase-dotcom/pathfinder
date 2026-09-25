@@ -12,7 +12,7 @@
     "lint": "eslint --config ../../packages/config/eslint/base.js \"src/**/*.ts\"",
     "start": "node --require ./dist/sentry.js dist/bootstrap.js",
     "typecheck": "tsc --noEmit --project tsconfig.json",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests --exclude \"**/*.disposable.integration.test.ts\"",
     "test:watch": "vitest --passWithNoTests"
   },
   "dependencies": {
