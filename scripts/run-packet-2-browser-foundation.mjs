@@ -50,6 +50,8 @@ const suites = [
       'components/VenueChatExperience.test.tsx',
       'components/LocationRoutePlanner.test.tsx',
       'components/ResponseRenderer.test.tsx',
+      '--pool=forks',
+      '--maxWorkers=1',
     ],
   },
 ]
