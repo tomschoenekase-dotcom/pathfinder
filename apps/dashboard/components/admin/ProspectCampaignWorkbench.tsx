@@ -76,6 +76,11 @@ export function ProspectCampaignWorkbench({
   >({})
   const [linkingDraftId, setLinkingDraftId] = useState<string | null>(null)
   const [historyReviewConfirmed, setHistoryReviewConfirmed] = useState(false)
+  const [gmailImportDraftIds, setGmailImportDraftIds] = useState<Record<string, string>>({})
+  const [gmailImportHistoryConfirmed, setGmailImportHistoryConfirmed] = useState<
+    Record<string, boolean>
+  >({})
+  const [importingMemberId, setImportingMemberId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [refreshError, setRefreshError] = useState('')
@@ -307,6 +312,40 @@ export function ProspectCampaignWorkbench({
         error instanceof Error
           ? `Gmail draft link could not be saved: ${error.message}`
           : 'Gmail draft link could not be saved. Refresh the campaign and try again.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function importGmailDraft(memberId: string) {
+    const providerDraftId = gmailImportDraftIds[memberId]?.trim()
+    if (
+      !providerAccountId ||
+      !selectedTorchikoMailbox ||
+      !providerDraftId ||
+      !gmailImportHistoryConfirmed[memberId]
+    )
+      return
+    setBusy(true)
+    try {
+      const result = await client.admin.importExistingGmailDraft.mutate({
+        memberId,
+        providerAccountId,
+        providerDraftId,
+        historyReviewConfirmed: true,
+      })
+      setImportingMemberId(null)
+      setGmailImportHistoryConfirmed((current) => ({ ...current, [memberId]: false }))
+      setNotice(
+        `Gmail draft imported into CRM as version ${result.draft.version} for review. The Gmail draft was not changed or sent.`,
+      )
+      await refresh()
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? `Existing Gmail draft could not be imported: ${error.message}`
+          : 'Existing Gmail draft could not be imported. Refresh the campaign and try again.',
       )
     } finally {
       setBusy(false)
@@ -622,7 +661,7 @@ export function ProspectCampaignWorkbench({
           </p>
         ) : null}
         <label className="mt-4 block max-w-xl text-xs font-bold text-slate-800">
-          Gmail mailbox for final release
+          Connected Gmail mailbox
           <select
             value={providerAccountId}
             onChange={(event) => setProviderAccountId(event.target.value)}
@@ -633,14 +672,9 @@ export function ProspectCampaignWorkbench({
               <option
                 key={account.id}
                 value={account.id}
-                disabled={
-                  account.connectionStatus !== 'CONNECTED' ||
-                  !account.deliveryEnabled ||
-                  Boolean(account.pausedAt)
-                }
+                disabled={account.connectionStatus !== 'CONNECTED'}
               >
                 {account.mailboxAddress} — {account.connectionStatus}
-                {account.pausedAt ? ' (paused)' : ''}
               </option>
             ))}
           </select>
@@ -775,8 +809,92 @@ export function ProspectCampaignWorkbench({
                         Write draft
                       </button>
                     ) : null}
+                    {!draft && member.contact?.email ? (
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          !selectedTorchikoMailbox ||
+                          !selectedProviderAccount?.lastReconciliationAt
+                        }
+                        onClick={() =>
+                          setImportingMemberId(importingMemberId === member.id ? null : member.id)
+                        }
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-40"
+                      >
+                        Import existing Gmail draft
+                      </button>
+                    ) : null}
                   </div>
                 </div>
+                {importingMemberId === member.id && !draft ? (
+                  <div className="mt-4 max-w-2xl space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                    <p className="text-xs leading-5 text-slate-700">
+                      The server reads one stable Gmail draft ID from the selected connected
+                      business mailbox and saves its exact current content for CRM review. The
+                      original remains untouched and unsent.
+                    </p>
+                    {!selectedProviderAccount?.lastReconciliationAt ? (
+                      <p role="alert" className="text-xs font-semibold text-rose-700">
+                        Complete connected mailbox history reconciliation before importing drafts.
+                      </p>
+                    ) : null}
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Stable Gmail draft ID
+                      <input
+                        value={gmailImportDraftIds[member.id] ?? ''}
+                        onChange={(event) =>
+                          setGmailImportDraftIds((current) => ({
+                            ...current,
+                            [member.id]: event.target.value,
+                          }))
+                        }
+                        className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="flex items-start gap-2 text-xs leading-5 text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={gmailImportHistoryConfirmed[member.id] ?? false}
+                        onChange={(event) =>
+                          setGmailImportHistoryConfirmed((current) => ({
+                            ...current,
+                            [member.id]: event.target.checked,
+                          }))
+                        }
+                        className="mt-1 h-4 w-4"
+                      />
+                      I reviewed both business and personal mailboxes and aliases for earlier
+                      contact with this venue.
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          !providerAccountId ||
+                          !selectedTorchikoMailbox ||
+                          !selectedProviderAccount?.lastReconciliationAt ||
+                          !gmailImportDraftIds[member.id]?.trim() ||
+                          !gmailImportHistoryConfirmed[member.id]
+                        }
+                        onClick={() => void importGmailDraft(member.id)}
+                        className="min-h-10 bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40"
+                      >
+                        Read and import for review
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setImportingMemberId(null)}
+                        className="min-h-10 border border-slate-300 bg-white px-3 text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {draft && !editing ? (
                   <article className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -815,7 +933,9 @@ export function ProspectCampaignWorkbench({
                       <p className="mt-4 border-t border-slate-200 pt-3 text-xs leading-5 text-slate-600">
                         Gmail IDs attached ·{' '}
                         <strong>
-                          {draft.gmailLink.verificationStatus} (not read back from Gmail)
+                          {draft.gmailLink.verificationStatus === 'VERIFIED'
+                            ? 'Verified by server read'
+                            : 'UNVERIFIED (not read back from Gmail)'}
                         </strong>{' '}
                         · draft <code className="break-all">{draft.gmailLink.providerDraftId}</code>
                         {' · '}message{' '}

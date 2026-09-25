@@ -17,10 +17,12 @@ export {
 export {
   createGmailCorrespondenceProvider,
   GmailApiError,
+  type GmailApiDraft,
   type GmailApiClient,
   type GmailApiMessage,
   type GmailAuthorizationLease,
   type GmailCredentialLeaseProvider,
+  parseGmailAddressHeader,
 } from './gmail'
 export { createGmailApiClient } from './gmail-http-client'
 export { createGmailOAuthRuntime, type GmailOAuthConfiguration } from './gmail-oauth'

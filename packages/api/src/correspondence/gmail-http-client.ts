@@ -278,6 +278,16 @@ export function createGmailApiClient(
       }
     },
     getMessage: (args) => getMessage(args.accessToken, args.mailboxAddress, args.messageId),
+    async getDraft(args) {
+      const response = await call({
+        ...args,
+        path: `drafts/${encodeURIComponent(args.draftId)}?format=full`,
+      })
+      return {
+        id: required(response.id, 'draft ID'),
+        message: normalizeMessage(response.message),
+      }
+    },
     async getThread(args) {
       const response = await call({
         ...args,

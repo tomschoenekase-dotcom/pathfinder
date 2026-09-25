@@ -62,6 +62,12 @@ export type GmailApiMessage = Readonly<{
   hasUnexpectedMimeParts?: boolean
 }>
 
+export type GmailApiDraft = Readonly<{
+  /** Gmail draft IDs survive message ID changes when the same draft is edited. */
+  id: string
+  message: GmailApiMessage
+}>
+
 export class GmailApiError extends Error {
   constructor(
     readonly kind:
@@ -96,6 +102,11 @@ export type GmailApiClient = Readonly<{
     mailboxAddress: string
     messageId: string
   }): Promise<GmailApiMessage>
+  getDraft(input: {
+    accessToken: string
+    mailboxAddress: string
+    draftId: string
+  }): Promise<GmailApiDraft>
   getThread(input: {
     accessToken: string
     mailboxAddress: string
@@ -175,6 +186,12 @@ function parseAddress(value: string | undefined): readonly CorrespondenceAddress
       }
       return { email: part }
     })
+}
+
+export function parseGmailAddressHeader(
+  value: string | undefined,
+): readonly CorrespondenceAddress[] {
+  return parseAddress(value)
 }
 
 function parseReferences(value: string | undefined) {

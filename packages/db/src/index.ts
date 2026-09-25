@@ -1392,6 +1392,10 @@ export {
   stageProspectSendBatchAction,
 } from './helpers/prospect-outreach-actions'
 export {
+  importExistingProspectGmailDraftAction,
+  isTerminalProspectOutreachImportRow,
+} from './helpers/prospect-outreach-import-actions'
+export {
   claimProspectSendOutboxAction,
   finalizeProspectSendBatch,
   foldProspectEmailStatus,

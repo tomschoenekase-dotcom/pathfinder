@@ -65,6 +65,10 @@ function setup(clientOverrides: Partial<GmailApiClient> = {}) {
   const client: GmailApiClient = {
     sendMessage: vi.fn(async () => ({ id: 'sent-1', threadId: 'thread-1' })),
     getMessage: vi.fn(async () => gmailMessage()),
+    getDraft: vi.fn(async () => ({
+      id: 'draft-1',
+      message: gmailMessage({ id: 'current-1', labelIds: ['DRAFT'] }),
+    })),
     getThread: vi.fn(async () => [gmailMessage()]),
     listHistory: vi.fn(async () => ({ messages: [gmailMessage()], historyId: '102' })),
     listMessages: vi.fn(async () => ({ messages: [gmailMessage()], historyId: '103' })),
