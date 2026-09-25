@@ -66,9 +66,12 @@ describe('createGmailApiClient', () => {
         body: { size: 0 },
       },
     }
-    const request = vi.fn(async (_url: string | URL | Request) =>
-      json({ id: 'stable-draft-id', message: responseMessage }),
-    )
+    const request = vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).endsWith('/drafts/stable-draft-id?format=full')) {
+        throw new Error(`unexpected request ${url}`)
+      }
+      return json({ id: 'stable-draft-id', message: responseMessage })
+    })
     const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
     const found = await client.getDraft({
       accessToken: 'token',
