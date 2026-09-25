@@ -2,6 +2,7 @@ export const WORKER_EXECUTION_FLAGS = [
   'WORKER_SCHEDULERS_ENABLED',
   'OUTBOUND_PROVIDER_WORKERS_ENABLED',
   'CRM_BACKGROUND_WORKERS_ENABLED',
+  'GMAIL_CORRESPONDENCE_WORKERS_ENABLED',
   'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
   'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
   'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
@@ -19,6 +20,7 @@ const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
     flag !== 'WORKER_SCHEDULERS_ENABLED' &&
     flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
+    flag !== 'GMAIL_CORRESPONDENCE_WORKERS_ENABLED' &&
     flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
     flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
     flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&
@@ -36,6 +38,7 @@ export type WorkerStartupPolicy = {
   mode:
     | 'provider-enabled'
     | 'crm-only'
+    | 'gmail-correspondence-only'
     | 'intake-upload-verification-only'
     | 'intake-v1-website-research-only'
     | 'intake-v1-file-extraction-only'
@@ -68,6 +71,7 @@ export function resolveWorkerStartupPolicy(
 
   const providerEnabled = environment.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true'
   const crmBackgroundEnabled = environment.CRM_BACKGROUND_WORKERS_ENABLED === 'true'
+  const gmailCorrespondenceEnabled = environment.GMAIL_CORRESPONDENCE_WORKERS_ENABLED === 'true'
   const intakeUploadVerificationEnabled =
     environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
   const intakeV1WebsiteResearchEnabled =
@@ -87,10 +91,16 @@ export function resolveWorkerStartupPolicy(
       'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED requires the isolated provider-disabled runtime',
     )
   }
+  if (providerEnabled && gmailCorrespondenceEnabled) {
+    throw new Error(
+      'GMAIL_CORRESPONDENCE_WORKERS_ENABLED requires the isolated provider-disabled runtime',
+    )
+  }
   if (
     founderAbsenceObserverEnabled &&
     (providerEnabled ||
       crmBackgroundEnabled ||
+      gmailCorrespondenceEnabled ||
       intakeUploadVerificationEnabled ||
       intakeV1WebsiteResearchEnabled ||
       intakeV1FileExtractionEnabled ||
@@ -110,6 +120,7 @@ export function resolveWorkerStartupPolicy(
     }
     const isolatedModesEnabled = [
       crmBackgroundEnabled,
+      gmailCorrespondenceEnabled,
       intakeUploadVerificationEnabled,
       intakeV1WebsiteResearchEnabled,
       intakeV1FileExtractionEnabled,
@@ -143,105 +154,119 @@ export function resolveWorkerStartupPolicy(
         ],
         intakeUploadVerificationEnabled,
       }
-    : crmBackgroundEnabled
+    : gmailCorrespondenceEnabled
       ? {
-          mode: 'crm-only',
+          mode: 'gmail-correspondence-only',
           requiredEnvironmentKeys: [
             'REDIS_URL',
             'DATABASE_URL',
             'DIRECT_DATABASE_URL',
-            ...(intakeUploadVerificationEnabled
-              ? [
-                  'STORAGE_BUCKET',
-                  'STORAGE_REGION',
-                  'STORAGE_ACCESS_KEY_ID',
-                  'STORAGE_SECRET_ACCESS_KEY',
-                  'INTAKE_CLAMAV_HOST',
-                ]
-              : []),
-            ...(intakeV1WebsiteResearchEnabled ? ['DATABASE_URL', 'DIRECT_DATABASE_URL'] : []),
+            'GOOGLE_OAUTH_CLIENT_ID',
+            'GOOGLE_OAUTH_CLIENT_SECRET',
+            'GMAIL_OAUTH_REDIRECT_URI',
+            'INTEGRATION_ENCRYPTION_KEY',
           ],
-          intakeUploadVerificationEnabled,
+          intakeUploadVerificationEnabled: false,
         }
-      : intakeUploadVerificationEnabled
+      : crmBackgroundEnabled
         ? {
-            mode: 'intake-upload-verification-only',
+            mode: 'crm-only',
             requiredEnvironmentKeys: [
               'REDIS_URL',
               'DATABASE_URL',
               'DIRECT_DATABASE_URL',
-              'STORAGE_BUCKET',
-              'STORAGE_REGION',
-              'STORAGE_ACCESS_KEY_ID',
-              'STORAGE_SECRET_ACCESS_KEY',
-              'INTAKE_CLAMAV_HOST',
+              ...(intakeUploadVerificationEnabled
+                ? [
+                    'STORAGE_BUCKET',
+                    'STORAGE_REGION',
+                    'STORAGE_ACCESS_KEY_ID',
+                    'STORAGE_SECRET_ACCESS_KEY',
+                    'INTAKE_CLAMAV_HOST',
+                  ]
+                : []),
+              ...(intakeV1WebsiteResearchEnabled ? ['DATABASE_URL', 'DIRECT_DATABASE_URL'] : []),
             ],
-            intakeUploadVerificationEnabled: true,
+            intakeUploadVerificationEnabled,
           }
-        : intakeV1WebsiteResearchEnabled
+        : intakeUploadVerificationEnabled
           ? {
-              mode: 'intake-v1-website-research-only',
-              requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
-              intakeUploadVerificationEnabled: false,
+              mode: 'intake-upload-verification-only',
+              requiredEnvironmentKeys: [
+                'REDIS_URL',
+                'DATABASE_URL',
+                'DIRECT_DATABASE_URL',
+                'STORAGE_BUCKET',
+                'STORAGE_REGION',
+                'STORAGE_ACCESS_KEY_ID',
+                'STORAGE_SECRET_ACCESS_KEY',
+                'INTAKE_CLAMAV_HOST',
+              ],
+              intakeUploadVerificationEnabled: true,
             }
-          : intakeV1FileExtractionEnabled
+          : intakeV1WebsiteResearchEnabled
             ? {
-                mode: 'intake-v1-file-extraction-only',
-                requiredEnvironmentKeys: [
-                  'REDIS_URL',
-                  'DATABASE_URL',
-                  'DIRECT_DATABASE_URL',
-                  'STORAGE_BUCKET',
-                  'STORAGE_REGION',
-                  'STORAGE_ACCESS_KEY_ID',
-                  'STORAGE_SECRET_ACCESS_KEY',
-                ],
+                mode: 'intake-v1-website-research-only',
+                requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
                 intakeUploadVerificationEnabled: false,
               }
-            : evaluationRunnerEnabled
+            : intakeV1FileExtractionEnabled
               ? {
-                  mode: 'evaluation-only',
+                  mode: 'intake-v1-file-extraction-only',
                   requiredEnvironmentKeys: [
                     'REDIS_URL',
                     'DATABASE_URL',
                     'DIRECT_DATABASE_URL',
-                    'OPENAI_API_KEY',
+                    'STORAGE_BUCKET',
+                    'STORAGE_REGION',
+                    'STORAGE_ACCESS_KEY_ID',
+                    'STORAGE_SECRET_ACCESS_KEY',
                   ],
                   intakeUploadVerificationEnabled: false,
                 }
-              : agentRoutinesEnabled
+              : evaluationRunnerEnabled
                 ? {
-                    mode: 'agent-routines-only',
-                    requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+                    mode: 'evaluation-only',
+                    requiredEnvironmentKeys: [
+                      'REDIS_URL',
+                      'DATABASE_URL',
+                      'DIRECT_DATABASE_URL',
+                      'OPENAI_API_KEY',
+                    ],
                     intakeUploadVerificationEnabled: false,
                   }
-                : venueMediaDerivativeEnabled
+                : agentRoutinesEnabled
                   ? {
-                      mode: 'venue-media-derivative-only',
-                      requiredEnvironmentKeys: [
-                        'REDIS_URL',
-                        'DATABASE_URL',
-                        'DIRECT_DATABASE_URL',
-                        'STORAGE_BUCKET',
-                        'STORAGE_REGION',
-                        'STORAGE_ACCESS_KEY_ID',
-                        'STORAGE_SECRET_ACCESS_KEY',
-                      ],
+                      mode: 'agent-routines-only',
+                      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
                       intakeUploadVerificationEnabled: false,
                     }
-                  : founderAbsenceObserverEnabled
+                  : venueMediaDerivativeEnabled
                     ? {
-                        mode: 'founder-absence-observer-only',
+                        mode: 'venue-media-derivative-only',
                         requiredEnvironmentKeys: [
                           'REDIS_URL',
                           'DATABASE_URL',
                           'DIRECT_DATABASE_URL',
+                          'STORAGE_BUCKET',
+                          'STORAGE_REGION',
+                          'STORAGE_ACCESS_KEY_ID',
+                          'STORAGE_SECRET_ACCESS_KEY',
                         ],
                         intakeUploadVerificationEnabled: false,
                       }
-                    : {
-                        mode: 'provider-disabled',
-                        requiredEnvironmentKeys: ['REDIS_URL'],
-                        intakeUploadVerificationEnabled: false,
-                      }
+                    : founderAbsenceObserverEnabled
+                      ? {
+                          mode: 'founder-absence-observer-only',
+                          requiredEnvironmentKeys: [
+                            'REDIS_URL',
+                            'DATABASE_URL',
+                            'DIRECT_DATABASE_URL',
+                          ],
+                          intakeUploadVerificationEnabled: false,
+                        }
+                      : {
+                          mode: 'provider-disabled',
+                          requiredEnvironmentKeys: ['REDIS_URL'],
+                          intakeUploadVerificationEnabled: false,
+                        }
 }

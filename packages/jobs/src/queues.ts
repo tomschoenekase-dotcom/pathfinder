@@ -97,6 +97,7 @@ export const PROSPECT_IMPORT_RETRY_BACKOFF = 'prospect-import-retry'
 export const GMAIL_SYNC_QUEUE = queueName('gmail-sync')
 export const GMAIL_SYNC_NOTIFICATION_JOB = 'gmail-sync-notification'
 export const GMAIL_SYNC_RECONCILIATION_JOB = 'gmail-sync-reconciliation'
+export const GMAIL_SYNC_FULL_RECONCILIATION_JOB = 'gmail-sync-full-reconciliation'
 export const GMAIL_SYNC_WATCH_RENEWAL_JOB = 'gmail-sync-watch-renewal'
 
 export const BILLING_RECONCILIATION_QUEUE = queueName('billing-reconciliation')

@@ -13,6 +13,10 @@ const founderAbsenceRuntime = readFileSync(
   'utf8',
 )
 const crmRuntime = readFileSync(resolve(__dirname, 'crm-background.ts'), 'utf8')
+const gmailCorrespondenceRuntime = readFileSync(
+  resolve(__dirname, 'gmail-correspondence-only-runtime.ts'),
+  'utf8',
+)
 const intakeRuntime = readFileSync(
   resolve(__dirname, 'intake-upload-verification-runtime.ts'),
   'utf8',
@@ -112,6 +116,29 @@ describe('provider-disabled worker registration boundary', () => {
     expect(agentRoutinesRuntime).toContain('await db.$queryRaw`SELECT 1`')
     expect(agentRoutinesRuntime).toContain('startIsolatedRuntimeReadinessHeartbeat')
     expect(agentRoutinesRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
+  })
+
+  it('selects Gmail correspondence as its own provider-disabled runtime', () => {
+    const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
+    const gmailBranch = bootstrap.indexOf(
+      "if (policy.mode === 'gmail-correspondence-only')",
+      entryPoint,
+    )
+    const gmailImport = bootstrap.indexOf(
+      "await import('./gmail-correspondence-only-runtime.js')",
+      gmailBranch,
+    )
+    const gmailReturn = bootstrap.indexOf('return runtime', gmailImport)
+    const providerImport = bootstrap.indexOf("await import('./index.js')", gmailReturn)
+
+    expect(gmailBranch).toBeGreaterThan(entryPoint)
+    expect(gmailImport).toBeGreaterThan(gmailBranch)
+    expect(gmailReturn).toBeGreaterThan(gmailImport)
+    expect(providerImport).toBeGreaterThan(gmailReturn)
+    expect(gmailCorrespondenceRuntime).toContain('new Worker(')
+    expect(gmailCorrespondenceRuntime).toContain('GMAIL_SYNC_QUEUE')
+    expect(gmailCorrespondenceRuntime).not.toContain('SEND_EMAIL_QUEUE')
+    expect(gmailCorrespondenceRuntime).not.toContain("from './index')")
   })
 
   it('keeps every database-backed isolated mode visible and gracefully stoppable', () => {

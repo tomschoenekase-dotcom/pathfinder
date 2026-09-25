@@ -102,9 +102,15 @@ export type ProspectImportStagingJobPayload = {
 
 export type GmailSyncJobPayload = {
   providerAccountId: string
-  trigger: 'PUBSUB_NOTIFICATION' | 'SCHEDULED_RECONCILIATION' | 'WATCH_RENEWAL'
   receiptId?: string
-}
+} & (
+  | {
+      trigger: 'FULL_RECONCILIATION'
+      /** Stable operator request identity, reused when retrying the same backfill action. */
+      requestId: string
+    }
+  | { trigger: 'PUBSUB_NOTIFICATION' | 'SCHEDULED_RECONCILIATION' | 'WATCH_RENEWAL' }
+)
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 

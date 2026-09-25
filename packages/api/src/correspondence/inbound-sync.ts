@@ -291,8 +291,14 @@ export function createInboundCorrespondenceService(input: {
       return { ...result, receipt: received.receipt }
     },
 
-    async synchronize(mailbox: ProviderMailboxRef) {
-      const cursor = await store.getSyncCursor(mailbox)
+    async synchronize(
+      mailbox: ProviderMailboxRef,
+      options?: Readonly<{ fullReconciliation?: boolean }>,
+    ) {
+      const storedCursor = await store.getSyncCursor(mailbox)
+      // An operator-requested backfill intentionally ignores the incremental cursor while
+      // leaving the stored value untouched until the complete scan commits successfully.
+      const cursor = options?.fullReconciliation ? null : storedCursor
       const mode = cursor ? 'INCREMENTAL' : 'FULL_RECONCILIATION'
       let pageToken: string | undefined
       let finalCursor = cursor ?? ''

@@ -30,6 +30,7 @@ import {
   GENERATION_DISPATCH_QUEUE,
   GMAIL_SYNC_NOTIFICATION_JOB,
   GMAIL_SYNC_QUEUE,
+  GMAIL_SYNC_FULL_RECONCILIATION_JOB,
   GMAIL_SYNC_RECONCILIATION_JOB,
   GMAIL_SYNC_WATCH_RENEWAL_JOB,
   INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
@@ -838,20 +839,33 @@ export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<vo
   if (!payload.providerAccountId || payload.providerAccountId.length > 191) {
     throw new Error('Valid Gmail provider account identity is required')
   }
+  if (payload.trigger === 'FULL_RECONCILIATION') {
+    if (
+      payload.providerAccountId === '*' ||
+      payload.providerAccountId.trim() !== payload.providerAccountId ||
+      !UUID_PATTERN.test(payload.requestId)
+    ) {
+      throw new Error('Full Gmail reconciliation requires one exact account and request identity')
+    }
+  }
   const receipt =
-    payload.receiptId ??
-    (payload.trigger === 'WATCH_RENEWAL'
-      ? `watch-day-${Math.floor(Date.now() / 86_400_000)}`
-      : `reconcile-window-${Math.floor(Date.now() / 900_000)}`)
+    payload.trigger === 'FULL_RECONCILIATION'
+      ? payload.requestId
+      : (payload.receiptId ??
+        (payload.trigger === 'WATCH_RENEWAL'
+          ? `watch-day-${Math.floor(Date.now() / 86_400_000)}`
+          : `reconcile-window-${Math.floor(Date.now() / 900_000)}`))
   const identity = createHash('sha256')
     .update(`torchiko-gmail-sync-v1:${payload.providerAccountId}:${payload.trigger}:${receipt}`)
     .digest('hex')
   await getQueue(GMAIL_SYNC_QUEUE).add(
-    payload.trigger === 'WATCH_RENEWAL'
-      ? GMAIL_SYNC_WATCH_RENEWAL_JOB
-      : payload.trigger === 'SCHEDULED_RECONCILIATION'
-        ? GMAIL_SYNC_RECONCILIATION_JOB
-        : GMAIL_SYNC_NOTIFICATION_JOB,
+    payload.trigger === 'FULL_RECONCILIATION'
+      ? GMAIL_SYNC_FULL_RECONCILIATION_JOB
+      : payload.trigger === 'WATCH_RENEWAL'
+        ? GMAIL_SYNC_WATCH_RENEWAL_JOB
+        : payload.trigger === 'SCHEDULED_RECONCILIATION'
+          ? GMAIL_SYNC_RECONCILIATION_JOB
+          : GMAIL_SYNC_NOTIFICATION_JOB,
     payload,
     {
       attempts: 8,

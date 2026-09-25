@@ -68,6 +68,14 @@ export async function bootstrapWorkers() {
     return runtime
   }
 
+  if (policy.mode === 'gmail-correspondence-only') {
+    const { startGmailCorrespondenceOnlyRuntime } =
+      await import('./gmail-correspondence-only-runtime.js')
+    const runtime = await startGmailCorrespondenceOnlyRuntime()
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
   if (policy.mode === 'intake-upload-verification-only') {
     const { startIntakeUploadVerificationRuntime } =
       await import('./intake-upload-verification-runtime.js')
