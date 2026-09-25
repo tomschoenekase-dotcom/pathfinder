@@ -24,6 +24,7 @@ const enabled =
   /\/pathfinder_disposable_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? '')
 
 type PersistedGrounding = {
+  resolvedSourceEvidence?: Array<{ id: string; sourceUrl: string; sha256: string }>
   copyHandoff?: {
     copySources?: Array<{ id: string; version: string; status: string; provenance: string }>
     warnings?: string[]
@@ -66,7 +67,7 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
           name: 'Disposable prospect copy agent',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['prospects.draft'],
+          accessCapabilities: ['prospects.read', 'prospects.draft'],
           autonomyLevel: 'READ_ONLY',
           defaultProvider: 'codex-bridge',
           defaultModel: 'subscription-default',
@@ -135,7 +136,7 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
           requestedOperation: 'prospect_copy_fixture',
           requestPrompt: 'Create a review-only prospect draft from bounded candidate copy.',
           scopeSnapshot: {
-            accessCapabilities: ['prospects.draft'],
+            accessCapabilities: ['prospects.read', 'prospects.draft'],
             prospectScope: { mode: 'ALL' },
             promptIdentity: 'prospect-copy-fixture@1',
           },
@@ -188,7 +189,22 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
         },
         actor,
       })
-      if (!prospect.contact) throw new Error('Fixture prospect requires a contact')
+      if (!prospect.venue || !prospect.contact)
+        throw new Error('Fixture prospect requires a venue and contact')
+      const source = await db.prospectSourceEvidence.create({
+        data: {
+          organizationId: prospect.organization.id,
+          venueId: prospect.venue.id,
+          contactId: prospect.contact.id,
+          sourceType: 'WEBSITE',
+          sourceUrl: 'https://example.test/fictional-venue',
+          sourceLabel: 'Fictional venue page',
+          capturedValue: { detail: 'A fictional venue detail for draft-only proof.' },
+          researchedAt: new Date('2026-09-25T12:00:00.000Z'),
+          createdBy: actor.id,
+        },
+        select: { id: true },
+      })
       await reviewProspectContactReadinessAction({
         contactId: prospect.contact.id,
         emailReadiness: 'VALID',
@@ -220,13 +236,34 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
         correlationId: randomUUID(),
       }
       const registry = createProspectAgentRegistry()
+      const found = (await registry.callTool(
+        'torchiko.prospects.search',
+        { query: prospect.organization.canonicalName },
+        invocation,
+      )) as Array<{ id: string }>
+      expect(found.map((organization) => organization.id)).toContain(prospect.organization.id)
+      const intelligence = (await registry.callTool(
+        'torchiko.prospects.get_intelligence',
+        { organizationId: prospect.organization.id },
+        invocation,
+      )) as { prospect: { sources: Array<{ id: string; sourceUrl: string }> } }
+      expect(intelligence.prospect.sources).toContainEqual(
+        expect.objectContaining({ id: source.id, sourceUrl: 'https://example.test/fictional-venue' }),
+      )
+      const members = (await registry.callTool(
+        'torchiko.prospects.list_campaign_members',
+        { campaignId: campaign.id },
+        invocation,
+      )) as Array<{ id: string }>
+      expect(members.map((campaignMember) => campaignMember.id)).toContain(member.id)
       const draft = (await registry.callTool(
         'torchiko.prospects.save_outreach_draft',
         {
           memberId: member.id,
           subject: 'A fictional review-only opening',
           textBody: 'This fictional draft remains a proposed opening for human review.',
-          evidence: [{ kind: 'CRM_FIELD', reference: 'fixture:prospect-name' }],
+          evidence: [{ kind: 'SOURCE_EVIDENCE', reference: source.id }],
+          sourceEvidenceIds: [source.id],
           template: { id: 'fixture-intro', version: '1' },
           prompt: { id: 'fixture-prospect-copy', version: '1' },
           copySources: [{ id: candidate.id, version: '1' }],
@@ -235,10 +272,17 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
       )) as { id: string }
       const persisted = await db.prospectOutreachDraft.findUniqueOrThrow({
         where: { id: draft.id },
-        select: { id: true, status: true, groundingSnapshot: true, memberId: true },
+        select: { id: true, status: true, groundingSnapshot: true, memberId: true, contentHash: true },
       })
       const grounding = persisted.groundingSnapshot as PersistedGrounding
       expect(persisted).toMatchObject({ id: draft.id, memberId: member.id, status: 'NEEDS_REVIEW' })
+      expect(grounding.resolvedSourceEvidence).toContainEqual(
+        expect.objectContaining({
+          id: source.id,
+          sourceUrl: 'https://example.test/fictional-venue',
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        }),
+      )
       expect(grounding.copyHandoff).toMatchObject({
         copySources: [
           {
@@ -252,6 +296,20 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
         reviewRequired: true,
         sendAuthorized: false,
       })
+      const ownerReadback = (await registry.callTool(
+        'torchiko.prospects.get_outreach_draft',
+        { memberId: member.id, draftId: draft.id },
+        invocation,
+      )) as { id: string; status: string; contentHash: string; groundingSnapshot: PersistedGrounding }
+      expect(ownerReadback).toMatchObject({
+        id: persisted.id,
+        status: 'NEEDS_REVIEW',
+        contentHash: persisted.contentHash,
+      })
+      expect(ownerReadback.groundingSnapshot.copyHandoff).toEqual(grounding.copyHandoff)
+      expect(ownerReadback.groundingSnapshot.resolvedSourceEvidence).toEqual(
+        grounding.resolvedSourceEvidence,
+      )
       expect(await db.prospectSendBatch.count({ where: { campaignId: campaign.id } })).toBe(0)
       expect(await db.prospectSendOutbox.count({ where: { sendItem: { memberId: member.id } } })).toBe(0)
 
