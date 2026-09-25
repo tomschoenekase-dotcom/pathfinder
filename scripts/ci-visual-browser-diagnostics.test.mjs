@@ -33,9 +33,14 @@ test('the unchanged bundle build gate reports bounded compiler diagnostics befor
   assert.ok(build >= 0 && build < visual)
   assert.equal(workflow.match(/run: pnpm verify:client-bundles/gu)?.length, 1)
   const verifier = await readFile(path.join(root, 'scripts/verify-client-bundle-secrets.mjs'), 'utf8')
+  const diagnosticWriter = await readFile(
+    path.join(root, 'scripts/lib/client-bundle-build-diagnostic.mjs'),
+    'utf8',
+  )
   assert.match(verifier, /process\.env\.GITHUB_ACTIONS === 'true'/u)
-  assert.match(verifier, /createDiagnosticAnnotation\([\s\S]*80,[\s\S]*8_000,/u)
-  assert.match(verifier, /::error title=Client bundle build failed::/u)
+  assert.match(verifier, /writeClientBundleBuildDiagnostic\(\{ result, application, stdout: process\.stdout \}\)/u)
+  assert.match(diagnosticWriter, /createDiagnosticAnnotation\([\s\S]*80,[\s\S]*8_000,/u)
+  assert.match(diagnosticWriter, /::error title=Client bundle build failed::/u)
   assert.match(verifier, /process\.exitCode = reportOperatorCliFailure/u)
   assert.doesNotMatch(verifier, /console\.(?:error|log)\(result\.(?:stdout|stderr)\)/u)
 })
