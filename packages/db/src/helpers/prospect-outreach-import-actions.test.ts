@@ -63,4 +63,121 @@ describe('importExistingProspectGmailDraftAction', () => {
     ).rejects.toThrow(/completed mailbox reconciliation/u)
     expect(accountRead).toHaveBeenCalledOnce()
   })
+
+  it('saves one immutable native draft and reopens the same result after an exact retry', async () => {
+    const member = {
+      id: 'member-1',
+      campaignId: 'campaign-1',
+      organizationId: 'organization-1',
+      venueId: 'venue-1',
+      contactId: 'contact-1',
+      status: 'SELECTED',
+      drafts: [],
+      campaign: { status: 'DRAFT', pausedAt: null },
+      organization: {
+        archivedAt: null,
+        relationshipTier: 'STANDARD',
+        opportunity: { stage: 'RESEARCHED' },
+      },
+      venue: { id: 'venue-1', archivedAt: null, sourceImportRowId: 'source-row-1' },
+      contact: {
+        id: 'contact-1',
+        organizationId: 'organization-1',
+        venueId: 'venue-1',
+        archivedAt: null,
+        normalizedEmail: 'guest@example.org',
+        doNotContact: false,
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        sourceImportRowId: 'source-row-1',
+        suppressedAt: null,
+        unsubscribedAt: null,
+        complainedAt: null,
+        lastHardBounceAt: null,
+        lastSoftBounceAt: null,
+      },
+    }
+    let existingLink: unknown = null
+    const draftCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'crm-draft-1',
+      ...data,
+    }))
+    const linkCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      const draft = draftCreate.mock.results[0]?.value
+      existingLink = {
+        id: 'gmail-link-1',
+        ...data,
+        outreachDraft: await draft,
+      }
+      return existingLink
+    })
+    const memberUpdate = vi.fn(async () => ({ id: 'member-1', status: 'DRAFTED' }))
+    const auditCreate = vi.fn(async () => ({ id: 'audit-1' }))
+    const tx = {
+      prospectOutreachDraftGmailLink: {
+        findUnique: vi.fn(async () => existingLink),
+        create: linkCreate,
+      },
+      correspondenceProviderAccount: {
+        findUnique: vi.fn(async () => ({
+          provider: 'GMAIL',
+          connectionStatus: 'CONNECTED',
+          mailboxAddress: 'tomschoenekase@torchiko.com',
+          credentialReferenceId: 'credential-1',
+          lastReconciliationAt: new Date('2026-09-25T05:00:00Z'),
+        })),
+      },
+      prospectCampaignMember: { findUnique: vi.fn(async () => member), update: memberUpdate },
+      prospectDuplicateCandidate: { findFirst: vi.fn(async () => null) },
+      prospectEmailMessage: { findFirst: vi.fn(async () => null) },
+      prospectCustomerRelationship: { findFirst: vi.fn(async () => null) },
+      prospectImportRow: {
+        findUnique: vi.fn(async () => ({
+          status: 'IMPORTED',
+          import: { status: 'PARTIAL', failedRows: 0, duplicateRows: 0 },
+        })),
+      },
+      prospectOutreachDraft: { create: draftCreate },
+      prospectActivity: { create: vi.fn(async () => ({ id: 'activity-1' })) },
+      auditLog: { create: auditCreate },
+    }
+    const client = {
+      $transaction: async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+    } as unknown as typeof db
+    const input = {
+      memberId: 'member-1',
+      providerAccountId: 'account-1',
+      providerDraftId: 'stable-draft-1',
+      providerMessageId: 'current-message-1',
+      fromEmail: 'tomschoenekase@torchiko.com',
+      toEmail: 'guest@example.org',
+      subject: 'Torchiko at Venue',
+      textBody: ' Hello there.\n',
+      htmlBody: '<p>Hello there.</p>',
+      historyReviewConfirmed: true as const,
+      actor: { type: 'HUMAN' as const, id: 'admin-1', role: 'PLATFORM_ADMIN' as const },
+    }
+    const first = await importExistingProspectGmailDraftAction(input, client)
+    expect(first.idempotent).toBe(false)
+    expect(first.draft.textBody).toBe(' Hello there.\n')
+    expect(first.link.providerDraftId).toBe('stable-draft-1')
+    expect(draftCreate).toHaveBeenCalledOnce()
+    expect(linkCreate).toHaveBeenCalledOnce()
+    expect(memberUpdate).toHaveBeenCalledWith({
+      where: { id: 'member-1' },
+      data: { status: 'DRAFTED' },
+    })
+    expect(auditCreate).toHaveBeenCalledOnce()
+
+    const retried = await importExistingProspectGmailDraftAction(
+      { ...input, providerMessageId: 'rotated-message-2' },
+      client,
+    )
+    expect(retried.idempotent).toBe(true)
+    expect(retried.messageIdDrifted).toBe(true)
+    expect(retried.draft.id).toBe(first.draft.id)
+    expect(draftCreate).toHaveBeenCalledOnce()
+    expect(linkCreate).toHaveBeenCalledOnce()
+    expect(auditCreate).toHaveBeenCalledOnce()
+  })
 })

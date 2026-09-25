@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { prospectOperationalContentHash } from './prospect-launch-attachments'
@@ -19,10 +17,6 @@ function requireHuman(actor: HumanActor) {
       'A human platform administrator is required',
     )
   }
-}
-
-function hash(value: string) {
-  return createHash('sha256').update(value).digest('hex')
 }
 
 export function isTerminalProspectOutreachImportRow(
