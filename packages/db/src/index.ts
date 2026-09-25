@@ -1392,6 +1392,7 @@ export {
   stageProspectSendBatchAction,
 } from './helpers/prospect-outreach-actions'
 export {
+  appendProspectCampaignEmailSourceEvidenceAction,
   addSourcedProspectCampaignContactAction,
   importExistingProspectGmailDraftAction,
   isTerminalProspectOutreachImportRow,

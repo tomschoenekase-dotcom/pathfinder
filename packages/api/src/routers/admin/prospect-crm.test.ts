@@ -17,10 +17,12 @@ const mocks = vi.hoisted(() => ({
   reviewInboundReply: vi.fn(),
   onboardingAttempt: vi.fn(),
   addSourcedCampaignContact: vi.fn(),
+  appendCampaignEmailSourceEvidence: vi.fn(),
   selectCampaignContactRoute: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  appendProspectCampaignEmailSourceEvidenceAction: mocks.appendCampaignEmailSourceEvidence,
   addSourcedProspectCampaignContactAction: mocks.addSourcedCampaignContact,
   PROSPECT_OUTREACH_MAX_BATCH: 500,
   PROSPECT_OUTREACH_MAX_COHORT: 5_000,
@@ -125,6 +127,30 @@ describe('admin prospect CRM router', () => {
       contactId: 'contact-2',
       actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
     })
+    vi.unstubAllEnvs()
+  })
+
+  it('routes source evidence append through the feature-gated human admin procedure', async () => {
+    vi.stubEnv('CRM_PROSPECT_OUTREACH_ENABLED', 'true')
+    mocks.appendCampaignEmailSourceEvidence.mockResolvedValue({
+      id: 'evidence-1',
+      idempotent: false,
+    })
+    const caller = testRouter.createCaller(context(true)).crm
+    await expect(
+      caller.appendProspectCampaignEmailSourceEvidence({
+        memberId: 'member-1',
+        email: 'info@venue.com',
+        sourceUrl: 'https://www.venue.com/contact',
+      }),
+    ).resolves.toEqual({ id: 'evidence-1', idempotent: false })
+    expect(mocks.appendCampaignEmailSourceEvidence).toHaveBeenCalledWith({
+      memberId: 'member-1',
+      email: 'info@venue.com',
+      sourceUrl: 'https://www.venue.com/contact',
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+    expect(mocks.bypass).toHaveBeenCalled()
     vi.unstubAllEnvs()
   })
 

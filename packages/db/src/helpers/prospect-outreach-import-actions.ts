@@ -1,4 +1,5 @@
 import { db } from '../client'
+import { isIP } from 'node:net'
 import { writeAuditLogStrict } from './audit'
 import { prospectOperationalContentHash } from './prospect-launch-attachments'
 import {
@@ -40,6 +41,213 @@ function normalizedContactEmail(value: string): string {
     throw new ProspectOutreachError('INVALID_INPUT', 'A valid sourced contact email is required')
   }
   return email
+}
+
+const OPERATOR_SOURCE_LABEL = 'Operator-supplied public contact page'
+
+function publicHttpsSourceUrl(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw new ProspectOutreachError('INVALID_INPUT', 'A public HTTPS source page is required')
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, '')
+  const reservedSuffix = /\.(?:localhost|local|test|example|invalid|internal|onion)$/u
+  const ipv4 = (isIP(host) === 4 ? host.split('.').map(Number) : null) as
+    | [number, number, number, number]
+    | null
+  const privateIpv4 =
+    ipv4 &&
+    (ipv4?.[0] === 0 ||
+      ipv4?.[0] === 10 ||
+      ipv4?.[0] === 127 ||
+      (ipv4?.[0] === 169 && (ipv4?.[1] ?? 0) === 254) ||
+      (ipv4?.[0] === 172 && (ipv4?.[1] ?? 0) >= 16 && (ipv4?.[1] ?? 0) <= 31) ||
+      (ipv4?.[0] === 192 && (ipv4?.[1] ?? 0) === 168) ||
+      (ipv4?.[0] ?? 0) >= 224)
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    !host.includes('.') ||
+    reservedSuffix.test(host) ||
+    isIP(host) === 6 ||
+    privateIpv4
+  ) {
+    throw new ProspectOutreachError('INVALID_INPUT', 'A public HTTPS source page is required')
+  }
+  url.hash = ''
+  return url.toString()
+}
+
+/** Append operator-supplied public-page evidence to an existing campaign contact. */
+export async function appendProspectCampaignEmailSourceEvidenceAction(
+  input: {
+    memberId: string
+    email: string
+    sourceUrl: string
+    sourceLabel?: string
+    actor: HumanActor
+  },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  const email = normalizedContactEmail(input.email)
+  const sourceUrl = publicHttpsSourceUrl(input.sourceUrl)
+  const sourceLabel = input.sourceLabel?.trim() || OPERATOR_SOURCE_LABEL
+  if (
+    !input.memberId.trim() ||
+    sourceLabel.length > 300 ||
+    /[\u0000-\u001f\u007f]/u.test(sourceLabel)
+  )
+    throw new ProspectOutreachError('INVALID_INPUT', 'A bounded source page label is required')
+
+  return client.$transaction(
+    async (tx) => {
+      const member = await tx.prospectCampaignMember.findUnique({
+        where: { id: input.memberId },
+        include: {
+          campaign: true,
+          organization: true,
+          venue: true,
+          contact: true,
+          drafts: { select: { id: true }, take: 1 },
+          sendItems: { select: { id: true }, take: 1 },
+        },
+      })
+      if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
+      if (
+        member.campaign.status !== 'DRAFT' ||
+        member.campaign.pausedAt ||
+        member.status !== 'SELECTED' ||
+        member.drafts.length ||
+        member.sendItems.length ||
+        member.organization.archivedAt ||
+        !member.venueId ||
+        !member.venue ||
+        member.venue.archivedAt ||
+        !member.contact ||
+        member.contact.archivedAt ||
+        member.contactId !== member.contact.id ||
+        member.contact.organizationId !== member.organizationId ||
+        member.contact.venueId !== member.venueId
+      )
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'An undrafted selected campaign member with an existing same-venue contact is required',
+        )
+
+      const duplicateCandidate = await tx.prospectDuplicateCandidate.findFirst({
+        where: {
+          status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] },
+          OR: [
+            { organizationAId: member.organizationId },
+            { organizationBId: member.organizationId },
+          ],
+        },
+        select: { id: true },
+      })
+      if (duplicateCandidate)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'Unresolved organization identity or alias evidence blocks source capture',
+        )
+
+      const capturedValue = {
+        email,
+        sourcePage: sourceUrl,
+        captureMethod: 'operator_supplied',
+        emailVerified: false,
+        permissionApproved: false,
+      }
+      const candidates = await tx.prospectSourceEvidence.findMany({
+        where: {
+          organizationId: member.organizationId,
+          venueId: member.venueId,
+          contactId: null,
+          sourceType: 'WEBSITE',
+          sourceUrl,
+          createdBy: input.actor.id,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+        select: { id: true, capturedValue: true, sourceUrl: true },
+      })
+      const prior = candidates.find((row) => {
+        const priorValue = row.capturedValue
+        if (!priorValue || typeof priorValue !== 'object' || Array.isArray(priorValue)) return false
+        const record = priorValue as Record<string, unknown>
+        return (
+          record.email === email &&
+          record.sourcePage === sourceUrl &&
+          record.captureMethod === 'operator_supplied' &&
+          record.emailVerified === false &&
+          record.permissionApproved === false
+        )
+      })
+      if (prior)
+        return { id: prior.id, sourceUrl: prior.sourceUrl, capturedValue, idempotent: true }
+      if (candidates.length)
+        throw new ProspectOutreachError(
+          'CONFLICT',
+          'A source page is already recorded with different email evidence',
+        )
+
+      const evidence = await tx.prospectSourceEvidence.create({
+        data: {
+          organizationId: member.organizationId,
+          venueId: member.venueId,
+          contactId: null,
+          sourceType: 'WEBSITE',
+          sourceUrl,
+          sourceLabel,
+          capturedValue,
+          createdBy: input.actor.id,
+        },
+        select: { id: true, sourceUrl: true, capturedValue: true },
+      })
+      await tx.prospectActivity.create({
+        data: {
+          organizationId: member.organizationId,
+          venueId: member.venueId,
+          contactId: null,
+          type: 'RESEARCH_ADDED',
+          summary: 'Operator-supplied public page recorded for contact review',
+          evidence: {
+            sourceEvidenceId: evidence.id,
+            sourceUrl,
+            email,
+            emailVerified: false,
+            permissionApproved: false,
+          },
+          actorId: input.actor.id,
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'prospect.outreach-contact.source-evidence-appended',
+          targetType: 'ProspectSourceEvidence',
+          targetId: evidence.id,
+          afterState: {
+            memberId: member.id,
+            organizationId: member.organizationId,
+            venueId: member.venueId,
+            contactId: member.contactId,
+            sourceUrl,
+            email,
+            emailVerified: false,
+            permissionApproved: false,
+          },
+        },
+        tx,
+      )
+      return { ...evidence, idempotent: false }
+    },
+    { isolationLevel: 'Serializable' },
+  )
 }
 
 async function readSelectableMember(tx: Client, memberId: string) {

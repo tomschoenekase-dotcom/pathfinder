@@ -1,11 +1,118 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { db } from '../client'
 import {
+  appendProspectCampaignEmailSourceEvidenceAction,
   addSourcedProspectCampaignContactAction,
   importExistingProspectGmailDraftAction,
   isTerminalProspectOutreachImportRow,
   selectProspectCampaignContactRouteAction,
 } from './prospect-outreach-import-actions'
+
+function sourceEvidenceClient(existing: Array<Record<string, unknown>> = []) {
+  const member = {
+    id: 'member-1',
+    organizationId: 'org-1',
+    venueId: 'venue-1',
+    contactId: 'contact-1',
+    status: 'SELECTED',
+    campaign: { status: 'DRAFT', pausedAt: null },
+    organization: { archivedAt: null },
+    venue: { id: 'venue-1', archivedAt: null },
+    contact: { id: 'contact-1', organizationId: 'org-1', venueId: 'venue-1', archivedAt: null },
+    drafts: [],
+    sendItems: [],
+  }
+  const tx = {
+    prospectCampaignMember: { findUnique: vi.fn(async () => member) },
+    prospectDuplicateCandidate: { findFirst: vi.fn(async () => null) },
+    prospectSourceEvidence: {
+      findMany: vi.fn(async () => existing),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'source-1',
+        sourceUrl: data.sourceUrl,
+        capturedValue: data.capturedValue,
+      })),
+    },
+    prospectActivity: { create: vi.fn(async () => ({ id: 'activity-1' })) },
+    auditLog: { create: vi.fn(async () => ({ id: 'audit-1' })) },
+  }
+  const client = {
+    $transaction: async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+  } as unknown as typeof db
+  return { client, tx, member }
+}
+
+describe('appendProspectCampaignEmailSourceEvidenceAction', () => {
+  const input = {
+    memberId: 'member-1',
+    email: ' INFO@VENUE.COM ',
+    sourceUrl: 'https://www.venue.com/contact#team',
+    actor: admin,
+  }
+  it('appends review-only public page evidence with audit and activity', async () => {
+    const { client, tx } = sourceEvidenceClient()
+    const result = await appendProspectCampaignEmailSourceEvidenceAction(input, client)
+    expect(result).toMatchObject({
+      id: 'source-1',
+      idempotent: false,
+      sourceUrl: 'https://www.venue.com/contact',
+    })
+    expect(result.capturedValue).toEqual({
+      email: 'info@venue.com',
+      sourcePage: 'https://www.venue.com/contact',
+      captureMethod: 'operator_supplied',
+      emailVerified: false,
+      permissionApproved: false,
+    })
+    expect(tx.prospectSourceEvidence.create).toHaveBeenCalledOnce()
+    expect(tx.prospectActivity.create).toHaveBeenCalledOnce()
+    expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('returns the same evidence ID on an exact retry without creating a second row', async () => {
+    const capturedValue = {
+      email: 'info@venue.com',
+      sourcePage: 'https://www.venue.com/contact',
+      captureMethod: 'operator_supplied',
+      emailVerified: false,
+      permissionApproved: false,
+    }
+    const { client, tx } = sourceEvidenceClient([
+      { id: 'source-existing', sourceUrl: 'https://www.venue.com/contact', capturedValue },
+    ])
+    const result = await appendProspectCampaignEmailSourceEvidenceAction(input, client)
+    expect(result).toMatchObject({ id: 'source-existing', idempotent: true })
+    expect(tx.prospectSourceEvidence.create).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('holds evidence append when organization identity is unresolved', async () => {
+    const { client, tx } = sourceEvidenceClient()
+    vi.mocked(tx.prospectDuplicateCandidate.findFirst).mockResolvedValueOnce({
+      id: 'duplicate-1',
+    } as never)
+    await expect(appendProspectCampaignEmailSourceEvidenceAction(input, client)).rejects.toThrow(
+      /identity or alias/u,
+    )
+    expect(tx.prospectSourceEvidence.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects private, local, credential-bearing, and non-HTTPS URLs before database access', async () => {
+    for (const sourceUrl of [
+      'http://www.venue.com/contact',
+      'https://127.0.0.1/contact',
+      'https://192.168.1.5/contact',
+      'https://localhost/contact',
+      'https://user:pass@www.venue.com/contact',
+    ]) {
+      const { client, tx } = sourceEvidenceClient()
+      await expect(
+        appendProspectCampaignEmailSourceEvidenceAction({ ...input, sourceUrl }, client),
+      ).rejects.toThrow(/public HTTPS/u)
+      expect(tx.prospectCampaignMember.findUnique).not.toHaveBeenCalled()
+    }
+  })
+})
 
 const admin = { type: 'HUMAN' as const, id: 'admin-1', role: 'PLATFORM_ADMIN' as const }
 

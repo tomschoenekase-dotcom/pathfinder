@@ -5,6 +5,7 @@ import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-
 import {
   db,
   addSourcedProspectCampaignContactAction,
+  appendProspectCampaignEmailSourceEvidenceAction,
   admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
@@ -54,6 +55,30 @@ function mapError(error: unknown): never {
 }
 
 const adminProspectCrmOutreachBaseActionsRouter = router({
+  appendProspectCampaignEmailSourceEvidence: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(
+      z
+        .object({
+          memberId: id,
+          email: z.string().trim().email().max(320),
+          sourceUrl: z.string().trim().min(1).max(2048),
+          sourceLabel: z.string().trim().max(300).optional(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        appendProspectCampaignEmailSourceEvidenceAction({
+          memberId: input.memberId,
+          email: input.email,
+          sourceUrl: input.sourceUrl,
+          ...(input.sourceLabel !== undefined ? { sourceLabel: input.sourceLabel } : {}),
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError),
+      ),
+    ),
+
   addSourcedProspectCampaignContact: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(
