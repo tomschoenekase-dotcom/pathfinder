@@ -427,6 +427,51 @@
         "torchiko.prospects.save_outreach_draft"
       ]
     },
+    "torchiko.prospects.get_outreach_draft": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["memberId", "draftId"],
+        "properties": {
+          "memberId": { "type": "string", "minLength": 1, "maxLength": 191 },
+          "draftId": { "type": "string", "minLength": 1, "maxLength": 191 }
+        }
+      },
+      "outputSchema": {
+        "oneOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "memberId", "version", "status", "contentHash", "groundingSnapshot", "generatedByType", "generatedById", "approvedBy", "approvedAt", "rejectedReason", "createdAt"],
+            "properties": {
+              "id": { "type": "string" },
+              "memberId": { "type": "string" },
+              "version": { "type": "integer", "minimum": 1 },
+              "status": { "type": "string" },
+              "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "groundingSnapshot": { "type": "object" },
+              "generatedByType": { "type": "string" },
+              "generatedById": { "type": "string" },
+              "approvedBy": { "type": ["string", "null"] },
+              "approvedAt": { "type": ["string", "null"], "format": "date-time" },
+              "rejectedReason": { "type": ["string", "null"] },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        ]
+      },
+      "examples": [
+        {
+          "input": { "memberId": "member_example", "draftId": "draft_example" },
+          "output": null
+        }
+      ],
+      "relatedTools": [
+        "torchiko.prospects.list_campaign_members",
+        "torchiko.prospects.save_outreach_draft"
+      ]
+    },
     "torchiko.prospects.claim_research_job": {
       "inputSchema": {
         "type": "object",

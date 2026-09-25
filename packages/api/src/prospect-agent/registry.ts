@@ -98,6 +98,12 @@ const campaignInput = z
     limit: z.number().int().min(1).max(100).default(50),
   })
   .strict()
+const draftReadInput = z
+  .object({
+    memberId: z.string().min(1).max(191),
+    draftId: z.string().min(1).max(191),
+  })
+  .strict()
 const evidenceReference = z
   .object({
     kind: z.enum(['CRM_FIELD', 'SOURCE_EVIDENCE', 'WEBSITE_RESEARCH', 'CORRESPONDENCE']),
@@ -226,6 +232,17 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     name: 'torchiko.prospects.list_campaign_members',
     title: 'List campaign members',
     description: 'List bounded campaign membership inside the frozen prospect scope.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.get_outreach_draft'],
+    name: 'torchiko.prospects.get_outreach_draft',
+    title: 'Read outreach draft review state',
+    description: 'Read one exact scoped draft version, its review state, and frozen grounding.',
     capability: 'prospects.read',
     effect: 'read',
     mutates: false,
@@ -600,6 +617,30 @@ export function createProspectAgentRegistry(
                 venue: true,
                 contact: true,
                 drafts: { orderBy: { version: 'desc' }, take: 1 },
+              },
+            })
+          }
+          case 'torchiko.prospects.get_outreach_draft': {
+            const input = draftReadInput.parse(rawInput)
+            return db.prospectOutreachDraft.findFirst({
+              where: {
+                id: input.draftId,
+                memberId: input.memberId,
+                organization: organizationScope(context),
+              },
+              select: {
+                id: true,
+                memberId: true,
+                version: true,
+                status: true,
+                contentHash: true,
+                groundingSnapshot: true,
+                generatedByType: true,
+                generatedById: true,
+                approvedBy: true,
+                approvedAt: true,
+                rejectedReason: true,
+                createdAt: true,
               },
             })
           }
