@@ -180,8 +180,8 @@ export async function importExistingProspectGmailDraftAction(
         contact.archivedAt ||
         contact.normalizedEmail?.trim().toLowerCase() !== to ||
         contact.doNotContact ||
-        contact.emailReadiness !== 'VALID' ||
-        !['LEGITIMATE_INTEREST_RECORDED', 'OPTED_IN'].includes(contact.permissionState) ||
+        contact.emailReadiness === 'INVALID' ||
+        ['OPTED_OUT', 'PROHIBITED'].includes(contact.permissionState) ||
         contact.suppressedAt ||
         contact.unsubscribedAt ||
         contact.complainedAt ||
@@ -259,6 +259,7 @@ export async function importExistingProspectGmailDraftAction(
           venueId: member.venueId,
           contactId: member.contactId,
           version: 1,
+          status: 'NEEDS_REVIEW',
           toEmail: contact.normalizedEmail!,
           subject,
           textBody,

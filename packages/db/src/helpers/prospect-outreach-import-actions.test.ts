@@ -64,7 +64,7 @@ describe('importExistingProspectGmailDraftAction', () => {
     expect(accountRead).toHaveBeenCalledOnce()
   })
 
-  it('saves one immutable native draft and reopens the same result after an exact retry', async () => {
+  it('saves an unsendable review draft for a review-required contact and reopens it on retry', async () => {
     const member = {
       id: 'member-1',
       campaignId: 'campaign-1',
@@ -87,8 +87,8 @@ describe('importExistingProspectGmailDraftAction', () => {
         archivedAt: null,
         normalizedEmail: 'guest@example.org',
         doNotContact: false,
-        emailReadiness: 'VALID',
-        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        emailReadiness: 'REVIEW_REQUIRED',
+        permissionState: 'REVIEW_REQUIRED',
         sourceImportRowId: 'source-row-1',
         suppressedAt: null,
         unsubscribedAt: null,
@@ -157,8 +157,16 @@ describe('importExistingProspectGmailDraftAction', () => {
       historyReviewConfirmed: true as const,
       actor: { type: 'HUMAN' as const, id: 'admin-1', role: 'PLATFORM_ADMIN' as const },
     }
+    member.contact.permissionState = 'OPTED_OUT'
+    await expect(importExistingProspectGmailDraftAction(input, client)).rejects.toMatchObject({
+      code: 'SUPPRESSED',
+    })
+    expect(draftCreate).not.toHaveBeenCalled()
+    member.contact.permissionState = 'REVIEW_REQUIRED'
+
     const first = await importExistingProspectGmailDraftAction(input, client)
     expect(first.idempotent).toBe(false)
+    expect(first.draft.status).toBe('NEEDS_REVIEW')
     expect(first.draft.textBody).toBe(' Hello there.\n')
     expect(first.link.providerDraftId).toBe('stable-draft-1')
     expect(draftCreate).toHaveBeenCalledOnce()
