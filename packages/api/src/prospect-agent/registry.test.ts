@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   memberFindFirst: vi.fn(),
   draftFindFirst: vi.fn(),
   knowledgeFindFirst: vi.fn(),
+  knowledgeFindMany: vi.fn(),
   saveDraft: vi.fn(),
   askQuestion: vi.fn(),
   claimResearch: vi.fn(),
@@ -31,7 +32,10 @@ vi.mock('@pathfinder/db', () => ({
     },
     prospectOutreachDraft: { findFirst: mocks.draftFindFirst },
     prospectVenue: { findFirst: mocks.prospectVenueFindFirst },
-    companyKnowledgeItem: { findFirst: mocks.knowledgeFindFirst },
+    companyKnowledgeItem: {
+      findFirst: mocks.knowledgeFindFirst,
+      findMany: mocks.knowledgeFindMany,
+    },
     venue: { findFirst: vi.fn() },
     place: { findMany: vi.fn() },
     venueKnowledgeEntry: { findMany: vi.fn() },
@@ -121,6 +125,115 @@ describe('prospect agent registry', () => {
     ).toBe(true)
     const nameSet = new Set<string>(names)
     expect(tools.flatMap((tool) => tool.relatedTools).every((name) => nameSet.has(name))).toBe(true)
+  })
+
+  it('reads only current outreach-eligible Company Brain sources with exact version and provenance', async () => {
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context()),
+    })
+    const current = {
+      id: 'product-1',
+      type: 'PRODUCT_RATIONALE',
+      title: 'Fictional product scope',
+      summary: 'A reviewed source, not a blanket claim approval.',
+      currentRevision: 2,
+      lastConfirmedAt: new Date('2026-09-20T00:00:00.000Z'),
+      revisions: [
+        {
+          revision: 2,
+          body: 'A fictional visitor guide.',
+          sourceDigest: 'a'.repeat(64),
+          structuredData: { allowedUses: ['OUTREACH'] },
+        },
+      ],
+      sources: [
+        {
+          sourceType: 'HUMAN_ENTRY',
+          sourceId: 'owner-1',
+          sourceRef: 'fixture://product',
+          occurredAt: new Date('2026-09-20T00:00:00.000Z'),
+        },
+      ],
+    }
+    mocks.knowledgeFindMany.mockResolvedValue([
+      current,
+      {
+        ...current,
+        id: 'no-outreach',
+        revisions: [{ ...current.revisions[0], structuredData: { allowedUses: ['PROPOSAL'] } }],
+      },
+    ])
+    const found = await registry.callTool(
+      'torchiko.prospects.list_outreach_company_sources',
+      { query: 'visitor guide' },
+      invocation,
+    )
+    expect(found).toMatchObject({
+      results: [{ id: 'product-1', version: '2', type: 'PRODUCT_RATIONALE' }],
+      scanned: 2,
+      partial: false,
+    })
+    expect(mocks.knowledgeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accessScope: 'PLATFORM',
+          promotionStatus: 'PROMOTED',
+          authority: 'AUTHORITATIVE_CURRENT',
+          archivedAt: null,
+          supersededAt: null,
+        }),
+        take: 51,
+      }),
+    )
+    mocks.knowledgeFindFirst.mockResolvedValue(current)
+    const read = await registry.callTool(
+      'torchiko.prospects.get_outreach_company_source',
+      { id: 'product-1', version: '2' },
+      invocation,
+    )
+    expect(read).toMatchObject({
+      source: {
+        id: 'product-1',
+        version: '2',
+        body: 'A fictional visitor guide.',
+        sourceDigest: 'a'.repeat(64),
+        provenance: [{ sourceRef: 'fixture://product' }],
+      },
+    })
+    expect(mocks.knowledgeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'product-1',
+          currentRevision: 2,
+          accessScope: 'PLATFORM',
+        }),
+      }),
+    )
+    mocks.knowledgeFindFirst.mockResolvedValue({
+      ...current,
+      revisions: [{ ...current.revisions[0], structuredData: {} }],
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.get_outreach_company_source',
+        { id: 'product-1', version: '2' },
+        invocation,
+      ),
+    ).resolves.toBeNull()
+  })
+
+  it('denies company-source reads without a live and frozen prospects.read capability', async () => {
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context({ capabilities: [] })),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.get_outreach_company_source',
+        { id: 'product-1', version: '1' },
+        invocation,
+      ),
+    ).rejects.toMatchObject({ code: 'CAPABILITY_REQUIRED' })
+    expect(mocks.knowledgeFindFirst).not.toHaveBeenCalled()
   })
 
   it('scopes launch asset listing and selection to an in-scope prospect venue and returns descriptors only', async () => {
@@ -380,9 +493,11 @@ describe('prospect agent registry', () => {
     }
     mocks.draftFindFirst.mockResolvedValue(saved)
     const registry = createProspectAgentRegistry({
-      resolveContext: vi.fn().mockResolvedValue(
-        context({ scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] } }),
-      ),
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(
+          context({ scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] } }),
+        ),
     })
     await expect(
       registry.callTool(
@@ -458,7 +573,8 @@ describe('prospect agent registry', () => {
       { memberId: 'member-1', draftId: 'draft-1' },
       invocation,
     )
-    const { contentBase64: _bytes, ...descriptor } = asset
+    const descriptor = { ...asset }
+    Reflect.deleteProperty(descriptor, 'contentBase64')
     expect(result).toEqual({
       id: 'draft-1',
       groundingSnapshot: { launchAttachments: [descriptor] },
@@ -517,7 +633,9 @@ describe('prospect agent registry', () => {
         contentHash: 'a'.repeat(64),
         groundingSnapshot: {
           ...(input.groundingSnapshot as Record<string, unknown>),
-          resolvedSourceEvidence: [{ id: source.id, sourceUrl: source.sourceUrl, sha256: 'b'.repeat(64) }],
+          resolvedSourceEvidence: [
+            { id: source.id, sourceUrl: source.sourceUrl, sha256: 'b'.repeat(64) },
+          ],
         },
         generatedByType: 'AGENT',
         generatedById: 'agent-1',
@@ -557,14 +675,17 @@ describe('prospect agent registry', () => {
       organizationId: 'org-1',
     })) as { prospect: { sources: Array<typeof source> } }
     expect(intelligence.prospect.sources[0]?.researchedAt).toEqual(source.researchedAt)
-    expect(await call('torchiko.prospects.list_campaign_members', { campaignId: 'campaign-1' })).toEqual([
-      expect.objectContaining({ id: 'member-1' }),
-    ])
+    expect(
+      await call('torchiko.prospects.list_campaign_members', { campaignId: 'campaign-1' }),
+    ).toEqual([expect.objectContaining({ id: 'member-1' })])
     const saved = (await call('torchiko.prospects.save_outreach_draft', {
       memberId: 'member-1',
       subject: 'Hello from Torchiko',
-      textBody: 'Hello Avery, I saw the fictional museum in Chicago. Would an AI visitor guide be useful?',
-      evidence: [{ kind: 'SOURCE_EVIDENCE', reference: 'source-1', summary: 'Fictional fixture fact' }],
+      textBody:
+        'Hello Avery, I saw the fictional museum in Chicago. Would an AI visitor guide be useful?',
+      evidence: [
+        { kind: 'SOURCE_EVIDENCE', reference: 'source-1', summary: 'Fictional fixture fact' },
+      ],
       sourceEvidenceIds: ['source-1'],
       template: { id: 'intro', version: '1' },
       prompt: { id: 'fictional-no-send', version: '1' },
@@ -581,7 +702,10 @@ describe('prospect agent registry', () => {
     const readback = (await call('torchiko.prospects.get_outreach_draft', {
       memberId: 'member-1',
       draftId: saved.id,
-    })) as { status: string; groundingSnapshot: { resolvedSourceEvidence: Array<{ id: string; sha256: string }> } }
+    })) as {
+      status: string
+      groundingSnapshot: { resolvedSourceEvidence: Array<{ id: string; sha256: string }> }
+    }
     expect(readback.status).toBe('NEEDS_REVIEW')
     expect(readback.groundingSnapshot.resolvedSourceEvidence).toEqual([
       expect.objectContaining({ id: 'source-1', sha256: 'b'.repeat(64) }),
@@ -595,7 +719,9 @@ describe('prospect agent registry', () => {
         },
       }),
     )
-    await expect(call('torchiko.prospects.approve_outreach_draft', { draftId: saved.id })).rejects.toMatchObject({
+    await expect(
+      call('torchiko.prospects.approve_outreach_draft', { draftId: saved.id }),
+    ).rejects.toMatchObject({
       code: 'UNKNOWN_TOOL',
     })
   })

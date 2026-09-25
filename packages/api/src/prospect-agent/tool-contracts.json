@@ -443,7 +443,20 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "memberId", "version", "status", "contentHash", "groundingSnapshot", "generatedByType", "generatedById", "approvedBy", "approvedAt", "rejectedReason", "createdAt"],
+            "required": [
+              "id",
+              "memberId",
+              "version",
+              "status",
+              "contentHash",
+              "groundingSnapshot",
+              "generatedByType",
+              "generatedById",
+              "approvedBy",
+              "approvedAt",
+              "rejectedReason",
+              "createdAt"
+            ],
             "properties": {
               "id": { "type": "string" },
               "memberId": { "type": "string" },
@@ -469,6 +482,73 @@
       ],
       "relatedTools": [
         "torchiko.prospects.list_campaign_members",
+        "torchiko.prospects.save_outreach_draft"
+      ]
+    },
+    "torchiko.prospects.list_outreach_company_sources": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query"],
+        "properties": { "query": { "type": "string", "minLength": 2, "maxLength": 100 } }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "results", "scanned", "partial", "note"],
+        "properties": {
+          "schemaVersion": { "const": "torchiko-outreach-company-sources.v1" },
+          "results": { "type": "array", "maxItems": 50 },
+          "scanned": { "type": "integer", "maximum": 50 },
+          "partial": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      },
+      "examples": [
+        {
+          "input": { "query": "visitor guide" },
+          "output": {
+            "schemaVersion": "torchiko-outreach-company-sources.v1",
+            "results": [],
+            "scanned": 0,
+            "partial": false,
+            "note": "Matching current Company Brain records only; absence does not prove complete product-claim coverage."
+          }
+        }
+      ],
+      "relatedTools": [
+        "torchiko.prospects.get_outreach_company_source",
+        "torchiko.prospects.save_outreach_draft"
+      ]
+    },
+    "torchiko.prospects.get_outreach_company_source": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 191 },
+          "version": { "type": "string", "pattern": "^\\d{1,9}$" }
+        }
+      },
+      "outputSchema": {
+        "oneOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["schemaVersion", "source", "note"],
+            "properties": {
+              "schemaVersion": { "const": "torchiko-outreach-company-source.v1" },
+              "source": { "type": "object" },
+              "note": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "examples": [{ "input": { "id": "company_source_example", "version": "1" }, "output": null }],
+      "relatedTools": [
+        "torchiko.prospects.list_outreach_company_sources",
         "torchiko.prospects.save_outreach_draft"
       ]
     },

@@ -14,6 +14,7 @@ import {
 
 import prospectToolContracts from './tool-contracts.json'
 import { validateProspectCopyHandoff } from './copy-assistant'
+import { getOutreachCompanySource, listOutreachCompanySources } from './outreach-company-sources'
 import { prospectLaunchAssetView, selectProspectLaunchAsset } from '../prospect-launch-assets'
 
 const prospectCapability = z.enum([
@@ -103,6 +104,16 @@ const draftReadInput = z
   .object({
     memberId: z.string().min(1).max(191),
     draftId: z.string().min(1).max(191),
+  })
+  .strict()
+const companySourceSearchInput = z.object({ query: z.string().trim().min(2).max(100) }).strict()
+const companySourceReadInput = z
+  .object({
+    id: z.string().trim().min(1).max(191),
+    version: z
+      .string()
+      .trim()
+      .regex(/^\d{1,9}$/u),
   })
   .strict()
 const evidenceReference = z
@@ -244,6 +255,30 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     name: 'torchiko.prospects.get_outreach_draft',
     title: 'Read outreach draft review state',
     description: 'Read one exact scoped draft version, its review state, and frozen grounding.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.list_outreach_company_sources'],
+    name: 'torchiko.prospects.list_outreach_company_sources',
+    title: 'Find outreach-eligible company sources',
+    description:
+      'Find bounded, current Company Brain product rationale or policy sources explicitly allowed for outreach.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.get_outreach_company_source'],
+    name: 'torchiko.prospects.get_outreach_company_source',
+    title: 'Read exact company source',
+    description:
+      'Read one current outreach-eligible Company Brain revision with its type and provenance.',
     capability: 'prospects.read',
     effect: 'read',
     mutates: false,
@@ -658,6 +693,14 @@ export function createProspectAgentRegistry(
                 ),
               },
             }
+          }
+          case 'torchiko.prospects.list_outreach_company_sources': {
+            const input = companySourceSearchInput.parse(rawInput)
+            return listOutreachCompanySources(input.query)
+          }
+          case 'torchiko.prospects.get_outreach_company_source': {
+            const input = companySourceReadInput.parse(rawInput)
+            return getOutreachCompanySource(input.id, Number(input.version))
           }
           case 'torchiko.prospects.claim_research_job': {
             const input = claimResearchInput.parse(rawInput)
