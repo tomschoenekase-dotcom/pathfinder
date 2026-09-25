@@ -252,8 +252,8 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
         reviewRequired: true,
         sendAuthorized: false,
       })
-      expect(await db.prospectSendBatch.count()).toBe(0)
-      expect(await db.prospectSendOutbox.count()).toBe(0)
+      expect(await db.prospectSendBatch.count({ where: { campaignId: campaign.id } })).toBe(0)
+      expect(await db.prospectSendOutbox.count({ where: { sendItem: { memberId: member.id } } })).toBe(0)
 
       const draftCount = await db.prospectOutreachDraft.count({ where: { memberId: member.id } })
       await expect(
@@ -306,8 +306,8 @@ describe.skipIf(!enabled)('prospect registry candidate-copy disposable boundary'
       expect(await db.prospectOutreachDraft.count({ where: { memberId: member.id } })).toBe(
         draftCount,
       )
-      expect(await db.prospectSendBatch.count()).toBe(0)
-      expect(await db.prospectSendOutbox.count()).toBe(0)
+      expect(await db.prospectSendBatch.count({ where: { campaignId: campaign.id } })).toBe(0)
+      expect(await db.prospectSendOutbox.count({ where: { sendItem: { memberId: member.id } } })).toBe(0)
     })
   }, 30_000)
 })
