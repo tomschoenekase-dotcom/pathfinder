@@ -5,8 +5,12 @@ import { buildAgentStatus } from './agent-status.mjs'
 test('agent entry status does not turn implementation into live provider or mailbox proof', async () => {
   const report = await buildAgentStatus()
   const byId = Object.fromEntries(report.capabilities.map((item) => [item.id, item]))
+  assert.equal(Object.keys(byId).length, report.capabilities.length)
   assert.equal(byId['source-code'].status, 'AVAILABLE')
-  for (const id of ['crm', 'company-mailbox', 'hosted-staging', 'hermes-bridge']) {
+  for (const id of [
+    'crm', 'prospect-research', 'company-mailbox', 'web-research', 'browser',
+    'hosted-staging', 'staging-release', 'analytics', 'shared-context', 'task-handoff', 'hermes-bridge',
+  ]) {
     assert.notEqual(byId[id].status, 'AVAILABLE')
   }
   assert.equal(byId['production-release'].status, 'WRITE_REQUIRES_APPROVAL')
