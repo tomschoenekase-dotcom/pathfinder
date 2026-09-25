@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -53,6 +54,7 @@ import {
   type ProspectAgentInvocation,
   type VerifiedProspectAgentContext,
 } from './registry'
+import { createAgentBridgeRegistry } from '../agent-bridge/registry'
 
 const invocation: ProspectAgentInvocation = {
   tenantId: 'tenant-1',
@@ -426,6 +428,176 @@ describe('prospect agent registry', () => {
       ),
     ).rejects.toThrow()
     expect(mocks.draftFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('returns attachment descriptors without persisted QR bytes', async () => {
+    const bytes = Buffer.from('%PDF-1.4\n')
+    const asset = {
+      schema: 'torchiko.venue-launch-asset/2',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      release: { kind: 'NATIVE', id: 'release-1', revisionSha256: 'a'.repeat(64) },
+      publicUrl: 'https://guide.example.test/venue/chat?source=qr',
+      filename: 'venue-qr.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      format: 'PDF',
+      generatorVersion: 'qr-print-v1',
+      contentBase64: bytes.toString('base64'),
+    }
+    mocks.draftFindFirst.mockResolvedValue({
+      id: 'draft-1',
+      groundingSnapshot: { launchAttachments: [asset] },
+    })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context()),
+    })
+    const result = await registry.callTool(
+      'torchiko.prospects.get_outreach_draft',
+      { memberId: 'member-1', draftId: 'draft-1' },
+      invocation,
+    )
+    const { contentBase64: _bytes, ...descriptor } = asset
+    expect(result).toEqual({
+      id: 'draft-1',
+      groundingSnapshot: { launchAttachments: [descriptor] },
+    })
+    expect(JSON.stringify(result)).not.toContain(asset.contentBase64)
+  })
+
+  it('takes one fictional prospect through the authenticated no-send bridge and reads the frozen review candidate', async () => {
+    mocks.agentRunFindFirst.mockResolvedValue({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      initiatedById: 'admin-1',
+      requestedOperation: 'operator_task',
+      scopeSnapshot: {
+        accessCapabilities: ['prospects.read', 'prospects.draft'],
+        prospectScope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] },
+        promptIdentity: 'fictional-no-send@1',
+      },
+      modelProvider: 'fixture',
+      modelName: 'no-provider',
+      agentIdentity: {
+        id: 'agent-1',
+        accessCapabilities: ['prospects.read', 'prospects.draft'],
+      },
+    })
+    const source = {
+      id: 'source-1',
+      sourceType: 'WEBSITE',
+      sourceUrl: 'https://example.test/about',
+      sourceLabel: 'About page',
+      capturedValue: { fact: 'A fictional museum in Chicago' },
+      researchedAt: new Date('2026-09-24T12:00:00.000Z'),
+    }
+    mocks.organizationFindMany.mockResolvedValue([{ id: 'org-1', canonicalName: 'Example Museum' }])
+    mocks.organizationFindFirst.mockResolvedValue({
+      id: 'org-1',
+      canonicalName: 'Example Museum',
+      sources: [source],
+      venues: [{ id: 'prospect-venue-1', name: 'Example Museum', city: 'Chicago' }],
+      contacts: [{ id: 'contact-1', fullName: 'Avery Example' }],
+      activities: [],
+      customerRelationships: [],
+    })
+    mocks.memberFindMany.mockResolvedValue([
+      { id: 'member-1', campaignId: 'campaign-1', organizationId: 'org-1', drafts: [] },
+    ])
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1', venueId: 'prospect-venue-1' })
+    let frozenDraft: Record<string, unknown> | null = null
+    mocks.saveDraft.mockImplementation(async (input: Record<string, unknown>) => {
+      frozenDraft = {
+        id: 'draft-1',
+        memberId: 'member-1',
+        version: 1,
+        status: 'NEEDS_REVIEW',
+        contentHash: 'a'.repeat(64),
+        groundingSnapshot: {
+          ...(input.groundingSnapshot as Record<string, unknown>),
+          resolvedSourceEvidence: [{ id: source.id, sourceUrl: source.sourceUrl, sha256: 'b'.repeat(64) }],
+        },
+        generatedByType: 'AGENT',
+        generatedById: 'agent-1',
+        approvedBy: null,
+        approvedAt: null,
+        rejectedReason: null,
+        createdAt: new Date('2026-09-25T00:00:00.000Z'),
+      }
+      return frozenDraft
+    })
+    mocks.draftFindFirst.mockImplementation(async () => frozenDraft)
+    const bridge = createAgentBridgeRegistry()
+    const credential = {
+      credentialId: 'credential-1',
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueIds: ['venue-1'],
+      capabilities: ['agent-runs:execute'],
+    }
+    const call = (toolName: string, args: Record<string, unknown>) =>
+      bridge.callProspectTool(
+        {
+          sessionId: invocation.sessionId,
+          venueId: invocation.venueId,
+          runId: invocation.agentRunId,
+          leaseToken: invocation.leaseToken,
+          correlationId: invocation.correlationId,
+          toolName,
+          arguments: args,
+        },
+        { credential },
+      )
+    expect(await call('torchiko.prospects.search', { query: 'Example Museum' })).toEqual([
+      { id: 'org-1', canonicalName: 'Example Museum' },
+    ])
+    const intelligence = (await call('torchiko.prospects.get_intelligence', {
+      organizationId: 'org-1',
+    })) as { prospect: { sources: Array<typeof source> } }
+    expect(intelligence.prospect.sources[0]?.researchedAt).toEqual(source.researchedAt)
+    expect(await call('torchiko.prospects.list_campaign_members', { campaignId: 'campaign-1' })).toEqual([
+      expect.objectContaining({ id: 'member-1' }),
+    ])
+    const saved = (await call('torchiko.prospects.save_outreach_draft', {
+      memberId: 'member-1',
+      subject: 'Hello from Torchiko',
+      textBody: 'Hello Avery, I saw the fictional museum in Chicago. Would an AI visitor guide be useful?',
+      evidence: [{ kind: 'SOURCE_EVIDENCE', reference: 'source-1', summary: 'Fictional fixture fact' }],
+      sourceEvidenceIds: ['source-1'],
+      template: { id: 'intro', version: '1' },
+      prompt: { id: 'fictional-no-send', version: '1' },
+    })) as { id: string; status: string; version: number }
+    expect(saved).toEqual({ id: 'draft-1', status: 'NEEDS_REVIEW', version: 1 })
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceEvidenceIds: ['source-1'],
+        groundingSnapshot: expect.objectContaining({
+          lineage: expect.objectContaining({ agentRunId: 'run-1', agentIdentityId: 'agent-1' }),
+        }),
+      }),
+    )
+    const readback = (await call('torchiko.prospects.get_outreach_draft', {
+      memberId: 'member-1',
+      draftId: saved.id,
+    })) as { status: string; groundingSnapshot: { resolvedSourceEvidence: Array<{ id: string; sha256: string }> } }
+    expect(readback.status).toBe('NEEDS_REVIEW')
+    expect(readback.groundingSnapshot.resolvedSourceEvidence).toEqual([
+      expect.objectContaining({ id: 'source-1', sha256: 'b'.repeat(64) }),
+    ])
+    expect(mocks.draftFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'draft-1',
+          memberId: 'member-1',
+          organization: { territoryId: { in: ['territory-1'] } },
+        },
+      }),
+    )
+    await expect(call('torchiko.prospects.approve_outreach_draft', { draftId: saved.id })).rejects.toMatchObject({
+      code: 'UNKNOWN_TOOL',
+    })
   })
 
   it('resolves an optional QR selection server-side and stores verified PDF proof without returning bytes', async () => {
