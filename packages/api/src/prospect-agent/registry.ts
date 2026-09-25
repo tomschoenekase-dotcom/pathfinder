@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AnyVenueLaunchAssetSelectionSchema } from '@pathfinder/contracts/venue-launch-asset'
 import { venueLaunchAssetDescriptor } from '@pathfinder/contracts/venue-launch-asset'
+import { launchAttachmentsFromSnapshot } from '@pathfinder/contracts/venue-launch-asset-node'
 
 import {
   askAgentQuestionAction,
@@ -622,7 +623,7 @@ export function createProspectAgentRegistry(
           }
           case 'torchiko.prospects.get_outreach_draft': {
             const input = draftReadInput.parse(rawInput)
-            return db.prospectOutreachDraft.findFirst({
+            const draft = await db.prospectOutreachDraft.findFirst({
               where: {
                 id: input.draftId,
                 memberId: input.memberId,
@@ -643,6 +644,20 @@ export function createProspectAgentRegistry(
                 createdAt: true,
               },
             })
+            if (!draft) return null
+            const snapshot = draft.groundingSnapshot
+            if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return draft
+            const record = snapshot as Record<string, unknown>
+            if (!Object.prototype.hasOwnProperty.call(record, 'launchAttachments')) return draft
+            return {
+              ...draft,
+              groundingSnapshot: {
+                ...record,
+                launchAttachments: launchAttachmentsFromSnapshot(snapshot).map(
+                  venueLaunchAssetDescriptor,
+                ),
+              },
+            }
           }
           case 'torchiko.prospects.claim_research_job': {
             const input = claimResearchInput.parse(rawInput)
