@@ -9,7 +9,6 @@ import {
   db,
   reserveProspectImportUploadAction,
   resolveProspectImportRowAction,
-  resumeIncompleteProspectImportDryRunAction,
   stageProspectImportRowsAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -23,7 +22,8 @@ import {
   inspectProspectImportUpload,
   signProspectImportUpload,
 } from '../../prospect-import-storage'
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
+import { adminProspectCrmImportRetryRouter } from './prospect-crm-import-retry'
 import { adminProcedure } from '../../trpc'
 import {
   mapProspectActionError,
@@ -37,7 +37,7 @@ import {
   ProspectImportLimitError,
 } from './prospect-import-limits'
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/)
-export const adminProspectCrmImportRouter = router({
+const adminProspectCrmImportBaseRouter = router({
   reserveProspectImportUpload: adminProcedure
     .input(
       z
@@ -341,66 +341,6 @@ export const adminProspectCrmImportRouter = router({
       return { ...result, queued: true }
     }),
 
-  retryProspectImportJob: adminProcedure
-    .input(
-      z
-        .object({
-          importId: z.string().min(1).max(191),
-        })
-        .strict(),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const prospectImport = await withTenantIsolationBypass(() =>
-        db.prospectImport.findUnique({ where: { id: input.importId } }),
-      )
-      if (!prospectImport) throw new TRPCError({ code: 'NOT_FOUND', message: 'Import not found' })
-      if (
-        prospectImport.status === 'DRY_RUN_READY' &&
-        prospectImport.sourceObjectKey &&
-        prospectImport.progressCursor !== 'DRY_RUN_READY'
-      ) {
-        await withTenantIsolationBypass(() =>
-          resumeIncompleteProspectImportDryRunAction({
-            importId: input.importId,
-            actor: prospectActor(ctx.session.userId),
-          }).catch(mapProspectActionError),
-        )
-        await enqueueProspectImportStaging({ importId: input.importId })
-        return { queued: true, phase: 'staging' as const }
-      }
-      if (prospectImport.status === 'DRAFT') {
-        if (prospectImport.progressCursor === 'UPLOADED') {
-          await enqueueProspectImportInspection({ importId: input.importId })
-          return { queued: true, phase: 'inspection' as const }
-        }
-        if (
-          prospectImport.progressCursor === 'MAPPED' ||
-          /^\d+:\d+$/u.test(prospectImport.progressCursor ?? '')
-        ) {
-          await withTenantIsolationBypass(() =>
-            resumeIncompleteProspectImportDryRunAction({
-              importId: input.importId,
-              actor: prospectActor(ctx.session.userId),
-            }).catch(mapProspectActionError),
-          )
-          await enqueueProspectImportStaging({ importId: input.importId })
-          return { queued: true, phase: 'staging' as const }
-        }
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Import requires upload completion or mapping review before retry',
-        })
-      }
-      if (!['APPROVED', 'PROCESSING', 'PARTIAL'].includes(prospectImport.status)) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Import is not eligible for worker retry',
-        })
-      }
-      await enqueueProspectImportCommit({ importId: input.importId })
-      return { queued: true, phase: 'commit' as const }
-    }),
-
   cancelProspectImport: adminProcedure
     .input(
       z
@@ -419,3 +359,8 @@ export const adminProspectCrmImportRouter = router({
       ),
     ),
 })
+
+export const adminProspectCrmImportRouter = mergeRouters(
+  adminProspectCrmImportBaseRouter,
+  adminProspectCrmImportRetryRouter,
+)

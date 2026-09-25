@@ -259,7 +259,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   // Two additional platform-admin recovery calls resume only the same immutable import
   // source/cursor after strict action preconditions; they cannot approve or commit it.
-  ['packages/api/src/routers/admin/prospect-crm-import.ts', 14],
+  ['packages/api/src/routers/admin/prospect-crm-import.ts', 11],
+  // The same platform-admin retry route was split into a bounded router module;
+  // its three bypass calls retain the exact import ID, cursor and action guards.
+  ['packages/api/src/routers/admin/prospect-crm-import-retry.ts', 3],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
   // Human platform-admin contact-readiness review is a platform-owned CRM mutation with an
   // explicit audited actor and no customer-tenant procedure exposure.
@@ -271,7 +274,10 @@ const approvedCallCounts = new Map([
   // converted venue through its exact, already-validated conversion tenant+venue identity.
   // Exact existing-Gmail-draft import adds two admin-only platform account/member reads;
   // provider content is fetched server-side and the native action rechecks recipient gates.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 15],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  // Gmail draft import and link were split without broadening procedure authority;
+  // both still require the admin CRM feature gate and exact account/member checks.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-gmail.ts', 2],
   // Human platform admin may enqueue one exact connected Gmail account for read-only
   // history reconciliation. It cannot enqueue a wildcard or prospect send job.
   ['packages/api/src/routers/admin/prospect-crm-gmail-sync.ts', 1],
