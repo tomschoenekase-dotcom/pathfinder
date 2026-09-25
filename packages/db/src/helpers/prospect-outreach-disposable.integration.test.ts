@@ -34,7 +34,7 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         role: 'PLATFORM_ADMIN' as const,
       }
       const email = `review-${suffix}@example.test`
-      const mailboxAddress = `gmail-link-${suffix}@example.test`
+      const mailboxAddress = 'tomschoenekase@torchiko.com'
       const prospect = await createProspectAction({
         organization: { canonicalName: `Gmail Link Museum ${suffix}`, source: 'disposable-test' },
         venue: { name: `Gmail Link Museum ${suffix}`, city: 'Chicago', region: 'IL' },
@@ -50,8 +50,9 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       const member = await db.prospectCampaignMember.findFirstOrThrow({
         where: { campaignId: campaign.id, organizationId: prospect.organization.id },
       })
-      const account = await db.correspondenceProviderAccount.create({
-        data: {
+      const account = await db.correspondenceProviderAccount.upsert({
+        where: { provider_mailboxAddress: { provider: 'GMAIL', mailboxAddress } },
+        create: {
           provider: 'GMAIL',
           externalAccountId: `disposable-gmail-link-${suffix}`,
           mailboxAddress,
@@ -60,6 +61,13 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
           credentialReferenceId: `fake-credential-reference-${suffix}`,
           lastReconciliationAt: new Date(),
           createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+        update: {
+          capabilities: [],
+          connectionStatus: 'CONNECTED',
+          lastReconciliationAt: new Date(),
+          deliveryEnabled: false,
           updatedBy: actor.id,
         },
       })
@@ -229,8 +237,9 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       if (!contactId || !recipientEmail)
         throw new Error('Disposable prospect fixture requires contact')
       const mailboxAddress = 'tomschoenekase@torchiko.com'
-      const providerAccount = await db.correspondenceProviderAccount.create({
-        data: {
+      const providerAccount = await db.correspondenceProviderAccount.upsert({
+        where: { provider_mailboxAddress: { provider: 'GMAIL', mailboxAddress } },
+        create: {
           provider: 'GMAIL',
           externalAccountId: `disposable-gmail-${suffix}`,
           mailboxAddress,
@@ -243,6 +252,16 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
           minimumDelaySeconds: 0,
           jitterSeconds: 0,
           createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+        update: {
+          capabilities: ['SEND'],
+          connectionStatus: 'CONNECTED',
+          deliveryEnabled: true,
+          dailySendCap: 10,
+          perDomainDailyCap: 2,
+          minimumDelaySeconds: 0,
+          jitterSeconds: 0,
           updatedBy: actor.id,
         },
       })
