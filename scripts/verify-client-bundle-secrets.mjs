@@ -10,7 +10,7 @@ import {
   scanClientBundleTargets,
 } from './lib/client-bundle-secret-scan.mjs'
 import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
-import { createDiagnosticAnnotation } from './lib/ci-diagnostic-tail.mjs'
+import { writeClientBundleBuildDiagnostic } from './lib/client-bundle-build-diagnostic.mjs'
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const packageManagerCli = process.env.npm_execpath
@@ -45,12 +45,7 @@ for (const application of ['@pathfinder/web', '@pathfinder/dashboard']) {
     // Only the isolated Actions build receives compiler diagnostics. Keep the
     // local operator failure contract opaque and never emit raw child output.
     if (process.env.GITHUB_ACTIONS === 'true') {
-      const diagnostic = createDiagnosticAnnotation(
-        `${result.stdout ?? ''}\n${result.stderr ?? ''}`.split(/\r?\n/u),
-        80,
-        8_000,
-      )
-      console.error(`::error title=Client bundle build failed::${application}%0A${diagnostic}`)
+      writeClientBundleBuildDiagnostic({ result, application, stdout: process.stdout })
     }
     process.exitCode = reportOperatorCliFailure({
       action: 'client-bundle-verification.failed',
