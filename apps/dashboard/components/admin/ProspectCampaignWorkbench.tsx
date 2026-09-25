@@ -851,7 +851,15 @@ export function ProspectCampaignWorkbench({
                     currentEmail={member.contact?.email ?? null}
                     onClose={() => setRoutingMemberId(null)}
                     onSelected={async (email) => {
-                      const readback = await client.admin.getProspectCampaign.query({ campaignId })
+                      const controller = interactionAbort.current
+                      const readback = await runBoundedClientRequest({
+                        parentSignal: controller.signal,
+                        timeoutMs: CAMPAIGN_READ_TIMEOUT_MS,
+                        request: (signal) =>
+                          client.admin.getProspectCampaign.query({ campaignId }, { signal }),
+                      })
+                      if (controller.signal.aborted || interactionAbort.current !== controller)
+                        return
                       const exactMember = readback.members.find((item) => item.id === member.id)
                       if (
                         exactMember?.contact?.email?.trim().toLowerCase() !== email.toLowerCase()
