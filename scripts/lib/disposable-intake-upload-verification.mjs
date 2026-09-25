@@ -18,7 +18,7 @@ export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
     'pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b',
   redis: 'redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2',
   minio:
-    'quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e',
+    'bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20',
   clamav: 'clamav/clamav@sha256:78810772a92b4a9168115bc6b2e0ffd702640893b9577f8c3d0432762d2655c4',
 })
 
@@ -485,13 +485,7 @@ export async function runDisposableServiceShakedown({
         `MINIO_ROOT_USER=${minioUser}`,
         '--env',
         `MINIO_ROOT_PASSWORD=${minioPassword}`,
-        '--tmpfs',
-        '/data',
         DISPOSABLE_INTAKE_IMAGES.minio,
-        'server',
-        '/data',
-        '--address',
-        ':9000',
       ],
       'Disposable MinIO start',
     )
