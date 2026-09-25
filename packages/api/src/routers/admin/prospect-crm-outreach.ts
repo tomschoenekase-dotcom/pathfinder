@@ -112,6 +112,7 @@ const adminProspectCrmOutreachBaseActionsRouter = router({
           textBody: prospectBoundedText(50_000),
           htmlBody: z.string().max(100_000).optional(),
           groundingSnapshot: z.record(z.unknown()),
+          sourceEvidenceIds: z.array(id).min(1).max(20).optional(),
           launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
         })
         .strict(),
@@ -156,6 +157,9 @@ const adminProspectCrmOutreachBaseActionsRouter = router({
           subject: input.subject,
           textBody: input.textBody,
           groundingSnapshot,
+          ...(input.sourceEvidenceIds !== undefined
+            ? { sourceEvidenceIds: input.sourceEvidenceIds }
+            : {}),
           verifiedCurrentPrintAssets,
           ...(input.htmlBody !== undefined ? { htmlBody: input.htmlBody } : {}),
           actor: prospectActor(ctx.session.userId),

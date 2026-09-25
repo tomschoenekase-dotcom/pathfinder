@@ -120,6 +120,40 @@ describe('CRM launch attachment API trust boundary', () => {
     expect(snapshot?.launchAttachments[0]).not.toHaveProperty('contentBase64')
   })
 
+  it('passes bounded source evidence IDs to the scoped draft persistence action', async () => {
+    const sourceEvidenceIds = ['evidence-1', 'evidence-2']
+
+    await caller.crm.saveProspectOutreachDraft({
+      memberId: 'member-1',
+      subject: 'Visit',
+      textBody: 'Hello',
+      groundingSnapshot: { evidence: [] },
+      sourceEvidenceIds,
+    })
+
+    expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ sourceEvidenceIds }))
+  })
+
+  it('rejects empty or excessive source evidence selections before persistence', async () => {
+    const input = {
+      memberId: 'member-1',
+      subject: 'Visit',
+      textBody: 'Hello',
+      groundingSnapshot: { evidence: [] },
+    }
+
+    await expect(
+      caller.crm.saveProspectOutreachDraft({ ...input, sourceEvidenceIds: [] }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      caller.crm.saveProspectOutreachDraft({
+        ...input,
+        sourceEvidenceIds: Array.from({ length: 21 }, (_, index) => `evidence-${index}`),
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+  })
+
   it('rejects caller-supplied attachment bytes instead of treating them as proof', async () => {
     await expect(
       caller.crm.saveProspectOutreachDraft({
