@@ -34,6 +34,7 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         role: 'PLATFORM_ADMIN' as const,
       }
       const email = `review-${suffix}@example.test`
+      const mailboxAddress = `gmail-link-${suffix}@example.test`
       const prospect = await createProspectAction({
         organization: { canonicalName: `Gmail Link Museum ${suffix}`, source: 'disposable-test' },
         venue: { name: `Gmail Link Museum ${suffix}`, city: 'Chicago', region: 'IL' },
@@ -53,7 +54,7 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         data: {
           provider: 'GMAIL',
           externalAccountId: `disposable-gmail-link-${suffix}`,
-          mailboxAddress: 'tomschoenekase@torchiko.com',
+          mailboxAddress,
           capabilities: [],
           connectionStatus: 'CONNECTED',
           credentialReferenceId: `fake-credential-reference-${suffix}`,
@@ -67,7 +68,7 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         providerAccountId: account.id,
         providerDraftId: `stable-draft-${suffix}`,
         providerMessageId: `message-${suffix}`,
-        fromEmail: 'tomschoenekase@torchiko.com',
+        fromEmail: mailboxAddress,
         toEmail: email,
         subject: `Torchiko at Gmail Link Museum ${suffix}`,
         textBody: 'Hi, I am Tom Schoenekase. How could a visitor explore this museum?',
