@@ -220,7 +220,56 @@ export async function selectProspectCampaignContactRouteAction(
       const member = await readSelectableMember(tx as Client, input.memberId)
       const contact = await tx.prospectContact.findUnique({
         where: { id: input.contactId },
-        include: { sources: { select: { id: true, organizationId: true, venueId: true } } },
+        include: {
+          sources: {
+            where: { organizationId: member.organizationId, venueId: member.venueId },
+            take: 50,
+            select: { id: true },
+          },
+        },
+      })
+      const provenanceEvidence = Array.isArray(contact?.provenance)
+        ? contact.provenance.slice(0, 50).flatMap((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+            const provenance = item as Record<string, unknown>
+            const evidenceId = provenance.evidenceId
+            const sourceUrl = provenance.sourceUrl
+            return typeof evidenceId === 'string' && evidenceId.trim()
+              ? [{ evidenceId, sourceUrl: typeof sourceUrl === 'string' ? sourceUrl : null }]
+              : []
+          })
+        : []
+      const relationEvidenceIds = new Set(contact?.sources.map((source) => source.id) ?? [])
+      const provenanceSourceUrls = new Map(
+        provenanceEvidence.map((item) => [item.evidenceId, item.sourceUrl]),
+      )
+      const evidenceIds = [...new Set([...relationEvidenceIds, ...provenanceSourceUrls.keys()])]
+      const sourceEvidence = evidenceIds.length
+        ? await tx.prospectSourceEvidence.findMany({
+            where: {
+              id: { in: evidenceIds },
+              organizationId: member.organizationId,
+              venueId: member.venueId,
+            },
+            take: 100,
+            select: { id: true, sourceUrl: true, capturedValue: true },
+          })
+        : []
+      const contactEmail = contact?.normalizedEmail?.trim().toLowerCase()
+      const hasMatchingEvidence = sourceEvidence.some((source) => {
+        const capturedValue = source.capturedValue
+        const sourcedEmail =
+          capturedValue && typeof capturedValue === 'object' && !Array.isArray(capturedValue)
+            ? (capturedValue as Record<string, unknown>).email
+            : undefined
+        return (
+          typeof sourcedEmail === 'string' &&
+          sourcedEmail.trim().toLowerCase() === contactEmail &&
+          Boolean(source.sourceUrl?.trim()) &&
+          (relationEvidenceIds.has(source.id) ||
+            (provenanceSourceUrls.get(source.id) !== null &&
+              provenanceSourceUrls.get(source.id) === source.sourceUrl))
+        )
       })
       if (
         !contact ||
@@ -228,14 +277,11 @@ export async function selectProspectCampaignContactRouteAction(
         contact.venueId !== member.venueId ||
         contact.archivedAt ||
         !contact.normalizedEmail ||
-        !contact.sources.some(
-          (source) =>
-            source.organizationId === member.organizationId && source.venueId === member.venueId,
-        )
+        !hasMatchingEvidence
       ) {
         throw new ProspectOutreachError(
           'CONFLICT',
-          'Selected contact must have source evidence for the same organization and venue',
+          'Selected contact must have matching source evidence for the same organization and venue',
         )
       }
       const duplicate = await tx.prospectContact.findFirst({

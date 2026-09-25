@@ -38,6 +38,13 @@ function contactRouteClient(overrides: Record<string, unknown> = {}) {
         sourceType: 'WEBSITE',
         capturedValue: { email: 'info@venue.example' },
       })),
+      findMany: vi.fn(async () => [
+        {
+          id: 'evidence-1',
+          sourceUrl: 'https://venue.example/contact',
+          capturedValue: { email: 'info@venue.example' },
+        },
+      ]),
     },
     prospectContact: {
       findFirst: vi.fn(async () => null),
@@ -195,6 +202,38 @@ describe('importExistingProspectGmailDraftAction', () => {
       data: { contactId: 'new-contact-1' },
     })
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('can select a newly appended contact by resolving its provenance to immutable evidence', async () => {
+    const { client, tx } = contactRouteClient()
+    const contact = await addSourcedProspectCampaignContactAction(
+      {
+        memberId: 'member-1',
+        email: 'info@venue.example',
+        sourceEvidenceId: 'evidence-1',
+        actor: admin,
+      },
+      client,
+    )
+    tx.prospectContact.findUnique.mockResolvedValueOnce({
+      ...contact,
+      sources: [],
+    } as never)
+    const result = await selectProspectCampaignContactRouteAction(
+      { memberId: 'member-1', contactId: contact.id, actor: admin },
+      client,
+    )
+    expect(result).toMatchObject({ changed: true, member: { id: 'member-1' } })
+    expect(tx.prospectSourceEvidence.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['evidence-1'] },
+          organizationId: 'org-1',
+          venueId: 'venue-1',
+        }),
+      }),
+    )
+    expect(tx.prospectCampaignMember.updateMany).toHaveBeenCalledOnce()
   })
 
   it('refuses to change drafted members', async () => {
