@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-250-20260918',
+  approval: 'torchiko-staging-lineage-to-251-20260925',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 250,
+  migrationCount: 251,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -162,10 +162,15 @@ const EXPECTED = Object.freeze({
   routinePredecessorFinalMigration: '20260912080000_add_guest_conversation_disposition',
   routinePredecessorManifestHash:
     '4eff7f0a42a6cce1e695f7bc9bcd5b90a8b7534b1e3f0b11f59bfc6e618f9736',
-  finalMigration: '20260918190000_add_agent_routines',
-  manifestHash: '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
-  // Exact additive 250 endpoint; preserves the frozen 249 source prefix.
-  finalPublicTableCount: 267,
+  routineCompleteCount: 250,
+  routineCompletePublicTableCount: 267,
+  routineCompleteFinalMigration: '20260918190000_add_agent_routines',
+  routineCompleteManifestHash:
+    '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
+  finalMigration: '20260925044500_add_prospect_outreach_draft_gmail_links',
+  manifestHash: '2a516d26aa0e41703af3a727b4477d67094b20e3d9cd0b53a346e3d81059ba2d',
+  // Exact additive 251 endpoint; preserves the frozen 250 source prefix.
+  finalPublicTableCount: 268,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -560,6 +565,18 @@ export function assertFrozenManifest(manifest) {
     routinePredecessorHash !== EXPECTED.routinePredecessorManifestHash
   )
     fail('agent routine predecessor manifest changed')
+  const routineCompleteHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.routineCompleteCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.routineCompleteCount - 1] !==
+      EXPECTED.routineCompleteFinalMigration ||
+    routineCompleteHash !== EXPECTED.routineCompleteManifestHash
+  ) {
+    fail('agent routines complete predecessor manifest changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -606,6 +623,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.nativeBotEffectPredecessorCount &&
     rows.length !== EXPECTED.guestDispositionPredecessorCount &&
     rows.length !== EXPECTED.routinePredecessorCount &&
+    rows.length !== EXPECTED.routineCompleteCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -692,6 +710,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.guestDispositionPredecessorCount)
     return 'guest-disposition-predecessor'
   if (rows.length === EXPECTED.routinePredecessorCount) return 'agent-routines-predecessor'
+  if (rows.length === EXPECTED.routineCompleteCount) return 'agent-routines-complete-predecessor'
   return 'complete'
 }
 
@@ -971,6 +990,7 @@ export function expectedPublicTableCount(state) {
     'native-bot-effect-predecessor': EXPECTED.nativeBotEffectPredecessorPublicTableCount,
     'guest-disposition-predecessor': EXPECTED.guestDispositionPredecessorPublicTableCount,
     'agent-routines-predecessor': EXPECTED.routinePredecessorPublicTableCount,
+    'agent-routines-complete-predecessor': EXPECTED.routineCompletePublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
