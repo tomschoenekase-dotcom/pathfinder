@@ -3,6 +3,7 @@ import { adminProspectCrmCoreRouter } from './prospect-crm-core'
 import { adminProspectCrmDuplicatesRouter } from './prospect-crm-duplicates'
 import { adminProspectCrmDirectoryRouter } from './prospect-crm-directory'
 import { adminProspectCrmImportRouter } from './prospect-crm-import'
+import { adminProspectCrmImportRetryRouter } from './prospect-crm-import-retry'
 import { adminProspectCrmImportRepairRouter } from './prospect-crm-import-repair'
 import { adminProspectCrmIntelligenceRouter } from './prospect-crm-intelligence'
 import { adminProspectCrmMutationsRouter } from './prospect-crm-mutations'
@@ -16,6 +17,7 @@ export const adminProspectCrmRouter = mergeRouters(
   adminProspectCrmMutationsRouter,
   adminProspectCrmTerritoriesRouter,
   adminProspectCrmImportRouter,
+  adminProspectCrmImportRetryRouter,
   adminProspectCrmImportRepairRouter,
   adminProspectCrmDuplicatesRouter,
   adminProspectCrmIntelligenceRouter,
