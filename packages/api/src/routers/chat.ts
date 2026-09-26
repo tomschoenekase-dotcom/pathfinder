@@ -59,7 +59,7 @@ import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
-import { buildGuestPlaceCards } from '../lib/guest-place-card'
+import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
@@ -1779,6 +1779,7 @@ const chatReadRouter = router({
     const persistenceStartedAt = performance.now()
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
+      locationAware: guideMode === 'location_aware',
       hasLiveLocation,
       places: relevantPlaces,
     })
@@ -1802,6 +1803,10 @@ const chatReadRouter = router({
         logger.warn({ action: 'guest-place-media-unavailable', venueId: venue.id })
       }
     }
+    mentionedPlaces = selectDisplayableGuestPlaceCards(
+      mentionedPlaces,
+      guideMode === 'location_aware',
+    )
     const citations = buildGuestCitations({
       assistantResponse,
       candidates: [

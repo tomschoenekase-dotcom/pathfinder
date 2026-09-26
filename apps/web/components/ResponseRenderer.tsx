@@ -1,6 +1,6 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { AlertTriangle, CalendarDays, CheckCircle2, ExternalLink, Info, MapPin } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import {
@@ -22,6 +22,7 @@ type ResponseRendererProps = {
   onChoiceSelect?: (value: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   language?: SupportedChatLanguage
+  locationAware?: boolean
 }
 
 function safeHttpsHref(href: string): string | null {
@@ -67,34 +68,64 @@ function PlaceGrid({
   onPlaceCardView,
   onDirectionsClick,
   language,
+  locationAware = false,
 }: Pick<
   ResponseRendererProps,
-  'places' | 'onPlaceCardClick' | 'onPlaceCardView' | 'onDirectionsClick' | 'language'
+  | 'places'
+  | 'onPlaceCardClick'
+  | 'onPlaceCardView'
+  | 'onDirectionsClick'
+  | 'language'
+  | 'locationAware'
 >) {
-  if (!places?.length) return null
+  const [failedImages, setFailedImages] = useState<string[]>([])
+  const displayablePlaces = places?.flatMap((place) => {
+    const imageKey = `${place.id}:${place.photoUrl}`
+    const hasImage = Boolean(
+      place.photoUrl && place.photoAttribution && !failedImages.includes(imageKey),
+    )
+    const hasDirections =
+      locationAware &&
+      typeof place.lat === 'number' &&
+      Number.isFinite(place.lat) &&
+      place.lat >= -90 &&
+      place.lat <= 90 &&
+      typeof place.lng === 'number' &&
+      Number.isFinite(place.lng) &&
+      place.lng >= -180 &&
+      place.lng <= 180
+    if (!hasImage && !hasDirections) return []
+    return [{ place, photoUrl: hasImage ? place.photoUrl : null, imageKey }]
+  })
+  if (!displayablePlaces?.length) return null
 
   return (
     <div className="grid gap-3 sm:grid-cols-2" aria-label="Recommended places">
-      {places.map((place) => (
+      {displayablePlaces.map(({ place, photoUrl, imageKey }) => (
         <PlaceCard
           key={place.id}
           id={place.id}
           name={place.name}
           type={place.type}
-          photoUrl={place.photoUrl}
+          photoUrl={photoUrl}
           {...(place.photoAttribution !== undefined
             ? { photoAttribution: place.photoAttribution }
             : {})}
           shortDescription={place.shortDescription}
           areaName={place.areaName}
           hours={place.hours}
-          distanceMeters={place.distanceMeters}
-          lat={place.lat}
-          lng={place.lng}
+          distanceMeters={locationAware ? place.distanceMeters : undefined}
+          lat={locationAware ? place.lat : null}
+          lng={locationAware ? place.lng : null}
           {...(language ? { language } : {})}
           {...(onPlaceCardClick ? { onCardClick: onPlaceCardClick } : {})}
           {...(onPlaceCardView ? { onView: onPlaceCardView } : {})}
           {...(onDirectionsClick ? { onDirectionsClick } : {})}
+          onImageError={() =>
+            setFailedImages((current) =>
+              current.includes(imageKey) ? current : [...current, imageKey],
+            )
+          }
         />
       ))}
     </div>
@@ -111,6 +142,7 @@ export function ResponseRenderer({
   onChoiceSelect,
   onVisitorAction,
   language = 'English',
+  locationAware = false,
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
   const sectionHeadingId = useId()
@@ -290,6 +322,7 @@ export function ResponseRenderer({
                 key={index}
                 places={block.places}
                 language={language}
+                locationAware={locationAware}
                 {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
                 {...(onPlaceCardView ? { onPlaceCardView } : {})}
                 {...(onDirectionsClick ? { onDirectionsClick } : {})}

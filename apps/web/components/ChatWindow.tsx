@@ -56,6 +56,7 @@ type ChatWindowProps = {
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   isOnline?: boolean
   language?: SupportedChatLanguage
+  locationAware?: boolean
 }
 
 export function ChatWindow({
@@ -89,6 +90,7 @@ export function ChatWindow({
   onMessageFeedback,
   isOnline = true,
   language = 'English',
+  locationAware = false,
 }: ChatWindowProps) {
   const presentation = getChatLanguagePresentation(language)
   const [
@@ -266,6 +268,7 @@ export function ChatWindow({
               content={message.content}
               assistantLabel={assistantLabel}
               language={language}
+              locationAware={locationAware}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
               {...(message.voiceDelivery ? { voiceDelivery: message.voiceDelivery } : {})}

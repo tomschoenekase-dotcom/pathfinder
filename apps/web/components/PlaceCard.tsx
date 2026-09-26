@@ -1,5 +1,5 @@
-import { useEffect, useId, useState } from 'react'
-import { Info, MapPin, Navigation } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Navigation } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { getChatLanguagePresentation } from './LanguagePicker'
@@ -25,6 +25,7 @@ type PlaceCardProps = {
   onCardClick?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onView?: (placeId: string) => void
+  onImageError?: () => void
   language?: SupportedChatLanguage
 }
 
@@ -50,12 +51,14 @@ export function PlaceCard({
   onCardClick,
   onDirectionsClick,
   onView,
+  onImageError,
   language = 'English',
 }: PlaceCardProps) {
   const { place: copy } = getVisitorUiCopy(language)
   const [showDetails, hideDetails, areaLabel, hoursLabel, directionsLabel, directionsTo] = copy
   const presentation = getChatLanguagePresentation(language)
   const [isExpanded, setIsExpanded] = useState(false)
+  const imageRef = useRef<HTMLImageElement>(null)
   const titleId = useId()
   const detailsId = useId()
   const hasCoordinates =
@@ -76,6 +79,11 @@ export function PlaceCard({
     onView?.(id)
   }, [id, onView])
 
+  useEffect(() => {
+    const image = imageRef.current
+    if (photoUrl && image?.complete && image.naturalWidth === 0) onImageError?.()
+  }, [photoUrl, onImageError])
+
   return (
     <article
       aria-labelledby={titleId}
@@ -88,22 +96,16 @@ export function PlaceCard({
           {/* Controlled, same-origin venue media delivery rechecks current review eligibility. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
+            ref={imageRef}
             src={photoUrl}
             alt={photoAttribution?.altText ?? name}
             loading="lazy"
             referrerPolicy="no-referrer"
+            onError={onImageError}
             className="h-full w-full object-cover"
           />
         </div>
-      ) : (
-        <div className="flex h-28 w-full items-center justify-center bg-[var(--chat-bg)]">
-          {hasCoordinates ? (
-            <MapPin className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
-          ) : (
-            <Info className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
-          )}
-        </div>
-      )}
+      ) : null}
 
       {photoUrl && photoAttribution ? (
         <p className="break-words px-4 pt-2 text-xs text-[var(--chat-text-muted)]">

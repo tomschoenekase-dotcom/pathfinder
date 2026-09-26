@@ -30,6 +30,7 @@ type MessageBubbleProps = {
   messageId?: string
   onFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   language?: SupportedChatLanguage
+  locationAware?: boolean
 }
 
 export function MessageBubble({
@@ -50,6 +51,7 @@ export function MessageBubble({
   messageId,
   onFeedback,
   language = 'English',
+  locationAware = false,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
   const presentation = getChatLanguagePresentation(language)
@@ -138,6 +140,7 @@ export function MessageBubble({
           <ResponseRenderer
             content={content}
             language={language}
+            locationAware={locationAware}
             {...(blocks ? { blocks } : {})}
             {...(places ? { places } : {})}
             {...(onPlaceCardClick ? { onPlaceCardClick } : {})}

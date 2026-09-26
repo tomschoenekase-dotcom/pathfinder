@@ -657,7 +657,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
   })
 
-  it('renders descriptive cards without coordinates and records a real details action', () => {
+  it('renders an approved image card without coordinates and records a real details action', () => {
     const onPlaceCardClick = vi.fn()
     render(
       <ChatWindow
@@ -670,7 +670,13 @@ describe('ChatWindow accessibility and motion behavior', () => {
                 id: 'place-1',
                 name: 'East Gallery',
                 type: 'EXHIBIT',
-                photoUrl: null,
+                photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum',
+                photoAttribution: {
+                  altText: 'Textile collection',
+                  caption: null,
+                  sourceName: 'Museum',
+                  sourceUrl: null,
+                },
                 shortDescription: 'Rotating textiles from the permanent collection.',
                 areaName: 'Second floor',
                 hours: '10:00 AM–4:00 PM',
