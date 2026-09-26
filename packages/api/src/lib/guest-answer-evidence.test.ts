@@ -103,6 +103,29 @@ describe('guest answer evidence', () => {
     ).toBe(true)
   })
 
+  it('freezes published knowledge with a bigint publication order', () => {
+    const evidence = buildGuestAnswerEvidenceBundle({
+      assistantResponse: 'The Case 12 house was created in 1904.',
+      staticSystemPrompt: 'Guide.',
+      dynamicSystemPrompt: 'Case 12 house: 1904.',
+      sources: [
+        {
+          sourceId: 'knowledge:case-12',
+          kind: 'KNOWLEDGE',
+          label: 'Case 12 house date',
+          snapshot: { content: '1904', contentPublication: { eventOrder: 2n } },
+        },
+      ],
+    })
+    expect(evidence.sources[0]?.snapshot).toContain('"eventOrder":"2"')
+    expect(
+      verifyGuestAnswerEvidenceBundle({
+        assistantResponse: 'The Case 12 house was created in 1904.',
+        evidence,
+      }),
+    ).toBe(true)
+  })
+
   it('detects response, source, prompt, and evidence-set tampering', () => {
     const evidence = buildGuestAnswerEvidenceBundle({
       assistantResponse: 'Open today.',

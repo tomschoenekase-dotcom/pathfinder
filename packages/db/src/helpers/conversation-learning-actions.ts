@@ -312,13 +312,28 @@ export async function recordConversationLearningCandidate(
         session: { experienceScope: parsed.source },
         userMessage: { is: { id: parsed.userMessageId, role: 'user' } },
       },
-      select: { id: true },
+      select: { id: true, turnSequence: true },
     })
     if (!turn)
       throw new ConversationLearningActionError(
         'NOT_FOUND',
         'Source turn does not match the requested tenant, venue, session, and scope.',
       )
+    const previousAnswer =
+      parsed.classifier.kind === 'FACTUAL_CORRECTION'
+        ? await tx.guestChatTurn.findFirst({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              sessionId: parsed.sessionId,
+              turnSequence: { lt: turn.turnSequence },
+              status: 'COMPLETE',
+              assistantMessageId: { not: null },
+            },
+            orderBy: { turnSequence: 'desc' },
+            select: { assistantMessageId: true },
+          })
+        : null
     const provenance = provenanceSchema.parse({
       source: parsed.source,
       ...(employee ? { authenticatedActorRef: parsed.authenticatedActorRef } : {}),
@@ -338,7 +353,9 @@ export async function recordConversationLearningCandidate(
           confidence: 0,
           severity: 'INFO',
           summary: parsed.summary,
-          evidenceMessageIds: [parsed.userMessageId],
+          evidenceMessageIds: previousAnswer?.assistantMessageId
+            ? [previousAnswer.assistantMessageId, parsed.userMessageId]
+            : [parsed.userMessageId],
           capability: 'conversation-learning',
           provider: 'pathfinder',
           model: 'rules',
