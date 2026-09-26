@@ -1,4 +1,5 @@
 const CARD_LIMIT = 3
+const CARD_CANDIDATE_LIMIT = 12
 const NAME_LIMIT = 200
 const TYPE_LIMIT = 100
 const DESCRIPTION_LIMIT = 500
@@ -81,10 +82,12 @@ function hasValidCoordinatePair(
 
 export function buildGuestPlaceCards({
   assistantResponse,
+  locationAware,
   hasLiveLocation,
   places,
 }: {
   assistantResponse: string
+  locationAware: boolean
   hasLiveLocation: boolean
   places: GuestPlaceCardCandidate[]
 }): GuestPlaceCard[] {
@@ -110,11 +113,12 @@ export function buildGuestPlaceCards({
           ),
       ),
     )
-    .slice(0, CARD_LIMIT)
+    .slice(0, CARD_CANDIDATE_LIMIT)
     .map(({ place }) => {
-      const hasCoordinates = hasLiveLocation && hasValidCoordinatePair(place.lat, place.lng)
+      const hasCoordinates = locationAware && hasValidCoordinatePair(place.lat, place.lng)
       const distanceMeters =
         hasCoordinates &&
+        hasLiveLocation &&
         typeof place.distanceMeters === 'number' &&
         Number.isFinite(place.distanceMeters) &&
         place.distanceMeters >= 0
@@ -137,4 +141,17 @@ export function buildGuestPlaceCards({
         lng: hasCoordinates ? place.lng! : null,
       }
     })
+}
+
+export function selectDisplayableGuestPlaceCards(
+  cards: GuestPlaceCard[],
+  locationAware: boolean,
+): GuestPlaceCard[] {
+  return cards
+    .filter(
+      (card) =>
+        Boolean(card.photoUrl && card.photoAttribution) ||
+        (locationAware && hasValidCoordinatePair(card.lat, card.lng)),
+    )
+    .slice(0, CARD_LIMIT)
 }

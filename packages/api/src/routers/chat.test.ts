@@ -2342,7 +2342,7 @@ describe('chat router', () => {
       )
     })
 
-    it('returns a descriptive card for a non-location guide without location or image data', async () => {
+    it('keeps the answer but omits an image-free non-location card', async () => {
       setupHappyPath('The elephants are in the Safari Zone.', {
         ...venueRow,
         guideMode: 'non_location',
@@ -2377,18 +2377,8 @@ describe('chat router', () => {
         message: 'Tell me about the elephants.',
       })
 
-      expect(result.places).toEqual([
-        expect.objectContaining({
-          id: 'p1',
-          shortDescription: 'Meet the herd.',
-          areaName: 'Safari Zone',
-          hours: '9 AM-4 PM',
-          photoUrl: null,
-          distanceMeters: undefined,
-          lat: null,
-          lng: null,
-        }),
-      ])
+      expect(result.response).toBe('The elephants are in the Safari Zone.')
+      expect(result.places).toEqual([])
       expect(guestTurnActions.reserve).toHaveBeenCalledWith(
         expect.objectContaining({
           request: expect.objectContaining({ retainLocation: false }),
@@ -2401,11 +2391,47 @@ describe('chat router', () => {
         expect.objectContaining({
           eventType: 'message.received',
           metadata: expect.objectContaining({
-            placesReturned: 1,
+            placesReturned: 0,
             retrievalMode: 'semantic-without-live-location',
           }),
         }),
       )
+    })
+
+    it('returns an approved image card for a non-location guide without directions', async () => {
+      setupHappyPath('The Elephants habitat is open.', {
+        ...venueRow,
+        guideMode: 'non_location',
+        chatShowPhotos: true,
+      })
+      readApprovedGuestPlaceMedia.mockResolvedValueOnce(
+        new Map([
+          [
+            'p1',
+            {
+              photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=city-zoo',
+              photoAttribution: {
+                altText: 'Elephants',
+                caption: null,
+                sourceName: 'Zoo team',
+                sourceUrl: null,
+              },
+            },
+          ],
+        ]),
+      )
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.places).toEqual([
+        expect.objectContaining({
+          id: 'p1',
+          photoAttribution: expect.objectContaining({ altText: 'Elephants' }),
+          lat: null,
+          lng: null,
+          distanceMeters: undefined,
+        }),
+      ])
     })
 
     it('uses a complete default center only for ranking without claiming visitor distance', async () => {
@@ -2432,8 +2458,8 @@ describe('chat router', () => {
           id: 'p1',
           photoUrl: null,
           distanceMeters: undefined,
-          lat: null,
-          lng: null,
+          lat: 40.7,
+          lng: -74,
         }),
       ])
       expect(semanticSearch.places).toHaveBeenCalledWith(
@@ -2483,8 +2509,8 @@ describe('chat router', () => {
         expect.objectContaining({
           id: 'p1',
           distanceMeters: undefined,
-          lat: null,
-          lng: null,
+          lat: 40.7,
+          lng: -74,
         }),
       ])
       expect(semanticSearch.places).not.toHaveBeenCalled()
