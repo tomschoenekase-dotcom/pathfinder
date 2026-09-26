@@ -174,7 +174,7 @@ describe.skipIf(!enabled)('reviewed guide correction across two disposable venue
           item.venueId,
           token,
           item === cases[0]
-            ? `This isn't quite right. ${item.correct}`
+            ? `This isnt quite right. ${item.correct}`
             : `Your answer is wrong. ${item.correct}`,
         )
         expect(correction.response).toContain(item.wrong)

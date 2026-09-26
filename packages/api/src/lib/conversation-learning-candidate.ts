@@ -33,9 +33,9 @@ const requestOnly =
 const correction =
   /\b(?:actually|correction|correct(?:ion)?|in fact|the answer is|is wrong|was wrong|should be|rather than|not\s+[^.?!]{1,80}\s+but)\b/iu
 const explicitCorrection =
-  /^(?:correction\s*:|actually\b|in fact\b)|\b(?:your|the|that)\s+(?:answer|guide)\s+(?:is|was)\s+wrong\b|\b(?:this|that)\s+(?:isn't|isn’t|is not|wasn't|wasn’t|was not)\s+(?:quite\s+)?right\b/iu
+  /^(?:correction\s*:|actually\b|in fact\b)|\b(?:your|the|that)\s+(?:answer|guide)\s+(?:is|was)\s+wrong\b|\b(?:this|that)\s+(?:isn['’]?t|is not|wasn['’]?t|was not)\s+(?:quite\s+)?right\b/iu
 const feedbackOnly =
-  /^(?:this|that)\s+(?:isn't|isn’t|is not|wasn't|wasn’t|was not)\s+(?:quite\s+)?right[.!]?$/iu
+  /^(?:this|that)\s+(?:isn['’]?t|is not|wasn['’]?t|was not)\s+(?:quite\s+)?right[.!]?$/iu
 const alias =
   /\b(?:also known as|also called|called the same as|goes by|known as|aka\.?|short for)\b|\b(?:the|this)\s+[^.?!]{1,80}\s+is\s+(?:also\s+)?(?:called|known as)\b/iu
 const temporary =

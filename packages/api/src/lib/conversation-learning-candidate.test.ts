@@ -42,7 +42,13 @@ describe('conversation learning candidate discovery', () => {
         "This isn't quite right. The Case 12 house was created in 1904.",
       ),
     ).toMatchObject({ kind: 'FACTUAL_CORRECTION', verification: 'UNVERIFIED' })
+    expect(
+      classifyConversationLearningCandidate(
+        'This isnt quite right. The Case 12 house was created in 1904.',
+      ),
+    ).toMatchObject({ kind: 'FACTUAL_CORRECTION', verification: 'UNVERIFIED' })
     expect(classifyConversationLearningCandidate("This isn't quite right.")).toBeNull()
+    expect(classifyConversationLearningCandidate('This isnt quite right.')).toBeNull()
   })
 
   it('recognizes ordinary placard facts and temporary updates', () => {
