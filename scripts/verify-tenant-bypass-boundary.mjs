@@ -255,9 +255,12 @@ const approvedCallCounts = new Map([
   // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
   ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
-  // Platform-admin workbook import; two calls resume an incomplete dry run on the same exact
-  // platform-owned import row before re-queueing staging (c9123581).
-  ['packages/api/src/routers/admin/prospect-crm-import.ts', 14],
+  // Human platform-admin import operations act on platform-owned source reservations and staged
+  // rows. No customer-tenant procedure receives this bypass.
+  ['packages/api/src/routers/admin/prospect-crm-import.ts', 11],
+  // Retry moves three already-reviewed platform-owned reads/resume calls into a bounded router.
+  // The two resume calls still require the audited, compare-and-set recovery action.
+  ['packages/api/src/routers/admin/prospect-crm-import-retry.ts', 3],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
   // Human platform-admin contact-readiness review is a platform-owned CRM mutation with an
   // explicit audited actor and no customer-tenant procedure exposure.
