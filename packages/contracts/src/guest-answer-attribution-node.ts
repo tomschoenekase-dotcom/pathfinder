@@ -25,7 +25,9 @@ function hash(value: string): string {
 }
 
 function frozenSnapshot(value: unknown): string {
-  const serialized = JSON.stringify(value)
+  const serialized = JSON.stringify(value, (_key, item: unknown) =>
+    typeof item === 'bigint' ? item.toString() : item,
+  )
   if (serialized === undefined) throw new Error('Answer evidence source is not JSON serializable')
   return canonicalEvaluationJson(JSON.parse(serialized) as CanonicalJsonValue)
 }

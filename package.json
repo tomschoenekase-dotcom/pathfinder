@@ -52,6 +52,7 @@
     "test:media-provider-operation:disposable": "node scripts/run-disposable-media-provider-operation.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",
     "test:native-guest-read:disposable": "node scripts/run-disposable-native-guest-read.mjs",
+    "test:guide-correction:disposable": "node scripts/run-disposable-guide-correction.mjs",
     "torchiko": "node scripts/torchiko.mjs",
     "doctor": "node scripts/torchiko.mjs doctor",
     "test:scripts": "node scripts/run-script-tests.mjs",
