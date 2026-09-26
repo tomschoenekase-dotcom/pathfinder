@@ -77,6 +77,8 @@ describe.skipIf(!enabled)('reviewed guide correction across two disposable venue
           correct: 'The Lantern mural was created in 1992.',
         },
       ] as const
+      const addedFact = 'The Case 12 house has a copper roof.'
+      const additionQuery = 'What kind of roof does the Case 12 house have?'
       await db.tenant.create({
         data: { id: tenantId, slug: tenantId, name: 'Guide correction fixture' },
       })
@@ -121,6 +123,7 @@ describe.skipIf(!enabled)('reviewed guide correction across two disposable venue
       const provider = vi.fn(async (request: { system: Array<{ text: string }> }) => {
         const grounding = request.system.map((block) => block.text).join('')
         const answer =
+          (grounding.includes(addedFact) ? addedFact : null) ??
           cases.find((item) => grounding.includes(item.correct))?.correct ??
           cases.find((item) => grounding.includes(item.wrong))?.wrong ??
           'No fixture fact was supplied.'
@@ -167,7 +170,13 @@ describe.skipIf(!enabled)('reviewed guide correction across two disposable venue
         const token = randomUUID()
         const original = await send(item.venueId, token, item.query)
         expect(original.response).toContain(item.wrong)
-        const correction = await send(item.venueId, token, `Your answer is wrong. ${item.correct}`)
+        const correction = await send(
+          item.venueId,
+          token,
+          item === cases[0]
+            ? `This isn't quite right. ${item.correct}`
+            : `Your answer is wrong. ${item.correct}`,
+        )
         expect(correction.response).toContain(item.wrong)
         const session = await db.visitorSession.findFirstOrThrow({
           where: { tenantId, venueId: item.venueId, anonymousToken: token },
@@ -324,6 +333,156 @@ describe.skipIf(!enabled)('reviewed guide correction across two disposable venue
         const otherRead = await read(other.venueId, other.query)
         expect(otherRead.entries.map((entry) => entry.content)).not.toContain(item.correct)
       }
+
+      const museum = cases[0]!
+      const gallery = cases[1]!
+      const additionToken = randomUUID()
+      await send(
+        museum.venueId,
+        additionToken,
+        `Oh! One thing I forgot to mention is that ${addedFact.toLowerCase()}`,
+      )
+      const additionSession = await db.visitorSession.findFirstOrThrow({
+        where: { tenantId, venueId: museum.venueId, anonymousToken: additionToken },
+        select: { id: true },
+      })
+      const additionTurn = await db.guestChatTurn.findFirstOrThrow({
+        where: { tenantId, venueId: museum.venueId, sessionId: additionSession.id },
+        select: { userMessageId: true },
+      })
+      const additionCandidate = await db.conversationInsight.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId: museum.venueId,
+          sessionId: additionSession.id,
+          category: 'CONTENT_UPDATE_CANDIDATE',
+        },
+        select: {
+          id: true,
+          candidateRevision: true,
+          candidateProvenance: true,
+          evidenceMessageIds: true,
+        },
+      })
+      expect(additionCandidate.candidateProvenance).toMatchObject({
+        verification: 'UNVERIFIED',
+        classifier: { kind: 'FACTUAL_ADDITION' },
+      })
+      expect(additionCandidate.evidenceMessageIds).toEqual([additionTurn.userMessageId])
+      expect(
+        (await read(museum.venueId, additionQuery)).entries.map((entry) => entry.content),
+      ).not.toContain(addedFact)
+      expect((await send(museum.venueId, randomUUID(), additionQuery)).response).not.toContain(
+        addedFact,
+      )
+      await admin.reviewConversationLearningCandidate({
+        tenantId,
+        venueId: museum.venueId,
+        operationId: randomUUID(),
+        insightId: additionCandidate.id,
+        expectedRevision: additionCandidate.candidateRevision,
+        action: 'ACCEPT_FOR_PROPOSAL',
+        reviewerFeedback: 'Checked the roof against the venue-approved source.',
+      })
+      const additionProposal = await admin.createKnowledgeProposal({
+        operationId: randomUUID(),
+        tenantId,
+        venueId: museum.venueId,
+        conversationInsightId: additionCandidate.id,
+        observedVisitorClaim: addedFact,
+        proposedChange: addedFact,
+        reason: 'Reviewed fixture label confirms the roof material.',
+        confidence: 1,
+        evidenceMessageIds: [additionTurn.userMessageId!],
+        submitForReview: true,
+      })
+      const additionPending = await db.knowledgeChangeProposal.findUniqueOrThrow({
+        where: { id: additionProposal.id },
+        select: { updatedAt: true },
+      })
+      await admin.reviewKnowledgeProposal({
+        operationId: randomUUID(),
+        tenantId,
+        venueId: museum.venueId,
+        proposalId: additionProposal.id,
+        expectedUpdatedAt: additionPending.updatedAt.toISOString(),
+        decision: 'APPROVED',
+        reviewNote: 'Fixture source confirms the roof material.',
+      })
+      const additionApproved = await db.knowledgeChangeProposal.findUniqueOrThrow({
+        where: { id: additionProposal.id },
+        select: { updatedAt: true },
+      })
+      const additionDesired = {
+        title: 'Case 12 house roof',
+        category: 'POLICY',
+        content: addedFact,
+        isEnabled: true,
+      }
+      const additionPreview = await previewSemanticVenueUpdateFromProposal({
+        db,
+        tenantId,
+        venueId: museum.venueId,
+        proposalId: additionProposal.id,
+        expectedUpdatedAt: additionApproved.updatedAt,
+        relation: 'NEW_FACT',
+        desired: additionDesired,
+      })
+      expect(additionPreview.classification).toBe('ADDITION')
+      const additionDraft = await createSemanticUniversalContentDraftService({
+        db,
+        actorId: adminId,
+        input: {
+          tenantId,
+          venueId: museum.venueId,
+          proposalId: additionProposal.id,
+          expectedProposalUpdatedAt: additionApproved.updatedAt.toISOString(),
+          expectedPreviewHash: additionPreview.previewHash,
+          relation: 'NEW_FACT',
+          desired: additionDesired,
+          draft: {
+            audience: 'PUBLIC',
+            evidence: [
+              {
+                sourceId: `fixture-reviewed-label:${museum.venueId}:roof`,
+                locator: 'label',
+                capturedAt: new Date().toISOString(),
+                excerptHash: 'b'.repeat(64),
+              },
+            ],
+            payload: {
+              kind: 'POLICY',
+              title: additionDesired.title,
+              rule: addedFact,
+              appliesTo: [],
+            },
+          },
+        },
+      })
+      expect(
+        (await read(museum.venueId, additionQuery)).entries.map((entry) => entry.content),
+      ).not.toContain(addedFact)
+      expect((await send(museum.venueId, randomUUID(), additionQuery)).response).not.toContain(
+        addedFact,
+      )
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId: museum.venueId,
+        moduleId: additionDraft.moduleId,
+        revisionId: additionDraft.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor,
+      })
+      const additionFresh = await send(museum.venueId, randomUUID(), additionQuery)
+      expect(additionFresh.response).toContain(addedFact)
+      const galleryFresh = await send(gallery.venueId, randomUUID(), gallery.query)
+      expect(galleryFresh.response).toContain(gallery.correct)
+      expect(galleryFresh.response).not.toContain(addedFact)
+      expect(
+        (await read(gallery.venueId, gallery.query)).entries.map((entry) => entry.content),
+      ).not.toContain(addedFact)
     })
   })
 })

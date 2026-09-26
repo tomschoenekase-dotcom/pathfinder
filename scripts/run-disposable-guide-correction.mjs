@@ -11,6 +11,7 @@ try {
       successAction: 'guide-correction.disposable-shakedown.passed',
       proofScope: [
         'two-venue-in-chat-correction-capture',
+        'in-chat-factual-addition-capture-and-publication',
         'source-answer-and-claim-evidence',
         'human-review-and-explicit-publication',
         'fresh-visitor-corrected-answer',

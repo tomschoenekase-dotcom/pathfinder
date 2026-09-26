@@ -37,6 +37,12 @@ describe('conversation learning candidate discovery', () => {
         'Your answer is wrong. The Case 12 house was created in 1904, not 1914.',
       ),
     ).toMatchObject({ kind: 'FACTUAL_CORRECTION', verification: 'UNVERIFIED' })
+    expect(
+      classifyConversationLearningCandidate(
+        "This isn't quite right. The Case 12 house was created in 1904.",
+      ),
+    ).toMatchObject({ kind: 'FACTUAL_CORRECTION', verification: 'UNVERIFIED' })
+    expect(classifyConversationLearningCandidate("This isn't quite right.")).toBeNull()
   })
 
   it('recognizes ordinary placard facts and temporary updates', () => {
@@ -47,6 +53,11 @@ describe('conversation learning candidate discovery', () => {
       verification: 'UNVERIFIED',
       hedged: false,
     })
+    expect(
+      classifyConversationLearningCandidate(
+        'Oh! One thing I forgot to mention is that the Case 12 house has a copper roof.',
+      ),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION', verification: 'UNVERIFIED' })
     expect(
       classifyConversationLearningCandidate('The north entrance is closed today.'),
     ).toMatchObject({
