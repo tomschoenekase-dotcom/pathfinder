@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatWindow } from './ChatWindow'
@@ -20,6 +20,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -195,7 +196,8 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(alert.textContent).toContain('The guide could not respond.')
     expect(alert.closest('[role="log"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+    expect(screen.getByRole('status').getAttribute('aria-live')).toBe('polite')
 
     view.rerender(
       <ChatWindow
@@ -268,7 +270,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
 
     view.rerender(
       <ChatWindow
@@ -283,6 +285,64 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByRole('status').textContent).toBe(
       'Venue guide: Nearby, beside the east gallery.',
     )
+  })
+
+  it('keeps the dots visible, adds a delayed waiting line, and removes it on the first delta', () => {
+    vi.useFakeTimers()
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the café?' }]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+
+    act(() => vi.advanceTimersByTime(1_499))
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'By the east gallery.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+  })
+
+  it('uses localized waiting and live status copy for French visitors', () => {
+    vi.useFakeTimers()
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Où se trouve le café ?' }]}
+        onSend={vi.fn()}
+        isLoading
+        language="Français"
+        assistantLabel="Le guide"
+      />,
+    )
+
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe('Le guide répond')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    expect(status.querySelector('[lang="fr"]')?.getAttribute('dir')).toBe('ltr')
+
+    act(() => vi.advanceTimersByTime(1_500))
+    const waitingLine = screen.getByText('Le guide répond…')
+    expect(waitingLine.getAttribute('lang')).toBe('fr')
   })
 
   it('restores focus to the composer after a request finishes', () => {
