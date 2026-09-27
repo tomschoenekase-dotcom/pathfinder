@@ -159,20 +159,22 @@ export function ClientBillingView({
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">Billing</p>
         <h2 className="mt-2 text-xl font-semibold text-pf-deep">No billing arrangement yet</h2>
         <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-pf-deep/65">
-          Torchiko has not attached a subscription or manual billing arrangement to this account.
+          Torchiko will show your agreed price and secure payment link here once your arrangement is
+          ready.
         </p>
-        {onStartCheckout ? (
-          <div className="mt-6">
-            <ActionButton onClick={onStartCheckout}>Choose a plan</ActionButton>
-          </div>
-        ) : null}
+        <a
+          href="/support"
+          className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+        >
+          Contact Torchiko
+        </a>
       </section>
     )
   }
 
   const presentation = STATE_PRESENTATION[state]
   const primaryAction = billing.canRetryCheckout
-    ? { label: 'Try payment again', onClick: onRetryCheckout }
+    ? { label: 'Update payment details', onClick: onRetryCheckout }
     : billing.canStartCheckout
       ? { label: 'Complete payment', onClick: onStartCheckout }
       : billing.canManageBilling
@@ -372,8 +374,8 @@ export function ClientBillingView({
       </footer>
       <p className="px-1 text-xs leading-5 text-pf-deep/75">
         Card payments are securely processed by Stripe. Torchiko absorbs processing fees; your
-        displayed price is your subscription price. Taxes are not being calculated in the current
-        sandbox. Custom terms, refunds, and cancellation questions are handled by Torchiko support.{' '}
+        displayed price is your subscription price before any applicable tax. Custom terms, refunds,
+        and cancellation questions are handled by Torchiko support.{' '}
         <a
           className="font-semibold text-pf-primary underline-offset-2 hover:underline"
           href="https://torchiko.com/privacy"
