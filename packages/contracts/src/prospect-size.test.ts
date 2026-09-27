@@ -81,6 +81,13 @@ describe('Torchiko prospect size contract', () => {
         confidence: 'structured',
         sourceUrl: 'https://www.openstreetmap.org/way/123',
       }).reason,
+    ).toContain('building polygon footprint')
+    expect(
+      explainProspectSize({
+        ...valid,
+        confidence: 'structured',
+        sourceUrl: 'https://www.wikidata.org/wiki/Q123',
+      }).reason,
     ).toContain('Structured public')
     expect(
       prospectSizeEvidenceSchema.safeParse({

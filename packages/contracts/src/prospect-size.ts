@@ -355,7 +355,9 @@ export function explainProspectSize(evidence: unknown): {
         : size.confidence === 'measured'
           ? `Official ${size.basis.replaceAll('_', ' ')} evidence: ${size.value} ${size.unit}.`
           : size.confidence === 'structured'
-            ? `Structured public ${size.basis.replaceAll('_', ' ')} evidence: ${size.value} ${size.unit}.`
+            ? size.sourceUrl?.includes('openstreetmap.org')
+              ? `Mapped OSM ${size.basis === 'acres' ? 'site polygon area' : 'building polygon footprint'}: ${size.value} ${size.unit}.`
+              : `Structured public ${size.basis.replaceAll('_', ' ')} evidence: ${size.value} ${size.unit}.`
             : `Category rule classified this venue as ${size.class}.`,
     unknown: size.class === 'UNKNOWN' ? 'Venue size has not been established.' : null,
   }
