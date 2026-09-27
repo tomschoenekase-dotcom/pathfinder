@@ -56,10 +56,13 @@ export function ContentHistoryPanel({
   entityType,
   entityId,
   title = 'Version history',
+  variant = 'panel',
 }: {
   entityType: EntityType
   entityId: string
   title?: string
+  /** `inline` sits quietly inside a list item, such as one visitor notice. */
+  variant?: 'panel' | 'inline'
 }) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -238,22 +241,34 @@ export function ContentHistoryPanel({
 
   return (
     <section
-      className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
+      className={
+        variant === 'inline'
+          ? 'border-t border-tk-rule pt-2'
+          : 'rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm'
+      }
       aria-busy={pending !== null}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">{title}</h2>
-          <p className="mt-1 text-sm text-pf-deep/60">
-            Review exact changes or restore a prior state.
-          </p>
-        </div>
+        {variant === 'inline' ? (
+          <h4 className="text-sm font-semibold text-tk-ink">{title}</h4>
+        ) : (
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">{title}</h2>
+            <p className="mt-1 text-sm text-pf-deep/75">
+              Review exact changes or restore a prior state.
+            </p>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => void toggleOpen()}
           disabled={pending !== null}
           aria-expanded={isOpen}
-          className="inline-flex min-h-10 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+          className={
+            variant === 'inline'
+              ? 'inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-tk-focus hover:bg-tk-ink-wash'
+              : 'inline-flex min-h-10 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5'
+          }
         >
           {isOpen ? 'Hide history' : 'Show history'}
         </button>
@@ -283,16 +298,16 @@ export function ContentHistoryPanel({
             </button>
           ) : null}
           {isLoading && versions.length > 0 ? (
-            <p className="text-sm text-pf-deep/50" role="status">
+            <p className="text-sm text-pf-deep/75" role="status">
               Refreshing history…
             </p>
           ) : null}
           {isLoading && versions.length === 0 ? (
-            <p className="text-sm text-pf-deep/50" role="status">
+            <p className="text-sm text-pf-deep/75" role="status">
               Loading history…
             </p>
           ) : feedback?.kind === 'error' && versions.length === 0 ? null : versions.length === 0 ? (
-            <p className="text-sm text-pf-deep/50">No recorded versions yet.</p>
+            <p className="text-sm text-pf-deep/75">No recorded versions yet.</p>
           ) : (
             versions.map((version, index) => {
               const changes = changedSnapshotFields(version.beforeState, version.afterState)
@@ -305,7 +320,7 @@ export function ContentHistoryPanel({
                           {version.revertedFromId ? 'REVERT' : version.operation} · revision{' '}
                           {version.sequence.toString()}
                         </p>
-                        <p className="mt-1 text-xs text-pf-deep/50">
+                        <p className="mt-1 text-xs text-pf-deep/75">
                           {version.createdAt.toLocaleString()} · {version.actorId ?? 'system'}
                         </p>
                       </div>
@@ -328,13 +343,13 @@ export function ContentHistoryPanel({
                   ) : null}
                   <div className="mt-4 overflow-x-auto">
                     {changes.length === 0 ? (
-                      <p className="text-sm text-pf-deep/50">No field-level changes.</p>
+                      <p className="text-sm text-pf-deep/75">No field-level changes.</p>
                     ) : (
                       <table className="min-w-full table-fixed text-left text-xs">
                         <caption className="sr-only">
                           Field changes in this content revision
                         </caption>
-                        <thead className="text-pf-deep/50">
+                        <thead className="text-pf-deep/75">
                           <tr>
                             <th scope="col" className="w-1/5 px-2 py-2 font-medium">
                               Field

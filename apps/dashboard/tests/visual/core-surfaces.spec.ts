@@ -166,7 +166,7 @@ test('single-venue client home remains simple and responsive', async ({ page }, 
     page.locator('[data-fixture="portal-home"][data-fixture-state="live"]'),
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
-  await expect(page.getByLabel('Viewing venue')).toHaveCount(0)
+  await expect(page.getByLabel('Venue', { exact: true })).toHaveCount(0)
   const firstAction = page.getByRole('link').first()
   await firstAction.focus()
   await expect(firstAction).toBeFocused()

@@ -28,11 +28,15 @@ import { resolveIntakeUploadClientRecovery } from '@pathfinder/contracts/intake-
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
-import { putBlobWithDeadline, UploadDeadlineError } from '../lib/bounded-upload'
+import { UploadDeadlineError } from '../lib/bounded-upload'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import {
-  identifyIntakeFile,
-  intakeFileFingerprint,
+  inferIntakeCategory,
+  IntakeTransferError,
+  IntakeTransferSuperseded,
+  transferIntakeFile,
+} from '../lib/intake-file-transfer'
+import {
   MAX_INTAKE_FILE_SELECTION,
   SAFE_INTAKE_FILE_TYPES,
   validateIntakeFile,
@@ -226,18 +230,6 @@ function phaseIcon(phase: QueueItem['phase']) {
   if (phase === 'error' || phase === 'rejected' || phase === 'invalid') return AlertTriangle
   if (BUSY_PHASES.includes(phase)) return LoaderCircle
   return UploadCloud
-}
-
-function inferredCategory(file: File): IntakeUploadCategory {
-  if (file.type.startsWith('video/') || file.type.startsWith('audio/')) return 'VIDEO_AUDIO'
-  if (file.type.startsWith('image/')) return 'PHOTO'
-  if (
-    file.type === 'application/pdf' ||
-    file.type === 'application/json' ||
-    file.type.startsWith('text/')
-  )
-    return 'DOCUMENT'
-  return 'OTHER'
 }
 
 function clientUploadStatus(upload: SafeUpload): string {
@@ -552,7 +544,7 @@ export function IntakeFileUpload({
       next.push({
         localId: browserUuid(),
         file,
-        category: defaultCategory === 'AUTO' ? inferredCategory(file) : defaultCategory,
+        category: defaultCategory === 'AUTO' ? inferIntakeCategory(file) : defaultCategory,
         phase: error ? 'invalid' : 'selected',
         error,
       })
@@ -587,170 +579,53 @@ export function IntakeFileUpload({
     abortControllersRef.current.set(item.localId, controller)
     try {
       update(item.localId, { phase: 'hashing', error: null }, submittedScope, generation)
-      const identity = await identifyIntakeFile(item.file)
-      if (!isCurrent()) return
-      const fingerprint = intakeFileFingerprint(item.file, identity)
-      const storageKey = `torchiko:intake-upload:v1:${submittedScope}:${identity.sha256Hex}:${item.file.size}`
-      let persisted: { requestId: string; claimId: string } | null = null
-      try {
-        const raw = globalThis.localStorage?.getItem(storageKey)
-        if (raw) persisted = JSON.parse(raw) as { requestId: string; claimId: string }
-      } catch {
-        persisted = null
-      }
-      const prior = identitiesRef.current.get(item.localId)
-      const attempt =
-        prior?.fingerprint === fingerprint
-          ? prior
-          : {
-              fingerprint,
-              requestId: persisted?.requestId ?? browserUuid(),
-              claimId: persisted?.claimId ?? browserUuid(),
-            }
-      identitiesRef.current.set(item.localId, attempt)
-      try {
-        globalThis.localStorage?.setItem(
-          storageKey,
-          JSON.stringify({ requestId: attempt.requestId, claimId: attempt.claimId }),
-        )
-      } catch {
-        // Resume remains available for this page even if browser storage is unavailable.
-      }
-      const reserved = await reserve({
+      const outcome = await transferIntakeFile({
         venueId: submittedScope,
-        requestId: attempt.requestId,
-        displayName: item.file.name,
-        fileName: item.file.name,
-        mimeType: item.file.type,
-        byteSize: item.file.size,
-        sha256: identity.sha256Hex,
+        file: item.file,
         category: item.category,
+        api: { reserve, verify, signMultipartPart, completeMultipart },
+        signal: controller.signal,
+        priorAttempt: identitiesRef.current.get(item.localId),
+        isCurrent,
+        onAttempt: (attempt) => identitiesRef.current.set(item.localId, attempt),
+        onUploading: ({ id, multipart }) =>
+          update(
+            item.localId,
+            { phase: 'uploading', remoteUploadId: id, multipart },
+            submittedScope,
+            generation,
+          ),
+        onProgress: (uploadedBytes) =>
+          update(item.localId, { uploadedBytes }, submittedScope, generation),
+        onVerifying: () =>
+          update(item.localId, { phase: 'checking-format' }, submittedScope, generation),
       })
-      if (!isCurrent()) return
-      if (reserved.upload.status === 'AWAITING_REVIEW') {
+      if (outcome.kind === 'awaiting-review') {
         update(item.localId, { phase: 'awaiting-review' }, submittedScope, generation)
         onCommitted?.()
         return
       }
-      if (reserved.upload.status === 'REJECTED') {
-        identitiesRef.current.delete(item.localId)
-        update(
-          item.localId,
-          {
-            phase: 'rejected',
-            error: 'This file could not be accepted. Remove it and select the file again.',
-          },
-          submittedScope,
-          generation,
-        )
-        return
-      }
-      if (reserved.uploadRequest) {
-        update(
-          item.localId,
-          {
-            phase: 'uploading',
-            remoteUploadId: reserved.upload.id,
-            multipart: reserved.uploadRequest.kind === 'multipart',
-          },
-          submittedScope,
-          generation,
-        )
-        if (reserved.uploadRequest.kind === 'single') {
-          const response = await putBlobWithDeadline({
-            url: reserved.uploadRequest.url,
-            headers: reserved.uploadRequest.requiredHeaders,
-            body: item.file,
-            signal: controller.signal,
-            timeoutMs: 2 * 60 * 1000,
-          })
-          // A lost successful PUT can replay as precondition-failed because the immutable object now
-          // exists. Reconcile it through server-side generation/checksum verification; never infer
-          // success from the storage response alone.
-          if (!response.ok && response.status !== 412) {
-            throw new ClientIntakeFileError('The file could not be sent. Please try again.')
-          }
-        } else {
-          const completed = new Set(
-            reserved.uploadRequest.completedParts.map((part) => part.partNumber),
-          )
-          let uploadedBytes = reserved.uploadRequest.completedParts.reduce(
-            (total, part) => total + part.size,
-            0,
-          )
-          update(item.localId, { uploadedBytes }, submittedScope, generation)
-          for (let partNumber = 1; partNumber <= reserved.uploadRequest.partCount; partNumber++) {
-            if (completed.has(partNumber)) continue
-            const start = (partNumber - 1) * reserved.uploadRequest.partSize
-            const part = item.file.slice(
-              start,
-              Math.min(item.file.size, start + reserved.uploadRequest.partSize),
-            )
-            const digest = new Uint8Array(
-              await crypto.subtle.digest('SHA-256', await part.arrayBuffer()),
-            )
-            const checksumSha256 = [...digest]
-              .map((value) => value.toString(16).padStart(2, '0'))
-              .join('')
-            const signed = await signMultipartPart({
-              venueId: submittedScope,
-              uploadId: reserved.upload.id,
-              partNumber,
-              checksumSha256,
-            })
-            const response = await putBlobWithDeadline({
-              url: signed.url,
-              headers: signed.requiredHeaders,
-              body: part,
-              signal: controller.signal,
-              timeoutMs: 2 * 60 * 1000,
-            })
-            if (!response.ok)
-              throw new ClientIntakeFileError(
-                `Part ${partNumber} could not be sent. Retry to continue from saved parts.`,
-              )
-            uploadedBytes += part.size
-            update(item.localId, { uploadedBytes }, submittedScope, generation)
-          }
-          await completeMultipart({ venueId: submittedScope, uploadId: reserved.upload.id })
-        }
-        if (!isCurrent()) return
-      }
-      update(item.localId, { phase: 'checking-format' }, submittedScope, generation)
-      const verified = await verify({
-        venueId: submittedScope,
-        uploadId: reserved.upload.id,
-        claimId: attempt.claimId,
-      })
-      if (!isCurrent()) return
-      if (verified.upload.status === 'AWAITING_REVIEW') {
-        update(item.localId, { phase: 'awaiting-review' }, submittedScope, generation)
-        onCommitted?.()
-        return
-      }
-      if (verified.upload.status === 'PRECHECK_PASSED') {
+      if (outcome.kind === 'security-pending') {
         update(item.localId, { phase: 'security-pending', error: null }, submittedScope, generation)
         onCommitted?.()
         return
       }
-      if (verified.upload.status === 'REJECTED' || verified.nextAction === 'RESELECT_FILE') {
-        identitiesRef.current.delete(item.localId)
-        update(
-          item.localId,
-          {
-            phase: 'rejected',
-            error: 'Torchiko could not accept this file. Remove it and select the file again.',
-          },
-          submittedScope,
-          generation,
-        )
-        onCommitted?.()
-        return
-      }
-      throw new ClientIntakeFileError(
-        'Torchiko could not confirm the latest check. Please try again.',
+      identitiesRef.current.delete(item.localId)
+      update(
+        item.localId,
+        {
+          phase: 'rejected',
+          error:
+            outcome.stage === 'reserve'
+              ? 'This file could not be accepted. Remove it and select the file again.'
+              : 'Torchiko could not accept this file. Remove it and select the file again.',
+        },
+        submittedScope,
+        generation,
       )
+      if (outcome.stage === 'verify') onCommitted?.()
     } catch (error) {
+      if (error instanceof IntakeTransferSuperseded) return
       if (isCurrent()) {
         update(
           item.localId,
@@ -762,7 +637,7 @@ export function IntakeFileUpload({
                 ? 'Upload paused. Retry to continue from the saved parts.'
                 : error instanceof UploadDeadlineError
                   ? 'Upload paused after waiting two minutes for storage. Retry to continue safely.'
-                  : error instanceof ClientIntakeFileError
+                  : error instanceof ClientIntakeFileError || error instanceof IntakeTransferError
                     ? error.message
                     : 'Torchiko could not confirm this file. Please try again.',
           },

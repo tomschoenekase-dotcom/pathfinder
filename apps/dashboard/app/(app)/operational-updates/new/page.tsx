@@ -8,7 +8,7 @@ export default async function NewOperationalUpdatePage() {
   const venues = await caller.venue.list()
 
   return (
-    <div className="bg-pf-surface px-6 py-10 lg:px-10">
+    <div className="min-h-screen bg-tk-paper px-4 pb-16 pt-6 sm:px-8 sm:pt-10 lg:px-10 lg:pt-12">
       <div className="mx-auto max-w-4xl">
         {venues.length === 0 ? (
           <section className="rounded-[2rem] border border-dashed border-pf-light bg-pf-white px-6 py-12 text-center shadow-sm">

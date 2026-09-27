@@ -28,7 +28,7 @@ vi.mock('../../lib/trpc', () => ({
 
 import DashboardAppLayout from './layout'
 
-describe('DashboardAppLayout report availability', () => {
+describe('DashboardAppLayout', () => {
   afterEach(() => vi.unstubAllEnvs())
   beforeEach(() => {
     vi.clearAllMocks()
@@ -41,13 +41,13 @@ describe('DashboardAppLayout report availability', () => {
     mocks.availability.mockResolvedValue({ enabledVenueIds: [] })
   })
 
-  it('enables report navigation when at least one authorized venue is enabled', async () => {
-    mocks.availability.mockResolvedValueOnce({ enabledVenueIds: ['venue-2'] })
-
+  it('renders the shell without a per-request report or billing capability read', async () => {
     const result = await DashboardAppLayout({ children: <div>content</div> })
 
-    expect(mocks.availability).toHaveBeenCalledWith()
-    expect(result.props.children.props.weeklyReportsAvailable).toBe(true)
+    // Reports and payment live under Account now; their gates are read where they appear.
+    expect(mocks.availability).not.toHaveBeenCalled()
+    expect(result.props.children.props.weeklyReportsAvailable).toBeUndefined()
+    expect(result.props.children.props.paymentAvailable).toBeUndefined()
   })
 
   it('uses canonical cache scope and lets an authorized impersonation override the active provider org', async () => {
@@ -92,14 +92,5 @@ describe('DashboardAppLayout report availability', () => {
     const impersonated = await DashboardAppLayout({ children: <div>content</div> })
     expect(impersonated.props.scopeKey).toBe(`tenant:${space}`)
     expect(impersonated.props.children.props.impersonatedTenantName).toBe('Space')
-  })
-
-  it('keeps report navigation hidden when no venue is enabled or availability fails', async () => {
-    const disabled = await DashboardAppLayout({ children: <div>content</div> })
-    expect(disabled.props.children.props.weeklyReportsAvailable).toBe(false)
-
-    mocks.availability.mockRejectedValueOnce(new Error('private provider detail'))
-    const unavailable = await DashboardAppLayout({ children: <div>content</div> })
-    expect(unavailable.props.children.props.weeklyReportsAvailable).toBe(false)
   })
 })

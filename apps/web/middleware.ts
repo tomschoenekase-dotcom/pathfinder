@@ -6,6 +6,7 @@ import {
   buildWidgetFrameAncestors,
   extractExactWebsiteEmbedVenueSlug,
 } from './lib/widget-origin-policy'
+import { appearancePreviewParentOrigin } from './app/appearance-preview/preview-origin'
 
 const DENY_MICROPHONE_POLICY = 'camera=(), geolocation=(self), microphone=(), payment=(), usb=()'
 const VISITOR_VOICE_POLICY = 'camera=(), geolocation=(self), microphone=(self), payment=(), usb=()'
@@ -75,7 +76,10 @@ export function getEmbedResponseHeaders(
   })
 }
 
-export function getPageResponseHeaders(request: Pick<NextRequest, 'nextUrl'>): Headers | null {
+export function getPageResponseHeaders(
+  request: Pick<NextRequest, 'nextUrl'>,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Headers | null {
   const { pathname } = request.nextUrl
   if (
     pathname === '/embed' ||
@@ -86,6 +90,21 @@ export function getPageResponseHeaders(request: Pick<NextRequest, 'nextUrl'>): H
     pathname.startsWith('/trpc/')
   ) {
     return null
+  }
+
+  // The data-free appearance preview is the only page the client portal may frame, and only
+  // from the portal origin this service is configured with. X-Frame-Options cannot name an
+  // origin, so it is omitted there and frame-ancestors carries the exact allowance.
+  const previewParent =
+    pathname === '/appearance-preview' ? appearancePreviewParentOrigin(environment) : null
+  if (previewParent) {
+    return new Headers({
+      'Content-Security-Policy': `frame-ancestors 'self' ${previewParent}`,
+      'Permissions-Policy': DENY_MICROPHONE_POLICY,
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Robots-Tag': 'noindex, nofollow',
+    })
   }
 
   return new Headers({

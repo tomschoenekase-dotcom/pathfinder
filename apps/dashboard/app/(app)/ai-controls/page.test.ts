@@ -9,9 +9,9 @@ describe('Venue Bot settings route boundary', () => {
   it('loads the canonical configuration API and does not revive legacy AI controls', () => {
     expect(source).toContain('getBotConfiguration')
     expect(source).toContain('listPersonalityProfiles')
-    expect(source).toContain('ChatDesignForm')
-    expect(source).toContain('Customize the visitor chat')
-    expect(source).toContain('canEditBranding')
+    // Appearance now lives in Look & feel; this route keeps only tone and answer settings.
+    expect(source).not.toContain('ChatDesignForm')
+    expect(source).toContain('/look-and-feel')
     expect(source).not.toContain('getAiConfig')
     expect(source).not.toContain('place.list')
   })
@@ -25,8 +25,8 @@ describe('Venue Bot settings route boundary', () => {
   })
 
   it('keeps Venue Bot distinct from the private client assistant', () => {
-    expect(source).toContain('Venue Bot is separate')
-    expect(source).toContain('private client portal')
+    const form = readFileSync(join(process.cwd(), 'components/AiControlsForm.tsx'), 'utf8')
+    expect(form).toContain('private client assistant')
     expect(source).not.toContain('Your Torchiko')
   })
 })
