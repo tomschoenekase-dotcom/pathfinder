@@ -23,7 +23,7 @@
 
 .pf-launcher {
   appearance: none;
-  background: #111827;
+  background: var(--torchiko-widget-accent, #111827);
   border: 0;
   border-radius: 999px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
@@ -42,7 +42,7 @@
 }
 
 .pf-panel {
-  background: #fff;
+  background: var(--torchiko-widget-background, #fff);
   border: 1px solid rgba(15, 23, 42, 0.16);
   border-radius: 18px;
   bottom: max(80px, calc(64px + env(safe-area-inset-bottom)));
@@ -85,7 +85,7 @@
 }
 
 iframe {
-  background: #fff;
+  background: var(--torchiko-widget-background, #fff);
   border: 0;
   display: block;
   height: 100%;

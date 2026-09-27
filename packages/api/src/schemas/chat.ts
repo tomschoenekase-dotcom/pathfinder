@@ -30,6 +30,9 @@ const supportedChatLanguageLabels = [
 export const SupportedChatLanguageInput = z.enum(supportedChatLanguageLabels)
 export type SupportedChatLanguage = z.infer<typeof SupportedChatLanguageInput>
 
+export const VisitorEntrySurfaceInput = z.enum(['direct', 'qr', 'website', 'app'])
+export type VisitorEntrySurfaceInput = z.infer<typeof VisitorEntrySurfaceInput>
+
 const guestCoordinatesShape = {
   lat: z.number().finite().min(-90).max(90).optional(),
   lng: z.number().finite().min(-180).max(180).optional(),
@@ -56,6 +59,7 @@ export const ChatSessionInput = z
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),
+    entrySurface: VisitorEntrySurfaceInput.optional(),
     secondLayerKey: z.string().uuid().optional(),
     ...guestCoordinatesShape,
   })
@@ -68,6 +72,7 @@ export const ChatSendInput = z
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),
+    entrySurface: VisitorEntrySurfaceInput.optional(),
     secondLayerKey: z.string().uuid().optional(),
     entryPlaceId: z.string().trim().min(1).max(191).optional(),
     message: z.string().trim().min(1).max(1000),

@@ -374,10 +374,26 @@ const REVIEWED_234_TO_250 = [
 ]
 
 async function readMigrationManifest(directory) {
-  const manifest = await readCurrentMigrationManifest(directory)
+  const source = await readCurrentMigrationManifest(directory)
+  // Distribution RC-1 adds a source migration but does not approve it for
+  // staging. Existing positive ledger fixtures still exercise the frozen 250
+  // endpoint; the production admission function must reject the full source.
+  assert.equal(source.names.length, EXPECTED.migrationCount + 1)
+  assert.equal(source.names.at(-1), '20260926120000_add_venue_distribution')
+  const names = source.names.slice(0, EXPECTED.migrationCount)
+  const hash = createHash('sha256')
+    .update(`${names.map((name) => `${name} ${source.checksums.get(name)}`).join('\n')}\n`)
+    .digest('hex')
+  const manifest = { ...source, names, hash }
   assertFrozenManifest(manifest)
   return manifest
 }
+
+test('distribution migration 251 remains refused by the frozen staging admission gate', async () => {
+  const source = await readCurrentMigrationManifest('packages/db/prisma')
+  assert.equal(source.names.at(-1), '20260926120000_add_venue_distribution')
+  assert.throws(() => assertFrozenManifest(source), /migration count changed/u)
+})
 
 function completedRows(manifest, count = manifest.names.length) {
   return manifest.names.slice(0, count).map((migration_name) => ({

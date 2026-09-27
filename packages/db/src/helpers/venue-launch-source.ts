@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
+import { buildVenueAccessArtifacts, nativeCoreVisibleStateHash } from '@pathfinder/contracts'
 import { resolveNativeGuestReadSnapshotAction } from './native-guest-content-read'
 import { db } from '../client'
 
@@ -28,38 +28,12 @@ type PublicKnowledge = {
   category: string
   content: string
 }
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
-
 function guestQrUrl(
   rawOrigin: string | null | undefined,
   slug: string,
   allowLoopbackHttp: boolean,
 ) {
-  const raw = rawOrigin?.trim()
-  if (!raw || !slug || slug === '.' || slug === '..') return null
-  try {
-    const origin = new URL(raw)
-    if (
-      (origin.protocol !== 'https:' &&
-        !(
-          allowLoopbackHttp &&
-          origin.protocol === 'http:' &&
-          LOOPBACK_HOSTS.has(origin.hostname)
-        )) ||
-      (raw !== origin.origin && raw !== `${origin.origin}/`) ||
-      origin.username ||
-      origin.password ||
-      origin.pathname !== '/' ||
-      origin.search ||
-      origin.hash
-    )
-      return null
-    const url = new URL(`/${encodeURIComponent(slug)}/chat`, origin.origin)
-    url.searchParams.set('source', 'qr')
-    return url.toString()
-  } catch {
-    return null
-  }
+  return buildVenueAccessArtifacts(rawOrigin, slug, { allowLoopbackHttp })?.qrUrl ?? null
 }
 
 export type VenueLaunchSource = {

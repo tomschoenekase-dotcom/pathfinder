@@ -42,12 +42,11 @@ export function LocationBanner({
       <section
         lang={presentation.code}
         dir={presentation.direction}
-        className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-4 text-[var(--chat-text-muted)] shadow-sm"
+        aria-label={checkingTitle}
+        role="status"
+        className="mb-2 px-1 py-1 text-xs leading-5 text-[var(--chat-text-muted)]"
       >
-        <p className="text-sm font-semibold text-[var(--chat-text)]">{checkingTitle}</p>
-        <p className="mt-1 text-sm leading-6 text-[var(--chat-text-muted)]">
-          {checkingDescription}
-        </p>
+        {checkingDescription}
       </section>
     )
   }
@@ -69,21 +68,19 @@ export function LocationBanner({
     <section
       lang={presentation.code}
       dir={presentation.direction}
-      className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 shadow-sm"
+      aria-label={content.title}
+      className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1 py-0.5"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-pf-deep">{content.title}</p>
-          <p className="mt-1 text-sm leading-6 text-pf-deep/70">{content.description}</p>
-        </div>
-        <button
-          className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-300 bg-pf-white px-4 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
-          type="button"
-          onClick={onRefresh}
-        >
-          {content.action}
-        </button>
-      </div>
+      <p className="min-w-0 flex-1 text-xs leading-5 text-[var(--chat-text-muted)]">
+        {content.description}
+      </p>
+      <button
+        className="inline-flex min-h-11 shrink-0 items-center justify-center px-1 text-xs font-semibold text-[var(--chat-accent-text)] underline-offset-4 transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 motion-reduce:transition-none"
+        type="button"
+        onClick={onRefresh}
+      >
+        {content.action}
+      </button>
     </section>
   )
 }

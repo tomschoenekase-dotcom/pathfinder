@@ -2,37 +2,40 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-describe('widget operator contract', () => {
-  const guide = readFileSync(resolve(process.cwd(), '../../docs/widget-preview.md'), 'utf8')
-  const environment = readFileSync(resolve(process.cwd(), '../../.env.example'), 'utf8')
+const docsRoot = resolve(process.cwd(), '../../docs')
+const contract = readFileSync(resolve(docsRoot, 'distribution/README.md'), 'utf8')
+const website = readFileSync(resolve(docsRoot, 'distribution/website-installation.md'), 'utf8')
+const app = readFileSync(resolve(docsRoot, 'distribution/app-webview-host-guide.md'), 'utf8')
+const environment = readFileSync(resolve(process.cwd(), '../../.env.example'), 'utf8')
 
-  it('documents the exact default-off server-owned controls', () => {
+describe('distribution operator contract', () => {
+  it('documents default-off website and app gates plus the compatibility alias', () => {
+    expect(environment).toContain('WEBSITE_DISTRIBUTION_ENABLED=false')
+    expect(environment).toContain('APP_DISTRIBUTION_ENABLED=false')
     expect(environment).toContain('EMBED_PREVIEW_ENABLED=false')
-    expect(environment).toContain('WIDGET_PREVIEW_ORIGINS_JSON={}')
-    expect(guide).toContain('RAILWAY_ENVIRONMENT=staging')
-    expect(guide).toContain('EMBED_PREVIEW_ENABLED=true')
-    expect(guide).toContain('WIDGET_PREVIEW_ORIGINS_JSON=')
-    expect(guide).toContain("The request's `Origin` and `Referer` headers never grant authority")
+    expect(contract).toContain('widget` entitlement')
+    expect(contract).toContain('app-webview` entitlement')
+    expect(contract).toContain('compatibility alias')
   })
 
-  it('does not overclaim identity, attribution, or packet completion', () => {
-    expect(guide).toContain('default-off staging kernel')
-    expect(guide).toContain('not completion of packet gate M4')
-    expect(guide).toContain('There is no publishable widget key')
-    expect(guide).toContain('`guest-web` attribution')
-    expect(guide).toContain('It is not trustworthy `guest-widget` attribution')
-    expect(guide).toContain('The only cross-window message is the fixed outbound readiness signal')
-    expect(guide).toContain('There is no inbound host command')
+  it('pins route, origin and attribution boundaries', () => {
+    expect(contract).toContain('/embed/<slug>/inline')
+    expect(contract).toContain('/app/<slug>?header=compact')
+    expect(contract).toContain('/embed/<slug>?chrome=hidden')
+    expect(contract).toContain('route-declared, bounded, and stored once')
+    expect(contract).toContain('Existing public AI usage remains `guest-web`')
+    expect(website).toContain('script-src`, `style-src`, `connect-src`, and `frame-src`')
+    expect(website).toContain('A readiness response does not grant framing')
   })
 
-  it('documents query isolation and a data-free rollback', () => {
-    expect(guide).toContain('every query-bearing embed URL')
-    expect(guide).toContain('set `EMBED_PREVIEW_ENABLED=false`')
-    expect(guide).toContain('No migration or persistent data rollback is involved')
-    expect(guide).toContain('session-free, credential-free, no-referrer')
-    expect(guide).toContain('unavailable Torchiko guide does not leave a broken launcher')
-    expect(guide).toContain('`script-src`, `style-src`, `connect-src`, and `frame-src`')
-    expect(guide).toContain('closed launcher creates no iframe, visitor session, or location work')
-    expect(guide).toContain('ten-second readiness timeout removes the complete widget')
+  it('states revocation and WebView host requirements without claiming rollout', () => {
+    expect(contract).toContain('30-second TTL')
+    expect(contract).toContain('before staging')
+    expect(app).toContain('targetFrame == nil')
+    expect(app).toContain('setSupportMultipleWindows(false)')
+    expect(app).toContain('onRenderProcessGone')
+    expect(app).toContain('WindowInsetsCompat.Type.ime()')
+    expect(app).toContain('textZoom')
+    expect(app).toContain('initial top-level load fails')
   })
 })

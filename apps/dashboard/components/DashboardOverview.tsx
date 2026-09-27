@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
+import { CopyAccessValueButton } from './CopyAccessValueButton'
 import { SecondLayerSettings } from './SecondLayerSettings'
 
 type DashboardOverviewProps = {
@@ -34,6 +35,21 @@ type DashboardOverviewProps = {
     feedback: { helpful: number; notHelpful: number }
   } | null
   secondLayer?: { enabled: boolean; label: string; url: string | null; updatedAt: string }
+  distributionReadback?: {
+    website: {
+      effective: boolean
+      reason: string | null
+      framed: boolean
+      frameReason: string | null
+      origins: readonly string[]
+    }
+    app: { effective: boolean; reason: string | null }
+    revision: number
+    sessions30d: { direct: number; qr: number; website: number; app: number; unknown: number }
+    publicUrl: string | null
+    appUrl: string | null
+    appBackground: string | null
+  } | null
 }
 
 export type ClientPortalTask = {
@@ -80,6 +96,7 @@ export function DashboardOverviewView({
   tasks,
   visitorPulse,
   secondLayer,
+  distributionReadback,
   organizationName,
 }: DashboardOverviewProps & { organizationName?: string | undefined }) {
   const orgName = impersonatedTenantName ?? organizationName ?? venue.name
@@ -263,6 +280,72 @@ export function DashboardOverviewView({
             ) : null}
           </div>
         </section>
+
+        {distributionReadback ? (
+          <section
+            className="mt-7 space-y-4 border-y border-pf-light py-5"
+            aria-labelledby="distribution-readback-title"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <div>
+                <h2 id="distribution-readback-title" className="text-lg font-semibold text-pf-deep">
+                  Visitor access
+                </h2>
+                <p className="mt-1 text-sm text-pf-deep/70">
+                  Read-only access summary · revision {distributionReadback.revision}
+                </p>
+              </div>
+              {distributionReadback.publicUrl ? (
+                <CopyAccessValueButton label="visitor URL" value={distributionReadback.publicUrl} />
+              ) : null}
+            </div>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt className="text-sm font-semibold text-pf-deep">Website embedding</dt>
+                <dd className="mt-1 text-sm text-pf-deep/70">
+                  {distributionReadback.website.effective
+                    ? 'Available for preview'
+                    : `Unavailable: ${distributionReadback.website.reason ?? 'not ready'}`}
+                  {distributionReadback.website.framed
+                    ? ` · ${distributionReadback.website.origins.length} allowed origin(s)`
+                    : ` · ${distributionReadback.website.frameReason ?? 'self-framed only'}`}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-semibold text-pf-deep">App WebView</dt>
+                <dd className="mt-1 text-sm text-pf-deep/70">
+                  {distributionReadback.app.effective
+                    ? 'Available'
+                    : `Unavailable: ${distributionReadback.app.reason ?? 'not ready'}`}
+                  {distributionReadback.appUrl ? (
+                    <span className="ml-2 inline-flex">
+                      <CopyAccessValueButton label="app URL" value={distributionReadback.appUrl} />
+                    </span>
+                  ) : null}
+                  {distributionReadback.appBackground ? (
+                    <span className="ml-2 inline-flex">
+                      <CopyAccessValueButton
+                        label="app background color"
+                        value={distributionReadback.appBackground}
+                      />
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+            </dl>
+            <div
+              className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-pf-deep/70"
+              aria-label="Visitor sessions in the last 30 days"
+            >
+              <span>30 day sessions:</span>
+              {Object.entries(distributionReadback.sessions30d).map(([surface, count]) => (
+                <span key={surface} className="capitalize">
+                  {surface} {count}
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {secondaryTasks.length ? (
           <section className="mt-9" aria-labelledby="more-actions-heading">

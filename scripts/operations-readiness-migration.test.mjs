@@ -15,7 +15,7 @@ const operationalHealthPath = path.join(
   'operational-health.ts',
 )
 
-test('operations readiness expects the exact latest reviewed migration', async () => {
+test('operations readiness stays pinned to reviewed 250 while distribution 251 awaits staging admission', async () => {
   const migrations = (await readdir(migrationsPath, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -27,5 +27,7 @@ test('operations readiness expects the exact latest reviewed migration', async (
     /export const EXPECTED_LATEST_MIGRATION\s*=\s*'([0-9]{14}_[a-z0-9_]+)'/u,
   )
   assert.ok(match, 'operational readiness exports one literal reviewed migration identity')
-  assert.equal(match[1], migrations.at(-1))
+  assert.equal(match[1], '20260918190000_add_agent_routines')
+  assert.equal(migrations.at(-2), match[1])
+  assert.equal(migrations.at(-1), '20260926120000_add_venue_distribution')
 })

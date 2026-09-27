@@ -3,6 +3,14 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'EMBED_PREVIEW_ENABLED',
     defaultEnabled: false,
   },
+  websiteDistribution: {
+    environmentVariable: 'WEBSITE_DISTRIBUTION_ENABLED',
+    defaultEnabled: false,
+  },
+  appDistribution: {
+    environmentVariable: 'APP_DISTRIBUTION_ENABLED',
+    defaultEnabled: false,
+  },
   voiceMode: {
     environmentVariable: 'VOICE_MODE_ENABLED',
     defaultEnabled: false,
@@ -247,4 +255,18 @@ export function isEmbedPreviewEnabled(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
   return isFeatureEnabled('embedPreview', environment)
+}
+
+/** The legacy preview switch temporarily opts both distribution surfaces in. */
+export function isWebsiteDistributionEnabled(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return isFeatureEnabled('websiteDistribution', environment) || isEmbedPreviewEnabled(environment)
+}
+
+/** The legacy preview switch temporarily opts both distribution surfaces in. */
+export function isAppDistributionEnabled(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return isFeatureEnabled('appDistribution', environment) || isEmbedPreviewEnabled(environment)
 }

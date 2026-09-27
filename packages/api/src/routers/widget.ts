@@ -1,8 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { isEmbedPreviewEnabled } from '@pathfinder/config/feature-flags'
-import { resolveProductEntitlement } from '@pathfinder/db'
+import { resolveCachedVenueDistribution } from '@pathfinder/db'
 
 import { router } from '../core'
 import { publicProcedure } from '../trpc'
@@ -21,20 +20,12 @@ export const widgetRouter = router({
         .strict(),
     )
     .query(async ({ ctx, input }) => {
-      if (!isEmbedPreviewEnabled()) return { enabled: false as const }
-      // Deliberate public lookup by globally unique slug; no content or secrets are selected.
-      const [venue] = await ctx.db.$queryRaw<Array<{ id: string; tenantId: string }>>`
-        SELECT id, tenant_id AS "tenantId" FROM venues
-         WHERE slug = ${input.venueSlug} AND is_active = true LIMIT 1
-      `
-      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Widget not found.' })
-      const entitlement = await resolveProductEntitlement({
+      const resolved = await resolveCachedVenueDistribution({
         client: ctx.db,
-        tenantId: venue.tenantId,
-        venueId: venue.id,
-        capability: 'widget',
-        featureAvailable: true,
+        venueSlug: input.venueSlug,
       })
-      return entitlement.enabled ? { enabled: true as const } : { enabled: false as const }
+      const venue = resolved
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Widget not found.' })
+      return venue.website.framed ? { enabled: true as const } : { enabled: false as const }
     }),
 })

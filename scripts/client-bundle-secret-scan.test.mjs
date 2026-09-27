@@ -49,6 +49,7 @@ test('the canary registry covers every secret-shaped config key without stale en
     'GEMINI_API_KEY',
     'GOOGLE_OAUTH_CLIENT_SECRET',
     'INTEGRATION_ENCRYPTION_KEY',
+    'INTERNAL_POLICY_TOKEN',
     'OPENAI_API_KEY',
     'REDIS_URL',
     'RESEND_API_KEY',

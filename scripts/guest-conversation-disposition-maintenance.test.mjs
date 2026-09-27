@@ -20,9 +20,9 @@ import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../p
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
-test('250 maintenance source verification accepts the exact current ledger and refuses drift before body reads', async () => {
+test('250 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  const rows = manifest.names.map((migration_name) => ({
+  const rows = manifest.names.slice(0, 250).map((migration_name) => ({
     migration_name,
     checksum: manifest.ledgerChecksums.get(migration_name),
     finished_at: '2026-09-12T00:00:00Z',
@@ -66,6 +66,30 @@ test('250 maintenance source verification accepts the exact current ledger and r
     assert.equal(calls, 1)
   }
 })
+test('maintenance source verification refuses a 251-row ledger before function body reads', async () => {
+  const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
+  assert.equal(manifest.names.length, 251)
+  assert.equal(manifest.names.at(-1), '20260926120000_add_venue_distribution')
+  const rows = manifest.names.map((migration_name) => ({
+    migration_name,
+    checksum: manifest.ledgerChecksums.get(migration_name),
+    finished_at: '2026-09-12T00:00:00Z',
+    rolled_back_at: null,
+    logs: null,
+  }))
+  let calls = 0
+  await assert.rejects(
+    verifyDispositionDatabaseSource({
+      query: async () => {
+        calls++
+        return rows
+      },
+    }),
+    /database migration endpoint/u,
+  )
+  assert.equal(calls, 1)
+})
+
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'pathfinder-synthetic-maintenance-'))
   const journalPath = join(dir, 'journal.jsonl')
@@ -147,7 +171,7 @@ async function fixture() {
   return { dir, plan, now }
 }
 
-test('actual default CLI checks a bound local plan without psql, database or journal writes', async () => {
+test('actual default CLI refuses a bound plan while source migration 251 is unreviewed', async () => {
   const { dir, plan } = await fixture()
   const raw = JSON.stringify(plan)
   const file = join(dir, 'plan.json')
@@ -164,12 +188,12 @@ test('actual default CLI checks a bound local plan without psql, database or jou
     ],
     { encoding: 'utf8', timeout: 15000, env: { SystemRoot: process.env.SystemRoot, PATH: '' } },
   )
-  assert.equal(child.status, 0, child.stderr)
-  assert.equal(child.stderr, '')
-  assert.deepEqual(JSON.parse(child.stdout), {
-    status: 'LOCAL_PLAN_CHECKED',
-    networkOrDatabaseContact: false,
-    planSha256: dispositionSha256(raw),
+  assert.equal(child.status, 2, child.stderr)
+  assert.equal(child.stdout, '')
+  assert.deepEqual(JSON.parse(child.stderr), {
+    status: 'REFUSED',
+    code: 'INPUT_OR_EXECUTION_REFUSED',
+    noAutomaticReopen: true,
   })
   assert.deepEqual(await readFile(plan.journalPath), before)
 })
@@ -206,7 +230,7 @@ for (const mode of ['stale', 'held', 'source-drift']) {
     assert.deepEqual({ closes, queries, connects }, { closes: 1, queries: 0, connects: 0 })
   })
 }
-test('already-journaled APPLY requires the exact requested hash before connecting or mutating', async () => {
+test('already-journaled APPLY still refuses before connecting while source 251 is unreviewed', async () => {
   const { dir, plan, now } = await fixture()
   const request = {
     version: 'guest-conversation-disposition-v1',
@@ -262,7 +286,10 @@ test('already-journaled APPLY requires the exact requested hash before connectin
     raw = JSON.stringify({ ...prior, highWaterSha256: journal.headSha256 })
   await writeFile(path, raw, { flag: 'wx' })
   plan.evidence.journalCustody = { path, sha256: dispositionSha256(raw) }
-  await validateDispositionMaintenancePlan(plan, now)
+  await assert.rejects(
+    validateDispositionMaintenancePlan(plan, now),
+    /source migration endpoint/u,
+  )
   let closed = false
   await assert.rejects(
     runDispositionMaintenance({
@@ -281,7 +308,7 @@ test('already-journaled APPLY requires the exact requested hash before connectin
         throw new Error('unexpected connect')
       },
     }),
-    /selected existing intent request hash mismatch/u,
+    /source migration endpoint/u,
   )
   assert.equal(closed, true)
 })

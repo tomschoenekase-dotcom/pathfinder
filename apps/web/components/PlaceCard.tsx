@@ -114,7 +114,7 @@ export function PlaceCard({
             <a
               href={photoAttribution.sourceUrl}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="underline"
             >
               {photoAttribution.sourceName}

@@ -108,6 +108,13 @@
     "input": null
   },
   {
+    "path": "analytics.getSessionsByEntrySurface",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "visitorSession.groupBy",
+    "input": null
+  },
+  {
     "path": "analytics.getTopTopics",
     "kind": "query",
     "minimumRole": "STAFF",
@@ -372,6 +379,13 @@
     "minimumRole": "STAFF",
     "firstTouch": "tenant.findUnique",
     "input": null
+  },
+  {
+    "path": "tenant.venueDistribution.readback",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
   },
   {
     "path": "tenant.inviteMember",

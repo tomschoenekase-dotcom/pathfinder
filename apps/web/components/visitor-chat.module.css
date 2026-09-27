@@ -8,6 +8,41 @@
 .header {
   flex-shrink: 0;
 }
+.header[data-app-header='compact'] .headerInner {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  padding-block: 4px;
+}
+.header[data-app-header='compact'] .identity {
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  gap: 7px;
+}
+.header[data-app-header='compact'] .identityCopy p,
+.header[data-app-header='compact'] .identity > span {
+  display: none;
+}
+.header[data-app-header='compact'] .identity h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header[data-app-header='compact'] .toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  margin-top: 0;
+  gap: 4px;
+}
+.header[data-app-header='compact'] .toolbar > button {
+  max-width: 9rem;
+  min-height: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .shell[data-keyboard-open] .connectionDetail {
   position: absolute;
   width: 1px;

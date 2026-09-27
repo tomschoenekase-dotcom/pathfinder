@@ -12,6 +12,7 @@ import type { SessionContext } from '@pathfinder/auth'
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
+import { tenantDistributionReadbackRouter } from './tenant/venue-distribution'
 
 // Team management is OWNER-only, same as other tenant-membership-affecting
 // actions — except platform admins, who manage clients while impersonating
@@ -37,6 +38,7 @@ function mapTenantSettingsActionError(error: unknown): never {
 }
 
 export const tenantRouter = router({
+  venueDistribution: tenantDistributionReadbackRouter,
   /**
    * Returns the current tenant's settings and full non-removed member list.
    * Used by the dashboard settings page.

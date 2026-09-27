@@ -78,6 +78,8 @@ export const McpCapability = z.enum([
   'knowledge:read',
   'knowledge:draft',
   'locations:propose',
+  'distribution:read',
+  'distribution:propose',
   'meetings:read',
   'meetings:process',
   'workers:read',
@@ -789,6 +791,34 @@ export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   draft: VenueLocationDraftFieldsSchema,
 }).strict()
 export type McpLocationDraftProposalInput = z.infer<typeof McpLocationDraftProposalInput>
+
+export const McpDistributionGetInput = McpRequestedScope.extend({
+  venueId: Identifier,
+}).strict()
+export type McpDistributionGetInput = z.infer<typeof McpDistributionGetInput>
+
+export const McpDistributionProposalInput = McpRequestedScope.extend({
+  venueId: Identifier,
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  reason: z.string().trim().min(3).max(2000),
+  change: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ADD_ORIGIN'), origin: z.string().trim().min(1).max(255) }).strict(),
+    z
+      .object({ kind: z.literal('REVOKE_ORIGIN'), origin: z.string().trim().min(1).max(255) })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('SET_SURFACE'),
+        surface: z.enum(['WEBSITE', 'APP']),
+        enabled: z.boolean(),
+      })
+      .strict(),
+  ]),
+}).strict()
+export type McpDistributionProposalInput = z.infer<typeof McpDistributionProposalInput>
 
 export const McpSupportTriageProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
@@ -1562,6 +1592,8 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.create_typed_draft'
   | 'torchiko.knowledge.adopt_legacy_draft'
   | 'torchiko.locations.propose_draft'
+  | 'torchiko.distribution.get'
+  | 'torchiko.distribution.propose_change'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
   | 'pathfinder.propose_support_information_request'
@@ -3108,6 +3140,86 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     _meta: {
       'com.pathfinder/security': security('venue', 'packages:reconcile', 'approved-transition'),
     },
+  },
+  {
+    name: 'torchiko.distribution.get',
+    title: 'Read venue distribution',
+    description:
+      'Read scoped website and app distribution state, derived artifacts, origin history, and 30-day entry counts.',
+    inputSchema: strictObject(scopeProperties, scopeRequired),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'distribution:read', 'read') },
+  },
+  {
+    name: 'torchiko.distribution.propose_change',
+    title: 'Propose venue distribution change',
+    description:
+      'Record a scoped pending approval request; never changes framing, origins, or surface state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        change: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['kind', 'origin'],
+              properties: {
+                kind: { const: 'ADD_ORIGIN' },
+                origin: { type: 'string', minLength: 1, maxLength: 255 },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['kind', 'origin'],
+              properties: {
+                kind: { const: 'REVOKE_ORIGIN' },
+                origin: { type: 'string', minLength: 1, maxLength: 255 },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['kind', 'surface', 'enabled'],
+              properties: {
+                kind: { const: 'SET_SURFACE' },
+                surface: { enum: ['WEBSITE', 'APP'] },
+                enabled: { type: 'boolean' },
+              },
+            },
+          ],
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'reason',
+        'change',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'distribution:propose', 'interaction') },
   },
   {
     name: 'torchiko.locations.propose_draft',

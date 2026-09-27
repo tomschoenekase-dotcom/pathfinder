@@ -22,6 +22,12 @@ describe('guest chat URL boundary', () => {
     )
   })
 
+  it('keeps legacy encoded slugs available through the dashboard URL wrapper', () => {
+    const url = buildGuestChatUrl('https://guide.example.com', 'museum west')
+    expect(url).toBe('https://guide.example.com/museum%20west/chat')
+    expect(buildQrEntryUrl(url)).toBe('https://guide.example.com/museum%20west/chat?source=qr')
+  })
+
   it.each(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000'])(
     'allows an explicit loopback HTTP origin for local development: %s',
     (origin) => {

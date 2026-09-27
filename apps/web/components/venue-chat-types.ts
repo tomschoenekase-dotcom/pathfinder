@@ -35,4 +35,4 @@ export type ChatMessage = {
   pendingOperationId?: string
 }
 
-export type VenueChatPresentation = 'standalone' | 'embed' | 'webview'
+export type VenueChatPresentation = 'standalone' | 'embed' | 'embed-inline' | 'webview'

@@ -19,6 +19,7 @@ const visitorSessionUpdateMany = vi.fn()
 const visitorSessionFindFirst = vi.fn()
 const visitorSessionFindMany = vi.fn()
 const visitorSessionCount = vi.fn()
+const visitorSessionGroupBy = vi.fn()
 const messageCount = vi.fn()
 const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
@@ -64,6 +65,7 @@ const mockDb = {
     findFirst: visitorSessionFindFirst,
     findMany: visitorSessionFindMany,
     count: visitorSessionCount,
+    groupBy: visitorSessionGroupBy,
   },
   message: {
     count: messageCount,
@@ -519,10 +521,10 @@ describe('analytics router', () => {
     expect(data).not.toHaveProperty('metadata')
   })
 
-  it('analytics.trackEvent persists only the bounded QR entry source on session start', async () => {
+  it('analytics.trackEvent maps legacy QR input and stamps entrySurface from the session row', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
     analyticsEventCreate.mockResolvedValueOnce({})
-    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1', entrySurface: 'QR' })
 
     await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
       sessionId: '00000000-0000-4000-8000-000000000001',
@@ -534,8 +536,40 @@ describe('analytics router', () => {
     expect(analyticsEventCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         eventType: 'session.started',
-        metadata: { entrySource: 'qr' },
+        metadata: { entrySurface: 'qr' },
       }),
+    })
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ entrySurface: 'QR' }),
+        update: expect.not.objectContaining({ entrySurface: expect.anything() }),
+      }),
+    )
+  })
+
+  it('analytics.trackEvent records the bounded entry surface only on session create', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({
+      id: 'internal_session_1',
+      entrySurface: 'WEBSITE',
+    })
+
+    await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      entrySurface: 'website',
+    })
+
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ entrySurface: 'WEBSITE' }),
+        update: expect.not.objectContaining({ entrySurface: expect.anything() }),
+      }),
+    )
+    expect(analyticsEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ metadata: { entrySurface: 'website' } }),
     })
   })
 
@@ -765,6 +799,29 @@ describe('analytics router', () => {
 
     await expect(caller.analytics.getVisitorStats({ days: 30 })).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }),
+    )
+  })
+
+  it('analytics.getSessionsByEntrySurface returns every bounded surface plus unknown', async () => {
+    visitorSessionGroupBy.mockResolvedValueOnce([
+      { entrySurface: 'DIRECT', _count: { _all: 3 } },
+      { entrySurface: 'QR', _count: { _all: 2 } },
+      { entrySurface: null, _count: { _all: 5 } },
+    ])
+    const caller = testRouter.createCaller(tenantCtx())
+
+    await expect(caller.analytics.getSessionsByEntrySurface({ days: 30 })).resolves.toEqual([
+      { surface: 'direct', label: 'Direct', count: 3 },
+      { surface: 'qr', label: 'QR', count: 2 },
+      { surface: 'website', label: 'Website', count: 0 },
+      { surface: 'app', label: 'App', count: 0 },
+      { surface: 'unknown', label: 'Unknown', count: 5 },
+    ])
+    expect(visitorSessionGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['entrySurface'],
+        where: expect.objectContaining({ tenantId: 'tenant_1', experienceScope: 'PUBLIC' }),
+      }),
     )
   })
 

@@ -60,7 +60,8 @@
     "./venue-launch-asset": "./src/venue-launch-asset.ts",
     "./venue-launch-asset-node": "./src/venue-launch-asset-node.ts",
     "./venue-qr-svg": "./src/venue-qr-svg.ts",
-    "./venue-qr-print": "./src/venue-qr-print.ts"
+    "./venue-qr-print": "./src/venue-qr-print.ts",
+    "./venue-access-artifacts": "./src/venue-access-artifacts.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

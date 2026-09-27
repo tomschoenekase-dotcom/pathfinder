@@ -66,6 +66,7 @@ export function VenueChatShell(props: {
   venue: VenueSummary
   venueSlug: string
   presentation: VenueChatPresentation
+  appHeader?: 'full' | 'compact'
   messages: ChatMessage[]
   isSending: boolean
   sendError: string | null
@@ -101,7 +102,6 @@ export function VenueChatShell(props: {
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
   visitContext?: GuestVisitContextInput
-  visitPreferences?: ReactNode
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
 }) {
@@ -109,6 +109,7 @@ export function VenueChatShell(props: {
     venue,
     venueSlug,
     presentation,
+    appHeader = 'full',
     messages,
     isSending,
     sendError,
@@ -139,11 +140,11 @@ export function VenueChatShell(props: {
     onMessageFeedback,
     voiceControl,
     visitContext,
-    visitPreferences,
     routePlanner,
     connectionState = 'online',
   } = props
   const isOnline = connectionState !== 'offline'
+  const compactAppHeader = presentation === 'webview' && appHeader === 'compact'
   const viewportHeight = useChatViewportHeight()
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
@@ -231,8 +232,9 @@ export function VenueChatShell(props: {
       <header
         className={`${styles.header} relative overflow-hidden border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6`}
         data-branding-banner-state={bannerUrl ? bannerStatus : 'none'}
+        data-app-header={presentation === 'webview' ? appHeader : undefined}
       >
-        {bannerUrl && bannerStatus !== 'failed' ? (
+        {!compactAppHeader && bannerUrl && bannerStatus !== 'failed' ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={bannerUrl}
@@ -244,7 +246,9 @@ export function VenueChatShell(props: {
             onError={() => setBannerLoad({ src: bannerUrl, status: 'failed' })}
           />
         ) : null}
-        {banner ? <span aria-hidden="true" className="absolute inset-0 bg-black/65" /> : null}
+        {!compactAppHeader && banner ? (
+          <span aria-hidden="true" className="absolute inset-0 bg-black/65" />
+        ) : null}
         <div className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}>
           {presentation === 'standalone' ? (
             <Link
@@ -277,7 +281,7 @@ export function VenueChatShell(props: {
                 {identitySubtitle}
               </p>
             </div>
-            {venue.experienceLabel ? (
+            {!compactAppHeader && venue.experienceLabel ? (
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${banner ? 'bg-white/20 text-white' : 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)]'}`}
               >
@@ -324,7 +328,6 @@ export function VenueChatShell(props: {
             conversationTools={
               <>
                 {routePlanner}
-                {visitPreferences}
                 <LocationBanner
                   permission={location.permission}
                   onRefresh={location.refresh}

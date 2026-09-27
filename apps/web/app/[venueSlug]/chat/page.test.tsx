@@ -20,11 +20,11 @@ vi.mock('../../../components/VenueChatExperience', () => ({
     venueSlug,
     presentation,
     initialDraft,
-    entrySource,
+    accessSurface,
     initialEntryPlaceId,
     initialVenue,
   }: Record<string, string> & { initialVenue: { slug: string; venue: { id: string } } }) => (
-    <div>{`${presentation}:${venueSlug}:${entrySource}:${initialEntryPlaceId}:${initialDraft}:${initialVenue.slug}:${initialVenue.venue.id}`}</div>
+    <div>{`${presentation}:${venueSlug}:${accessSurface}:${initialEntryPlaceId}:${initialDraft}:${initialVenue.slug}:${initialVenue.venue.id}`}</div>
   ),
 }))
 

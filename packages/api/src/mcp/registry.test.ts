@@ -56,6 +56,8 @@ function actions(): PathfinderMcpDomainActions {
     createSemanticUniversalContentDraft: vi.fn().mockResolvedValue(result),
     createLegacyKnowledgeAdoptionDraft: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
+    distributionGet: vi.fn().mockResolvedValue(result),
+    distributionProposeChange: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
     applySupportTriage: vi.fn().mockResolvedValue(result),
     proposeSupportInformationRequest: vi.fn().mockResolvedValue(result),
@@ -195,6 +197,64 @@ describe('scoped workflow inspection', () => {
     ).rejects.toThrow()
     expect(domain.readAgentWorkflowVersions).toHaveBeenCalledTimes(1)
     expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+  })
+})
+
+describe('venue distribution MCP boundary', () => {
+  const scoped = {
+    ...credential,
+    capabilities: [
+      ...credential.capabilities,
+      'distribution:read' as const,
+      'distribution:propose' as const,
+    ],
+  }
+
+  it('requires exact venue and capability for readback', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const input = { clientId: 'client-1', venueId: 'venue-1' }
+    await registry.callTool('torchiko.distribution.get', input, { credential: scoped })
+    expect(domain.distributionGet).toHaveBeenCalledWith(input, expect.anything())
+    for (const denied of [
+      { ...scoped, capabilities: [] },
+      { ...scoped, venueIds: ['venue-2'] },
+    ]) {
+      await expect(
+        registry.callTool('torchiko.distribution.get', input, { credential: denied }),
+      ).rejects.toThrow()
+    }
+    expect(domain.distributionGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes a proposal without an approval grant or apply capability', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      reason: 'Approve this exact website origin',
+      change: { kind: 'ADD_ORIGIN', origin: 'https://venue.example.com' },
+    }
+    await registry.callTool('torchiko.distribution.propose_change', input, { credential: scoped })
+    expect(domain.distributionProposeChange).toHaveBeenCalledWith(input, expect.anything())
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+    expect(
+      registry.listTools().some((tool) => tool.name === 'torchiko.distribution.apply_change'),
+    ).toBe(false)
+    await expect(
+      registry.callTool('torchiko.distribution.apply_change', input, { credential: scoped }),
+    ).rejects.toThrow()
+    await expect(
+      registry.callTool('torchiko.distribution.propose_change', input, {
+        credential: { ...scoped, capabilities: ['distribution:read'] },
+      }),
+    ).rejects.toThrow()
+    expect(domain.distributionProposeChange).toHaveBeenCalledTimes(1)
   })
 })
 

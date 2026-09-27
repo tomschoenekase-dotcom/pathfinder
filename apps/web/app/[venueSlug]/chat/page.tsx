@@ -44,7 +44,7 @@ export default async function VenueChatPage({ params, searchParams }: VenueChatP
       initialVenue={{ slug: venueSlug, venue }}
       presentation="standalone"
       initialDraft={parseEntryPrompt(read('prompt'))}
-      {...(entrySource ? { entrySource } : {})}
+      accessSurface={entrySource === 'qr' ? 'qr' : 'direct'}
       {...(initialEntryPlaceId ? { initialEntryPlaceId } : {})}
     />
   )

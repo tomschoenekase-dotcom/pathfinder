@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   taskEvidence: vi.fn(),
   secondLayer: vi.fn(),
   visitorPulse: vi.fn(),
+  distributionReadback: vi.fn(),
   auth: vi.fn(),
 }))
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }))
@@ -22,6 +23,7 @@ vi.mock('../../lib/server-caller', () => ({
       getVenueTaskEvidence: mocks.taskEvidence,
       getVenueVisitorPulse: mocks.visitorPulse,
     },
+    tenant: { venueDistribution: { readback: mocks.distributionReadback } },
   })),
 }))
 
@@ -57,6 +59,7 @@ describe('dashboard home venue selection', () => {
       updatedAt: new Date('2026-09-08T12:00:00.000Z'),
     })
     mocks.visitorPulse.mockResolvedValue({ conversations: 2 })
+    mocks.distributionReadback.mockResolvedValue(null)
   })
 
   it('drives lifecycle reads and client links from the explicitly selected second venue', async () => {
@@ -67,6 +70,7 @@ describe('dashboard home venue selection', () => {
     expect(mocks.taskEvidence).toHaveBeenCalledWith({ venueId: 'venue_beta' })
     expect(mocks.secondLayer).toHaveBeenCalledWith({ venueId: 'venue_beta' })
     expect(mocks.visitorPulse).toHaveBeenCalledWith({ venueId: 'venue_beta' })
+    expect(mocks.distributionReadback).toHaveBeenCalledWith({ venueId: 'venue_beta' })
     expect(element.props.venue).toMatchObject({
       id: 'venue_beta',
       name: 'History Center',

@@ -13,7 +13,7 @@ import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 import { LocationRoutePlanner, type LocationRoutePlannerDataSource } from './LocationRoutePlanner'
 import { VenueChatShell } from './VenueChatShell'
 import { VoiceControlPanel } from './VoiceControl'
-import type { ChatMessage, VenueSummary } from './venue-chat-types'
+import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 
 export const VISITOR_FIXTURE_STATES = [
   'idle',
@@ -279,6 +279,9 @@ export function VenueChatFixture({
   accent,
   branding = 'none',
   readOnly = false,
+  presentation = 'standalone',
+  appHeader = 'full',
+  booting = false,
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -294,6 +297,9 @@ export function VenueChatFixture({
   accent?: string | undefined
   branding?: VisitorFixtureBranding
   readOnly?: boolean
+  presentation?: VenueChatPresentation
+  appHeader?: 'full' | 'compact'
+  booting?: boolean
 }) {
   const [clientMounted, setClientMounted] = useState(false)
 
@@ -312,6 +318,9 @@ export function VenueChatFixture({
         data-fixture-asset={asset}
         data-fixture-voice={voice}
         data-fixture-network={network}
+        data-fixture-presentation={presentation}
+        data-fixture-app-header={appHeader}
+        data-fixture-booting={booting}
         data-fixture-route={route}
         data-fixture-branding={branding}
       >
@@ -329,7 +338,8 @@ export function VenueChatFixture({
               : {}),
           }}
           venueSlug="fixture-great-lakes-museum"
-          presentation="standalone"
+          presentation={presentation}
+          appHeader={appHeader}
           messages={
             conversation === 'long'
               ? LONG_CONVERSATION
@@ -342,6 +352,7 @@ export function VenueChatFixture({
                     : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
+          isRestoringHistory={booting}
           conversationLocked={readOnly}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
