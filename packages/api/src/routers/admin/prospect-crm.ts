@@ -9,6 +9,7 @@ import { adminProspectCrmIntelligenceRouter } from './prospect-crm-intelligence'
 import { adminProspectCrmMutationsRouter } from './prospect-crm-mutations'
 import { adminProspectCrmOutreachRouter } from './prospect-crm-outreach'
 import { adminProspectCrmSavedViewsRouter } from './prospect-crm-saved-views'
+import { adminProspectCrmSizeProposalsRouter } from './prospect-crm-size-proposals'
 import { adminProspectCrmTerritoriesRouter } from './prospect-crm-territories'
 
 export const adminProspectCrmRouter = mergeRouters(
@@ -23,4 +24,5 @@ export const adminProspectCrmRouter = mergeRouters(
   adminProspectCrmIntelligenceRouter,
   adminProspectCrmOutreachRouter,
   adminProspectCrmSavedViewsRouter,
+  adminProspectCrmSizeProposalsRouter,
 )

@@ -39,6 +39,7 @@ type Stage = (typeof STAGES)[number]
 type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 type Tier = 'STANDARD' | 'HIGH_VALUE' | 'STRATEGIC'
 type EmailReadiness = 'READY' | 'MISSING' | 'SUPPRESSED'
+type Territory = { id: string; name: string; code: string; region: string | null }
 type DirectoryResult = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['listProspects']['query']>
 >
@@ -82,6 +83,9 @@ export function ProspectDirectory({
     const value = searchParams.get('emailReadiness')
     return ['READY', 'MISSING', 'SUPPRESSED'].includes(value ?? '') ? (value as EmailReadiness) : ''
   })
+  const [goodFit, setGoodFit] = useState(() => searchParams.get('goodFit') === 'true')
+  const [territoryId, setTerritoryId] = useState(() => searchParams.get('territoryId') ?? '')
+  const [territories, setTerritories] = useState<Territory[]>([])
   const [nextAction, setNextAction] = useState<'OVERDUE' | 'UPCOMING' | 'NONE' | ''>(() => {
     const value = searchParams.get('nextAction')
     return ['OVERDUE', 'UPCOMING', 'NONE'].includes(value ?? '')
@@ -113,8 +117,10 @@ export function ProspectDirectory({
       ...(tier ? { relationshipTier: tier } : {}),
       ...(emailReadiness ? { emailReadiness } : {}),
       ...(nextAction ? { nextAction } : {}),
+      ...(goodFit ? { goodFit: true } : {}),
+      ...(territoryId ? { territoryId } : {}),
     }),
-    [emailReadiness, nextAction, priority, search, stage, tier],
+    [emailReadiness, goodFit, nextAction, priority, search, stage, territoryId, tier],
   )
 
   useEffect(() => {
@@ -126,6 +132,8 @@ export function ProspectDirectory({
       tier,
       emailReadiness,
       nextAction,
+      goodFit: goodFit ? 'true' : '',
+      territoryId,
     }
     for (const [key, value] of Object.entries(values)) {
       if (value) next.set(key, value)
@@ -134,7 +142,33 @@ export function ProspectDirectory({
     const query = next.toString()
     if (query !== searchParams.toString())
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [emailReadiness, nextAction, pathname, priority, router, search, searchParams, stage, tier])
+  }, [
+    emailReadiness,
+    goodFit,
+    nextAction,
+    pathname,
+    priority,
+    router,
+    search,
+    searchParams,
+    stage,
+    territoryId,
+    tier,
+  ])
+
+  useEffect(() => {
+    if (fixture) return
+    let current = true
+    void client.admin.listProspectTerritories
+      .query()
+      .then((items) => {
+        if (current) setTerritories(items)
+      })
+      .catch(() => undefined)
+    return () => {
+      current = false
+    }
+  }, [client, fixture])
 
   useEffect(() => {
     if (fixture) return
@@ -288,6 +322,8 @@ export function ProspectDirectory({
         ? (value.nextAction as typeof nextAction)
         : '',
     )
+    setGoodFit(value.goodFit === true)
+    setTerritoryId(typeof value.territoryId === 'string' ? value.territoryId : '')
   }
 
   async function saveView() {
@@ -384,6 +420,12 @@ export function ProspectDirectory({
           >
             Import spreadsheet
           </Link>
+          <Link
+            href="/admin/prospects/review-proposals"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            Review size proposals
+          </Link>
         </div>
       </div>
 
@@ -450,6 +492,30 @@ export function ProspectDirectory({
           />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            aria-pressed={goodFit}
+            onClick={() => setGoodFit((current) => !current)}
+            className={`min-h-10 rounded-xl border px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${goodFit ? 'border-sky-700 bg-sky-50 text-sky-900' : 'border-slate-300 text-slate-700'}`}
+          >
+            Good fit · S–L · no recorded outreach
+          </button>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            Territory
+            <select
+              aria-label="Prospect territory"
+              value={territoryId}
+              onChange={(event) => setTerritoryId(event.target.value)}
+              className="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            >
+              <option value="">All assigned territories</option>
+              {territories.map((territory) => (
+                <option key={territory.id} value={territory.id}>
+                  {territory.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <FilterSelect
             labelText="Next action state"
             value={nextAction}
@@ -567,6 +633,14 @@ export function ProspectDirectory({
                         {item.venues[0]?.name ?? 'Organization prospect'} ·{' '}
                         {item.territory?.name ?? 'Unassigned territory'}
                       </p>
+                      {goodFit && item.venues[0]?.goodFit ? (
+                        <p className="mt-2 text-xs leading-5 text-slate-700">
+                          {item.venues[0].goodFit.reason}
+                          {item.venues[0].goodFit.unknown
+                            ? ` Unknown: ${item.venues[0].goodFit.unknown}`
+                            : ''}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
                       <span className="rounded-full bg-sky-100 px-2.5 py-1 font-semibold text-sky-800">

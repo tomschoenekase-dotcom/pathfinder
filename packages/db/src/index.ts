@@ -343,6 +343,11 @@ export type {
   ProspectImportNormalizedRow,
 } from './helpers/prospect-actions'
 export {
+  applyProspectSizeProposalAction,
+  type ProspectSizeProposal,
+  type ProspectSizeApplyResult,
+} from './helpers/prospect-size-proposal-actions'
+export {
   canonicalJson as canonicalProspectJson,
   normalizeProspectDomain,
   normalizeProspectEmail,
@@ -889,6 +894,7 @@ export type {
   WeeklyDigestStatus,
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
+export { Prisma } from '@prisma/client'
 export {
   AgentQuestionActionError,
   answerAgentQuestionAction,
