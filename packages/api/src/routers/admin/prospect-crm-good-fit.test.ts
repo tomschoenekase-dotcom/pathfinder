@@ -10,6 +10,7 @@ import {
   prospectGoodFitOrganizationWhere,
 } from './prospect-crm-directory'
 import { prospectGoodFitSavedView } from './prospect-crm-saved-views'
+import { defaultProspectGoodFitRules } from '@pathfinder/contracts/prospect-size'
 
 const fitAttributes = {
   torchikoSizeV1: {
@@ -196,5 +197,64 @@ describe('prospect CRM Good fit view', () => {
       },
     })
     expect(tagged.qualifies).toBe(false)
+  })
+
+  it('honors a saved view variation while preserving the conservative default', () => {
+    const custom = {
+      ...defaultProspectGoodFitRules,
+      sizeClasses: ['XS' as const],
+      supportedCategories: ['museum'],
+      requireTerritory: false,
+      excludeCampaignMembership: false,
+      excludeDrafts: false,
+      excludeOutboundCorrespondence: false,
+      excludeOpenOrConfirmedDuplicates: false,
+    }
+    const where = prospectGoodFitOrganizationWhere(undefined, custom)
+    const venueWhere = (where.venues as unknown as { some: Record<string, unknown> }).some
+    expect(venueWhere.estimatedSize).toEqual({ in: ['XS'] })
+    expect(venueWhere.campaignMembers).toBeUndefined()
+    expect(venueWhere.outreachDrafts).toBeUndefined()
+    expect(venueWhere.emailMessages).toBeUndefined()
+    expect(where.OR).toBeUndefined()
+    const customVenue = describeProspectGoodFitVenue(
+      {
+        name: 'Unassigned Tiny Museum',
+        venueType: 'museum',
+        fitAttributes: {
+          ...fitAttributes,
+          torchikoSizeV1: {
+            ...fitAttributes.torchikoSizeV1,
+            class: 'XS',
+            value: 80,
+          },
+        },
+        territoryId: null,
+        organization: {
+          canonicalName: 'Unassigned Tiny Museum',
+          organizationType: 'museum',
+          territoryId: null,
+        },
+      },
+      undefined,
+      custom,
+    )
+    expect(customVenue.qualifies).toBe(true)
+    expect(
+      describeProspectGoodFitVenue({
+        name: 'Unassigned Tiny Museum',
+        venueType: 'museum',
+        fitAttributes: {
+          ...fitAttributes,
+          torchikoSizeV1: { ...fitAttributes.torchikoSizeV1, class: 'XS', value: 80 },
+        },
+        territoryId: null,
+        organization: {
+          canonicalName: 'Unassigned Tiny Museum',
+          organizationType: 'museum',
+          territoryId: null,
+        },
+      }).qualifies,
+    ).toBe(false)
   })
 })

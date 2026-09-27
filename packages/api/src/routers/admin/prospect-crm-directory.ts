@@ -2,9 +2,12 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  defaultProspectGoodFitRules,
   explainProspectSize,
   prospectCategorySizeRule,
   prospectGoodFitCriteria,
+  prospectGoodFitRulesSchema,
+  type ProspectGoodFitRules,
 } from '@pathfinder/contracts/prospect-size'
 import { db, withTenantIsolationBypass, type Prisma } from '@pathfinder/db'
 import { router } from '../../core'
@@ -16,116 +19,131 @@ import {
   prospectCursorWhere,
 } from './prospect-crm-pagination'
 
-const goodFitCategoryVariants = [
-  ...prospectGoodFitCriteria.supportedCategories,
-  'museum',
-  'aquarium',
-  'garden',
-  'zoo',
-  'zoo_aquarium',
-  'botanical_garden',
-  'historic_site',
-  'performing_arts',
-]
-const goodFitTriageCategories = prospectGoodFitCriteria.supportedCategories
-const goodFitSizeClasses = prospectGoodFitCriteria.eligibleSizeClasses
-
-export function prospectGoodFitVenueWhere(territoryId?: string): Prisma.ProspectVenueWhereInput {
+export function prospectGoodFitVenueWhere(
+  territoryId?: string,
+  rules: ProspectGoodFitRules = defaultProspectGoodFitRules,
+): Prisma.ProspectVenueWhereInput {
+  const categories = rules.supportedCategories.map((category) => category.trim().toLowerCase())
+  const scopedTerritory = territoryId || rules.requireTerritory
+  const priorityClauses: Prisma.ProspectVenueWhereInput[] = [
+    {
+      fitAttributes: {
+        path: ['torchikoFounderPriorityV1', 'bucket'],
+        equals: rules.founderPriority,
+      },
+    },
+    ...rules.buyerAttainabilityAnyOf.map((value) => ({
+      fitAttributes: { path: ['torchikoTriageV1', 'buyerAttainability'], equals: value },
+    })),
+  ]
   return {
     archivedAt: null,
-    estimatedSize: { in: [...goodFitSizeClasses] },
+    estimatedSize: { in: rules.sizeClasses },
     AND: [
+      ...(scopedTerritory
+        ? [
+            {
+              OR: territoryId
+                ? [{ territoryId }, { organization: { is: { territoryId } } }]
+                : [
+                    { territoryId: { not: null } },
+                    { organization: { is: { territoryId: { not: null } } } },
+                  ],
+            },
+          ]
+        : []),
       {
-        OR: territoryId
-          ? [{ territoryId }, { organization: { is: { territoryId } } }]
-          : [
-              { territoryId: { not: null } },
-              { organization: { is: { territoryId: { not: null } } } },
-            ],
-      },
-      {
-        OR: goodFitSizeClasses.map((sizeClass) => ({
+        OR: rules.sizeClasses.map((sizeClass) => ({
           fitAttributes: { path: ['torchikoSizeV1', 'class'], equals: sizeClass },
         })),
       },
+      { OR: priorityClauses },
       {
         OR: [
-          {
-            fitAttributes: {
-              path: ['torchikoFounderPriorityV1', 'bucket'],
-              equals: prospectGoodFitCriteria.founderPriority,
-            },
-          },
-          ...prospectGoodFitCriteria.buyerAttainabilityAnyOf.map((value) => ({
-            fitAttributes: { path: ['torchikoTriageV1', 'buyerAttainability'], equals: value },
-          })),
-        ],
-      },
-      {
-        OR: [
-          ...goodFitTriageCategories.map((value) => ({
+          ...categories.map((value) => ({
             fitAttributes: { path: ['torchikoTriageV1', 'normalizedType'], equals: value },
           })),
-          { venueType: { in: goodFitCategoryVariants, mode: 'insensitive' as const } },
+          { venueType: { in: categories, mode: 'insensitive' as const } },
           {
             organization: {
               is: {
-                organizationType: { in: goodFitCategoryVariants, mode: 'insensitive' as const },
+                organizationType: { in: categories, mode: 'insensitive' as const },
               },
             },
           },
         ],
       },
-      {
-        NOT: [
-          { name: { contains: 'Soldier Field', mode: 'insensitive' as const } },
-          { name: { contains: 'library', mode: 'insensitive' as const } },
-          { name: { contains: 'stadium', mode: 'insensitive' as const } },
-          { name: { contains: 'arena', mode: 'insensitive' as const } },
-          {
-            organization: {
-              is: { canonicalName: { contains: 'Chicago Bears', mode: 'insensitive' as const } },
+      ...(rules.excludeStadiumArena
+        ? [
+            {
+              NOT: [
+                { name: { contains: 'Soldier Field', mode: 'insensitive' as const } },
+                { name: { contains: 'library', mode: 'insensitive' as const } },
+                { name: { contains: 'stadium', mode: 'insensitive' as const } },
+                { name: { contains: 'arena', mode: 'insensitive' as const } },
+                {
+                  organization: {
+                    is: {
+                      canonicalName: { contains: 'Chicago Bears', mode: 'insensitive' as const },
+                    },
+                  },
+                },
+              ],
             },
-          },
-        ],
-      },
+          ]
+        : []),
     ],
-    campaignMembers: { none: {} },
-    outreachDrafts: { none: {} },
-    emailMessages: { none: { direction: 'OUTBOUND' } },
-    activities: { none: { type: 'OUTREACH_SENT' } },
+    ...(rules.excludeCampaignMembership ? { campaignMembers: { none: {} } } : {}),
+    ...(rules.excludeDrafts ? { outreachDrafts: { none: {} } } : {}),
+    ...(rules.excludeOutboundCorrespondence
+      ? {
+          emailMessages: { none: { direction: 'OUTBOUND' as const } },
+          activities: { none: { type: 'OUTREACH_SENT' as const } },
+        }
+      : {}),
     organization: {
       is: {
         archivedAt: null,
-        campaignMembers: { none: {} },
-        outreachDrafts: { none: {} },
-        emailMessages: { none: { direction: 'OUTBOUND' } },
-        activities: { none: { type: 'OUTREACH_SENT' } },
-        duplicateCandidatesA: {
-          none: { status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] as const } },
-        },
-        duplicateCandidatesB: {
-          none: { status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] as const } },
-        },
+        ...(rules.excludeCampaignMembership ? { campaignMembers: { none: {} } } : {}),
+        ...(rules.excludeDrafts ? { outreachDrafts: { none: {} } } : {}),
+        ...(rules.excludeOutboundCorrespondence
+          ? {
+              emailMessages: { none: { direction: 'OUTBOUND' as const } },
+              activities: { none: { type: 'OUTREACH_SENT' as const } },
+            }
+          : {}),
+        ...(rules.excludeOpenOrConfirmedDuplicates
+          ? {
+              duplicateCandidatesA: {
+                none: { status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] as const } },
+              },
+              duplicateCandidatesB: {
+                none: { status: { in: ['OPEN', 'CONFIRMED_DUPLICATE'] as const } },
+              },
+            }
+          : {}),
       },
     },
   }
 }
 export function prospectGoodFitOrganizationWhere(
   territoryId?: string,
+  rules: ProspectGoodFitRules = defaultProspectGoodFitRules,
 ): Prisma.ProspectOrganizationWhereInput {
   return {
-    venues: { some: prospectGoodFitVenueWhere(territoryId) },
+    venues: { some: prospectGoodFitVenueWhere(territoryId, rules) },
     ...(territoryId
       ? {
           OR: [{ territoryId }, { venues: { some: { territoryId } } }],
         }
-      : {
-          OR: [
-            { territoryId: { not: null } },
-            { venues: { some: { territoryId: { not: null } } } },
-          ],
-        }),
+      : rules.requireTerritory
+        ? {
+            OR: [
+              { territoryId: { not: null } },
+              { venues: { some: { territoryId: { not: null } } } },
+            ],
+          }
+        : {}),
   }
 }
 
@@ -143,6 +161,7 @@ export function describeProspectGoodFitVenue(
     }
   },
   territoryId?: string,
+  rules: ProspectGoodFitRules = defaultProspectGoodFitRules,
 ) {
   const size = explainProspectSize(venue.fitAttributes)
   const attributes =
@@ -161,19 +180,24 @@ export function describeProspectGoodFitVenue(
   const founderBucket = founder.bucket
   const buyerAttainability = triage.buyerAttainability
   const qualifyingPriority =
-    founderBucket === prospectGoodFitCriteria.founderPriority ||
-    prospectGoodFitCriteria.buyerAttainabilityAnyOf.includes(
-      buyerAttainability as (typeof prospectGoodFitCriteria.buyerAttainabilityAnyOf)[number],
-    )
+    founderBucket === rules.founderPriority ||
+    rules.buyerAttainabilityAnyOf.includes(String(buyerAttainability))
   const enterpriseDeferred =
     buyerAttainability === 'BUYER_ENTERPRISE' ||
     (typeof founderBucket === 'string' && founderBucket.includes('ENTERPRISE')) ||
     (Array.isArray(venue.organization.tags) &&
       venue.organization.tags.includes(prospectGoodFitCriteria.excludedEnterpriseFlag))
+  const categoryCandidates = [
+    triage.normalizedType,
+    venue.venueType,
+    venue.organization.organizationType,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   const category =
-    (typeof triage.normalizedType === 'string' ? triage.normalizedType : null) ??
-    venue.venueType ??
-    venue.organization.organizationType
+    categoryCandidates.find((candidate) =>
+      rules.supportedCategories.some(
+        (item) => item.toLowerCase() === candidate.trim().toLowerCase(),
+      ),
+    ) ?? categoryCandidates[0]
   const normalizedCategory = category?.trim().toLowerCase()
   const physicalIdentity = attributes.torchikoPhysicalIdentityV1
   const physical =
@@ -182,7 +206,8 @@ export function describeProspectGoodFitVenue(
       : {}
   const isNonVenue = physical.state === 'NON_VENUE_HIGH_CONFIDENCE'
   const supported = Boolean(
-    normalizedCategory && goodFitCategoryVariants.includes(normalizedCategory),
+    normalizedCategory &&
+    rules.supportedCategories.some((item) => item.toLowerCase() === normalizedCategory),
   )
   const isStadiumClass =
     /stadium|arena/i.test(`${venue.name} ${venue.venueType ?? ''} ${category ?? ''}`) ||
@@ -196,31 +221,34 @@ export function describeProspectGoodFitVenue(
     qualifies:
       supported &&
       qualifyingPriority &&
-      !enterpriseDeferred &&
-      !isNonVenue &&
-      inTerritory &&
-      goodFitSizeClasses.includes(size.sizeClass as (typeof goodFitSizeClasses)[number]) &&
-      !isStadiumClass,
+      (!rules.excludeEnterpriseDeferral || !enterpriseDeferred) &&
+      (!rules.excludeNonVenue || !isNonVenue) &&
+      (!(territoryId || rules.requireTerritory) || inTerritory) &&
+      rules.sizeClasses.includes(size.sizeClass) &&
+      (!rules.excludeStadiumArena || !isStadiumClass),
     reason: [
       supported
         ? `Supported category: ${category}.`
         : 'Category is not in the supported Good fit set.',
-      founderBucket === prospectGoodFitCriteria.founderPriority
-        ? 'Founder priority is MID_TIER_PRIORITY.'
-        : prospectGoodFitCriteria.buyerAttainabilityAnyOf.includes(
-              buyerAttainability as (typeof prospectGoodFitCriteria.buyerAttainabilityAnyOf)[number],
-            )
+      founderBucket === rules.founderPriority
+        ? `Founder priority is ${rules.founderPriority}.`
+        : rules.buyerAttainabilityAnyOf.includes(String(buyerAttainability))
           ? 'Buyer attainability is medium or better.'
           : 'Founder priority or buyer attainability does not meet the Good fit rule.',
       size.reason,
-      inTerritory ? 'Venue has an assigned territory.' : 'No territory is assigned.',
+      inTerritory
+        ? 'Venue has an assigned territory.'
+        : rules.requireTerritory
+          ? 'No territory is assigned.'
+          : 'Territory is optional in this view.',
     ].join(' '),
     unknown: size.unknown,
-    excludedReason: isStadiumClass
-      ? 'Stadium or arena category is excluded.'
-      : isNonVenue
-        ? 'This record is confirmed as a non-venue.'
-        : null,
+    excludedReason:
+      rules.excludeStadiumArena && isStadiumClass
+        ? 'Stadium or arena category is excluded.'
+        : rules.excludeNonVenue && isNonVenue
+          ? 'This record is confirmed as a non-venue.'
+          : null,
   }
 }
 
@@ -236,6 +264,7 @@ export const adminProspectCrmDirectoryRouter = router({
           priority: prospectPriority.optional(),
           relationshipTier: z.enum(['STANDARD', 'HIGH_VALUE', 'STRATEGIC']).optional(),
           goodFit: z.boolean().default(false),
+          goodFitRules: prospectGoodFitRulesSchema.optional(),
           emailReadiness: z.enum(['READY', 'MISSING', 'SUPPRESSED']).optional(),
           outreachState: z
             .enum(['NOT_CONTACTED', 'DRAFTED', 'QUEUED', 'SENT', 'REPLIED', 'FAILED'])
@@ -265,7 +294,9 @@ export const adminProspectCrmDirectoryRouter = router({
           where: {
             ...(cursorWhere ? { AND: [cursorWhere] } : {}),
             ...(input.includeArchived ? {} : { archivedAt: null }),
-            ...(input.goodFit ? prospectGoodFitOrganizationWhere(input.territoryId) : {}),
+            ...(input.goodFit
+              ? prospectGoodFitOrganizationWhere(input.territoryId, input.goodFitRules)
+              : {}),
             ...(input.territoryId && !input.goodFit ? { territoryId: input.territoryId } : {}),
             ...(input.relationshipTier ? { relationshipTier: input.relationshipTier } : {}),
             ...(input.emailReadiness === 'READY'
@@ -371,7 +402,7 @@ export const adminProspectCrmDirectoryRouter = router({
             },
             venues: {
               where: input.goodFit
-                ? prospectGoodFitVenueWhere(input.territoryId)
+                ? prospectGoodFitVenueWhere(input.territoryId, input.goodFitRules)
                 : { archivedAt: null },
               orderBy: { createdAt: 'asc' },
               take: input.goodFit ? 25 : 3,
@@ -411,7 +442,7 @@ export const adminProspectCrmDirectoryRouter = router({
               .map((venue) => ({
                 ...venue,
                 goodFit: input.goodFit
-                  ? describeProspectGoodFitVenue(venue, input.territoryId)
+                  ? describeProspectGoodFitVenue(venue, input.territoryId, input.goodFitRules)
                   : null,
               }))
               .filter((venue) => !input.goodFit || venue.goodFit?.qualifies)
@@ -420,10 +451,22 @@ export const adminProspectCrmDirectoryRouter = router({
             ownerId: row.opportunity?.ownerId ?? row.ownerId,
           }))
           .filter((row) => !input.goodFit || row.venues.length > 0)
-        const items = prepared.slice(0, input.limit)
+        const page = prepared.slice(0, input.limit)
+        const rules = input.goodFitRules ?? defaultProspectGoodFitRules
+        const classOrder = [
+          rules.preferredSizeClass,
+          ...rules.sizeClasses.filter((sizeClass) => sizeClass !== rules.preferredSizeClass),
+        ]
+        const items = input.goodFit
+          ? [...page].sort(
+              (left, right) =>
+                classOrder.indexOf(explainProspectSize(left.venues[0]?.fitAttributes).sizeClass) -
+                classOrder.indexOf(explainProspectSize(right.venues[0]?.fitAttributes).sizeClass),
+            )
+          : page
         const cursorRow =
           prepared.length > input.limit
-            ? items[items.length - 1]
+            ? page[page.length - 1]
             : rows.length > scanLimit
               ? rows[scanLimit - 1]
               : null

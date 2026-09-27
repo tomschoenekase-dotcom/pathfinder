@@ -2,7 +2,10 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
-import { prospectGoodFitCriteria } from '@pathfinder/contracts/prospect-size'
+import {
+  defaultProspectGoodFitRules,
+  prospectGoodFitCriteria,
+} from '@pathfinder/contracts/prospect-size'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { prospectBoundedText } from './prospect-crm-common'
@@ -13,6 +16,7 @@ export const prospectGoodFitSavedView = {
   name: 'Good fit',
   filters: {
     goodFit: true,
+    goodFitRules: defaultProspectGoodFitRules,
     supportedCategories: prospectGoodFitCriteria.supportedCategories,
     sizeClasses: prospectGoodFitCriteria.eligibleSizeClasses,
     preferredSizeClass: prospectGoodFitCriteria.preferredSizeClass,

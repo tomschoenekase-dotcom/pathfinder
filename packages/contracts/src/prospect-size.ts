@@ -196,6 +196,7 @@ export const prospectGoodFitCriteria = {
     'aquarium',
     'zoo',
     'botanical garden',
+    'garden',
     'science center',
     'cultural center',
     "children's museum",
@@ -214,6 +215,48 @@ export const prospectGoodFitCriteria = {
   blockedDuplicateStatuses: ['OPEN', 'CONFIRMED_DUPLICATE'] as const,
   noOutboundOrCampaignHistory: true,
 } as const
+
+// A saved view owns these switches. The built-in view supplies the conservative
+// defaults; an administrator can save a named variation without changing them
+// for the assistant or other users.
+export const prospectGoodFitRulesSchema = z
+  .object({
+    supportedCategories: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
+    sizeClasses: z.array(prospectSizeClassSchema).min(1).max(6),
+    preferredSizeClass: prospectSizeClassSchema,
+    founderPriority: z.string().trim().min(1).max(100),
+    buyerAttainabilityAnyOf: z.array(z.string().trim().min(1).max(100)).max(5),
+    requireTerritory: z.boolean(),
+    excludeEnterpriseDeferral: z.boolean(),
+    excludeOutboundCorrespondence: z.boolean(),
+    excludeCampaignMembership: z.boolean(),
+    excludeDrafts: z.boolean(),
+    excludeOpenOrConfirmedDuplicates: z.boolean(),
+    excludeStadiumArena: z.boolean(),
+    excludeNonVenue: z.boolean(),
+  })
+  .strict()
+  .refine((rules) => rules.sizeClasses.includes(rules.preferredSizeClass), {
+    message: 'Preferred size must be included in this view',
+    path: ['preferredSizeClass'],
+  })
+export type ProspectGoodFitRules = z.infer<typeof prospectGoodFitRulesSchema>
+
+export const defaultProspectGoodFitRules: ProspectGoodFitRules = {
+  supportedCategories: [...prospectGoodFitCriteria.supportedCategories],
+  sizeClasses: [...prospectGoodFitCriteria.eligibleSizeClasses],
+  preferredSizeClass: prospectGoodFitCriteria.preferredSizeClass,
+  founderPriority: prospectGoodFitCriteria.founderPriority,
+  buyerAttainabilityAnyOf: [...prospectGoodFitCriteria.buyerAttainabilityAnyOf],
+  requireTerritory: true,
+  excludeEnterpriseDeferral: true,
+  excludeOutboundCorrespondence: true,
+  excludeCampaignMembership: true,
+  excludeDrafts: true,
+  excludeOpenOrConfirmedDuplicates: true,
+  excludeStadiumArena: true,
+  excludeNonVenue: true,
+}
 
 const categoryRuleExamples: Record<string, ProspectSizeClass> = {
   'professional stadium': 'XL',
