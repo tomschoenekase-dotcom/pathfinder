@@ -5,6 +5,7 @@ export type ProspectSizeClass = z.infer<typeof prospectSizeClassSchema>
 
 export const prospectSizeBasisSchema = z.enum([
   'seats',
+  'capacity',
   'square_feet',
   'acres',
   'annual_attendance',
@@ -17,6 +18,7 @@ export const prospectSizeConfidenceSchema = z.enum(['measured', 'rule'])
 
 export const prospectSizeUnits = {
   seats: 'seats',
+  capacity: 'people',
   square_feet: 'square_feet',
   acres: 'acres',
   annual_attendance: 'visitors/year',
@@ -117,6 +119,7 @@ export type ProspectSizeEvidence = z.infer<typeof prospectSizeEvidenceSchema>
 // Seat and attendance bands are proposed in Packet 7. Building area and outdoor acreage bands are provisional pending Tom's review.
 export const prospectSizeThresholds = {
   seats: [100, 500, 3_000, 10_000],
+  capacity: [100, 500, 3_000, 10_000],
   annual_attendance: [10_000, 50_000, 250_000, 1_000_000],
   square_feet: [2_000, 10_000, 50_000, 200_000],
   acres: [1, 10, 100, 1_000],

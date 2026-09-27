@@ -24,6 +24,8 @@ describe('Torchiko prospect size contract', () => {
   })
 
   it('applies explicit attendance and provisional area bands', () => {
+    expect(classifyProspectSize(1_150, 'capacity')).toBe('M')
+    expect(classifyProspectSize(3_500, 'capacity')).toBe('L')
     expect(classifyProspectSize(50_000, 'annual_attendance')).toBe('M')
     expect(classifyProspectSize(1_000_000, 'annual_attendance')).toBe('XL')
     expect(classifyProspectSize(10_000, 'square_feet')).toBe('M')
@@ -56,6 +58,16 @@ describe('Torchiko prospect size contract', () => {
       confidence: 'measured',
     }
     expect(prospectSizeEvidenceSchema.safeParse(valid).success).toBe(true)
+    expect(
+      prospectSizeEvidenceSchema.safeParse({
+        ...valid,
+        basis: 'capacity',
+        unit: 'people',
+      }).success,
+    ).toBe(true)
+    expect(
+      prospectSizeEvidenceSchema.safeParse({ ...valid, basis: 'capacity', unit: 'seats' }).success,
+    ).toBe(false)
     expect(prospectSizeEvidenceSchema.safeParse({ ...valid, sourceUrl: undefined }).success).toBe(
       false,
     )
