@@ -172,6 +172,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
   ['packages/api/src/routers/admin/client-analytics.ts', 2],
+  // Platform-admin visitor-speed aggregates only valid response timing per exact tenant+venue.
+  ['packages/api/src/routers/admin/visitor-speed.ts', 1],
   // Platform-admin client lifecycle includes an exact-tenant payment-due mutation.
   ['packages/api/src/routers/admin/client-management.ts', 8],
   // A retry-fenced platform-admin client creation binds exact prospect/customer continuity.

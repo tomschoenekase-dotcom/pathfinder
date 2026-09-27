@@ -103,6 +103,7 @@ const approvedPolicies = new Set([
   'platform-prospect-mailbox-send-reservation-lock',
   'platform-prospect-campaign-send-reservation-lock',
   'platform-prospect-inbound-reply-review-lock',
+  'platform-admin-visitor-speed-analytics',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -1574,6 +1575,13 @@ const approvedOperations = [
     // Same public session-token/venue join; includes current server photo/link policy.
     hash: '8db9374c8142930b79f5f20fd00d554105c96ebc45c546b7e0f450c95b30def6',
     policy: 'public-venue-session-token',
+  },
+  {
+    file: 'packages/api/src/routers/admin/visitor-speed.ts',
+    method: '$queryRaw',
+    // Admin-only seven-day aggregate; bind the time window and join venue on tenant+venue identity.
+    hash: '3940000516d99782821e0bda976023d38a1de2b720d30fbbd3c42baf4d52a32a',
+    policy: 'platform-admin-visitor-speed-analytics',
   },
   {
     file: 'packages/db/src/helpers/venue-distribution.ts',
