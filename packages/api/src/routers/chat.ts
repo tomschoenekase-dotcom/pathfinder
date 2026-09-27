@@ -357,11 +357,14 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
 const admittedChatSendProcedure = publicProcedure
   .input(ChatSendInput)
   .use(async ({ ctx, input, next }) => {
+    const chatIngressStartedAt = performance.now()
+    const globalRateLimitStartedAt = performance.now()
     const globallyAllowed = await checkRateLimit(
       'ratelimit:chat:ingress:global',
       CHAT_GLOBAL_INGRESS_LIMIT,
       60,
     )
+    const chatRateLimitMs = elapsedMilliseconds(globalRateLimitStartedAt)
     if (!globallyAllowed) {
       throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
@@ -426,9 +429,12 @@ const admittedChatSendProcedure = publicProcedure
 
     const experienceScope = authorizeChatExperience(chatVenue, ctx.session, input.secondLayerKey)
 
-    return next({ ctx: { ...ctx, chatVenue, experienceScope } })
+    return next({
+      ctx: { ...ctx, chatVenue, experienceScope, chatIngressStartedAt, chatRateLimitMs },
+    })
   })
   .use(async ({ ctx, input, next }) => {
+    const venueRateLimitStartedAt = performance.now()
     const ingressAllowed = await checkRateLimit(
       `ratelimit:chat:ingress:venue:${ctx.chatVenue.id}`,
       CHAT_INGRESS_VENUE_LIMIT,
@@ -464,7 +470,12 @@ const admittedChatSendProcedure = publicProcedure
       })
     }
 
-    return next()
+    return next({
+      ctx: {
+        ...ctx,
+        chatRateLimitMs: ctx.chatRateLimitMs + elapsedMilliseconds(venueRateLimitStartedAt),
+      },
+    })
   })
   .use(requireGlobalAi)
 
@@ -606,8 +617,15 @@ const chatReadRouter = router({
    * Send a message and receive an AI response grounded in venue + location data.
    */
   send: admittedChatSendProcedure.mutation(async ({ ctx, input }) => {
-    const requestStartedAt = performance.now()
+    // Include public admission and rate gates in the first-text clock. Browser
+    // click-to-text also includes transport and paint beyond this server span.
+    const requestStartedAt = ctx.chatIngressStartedAt
+    const admissionMs = elapsedMilliseconds(requestStartedAt)
+    const rateLimitMs = ctx.chatRateLimitMs
     let turnSetupMs = 0
+    let reservationMs = 0
+    let claimMs = 0
+    let configurationMs = 0
     let preEmbeddingMs = 0
     let embeddingMs = 0
     let retrievalMs = 0
@@ -667,11 +685,13 @@ const chatReadRouter = router({
         : {}),
     }
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
+    const reservationStartedAt = performance.now()
     try {
       reservation = await reserveGuestChatTurnAction({ client: ctx.db, request: turnRequest })
     } catch (error) {
       guestChatTurnError(error)
     }
+    reservationMs = elapsedMilliseconds(reservationStartedAt)
     if (reservation.state === 'COMPLETE') {
       return {
         response: reservation.response,
@@ -700,6 +720,7 @@ const chatReadRouter = router({
     )
     const claimId = randomUUID()
     let claimed: Awaited<ReturnType<typeof claimGuestChatTurnAction>>
+    const claimStartedAt = performance.now()
     try {
       claimed = await claimGuestChatTurnAction({
         client: ctx.db,
@@ -715,6 +736,7 @@ const chatReadRouter = router({
     } catch (error) {
       guestChatTurnError(error)
     }
+    claimMs = elapsedMilliseconds(claimStartedAt)
     if (claimed.state === 'COMPLETE') {
       return {
         response: claimed.response,
@@ -1535,6 +1557,7 @@ const chatReadRouter = router({
     })
     let generationDispatched = false
     try {
+      const configurationStartedAt = performance.now()
       const configuration = await resolveRuntimeAiWorkloadConfiguration(
         {
           workloadId: 'guest-chat',
@@ -1543,6 +1566,7 @@ const chatReadRouter = router({
         },
         ctx.db,
       )
+      configurationMs = elapsedMilliseconds(configurationStartedAt)
       const route = routeAiCapability({
         capability: 'STANDARD',
         workloadId: 'guest-chat',
@@ -1964,6 +1988,11 @@ const chatReadRouter = router({
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {
       firstTurn: claimed.turnSequence === 1,
+      admissionMs,
+      rateLimitMs,
+      reservationMs,
+      claimMs,
+      configurationMs,
       turnSetupMs,
       preEmbeddingMs,
       embeddingMs,

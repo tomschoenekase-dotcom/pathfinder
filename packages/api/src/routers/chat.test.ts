@@ -804,6 +804,10 @@ describe('chat router', () => {
 
     it('starts a first turn without the adjacent identity transaction', async () => {
       setupHappyPath('The elephants are nearby.')
+      checkRateLimit.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        return true
+      })
       const stream = vi.fn(() => ({
         async *[Symbol.asyncIterator]() {
           yield {
@@ -844,6 +848,8 @@ describe('chat router', () => {
         delta: 'The elephants are nearby.',
         requestFirstTextMs: expect.any(Number),
       })
+      const firstDelta = events.find((event) => event.type === 'delta')
+      expect(firstDelta?.requestFirstTextMs).toBeGreaterThanOrEqual(15)
       expect(events.at(-1)).toMatchObject({
         type: 'complete',
         result: { response: 'The elephants are nearby.' },
@@ -853,12 +859,23 @@ describe('chat router', () => {
           eventType: 'message.received',
           metadata: expect.objectContaining({
             firstTurn: true,
+            admissionMs: expect.any(Number),
+            rateLimitMs: expect.any(Number),
+            reservationMs: expect.any(Number),
+            claimMs: expect.any(Number),
+            configurationMs: expect.any(Number),
             turnSetupMs: expect.any(Number),
             preEmbeddingMs: expect.any(Number),
             requestFirstTextMs: expect.any(Number),
           }),
         }),
       )
+      const received = emitEvent.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.eventType === 'message.received')
+        .at(-1)
+      expect(received?.metadata?.admissionMs).toBeGreaterThanOrEqual(15)
+      expect(received?.metadata?.rateLimitMs).toBeGreaterThanOrEqual(15)
       expect(guestTurnActions.readAdjacentIdentity).not.toHaveBeenCalled()
       expect(embeddingCreate).toHaveBeenCalledOnce()
       expect(stream).toHaveBeenCalledOnce()
