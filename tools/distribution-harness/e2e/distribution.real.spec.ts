@@ -110,11 +110,11 @@ test('@real admitted HTTPS site launches the real embed, checks cross-site heade
     })
   })
 
-  const probeRequestPromise = page.waitForRequest((candidate) =>
+  const probeResponsePromise = page.waitForResponse((candidate) =>
     candidate.url().includes(`/api/widget-ready/${slug}`),
   )
   await page.goto(hostUrl('launcher', 'launcher'))
-  await probeRequestPromise
+  await probeResponsePromise
   expect(new URL(page.url()).origin).toBe(fixtureOrigin)
   expect(new URL(webOrigin).origin).not.toBe(fixtureOrigin)
   const observedSecFetchSite = expectCrossSiteObservation(slug)
@@ -196,11 +196,11 @@ test('@real admitted inline host mounts the real inline route over cross-site HT
   page,
 }) => {
   const slug = fixture.slugs.inline
-  const probeRequestPromise = page.waitForRequest((candidate) =>
+  const probeResponsePromise = page.waitForResponse((candidate) =>
     candidate.url().includes(`/api/widget-ready/${slug}`),
   )
   await page.goto(hostUrl('inline', 'inline'))
-  await probeRequestPromise
+  await probeResponsePromise
   const observedSecFetchSite = expectCrossSiteObservation(slug)
   if (observedSecFetchSite !== null) expect(observedSecFetchSite).toBe('cross-site')
   const container = page.locator('[data-torchiko-inline]')
