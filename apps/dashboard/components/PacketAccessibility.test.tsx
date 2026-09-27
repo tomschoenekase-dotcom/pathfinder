@@ -52,7 +52,9 @@ import { resolveClientPortalLifecycle } from '@pathfinder/contracts/client-porta
 import { resolveRemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
 import { AdminSectionShell } from './admin/AdminSectionShell'
 import { ClientWorkspaceShell } from './admin/ClientWorkspaceShell'
-import { DashboardOverview } from './DashboardOverview'
+import { DashboardOverviewView } from './DashboardOverview'
+import { HomePaymentView } from './portal/HomePayment'
+import { SendInformationView } from './portal/SendInformation'
 import { DashboardShell } from './DashboardShell'
 import { RemoteOnboardingJourney } from './RemoteOnboardingJourney'
 
@@ -131,12 +133,57 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
     })
     pathname = '/'
     const { container } = render(
-      <DashboardShell weeklyReportsAvailable>
-        <DashboardOverview
-          venue={{ id: 'east-museum', name: 'East Museum', lifecycle }}
+      <DashboardShell>
+        <DashboardOverviewView
+          venue={{ id: 'east-museum', name: 'East Museum' }}
           venues={[{ id: 'east-museum', name: 'East Museum' }]}
-          activeUpdates={1}
-          chatUrl="https://guest.example/east-museum"
+          guide={{
+            kind: lifecycle.state === 'LIVE' ? 'published' : 'building',
+            url: 'https://guest.example/east-museum/chat',
+          }}
+          requests={[
+            {
+              id: 'request-1',
+              title: 'Add fall hours',
+              detail: 'Opening hours · A photo of the sign',
+              needsYou: true,
+              meta: 'Requested Sep 24',
+              href: '/support?venue=east-museum&request=request-1',
+              actionLabel: 'Reply',
+            },
+            {
+              id: 'request-2',
+              title: 'Update the trail map',
+              detail: null,
+              needsYou: false,
+              meta: 'In review · Sep 22',
+              href: '/support?venue=east-museum&request=request-2',
+              actionLabel: 'View',
+            },
+          ]}
+          sendSection={
+            <SendInformationView
+              venueId="east-museum"
+              canSendLinksAndNotes
+              api={{
+                reserve: vi.fn(),
+                verify: vi.fn(),
+                signMultipartPart: vi.fn(),
+                completeMultipart: vi.fn(),
+                createProposal: vi.fn(),
+              }}
+            />
+          }
+          paymentSection={
+            <HomePaymentView
+              summary={{
+                kind: 'due',
+                headline: 'Payment is past due',
+                detail: 'The October 1 payment didn’t go through.',
+                pay: { kind: 'portal' },
+              }}
+            />
+          }
         />
         <ClientPortalLoading />
       </DashboardShell>,

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   inviteMember: vi.fn(),
 }))
 
-vi.mock('../../../lib/trpc', () => {
+vi.mock('../../lib/trpc', () => {
   const client = {
     tenant: {
       getSettings: { query: mocks.getSettings },
@@ -20,11 +20,18 @@ vi.mock('../../../lib/trpc', () => {
   }
   return { useTRPCClient: () => client }
 })
-vi.mock('../../../components/ClientTochiPreferenceWorkspace', () => ({
+vi.mock('../ClientTochiPreferenceWorkspace', () => ({
   ClientTochiPreferenceWorkspace: () => <p>Assistant preference</p>,
 }))
+vi.mock('../billing/ClientBillingPanel', () => ({
+  ClientBillingPanel: () => <p>Billing panel</p>,
+}))
 
-import SettingsPage from './page'
+import { AccountWorkspace } from './AccountWorkspace'
+
+function SettingsPage() {
+  return <AccountWorkspace paymentAvailable={false} reportsAvailable={false} />
+}
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const settings = {
@@ -85,5 +92,20 @@ describe('SettingsPage request lifecycle', () => {
     await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
     rendered.unmount()
     expect(signal?.aborted).toBe(true)
+  })
+
+  it('keeps billing and reports under Account, each shown only behind its own gate', async () => {
+    const { rerender } = render(
+      <AccountWorkspace paymentAvailable={false} reportsAvailable={false} />,
+    )
+    expect(await screen.findByText('Harbor Museum')).toBeTruthy()
+    expect(screen.queryByText('Billing panel')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Reports' })).toBeNull()
+
+    rerender(<AccountWorkspace paymentAvailable reportsAvailable />)
+    expect(screen.getByText('Billing panel').closest('#payment')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open reports' }).getAttribute('href')).toBe(
+      '/weekly-reports',
+    )
   })
 })

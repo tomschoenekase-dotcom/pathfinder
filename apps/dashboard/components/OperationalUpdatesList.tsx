@@ -39,7 +39,7 @@ type Section = 'Draft' | 'Scheduled' | 'Current' | 'Past'
 const sectionOrder: Section[] = ['Draft', 'Scheduled', 'Current', 'Past']
 const priorityClass = {
   LOW: 'border-slate-200 bg-slate-50 text-slate-600',
-  NORMAL: 'border-pf-light bg-pf-surface text-pf-primary',
+  NORMAL: 'border-tk-rule bg-white text-tk-ink',
   HIGH: 'border-amber-200 bg-amber-50 text-amber-700',
   URGENT: 'border-rose-200 bg-rose-50 text-rose-700',
 } as const
@@ -208,87 +208,77 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
   ) as Record<Section, OperationalUpdateItem[]>
 
   return (
-    <section
-      aria-busy={pendingId !== null}
-      className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
-    >
+    <section aria-busy={pendingId !== null} className="text-tk-ink">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-            Operational updates
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">
-            Guest-facing notices
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/60">
-            Draft, schedule, publish, and retire time-sensitive venue guidance.
+          <h1 className="font-portal text-[2rem] leading-[1.1] sm:text-[2.6rem]">Updates</h1>
+          <p className="mt-2 max-w-2xl text-[0.95rem] leading-6 text-tk-soft">
+            Short-term notices your visitors see in the guide, like a closure, an event or a parking
+            change. To send Torchiko something privately, use Send us information on Home.
           </p>
         </div>
         <Link
           href="/operational-updates/new"
-          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
+          className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-tk-ink px-4 text-sm font-semibold text-white hover:bg-tk-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus focus-visible:ring-offset-2"
         >
-          <Plus className="h-4 w-4" aria-hidden="true" /> New update
+          <Plus className="h-4 w-4" aria-hidden="true" /> New notice
         </Link>
       </div>
 
       {actionError ? (
         <p
           role="alert"
-          className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          className="mt-6 rounded-lg border border-tk-danger/40 bg-[#FBEFEF] px-4 py-3 text-sm text-tk-danger"
         >
           {actionError}
         </p>
       ) : null}
 
-      <div className="mt-8 space-y-8">
+      <div className="mt-8 space-y-9">
         {sectionOrder.map((section) => (
           <section key={section} aria-labelledby={`updates-${section.toLowerCase()}`}>
             <div className="flex items-center justify-between gap-3">
               <h2
                 id={`updates-${section.toLowerCase()}`}
-                className="text-xl font-semibold text-pf-deep"
+                className="font-portal text-[1.3rem] leading-tight"
               >
                 {section}
               </h2>
-              <span className="rounded-full bg-pf-surface px-3 py-1 text-xs font-semibold text-pf-deep/60">
-                {grouped[section].length}
-              </span>
+              <span className="text-sm text-tk-soft">{grouped[section].length}</span>
             </div>
             {grouped[section].length === 0 ? (
-              <p className="mt-3 rounded-2xl border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/50">
-                No {section.toLowerCase()} updates.
-              </p>
+              <p className="mt-2 text-sm text-tk-soft">No {section.toLowerCase()} notices.</p>
             ) : (
               <div className="mt-3 space-y-4">
                 {grouped[section].map((update) => (
                   <article
                     key={update.id}
-                    className="rounded-[1.75rem] border border-pf-light bg-pf-surface p-5"
+                    className="rounded-xl border border-tk-rule bg-tk-card p-5"
                   >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 space-y-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           <span
-                            className={`rounded-full border px-3 py-1 font-semibold uppercase tracking-wide ${priorityClass[update.priority]}`}
+                            className={`rounded-md border px-2 py-0.5 font-semibold ${priorityClass[update.priority]}`}
                           >
-                            {update.priority}
+                            {update.priority.charAt(0) + update.priority.slice(1).toLowerCase()}{' '}
+                            priority
                           </span>
-                          <span className="rounded-full border border-pf-light bg-white px-3 py-1 font-medium text-pf-deep/60">
+                          <span className="rounded-md border border-tk-rule bg-white px-2 py-0.5 font-medium text-tk-soft">
                             {labelType(update.updateType)}
                           </span>
-                          <span className="text-pf-deep/50">
+                          <span className="text-tk-soft">
                             {update.venue.name}
                             {update.place ? ` · ${update.place.name}` : ' · Entire venue'}
                           </span>
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold text-pf-deep">{update.title}</h3>
+                          <h3 className="text-lg font-semibold">{update.title}</h3>
                           {update.body ? (
-                            <p className="mt-1 text-sm leading-6 text-pf-deep/60">{update.body}</p>
+                            <p className="mt-1 text-sm leading-6 text-tk-soft">{update.body}</p>
                           ) : null}
                         </div>
-                        <div className="text-xs leading-5 text-pf-deep/50">
+                        <div className="text-xs leading-5 text-tk-soft">
                           <p>
                             Starts {new Date(update.startsAt).toLocaleString()} · Expires{' '}
                             {new Date(update.expiresAt).toLocaleString()}
@@ -304,7 +294,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                         {section === 'Draft' ? (
                           <Link
                             href={`/operational-updates/${update.id}/edit`}
-                            className="inline-flex min-h-10 items-center rounded-full border border-pf-light bg-white px-4 text-sm font-medium text-pf-primary"
+                            className="inline-flex min-h-11 items-center rounded-lg border border-tk-rule-strong bg-white px-4 text-sm font-semibold text-tk-ink hover:border-tk-ink"
                           >
                             Edit
                           </Link>
@@ -314,7 +304,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                             type="button"
                             disabled={pendingId !== null}
                             onClick={() => void mutate(update.id, 'publish')}
-                            className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-sm font-medium text-white disabled:opacity-50"
+                            className="inline-flex min-h-11 items-center rounded-lg bg-tk-ink px-4 text-sm font-semibold text-white hover:bg-tk-focus disabled:opacity-50"
                           >
                             {pendingId === update.id ? 'Publishing...' : 'Publish'}
                           </button>
@@ -324,7 +314,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                             type="button"
                             disabled={pendingId !== null}
                             onClick={() => void mutate(update.id, 'deactivate')}
-                            className="inline-flex min-h-10 items-center rounded-full border border-pf-light bg-white px-4 text-sm font-medium text-pf-primary disabled:opacity-50"
+                            className="inline-flex min-h-11 items-center rounded-lg border border-tk-rule-strong bg-white px-4 text-sm font-semibold text-tk-ink hover:border-tk-ink disabled:opacity-50"
                           >
                             {pendingId === update.id ? 'Deactivating...' : 'Deactivate'}
                           </button>
@@ -335,7 +325,8 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                       <ContentHistoryPanel
                         entityType="OPERATIONAL_UPDATE"
                         entityId={update.id}
-                        title="Update history"
+                        title="History"
+                        variant="inline"
                       />
                     </div>
                   </article>

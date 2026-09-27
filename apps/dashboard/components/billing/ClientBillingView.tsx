@@ -62,43 +62,43 @@ const STATE_PRESENTATION: Record<
   pending: {
     label: 'Confirmation pending',
     symbol: '…',
-    classes: 'border-sky-200 bg-sky-50 text-sky-900',
+    classes: 'border-tk-rule bg-white text-tk-ink',
     heading: 'We are confirming your subscription',
   },
   active: {
     label: 'Active',
     symbol: '✓',
-    classes: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    classes: 'border-tk-rule bg-white text-tk-ink',
     heading: 'Your billing is up to date',
   },
   past_due: {
     label: 'Payment needs attention',
     symbol: '!',
-    classes: 'border-rose-200 bg-rose-50 text-rose-950',
+    classes: 'border-tk-ember/40 bg-tk-ember-wash text-tk-ember-text',
     heading: 'Please update your payment details',
   },
   grace: {
     label: 'Grace period',
     symbol: '!',
-    classes: 'border-amber-200 bg-amber-50 text-amber-950',
+    classes: 'border-tk-ember/40 bg-tk-ember-wash text-tk-ember-text',
     heading: 'Your account is in a payment grace period',
   },
   canceled: {
     label: 'Ending or canceled',
     symbol: '—',
-    classes: 'border-slate-200 bg-slate-50 text-slate-800',
+    classes: 'border-tk-rule bg-white text-tk-ink',
     heading: 'Your subscription is ending',
   },
   manual: {
     label: 'Managed by Torchiko',
     symbol: '•',
-    classes: 'border-violet-200 bg-violet-50 text-violet-950',
+    classes: 'border-tk-rule bg-white text-tk-ink',
     heading: 'Your billing arrangement is managed directly',
   },
   complimentary: {
     label: 'Complimentary access',
     symbol: '★',
-    classes: 'border-indigo-200 bg-indigo-50 text-indigo-950',
+    classes: 'border-tk-rule bg-white text-tk-ink',
     heading: 'Complimentary access is active',
   },
 }
@@ -115,7 +115,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-tk-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-tk-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -127,15 +127,15 @@ function BillingSkeleton() {
     <section
       aria-label="Billing"
       aria-busy="true"
-      className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm sm:p-8"
+      className="rounded-xl border border-tk-rule bg-white p-6 sm:p-8"
     >
-      <p role="status" className="text-sm font-medium text-pf-deep/70">
+      <p role="status" className="text-sm font-medium text-tk-soft">
         Loading billing details…
       </p>
       <div className="mt-6 grid animate-pulse gap-4 sm:grid-cols-3" aria-hidden="true">
-        <div className="h-24 rounded-2xl bg-pf-surface" />
-        <div className="h-24 rounded-2xl bg-pf-surface" />
-        <div className="h-24 rounded-2xl bg-pf-surface" />
+        <div className="h-24 rounded-lg bg-tk-paper" />
+        <div className="h-24 rounded-lg bg-tk-paper" />
+        <div className="h-24 rounded-lg bg-tk-paper" />
       </div>
     </section>
   )
@@ -155,16 +155,16 @@ export function ClientBillingView({
 
   if (state === 'empty' || !billing) {
     return (
-      <section className="rounded-3xl border border-dashed border-pf-light bg-white p-8 text-center shadow-sm">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">Billing</p>
-        <h2 className="mt-2 text-xl font-semibold text-pf-deep">No billing arrangement yet</h2>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-pf-deep/65">
+      <section className="rounded-xl border border-dashed border-tk-rule bg-white p-8 text-center">
+        <p className="text-sm font-medium text-tk-soft">Billing</p>
+        <h2 className="mt-2 text-xl font-semibold text-tk-ink">No billing arrangement yet</h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-tk-soft">
           Torchiko will show your agreed price and secure payment link here once your arrangement is
           ready.
         </p>
         <a
           href="/support"
-          className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-tk-focus underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus"
         >
           Contact Torchiko
         </a>
@@ -185,11 +185,14 @@ export function ClientBillingView({
     <section aria-labelledby="client-billing-heading" className="space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">Billing</p>
-          <h2 id="client-billing-heading" className="mt-1 text-2xl font-semibold text-pf-deep">
+          <p className="text-sm font-medium text-tk-soft">Billing</p>
+          <h2
+            id="client-billing-heading"
+            className="mt-1 font-portal text-[1.45rem] leading-tight text-tk-ink"
+          >
             {presentation.heading}
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/65">{billing.statusDetail}</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-tk-soft">{billing.statusDetail}</p>
         </div>
         <span
           className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${presentation.classes}`}
@@ -200,33 +203,33 @@ export function ClientBillingView({
       </header>
 
       {reconciliationWarning ? (
-        <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
           <p className="text-sm font-semibold text-amber-950">Billing update in progress</p>
           <p className="mt-1 text-sm leading-6 text-amber-900">{reconciliationWarning}</p>
         </div>
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-pf-light bg-white p-5 shadow-sm sm:col-span-2">
-          <p className="text-xs font-bold uppercase tracking-wider text-pf-deep/75">Current plan</p>
-          <p className="mt-2 text-xl font-semibold text-pf-deep">{billing.planName}</p>
-          <p className="mt-1 text-sm text-pf-deep/65">{billing.arrangementLabel}</p>
+        <div className="rounded-lg border border-tk-rule bg-white p-5 sm:col-span-2">
+          <p className="text-sm text-tk-soft">Current plan</p>
+          <p className="mt-2 text-xl font-semibold text-tk-ink">{billing.planName}</p>
+          <p className="mt-1 text-sm text-tk-soft">{billing.arrangementLabel}</p>
           {billing.amountLabel ? (
-            <p className="mt-3 text-sm font-medium text-pf-deep">
+            <p className="mt-3 text-sm font-medium text-tk-ink">
               {billing.amountLabel}
               {billing.intervalLabel ? ` ${billing.intervalLabel}` : ''}
             </p>
           ) : null}
         </div>
-        <div className="rounded-2xl border border-pf-light bg-pf-surface/55 p-5">
-          <p className="text-xs font-bold uppercase tracking-wider text-pf-deep/75">Next billing</p>
-          <p className="mt-2 text-sm font-semibold text-pf-deep">
+        <div className="rounded-lg border border-tk-rule bg-tk-paper p-5">
+          <p className="text-sm text-tk-soft">Next billing</p>
+          <p className="mt-2 text-sm font-semibold text-tk-ink">
             {billing.nextBillingLabel ?? 'Not scheduled'}
           </p>
         </div>
-        <div className="rounded-2xl border border-pf-light bg-pf-surface/55 p-5">
-          <p className="text-xs font-bold uppercase tracking-wider text-pf-deep/75">Paid through</p>
-          <p className="mt-2 text-sm font-semibold text-pf-deep">
+        <div className="rounded-lg border border-tk-rule bg-tk-paper p-5">
+          <p className="text-sm text-tk-soft">Paid through</p>
+          <p className="mt-2 text-sm font-semibold text-tk-ink">
             {billing.paidThroughLabel ?? 'Not available'}
           </p>
         </div>
@@ -234,10 +237,10 @@ export function ClientBillingView({
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
         <section
-          className="rounded-2xl border border-pf-light bg-white p-5"
+          className="rounded-lg border border-tk-rule bg-white p-5"
           aria-labelledby="covered-venues-heading"
         >
-          <h3 id="covered-venues-heading" className="font-semibold text-pf-deep">
+          <h3 id="covered-venues-heading" className="font-semibold text-tk-ink">
             Covered venues
           </h3>
           {billing.coveredVenues.length > 0 ? (
@@ -245,45 +248,42 @@ export function ClientBillingView({
               {billing.coveredVenues.map((venue) => (
                 <li
                   key={venue.id}
-                  className="flex items-center justify-between gap-3 text-sm text-pf-deep/75"
+                  className="flex items-center justify-between gap-3 text-sm text-tk-soft"
                 >
                   <span className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full bg-pf-accent"
-                      aria-hidden="true"
-                    />
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-tk-ink" aria-hidden="true" />
                     <span className="truncate">{venue.name}</span>
                   </span>
                   {venue.amountLabel ? (
-                    <span className="shrink-0 font-semibold text-pf-deep">{venue.amountLabel}</span>
+                    <span className="shrink-0 font-semibold text-tk-ink">{venue.amountLabel}</span>
                   ) : null}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-sm text-pf-deep/60">No venues are currently covered.</p>
+            <p className="mt-3 text-sm text-tk-soft">No venues are currently covered.</p>
           )}
         </section>
 
         <section
-          className="min-w-0 rounded-2xl border border-pf-light bg-white p-5"
+          className="min-w-0 rounded-lg border border-tk-rule bg-white p-5"
           aria-labelledby="invoice-history-heading"
         >
-          <h3 id="invoice-history-heading" className="font-semibold text-pf-deep">
+          <h3 id="invoice-history-heading" className="font-semibold text-tk-ink">
             Invoices and receipts
           </h3>
           {billing.invoices.length > 0 ? (
-            <ul className="mt-3 divide-y divide-pf-light">
+            <ul className="mt-3 divide-y divide-tk-rule">
               {billing.invoices.map((invoice) => (
                 <li
                   key={invoice.id}
                   className="flex flex-col gap-2 py-3 first:pt-0 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-pf-deep">
+                    <p className="truncate text-sm font-semibold text-tk-ink">
                       {invoice.number ?? 'Invoice'} · {invoice.amountLabel}
                     </p>
-                    <p className="mt-0.5 text-xs text-pf-deep/75">
+                    <p className="mt-0.5 text-xs text-tk-soft">
                       {invoice.dateLabel} · {invoice.statusLabel}
                     </p>
                   </div>
@@ -293,7 +293,7 @@ export function ClientBillingView({
                       target="_blank"
                       rel="noreferrer"
                       aria-label={`Open ${invoice.number ?? 'invoice'} in a new tab`}
-                      className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-pf-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                      className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-tk-focus underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus"
                     >
                       View document{' '}
                       <span aria-hidden="true" className="ml-1">
@@ -305,22 +305,20 @@ export function ClientBillingView({
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-sm text-pf-deep/60">
-              No invoices or receipts are available yet.
-            </p>
+            <p className="mt-3 text-sm text-tk-soft">No invoices or receipts are available yet.</p>
           )}
         </section>
       </div>
 
       {billing.addOns?.length ? (
         <section
-          className="rounded-2xl border border-pf-light bg-white p-5"
+          className="rounded-lg border border-tk-rule bg-white p-5"
           aria-labelledby="billing-add-ons-heading"
         >
-          <h3 id="billing-add-ons-heading" className="font-semibold text-pf-deep">
+          <h3 id="billing-add-ons-heading" className="font-semibold text-tk-ink">
             Interested in more?
           </h3>
-          <p className="mt-1 text-sm leading-6 text-pf-deep/65">
+          <p className="mt-1 text-sm leading-6 text-tk-soft">
             Tell our team what interests you. We will review your venue and contact you with a
             custom price before anything changes.
           </p>
@@ -328,15 +326,15 @@ export function ClientBillingView({
             {billing.addOns.map((addOn) => (
               <li
                 key={addOn.key}
-                className="flex flex-col rounded-2xl border border-pf-light bg-pf-surface/40 p-4"
+                className="flex flex-col rounded-lg border border-tk-rule bg-tk-paper p-4"
               >
-                <p className="font-semibold text-pf-deep">{addOn.label}</p>
-                <p className="mt-1 flex-1 text-sm leading-6 text-pf-deep/65">{addOn.description}</p>
+                <p className="font-semibold text-tk-ink">{addOn.label}</p>
+                <p className="mt-1 flex-1 text-sm leading-6 text-tk-soft">{addOn.description}</p>
                 <button
                   type="button"
                   disabled={addOn.interested || !onAddOnInterest}
                   onClick={() => onAddOnInterest?.(addOn.key)}
-                  className="mt-4 inline-flex min-h-11 items-center justify-center self-start rounded-full border border-pf-primary px-4 py-2 text-sm font-semibold text-pf-primary hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-4 inline-flex min-h-11 items-center justify-center self-start rounded-full border border-pf-primary px-4 py-2 text-sm font-semibold text-tk-focus hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {addOn.interested ? 'Interest recorded' : "I'm interested"}
                 </button>
@@ -346,14 +344,14 @@ export function ClientBillingView({
         </section>
       ) : null}
 
-      <footer className="flex flex-col gap-3 rounded-2xl bg-pf-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm leading-6 text-pf-deep/70">
+      <footer className="flex flex-col gap-3 rounded-lg bg-tk-paper px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm leading-6 text-tk-soft">
           Questions about negotiated terms? Contact Torchiko support.
         </p>
         <div className="flex flex-wrap gap-3">
           <a
             href={billing.supportUrl}
-            className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-primary px-5 py-2.5 text-sm font-semibold text-pf-primary transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-primary px-5 py-2.5 text-sm font-semibold text-tk-focus transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus focus-visible:ring-offset-2"
           >
             Contact support
           </a>
@@ -372,12 +370,12 @@ export function ClientBillingView({
           ) : null}
         </div>
       </footer>
-      <p className="px-1 text-xs leading-5 text-pf-deep/75">
+      <p className="px-1 text-xs leading-5 text-tk-soft">
         Card payments are securely processed by Stripe. Torchiko absorbs processing fees; your
         displayed price is your subscription price before any applicable tax. Custom terms, refunds,
         and cancellation questions are handled by Torchiko support.{' '}
         <a
-          className="font-semibold text-pf-primary underline-offset-2 hover:underline"
+          className="font-semibold text-tk-focus underline-offset-2 hover:underline"
           href="https://torchiko.com/privacy"
           target="_blank"
           rel="noreferrer"

@@ -1,21 +1,38 @@
 'use client'
 
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
-  ChevronRight,
   CircleAlert,
   LoaderCircle,
   MessageCircle,
+  Paperclip,
   Plus,
-  Send,
+  Users,
 } from 'lucide-react'
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import { supportStatusLabel } from '../lib/support-status'
+import { useIntakeTransferApi } from '../lib/use-intake-transfer-api'
+import {
+  attachmentsBlockSending,
+  ComposerAttachments,
+  readyAttachmentIds,
+  type ComposerAttachment,
+} from './portal/ComposerAttachments'
+import {
+  PortalNotice,
+  PortalPage,
+  portalButtonPrimary,
+  portalButtonSecondary,
+  portalFocus,
+  portalInput,
+  portalTextLink,
+} from './portal/PortalPrimitives'
 import {
   SupportCompletionOutcome,
   type SupportCompletionOutcomeValue,
@@ -100,21 +117,28 @@ const categories = [
   ['ACCESSIBILITY', 'Accessibility'],
 ] as const
 
-const statusLabels: Record<string, string> = {
-  OPEN: 'Received',
-  WAITING_FOR_CLIENT: 'Waiting for your reply',
-  IN_REVIEW: 'In review',
-  PATCH_DRAFTED: 'Preparing an update',
-  VALIDATING: 'Checking the update',
-  AWAITING_APPROVAL: 'Awaiting approval',
-  APPLYING: 'Updating Torchiko',
-  COMPLETED: 'Completed',
-  CANCELLED: 'Closed',
-}
-
 function dateLabel(value: Date | string) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
     new Date(value),
+  )
+}
+
+function timeLabel(value: Date | string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function initials(name: string) {
+  const words = name.trim().split(/\s+/u).filter(Boolean)
+  return (
+    words
+      .slice(0, 2)
+      .map((word) => word[0]!.toUpperCase())
+      .join('') || 'Y'
   )
 }
 
@@ -141,101 +165,9 @@ function isNotFound(error: unknown) {
   )
 }
 
-function fileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function isSafeClientMessage(message: ClientMessage) {
   const visibility = (message as ClientMessage & { visibility?: unknown }).visibility
   return visibility !== 'INTERNAL' && visibility !== 'INTERNAL_ONLY'
-}
-
-function AttachmentPicker({
-  available,
-  selected,
-  disabled,
-  label,
-  onChange,
-}: {
-  available: EligibleAttachment[]
-  selected: string[]
-  disabled: boolean
-  label: string
-  onChange: (ids: string[]) => void
-}) {
-  const id = useId()
-  const selectedRows = selected.flatMap((selectedId) => {
-    const row = available.find((candidate) => candidate.intakeUploadId === selectedId)
-    return row ? [row] : []
-  })
-  return (
-    <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
-      <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
-      <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
-        Choose a file you already shared after its required checks are complete. Torchiko still
-        reviews every file before using it; attaching a file here never publishes it. Files cannot
-        be previewed or downloaded from Support.
-      </p>
-      {available.length ? (
-        <label className="mt-3 block text-sm font-medium text-pf-deep">
-          Choose one of your recent files
-          <select
-            aria-describedby={`${id}-help`}
-            disabled={disabled || selected.length >= 20}
-            value=""
-            onChange={(event) => {
-              const next = event.target.value
-              if (next && !selected.includes(next)) onChange([...selected, next])
-            }}
-            className="mt-2 block min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 disabled:opacity-50"
-          >
-            <option value="">Select a file</option>
-            {available
-              .filter((row) => !selected.includes(row.intakeUploadId))
-              .map((row) => (
-                <option key={row.intakeUploadId} value={row.intakeUploadId}>
-                  {row.fileName} ({fileSize(row.byteSize)})
-                </option>
-              ))}
-          </select>
-        </label>
-      ) : (
-        <p className="mt-3 text-sm text-pf-deep/70">
-          No recent files have completed the required checks.
-        </p>
-      )}
-      {selectedRows.length ? (
-        <ul className="mt-3 space-y-2" aria-label="Selected files">
-          {selectedRows.map((row) => (
-            <li
-              key={row.intakeUploadId}
-              className="flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm"
-            >
-              <span>
-                <strong className="block text-pf-deep">{row.fileName}</strong>
-                <span className="text-xs text-pf-deep/65">
-                  {row.mimeType} · {fileSize(row.byteSize)} · Shared for review
-                </span>
-              </span>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() =>
-                  onChange(selected.filter((candidate) => candidate !== row.intakeUploadId))
-                }
-                aria-label={`Remove ${row.fileName}`}
-                className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </fieldset>
-  )
 }
 
 export function SupportWorkspace({
@@ -265,8 +197,12 @@ export function SupportWorkspace({
   const [category, setCategory] = useState<SupportCategory>(initialCreateCategory ?? 'GENERAL')
   const [requestBody, setRequestBody] = useState('')
   const [replyBody, setReplyBody] = useState('')
-  const [createAttachments, setCreateAttachments] = useState<string[]>([])
-  const [replyAttachments, setReplyAttachments] = useState<string[]>([])
+  const [createFiles, setCreateFiles] = useState<ComposerAttachment[]>([])
+  const [replyFiles, setReplyFiles] = useState<ComposerAttachment[]>([])
+  const transferApi = useIntakeTransferApi()
+  const [mobilePane, setMobilePane] = useState<'list' | 'conversation'>(
+    initialDetail || shouldOpenCreateDraft ? 'conversation' : 'list',
+  )
   const [eligibleAttachments, setEligibleAttachments] = useState(initialEligibleAttachments)
   const [eligibleAttachmentsNextCursor, setEligibleAttachmentsNextCursor] = useState(
     initialEligibleAttachmentsNextCursor,
@@ -356,9 +292,9 @@ export function SupportWorkspace({
     setSubject(initialCreateSubject ?? '')
     setCategory(initialCreateCategory ?? 'GENERAL')
     setRequestBody('')
-    setCreateAttachments([])
+    setCreateFiles([])
     setReplyBody('')
-    setReplyAttachments([])
+    setReplyFiles([])
     createOperationId.current = browserUuid()
     replyOperationId.current = browserUuid()
     participantOperation.current = { key: '', id: browserUuid() }
@@ -431,7 +367,7 @@ export function SupportWorkspace({
     setDetail(null)
     setRequests((current) => current.filter((request) => request.id !== requestId))
     setReplyBody('')
-    setReplyAttachments([])
+    setReplyFiles([])
     replyOperationId.current = browserUuid()
     setView('conversation')
     setConflict(false)
@@ -464,7 +400,7 @@ export function SupportWorkspace({
         return
       if (detail?.id !== requestId || !next.canReply || next.status === 'CANCELLED') {
         setReplyBody('')
-        setReplyAttachments([])
+        setReplyFiles([])
       }
       setDetail(next as RequestDetail)
       replyOperationId.current = browserUuid()
@@ -630,7 +566,7 @@ export function SupportWorkspace({
 
   async function createRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (writeInFlight.current) return
+    if (writeInFlight.current || attachmentsBlockSending(createFiles)) return
     writeInFlight.current = true
     const submittedScope = activeVenue.id
     const generation = ++writeGeneration.current
@@ -643,7 +579,7 @@ export function SupportWorkspace({
         category,
         subject,
         body: requestBody,
-        attachments: createAttachments.map((intakeUploadId) => ({ intakeUploadId })),
+        attachments: readyAttachmentIds(createFiles).map((intakeUploadId) => ({ intakeUploadId })),
       })
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       const nextDetail: RequestDetail = {
@@ -659,10 +595,10 @@ export function SupportWorkspace({
       detailRequestRef.current = nextDetail.id
       setSubject('')
       setRequestBody('')
-      setCreateAttachments([])
+      setCreateFiles([])
       createOperationId.current = browserUuid()
       setView('conversation')
-      setNotice('Your message and selected files were submitted for review. Nothing was published.')
+      setNotice('Sent to Torchiko. We’ll reply here.')
     } catch {
       if (scopeRef.current === submittedScope && writeGeneration.current === generation)
         setError(writeErrorText())
@@ -676,7 +612,8 @@ export function SupportWorkspace({
 
   async function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!detail || !detail.canReply || writeInFlight.current) return
+    if (!detail || !detail.canReply || writeInFlight.current || attachmentsBlockSending(replyFiles))
+      return
     writeInFlight.current = true
     const submittedScope = activeVenue.id
     const generation = ++writeGeneration.current
@@ -699,7 +636,9 @@ export function SupportWorkspace({
             requestId: submittedRequestId,
             expectedClientVersion: detail.clientVersion,
             body: replyBody,
-            attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
+            attachments: readyAttachmentIds(replyFiles).map((intakeUploadId) => ({
+              intakeUploadId,
+            })),
           })
         : client.support.addMessage.mutate({
             operationId: replyOperationId.current,
@@ -707,7 +646,9 @@ export function SupportWorkspace({
             requestId: submittedRequestId,
             expectedClientVersion: detail.clientVersion,
             body: replyBody,
-            attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
+            attachments: readyAttachmentIds(replyFiles).map((intakeUploadId) => ({
+              intakeUploadId,
+            })),
           }))
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       setDetail((current) =>
@@ -738,12 +679,12 @@ export function SupportWorkspace({
         ),
       )
       setReplyBody('')
-      setReplyAttachments([])
+      setReplyFiles([])
       replyOperationId.current = browserUuid()
       setNotice(
         result.onboardingResume?.questionExpired
           ? 'Your reply was saved. The original response window has closed, so the team will review it before work continues.'
-          : 'Your message and selected files were submitted for review. Nothing was published.',
+          : 'Sent to Torchiko. We’ll reply here.',
       )
     } catch (replyError) {
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
@@ -874,151 +815,177 @@ export function SupportWorkspace({
     }
   }
 
+  const conversationOpen = view === 'create' || Boolean(detail) || busy === 'detail'
+  const replyBlocked = attachmentsBlockSending(replyFiles)
+  const createBlocked = attachmentsBlockSending(createFiles)
+  const venueInitials = initials(activeVenue.name)
+
+  function showConversationList() {
+    setMobilePane('list')
+  }
+
   return (
-    <div className="min-h-screen bg-[#f5f8f7] px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
-      <div className="mx-auto max-w-6xl">
-        <header className="flex flex-col gap-5 border-b border-pf-light pb-7 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            {returnHref ? (
-              <Link
-                href={returnHref}
-                className="mb-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-pf-primary underline underline-offset-4"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to onboarding journey
-              </Link>
-            ) : null}
-            <p className="text-sm font-medium text-pf-primary">Torchiko Support</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep sm:text-4xl">
-              How can we help?
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/75">
-              Ask a question or request a change. Your conversation stays here so it is easy to
-              follow.
-            </p>
-          </div>
-          {venues.length > 1 ? (
-            <label className="text-sm font-medium text-pf-deep">
-              Venue
-              <select
-                aria-label="Venue"
-                value={activeVenue.id}
-                disabled={busy === 'create' || busy === 'reply'}
-                onChange={(event) => {
-                  if (writeInFlight.current) return
-                  detailReadGeneration.current += 1
-                  requestReadGeneration.current += 1
-                  attachmentReadGeneration.current += 1
-                  router.replace(`/support?venue=${encodeURIComponent(event.target.value)}`)
-                }}
-                className="mt-2 block min-h-11 rounded-xl border border-pf-light bg-white px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-              >
-                {venues.map((venue) => (
-                  <option key={venue.id} value={venue.id}>
-                    {venue.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-        </header>
-
-        {operatorSupportHref ? (
-          <aside className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
-            <strong>Operator preview:</strong> this portal lists only conversations and eligible
-            files belonging to your admin identity, not everything submitted by the client’s users.{' '}
-            <Link className="font-semibold underline underline-offset-4" href={operatorSupportHref}>
-              Open this venue’s Support workspace
-            </Link>{' '}
-            to review all client requests.
-          </aside>
-        ) : null}
-
-        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.6fr)]">
-          <aside className="border-y border-pf-light py-4 lg:border-y-0 lg:border-r lg:py-0 lg:pr-5">
-            <button
-              type="button"
+    <PortalPage
+      title="Help"
+      description="Message the Torchiko team. We’re here to help."
+      width="wide"
+      aside={
+        venues.length > 1 ? (
+          <label className="block w-full text-sm text-tk-soft sm:w-60">
+            Venue
+            <select
+              aria-label="Venue"
+              value={activeVenue.id}
               disabled={busy === 'create' || busy === 'reply'}
-              onClick={() => {
+              onChange={(event) => {
                 if (writeInFlight.current) return
                 detailReadGeneration.current += 1
-                detailRequestRef.current = null
-                setReplyBody('')
-                setReplyAttachments([])
-                replyOperationId.current = browserUuid()
-                clearFeedback()
-                setView('create')
+                requestReadGeneration.current += 1
+                attachmentReadGeneration.current += 1
+                router.replace(`/support?venue=${encodeURIComponent(event.target.value)}`)
               }}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 bg-pf-deep px-4 text-sm font-semibold text-white hover:bg-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+              className={`${portalInput} mt-1`}
             >
-              <Plus className="h-4 w-4" aria-hidden="true" /> New request
-            </button>
+              {venues.map((venue) => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null
+      }
+    >
+      {returnHref ? (
+        <Link
+          href={returnHref}
+          className={`-mt-2 mb-4 inline-flex min-h-11 items-center gap-2 text-sm ${portalTextLink}`}
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to setup
+        </Link>
+      ) : null}
 
-            <h2 className="mt-6 px-2 text-xs font-semibold uppercase tracking-[0.16em] text-pf-deep/55">
-              Conversations
-            </h2>
-            {requests.length === 0 ? (
-              <p className="px-2 py-8 text-sm leading-6 text-pf-deep/65">
-                You have no support conversations yet.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-1">
-                {requests.map((request) => (
+      {operatorSupportHref ? (
+        <aside className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+          <strong>Operator preview:</strong> this portal lists only conversations and eligible files
+          belonging to your admin identity, not everything submitted by the client’s users.{' '}
+          <Link className="font-semibold underline underline-offset-4" href={operatorSupportHref}>
+            Open this venue’s Support workspace
+          </Link>{' '}
+          to review all client requests.
+        </aside>
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)] lg:items-start">
+        <aside
+          aria-label="Conversations"
+          className={`${mobilePane === 'list' || !conversationOpen ? '' : 'hidden'} lg:block`}
+        >
+          <button
+            type="button"
+            disabled={busy === 'create' || busy === 'reply'}
+            onClick={() => {
+              if (writeInFlight.current) return
+              detailReadGeneration.current += 1
+              detailRequestRef.current = null
+              setReplyBody('')
+              setReplyFiles([])
+              replyOperationId.current = browserUuid()
+              clearFeedback()
+              setView('create')
+              setMobilePane('conversation')
+            }}
+            className={`${portalButtonSecondary} w-full`}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" /> New conversation
+          </button>
+
+          {requests.length === 0 ? (
+            <p className="mt-4 px-1 text-sm leading-6 text-tk-soft">No conversations yet.</p>
+          ) : (
+            <ul className="mt-3 space-y-1">
+              {requests.map((request) => {
+                const current = view === 'conversation' && detail?.id === request.id
+                const waiting = request.status === 'WAITING_FOR_CLIENT' && request.canReply
+                return (
                   <li key={request.id}>
                     <button
                       type="button"
                       disabled={busy === 'create' || busy === 'reply'}
-                      onClick={() => void openRequest(request.id)}
-                      aria-current={view === 'conversation' && detail?.id === request.id}
-                      className={`flex min-h-16 w-full items-center gap-3 border-l-2 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
-                        view === 'conversation' && detail?.id === request.id
-                          ? 'border-[#ef8d47] bg-pf-primary/[0.05]'
-                          : 'border-transparent hover:border-pf-light hover:bg-pf-surface'
+                      onClick={() => {
+                        setMobilePane('conversation')
+                        void openRequest(request.id)
+                      }}
+                      aria-current={current}
+                      className={`flex min-h-14 w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors motion-reduce:transition-none ${portalFocus} ${
+                        current ? 'bg-tk-ink-wash' : 'hover:bg-tk-ink/[0.04]'
                       }`}
                     >
+                      <span
+                        aria-hidden="true"
+                        className={`mt-[0.45rem] h-2 w-2 shrink-0 rounded-full ${
+                          waiting ? 'bg-tk-ember' : 'bg-transparent'
+                        }`}
+                      />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-pf-deep">
+                        <span className="line-clamp-2 break-words text-sm font-semibold leading-5">
                           {request.subject}
                         </span>
-                        <span className="mt-1 block text-xs text-pf-deep/60">
-                          {statusLabels[request.status] ?? 'In progress'} ·{' '}
-                          {dateLabel(request.clientActivityAt)}
+                        <span className="mt-0.5 block text-[0.8rem] leading-5 text-tk-soft">
+                          {supportStatusLabel(request.status)} ·{' '}
+                          <span suppressHydrationWarning>
+                            {dateLabel(request.clientActivityAt)}
+                          </span>
                           {!request.requesterIsCurrentUser ? ' · Your team' : ''}
                         </span>
                       </span>
-                      <ChevronRight
-                        className="h-4 w-4 shrink-0 text-pf-deep/40"
-                        aria-hidden="true"
-                      />
                     </button>
                   </li>
-                ))}
-              </ul>
-            )}
-            {nextCursor ? (
+                )
+              })}
+            </ul>
+          )}
+          {nextCursor ? (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void loadMoreRequests()}
+              className={`mt-2 min-h-11 w-full rounded-lg text-sm font-semibold text-tk-focus hover:bg-tk-ink-wash disabled:opacity-55 ${portalFocus}`}
+            >
+              {busy === 'requests' ? 'Loading…' : 'Show older conversations'}
+            </button>
+          ) : null}
+        </aside>
+
+        <section
+          aria-label="Conversation"
+          className={`${mobilePane === 'conversation' || !requests.length ? '' : 'hidden'} min-w-0 rounded-xl border border-tk-rule bg-tk-card lg:block`}
+        >
+          {conversationOpen && requests.length ? (
+            <div className="border-b border-tk-rule px-4 pt-2 lg:hidden">
               <button
                 type="button"
-                disabled={busy !== null}
-                onClick={() => void loadMoreRequests()}
-                className="mt-3 min-h-11 w-full rounded-xl text-sm font-semibold text-pf-primary hover:bg-pf-surface disabled:opacity-50"
+                onClick={showConversationList}
+                className={`inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-tk-focus ${portalFocus}`}
               >
-                {busy === 'requests' ? 'Loading…' : 'Load more'}
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> All conversations
               </button>
-            ) : null}
-          </aside>
+            </div>
+          ) : null}
 
-          <section className="min-h-[30rem] border-y border-pf-light bg-white/80 p-5 sm:p-7">
+          <div className="p-4 sm:p-6">
             {error ? (
               <div
                 role="alert"
-                className="mb-5 flex items-start gap-3 border-l-2 border-rose-500 bg-rose-50 p-4 text-sm leading-6 text-rose-800"
+                className="mb-4 flex items-start gap-3 rounded-lg border border-tk-danger/40 bg-[#FBEFEF] px-3 py-2.5 text-sm leading-6 text-tk-danger"
               >
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{error}</span>
+                <CircleAlert className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
                 {conflict && detail ? (
                   <button
                     type="button"
                     onClick={() => void openRequest(detail.id)}
-                    className="ml-auto shrink-0 font-semibold underline underline-offset-2"
+                    className={`shrink-0 font-semibold underline underline-offset-2 ${portalFocus}`}
                   >
                     Refresh
                   </button>
@@ -1026,18 +993,15 @@ export function SupportWorkspace({
               </div>
             ) : null}
             {notice ? (
-              <p
-                role="status"
-                className="mb-5 border-l-2 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-800"
-              >
-                {notice}
-              </p>
+              <div className="mb-4">
+                <PortalNotice tone="success">{notice}</PortalNotice>
+              </div>
             ) : null}
 
             {busy === 'detail' ? (
               <div
                 role="status"
-                className="flex min-h-64 items-center justify-center gap-2 text-sm text-pf-deep/65"
+                className="flex min-h-64 items-center justify-center gap-2 text-sm text-tk-soft"
               >
                 <LoaderCircle
                   className="h-4 w-4 animate-spin motion-reduce:animate-none"
@@ -1046,110 +1010,155 @@ export function SupportWorkspace({
                 Opening conversation…
               </div>
             ) : view === 'create' ? (
-              <form onSubmit={createRequest} className="mx-auto max-w-2xl space-y-5">
-                <div>
-                  <p className="text-sm font-medium text-pf-primary">New request</p>
-                  <h2 className="mt-1 text-2xl font-semibold text-pf-deep">
-                    Tell us what you need
-                  </h2>
+              <form onSubmit={createRequest} className="max-w-2xl space-y-4">
+                <h2 className="font-portal text-[1.45rem] leading-tight">New conversation</h2>
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_14rem]">
+                  <label className="block text-sm font-semibold">
+                    Subject
+                    <input
+                      required
+                      maxLength={200}
+                      value={subject}
+                      disabled={busy === 'create'}
+                      onChange={(event) => changeCreateDraft(() => setSubject(event.target.value))}
+                      className={`${portalInput} mt-1.5 font-normal`}
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold">
+                    About
+                    <select
+                      value={category}
+                      disabled={busy === 'create'}
+                      onChange={(event) =>
+                        changeCreateDraft(() => setCategory(event.target.value as SupportCategory))
+                      }
+                      className={`${portalInput} mt-1.5 font-normal`}
+                    >
+                      {categories.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-                <label className="block text-sm font-medium text-pf-deep">
-                  What is this about?
-                  <select
-                    value={category}
-                    disabled={busy === 'create'}
-                    onChange={(event) =>
-                      changeCreateDraft(() => setCategory(event.target.value as SupportCategory))
-                    }
-                    className="mt-2 block min-h-12 w-full rounded-xl border border-pf-light bg-white px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-                  >
-                    {categories.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-pf-deep">
-                  Subject
-                  <input
-                    required
-                    maxLength={200}
-                    value={subject}
-                    disabled={busy === 'create'}
-                    onChange={(event) => changeCreateDraft(() => setSubject(event.target.value))}
-                    className="mt-2 block min-h-12 w-full rounded-xl border border-pf-light px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-pf-deep">
-                  Message
+                <div className="rounded-lg border border-tk-rule-strong bg-white focus-within:border-tk-focus focus-within:ring-2 focus-within:ring-tk-focus/30">
+                  <label className="sr-only" htmlFor="support-new-message">
+                    Message
+                  </label>
                   <textarea
+                    id="support-new-message"
                     required
                     maxLength={20_000}
-                    rows={7}
+                    rows={6}
                     value={requestBody}
                     disabled={busy === 'create'}
                     onChange={(event) =>
                       changeCreateDraft(() => setRequestBody(event.target.value))
                     }
-                    className="mt-2 block w-full rounded-xl border border-pf-light px-4 py-3 leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-                    placeholder="Share the change, question, or information you would like us to review."
+                    className="block w-full resize-y rounded-t-lg border-0 bg-transparent px-3.5 py-3 text-sm leading-6 placeholder:text-tk-soft focus:outline-none"
+                    placeholder="What would you like us to change, or what’s your question?"
                   />
-                </label>
-                <AttachmentPicker
-                  available={eligibleAttachments}
-                  selected={createAttachments}
-                  disabled={busy === 'create'}
-                  label="Files for Torchiko review (optional)"
-                  onChange={(ids) => changeCreateDraft(() => setCreateAttachments(ids))}
-                />
-                {eligibleAttachmentsNextCursor ? (
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void loadMoreEligibleAttachments()}
-                    className="min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
-                  >
-                    {busy === 'attachments' ? 'Loading files…' : 'Show more recent files'}
-                  </button>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={busy !== null}
-                  className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent disabled:opacity-50"
-                >
-                  {busy === 'create' ? (
-                    <LoaderCircle
-                      className="h-4 w-4 animate-spin motion-reduce:animate-none"
-                      aria-hidden="true"
+                  <div className="border-t border-tk-rule px-2 py-1.5">
+                    <ComposerAttachments
+                      venueId={activeVenue.id}
+                      items={createFiles}
+                      onChange={(update) => changeCreateDraft(() => setCreateFiles(update))}
+                      disabled={busy === 'create'}
+                      api={transferApi}
+                      eligible={eligibleAttachments}
+                      eligibleHasMore={Boolean(eligibleAttachmentsNextCursor)}
+                      onLoadMoreEligible={() => void loadMoreEligibleAttachments()}
                     />
-                  ) : (
-                    <Send className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {busy === 'create' ? 'Sending…' : 'Send request'}
-                </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {createBlocked ? (
+                    <p className="text-sm text-tk-soft">Waiting for attachments to finish.</p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={busy !== null || createBlocked}
+                    className={portalButtonPrimary}
+                  >
+                    {busy === 'create' ? (
+                      <LoaderCircle
+                        className="h-4 w-4 animate-spin motion-reduce:animate-none"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    {busy === 'create' ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
               </form>
             ) : detail ? (
-              <div className="flex min-h-[28rem] flex-col">
-                <div className="border-b border-pf-light pb-5">
-                  <button
-                    type="button"
-                    onClick={() => setView('create')}
-                    className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-pf-primary lg:hidden"
-                  >
-                    <ArrowLeft className="h-4 w-4" aria-hidden="true" /> New request
-                  </button>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-semibold text-pf-deep">{detail.subject}</h2>
-                      <p className="mt-2 text-sm text-pf-deep/65">
-                        {statusLabels[detail.status] ?? 'In progress'}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-pf-surface px-3 py-1.5 text-xs font-semibold text-pf-primary">
-                      {activeVenue.name}
-                    </span>
+              <div className="flex min-h-[26rem] flex-col">
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-tk-rule pb-4">
+                  <div className="min-w-0">
+                    <h2 className="break-words font-portal text-[1.45rem] leading-tight">
+                      {detail.subject}
+                    </h2>
+                    <p className="mt-1 text-sm text-tk-soft">{supportStatusLabel(detail.status)}</p>
                   </div>
+                  {detail.requesterIsCurrentUser ? (
+                    <details className="group relative">
+                      <summary
+                        className={`flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-tk-soft hover:bg-tk-ink-wash hover:text-tk-ink [&::-webkit-details-marker]:hidden ${portalFocus}`}
+                      >
+                        <Users className="h-4 w-4" aria-hidden="true" /> Team access
+                      </summary>
+                      <div className="mt-2 w-[min(20rem,calc(100vw-4rem))] rounded-lg border border-tk-rule bg-white p-3 shadow-lg sm:absolute sm:right-0 sm:z-10">
+                        <p className="text-sm leading-6 text-tk-soft">
+                          Choose who on your team can read and reply here.
+                        </p>
+                        {participantCandidates === null ? (
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => void loadParticipantCandidates()}
+                            className={`${portalButtonSecondary} mt-2 w-full`}
+                          >
+                            {busy === 'participants' ? 'Loading…' : 'Manage team access'}
+                          </button>
+                        ) : participantCandidates.length === 0 ? (
+                          <p className="mt-2 text-sm text-tk-soft">
+                            No other active team members are available.
+                          </p>
+                        ) : (
+                          <ul className="mt-2 divide-y divide-tk-rule">
+                            {participantCandidates.map((candidate) => (
+                              <li
+                                key={candidate.userId}
+                                className="flex items-center justify-between gap-3 py-1"
+                              >
+                                <span className="min-w-0 truncate text-sm font-medium">
+                                  {candidate.displayLabel}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={busy !== null}
+                                  onClick={() => void changeParticipant(candidate)}
+                                  className={`min-h-11 shrink-0 rounded-md px-2 text-sm font-semibold text-tk-focus hover:bg-tk-ink-wash disabled:opacity-55 ${portalFocus}`}
+                                >
+                                  {candidate.activeOnRequest ? 'Remove access' : 'Give access'}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {participantNextCursor ? (
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => void loadParticipantCandidates(participantNextCursor)}
+                            className={`mt-1 min-h-11 text-sm font-semibold text-tk-focus disabled:opacity-55 ${portalFocus}`}
+                          >
+                            Show more team members
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
 
                 {detail.canReply &&
@@ -1157,32 +1166,24 @@ export function SupportWorkspace({
                 detail.status !== 'CANCELLED' ? (
                   <section
                     aria-labelledby="support-information-needed"
-                    className="mt-5 border-l-2 border-amber-500 bg-amber-50 p-4 sm:p-5"
+                    className="mt-4 rounded-lg border border-tk-ember/35 bg-tk-ember-wash px-4 py-3"
                   >
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">
-                      Your next step
-                    </p>
                     <h3
                       id="support-information-needed"
-                      className="mt-1 text-lg font-semibold text-amber-950"
+                      className="text-sm font-semibold text-tk-ember-text"
                     >
-                      A few details will help us continue
+                      What we need from you
                     </h3>
-                    <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-amber-950/85">
+                    <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-6 text-tk-ink">
                       {detail.missingInformation.slice(0, 5).map((item, index) => (
                         <li key={`${index}:${item}`}>{item}</li>
                       ))}
                       {detail.missingInformation.length > 5 ? (
-                        <li>{detail.missingInformation.length - 5} more details in this request</li>
+                        <li>{detail.missingInformation.length - 5} more in this conversation</li>
                       ) : null}
                     </ul>
-                    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                      <a
-                        href="#support-reply"
-                        className="inline-flex min-h-11 items-center rounded-xl bg-amber-900 px-4 font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
-                      >
-                        Reply with details
-                      </a>
+                    <p className="mt-2 text-sm text-tk-soft">
+                      Reply below, attach a photo if it helps, or{' '}
                       <button
                         type="button"
                         disabled={busy !== null}
@@ -1190,200 +1191,163 @@ export function SupportWorkspace({
                           changeReplyDraft(() => setReplyBody("I don't know."))
                           document.getElementById('support-reply')?.focus()
                         }}
-                        className="inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-amber-900 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 disabled:opacity-50"
+                        className={`font-semibold text-tk-focus underline underline-offset-4 disabled:opacity-55 ${portalFocus}`}
                       >
-                        I don’t know
+                        say you don’t know
                       </button>
-                      <a
-                        href={`/venues/${encodeURIComponent(activeVenue.id)}/intake`}
-                        className="inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-amber-900 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
-                      >
-                        Share a file or website
-                      </a>
-                    </div>
+                      .
+                    </p>
                   </section>
                 ) : null}
 
-                <div className="flex-1 space-y-4 py-6" aria-live="polite">
+                <ol className="flex-1 space-y-3 py-5" aria-live="polite" aria-label="Messages">
                   {detail.messages.filter(isSafeClientMessage).map((message) => {
                     const fromClient = message.authorKind === 'CLIENT'
+                    const who = fromClient
+                      ? message.authorIsCurrentUser
+                        ? 'You'
+                        : 'Your team'
+                      : 'Torchiko'
                     return (
-                      <article
+                      <li
                         key={message.id}
-                        className={`max-w-[92%] rounded-2xl px-4 py-3 sm:max-w-[78%] ${
-                          fromClient
-                            ? 'ml-auto bg-pf-primary text-white'
-                            : 'border border-pf-light bg-pf-surface text-pf-deep'
-                        }`}
+                        className="flex gap-3 rounded-lg border border-tk-rule bg-white px-3.5 py-3"
                       >
-                        <p className="text-xs font-semibold opacity-75">
-                          {fromClient
-                            ? message.authorIsCurrentUser
-                              ? 'You'
-                              : 'Your team'
-                            : 'Torchiko Support'}{' '}
-                          · {dateLabel(message.createdAt)}
-                        </p>
-                        {message.completionOutcome ? (
-                          <SupportCompletionOutcome
-                            outcome={message.completionOutcome}
-                            className="mt-2 opacity-80"
-                          />
-                        ) : null}
-                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
-                        {message.attachments.length > 0 ? (
-                          <ul className="mt-3 space-y-1 text-xs">
-                            {message.attachments.map((attachment) => (
-                              <li key={attachment.id}>{attachment.filename}</li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </article>
+                        <span
+                          aria-hidden="true"
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-bold ${
+                            fromClient ? 'bg-tk-ink-wash text-tk-ink' : 'bg-tk-ink text-white'
+                          }`}
+                        >
+                          {fromClient ? venueInitials : 'T'}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                            <span className="font-semibold">{who}</span>
+                            <time
+                              dateTime={new Date(message.createdAt).toISOString()}
+                              className="text-[0.8rem] text-tk-soft"
+                              suppressHydrationWarning
+                            >
+                              {timeLabel(message.createdAt)}
+                            </time>
+                          </p>
+                          {message.completionOutcome ? (
+                            <SupportCompletionOutcome
+                              outcome={message.completionOutcome}
+                              className="mt-1 text-tk-soft"
+                            />
+                          ) : null}
+                          <p className="mt-1 whitespace-pre-wrap break-words text-[0.95rem] leading-6">
+                            {message.body}
+                          </p>
+                          {message.attachments.length > 0 ? (
+                            <ul className="mt-2 flex flex-wrap gap-2" aria-label="Attachments">
+                              {message.attachments.map((attachment) => (
+                                <li
+                                  key={attachment.id}
+                                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-tk-rule bg-tk-paper px-2 py-1 text-[0.8rem] text-tk-ink"
+                                >
+                                  <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  <span className="truncate">{attachment.filename}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </li>
                     )
                   })}
                   {detail.nextMessageCursor ? (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() => void loadMoreMessages()}
-                      className="min-h-11 text-sm font-semibold text-pf-primary disabled:opacity-50"
-                    >
-                      {busy === 'messages' ? 'Loading…' : 'Load more messages'}
-                    </button>
+                    <li>
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void loadMoreMessages()}
+                        className={`min-h-11 text-sm font-semibold text-tk-focus disabled:opacity-55 ${portalFocus}`}
+                      >
+                        {busy === 'messages' ? 'Loading…' : 'Load more messages'}
+                      </button>
+                    </li>
                   ) : null}
-                </div>
-
-                {detail.requesterIsCurrentUser ? (
-                  <section
-                    className="border-t border-pf-light py-5"
-                    aria-labelledby="support-team-heading"
-                  >
-                    <h3 id="support-team-heading" className="font-semibold text-pf-deep">
-                      Conversation access
-                    </h3>
-                    <p className="mt-1 text-sm text-pf-deep/65">
-                      Choose active members of your organization who may read and reply to this
-                      conversation.
-                    </p>
-                    {participantCandidates === null ? (
-                      <button
-                        type="button"
-                        disabled={busy !== null}
-                        onClick={() => void loadParticipantCandidates()}
-                        className="mt-3 min-h-11 rounded-xl border border-pf-primary px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
-                      >
-                        {busy === 'participants' ? 'Loading…' : 'Manage team access'}
-                      </button>
-                    ) : participantCandidates.length === 0 ? (
-                      <p className="mt-3 text-sm text-pf-deep/65">
-                        No other active team members are available.
-                      </p>
-                    ) : (
-                      <ul className="mt-3 divide-y divide-pf-light rounded-2xl border border-pf-light">
-                        {participantCandidates.map((candidate) => (
-                          <li
-                            key={candidate.userId}
-                            className="flex items-center justify-between gap-3 p-3"
-                          >
-                            <span className="text-sm font-medium text-pf-deep">
-                              {candidate.displayLabel}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={busy !== null}
-                              onClick={() => void changeParticipant(candidate)}
-                              className="min-h-11 rounded-xl px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
-                            >
-                              {candidate.activeOnRequest ? 'Remove access' : 'Give access'}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {participantNextCursor ? (
-                      <button
-                        type="button"
-                        disabled={busy !== null}
-                        onClick={() => void loadParticipantCandidates(participantNextCursor)}
-                        className="mt-3 min-h-11 text-sm font-semibold text-pf-primary disabled:opacity-50"
-                      >
-                        Show more team members
-                      </button>
-                    ) : null}
-                  </section>
-                ) : null}
+                </ol>
 
                 {!detail.canReply || detail.status === 'CANCELLED' ? (
-                  <p className="rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/70">
+                  <PortalNotice>
                     {detail.status === 'CANCELLED'
-                      ? 'This conversation is closed. Start a new request if you need anything else.'
+                      ? 'This conversation is closed. Start a new one if you need anything else.'
                       : 'You no longer have access to reply to this conversation.'}
-                  </p>
+                  </PortalNotice>
                 ) : (
-                  <form onSubmit={sendReply} className="border-t border-pf-light pt-5">
+                  <form onSubmit={sendReply}>
                     {detail.status === 'COMPLETED' ? (
-                      <p className="mb-4 border-l-2 border-pf-primary bg-pf-surface px-4 py-3 text-sm leading-6 text-pf-deep/75">
-                        Need to add something? Reply here. We’ll reopen this conversation for review
-                        so its history stays together.
+                      <p className="mb-2 text-sm text-tk-soft">
+                        Need to add something? Reply here and we’ll pick it back up.
                       </p>
                     ) : null}
-                    <label className="sr-only" htmlFor="support-reply">
-                      Reply
-                    </label>
-                    <textarea
-                      id="support-reply"
-                      required
-                      rows={4}
-                      maxLength={20_000}
-                      value={replyBody}
-                      disabled={busy === 'reply'}
-                      onChange={(event) => {
-                        changeReplyDraft(() => setReplyBody(event.target.value))
-                        if (!writeInFlight.current) clearFeedback()
-                      }}
-                      placeholder="Write a reply…"
-                      className="block w-full rounded-xl border border-pf-light px-4 py-3 text-sm leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-                    />
-                    <div className="mt-4">
-                      <AttachmentPicker
-                        available={eligibleAttachments}
-                        selected={replyAttachments}
+                    <div className="rounded-lg border border-tk-rule-strong bg-white focus-within:border-tk-focus focus-within:ring-2 focus-within:ring-tk-focus/30">
+                      <label className="sr-only" htmlFor="support-reply">
+                        Reply
+                      </label>
+                      <textarea
+                        id="support-reply"
+                        required
+                        rows={3}
+                        maxLength={20_000}
+                        value={replyBody}
                         disabled={busy === 'reply'}
-                        label="Files for Torchiko review (optional)"
-                        onChange={(ids) => changeReplyDraft(() => setReplyAttachments(ids))}
+                        onChange={(event) => {
+                          changeReplyDraft(() => setReplyBody(event.target.value))
+                          if (!writeInFlight.current) clearFeedback()
+                        }}
+                        placeholder="Write a reply…"
+                        className="block max-h-[40vh] min-h-[5.5rem] w-full resize-y rounded-t-lg border-0 bg-transparent px-3.5 py-3 text-[0.95rem] leading-6 placeholder:text-tk-soft focus:outline-none"
                       />
-                      {eligibleAttachmentsNextCursor ? (
+                      <div className="flex flex-wrap items-end justify-between gap-2 border-t border-tk-rule px-2 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <ComposerAttachments
+                            venueId={activeVenue.id}
+                            items={replyFiles}
+                            onChange={(update) => changeReplyDraft(() => setReplyFiles(update))}
+                            disabled={busy === 'reply'}
+                            api={transferApi}
+                            eligible={eligibleAttachments}
+                            eligibleHasMore={Boolean(eligibleAttachmentsNextCursor)}
+                            onLoadMoreEligible={() => void loadMoreEligibleAttachments()}
+                          />
+                        </div>
                         <button
-                          type="button"
-                          disabled={busy !== null}
-                          onClick={() => void loadMoreEligibleAttachments()}
-                          className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                          type="submit"
+                          disabled={busy !== null || replyBlocked}
+                          className={`${portalButtonPrimary} mb-0.5`}
                         >
-                          {busy === 'attachments' ? 'Loading files…' : 'Show more recent files'}
+                          {busy === 'reply' ? (
+                            <LoaderCircle
+                              className="h-4 w-4 animate-spin motion-reduce:animate-none"
+                              aria-hidden="true"
+                            />
+                          ) : null}
+                          {busy === 'reply' ? 'Sending…' : 'Send'}
                         </button>
-                      ) : null}
+                      </div>
                     </div>
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        type="submit"
-                        disabled={busy !== null}
-                        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent disabled:opacity-50"
-                      >
-                        {busy === 'reply' ? 'Sending…' : 'Send reply'}
-                      </button>
-                    </div>
+                    {replyBlocked ? (
+                      <p className="mt-2 text-sm text-tk-soft">
+                        Send becomes available when your attachments are ready.
+                      </p>
+                    ) : null}
                   </form>
                 )}
               </div>
             ) : (
               <div className="flex min-h-64 flex-col items-center justify-center text-center">
-                <MessageCircle className="h-8 w-8 text-pf-primary" aria-hidden="true" />
-                <h2 className="mt-4 text-xl font-semibold text-pf-deep">Choose a conversation</h2>
+                <MessageCircle className="h-7 w-7 text-tk-soft" aria-hidden="true" />
+                <h2 className="mt-3 font-portal text-xl">Choose a conversation</h2>
               </div>
             )}
-          </section>
-        </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </PortalPage>
   )
 }

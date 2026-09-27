@@ -104,18 +104,16 @@ describe('weekly report capability controls', () => {
     expect(screen.getByText('Updates')).toBeTruthy()
   })
 
-  it('shows reports only when enabled and marks report descendants active in responsive navigation', () => {
+  it('keeps reports under Account instead of adding a navigation destination', () => {
     mocks.pathname = '/weekly-reports/report-1'
     render(
-      <DashboardShell weeklyReportsAvailable>
+      <DashboardShell>
         <div>content</div>
       </DashboardShell>,
     )
 
-    const reportLinks = screen.getAllByRole('link', { name: 'Reports' })
-    expect(reportLinks).toHaveLength(1)
-    expect(reportLinks.every((link) => link.getAttribute('href') === '/weekly-reports')).toBe(true)
-    expect(reportLinks.every((link) => link.getAttribute('aria-current') === 'page')).toBe(true)
+    expect(screen.queryByRole('link', { name: 'Reports' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Account' }).getAttribute('aria-current')).toBe('page')
     expect(screen.queryByText('Analytics')).toBeNull()
   })
 

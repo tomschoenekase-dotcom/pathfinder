@@ -7,6 +7,7 @@ import {
   Playfair_Display,
   Plus_Jakarta_Sans,
   Poppins,
+  Source_Serif_4,
   Space_Grotesk,
 } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
@@ -55,6 +56,14 @@ const playfair = Playfair_Display({
   display: 'swap',
 })
 
+// The client portal's headings: a readable serif used sparingly for page and section titles.
+const portalSerif = Source_Serif_4({
+  subsets: ['latin'],
+  weight: ['600'],
+  variable: '--font-portal-serif',
+  display: 'swap',
+})
+
 const chatFontVariables = [
   jakarta.variable,
   inter.variable,
@@ -62,6 +71,7 @@ const chatFontVariables = [
   spaceGrotesk.variable,
   dmSans.variable,
   playfair.variable,
+  portalSerif.variable,
 ].join(' ')
 
 type RootLayoutProps = {

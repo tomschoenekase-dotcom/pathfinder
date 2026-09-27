@@ -88,18 +88,18 @@ for (const viewport of [
       path: testInfo.outputPath(`${viewport.name}-onboarding-navigation.png`),
       fullPage: true,
     })
-    const supportLink = nav.getByRole('link', { name: 'Questions & help' })
+    const supportLink = nav.getByRole('link', { name: 'Help', exact: true })
     await expect(supportLink).toHaveAttribute('href', support)
     await supportLink.focus()
     await expect(supportLink).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeFocused()
 
-    await page.getByRole('button', { name: 'New request' }).first().click()
+    await page.getByRole('button', { name: 'New conversation' }).first().click()
     await page.getByLabel('Subject').fill('Update the family arrival note')
     await page.getByLabel('Message').fill('Please review the arrival wording for families.')
-    await page.getByRole('button', { name: 'Send request' }).click()
-    await expect(page.getByText(/submitted for review/iu)).toBeVisible()
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(page.getByText(/Sent to Torchiko/iu)).toBeVisible()
     expect(mutations).toHaveLength(1)
     expect(mutations[0]?.['0']).toMatchObject({
       json: {
@@ -112,7 +112,7 @@ for (const viewport of [
     })
 
     if (viewport.width < 1024) await page.getByRole('button', { name: 'Open navigation' }).click()
-    const today = nav.getByRole('link', { name: 'Today' })
+    const today = nav.getByRole('link', { name: 'Home', exact: true })
     await expect(today).toHaveAttribute('href', `/?venue=${venueId}`)
     await today.click()
     await expect(
@@ -120,10 +120,10 @@ for (const viewport of [
     ).toBeVisible()
     expect((await new AxeBuilder({ page }).include('body').analyze()).violations).toEqual([])
     await page.screenshot({
-      path: testInfo.outputPath(`${viewport.name}-today.png`),
+      path: testInfo.outputPath(`${viewport.name}-home.png`),
       fullPage: true,
     })
-    const qrLink = page.getByRole('link', { name: 'Open QR code' })
+    const qrLink = page.getByRole('link', { name: /Download or print/u })
     await expect(qrLink).toHaveAttribute('href', `/venues/${venueId}/qr-kit`)
     await qrLink.click()
     await expect(
@@ -133,7 +133,7 @@ for (const viewport of [
       page.getByText('https://guide.example.com/great-lakes-discovery-museum/chat'),
     ).toBeVisible()
     if (viewport.width < 1024) await page.getByRole('button', { name: 'Open navigation' }).click()
-    await expect(nav.getByRole('link', { name: 'Today' })).toHaveAttribute(
+    await expect(nav.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute(
       'href',
       `/?venue=${venueId}`,
     )
