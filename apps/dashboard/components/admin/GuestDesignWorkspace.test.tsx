@@ -1,4 +1,5 @@
 /* @vitest-environment jsdom */
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
@@ -85,6 +86,7 @@ describe('GuestDesignWorkspace', () => {
           chatFont: 'poppins',
           chatShowPhotos: true,
           chatShowLinks: true,
+          chatAppearance: DEFAULT_CHAT_APPEARANCE,
           chatLogoUrl: initial.chatLogoUrl,
           chatBannerUrl: null,
         },

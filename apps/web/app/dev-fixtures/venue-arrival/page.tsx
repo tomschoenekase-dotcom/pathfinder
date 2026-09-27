@@ -1,4 +1,5 @@
 import type { PublicVenueMediaItem } from '@pathfinder/contracts'
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
 import { notFound } from 'next/navigation'
 
 import { VenueArrival } from '../../../components/VenueArrival'
@@ -34,21 +35,43 @@ const FIXTURE_MEDIA: PublicVenueMediaItem[] = [
 export default async function VenueArrivalFixturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string; theme?: string; accent?: string; branding?: string }>
+  searchParams: Promise<{
+    state?: string
+    theme?: string
+    accent?: string
+    branding?: string
+    look?: string
+    venueName?: string
+  }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const { state = 'media', theme, accent, branding } = await searchParams
+  const { state = 'media', theme, accent, branding, look, venueName } = await searchParams
+  const photo = look === 'photo'
   return (
     <VenueArrival
       venue={{
-        name: 'Great Lakes Discovery Museum',
+        name: venueName?.slice(0, 160) || 'Great Lakes Discovery Museum',
         description: 'Explore lake ecology, shipping history, and hands-on family exhibits.',
         category: 'Museum',
         chatTheme: theme ?? null,
         chatAccentColor: accent ?? null,
         chatLogoUrl: branding ? '/dev-fixtures/visitor-brand-logo.svg' : null,
-        chatBannerUrl: branding ? '/dev-fixtures/visitor-brand-banner.svg' : null,
+        chatBannerUrl: photo
+          ? '/dev-fixtures/visitor-backdrop-space.svg'
+          : branding
+            ? '/dev-fixtures/visitor-brand-banner.svg'
+            : null,
+        ...(photo
+          ? {
+              chatAppearance: {
+                ...DEFAULT_CHAT_APPEARANCE,
+                headerColor: '#0B1426',
+                assistantSurfaceColor: '#101B33',
+                background: { mode: 'image' as const, focalX: 70, focalY: 60, dim: 35 },
+              },
+            }
+          : {}),
       }}
       venueSlug="great-lakes-museum"
       media={state === 'media' ? FIXTURE_MEDIA : []}

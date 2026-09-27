@@ -7,9 +7,11 @@ import type {
   PublicCharacterProjection,
 } from '@pathfinder/contracts/character-system'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+import type { ChatAppearance } from '@pathfinder/contracts/chat-appearance'
 
 import { TRPCProvider } from '../lib/trpc'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { DEFAULT_VISITOR_PREFERENCES, type VisitorPreferences } from '../lib/visitor-preferences'
 import { LocationRoutePlanner, type LocationRoutePlannerDataSource } from './LocationRoutePlanner'
 import { VenueChatShell } from './VenueChatShell'
 import { VoiceControlPanel } from './VoiceControl'
@@ -32,6 +34,7 @@ export type VisitorFixtureConversation =
   | 'multilingual'
   | 'streaming'
   | 'voice-history'
+  | 'reference'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
@@ -173,6 +176,16 @@ const LONG_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+/** The exchange from the approved visitor-guide reference screenshot. */
+const REFERENCE_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: "I'm a 10 year old boy. What will I like?" },
+  {
+    role: 'assistant',
+    content:
+      "If you mean what you might like at the museum, Max Q the robot is a popular choice—ask a staff member to show you what he can do, and don't touch his control tablet. You could also try lifting the gravity bricks to feel how the same brick would weigh on the Moon or Mars.",
+  },
+]
+
 const MULTILINGUAL_CONVERSATION: ChatMessage[] = [
   {
     role: 'user',
@@ -222,7 +235,11 @@ const VOICE_HISTORY_CONVERSATION: ChatMessage[] = [
   },
 ]
 
-function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
+function fixtureVenue(
+  mode: VisitorFixtureMode,
+  asset: VisitorFixtureAsset,
+  guideMode: 'non_location' | 'location_aware',
+): VenueSummary {
   const projection =
     asset === 'ok'
       ? VISITOR_FIXTURE_PROJECTION
@@ -236,7 +253,7 @@ function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): Ven
     name: 'Great Lakes Discovery Museum',
     description: 'Explore lake ecology, shipping history, and hands-on family exhibits.',
     category: 'museum',
-    guideMode: 'non_location',
+    guideMode,
     defaultCenterLat: null,
     defaultCenterLng: null,
     aiGuideName: 'Museum Guide',
@@ -273,6 +290,7 @@ export function VenueChatFixture({
   voice = 'none',
   network = 'online',
   route = 'none',
+  guideMode = 'non_location',
   language = 'English',
   theme,
   font,
@@ -282,6 +300,10 @@ export function VenueChatFixture({
   presentation = 'standalone',
   appHeader = 'full',
   booting = false,
+  appearance,
+  backgroundUrl,
+  venueName,
+  preferences = DEFAULT_VISITOR_PREFERENCES,
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -291,6 +313,7 @@ export function VenueChatFixture({
   voice?: VisitorFixtureVoice
   network?: NetworkConnectionState
   route?: VisitorFixtureRoute
+  guideMode?: 'non_location' | 'location_aware'
   language?: SupportedChatLanguage
   theme?: string | undefined
   font?: string | undefined
@@ -300,7 +323,13 @@ export function VenueChatFixture({
   presentation?: VenueChatPresentation
   appHeader?: 'full' | 'compact'
   booting?: boolean
+  appearance?: ChatAppearance
+  /** Same-origin reviewed background image used with an `image` appearance. */
+  backgroundUrl?: string
+  venueName?: string
+  preferences?: VisitorPreferences
 }) {
+  const [fixturePreferences, setFixturePreferences] = useState(preferences)
   const [clientMounted, setClientMounted] = useState(false)
 
   useEffect(() => {
@@ -326,7 +355,7 @@ export function VenueChatFixture({
       >
         <VenueChatShell
           venue={{
-            ...fixtureVenue(mode, asset),
+            ...fixtureVenue(mode, asset, guideMode),
             ...(theme ? { chatTheme: theme } : {}),
             ...(font ? { chatFont: font } : {}),
             ...(accent ? { chatAccentColor: accent } : {}),
@@ -336,20 +365,29 @@ export function VenueChatFixture({
                   chatBannerUrl: '/dev-fixtures/visitor-brand-banner.svg',
                 }
               : {}),
+            ...(backgroundUrl ? { chatBannerUrl: backgroundUrl } : {}),
+            ...(appearance ? { chatAppearance: appearance } : {}),
+            ...(venueName ? { name: venueName } : {}),
           }}
+          preferences={fixturePreferences}
+          onPreferencesChange={(change) =>
+            setFixturePreferences((current) => ({ ...current, ...change }))
+          }
           venueSlug="fixture-great-lakes-museum"
           presentation={presentation}
           appHeader={appHeader}
           messages={
             conversation === 'long'
               ? LONG_CONVERSATION
-              : conversation === 'multilingual'
-                ? MULTILINGUAL_CONVERSATION
-                : conversation === 'streaming'
-                  ? STREAMING_CONVERSATION
-                  : conversation === 'voice-history'
-                    ? VOICE_HISTORY_CONVERSATION
-                    : []
+              : conversation === 'reference'
+                ? REFERENCE_CONVERSATION
+                : conversation === 'multilingual'
+                  ? MULTILINGUAL_CONVERSATION
+                  : conversation === 'streaming'
+                    ? STREAMING_CONVERSATION
+                    : conversation === 'voice-history'
+                      ? VOICE_HISTORY_CONVERSATION
+                      : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
           isRestoringHistory={booting}
@@ -357,7 +395,6 @@ export function VenueChatFixture({
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
           language={language}
-          setLanguage={() => undefined}
           initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
           characterState={state}
           characterMotion={motion}
@@ -365,7 +402,7 @@ export function VenueChatFixture({
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
           onRequestMore={() => undefined}
-          requestMoreLabel="Tell me more"
+          requestMoreLabel="Tell me more about that"
           onDraftChange={() => undefined}
           onNewConversation={() => undefined}
           onPlaceView={() => undefined}

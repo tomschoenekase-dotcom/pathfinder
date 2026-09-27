@@ -1,5 +1,9 @@
 /* @vitest-environment jsdom */
 
+import {
+  DEFAULT_CHAT_APPEARANCE,
+  decodeChatAppearanceParam,
+} from '@pathfinder/contracts/chat-appearance'
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -106,6 +110,7 @@ describe('ChatDesignForm', () => {
         chatFont: 'poppins',
         chatShowPhotos: false,
         chatShowLinks: false,
+        chatAppearance: DEFAULT_CHAT_APPEARANCE,
       }),
     )
     expect((await screen.findByRole('status')).textContent).toContain('Design saved')
@@ -131,7 +136,15 @@ describe('ChatDesignForm', () => {
     expect(previewUrl.searchParams.get('theme')).toBe('sunset')
     expect(previewUrl.searchParams.get('font')).toBe('poppins')
     expect(previewUrl.searchParams.get('accent')).toBe('#ABCDEF')
-    expect(Array.from(previewUrl.searchParams.keys())).toEqual(['theme', 'font', 'accent'])
+    expect(Array.from(previewUrl.searchParams.keys())).toEqual([
+      'theme',
+      'font',
+      'accent',
+      'appearance',
+    ])
+    expect(decodeChatAppearanceParam(previewUrl.searchParams.get('appearance'))).toEqual(
+      DEFAULT_CHAT_APPEARANCE,
+    )
     expect(mocks.updateChatDesign).not.toHaveBeenCalled()
   })
 
@@ -254,6 +267,7 @@ describe('ChatDesignForm', () => {
         chatFont: 'playfair',
         chatShowPhotos: false,
         chatShowLinks: false,
+        chatAppearance: DEFAULT_CHAT_APPEARANCE,
       }),
     )
   })

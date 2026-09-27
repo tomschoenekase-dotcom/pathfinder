@@ -10,8 +10,16 @@ import {
   isHexColor,
 } from '@pathfinder/ui'
 
+import {
+  chatAppearanceEquals,
+  encodeChatAppearanceParam,
+  parseChatAppearance,
+  type ChatAppearance,
+} from '@pathfinder/contracts/chat-appearance'
+
 import { useTRPCClient } from '../lib/trpc'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
+import { ChatAppearanceEditor } from './ChatAppearanceEditor'
 
 type Venue = {
   id: string
@@ -26,6 +34,7 @@ type Venue = {
   chatBannerDerivativeId?: string | null
   chatShowPhotos?: boolean
   chatShowLinks?: boolean
+  chatAppearance?: unknown
   updatedAt: string | Date
 }
 
@@ -50,6 +59,7 @@ type ChatDesignFormProps = {
     chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null
     chatShowPhotos: boolean
     chatShowLinks: boolean
+    chatAppearance: ChatAppearance
   }) => Promise<SavedChatDesign>
 }
 
@@ -99,6 +109,7 @@ type SavedChatDesign = {
   chatBannerDerivativeId?: string | null
   chatShowPhotos?: boolean
   chatShowLinks?: boolean
+  chatAppearance?: unknown
   updatedAt: Date
 }
 
@@ -121,6 +132,8 @@ function buildAppearancePreviewUrl(
   theme: LightThemeValue | 'dark',
   font: ChatFontValue,
   accent: string | null,
+  appearance: ChatAppearance,
+  backgroundPath: string | null,
 ): string | null {
   if (!origin) return null
   try {
@@ -129,6 +142,10 @@ function buildAppearancePreviewUrl(
     url.searchParams.set('theme', theme)
     url.searchParams.set('font', font)
     if (accent) url.searchParams.set('accent', accent)
+    url.searchParams.set('appearance', encodeChatAppearanceParam(appearance))
+    if (backgroundPath && appearance.background.mode === 'image') {
+      url.searchParams.set('background', backgroundPath)
+    }
     return url.toString()
   } catch {
     return null
@@ -154,6 +171,7 @@ function designStateForVenue(venue: Venue | undefined) {
     chatBannerDerivativeId: venue?.chatBannerDerivativeId ?? null,
     chatShowPhotos: venue?.chatShowPhotos ?? false,
     chatShowLinks: venue?.chatShowLinks ?? false,
+    chatAppearance: parseChatAppearance(venue?.chatAppearance),
   }
 }
 
@@ -199,6 +217,7 @@ export function ChatDesignForm({
   )
   const [chatShowPhotos, setChatShowPhotos] = useState(initialDesign.chatShowPhotos)
   const [chatShowLinks, setChatShowLinks] = useState(initialDesign.chatShowLinks)
+  const [chatAppearance, setChatAppearance] = useState(initialDesign.chatAppearance)
   const [savedDesign, setSavedDesign] = useState(initialDesign)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -219,12 +238,26 @@ export function ChatDesignForm({
   const accentOverride = isHexColor(normalizedAccent) ? normalizedAccent : null
   const effectiveTheme: LightThemeValue | 'dark' = darkMode ? 'dark' : chatTheme
   const palettePreview = getChatPalette(effectiveTheme, accentOverride)
+  const selectedBannerAsset = brandingAssets.find(
+    (asset) => asset.derivativeId === chatBannerDerivativeId,
+  )
+  const bannerDeliveryPath = selectedBannerAsset?.deliveryPath ?? null
   const appearancePreviewUrl = buildAppearancePreviewUrl(
     previewOrigin,
     effectiveTheme,
     chatFont,
     accentOverride,
+    chatAppearance,
+    bannerDeliveryPath,
   )
+  // Reviewed media is delivered by the visitor app, so the sample loads it from that origin.
+  const bannerSampleUrl =
+    bannerDeliveryPath && previewOrigin
+      ? new URL(bannerDeliveryPath, previewOrigin).toString()
+      : chatBannerUrl && /^https:\/\//u.test(chatBannerUrl)
+        ? chatBannerUrl
+        : null
+  const hasBackgroundSource = Boolean(chatBannerDerivativeId || chatBannerUrl)
   const isDirty =
     chatTheme !== savedDesign.chatTheme ||
     darkMode !== savedDesign.darkMode ||
@@ -235,7 +268,8 @@ export function ChatDesignForm({
     chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null) ||
     chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null) ||
     chatShowPhotos !== savedDesign.chatShowPhotos ||
-    chatShowLinks !== savedDesign.chatShowLinks
+    chatShowLinks !== savedDesign.chatShowLinks ||
+    !chatAppearanceEquals(chatAppearance, savedDesign.chatAppearance)
 
   function markDirty() {
     setSaveError(null)
@@ -275,6 +309,7 @@ export function ChatDesignForm({
     setChatBannerDerivativeId(next.chatBannerDerivativeId ?? null)
     setChatShowPhotos(next.chatShowPhotos)
     setChatShowLinks(next.chatShowLinks)
+    setChatAppearance(next.chatAppearance)
     setSavedDesign(next)
     setSaveError(null)
     setSaved(false)
@@ -370,6 +405,7 @@ export function ChatDesignForm({
         chatFont,
         chatShowPhotos,
         chatShowLinks,
+        chatAppearance,
         ...(venue.chatLogoUrl !== undefined ? { chatLogoUrl } : {}),
         ...(venue.chatBannerUrl !== undefined ? { chatBannerUrl } : {}),
         ...(venue.chatLogoDerivativeId !== undefined &&
@@ -406,6 +442,11 @@ export function ChatDesignForm({
       const savedShowLinks = saved.chatShowLinks ?? chatShowLinks
       setChatShowPhotos(savedShowPhotos)
       setChatShowLinks(savedShowLinks)
+      const savedAppearance =
+        saved.chatAppearance !== undefined
+          ? parseChatAppearance(saved.chatAppearance)
+          : chatAppearance
+      setChatAppearance(savedAppearance)
       const canonicalDesign = {
         chatTheme: savedTheme,
         darkMode: savedDarkMode,
@@ -417,6 +458,7 @@ export function ChatDesignForm({
         chatBannerDerivativeId: saved.chatBannerDerivativeId ?? chatBannerDerivativeId,
         chatShowPhotos: savedShowPhotos,
         chatShowLinks: savedShowLinks,
+        chatAppearance: savedAppearance,
       }
       savedDesigns.current.set(venue.id, canonicalDesign)
       setSavedDesign(canonicalDesign)
@@ -782,6 +824,20 @@ export function ChatDesignForm({
         </div>
       </div>
 
+      <ChatAppearanceEditor
+        value={chatAppearance}
+        onChange={(next) => {
+          markDirty()
+          setChatAppearance(next)
+        }}
+        palette={palettePreview}
+        fontFamily={`var(${CHAT_FONT_OPTIONS.find((font) => font.value === chatFont)?.cssVar ?? '--font-jakarta'})`}
+        venueName={venue?.name ?? 'Venue'}
+        backgroundAvailable={hasBackgroundSource}
+        backgroundImageUrl={bannerSampleUrl}
+        disabled={!canEdit || isSaving}
+      />
+
       {saveError ? (
         <p
           id={invalidAccent ? 'accent-color-error' : undefined}
@@ -825,6 +881,7 @@ export function ChatDesignForm({
               setChatBannerDerivativeId(savedDesign.chatBannerDerivativeId ?? null)
               setChatShowPhotos(savedDesign.chatShowPhotos)
               setChatShowLinks(savedDesign.chatShowLinks)
+              setChatAppearance(savedDesign.chatAppearance)
               setSaveError(null)
               setSaved(false)
             }}

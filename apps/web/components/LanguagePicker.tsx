@@ -1,13 +1,9 @@
 'use client'
 
-import { useId } from 'react'
-import type { ChangeEvent } from 'react'
-import { Globe } from 'lucide-react'
-
 import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
-import { getVisitorUiCopy } from './visitor-ui-copy'
+import { detectBrowserLanguage, readVisitorPreferences } from '../lib/visitor-preferences'
 
 export const SUPPORTED_LANGUAGES = SUPPORTED_CHAT_LANGUAGES
 const RTL_CHAT_LANGUAGE_CODES: ReadonlySet<string> = new Set(['ar'])
@@ -89,84 +85,12 @@ export const LANGUAGE_FALLBACK_DESCRIPTIONS: Record<string, string> = {
   العربية: 'اسأل عن المعارض والطعام والمراحيض والاتجاهات وأي شيء قريب.',
 }
 
-const STORAGE_KEY = 'pathfinder_language'
-
-export function getStoredLanguage(): string | null {
+/**
+ * Interface language to show before the chat hydrates: the visitor's manual choice from
+ * Settings, otherwise the browser language (the Auto default).
+ */
+export function getStoredLanguage(): SupportedChatLanguage | null {
   if (typeof window === 'undefined') return null
-
-  try {
-    return localStorage.getItem(STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-type LanguagePickerProps = {
-  value: SupportedChatLanguage
-  onChange: (language: SupportedChatLanguage) => void
-}
-
-export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
-  const presentation = getChatLanguagePresentation(value)
-  const [selectLanguageLabel] = getVisitorUiCopy(value).shell
-  const labelId = useId()
-
-  function handleChange(event: ChangeEvent<HTMLSelectElement>) {
-    const selected = SUPPORTED_LANGUAGES.find((language) => language.label === event.target.value)
-    if (!selected) return
-
-    try {
-      localStorage.setItem(STORAGE_KEY, selected.label)
-    } catch {
-      // A denied storage preference must not prevent the in-page language change.
-    }
-
-    onChange(selected.label)
-  }
-
-  return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 shadow-sm">
-      <span id={labelId} className="sr-only" lang={presentation.code} dir={presentation.direction}>
-        {selectLanguageLabel}
-      </span>
-      <Globe
-        className="h-3.5 w-3.5 flex-shrink-0 text-[var(--chat-text-muted)]"
-        aria-hidden="true"
-      />
-      <select
-        value={value}
-        onChange={handleChange}
-        lang={presentation.code}
-        dir={presentation.direction}
-        className="min-h-11 cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-[var(--chat-text-muted)] outline-none transition hover:text-[var(--chat-text)] focus:text-[var(--chat-text)]"
-        aria-labelledby={labelId}
-      >
-        {SUPPORTED_LANGUAGES.map((lang) => {
-          const optionPresentation = getChatLanguagePresentation(lang.label)
-          return (
-            <option
-              key={lang.code}
-              value={lang.label}
-              lang={optionPresentation.code}
-              dir={optionPresentation.direction}
-            >
-              {lang.label}
-            </option>
-          )
-        })}
-      </select>
-      <svg
-        className="h-3 w-3 flex-shrink-0 text-[var(--chat-text-muted)]"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path
-          fillRule="evenodd"
-          d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-          clipRule="evenodd"
-        />
-      </svg>
-    </div>
-  )
+  const preferences = readVisitorPreferences()
+  return preferences.language === 'auto' ? detectBrowserLanguage() : preferences.language
 }

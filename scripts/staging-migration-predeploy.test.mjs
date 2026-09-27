@@ -375,11 +375,14 @@ const REVIEWED_234_TO_250 = [
 
 async function readMigrationManifest(directory) {
   const source = await readCurrentMigrationManifest(directory)
-  // Distribution RC-1 adds a source migration but does not approve it for
-  // staging. Existing positive ledger fixtures still exercise the frozen 250
-  // endpoint; the production admission function must reject the full source.
-  assert.equal(source.names.length, EXPECTED.migrationCount + 1)
-  assert.equal(source.names.at(-1), '20260926120000_add_venue_distribution')
+  // Distribution and visitor appearance add source migrations but do not approve
+  // either for staging. Positive fixtures still exercise the frozen 250 endpoint;
+  // production admission must reject the full source until a reviewed release.
+  assert.equal(source.names.length, EXPECTED.migrationCount + 2)
+  assert.deepEqual(source.names.slice(-2), [
+    '20260926120000_add_venue_distribution',
+    '20260927090000_add_venue_chat_appearance',
+  ])
   const names = source.names.slice(0, EXPECTED.migrationCount)
   const hash = createHash('sha256')
     .update(`${names.map((name) => `${name} ${source.checksums.get(name)}`).join('\n')}\n`)
@@ -389,9 +392,12 @@ async function readMigrationManifest(directory) {
   return manifest
 }
 
-test('distribution migration 251 remains refused by the frozen staging admission gate', async () => {
+test('distribution and appearance migrations 251–252 remain refused by the frozen staging admission gate', async () => {
   const source = await readCurrentMigrationManifest('packages/db/prisma')
-  assert.equal(source.names.at(-1), '20260926120000_add_venue_distribution')
+  assert.deepEqual(source.names.slice(-2), [
+    '20260926120000_add_venue_distribution',
+    '20260927090000_add_venue_chat_appearance',
+  ])
   assert.throws(() => assertFrozenManifest(source), /migration count changed/u)
 })
 

@@ -1,6 +1,7 @@
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
 
 const ASYNC_CHARACTER_STATE_TIMEOUT_MS = 5_000
 
@@ -94,7 +95,8 @@ vi.mock('../hooks/useGuestVisitContext', () => ({
     clearVisit: mocks.clearVisit,
   }),
 }))
-vi.mock('@pathfinder/ui/theme', () => ({
+vi.mock('@pathfinder/ui/theme', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/ui/theme')>()),
   CHAT_FONT_OPTIONS: [{ value: 'default', cssVar: '--font-sans' }],
   getChatPalette: () => ({
     accent: '#123456',
@@ -105,6 +107,7 @@ vi.mock('@pathfinder/ui/theme', () => ({
     border: '#dddddd',
     text: '#111111',
     textMuted: '#666666',
+    isDark: false,
   }),
 }))
 vi.mock('@pathfinder/ui/brand', () => ({ TorchikoIcon: () => <span>Icon</span> }))
@@ -290,11 +293,32 @@ function codedError(code: string, publicCode?: string) {
   return Object.assign(new Error(code), { data: { code, ...(publicCode ? { publicCode } : {}) } })
 }
 
+/** Visitor controls now live in the bottom Settings sheet. */
+function openSettings() {
+  if (!screen.queryByRole('dialog')) {
+    fireEvent.click(screen.getByRole('button', { name: /^(Settings|الإعدادات|Ajustes)$/u }))
+  }
+  return screen.getByRole('dialog')
+}
+
+function clearChatButton() {
+  return within(openSettings()).getByRole('button', {
+    name: /^(Clear chat|محادثة جديدة)$/u,
+  }) as HTMLButtonElement
+}
+
+function chooseLanguage(label: string) {
+  const dialog = openSettings()
+  fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: label } })
+  fireEvent.keyDown(dialog, { key: 'Escape' })
+}
+
 describe('VenueChatExperience presentation boundary', () => {
   beforeEach(() => {
     cleanup()
     vi.clearAllMocks()
     window.sessionStorage.clear()
+    window.localStorage.clear()
     mocks.anonymousToken = null
     mocks.sessionId = null
     mocks.identityUnavailable = false
@@ -330,7 +354,7 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(mocks.geolocationEnabled).not.toHaveBeenCalledWith(true)
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
-    expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+    expect(within(openSettings()).getByText('Torchiko').closest('a')).toBeNull()
   })
 
   it('uses only the matching server-admitted public venue and still restores its history', async () => {
@@ -725,16 +749,12 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
 
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByText('Send different message'))
     expect(mocks.client.chat.stream?.subscribe).toHaveBeenCalledOnce()
     expect(handlers).toBeTruthy()
@@ -774,20 +794,14 @@ describe('VenueChatExperience presentation boundary', () => {
 
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/Conversation refreshed/u)
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      false,
-    )
+    expect(clearChatButton().disabled).toBe(false)
     fireEvent.click(screen.getByText('Send different message'))
     expect(subscribe).toHaveBeenCalledTimes(2)
     expect(handlers).toBeTruthy()
@@ -816,9 +830,7 @@ describe('VenueChatExperience presentation boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
     expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
 
     mocks.connectionState = 'reconnected'
     view.rerender(<VenueChatExperience venueSlug="museum" />)
@@ -859,7 +871,7 @@ describe('VenueChatExperience presentation boundary', () => {
       })
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum' })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await screen.findByRole('button', { name: 'إعادة محاولة الرسالة نفسها' })
     expect(
@@ -867,7 +879,7 @@ describe('VenueChatExperience presentation boundary', () => {
     ).toBeTruthy()
     const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
     expect(screen.getByText('Messages: 1')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Choose English' }))
+    chooseLanguage('English')
     fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0]).toEqual(frozen)
@@ -1100,9 +1112,11 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="webview" />)
 
     await screen.findByRole('heading', { name: 'Museum' })
-    expect(screen.queryByText(/Powered by/)).toBeNull()
-    expect(screen.queryByText('Back')).toBeNull()
-    expect(screen.getByRole('note', { name: 'AI guidance' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Back' })).toBeNull()
+    expect(screen.getByText('AI guide')).toBeTruthy()
+    const settings = openSettings()
+    expect(within(settings).queryByText(/Powered by/)).toBeNull()
+    expect(within(settings).getByRole('note').textContent).toContain('AI-generated answers')
   })
 
   it('keeps embed lookup failures free of home navigation', async () => {
@@ -1125,14 +1139,11 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    const backLink = (await screen.findByText('Back')).closest('a')
-    const brandLink = screen.getByText('Torchiko').closest('a')
-    expect(backLink?.getAttribute('href')).toBe('/museum')
-    expect(backLink?.className).toContain('min-h-11')
+    const backLink = await screen.findByRole('link', { name: 'Back' })
+    expect(backLink.getAttribute('href')).toBe('/museum')
+    const brandLink = within(openSettings()).getByText('Torchiko').closest('a')
     expect(brandLink?.getAttribute('href')).toBe('https://torchiko.com')
-    expect(brandLink?.className).toContain('min-h-11')
-    expect(brandLink?.className).toContain('min-w-11')
-    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('min-h-11')
+    expect(clearChatButton()).toBeTruthy()
   })
 
   it('localizes the persistent Arabic chat shell and accessibility labels', async () => {
@@ -1140,37 +1151,32 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum' })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
 
     expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'محادثة جديدة' })).toBeTruthy()
-    fireEvent.click(screen.getByText('إرشادات الذكاء الاصطناعي', { selector: 'summary' }))
-    const guidance = screen.getByRole('note', { name: 'إرشادات الذكاء الاصطناعي' })
-    expect(guidance.getAttribute('lang')).toBe('ar')
-    expect(guidance.getAttribute('dir')).toBe('rtl')
+    expect(screen.getByText('دليل بالذكاء الاصطناعي')).toBeTruthy()
+    const settings = openSettings()
+    expect(settings.getAttribute('lang')).toBe('ar')
+    expect(settings.getAttribute('dir')).toBe('rtl')
+    expect(within(settings).getByRole('button', { name: 'محادثة جديدة' })).toBeTruthy()
+    const guidance = within(settings).getByRole('note')
     expect(guidance.textContent).toContain('قد تكون الإجابات')
-    expect(guidance.closest('div[lang="ar"][dir="rtl"]')).toBeTruthy()
-    expect(screen.getByText('بدعم من')).toBeTruthy()
+    expect(within(settings).getByText('بدعم من')).toBeTruthy()
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
-    'keeps guidance available on demand without a persistent warning in %s presentation',
+    'keeps full guidance in About this guide with a persistent AI disclosure in %s presentation',
     async (presentation) => {
       mocks.getBySlug.mockResolvedValueOnce(activeVenue)
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
       await screen.findByRole('heading', { name: 'Museum' })
-      const summary = screen.getByText('AI guidance', { selector: 'summary' })
-      const disclosure = summary.closest('details')
-      expect(disclosure?.open).toBe(false)
-      fireEvent.click(summary)
-      expect(disclosure?.open).toBe(true)
-      expect(screen.getByRole('note', { name: 'AI guidance' }).textContent).toContain(
-        'AI-generated answers can be wrong',
-      )
-      expect(screen.getByRole('note', { name: 'AI guidance' }).textContent).toContain(
-        'do not share sensitive information',
-      )
+      // Only the short "AI guide" disclosure is persistent; the full guidance is in Settings.
+      expect(screen.getByText('AI guide')).toBeTruthy()
+      expect(screen.queryByText(/AI-generated answers can be wrong/u)).toBeNull()
+      const note = within(openSettings()).getByRole('note')
+      expect(note.textContent).toContain('AI-generated answers can be wrong')
+      expect(note.textContent).toContain('do not share sensitive information')
     },
   )
 
@@ -1208,7 +1214,7 @@ describe('VenueChatExperience presentation boundary', () => {
       render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
 
       await screen.findByRole('heading', { name: 'Museum' })
-      fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+      chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
       const localizedEmptyState = screen.getByText('Ask the guide').closest('[lang="ar"]')
       expect(localizedEmptyState?.getAttribute('dir')).toBe('rtl')
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
@@ -1238,10 +1244,10 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum' })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose English' }))
+    chooseLanguage('English')
 
     expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
       operationId: expect.any(String),
@@ -1262,7 +1268,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum' })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
     fireEvent.click(screen.getByRole('button', { name: 'أخبرني المزيد عن ذلك' }))
 
     await waitFor(() =>
@@ -1275,6 +1281,52 @@ describe('VenueChatExperience presentation boundary', () => {
         responseIntent: 'EXPAND',
       }),
     )
+  })
+
+  it('lets Auto infer the reply language: no language is sent and the follow-up uses the browser language', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174013'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['es-MX', 'en'])
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await screen.findByRole('heading', { name: 'Museum' })
+    expect((within(openSettings()).getByRole('combobox') as HTMLSelectElement).value).toBe('auto')
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cuéntame más sobre eso' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce())
+    const input = mocks.client.chat.send.mutate.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(input).toMatchObject({ message: 'Cuéntame más sobre eso.', responseIntent: 'EXPAND' })
+    expect(input).not.toHaveProperty('language')
+  })
+
+  it('sends an explicit English choice as a manual override', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174014'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await screen.findByRole('heading', { name: 'Museum' })
+    chooseLanguage('English')
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    await waitFor(() =>
+      expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ language: 'English' }),
+      ),
+    )
+    expect(JSON.parse(window.localStorage.getItem('torchiko:visitor-preferences')!)).toMatchObject({
+      language: 'English',
+    })
+  })
+
+  it('hides the follow-up action when the venue turns it off', async () => {
+    mocks.getBySlug.mockResolvedValueOnce({
+      ...activeVenue,
+      chatAppearance: { ...DEFAULT_CHAT_APPEARANCE, requestMore: false },
+    })
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await screen.findByRole('heading', { name: 'Museum' })
+    expect(screen.queryByRole('button', { name: 'Tell me more about that' })).toBeNull()
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
@@ -1443,7 +1495,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.visitContext = { visitedPlaceIds: ['north-gallery'], interests: ['trains'] }
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
-    await screen.findByRole('button', { name: 'Clear chat' })
+    await screen.findByRole('button', { name: 'Settings' })
     expect(screen.queryByText('Your visit')).toBeNull()
     expect(screen.queryByLabelText(/Interests/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
@@ -1457,7 +1509,7 @@ describe('VenueChatExperience presentation boundary', () => {
         }),
       ),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
+    fireEvent.click(clearChatButton())
     const resetDialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(resetDialog).getByRole('button', { name: 'Clear chat' }))
     await waitFor(() => expect(mocks.clearVisit).toHaveBeenCalledOnce())
@@ -1479,7 +1531,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByText('Messages: 1')
-    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
+    fireEvent.click(clearChatButton())
     const resetDialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(resetDialog).getByRole('button', { name: 'Clear chat' }))
 
@@ -1536,7 +1588,7 @@ describe('VenueChatExperience presentation boundary', () => {
       }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
+    fireEvent.click(clearChatButton())
     view.rerender(
       <VenueChatExperience venueSlug="museum" presentation="standalone" accessSurface="qr" />,
     )
@@ -1597,9 +1649,7 @@ describe('VenueChatExperience presentation boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => {
-      expect(
-        (screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled,
-      ).toBe(true)
+      expect(clearChatButton().disabled).toBe(true)
     })
     expect(mocks.startNewConversation).not.toHaveBeenCalled()
   })
@@ -1681,9 +1731,11 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
     await screen.findByText('Messages: 1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
-    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }))
-    expect(screen.getByRole('alertdialog', { name: 'محادثة جديدة' }).textContent).toContain(
+    chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
+    fireEvent.click(clearChatButton())
+    expect(
+      (await screen.findByRole('alertdialog', { name: 'محادثة جديدة' })).textContent,
+    ).toContain(
       'هل تريد بدء محادثة جديدة؟ ستغادر المحادثة الحالية هذه الشاشة، لكنها لن تُحذف من سجلات Torchiko.',
     )
     fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }))
@@ -1705,7 +1757,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
     await screen.findByText('Messages: 1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
+    fireEvent.click(clearChatButton())
     const resetDialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(resetDialog).getByRole('button', { name: 'Clear chat' }))
 
@@ -1775,9 +1827,7 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(
       await screen.findByText('This browser cannot create a private chat session.'),
     ).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(clearChatButton().disabled).toBe(true)
   })
 
   it('does not apply late history from a previous venue load', async () => {

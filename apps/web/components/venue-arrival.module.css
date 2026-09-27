@@ -1,66 +1,124 @@
+/* Venue start screen. Shares the chat's header treatment and --chat-* appearance tokens. */
 .page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 100svh;
-  padding: max(28px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  min-height: 100dvh;
   background: var(--arrival-bg);
   color: var(--arrival-text);
+  isolation: isolate;
 }
-.layout {
+.backdrop {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+}
+.backdropImage {
   width: 100%;
-  max-width: 1080px;
-  margin: auto;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--chat-backdrop-position, 50% 50%);
 }
-.identity {
+.backdrop span {
+  position: absolute;
+  inset: 0;
+  background: var(--chat-backdrop-overlay, transparent);
+}
+
+.header {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--chat-header-border);
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--chat-header-bg);
+  color: var(--chat-header-text);
+}
+.headerBanner {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.headerShade {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 65%);
+}
+.header[data-on-banner] {
+  color: #ffffff;
+}
+.header[data-on-banner] .title {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+}
+.headerInner {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 40px;
-  border-bottom: 1px solid var(--arrival-border);
-  padding-bottom: 20px;
+  gap: 12px;
+  width: 100%;
+  max-width: 1080px;
+  min-height: 64px;
+  margin: 0 auto;
+  padding: 10px 20px;
 }
-.category {
+.wordmark {
+  flex-shrink: 0;
+  width: auto;
+  height: 32px;
+  max-width: 120px;
+  object-fit: contain;
+}
+.title {
+  min-width: 0;
+  font-size: 1.1875rem;
+  font-weight: 650;
+  line-height: 1.22;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.layout {
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 20px 12px;
+}
+.intro {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+.page[data-backdrop='image'] .intro {
+  padding: 20px;
+  border: 1px solid var(--chat-assistant-border);
+  border-radius: 20px;
+  background: var(--arrival-surface);
+  color: var(--arrival-surface-text);
+}
+.eyebrow {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-.wordmark {
-  width: auto;
-  height: 32px;
-  max-width: 130px;
-  object-fit: contain;
-}
-.intro {
-  padding: 40px 0 28px;
-}
-.banner {
-  display: block;
-  width: 100%;
-  max-height: 240px;
-  aspect-ratio: 3 / 1;
-  margin-top: 24px;
-  object-fit: cover;
-  border-radius: 8px;
-}
-.eyebrow {
-  font-size: 12px;
   color: var(--arrival-muted);
 }
-.title {
-  max-width: 17ch;
-  margin-top: 16px;
-  font-size: clamp(2.25rem, 10vw, 4.5rem);
-  font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 1.06;
-  text-wrap: balance;
-  overflow-wrap: anywhere;
+.page[data-backdrop='image'] .eyebrow,
+.page[data-backdrop='image'] .description,
+.page[data-backdrop='image'] .entryQuestions p {
+  color: inherit;
+  opacity: 0.86;
 }
 .description {
-  margin-top: 22px;
-  max-width: 42ch;
-  font-size: 15px;
-  line-height: 1.7;
+  max-width: 44ch;
+  margin-top: 10px;
+  font-size: calc(1rem * var(--chat-text-scale, 1));
+  line-height: 1.6;
   color: var(--arrival-muted);
 }
 .action {
@@ -69,13 +127,13 @@
   justify-content: space-between;
   gap: 24px;
   width: 100%;
-  min-height: 60px;
-  margin-top: 28px;
-  padding: 16px 22px;
+  min-height: 56px;
+  margin-top: 20px;
+  padding: 14px 20px;
   border-radius: 16px;
   background: var(--arrival-accent);
   color: var(--arrival-contrast);
-  font-size: 15px;
+  font-size: calc(15px * var(--chat-text-scale, 1));
   font-weight: 600;
   transition: opacity 150ms;
 }
@@ -87,15 +145,19 @@
   outline-offset: 4px;
 }
 .arrow {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 400;
 }
+[dir='rtl'] .arrow,
+[dir='rtl'] .entryQuestions a span:last-child {
+  transform: scaleX(-1);
+}
 .entryQuestions {
-  margin-top: 32px;
+  margin-top: 24px;
 }
 .entryQuestions p {
-  margin-bottom: 8px;
-  font-size: 11px;
+  margin-bottom: 4px;
+  font-size: 12px;
   color: var(--arrival-muted);
 }
 .entryQuestions a {
@@ -106,10 +168,16 @@
   min-height: 52px;
   padding-block: 12px;
   border-bottom: 1px solid var(--arrival-border);
-  font-size: 13px;
+  font-size: calc(15px * var(--chat-text-scale, 1));
+}
+.entryQuestions a:last-child {
+  border-bottom: 0;
+}
+.entryQuestions a span:last-child {
+  color: var(--chat-accent-text, var(--arrival-accent));
 }
 .entryQuestions a:hover {
-  color: var(--arrival-accent);
+  color: var(--chat-accent-text, var(--arrival-accent));
 }
 .entryQuestions a:focus-visible {
   outline: 2px solid var(--arrival-text);
@@ -117,7 +185,7 @@
 }
 .media {
   min-width: 0;
-  margin-top: 8px;
+  margin-top: 20px;
 }
 .media figure {
   border-radius: 18px;
@@ -132,48 +200,46 @@
   font-size: 12px;
 }
 .notice {
-  margin-top: 20px;
+  margin-top: 16px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--arrival-muted);
 }
 .footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 36px;
-  padding-top: 12px;
-  border-top: 1px solid var(--arrival-border);
-  color: var(--arrival-muted);
-  font-size: 11px;
-}
-.footer a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  font-weight: 600;
+  flex-shrink: 0;
+  padding: 4px 16px max(4px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--chat-footer-border);
+  background: var(--chat-footer-bg);
 }
 @media (min-width: 768px) {
-  .page {
-    padding: 40px;
+  .headerInner {
+    min-height: 72px;
+    padding-inline: 40px;
+  }
+  .title {
+    font-size: 1.375rem;
+  }
+  .layout {
+    padding: 48px 40px 24px;
   }
   .withMedia {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 48px;
-    align-items: center;
-  }
-  .intro {
-    padding-block: 64px;
+    align-items: start;
   }
   .media {
     margin: 0;
   }
-  .action {
-    max-width: 340px;
+  .layout:not(.withMedia) .intro {
+    max-width: 40rem;
   }
-  .footer {
-    margin-top: 0;
+  .action {
+    max-width: 360px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action {
+    transition: none;
   }
 }

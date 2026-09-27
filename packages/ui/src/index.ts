@@ -19,3 +19,15 @@ export {
   isHexColor,
 } from './theme'
 export type { ChatFontValue, ChatPalette, ChatThemeValue } from './theme'
+export {
+  CHAT_TEXT_CONTRAST_MINIMUM,
+  chatContrastRatio,
+  mixHexColors,
+  resolveChatAppearance,
+} from './theme'
+export type {
+  ChatAppearanceCorrection,
+  ChatAppearanceCorrectionField,
+  ChatAppearanceInput,
+  ChatAppearanceTokens,
+} from './theme'

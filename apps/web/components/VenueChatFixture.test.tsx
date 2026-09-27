@@ -11,6 +11,7 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
 import { VenueChatFixture, VISITOR_FIXTURE_PROJECTION } from './VenueChatFixture'
 
 describe('VenueChatFixture', () => {
@@ -54,6 +55,21 @@ describe('VenueChatFixture', () => {
 
     expect(container.querySelector('[data-character-layout]')).toBeNull()
     expect(screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeTruthy()
+  })
+
+  it('can render a location-aware venue with a reachable Share location action', () => {
+    render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        guideMode="location_aware"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Share location' })).toBeTruthy()
   })
 
   it('renders deterministic long-conversation and error controls', async () => {
@@ -130,9 +146,11 @@ describe('VenueChatFixture', () => {
       (screen.getByRole('button', { name: 'Reconnect to send message' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
       true,
     )
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Settings' }), { key: 'Escape' })
 
     view.rerender(
       <VenueChatFixture
@@ -168,23 +186,55 @@ describe('VenueChatFixture', () => {
     const images = header.querySelectorAll('img')
     expect(images).toHaveLength(2)
 
+    const heading = screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' })
     fireEvent.load(images[0]!)
     expect(header.getAttribute('data-branding-banner-state')).toBe('ready')
-    expect(
-      screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' }).className,
-    ).toContain('text-white')
-    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('text-white')
+    expect(heading.closest('[data-on-banner]')).not.toBeNull()
 
     fireEvent.error(images[0]!)
     fireEvent.error(images[1]!)
     expect(header.querySelectorAll('img')).toHaveLength(0)
     expect(header.getAttribute('data-branding-banner-state')).toBe('failed')
-    expect(
-      screen.getByRole('heading', { name: 'Great Lakes Discovery Museum' }).className,
-    ).toContain('text-[var(--chat-text)]')
-    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain(
-      'text-[var(--chat-text)]',
+    expect(heading.closest('[data-on-banner]')).toBeNull()
+  })
+
+  it('places a chosen photo behind protected reading surfaces and falls back when it fails', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="long"
+        asset="ok"
+        motion="reduced"
+        backgroundUrl="/dev-fixtures/visitor-backdrop-space.svg"
+        appearance={{
+          ...DEFAULT_CHAT_APPEARANCE,
+          userBubble: false,
+          assistantBubble: false,
+          background: { mode: 'image', focalX: 20, focalY: 80, dim: 40 },
+        }}
+      />,
     )
+    const shell = container.querySelector('[data-backdrop]') as HTMLElement
+    const header = container.querySelector('header')!
+    expect(header.querySelector('img')).toBeNull()
+    const backdrop = container.querySelector('main [aria-hidden="true"] img') as HTMLImageElement
+    expect(shell.getAttribute('data-backdrop')).toBe('none')
+
+    fireEvent.load(backdrop)
+    expect(shell.getAttribute('data-backdrop')).toBe('image')
+    expect(shell.style.getPropertyValue('--chat-backdrop-position')).toBe('20% 80%')
+    const answers = container.querySelectorAll('article[data-role="assistant"] > div')
+    expect(answers.length).toBeGreaterThan(0)
+    for (const answer of answers) expect(answer.getAttribute('data-surface')).toBe('protected')
+    expect(screen.getAllByText('Guide', { selector: 'p' }).length).toBe(2)
+
+    fireEvent.error(backdrop)
+    expect(shell.getAttribute('data-backdrop')).toBe('none')
+    expect(container.querySelector('main [aria-hidden="true"] img')).toBeNull()
+    for (const answer of container.querySelectorAll('article[data-role="assistant"] > div')) {
+      expect(answer.getAttribute('data-surface')).toBe('none')
+    }
   })
 
   it('exercises the production route planner with deterministic reviewed locations', async () => {

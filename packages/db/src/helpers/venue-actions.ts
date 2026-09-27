@@ -4,6 +4,7 @@ import {
   TONE_PRESET_TO_LEGACY_AI_TONE,
   type TonePresetId,
 } from '@pathfinder/contracts/tone-presets'
+import { chatAppearanceEquals, type ChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import * as prismaClient from '@prisma/client'
 
 import { db } from '../client'
@@ -39,6 +40,7 @@ export const venueChatDesignSelect = {
   chatBannerDerivativeReceipt: true,
   chatShowPhotos: true,
   chatShowLinks: true,
+  chatAppearance: true,
   updatedAt: true,
 } as const
 
@@ -350,6 +352,8 @@ export type UpdateVenueChatDesignFields = {
   chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null | undefined
   chatShowPhotos?: boolean | undefined
   chatShowLinks?: boolean | undefined
+  /** Validated by the caller against the shared ChatAppearance contract. */
+  chatAppearance?: ChatAppearance | null | undefined
 }
 
 type BrandingDerivativeReceipt = {
@@ -372,6 +376,7 @@ function safeChat(value: {
   chatBannerDerivativeReceipt: unknown
   chatShowPhotos: boolean
   chatShowLinks: boolean
+  chatAppearance: unknown
   updatedAt: Date
 }) {
   return {
@@ -382,6 +387,7 @@ function safeChat(value: {
     hasBanner: value.chatBannerUrl !== null || value.chatBannerDerivativeId !== null,
     chatShowPhotos: value.chatShowPhotos,
     chatShowLinks: value.chatShowLinks,
+    chatAppearance: value.chatAppearance ?? null,
     updatedAt: value.updatedAt.toISOString(),
   }
 }
@@ -517,6 +523,7 @@ export async function updateVenueChatDesignAction(
     }
     const exactReplay = requestedEntries.every(([key, value]) => {
       const current = before[key as keyof typeof before]
+      if (key === 'chatAppearance') return chatAppearanceEquals(current, value)
       if (current === value) return true
       return (
         current !== null &&
@@ -536,7 +543,7 @@ export async function updateVenueChatDesignAction(
       ...Object.fromEntries(
         requestedEntries.map(([key, value]) => [
           key,
-          key.endsWith('DerivativeReceipt') && value === null
+          (key.endsWith('DerivativeReceipt') || key === 'chatAppearance') && value === null
             ? prismaClient['Prisma']['DbNull']
             : value,
         ]),

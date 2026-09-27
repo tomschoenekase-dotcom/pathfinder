@@ -1176,7 +1176,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: 'cffc7451aea5e65d6206c8818bd2fa09bfd43cee708ede3cb002892911a2032d',
+    hash: '5180cc88a1029b0c8542ef0e04d1702a2a16ce096373fb08168a08d6e925c2a5',
     policy: 'public-venue-slug',
   },
   {

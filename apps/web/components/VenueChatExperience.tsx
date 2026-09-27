@@ -23,7 +23,12 @@ import { browserUuid } from '../lib/browser-uuid'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { getChatPalette } from '@pathfinder/ui/theme'
-import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
+import {
+  requestedReplyLanguage,
+  resolveInterfaceLanguage,
+  useHydrated,
+  useVisitorPreferences,
+} from '../lib/visitor-preferences'
 import {
   getConfirmationCancelLabel,
   InAppConfirmationProvider,
@@ -162,12 +167,12 @@ export function VenueChatExperience({
   const [recoveryMode, setRecoveryMode] = useState<
     'retry-turn' | 'check-history' | 'load-history' | null
   >(null)
-  const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
-    const stored = getStoredLanguage()
-    return SUPPORTED_LANGUAGES.some((entry) => entry.label === stored)
-      ? (stored as SupportedChatLanguage)
-      : 'English'
-  })
+  const [preferences, updatePreferences] = useVisitorPreferences()
+  const hydrated = useHydrated()
+  // Interface copy language. Under Auto the guide's reply language is still inferred by the
+  // server from what the visitor writes; only an explicit choice is sent with a message.
+  const language = resolveInterfaceLanguage(preferences.language, hydrated)
+  const replyLanguage = requestedReplyLanguage(preferences.language)
   const recoveryCopy = getVisitorRecoveryCopy(language)
   const stopCopy = getVisitorStopCopy(language)
   const confirmationController = useInAppConfirmationController()
@@ -772,7 +777,7 @@ export function VenueChatExperience({
         : {}),
       ...(responseIntent === 'EXPAND' ? { responseIntent } : {}),
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
-      ...(language === 'English' ? {} : { language }),
+      ...(replyLanguage ? { language: replyLanguage } : {}),
     }
     entryPlaceRef.current.value = undefined
     const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
@@ -955,7 +960,8 @@ export function VenueChatExperience({
         sendError={sendError}
         anonymousToken={anonymousToken}
         language={language}
-        setLanguage={setLanguage}
+        preferences={preferences}
+        onPreferencesChange={updatePreferences}
         initialDraft={initialDraft}
         connectionState={connectionState}
         characterState={characterState}
@@ -1006,18 +1012,6 @@ export function VenueChatExperience({
         onPlaceClick={(placeId) => trackPlaceEvent('place_card.clicked', placeId)}
         onDirections={(placeId) => trackPlaceEvent('directions.opened', placeId)}
         onVisitorAction={trackVisitorAction}
-        {...(!secondLayerKey && anonymousToken
-          ? {
-              onMessageFeedback: async (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => {
-                await client.feedback.submit.mutate({
-                  venueId: venue.id,
-                  anonymousToken,
-                  messageId,
-                  rating,
-                })
-              },
-            }
-          : {})}
       />
     </InAppConfirmationProvider>
   )

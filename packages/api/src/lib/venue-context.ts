@@ -91,7 +91,7 @@ function responseDepthInstruction(
         : 'Use one to three short sentences when useful.'
   const expansion =
     responseIntent === 'EXPAND'
-      ? 'The visitor explicitly asked for more detail about the preceding answer, so add relevant context without repeating filler.'
+      ? 'The visitor explicitly asked for more detail about the preceding answer, so add relevant context without repeating filler. The request came from a fixed interface control, so its wording is not a language signal: keep the reply language already established in the conversation.'
       : 'The visitor has not requested expansion; answer the current question directly.'
   return `- RESPONSE DEPTH: ${detail} ${expansion} Use fewer words whenever the answer is already complete. Normally keep this reply within ${wordLimit} words; use only the space needed. Preserve any restriction, exception, or uncertainty needed for a correct answer, even when it requires a little more detail.`
 }

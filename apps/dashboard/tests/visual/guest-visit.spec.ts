@@ -71,7 +71,11 @@ test('guest visit saved form supports keyboard review and lifecycle semantics', 
     fullPage: true,
   })
 
-  await page.getByRole('button', { name: 'Clear chat' }).click()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page
+    .getByRole('dialog', { name: 'Settings' })
+    .getByRole('button', { name: 'Clear chat' })
+    .click()
   await expect(page.getByLabel('North Gallery')).toBeChecked()
   await page.getByRole('button', { name: 'Start a fresh visit' }).click()
   await expect(page.getByLabel('North Gallery')).not.toBeChecked()

@@ -38,6 +38,7 @@
     "./universal-content-actions": "./src/universal-content-actions.ts",
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts",
+    "./chat-appearance": "./src/chat-appearance.ts",
     "./character-runtime-pack": "./src/character-runtime-pack.ts",
     "./character-production-brief": "./src/character-production-brief.ts",
     "./actor": "./src/actor.ts",

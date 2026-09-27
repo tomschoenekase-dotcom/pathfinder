@@ -81,7 +81,6 @@ export default function GuestVisitFixture() {
           sendError={null}
           anonymousToken="guest-visit-fixture-token"
           language="English"
-          setLanguage={() => undefined}
           initialDraft=""
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
