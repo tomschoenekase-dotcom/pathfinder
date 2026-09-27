@@ -164,6 +164,13 @@ function AdminFixture() {
                       totalDepth: 6,
                       totalFailed: 2,
                       oldestAgeMs: 14_000,
+                      queues: [
+                        {
+                          name: 'synthetic-queued-work',
+                          depth: 6,
+                          counts: { waiting: 5, delayed: 1, active: 0 },
+                        },
+                      ],
                     },
                   },
                 } as never
