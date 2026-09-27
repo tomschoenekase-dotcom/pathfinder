@@ -1031,7 +1031,7 @@ describe('guest chat turn actions', () => {
       },
       now: new Date('2026-01-01T00:00:00Z'),
     })
-    expect(result).toMatchObject({ state: 'GENERATING', claimId, replayed: false })
+    expect(result).toMatchObject({ state: 'GENERATING', claimId, turnSequence: 1, replayed: false })
     expect(tx.guestChatProviderOperation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ leaseToken: claimId }),

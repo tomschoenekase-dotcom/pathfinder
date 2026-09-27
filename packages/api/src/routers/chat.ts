@@ -607,6 +607,8 @@ const chatReadRouter = router({
    */
   send: admittedChatSendProcedure.mutation(async ({ ctx, input }) => {
     const requestStartedAt = performance.now()
+    let turnSetupMs = 0
+    let preEmbeddingMs = 0
     let embeddingMs = 0
     let retrievalMs = 0
     let promptAssemblyMs = 0
@@ -734,6 +736,7 @@ const chatReadRouter = router({
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const embeddingStartedAt = performance.now()
+    turnSetupMs = elapsedMilliseconds(requestStartedAt)
     const embeddingAccounting = createApiAiUsageRecorder({
       db: ctx.db,
       tenantId: venue.tenantId,
@@ -764,11 +767,17 @@ const chatReadRouter = router({
       (providers) => ({ ok: true as const, providers }),
       () => ({ ok: false as const }),
     )
-    const adjacentPending = await readAdjacentGuestPlaceIdentityPendingAction({
-      client: ctx.db,
-      claim: turnOperationBase,
-      experienceScope: ctx.experienceScope,
-    })
+    // The claim already read the immutable turn sequence under its transaction.
+    // Sequence one cannot have an adjacent predecessor, so avoid another
+    // serialized transaction and lock before the first embedding dispatch.
+    const adjacentPending =
+      claimed.turnSequence === 1
+        ? null
+        : await readAdjacentGuestPlaceIdentityPendingAction({
+            client: ctx.db,
+            claim: turnOperationBase,
+            experienceScope: ctx.experienceScope,
+          })
     let acceptedAdjacentIdentityName: string | null = null
     let effectiveIdentityQuery = trimmedInput
     if (adjacentPending) {
@@ -877,6 +886,7 @@ const chatReadRouter = router({
       })
     }
     const unhealthyProviders = providerHealthResult.providers
+    preEmbeddingMs = elapsedMilliseconds(embeddingStartedAt)
     let embeddingDispatched = false
     const queryEmbeddingPromise = unhealthyProviders.includes('openai')
       ? skipGuestChatProviderOperationAction({
@@ -1950,6 +1960,9 @@ const chatReadRouter = router({
 
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {
+      firstTurn: claimed.turnSequence === 1,
+      turnSetupMs,
+      preEmbeddingMs,
       embeddingMs,
       retrievalMs,
       promptAssemblyMs,

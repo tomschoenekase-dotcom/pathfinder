@@ -277,6 +277,7 @@ describe('chat router', () => {
     guestTurnActions.claim.mockResolvedValue({
       state: 'GENERATING',
       turnId: '11111111-1111-4111-8111-111111111111',
+      turnSequence: 2,
       sessionId: SESSION_ID,
       claimId: '22222222-2222-4222-8222-222222222222',
       providerOperations: [
@@ -797,6 +798,69 @@ describe('chat router', () => {
       expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce()
       expect(embeddingCreate).toHaveBeenCalledOnce()
       expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
+    it('starts a first turn without the adjacent identity transaction', async () => {
+      setupHappyPath('The elephants are nearby.')
+      const stream = vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'The elephants are nearby.' },
+          }
+        },
+        finalMessage: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'The elephants are nearby.' }],
+          usage: { input_tokens: 20, output_tokens: 10 },
+        }),
+      }))
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate, stream },
+      } as unknown as AnthropicMessagesClient)
+      guestTurnActions.claim.mockResolvedValueOnce({
+        state: 'GENERATING',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        turnSequence: 1,
+        sessionId: SESSION_ID,
+        claimId: '22222222-2222-4222-8222-222222222222',
+        providerOperations: [
+          { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+          { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+        ],
+        replayed: false,
+      })
+      // A first turn has no predecessor. If this reader were called, the
+      // pre-embedding path would wait forever rather than reach the provider.
+      guestTurnActions.readAdjacentIdentity.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      )
+
+      const events = []
+      for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+      expect(events[0]).toMatchObject({
+        type: 'delta',
+        delta: 'The elephants are nearby.',
+        requestFirstTextMs: expect.any(Number),
+      })
+      expect(events.at(-1)).toMatchObject({
+        type: 'complete',
+        result: { response: 'The elephants are nearby.' },
+      })
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            firstTurn: true,
+            turnSetupMs: expect.any(Number),
+            preEmbeddingMs: expect.any(Number),
+            requestFirstTextMs: expect.any(Number),
+          }),
+        }),
+      )
+      expect(guestTurnActions.readAdjacentIdentity).not.toHaveBeenCalled()
+      expect(embeddingCreate).toHaveBeenCalledOnce()
+      expect(stream).toHaveBeenCalledOnce()
+      expect(anthropicCreate).not.toHaveBeenCalled()
     })
 
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
