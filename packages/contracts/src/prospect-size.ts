@@ -14,7 +14,7 @@ export const prospectSizeBasisSchema = z.enum([
 ])
 export type ProspectSizeBasis = z.infer<typeof prospectSizeBasisSchema>
 
-export const prospectSizeConfidenceSchema = z.enum(['measured', 'rule'])
+export const prospectSizeConfidenceSchema = z.enum(['measured', 'structured', 'rule'])
 
 export const prospectSizeUnits = {
   seats: 'seats',
@@ -51,11 +51,11 @@ export const prospectSizeEvidenceSchema = z
       }
       return
     }
-    if (evidence.confidence === 'measured') {
+    if (evidence.confidence === 'measured' || evidence.confidence === 'structured') {
       if (evidence.basis === 'category_rule' || evidence.basis === 'unknown') {
         context.addIssue({
           code: 'custom',
-          message: 'Measured evidence needs a measured size class and basis',
+          message: 'Numeric evidence needs a numeric size class and basis',
         })
       }
       if (
@@ -65,7 +65,18 @@ export const prospectSizeEvidenceSchema = z
       ) {
         context.addIssue({
           code: 'custom',
-          message: 'Measured evidence needs value, unit, and sourceUrl',
+          message: 'Numeric evidence needs value, unit, and sourceUrl',
+        })
+      }
+      if (
+        evidence.confidence === 'structured' &&
+        !/^https:\/\/(?:www\.)?(?:wikidata\.org\/wiki\/Q[1-9]\d*|openstreetmap\.org\/(?:node|way|relation)\/[1-9]\d*)$/.test(
+          evidence.sourceUrl ?? '',
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Structured evidence needs a Wikidata item or OSM element URL',
         })
       }
       if (evidence.value !== undefined && evidence.basis in prospectSizeThresholds) {
@@ -76,7 +87,7 @@ export const prospectSizeEvidenceSchema = z
         if (evidence.class !== expected) {
           context.addIssue({
             code: 'custom',
-            message: `Measured value class does not match its threshold (expected ${expected})`,
+            message: `Numeric value class does not match its threshold (expected ${expected})`,
           })
         }
       }
@@ -86,7 +97,7 @@ export const prospectSizeEvidenceSchema = z
       ) {
         context.addIssue({
           code: 'custom',
-          message: 'Measured evidence unit must match its basis',
+          message: 'Numeric evidence unit must match its basis',
         })
       }
     } else if (
@@ -264,16 +275,41 @@ export const defaultProspectGoodFitRules: ProspectGoodFitRules = {
 const categoryRuleExamples: Record<string, ProspectSizeClass> = {
   'professional stadium': 'XL',
   'professional arena': 'XL',
+  'pro stadium': 'XL',
+  'pro arena': 'XL',
   'major league stadium': 'XL',
   'major league arena': 'XL',
   'national museum': 'XL',
   'flagship museum': 'XL',
+  'major destination attraction': 'XL',
+  skydeck: 'XL',
+  'navy pier': 'XL',
   'major theme park': 'XL',
+  'major water park': 'XL',
+  'minor league ballpark': 'L',
+  'major league ballpark': 'XL',
+  'regional zoo': 'L',
+  'regional aquarium': 'L',
+  'metro science museum': 'L',
+  'metro art museum': 'L',
+  'large theme park': 'L',
+  'large water park': 'L',
+  'escape room': 'M',
+  'trampoline park': 'M',
+  'bowling alley': 'M',
+  bowling: 'M',
+  'family entertainment center': 'M',
+  'community ice complex': 'M',
+  'community sports complex': 'M',
+  'historical society': 'S',
   'small historical society': 'S',
   'house museum': 'S',
+  'historic house museum': 'S',
   'nature center': 'S',
   'miniature museum': 'S',
   'single collection museum': 'S',
+  'single-collection museum': 'S',
+  'small gallery': 'S',
 }
 
 export function prospectCategorySizeRule(
@@ -318,7 +354,9 @@ export function explainProspectSize(evidence: unknown): {
         ? 'Size evidence is pending and currently UNKNOWN.'
         : size.confidence === 'measured'
           ? `Official ${size.basis.replaceAll('_', ' ')} evidence: ${size.value} ${size.unit}.`
-          : `Category rule classified this venue as ${size.class}.`,
+          : size.confidence === 'structured'
+            ? `Structured public ${size.basis.replaceAll('_', ' ')} evidence: ${size.value} ${size.unit}.`
+            : `Category rule classified this venue as ${size.class}.`,
     unknown: size.class === 'UNKNOWN' ? 'Venue size has not been established.' : null,
   }
 }

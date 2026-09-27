@@ -17,7 +17,7 @@ export type ProspectSizeProposal = {
     unit?: string | undefined
     sourceUrl?: string | undefined
     observedAt: string
-    confidence?: 'measured' | 'rule' | undefined
+    confidence?: 'measured' | 'structured' | 'rule' | undefined
   }
 }
 

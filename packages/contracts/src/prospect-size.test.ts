@@ -38,6 +38,16 @@ describe('Torchiko prospect size contract', () => {
     expect(prospectCategorySizeRule('small historical society')).toBe('S')
     expect(prospectCategorySizeRule('Chicago Bears stadium')).toBe('XL')
     expect(prospectCategorySizeRule('Soldier Field')).toBeUndefined()
+    for (const [category, expected] of [
+      ['historical society', 'S'],
+      ['small gallery', 'S'],
+      ['escape room', 'M'],
+      ['community ice complex', 'M'],
+      ['minor league ballpark', 'L'],
+      ['regional zoo', 'L'],
+      ['major destination attraction', 'XL'],
+    ])
+      expect(prospectCategorySizeRule(category)).toBe(expected)
     expect(explainProspectSize(null)).toMatchObject({
       sizeClass: 'UNKNOWN',
       unknown: expect.any(String),
@@ -58,6 +68,20 @@ describe('Torchiko prospect size contract', () => {
       confidence: 'measured',
     }
     expect(prospectSizeEvidenceSchema.safeParse(valid).success).toBe(true)
+    expect(
+      prospectSizeEvidenceSchema.safeParse({
+        ...valid,
+        confidence: 'structured',
+        sourceUrl: 'https://www.wikidata.org/wiki/Q123',
+      }).success,
+    ).toBe(true)
+    expect(
+      explainProspectSize({
+        ...valid,
+        confidence: 'structured',
+        sourceUrl: 'https://www.openstreetmap.org/way/123',
+      }).reason,
+    ).toContain('Structured public')
     expect(
       prospectSizeEvidenceSchema.safeParse({
         ...valid,
