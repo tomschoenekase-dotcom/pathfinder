@@ -101,6 +101,7 @@ function presentation(overview: Overview): {
         Boolean(overview.currentCheckoutUrl),
       canRetryCheckout:
         overview.capabilities.portal &&
+        overview.hasStripeCustomer &&
         (agreement.status === 'PAST_DUE' || agreement.status === 'UNPAID'),
       canManageBilling: overview.capabilities.portal && overview.hasStripeCustomer,
       canCancel:
