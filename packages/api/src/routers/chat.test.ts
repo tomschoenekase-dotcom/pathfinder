@@ -1,4 +1,6 @@
 import { TRPCError } from '@trpc/server'
+import { createHash } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import { GuestChatTurnActionError } from '@pathfinder/db'
@@ -277,6 +279,7 @@ describe('chat router', () => {
     guestTurnActions.claim.mockResolvedValue({
       state: 'GENERATING',
       turnId: '11111111-1111-4111-8111-111111111111',
+      turnSequence: 2,
       sessionId: SESSION_ID,
       claimId: '22222222-2222-4222-8222-222222222222',
       providerOperations: [
@@ -798,6 +801,118 @@ describe('chat router', () => {
       expect(embeddingCreate).toHaveBeenCalledOnce()
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
+
+    it.skipIf(!process.env.TORCHIKO_LATENCY_BENCHMARK_OUTPUT)(
+      'benchmarks first visible text on the controlled first-turn fixture',
+      async () => {
+        const samples = []
+        const reply = 'The elephants are nearby.'
+        for (const adjacentDelayMs of [0, 80]) {
+          for (let iteration = 0; iteration < 12; iteration++) {
+            setupHappyPath(reply)
+            const claimResult = {
+              state: 'GENERATING',
+              turnId: '11111111-1111-4111-8111-111111111111',
+              turnSequence: 1,
+              sessionId: SESSION_ID,
+              claimId: '22222222-2222-4222-8222-222222222222',
+              providerOperations: [
+                {
+                  kind: 'QUERY_EMBEDDING',
+                  invocationId: '33333333-3333-4333-8333-333333333333',
+                },
+                {
+                  kind: 'RESPONSE_GENERATION',
+                  invocationId: '44444444-4444-4444-8444-444444444444',
+                },
+              ],
+              replayed: false,
+            }
+            const timeline: Record<string, number> = {}
+            let startedAt = 0
+            const mark = (name: string) => {
+              timeline[name] = Math.round((performance.now() - startedAt) * 1000) / 1000
+            }
+            guestTurnActions.claim.mockImplementationOnce(async () => {
+              mark('claimStartedMs')
+              return claimResult
+            })
+            guestTurnActions.readAdjacentIdentity.mockImplementationOnce(async () => {
+              mark('adjacentReadStartedMs')
+              if (adjacentDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, adjacentDelayMs))
+              }
+              mark('adjacentReadFinishedMs')
+              return null
+            })
+            embeddingCreate.mockImplementationOnce(async () => {
+              mark('embeddingProviderStartedMs')
+              return {
+                data: [{ embedding: Array.from({ length: 1_536 }, () => 0.1), index: 0 }],
+                usage: { prompt_tokens: 5, total_tokens: 5 },
+              }
+            })
+            semanticSearch.places.mockImplementationOnce(async () => {
+              mark('placeRetrievalStartedMs')
+              return placeRows
+            })
+            const stream = vi.fn(() => {
+              mark('answerProviderStartedMs')
+              return {
+                async *[Symbol.asyncIterator]() {
+                  yield { type: 'content_block_delta', delta: { type: 'text_delta', text: reply } }
+                },
+                finalMessage: vi.fn().mockResolvedValue({
+                  content: [{ type: 'text', text: reply }],
+                  usage: { input_tokens: 20, output_tokens: 10 },
+                }),
+              }
+            })
+            _setAnthropicClientForTesting({
+              messages: { create: anthropicCreate, stream },
+            } as unknown as AnthropicMessagesClient)
+
+            startedAt = performance.now()
+            const priorAdjacentReads = guestTurnActions.readAdjacentIdentity.mock.calls.length
+            const events = []
+            for await (const event of streamChatTurn(ctx, sendInput)) {
+              if (event.type === 'delta' && timeline.firstVisibleMs === undefined) {
+                mark('firstVisibleMs')
+              }
+              events.push(event)
+            }
+            const complete = events.at(-1)
+            expect(complete).toMatchObject({ type: 'complete', result: { response: reply } })
+            expect(events[0]).toMatchObject({ type: 'delta', delta: reply })
+            expect(stream).toHaveBeenCalledOnce()
+            const providerInput = (stream.mock.calls as unknown as Array<[unknown]>)[0]?.[0]
+            const providerInputSha256 = createHash('sha256')
+              .update(JSON.stringify(providerInput))
+              .digest('hex')
+            const receivedEvent = emitEvent.mock.calls
+              .map(([event]) => event)
+              .filter((event) => event.eventType === 'message.received')
+              .at(-1)
+            const firstDelta = events.find((event) => event.type === 'delta')
+            samples.push({
+              adjacentDelayMs,
+              iteration,
+              ...timeline,
+              adjacentReadCount:
+                guestTurnActions.readAdjacentIdentity.mock.calls.length - priorAdjacentReads,
+              reply,
+              providerInputSha256,
+              reportedFirstTextMs: firstDelta?.requestFirstTextMs ?? null,
+              telemetry: receivedEvent?.metadata ?? null,
+            })
+          }
+        }
+        writeFileSync(
+          process.env.TORCHIKO_LATENCY_BENCHMARK_OUTPUT!,
+          `${JSON.stringify({ schema: 'torchiko-first-text-benchmark/v1', samples }, null, 2)}\n`,
+        )
+      },
+    )
 
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
