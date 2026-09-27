@@ -44,7 +44,7 @@ describe('deriveNeonPalette', () => {
 
   it('falls back to the default accent hue for a non-hex input', () => {
     const fallback = deriveNeonPalette('not-a-color')
-    const explicit = deriveNeonPalette('#3A7BD5')
+    const explicit = deriveNeonPalette('#306CC4')
 
     expect(fallback.accent).toBe(explicit.accent)
   })
@@ -103,6 +103,13 @@ describe('getChatPalette', () => {
 
   it('falls back to the default preset accent for dark theme with no override', () => {
     const palette = getChatPalette('dark', null)
-    expect(palette.accent).toBe(deriveNeonPalette('#3A7BD5').accent)
+    expect(palette.accent).toBe(deriveNeonPalette('#306CC4').accent)
+  })
+
+  it('keeps white button text on the default Torchiko Blue preset', () => {
+    const palette = getChatPalette('default', null)
+    expect(palette.accentContrast).toBe('#FFFFFF')
+    expect(contrastRatio(palette.accent, palette.accentContrast)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(palette.bg, palette.accent)).toBeGreaterThanOrEqual(4.5)
   })
 })
