@@ -2,7 +2,7 @@ import { auth } from '@pathfinder/auth/server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { DashboardOverview, type ClientPortalTask } from '../../components/DashboardOverview'
+import { DashboardOverview } from '../../components/DashboardOverview'
 import { buildVenueAccessArtifacts } from '@pathfinder/contracts/venue-access-artifacts'
 import { getChatPalette } from '@pathfinder/ui/theme'
 import {
@@ -10,6 +10,7 @@ import {
   buildSecondLayerChatUrl,
   resolveGuestWebOrigin,
 } from '../../lib/guest-chat-url'
+import { buildPortalHomeTasks } from '../../lib/portal-home-tasks'
 import { createDashboardCaller } from '../../lib/server-caller'
 
 type DashboardIndexPageProps = {
@@ -85,86 +86,13 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
           : {}),
       })
     : null
-  const tasks: ClientPortalTask[] = taskEvidence.missingInformation.map((request) => ({
-    id: `missing-information:${request.requestId}`,
-    title: request.subject,
-    description: 'Torchiko Support is waiting for the details below.',
-    href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}&request=${encodeURIComponent(request.requestId)}`,
-    required: true,
-    items: request.items,
-    additionalItemCount: request.additionalItemCount,
-  }))
-  if (taskEvidence.additionalMissingRequest) {
-    tasks.push({
-      id: 'additional-support-questions',
-      title: 'More questions are waiting in Support',
-      description: 'Open Support to see the rest of the information requests for this venue.',
-      href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}`,
-      required: true,
-    })
-  }
-  if (
-    selectedLifecycle.lifecycle.state === 'CLIENT_PREVIEW' &&
-    selectedLifecycle.clientPreview.state === 'AVAILABLE' &&
-    selectedLifecycle.clientPreview.id
-  ) {
-    tasks.push({
-      id: 'review-preview',
-      title: 'Review the visitor experience',
-      description: 'See what visitors will experience and send any changes through Support.',
-      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/preview/${encodeURIComponent(selectedLifecycle.clientPreview.id)}`,
-      required: true,
-    })
-  } else if (
-    selectedLifecycle.lifecycle.state !== 'CLIENT_PREVIEW' &&
-    selectedLifecycle.lifecycle.clientAction === 'OPEN_PREVIEW' &&
-    chatUrl
-  ) {
-    tasks.push({
-      id: 'open-visitor-experience',
-      title: 'Open visitor experience',
-      description: selectedLifecycle.lifecycle.summary,
-      href: chatUrl,
-      required: true,
-    })
-  } else if (
-    selectedLifecycle.lifecycle.state === 'SETUP_REQUESTED' ||
-    selectedLifecycle.lifecycle.state === 'COLLECTING'
-  ) {
-    tasks.push({
-      id: 'share-information',
-      title: taskEvidence.hasSharedInformation
-        ? 'Share more useful information'
-        : 'Share your starting information',
-      description: taskEvidence.hasSharedInformation
-        ? 'Add another website, staff answer, document, or image when it is ready.'
-        : 'Start with a website, staff answer, document, or image. Rough source material is welcome.',
-      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/onboarding`,
-      required: true,
-    })
-  } else if (
-    selectedLifecycle.lifecycle.state === 'PROCESSING' ||
-    selectedLifecycle.lifecycle.state === 'INTERNAL_REVIEW' ||
-    selectedLifecycle.lifecycle.state === 'REVISIONS'
-  ) {
-    tasks.push({
-      id: 'onboarding-progress',
-      title: 'View onboarding progress',
-      description:
-        'See what Torchiko is working on, what is ready, and whether any focused questions need you.',
-      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/onboarding`,
-      required: false,
-    })
-  }
-  if (taskEvidence.latestReport) {
-    tasks.push({
-      id: `report:${taskEvidence.latestReport.id}`,
-      title: taskEvidence.latestReport.title,
-      description: 'A published Torchiko report is available to read.',
-      href: `/weekly-reports/${encodeURIComponent(taskEvidence.latestReport.id)}?venue=${encodeURIComponent(selectedVenue!.id)}`,
-      required: false,
-    })
-  }
+  const tasks = buildPortalHomeTasks({
+    venueId: selectedVenue!.id,
+    lifecycle: selectedLifecycle.lifecycle,
+    clientPreview: selectedLifecycle.clientPreview,
+    chatUrl,
+    evidence: taskEvidence,
+  })
 
   return (
     <DashboardOverview
@@ -177,7 +105,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
       activeUpdates={activeAlerts}
       chatUrl={chatUrl}
-      tasks={tasks.slice(0, 6)}
+      tasks={tasks}
       visitorPulse={visitorPulse}
       distributionReadback={
         distributionReadback
