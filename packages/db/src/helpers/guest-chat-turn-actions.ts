@@ -930,6 +930,7 @@ export async function claimGuestChatTurnAction(args: {
     return {
       state: 'GENERATING' as const,
       turnId: turn.id,
+      turnSequence: turn.turnSequence,
       sessionId: turn.sessionId,
       claimId: claim.claimId,
       providerOperations: turn.providerOperations.map((op) => ({
