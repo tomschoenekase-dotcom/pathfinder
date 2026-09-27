@@ -1,9 +1,23 @@
+import { decodeChatAppearanceParam } from '@pathfinder/contracts/chat-appearance'
 import { CHAT_FONT_OPTIONS, CHAT_THEME_PRESETS, isHexColor } from '@pathfinder/ui/theme'
 
 type PreviewParams = {
   theme?: string | string[]
   font?: string | string[]
   accent?: string | string[]
+  appearance?: string | string[]
+  background?: string | string[]
+}
+
+/**
+ * The preview only ever loads a reviewed venue-media derivative (or a local development
+ * fixture) as its background; arbitrary URLs are ignored.
+ */
+const PREVIEW_BACKGROUND_PATH =
+  /^\/api\/venue-media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?venue=[A-Za-z0-9._~%-]{1,200}$|^\/dev-fixtures\/[a-z0-9-]{1,80}\.svg$/u
+
+export function parsePreviewBackground(value: string | undefined): string | undefined {
+  return value && PREVIEW_BACKGROUND_PATH.test(value) ? value : undefined
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -32,5 +46,7 @@ export function parseAppearancePreviewParams(params: PreviewParams) {
       ? requestedFont
       : 'jakarta',
     accent: isHexColor(requestedAccent) ? requestedAccent : undefined,
+    appearance: decodeChatAppearanceParam(first(params.appearance)) ?? undefined,
+    background: parsePreviewBackground(first(params.background)),
   }
 }

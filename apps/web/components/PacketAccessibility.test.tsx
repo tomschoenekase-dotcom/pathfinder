@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -113,7 +113,6 @@ describe('Packet 2 guest automated accessibility', () => {
         sendError="The outcome of this message is not confirmed. Retry the same message safely."
         anonymousToken="private-session-token"
         language="English"
-        setLanguage={vi.fn()}
         initialDraft="Keep this question available"
         connectionState="offline"
         location={{ lat: null, lng: null, permission: 'denied', refresh: vi.fn() }}
@@ -128,7 +127,13 @@ describe('Packet 2 guest automated accessibility', () => {
     )
 
     expect(screen.getByRole('heading', { level: 1, name: 'East Museum' })).toBeTruthy()
-    expect(screen.getByText('AI guidance', { selector: 'summary' })).toBeTruthy()
+    expect(screen.getByText('AI guide')).toBeTruthy()
     await expectNoAutomatedViolations(container)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    const settings = screen.getByRole('dialog', { name: 'Settings' })
+    expect(settings.getAttribute('aria-modal')).toBe('true')
+    expect(within(settings).getByRole('note').textContent).toContain('AI-generated answers')
+    await expectNoAutomatedViolations(document.body)
   })
 })

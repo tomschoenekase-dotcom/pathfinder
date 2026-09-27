@@ -1,0 +1,198 @@
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+
+export type VisitorSettingsCopy = {
+  settings: string
+  /** Persistent, minimal disclosure that answers come from an AI guide. */
+  aiGuide: string
+  close: string
+  textSize: string
+  standard: string
+  large: string
+  larger: string
+  language: string
+  automatic: string
+  automaticHint: string
+  highContrast: string
+  highContrastHint: string
+  clearChatHint: string
+  about: string
+  /** Visible speaker label for assistant turns when bubbles are off. */
+  guide: string
+}
+
+const COPY: Record<SupportedChatLanguage, VisitorSettingsCopy> = {
+  English: {
+    settings: 'Settings',
+    aiGuide: 'AI guide',
+    close: 'Close',
+    textSize: 'Text size',
+    standard: 'Standard',
+    large: 'Large',
+    larger: 'Larger',
+    language: 'Language',
+    automatic: 'Automatic',
+    automaticHint: 'Replies follow the language you write in.',
+    highContrast: 'High contrast',
+    highContrastHint: 'Stronger text and borders. Hides background images.',
+    clearChatHint: 'Starts a fresh conversation on this screen.',
+    about: 'About this guide',
+    guide: 'Guide',
+  },
+  Español: {
+    settings: 'Ajustes',
+    aiGuide: 'Guía con IA',
+    close: 'Cerrar',
+    textSize: 'Tamaño del texto',
+    standard: 'Estándar',
+    large: 'Grande',
+    larger: 'Más grande',
+    language: 'Idioma',
+    automatic: 'Automático',
+    automaticHint: 'Las respuestas siguen el idioma en el que escribes.',
+    highContrast: 'Alto contraste',
+    highContrastHint: 'Texto y bordes más marcados. Oculta las imágenes de fondo.',
+    clearChatHint: 'Empieza una conversación nueva en esta pantalla.',
+    about: 'Acerca de esta guía',
+    guide: 'Guía',
+  },
+  Français: {
+    settings: 'Réglages',
+    aiGuide: 'Guide IA',
+    close: 'Fermer',
+    textSize: 'Taille du texte',
+    standard: 'Standard',
+    large: 'Grande',
+    larger: 'Plus grande',
+    language: 'Langue',
+    automatic: 'Automatique',
+    automaticHint: 'Les réponses suivent la langue dans laquelle vous écrivez.',
+    highContrast: 'Contraste élevé',
+    highContrastHint: 'Texte et bordures renforcés. Masque les images de fond.',
+    clearChatHint: 'Commence une nouvelle conversation sur cet écran.',
+    about: 'À propos de ce guide',
+    guide: 'Guide',
+  },
+  Deutsch: {
+    settings: 'Einstellungen',
+    aiGuide: 'KI-Guide',
+    close: 'Schließen',
+    textSize: 'Textgröße',
+    standard: 'Standard',
+    large: 'Groß',
+    larger: 'Größer',
+    language: 'Sprache',
+    automatic: 'Automatisch',
+    automaticHint: 'Antworten folgen der Sprache, in der Sie schreiben.',
+    highContrast: 'Hoher Kontrast',
+    highContrastHint: 'Kräftigerer Text und Rahmen. Blendet Hintergrundbilder aus.',
+    clearChatHint: 'Beginnt auf diesem Bildschirm ein neues Gespräch.',
+    about: 'Über diesen Guide',
+    guide: 'Guide',
+  },
+  Italiano: {
+    settings: 'Impostazioni',
+    aiGuide: 'Guida IA',
+    close: 'Chiudi',
+    textSize: 'Dimensione del testo',
+    standard: 'Standard',
+    large: 'Grande',
+    larger: 'Più grande',
+    language: 'Lingua',
+    automatic: 'Automatica',
+    automaticHint: 'Le risposte seguono la lingua in cui scrivi.',
+    highContrast: 'Contrasto elevato',
+    highContrastHint: 'Testo e bordi più marcati. Nasconde le immagini di sfondo.',
+    clearChatHint: 'Avvia una nuova conversazione su questa schermata.',
+    about: 'Informazioni su questa guida',
+    guide: 'Guida',
+  },
+  Português: {
+    settings: 'Configurações',
+    aiGuide: 'Guia com IA',
+    close: 'Fechar',
+    textSize: 'Tamanho do texto',
+    standard: 'Padrão',
+    large: 'Grande',
+    larger: 'Maior',
+    language: 'Idioma',
+    automatic: 'Automático',
+    automaticHint: 'As respostas seguem o idioma em que você escreve.',
+    highContrast: 'Alto contraste',
+    highContrastHint: 'Texto e bordas mais fortes. Oculta imagens de fundo.',
+    clearChatHint: 'Inicia uma nova conversa nesta tela.',
+    about: 'Sobre este guia',
+    guide: 'Guia',
+  },
+  中文: {
+    settings: '设置',
+    aiGuide: 'AI 导览',
+    close: '关闭',
+    textSize: '文字大小',
+    standard: '标准',
+    large: '大',
+    larger: '更大',
+    language: '语言',
+    automatic: '自动',
+    automaticHint: '回复会跟随你书写的语言。',
+    highContrast: '高对比度',
+    highContrastHint: '文字和边框更清晰，并隐藏背景图片。',
+    clearChatHint: '在此屏幕上开始新的对话。',
+    about: '关于此导览',
+    guide: '导览',
+  },
+  日本語: {
+    settings: '設定',
+    aiGuide: 'AIガイド',
+    close: '閉じる',
+    textSize: '文字サイズ',
+    standard: '標準',
+    large: '大',
+    larger: '特大',
+    language: '言語',
+    automatic: '自動',
+    automaticHint: '入力した言語で返答します。',
+    highContrast: 'ハイコントラスト',
+    highContrastHint: '文字と枠線を強調し、背景画像を非表示にします。',
+    clearChatHint: 'この画面で新しい会話を始めます。',
+    about: 'このガイドについて',
+    guide: 'ガイド',
+  },
+  한국어: {
+    settings: '설정',
+    aiGuide: 'AI 가이드',
+    close: '닫기',
+    textSize: '글자 크기',
+    standard: '기본',
+    large: '크게',
+    larger: '더 크게',
+    language: '언어',
+    automatic: '자동',
+    automaticHint: '작성한 언어로 답변합니다.',
+    highContrast: '고대비',
+    highContrastHint: '텍스트와 테두리를 더 선명하게 하고 배경 이미지를 숨깁니다.',
+    clearChatHint: '이 화면에서 새 대화를 시작합니다.',
+    about: '이 가이드 정보',
+    guide: '가이드',
+  },
+  العربية: {
+    settings: 'الإعدادات',
+    aiGuide: 'دليل بالذكاء الاصطناعي',
+    close: 'إغلاق',
+    textSize: 'حجم النص',
+    standard: 'عادي',
+    large: 'كبير',
+    larger: 'أكبر',
+    language: 'اللغة',
+    automatic: 'تلقائي',
+    automaticHint: 'تتبع الردود اللغة التي تكتب بها.',
+    highContrast: 'تباين عالٍ',
+    highContrastHint: 'نص وحدود أوضح، مع إخفاء صور الخلفية.',
+    clearChatHint: 'يبدأ محادثة جديدة على هذه الشاشة.',
+    about: 'حول هذا الدليل',
+    guide: 'الدليل',
+  },
+}
+
+export function getVisitorSettingsCopy(language: SupportedChatLanguage): VisitorSettingsCopy {
+  return COPY[language] ?? COPY.English
+}

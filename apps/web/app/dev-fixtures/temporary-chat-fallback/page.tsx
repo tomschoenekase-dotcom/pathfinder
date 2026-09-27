@@ -36,7 +36,6 @@ export default function TemporaryChatFallbackFixturePage() {
         ]}
         onSend={() => undefined}
         onRequestMore={() => undefined}
-        onMessageFeedback={async () => undefined}
         isLoading={false}
         assistantLabel="Museum guide"
       />

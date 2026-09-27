@@ -8,6 +8,8 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
+import { ChatAppearanceSchema } from '@pathfinder/contracts/chat-appearance'
+
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 
@@ -44,6 +46,7 @@ const fields = z
     chatBannerDerivativeReceipt: brandingReceipt.nullable().optional(),
     chatShowPhotos: z.boolean().optional(),
     chatShowLinks: z.boolean().optional(),
+    chatAppearance: ChatAppearanceSchema.nullable().optional(),
   })
   .strict()
 
@@ -64,6 +67,7 @@ const designSelect = {
   chatBannerDerivativeReceipt: true,
   chatShowPhotos: true,
   chatShowLinks: true,
+  chatAppearance: true,
   updatedAt: true,
 } as const
 

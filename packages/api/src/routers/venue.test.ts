@@ -38,6 +38,7 @@ vi.mock('@pathfinder/jobs', () => ({
 
 import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
 import { isFeatureEnabled } from '@pathfinder/config'
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -407,6 +408,7 @@ describe('venue router', () => {
       chatAccentColor: null,
       chatLogoUrl: null,
       chatBannerUrl: null,
+      chatAppearance: DEFAULT_CHAT_APPEARANCE,
     })
     expect(dbQueryRaw).toHaveBeenCalled()
     expect(checkRateLimitMock).toHaveBeenCalledWith(
@@ -414,6 +416,48 @@ describe('venue router', () => {
       10_000,
       60,
     )
+  })
+
+  it('venue.getBySlug returns a sanitized, complete visitor appearance', async () => {
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: 'cuid1234567890abcdef',
+        name: 'City Zoo',
+        description: null,
+        category: 'zoo',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+        aiGuideName: null,
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        chatAppearance: {
+          userBubble: false,
+          assistantTextColor: 'url(javascript:alert(1))',
+          headerColor: '#0B1426',
+          background: { mode: 'image', dim: 999 },
+          injected: '<script>',
+        },
+        isActive: true,
+      },
+    ])
+
+    const caller = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+
+    const result = await caller.venue.getBySlug({ slug: 'city-zoo' })
+
+    expect(result.chatAppearance).toEqual({
+      ...DEFAULT_CHAT_APPEARANCE,
+      userBubble: false,
+      headerColor: '#0B1426',
+      background: { ...DEFAULT_CHAT_APPEARANCE.background, mode: 'image' },
+    })
+    expect(JSON.stringify(result)).not.toContain('injected')
+    expect(JSON.stringify(result)).not.toContain('javascript')
   })
 
   it('returns only a resolved Classic-safe presentation when rollout is enabled but no approved pack exists', async () => {

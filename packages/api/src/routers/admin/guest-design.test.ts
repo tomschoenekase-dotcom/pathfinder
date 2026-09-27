@@ -129,4 +129,50 @@ describe('admin Guest design adapter', () => {
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(mocks.update).not.toHaveBeenCalled()
   })
+
+  it('accepts a complete appearance and rejects malformed or extra appearance fields', async () => {
+    const caller = app.createCaller(context(true))
+    const appearance = {
+      version: 1 as const,
+      userBubble: true,
+      assistantBubble: false,
+      userTextColor: null,
+      assistantTextColor: null,
+      userBubbleColor: null,
+      assistantSurfaceColor: null,
+      title: 'City Zoo',
+      headerTitleColor: null,
+      headerColor: '#0B1426',
+      footerColor: null,
+      background: { mode: 'image' as const, focalX: 40, focalY: 60, dim: 35 },
+      requestMore: false,
+    }
+    await caller.admin.updateGuestDesign({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      expectedUpdatedAt: revision,
+      fields: { chatAppearance: appearance },
+    })
+    expect(mocks.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fields: { chatAppearance: appearance } }),
+      expect.anything(),
+    )
+    mocks.update.mockClear()
+
+    for (const invalid of [
+      { ...appearance, headerColor: 'url(https://tracker.example/x)' },
+      { ...appearance, backgroundUrl: 'https://unreviewed.example/photo.jpg' },
+      { ...appearance, background: { ...appearance.background, dim: 100 } },
+    ]) {
+      await expect(
+        caller.admin.updateGuestDesign({
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          fields: { chatAppearance: invalid as never },
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    }
+    expect(mocks.update).not.toHaveBeenCalled()
+  })
 })

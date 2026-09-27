@@ -8,7 +8,7 @@ import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 import type { GuestReplyKind } from '@pathfinder/contracts/guest-reply-kind'
 
-import { MessageBubble } from './MessageBubble'
+import { MessageBubble, type MessageSurfaces } from './MessageBubble'
 import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
@@ -49,11 +49,13 @@ type ChatWindowProps = {
   conversationTools?: ReactNode
   persistentVoiceControl?: ReactNode
   assistantLabel?: string
+  /** Visible speaker labels, used when neither speaker has a bubble. */
+  speakerLabels?: { guide: string }
+  surfaces?: MessageSurfaces
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
-  onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   isOnline?: boolean
   language?: SupportedChatLanguage
   locationAware?: boolean
@@ -83,11 +85,12 @@ export function ChatWindow({
   conversationTools,
   persistentVoiceControl,
   assistantLabel = 'Venue guide',
+  speakerLabels,
+  surfaces,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
   onVisitorAction,
-  onMessageFeedback,
   isOnline = true,
   language = 'English',
   locationAware = false,
@@ -258,8 +261,8 @@ export function ChatWindow({
           followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120
         }}
       >
-        {conversationTools}
         {messages.length === 0 && emptyState ? emptyState : null}
+        {conversationTools ? <div className={styles.tools}>{conversationTools}</div> : null}
 
         {messages.map((message, index) => (
           <div key={message.id ?? `${message.role}-${index}`}>
@@ -267,6 +270,8 @@ export function ChatWindow({
               role={message.role}
               content={message.content}
               assistantLabel={assistantLabel}
+              {...(speakerLabels ? { visibleGuideLabel: speakerLabels.guide } : {})}
+              {...(surfaces ? { surfaces } : {})}
               language={language}
               locationAware={locationAware}
               {...(message.blocks ? { blocks: message.blocks } : {})}
@@ -277,22 +282,12 @@ export function ChatWindow({
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(onVisitorAction ? { onVisitorAction } : {})}
-              {...(message.id &&
-              !message.voiceDelivery &&
-              message.replyKind !== 'TEMPORARY_FALLBACK' &&
-              onMessageFeedback
-                ? { messageId: message.id, onFeedback: onMessageFeedback }
-                : {})}
               {...(message.role === 'assistant' &&
               !isLoading &&
               isOnline &&
               !conversationLocked &&
               !sendDisabled
                 ? { onChoiceSelect: onSend }
-                : {})}
-              {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
-              {...(message.role === 'user' && accentContrastColor
-                ? { bubbleTextColor: accentContrastColor }
                 : {})}
             />
           </div>
@@ -303,12 +298,12 @@ export function ChatWindow({
         messages.at(-1)?.role === 'assistant' &&
         !messages.at(-1)?.voiceDelivery &&
         messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK' ? (
-          <div className="flex justify-start pl-1">
+          <div className="flex justify-start">
             <button
               type="button"
               onClick={onRequestMore}
               disabled={isLoading || !isOnline || conversationLocked || sendDisabled}
-              className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+              className={styles.requestMore}
             >
               {requestMoreLabel}
             </button>

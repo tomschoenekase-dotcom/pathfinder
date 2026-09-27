@@ -24,6 +24,40 @@ describe('ChatWindow accessibility and motion behavior', () => {
     vi.unstubAllGlobals()
   })
 
+  it('puts empty state before conversation tools, then keeps tools ahead of messages', () => {
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        emptyState={<div data-testid="empty-state">Start here</div>}
+        conversationTools={<div data-testid="conversation-tools">Share location</div>}
+      />,
+    )
+
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    const emptyState = screen.getByTestId('empty-state')
+    const tools = screen.getByTestId('conversation-tools')
+    expect(
+      emptyState.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the restroom?' }]}
+        onSend={vi.fn()}
+        isLoading={false}
+        emptyState={<div data-testid="empty-state">Start here</div>}
+        conversationTools={<div data-testid="conversation-tools">Share location</div>}
+      />,
+    )
+
+    expect(screen.queryByTestId('empty-state')).toBeNull()
+    const message = screen.getByText('Where is the restroom?')
+    expect(log.contains(tools)).toBe(true)
+    expect(tools.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('exposes messages as a labelled non-live conversation log', () => {
     render(
       <ChatWindow
@@ -42,8 +76,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
-  it('labels durable voice history without offering text-message feedback for transcript rows', () => {
-    const onFeedback = vi.fn()
+  it('labels durable voice history without offering expansion for transcript rows', () => {
     render(
       <ChatWindow
         messages={[
@@ -63,7 +96,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
         ]}
         onSend={vi.fn()}
         onRequestMore={vi.fn()}
-        onMessageFeedback={onFeedback}
         isLoading={false}
       />,
     )
@@ -74,7 +106,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Continue past the family lounge.')).toBeTruthy()
     expect(screen.queryByLabelText('Rate this answer')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
-    expect(onFeedback).not.toHaveBeenCalled()
   })
 
   it('does not offer text-context expansion for a captured assistant voice line', () => {
@@ -610,7 +641,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).toHaveBeenCalledWith('My next question')
   })
 
-  it('omits feedback and expansion only for a temporary fallback', () => {
+  it('omits expansion only for a temporary fallback', () => {
     render(
       <ChatWindow
         messages={[
@@ -623,7 +654,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
         ]}
         onSend={vi.fn()}
         onRequestMore={vi.fn()}
-        onMessageFeedback={vi.fn()}
         isLoading={false}
       />,
     )

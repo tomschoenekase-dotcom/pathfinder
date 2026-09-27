@@ -20,6 +20,8 @@ export default async function AppearancePreviewPage({
     theme?: string | string[]
     font?: string | string[]
     accent?: string | string[]
+    appearance?: string | string[]
+    background?: string | string[]
   }>
 }) {
   if (!appearancePreviewAllowed(process.env)) notFound()
@@ -50,6 +52,8 @@ export default async function AppearancePreviewPage({
         theme={appearance.theme}
         font={appearance.font}
         accent={appearance.accent}
+        {...(appearance.appearance ? { appearance: appearance.appearance } : {})}
+        {...(appearance.background ? { backgroundUrl: appearance.background } : {})}
       />
     </main>
   )
