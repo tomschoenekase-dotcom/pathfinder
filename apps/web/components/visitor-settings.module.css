@@ -4,7 +4,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 32px;
+  min-height: 44px;
   font-size: 11px;
   line-height: 1;
   color: var(--chat-footer-muted, var(--chat-text-muted));
@@ -19,11 +19,12 @@
   background: currentColor;
   opacity: 0.7;
 }
-/* Visually small, but the hit area still meets the 44px target. */
+/* Keep the control's own bounds large enough for touch and accessibility checks. */
 .trigger {
   position: relative;
-  min-height: 32px;
-  padding: 0 2px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 6px;
   border: 0;
   background: none;
   color: var(--chat-footer-text, var(--chat-text));
@@ -33,11 +34,6 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
-}
-.trigger::after {
-  content: '';
-  position: absolute;
-  inset: -6px -12px;
 }
 .trigger:focus-visible {
   outline: 2px solid var(--chat-accent-text);

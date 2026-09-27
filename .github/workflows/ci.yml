@@ -60,6 +60,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm characters:sync
+      - name: Generate Prisma client for visitor media routes
+        run: pnpm --dir packages/db db:generate
       - name: Install pinned visitor browser runtimes
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium webkit
       - name: Verify visitor launch on compact, tablet, desktop and WebKit browsers
