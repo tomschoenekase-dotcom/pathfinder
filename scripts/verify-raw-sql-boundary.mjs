@@ -1576,9 +1576,9 @@ const approvedOperations = [
     policy: 'public-venue-session-token',
   },
   {
-    file: 'packages/api/src/routers/widget.ts',
+    file: 'packages/db/src/helpers/venue-distribution.ts',
     method: '$queryRaw',
-    hash: 'c459b550f7fb55a4454ca8c33f8959b27c97bfe844e3c99d37a980f5df913d58',
+    hash: '9b9f7a51527650aed00bbfcb5916d9728d049205359b43942b11aa0cb2a210e1',
     policy: 'public-venue-slug',
   },
 ]

@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/contracts/guest-response'
 
 import { PlaceCard } from './PlaceCard'
+import { getConfirmationCancelLabel, useRequestInAppConfirmation } from './InAppConfirmation'
 
 type ResponseRendererProps = {
   content: string
@@ -146,6 +147,7 @@ export function ResponseRenderer({
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
   const sectionHeadingId = useId()
+  const requestConfirmation = useRequestInAppConfirmation()
   const supplementalCitationsOnly =
     blocks?.length && blocks.every((block) => block.type === 'citations')
   const renderedBlocks: GuestResponseBlock[] = blocks?.length
@@ -223,13 +225,21 @@ export function ResponseRenderer({
                         : action.fallbackUrl
                           ? safeHttpsHref(action.fallbackUrl)
                           : null
-                  const activate = () => {
-                    if (
-                      action.confirmationRequired &&
-                      !window.confirm(`Continue with “${action.label}”?`)
-                    )
-                      return
+                  const activate = async (href?: string) => {
+                    if (action.confirmationRequired) {
+                      const confirmed = await requestConfirmation({
+                        title: action.label,
+                        message: `Continue with “${action.label}”?`,
+                        cancelLabel: getConfirmationCancelLabel(language),
+                        confirmLabel: action.label,
+                      })
+                      if (!confirmed) return
+                    }
                     onVisitorAction?.(action)
+                    if (action.confirmationRequired && href) {
+                      const target = href.startsWith('tel:') ? '_self' : '_blank'
+                      window.open(href, target, 'noopener,noreferrer')
+                    }
                   }
                   const actionClass = `inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 ${
                     action.style === 'primary'
@@ -245,14 +255,12 @@ export function ResponseRenderer({
                         : {})}
                       className={actionClass}
                       onClick={(event) => {
-                        if (
-                          action.confirmationRequired &&
-                          !window.confirm(`Continue with “${action.label}”?`)
-                        ) {
+                        if (action.confirmationRequired) {
                           event.preventDefault()
-                          return
+                          void activate(href)
+                        } else {
+                          onVisitorAction?.(action)
                         }
-                        onVisitorAction?.(action)
                       }}
                     >
                       {action.label}
@@ -265,7 +273,7 @@ export function ResponseRenderer({
                       key={action.analyticsKey}
                       type="button"
                       className={actionClass}
-                      onClick={activate}
+                      onClick={() => void activate()}
                     >
                       {action.label}
                     </button>

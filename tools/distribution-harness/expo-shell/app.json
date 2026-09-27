@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Torchiko Distribution Shell",
+    "slug": "torchiko-distribution-shell",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.torchiko.distributionshell",
+      "permissions": ["android.permission.RECORD_AUDIO"]
+    },
+    "plugins": [
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow the venue guide to use your location when you ask for nearby recommendations."
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.torchiko.distributionshell",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow voice input when you choose Voice Mode in the venue guide."
+      }
+    }
+  }
+}

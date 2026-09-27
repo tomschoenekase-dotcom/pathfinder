@@ -9,8 +9,12 @@ export {
   ChatSessionInput,
   SUPPORTED_CHAT_LANGUAGES,
   SupportedChatLanguageInput,
+  VisitorEntrySurfaceInput,
 } from './schemas/chat'
-export type { SupportedChatLanguage } from './schemas/chat'
+export type {
+  SupportedChatLanguage,
+  VisitorEntrySurfaceInput as VisitorEntrySurface,
+} from './schemas/chat'
 export {
   canonicalVenueContentImportPayload,
   ImportVenueContentInput,

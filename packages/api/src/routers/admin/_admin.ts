@@ -84,6 +84,7 @@ import { adminPublicInterestRouter } from './public-interest'
 import { adminReleaseEvidenceRouter } from './release-evidence'
 import { adminIntakeMediaAssetRouter } from './venue-media'
 import { adminCharacterFactoryRouter } from './character-factory'
+import { adminVenueDistributionRouter } from './venue-distribution'
 
 export const adminRouter = mergeRouters(
   adminVenueLaunchAssetsRouter,
@@ -170,4 +171,5 @@ export const adminRouter = mergeRouters(
   adminVisitorFeedbackHazardEvidenceRouter,
   adminCustomerAccessExecutionRouter,
   adminCharacterFactoryRouter,
+  adminVenueDistributionRouter,
 )

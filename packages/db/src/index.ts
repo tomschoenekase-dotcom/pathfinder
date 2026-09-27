@@ -1,6 +1,16 @@
 export { db } from './client'
 export { resolveVenueLaunchSource, type VenueLaunchSource } from './helpers/venue-launch-source'
 export {
+  createDefaultVenueDistributionResolverCache,
+  createVenueDistributionResolverCache,
+  resolveCachedVenueDistribution,
+  resolveVenueDistribution,
+  normalizeVenueWebsiteOrigin,
+  getVenueDistributionSessionCounts,
+  type DistributionDenyReason,
+  type VenueDistributionReadback,
+} from './helpers/venue-distribution'
+export {
   readProspectLaunchLinks,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,

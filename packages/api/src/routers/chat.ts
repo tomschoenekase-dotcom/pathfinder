@@ -583,6 +583,11 @@ const chatSessionRouter = router({
         latestLng: isNonLocation ? null : (input.lng ?? null),
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
+        ...(experienceScope === 'PUBLIC' && input.entrySurface
+          ? {
+              entrySurface: input.entrySurface.toUpperCase() as 'DIRECT' | 'QR' | 'WEBSITE' | 'APP',
+            }
+          : {}),
       },
       update: updateData,
       select: { id: true, experienceScope: true },
@@ -655,6 +660,9 @@ const chatReadRouter = router({
       lng: input.lng ?? null,
       retainLocation: guideMode !== 'non_location',
       experienceScope: ctx.experienceScope,
+      ...(ctx.experienceScope === 'PUBLIC' && input.entrySurface
+        ? { entrySurface: input.entrySurface }
+        : {}),
     }
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
     try {

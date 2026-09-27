@@ -29,7 +29,7 @@ describe('LocationBanner', () => {
     render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
 
     expect(screen.getByText(/General questions work without it/i).className).toContain(
-      'text-pf-deep/70',
+      'text-[var(--chat-text-muted)]',
     )
   })
 
@@ -37,6 +37,17 @@ describe('LocationBanner', () => {
     render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: 'Share location' }).className).toContain('min-h-11')
+  })
+
+  it('keeps location consent as a light inline prompt', () => {
+    const { container } = render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
+
+    const prompt = container.querySelector('section')
+    expect(prompt?.className).not.toContain('rounded-3xl')
+    expect(prompt?.className).not.toContain('shadow-sm')
+    expect(screen.getByRole('button', { name: 'Share location' }).className).not.toContain(
+      'bg-pf-white',
+    )
   })
 
   it('uses the selected language and direction for location consent', () => {

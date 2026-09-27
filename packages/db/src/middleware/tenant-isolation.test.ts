@@ -99,6 +99,8 @@ describe('tenantIsolationMiddleware', () => {
       'BillingCustomerRequest',
       'BillingAgentCommand',
       'Venue',
+      'VenueDistribution',
+      'VenueWebsiteOrigin',
       'VenueBotConfiguration',
       'PersonalityProfile',
       'CustomCharacter',

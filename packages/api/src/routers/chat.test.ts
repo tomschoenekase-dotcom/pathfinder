@@ -399,7 +399,11 @@ describe('chat router', () => {
       dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
 
-      const result = await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
+      const result = await caller.chat.session({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        entrySurface: 'website',
+      })
 
       expect(result).toEqual({ sessionId: SESSION_ID })
       expect(sessionUpsert).toHaveBeenCalledWith(
@@ -408,7 +412,12 @@ describe('chat router', () => {
             venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
             tenantId: TENANT_ID,
           },
-          create: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
+          create: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            entrySurface: 'WEBSITE',
+          }),
+          update: expect.not.objectContaining({ entrySurface: expect.anything() }),
         }),
       )
     })
@@ -448,6 +457,7 @@ describe('chat router', () => {
           venueId: VENUE_ID,
           anonymousToken: TOKEN,
           secondLayerKey,
+          entrySurface: 'app',
         }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
       expect(sessionUpsert).not.toHaveBeenCalled()
@@ -480,6 +490,7 @@ describe('chat router', () => {
           venueId: VENUE_ID,
           anonymousToken: TOKEN,
           secondLayerKey,
+          entrySurface: 'app',
         }),
       ).resolves.toEqual({ sessionId: SESSION_ID })
       expect(sessionUpsert).toHaveBeenCalledWith(
@@ -487,6 +498,7 @@ describe('chat router', () => {
           create: expect.objectContaining({ experienceScope: 'SECOND_LAYER' }),
         }),
       )
+      expect(sessionUpsert.mock.calls[0]?.[0]?.create).not.toHaveProperty('entrySurface')
     })
 
     it('calling session twice with same token returns same session (upsert idempotency)', async () => {
@@ -822,9 +834,11 @@ describe('chat router', () => {
     it('passes the client operation UUID into the exact durable reservation', async () => {
       setupHappyPath('Near the entrance.')
       const operationId = '99999999-9999-4999-8999-999999999999'
-      await caller.chat.send({ ...sendInput, operationId })
+      await caller.chat.send({ ...sendInput, operationId, entrySurface: 'app' })
       expect(guestTurnActions.reserve).toHaveBeenCalledWith(
-        expect.objectContaining({ request: expect.objectContaining({ requestId: operationId }) }),
+        expect.objectContaining({
+          request: expect.objectContaining({ requestId: operationId, entrySurface: 'app' }),
+        }),
       )
     })
 

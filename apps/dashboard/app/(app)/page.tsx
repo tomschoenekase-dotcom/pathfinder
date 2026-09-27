@@ -3,6 +3,8 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardOverview, type ClientPortalTask } from '../../components/DashboardOverview'
+import { buildVenueAccessArtifacts } from '@pathfinder/contracts/venue-access-artifacts'
+import { getChatPalette } from '@pathfinder/ui/theme'
 import {
   buildGuestChatUrl,
   buildSecondLayerChatUrl,
@@ -43,12 +45,13 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   if (!selectedLifecycle) throw new Error('Portal lifecycle evidence is unavailable')
   const showVisitorPulse =
     selectedLifecycle.lifecycle.state === 'LIVE' || selectedLifecycle.lifecycle.state === 'PAUSED'
-  const [taskEvidence, secondLayer, visitorPulse] = await Promise.all([
+  const [taskEvidence, secondLayer, visitorPulse, distributionReadback] = await Promise.all([
     caller.portal.getVenueTaskEvidence({ venueId: selectedVenue!.id }),
     caller.venue.getSecondLayer({ venueId: selectedVenue!.id }),
     showVisitorPulse
       ? caller.portal.getVenueVisitorPulse({ venueId: selectedVenue!.id })
       : Promise.resolve(null),
+    caller.tenant.venueDistribution.readback({ venueId: selectedVenue!.id }).catch(() => null),
   ])
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   const now = new Date()
@@ -67,6 +70,19 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const chatUrl = selectedVenue
     ? buildGuestChatUrl(guideOrigin, selectedVenue.slug, {
         allowLoopbackHttp: process.env.NODE_ENV === 'development',
+      })
+    : null
+  const accessArtifacts = selectedVenue
+    ? buildVenueAccessArtifacts(process.env.NEXT_PUBLIC_WEB_URL, selectedVenue.slug, {
+        allowLoopbackHttp: process.env.NODE_ENV === 'development',
+        ...(distributionReadback
+          ? {
+              appBackground: getChatPalette(
+                distributionReadback.venue.chatTheme,
+                distributionReadback.venue.chatAccentColor,
+              ).bg,
+            }
+          : {}),
       })
     : null
   const tasks: ClientPortalTask[] = taskEvidence.missingInformation.map((request) => ({
@@ -163,6 +179,19 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       chatUrl={chatUrl}
       tasks={tasks.slice(0, 6)}
       visitorPulse={visitorPulse}
+      distributionReadback={
+        distributionReadback
+          ? {
+              website: distributionReadback.website,
+              app: distributionReadback.app,
+              revision: distributionReadback.revision,
+              sessions30d: distributionReadback.sessions30d,
+              publicUrl: accessArtifacts?.publicUrl ?? null,
+              appUrl: accessArtifacts?.appUrl ?? null,
+              appBackground: accessArtifacts?.appBackground ?? null,
+            }
+          : null
+      }
       secondLayer={{
         enabled: secondLayer.secondLayerEnabled,
         label: secondLayer.secondLayerLabel,

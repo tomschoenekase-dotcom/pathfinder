@@ -103,6 +103,12 @@ const rawEnvSchema = z
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
+    WEBSITE_DISTRIBUTION_ENABLED: z.enum(['true', 'false']).optional(),
+    APP_DISTRIBUTION_ENABLED: z.enum(['true', 'false']).optional(),
+    // Server-only middleware-to-Node policy hop. Missing token disables the
+    // hop and the edge middleware emits self-only frame policy.
+    INTERNAL_POLICY_TOKEN: z.string().min(32).max(512).optional(),
+    INTERNAL_WEB_ORIGIN: z.string().url().max(2_048).optional(),
     VOICE_MODE_ENABLED: z.enum(['true', 'false']).optional(),
     OPENAI_REALTIME_PREMIUM_MODEL: z.string().min(1).max(100).optional(),
     OPENAI_REALTIME_ECONOMY_MODEL: z.string().min(1).max(100).optional(),
@@ -325,6 +331,8 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
+  WEBSITE_DISTRIBUTION_ENABLED: values.WEBSITE_DISTRIBUTION_ENABLED === 'true',
+  APP_DISTRIBUTION_ENABLED: values.APP_DISTRIBUTION_ENABLED === 'true',
   VOICE_MODE_ENABLED: values.VOICE_MODE_ENABLED === 'true',
   OPERATIONAL_ALERT_DELIVERY_ENABLED: values.OPERATIONAL_ALERT_DELIVERY_ENABLED === 'true',
   OPERATIONAL_ALERT_DEV_SINK_ENABLED: values.OPERATIONAL_ALERT_DEV_SINK_ENABLED === 'true',

@@ -1,3 +1,5 @@
+import { buildVenueAccessArtifacts } from '@pathfinder/contracts/venue-access-artifacts'
+
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const STAGING_WEB_ORIGIN = 'https://staging-web-staging-bbeb.up.railway.app'
 
@@ -19,12 +21,25 @@ export function buildGuestChatUrl(
   venueSlug: string,
   options: GuestChatUrlOptions = {},
 ): string | null {
+  const artifacts = buildVenueAccessArtifacts(configuredOrigin, venueSlug, options)
+  if (artifacts) return artifacts.publicUrl
+
+  // Existing dashboard URLs encoded legacy venue slugs; the new artifact contract only
+  // emits canonical slugs, while this wrapper keeps previously usable one-segment URLs.
   const rawOrigin = configuredOrigin?.trim()
   const rawSlug = venueSlug.trim()
-
-  if (!rawOrigin || !rawSlug || rawSlug === '.' || rawSlug === '..') {
+  if (
+    !rawOrigin ||
+    !rawSlug ||
+    rawSlug === '.' ||
+    rawSlug === '..' ||
+    rawSlug.includes('/') ||
+    rawSlug.includes('\\') ||
+    rawSlug.includes('?') ||
+    rawSlug.includes('#') ||
+    Array.from(rawSlug).some((character) => character.codePointAt(0)! < 32)
+  )
     return null
-  }
 
   try {
     const origin = new URL(rawOrigin)
@@ -33,19 +48,17 @@ export function buildGuestChatUrl(
       options.allowLoopbackHttp === true &&
       origin.protocol === 'http:' &&
       LOOPBACK_HOSTS.has(origin.hostname)
-    const isExactCanonicalOrigin = rawOrigin === origin.origin || rawOrigin === `${origin.origin}/`
-
+    const isExactOrigin = rawOrigin === origin.origin || rawOrigin === `${origin.origin}/`
     if (
       (!isSecure && !isLoopbackDevelopment) ||
-      !isExactCanonicalOrigin ||
+      !isExactOrigin ||
       origin.username !== '' ||
       origin.password !== '' ||
       origin.pathname !== '/' ||
       origin.search !== '' ||
       origin.hash !== ''
-    ) {
+    )
       return null
-    }
 
     return new URL(`/${encodeURIComponent(rawSlug)}/chat`, origin.origin).toString()
   } catch {
@@ -54,14 +67,11 @@ export function buildGuestChatUrl(
 }
 
 export function buildQrEntryUrl(guestChatUrl: string | null): string | null {
-  if (!guestChatUrl) return null
-
   try {
+    if (!guestChatUrl) return null
     const url = new URL(guestChatUrl)
-    if (url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/chat')) {
+    if (url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/chat'))
       return null
-    }
-
     url.searchParams.set('source', 'qr')
     return url.toString()
   } catch {
@@ -75,8 +85,8 @@ export function buildSecondLayerChatUrl(
   accessKey: string | null | undefined,
   options: GuestChatUrlOptions = {},
 ): string | null {
-  const guestUrl = buildGuestChatUrl(configuredOrigin, venueSlug, options)
   const key = accessKey?.trim()
+  const guestUrl = buildGuestChatUrl(configuredOrigin, venueSlug, options)
   if (!guestUrl || !key || !/^[0-9a-f-]{36}$/iu.test(key)) return null
   const url = new URL(guestUrl)
   url.pathname = `/${encodeURIComponent(venueSlug.trim())}/layer/${encodeURIComponent(key)}/chat`

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Torchiko distribution fixture</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Second-origin fixture</p>
+      <h1 id="page-title">Torchiko website distribution</h1>
+      <p id="page-description">A static test host for cross-origin launcher and inline embeds.</p>
+      <section id="launcher-case" aria-label="Floating guide launcher"></section>
+      <section id="inline-case" aria-label="Inline venue guide">
+        <div data-torchiko-inline="city-sc" class="inline-guide"></div>
+      </section>
+      <section id="unadmitted-case" hidden aria-label="Unadmitted origin case"></section>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const webOrigin = params.get('webOrigin') || 'http://127.0.0.1:3000'
+      const venue = params.get('venue') || 'city-sc'
+      const mode = params.get('mode') || document.body.dataset.mode || 'all'
+      const launcherCase = document.querySelector('#launcher-case')
+      const inline = document.querySelector('[data-torchiko-inline]')
+      inline.closest('#inline-case').hidden = mode !== 'all' && mode !== 'inline'
+      if (mode !== 'all' && mode !== 'inline') inline.removeAttribute('data-torchiko-inline')
+      const script = document.createElement('script')
+      script.src = new URL('/widget.js', webOrigin).href
+      script.async = true
+      if (mode === 'launcher' || mode === 'all' || mode === 'unadmitted') script.dataset.torchikoVenue = venue
+      launcherCase.appendChild(script)
+      if (mode === 'unadmitted') document.querySelector('#unadmitted-case').hidden = false
+    </script>
+  </body>
+</html>

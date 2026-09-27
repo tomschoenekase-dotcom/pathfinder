@@ -869,7 +869,7 @@ const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
     'The outcome of this message is not confirmed. Retry the same message safely.',
     'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
     'The conversation still could not be confirmed. Try checking again.',
-    'Clear chat? Your visit preferences stay on this page. The current chat will leave this screen, but it will not be deleted from Torchiko records.',
+    'Clear chat? Your visit preferences on this page will also be cleared. The current chat will leave this screen, but it will not be deleted from Torchiko records.',
     'We could not start a new conversation in this browser.',
     'Check conversation',
     'Retry same message',

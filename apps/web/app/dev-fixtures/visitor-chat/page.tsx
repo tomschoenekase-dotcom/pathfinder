@@ -55,6 +55,9 @@ export default async function VisitorChatVisualFixture({
     font?: string | string[]
     accent?: string | string[]
     branding?: string | string[]
+    presentation?: string | string[]
+    appHeader?: string | string[]
+    booting?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -77,6 +80,12 @@ export default async function VisitorChatVisualFixture({
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
   const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
   const branding = oneOf(params.branding, ['none', 'approved'] as const, 'none')
+  const presentation = oneOf(
+    params.presentation,
+    ['standalone', 'embed', 'embed-inline', 'webview'] as const,
+    'standalone',
+  )
+  const appHeader = oneOf(params.appHeader, ['full', 'compact'] as const, 'full')
   const language = oneOf(
     params.language,
     SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
@@ -119,6 +128,9 @@ export default async function VisitorChatVisualFixture({
       )}
       accent={first(params.accent)}
       branding={branding satisfies VisitorFixtureBranding}
+      presentation={presentation}
+      appHeader={appHeader}
+      booting={first(params.booting) === 'true'}
     />
   )
 }

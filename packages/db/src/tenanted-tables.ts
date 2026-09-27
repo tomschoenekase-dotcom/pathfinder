@@ -18,6 +18,8 @@ export const TENANTED_TABLES = [
   'BillingCustomerRequest',
   'BillingAgentCommand',
   'Venue',
+  'VenueDistribution',
+  'VenueWebsiteOrigin',
   'VenueBotConfiguration',
   'PersonalityProfile',
   'CustomCharacter',

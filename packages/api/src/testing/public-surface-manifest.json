@@ -358,6 +358,15 @@
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     },
     {
+      "source": "apps/web/app/api/internal/embed-frame-policy/[venueSlug]/route.ts",
+      "methods": ["GET"],
+      "exposure": "internal-shared-token-authenticated",
+      "controlProfile": "internal-shared-token-ingress",
+      "behavioralEvidence": [
+        "apps/web/app/api/internal/embed-frame-policy/[venueSlug]/route.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/admin/character-candidate-preview/route.ts",
       "methods": ["GET"],
       "exposure": "handler-platform-admin",

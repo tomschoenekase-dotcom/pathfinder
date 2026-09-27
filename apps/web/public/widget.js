@@ -7,12 +7,13 @@
   var READY_TIMEOUT_MS = 10000
   var AVAILABILITY_TIMEOUT_MS = 10000
   var script = document.currentScript
-  if (!script || script.tagName !== 'SCRIPT' || script.dataset.pathfinderMounted) return
+  if (!script || script.tagName !== 'SCRIPT' || script.dataset.pathfinderMounted || script.dataset.torchikoMounted) return
 
-  var venueSlug = script.getAttribute('data-pathfinder-venue')
-  if (!venueSlug || venueSlug.length > 200 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(venueSlug)) {
-    return
+  function isValidVenueSlug(value) {
+    return Boolean(value && value.length <= 200 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))
   }
+  var venueSlug = script.getAttribute('data-torchiko-venue') || script.getAttribute('data-pathfinder-venue')
+  if (venueSlug && !isValidVenueSlug(venueSlug)) return
 
   var sourceUrl
   try {
@@ -54,7 +55,126 @@
   var stylesheetReady = false
   var venueReady = false
   var domReadyListening = false
+  var inlineDomReadyListening = false
+  var inlineObserver
+  var widgetPresentation = null
+  var viewportListening = false
   var failed = false
+
+  function probe(slug, onReady, onFailure) {
+    var timer = window.setTimeout(onFailure, AVAILABILITY_TIMEOUT_MS)
+    var probeUrl = new URL('/api/widget-ready/' + encodeURIComponent(slug), sourceUrl.origin)
+    probeUrl.searchParams.set('v', '2')
+    window.fetch(probeUrl.href, {
+      cache: 'no-store',
+      credentials: 'omit',
+      mode: 'cors',
+      referrerPolicy: 'no-referrer',
+    }).then(function (response) {
+      if (response.status === 204 && response.headers.get('X-PathFinder-Widget-Ready') === '1') {
+        window.clearTimeout(timer)
+        onReady(null)
+        return
+      }
+      if (response.status !== 200) throw new Error('not-ready')
+      return response.json().then(function (payload) {
+        var keys = payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload).sort() : []
+        if (keys.length !== 5 || keys[0] !== 'accent' || keys[1] !== 'background' || keys[2] !== 'label' || keys[3] !== 'theme' || keys[4] !== 'v' ||
+          payload.v !== 2 || typeof payload.label !== 'string' || payload.label.length > 40 ||
+          typeof payload.accent !== 'string' || !/^#[0-9a-f]{6}$/i.test(payload.accent) ||
+          typeof payload.background !== 'string' || !/^#[0-9a-f]{6}$/i.test(payload.background) ||
+          (payload.theme !== 'light' && payload.theme !== 'dark')) throw new Error('invalid-presentation')
+        window.clearTimeout(timer)
+        onReady({ label: payload.label, accent: payload.accent, theme: payload.theme, background: payload.background })
+      })
+    }).catch(function () {
+      window.clearTimeout(timer)
+      onFailure()
+    })
+  }
+
+  function mountInline(container) {
+    var slug = container.getAttribute('data-torchiko-inline')
+    if (!isValidVenueSlug(slug) || container.dataset.torchikoInlineMounted) return
+    container.dataset.torchikoInlineMounted = 'pending'
+    probe(slug, function (presentation) {
+      var inlineFrame = document.createElement('iframe')
+      var timer
+      function finish(success) {
+        window.removeEventListener('message', onMessage)
+        if (timer !== undefined) window.clearTimeout(timer)
+        if (!success) {
+          if (inlineFrame.parentNode) inlineFrame.parentNode.removeChild(inlineFrame)
+          container.dataset.torchikoInlineMounted = 'failed'
+          return
+        }
+        inlineFrame.hidden = false
+        container.dataset.torchikoInlineMounted = 'true'
+      }
+      function onMessage(event) {
+        var data = event.data
+        if (event.origin !== sourceUrl.origin || event.source !== inlineFrame.contentWindow ||
+          !data || typeof data !== 'object' || Array.isArray(data)) return
+        var keys = Object.keys(data).sort()
+        if (keys.length === 3 && keys[0] === 'type' && keys[1] === 'venueSlug' && keys[2] === 'version' &&
+          data.type === READY_MESSAGE_TYPE && data.version === READY_MESSAGE_VERSION && data.venueSlug === slug) {
+          finish(true)
+        }
+      }
+      inlineFrame.src = new URL('/embed/' + encodeURIComponent(slug) + '/inline', sourceUrl.origin).href
+      inlineFrame.title = 'Torchiko venue guide'
+      inlineFrame.loading = 'eager'
+      inlineFrame.referrerPolicy = 'no-referrer'
+      inlineFrame.width = '100%'
+      inlineFrame.height = '100%'
+      inlineFrame.hidden = true
+      inlineFrame.style.border = '0'
+      inlineFrame.style.display = 'block'
+      inlineFrame.style.backgroundColor = presentation ? presentation.background : '#fff'
+      var containerHeight = parseFloat(window.getComputedStyle(container).height)
+      if (!isFinite(containerHeight) || containerHeight < 320) {
+        inlineFrame.style.minHeight = 'min(720px, 85vh)'
+      }
+      inlineFrame.setAttribute('allow', 'microphone')
+      inlineFrame.setAttribute('data-pathfinder-widget-frame', '')
+      inlineFrame.setAttribute('sandbox', 'allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts')
+      inlineFrame.addEventListener('error', function () { finish(false) }, { once: true })
+      window.addEventListener('message', onMessage)
+      timer = window.setTimeout(function () { finish(false) }, READY_TIMEOUT_MS)
+      container.appendChild(inlineFrame)
+    }, function () {
+      container.dataset.torchikoInlineMounted = 'failed'
+    })
+  }
+
+  function mountInlineElements(root) {
+    if (!root) return
+    var candidates = []
+    if (root.nodeType === 1 && root.matches && root.matches('[data-torchiko-inline]')) {
+      candidates.push(root)
+    }
+    if (root.querySelectorAll) {
+      candidates = candidates.concat(Array.prototype.slice.call(root.querySelectorAll('[data-torchiko-inline]')))
+    }
+    candidates.forEach(mountInline)
+  }
+
+  function observeInlineMounts() {
+    if (inlineObserver || !document.body || typeof window.MutationObserver !== 'function') return
+    inlineObserver = new window.MutationObserver(function (records) {
+      records.forEach(function (record) {
+        Array.prototype.forEach.call(record.addedNodes, mountInlineElements)
+      })
+    })
+    inlineObserver.observe(document.body, { childList: true, subtree: true })
+  }
+
+  function startInlineMounting() {
+    if (inlineDomReadyListening) document.removeEventListener('DOMContentLoaded', startInlineMounting)
+    inlineDomReadyListening = false
+    mountInlineElements(document.body)
+    observeInlineMounts()
+  }
 
   function failInvisible() {
     if (failed) return
@@ -82,46 +202,31 @@
   }
 
   function checkAvailability() {
-    try {
-      availabilityAbort = new window.AbortController()
-      availabilityTimer = window.setTimeout(failInvisible, AVAILABILITY_TIMEOUT_MS)
-      var readinessUrl = new URL(
-        '/api/widget-ready/' + encodeURIComponent(venueSlug),
-        sourceUrl.origin,
-      )
-      window
-        .fetch(readinessUrl.href, {
-          cache: 'no-store',
-          credentials: 'omit',
-          mode: 'cors',
-          referrerPolicy: 'no-referrer',
-          signal: availabilityAbort.signal,
-        })
-        .then(function (response) {
-          if (failed) return
-          if (
-            response.status !== 204 ||
-            response.headers.get('X-PathFinder-Widget-Ready') !== '1'
-          ) {
-            failInvisible()
-            return
-          }
-          venueReady = true
-          revealWhenAvailable()
-        })
-        .catch(failInvisible)
-    } catch {
-      failInvisible()
-    }
+    probe(venueSlug, function (presentation) {
+      if (failed) return
+      venueReady = true
+      if (presentation) {
+        widgetPresentation = presentation
+        launcher.textContent = presentation.label
+        launcher.dataset.label = presentation.label
+        launcher.setAttribute('aria-label', presentation.label + ', opens venue guide')
+        host.style.setProperty('--torchiko-widget-accent', presentation.accent)
+        host.style.setProperty('--torchiko-widget-background', presentation.background)
+        panel.style.backgroundColor = presentation.background
+        host.style.setProperty('color-scheme', presentation.theme)
+      }
+      revealWhenAvailable()
+    }, failInvisible)
   }
 
   function closePanel() {
     if (!ready || !panel || !launcher) return
+    stopPanelViewportSync()
     panel.hidden = true
     launcher.hidden = false
     launcher.disabled = false
-    launcher.textContent = 'Ask Torchiko'
-    launcher.setAttribute('aria-label', 'Open Torchiko venue guide')
+    launcher.textContent = launcher.dataset.label || 'Ask Torchiko'
+    launcher.setAttribute('aria-label', launcher.textContent + ', opens venue guide')
     launcher.setAttribute('aria-expanded', 'false')
     launcher.removeAttribute('aria-busy')
     launcher.focus()
@@ -134,6 +239,43 @@
     else panel.removeAttribute('aria-modal')
     startGuard.tabIndex = isModal ? 0 : -1
     endGuard.tabIndex = isModal ? 0 : -1
+    if (isModal && !panel.hidden) startPanelViewportSync()
+    else stopPanelViewportSync()
+  }
+
+  function syncPanelToViewport() {
+    var viewport = window.visualViewport
+    if (!viewport || !panel || panel.hidden || !modalQuery || !modalQuery.matches) return
+    panel.style.top = Math.round(viewport.offsetTop) + 'px'
+    panel.style.height = Math.round(viewport.height) + 'px'
+    panel.style.bottom = 'auto'
+  }
+
+  function startPanelViewportSync() {
+    var viewport = window.visualViewport
+    if (!viewport) return
+    if (viewportListening) {
+      syncPanelToViewport()
+      return
+    }
+    viewport.addEventListener('resize', syncPanelToViewport)
+    viewport.addEventListener('scroll', syncPanelToViewport)
+    viewportListening = true
+    syncPanelToViewport()
+  }
+
+  function stopPanelViewportSync() {
+    var viewport = window.visualViewport
+    if (viewport && viewportListening) {
+      viewport.removeEventListener('resize', syncPanelToViewport)
+      viewport.removeEventListener('scroll', syncPanelToViewport)
+    }
+    viewportListening = false
+    if (panel) {
+      panel.style.top = ''
+      panel.style.height = ''
+      panel.style.bottom = ''
+    }
   }
 
   function showReadyPanel() {
@@ -147,8 +289,8 @@
     launcher.disabled = false
     launcher.removeAttribute('aria-busy')
     launcher.setAttribute('aria-expanded', 'true')
-    updateDialogMode()
     panel.hidden = false
+    updateDialogMode()
     closeButton.focus()
   }
 
@@ -186,6 +328,7 @@
     frame.title = 'Torchiko venue guide'
     frame.loading = 'eager'
     frame.referrerPolicy = 'no-referrer'
+    frame.style.backgroundColor = widgetPresentation ? widgetPresentation.background : '#fff'
     // Delegate only microphone access to the exact-origin guide frame. The
     // browser still prompts only after the visitor explicitly starts Voice Mode.
     frame.setAttribute('allow', 'microphone')
@@ -202,8 +345,8 @@
     if (ready) {
       launcher.hidden = true
       launcher.setAttribute('aria-expanded', 'true')
-      updateDialogMode()
       panel.hidden = false
+      updateDialogMode()
       closeButton.focus()
       return
     }
@@ -211,8 +354,8 @@
 
     opening = true
     launcher.disabled = true
-    launcher.textContent = 'Opening Torchiko…'
-    launcher.setAttribute('aria-label', 'Opening Torchiko venue guide')
+    launcher.textContent = 'Opening ' + (launcher.dataset.label || 'Ask Torchiko') + '…'
+    launcher.setAttribute('aria-label', launcher.textContent + ', opening venue guide')
     launcher.setAttribute('aria-busy', 'true')
     try {
       listening = true
@@ -251,9 +394,10 @@
       launcher.type = 'button'
       launcher.className = 'pf-launcher'
       launcher.textContent = 'Ask Torchiko'
+      launcher.dataset.label = 'Ask Torchiko'
       launcher.setAttribute('aria-controls', 'pathfinder-widget-panel')
       launcher.setAttribute('aria-expanded', 'false')
-      launcher.setAttribute('aria-label', 'Open Torchiko venue guide')
+      launcher.setAttribute('aria-label', 'Ask Torchiko, opens venue guide')
       launcher.addEventListener('click', openPanel)
 
       panel = document.createElement('section')
@@ -310,6 +454,17 @@
     }
   }
 
+  script.dataset.torchikoMounted = 'true'
+  if (document.readyState === 'loading' || !document.body) {
+    inlineDomReadyListening = true
+    document.addEventListener('DOMContentLoaded', startInlineMounting, { once: true })
+  } else {
+    startInlineMounting()
+  }
+  if (!venueSlug) {
+    script.dataset.pathfinderMounted = 'true'
+    return
+  }
   script.dataset.pathfinderMounted = 'pending'
   if (document.body) {
     mount()

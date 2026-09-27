@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ captureException: vi.fn() }))
 vi.mock('@sentry/nextjs', () => ({ captureException: mocks.captureException }))
+const navigationMocks = vi.hoisted(() => ({ pathname: '/' }))
+vi.mock('next/navigation', () => ({ usePathname: () => navigationMocks.pathname }))
 
 import {
   OFFLINE_SUPPORT_ATTRIBUTE,
@@ -28,6 +30,8 @@ describe('ServiceWorkerRegistration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    navigationMocks.pathname = '/'
+    navigationMocks.pathname = '/'
     document.documentElement.removeAttribute(OFFLINE_SUPPORT_ATTRIBUTE)
     Object.defineProperty(navigator, 'serviceWorker', {
       configurable: true,
@@ -61,6 +65,32 @@ describe('ServiceWorkerRegistration', () => {
     expect(register).toHaveBeenCalledWith('/sw.js', { scope: '/', updateViaCache: 'none' })
     expect(document.documentElement.getAttribute(OFFLINE_SUPPORT_ATTRIBUTE)).toBe('registered')
   })
+
+  it.each(['/embed/museum', '/embed/museum/inline', '/app/museum'])(
+    'leaves the site service worker untouched on %s',
+    async (pathname) => {
+      navigationMocks.pathname = pathname
+      setReadyState('complete')
+      render(<ServiceWorkerRegistration enabled />)
+      await Promise.resolve()
+      expect(register).not.toHaveBeenCalled()
+      expect(getRegistration).not.toHaveBeenCalled()
+      expect(document.documentElement.hasAttribute(OFFLINE_SUPPORT_ATTRIBUTE)).toBe(false)
+    },
+  )
+
+  it.each(['/embed/museum', '/embed/museum/inline', '/app/museum'])(
+    'does not register or retire a service worker on %s',
+    async (pathname) => {
+      navigationMocks.pathname = pathname
+      setReadyState('complete')
+      render(<ServiceWorkerRegistration enabled />)
+      await Promise.resolve()
+      expect(register).not.toHaveBeenCalled()
+      expect(getRegistration).not.toHaveBeenCalled()
+      expect(document.documentElement.hasAttribute(OFFLINE_SUPPORT_ATTRIBUTE)).toBe(false)
+    },
+  )
 
   it('waits for load and removes the pending listener on unmount', () => {
     setReadyState('loading')
