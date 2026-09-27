@@ -254,7 +254,8 @@ export async function verifyDispositionDatabaseSource(target) {
     `SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM (SELECT migration_name,checksum,finished_at,rolled_back_at,logs FROM public._prisma_migrations ORDER BY migration_name LIMIT 251) x`,
   )
   if (!Array.isArray(rows) || rows.length !== 250) refuse('database migration endpoint')
-  if (ledgerState(rows, manifest) !== 'complete') refuse('current ledger')
+  // This sealed maintenance operation is limited to the historical 250-row state.
+  if (ledgerState(rows, manifest) !== 'distribution-predecessor') refuse('current ledger')
   const final = rows[248],
     name = manifest.names[248]
   if (

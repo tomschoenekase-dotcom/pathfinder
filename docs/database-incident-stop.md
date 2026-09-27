@@ -2,6 +2,14 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+The September 27 distribution and appearance source endpoint is 252 migrations. Source admission
+does not extend either hosted exception. The recorded staging exception below is synthetic-only,
+while the current staging database may contain restored production lineage; treat that database as
+preserved data until its lineage is independently resolved and Tom explicitly authorizes the
+preserved-data staging policy for this exact release. The September 22 production exception covers
+the reviewed 110-to-250 cutover, not migrations 251–252. Keep both hosted migrations and production
+promotion held until their respective release-specific gates are satisfied.
+
 ## Restricted production cutover exception — approved 2026-09-22
 
 At `2026-09-22T20:21:17Z`, Tom explicitly approved the reviewed PathFinder V2 production
