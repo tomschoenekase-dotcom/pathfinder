@@ -6,7 +6,6 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
-  ChevronDown,
   CreditCard,
   Headphones,
   Home,
@@ -53,9 +52,9 @@ const onboardingNavigationItems = [
   { href: '/settings', label: 'Account', icon: Settings },
 ] as const
 
+// Every client destination stays visible; groups are labels, not collapsed menus.
 const clientNavigationGroups = [
-  { label: 'Your guide', routes: ['Information', 'Updates', 'Visitor experience'] },
-  { label: 'Activity', routes: ['Reports'] },
+  { label: 'Your guide', routes: ['Information', 'Updates', 'Visitor experience', 'Reports'] },
   { label: 'Account', routes: ['Payment', 'Account'] },
 ] as const
 
@@ -316,25 +315,29 @@ export function DashboardShellView({
                 (group.routes as readonly string[]).includes(item.label),
               )
               if (groupItems.length === 0) return null
-              const containsCurrentRoute = groupItems.some((item) =>
-                item.href ? isActivePath(pathname, item.href) : false,
-              )
+              // A lone "Account" link does not need an "Account" heading above it.
+              const showGroupLabel = groupItems.length > 1 || groupItems[0]?.label !== group.label
               return (
-                <details
+                <div
                   key={group.label}
-                  open={containsCurrentRoute}
-                  className="mt-1 border-t border-white/10 pt-1"
+                  role="group"
+                  aria-label={group.label}
+                  className="mt-3 border-t border-white/10 pt-3"
                 >
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-pf-light/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent [&::-webkit-details-marker]:hidden">
-                    {group.label}
-                    <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  </summary>
-                  <div className="ml-3 border-l border-white/15 pl-2">
+                  {showGroupLabel ? (
+                    <p
+                      aria-hidden="true"
+                      className="px-3.5 pb-1 text-xs font-medium text-pf-light/80"
+                    >
+                      {group.label}
+                    </p>
+                  ) : null}
+                  <div>
                     {groupItems.map((item) => {
                       const Icon = item.icon
                       const active = item.href ? isActivePath(pathname, item.href) : false
                       const className = [
-                        'relative flex min-h-11 items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
+                        'relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
                         active
                           ? 'border-[#f2a65a] bg-white/8 text-white'
                           : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
@@ -357,7 +360,7 @@ export function DashboardShellView({
                       )
                     })}
                   </div>
-                </details>
+                </div>
               )
             })}
           </>
