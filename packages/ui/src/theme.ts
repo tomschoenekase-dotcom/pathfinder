@@ -20,7 +20,7 @@ export const CHAT_THEME_PRESETS: {
   accent: string
   surface: string
 }[] = [
-  { value: 'default', label: 'Torchiko Blue', accent: '#3A7BD5', surface: '#F2F5F9' },
+  { value: 'default', label: 'Torchiko Blue', accent: '#306CC4', surface: '#F2F5F9' },
   { value: 'forest', label: 'Forest', accent: '#2D6A4F', surface: '#F0F7F4' },
   { value: 'sunset', label: 'Sunset', accent: '#E07B39', surface: '#FBF4EF' },
   { value: 'midnight', label: 'Midnight', accent: '#4361EE', surface: '#EEF0F8' },
@@ -36,7 +36,8 @@ export const CHAT_FONT_OPTIONS: { value: ChatFontValue; label: string; cssVar: s
   { value: 'playfair', label: 'Playfair Display', cssVar: '--font-playfair' },
 ]
 
-const DEFAULT_ACCENT = '#3A7BD5'
+// Deep enough for white button text (5.2:1) and for links on the default surface (4.7:1).
+const DEFAULT_ACCENT = '#306CC4'
 const LIGHT_ACCENT_TEXT = '#FFFFFF'
 const DARK_ACCENT_TEXT = '#000000'
 
