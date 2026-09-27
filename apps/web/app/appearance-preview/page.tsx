@@ -28,8 +28,9 @@ export default async function AppearancePreviewPage({
   const appearance = parseAppearancePreviewParams(await searchParams)
 
   return (
-    <main className={styles.layout}>
-      <div
+    <div className={styles.layout}>
+      <aside
+        aria-label="Appearance preview notice"
         className={`${styles.notice} border-b border-slate-300 bg-slate-50 px-4 py-3 text-center text-sm text-slate-700`}
       >
         <span className={styles.fullNotice}>
@@ -37,7 +38,7 @@ export default async function AppearancePreviewPage({
           changes remain unsaved until you save them in your venue settings.
         </span>
         <span className={styles.compactNotice}>Preview only · Unsaved · No messages sent</span>
-      </div>
+      </aside>
       <VenueChatFixture
         mode="classic"
         state="idle"
@@ -55,6 +56,6 @@ export default async function AppearancePreviewPage({
         {...(appearance.appearance ? { appearance: appearance.appearance } : {})}
         {...(appearance.background ? { backgroundUrl: appearance.background } : {})}
       />
-    </main>
+    </div>
   )
 }
