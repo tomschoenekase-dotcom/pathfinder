@@ -106,4 +106,20 @@ describe('ClientBillingPanel cancellation dialog accessibility', () => {
     rendered.unmount()
     expect(signal?.aborted).toBe(true)
   })
+
+  it('shows a retry instead of a blank Payment page when the overview fails', async () => {
+    mocks.overview.mockReset()
+    mocks.overview.mockRejectedValueOnce(new Error('Temporary read failure'))
+    mocks.overview.mockResolvedValueOnce(overview)
+    render(<ClientBillingPanel />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Payment details are unavailable' }),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mocks.overview).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Payment details are unavailable' })).toBeNull(),
+    )
+  })
 })

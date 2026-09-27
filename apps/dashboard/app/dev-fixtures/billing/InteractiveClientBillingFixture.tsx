@@ -34,6 +34,9 @@ export function InteractiveClientBillingFixture({
         state={state}
         billing={billing}
         reconciliationWarning={reconciliationWarning}
+        onRetryCheckout={() =>
+          setNotice('The Stripe Customer Portal would open here. No provider action was made.')
+        }
         onRequestCancellation={() => setCancelOpen(true)}
         onAddOnInterest={() => setNotice('Interest recorded. Nothing has been added or charged.')}
       />

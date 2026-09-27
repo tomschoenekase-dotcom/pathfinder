@@ -33,7 +33,7 @@ export default async function BillingFixturePage({ searchParams }: Props) {
   const clientBilling = {
     planName: 'Torchiko Pilot Test',
     arrangementLabel: 'Stripe test subscription',
-    amountLabel: '$25.00',
+    amountLabel: '$50.00',
     intervalLabel: 'per month',
     statusDetail:
       state === 'grace'
