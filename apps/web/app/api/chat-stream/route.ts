@@ -81,9 +81,10 @@ export async function POST(request: Request): Promise<Response> {
 
   return new Response(body, {
     headers: {
-      'cache-control': 'no-store',
+      'cache-control': 'no-store, no-transform',
       'content-type': 'application/x-ndjson; charset=utf-8',
       'x-content-type-options': 'nosniff',
+      'x-accel-buffering': 'no',
     },
   })
 }

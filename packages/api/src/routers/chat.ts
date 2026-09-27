@@ -691,6 +691,13 @@ const chatReadRouter = router({
         publicCode: 'OUTCOME_AMBIGUOUS',
       })
     }
+    // This read is independent of the durable claim. Start it now so its
+    // latency overlaps the claim, while still requiring the result before
+    // deciding whether the embedding provider may be dispatched.
+    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
+      (providers) => ({ ok: true as const, providers }),
+      () => ({ ok: false as const }),
+    )
     const claimId = randomUUID()
     let claimed: Awaited<ReturnType<typeof claimGuestChatTurnAction>>
     try {
@@ -762,10 +769,6 @@ const chatReadRouter = router({
     }).then(
       (snapshot) => ({ ok: true as const, snapshot }),
       (error: unknown) => ({ ok: false as const, error }),
-    )
-    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
-      (providers) => ({ ok: true as const, providers }),
-      () => ({ ok: false as const }),
     )
     // The claim already read the immutable turn sequence under its transaction.
     // Sequence one cannot have an adjacent predecessor, so avoid another
