@@ -643,6 +643,66 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('keeps an ask prefill and selected place idle until send, then clears waiting on the first delta', () => {
+    vi.useFakeTimers()
+    const onSend = vi.fn()
+    const selectedPlace = <div data-testid="selected-place">Selected place: public-1</div>
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        initialDraft="Find the map"
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect((composer as HTMLTextAreaElement).value).toBe('Find the map')
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+
+    act(() => vi.advanceTimersByTime(1_500))
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(onSend).toHaveBeenCalledWith('Find the map')
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Find the map' }]}
+        onSend={onSend}
+        isLoading
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    act(() => vi.advanceTimersByTime(1_500))
+    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Find the map' },
+          { role: 'assistant', content: 'The map is beside the entrance.' },
+        ]}
+        onSend={onSend}
+        isLoading
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+  })
+
   it('applies a later host prefill once without sending or overwriting subsequent typing', () => {
     const onSend = vi.fn()
     const { rerender } = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
