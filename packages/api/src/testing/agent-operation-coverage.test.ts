@@ -42,7 +42,7 @@ describe('agent operation coverage inventory', () => {
     expect(report.operations.bindings.validation.unavailableSurfaces).toEqual([])
     expect(report.operations.bindings.validation.digestMatches).toBe(true)
     for (const [operationPath, kind, router] of [
-      ['admin.findProspectsForAssistant', 'query', 'adminProspectCrmIntelligenceRouter'],
+      ['admin.findProspectsForAssistant', 'query', 'adminProspectCrmAssistantDiscoveryRouter'],
       ['admin.previewProspectSizeProposals', 'mutation', 'adminProspectCrmSizeProposalsRouter'],
       ['admin.applyProspectSizeProposals', 'mutation', 'adminProspectCrmSizeProposalsRouter'],
     ] as const) {

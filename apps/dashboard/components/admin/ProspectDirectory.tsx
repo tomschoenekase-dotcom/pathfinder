@@ -185,15 +185,16 @@ export function ProspectDirectory({
 
   useEffect(() => {
     if (fixture) return
-    let current = true
-    void client.admin.listProspectTerritories
-      .query()
-      .then((items) => {
-        if (current) setTerritories(items)
-      })
+    const controller = new AbortController()
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+      request: (signal) => client.admin.listProspectTerritories.query(undefined, { signal }),
+    })
+      .then(setTerritories)
       .catch(() => undefined)
     return () => {
-      current = false
+      controller.abort()
     }
   }, [client, fixture])
 
@@ -565,13 +566,13 @@ export function ProspectDirectory({
           >
             Good fit · S–L · no recorded outreach
           </button>
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+          <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold text-slate-700">
             Territory
             <select
               aria-label="Prospect territory"
               value={territoryId}
               onChange={(event) => setTerritoryId(event.target.value)}
-              className="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              className="min-h-10 min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-3 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
             >
               <option value="">All assigned territories</option>
               {territories.map((territory) => (
