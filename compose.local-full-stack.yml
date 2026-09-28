@@ -1,0 +1,145 @@
+name: nc-p14
+
+services:
+  postgres:
+    container_name: nC-postgres
+    image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
+    environment:
+      POSTGRES_DB: pathfinder_disposable_p14_local
+      POSTGRES_USER: pathfinder
+      POSTGRES_PASSWORD: p14-local-only
+    volumes:
+      - '${TORCHIKO_LOCAL_FULL_STACK_DATA_DIR}/postgres:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'psql -U pathfinder -d pathfinder_disposable_p14_local -Atqc "SELECT 1" | grep -qx 1']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 600s
+    networks: [nC-internal]
+    restart: unless-stopped
+
+  redis:
+    container_name: nC-redis
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - '${TORCHIKO_LOCAL_FULL_STACK_DATA_DIR}/redis:/data'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [nC-internal]
+    restart: unless-stopped
+
+  minio:
+    container_name: nC-minio
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: p14-local
+      MINIO_ROOT_PASSWORD: p14-local-only-secret
+    volumes:
+      - '${TORCHIKO_LOCAL_FULL_STACK_DATA_DIR}/minio:/data'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [nC-internal]
+    restart: unless-stopped
+
+  minio-init:
+    container_name: nC-minio-init
+    image: minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 p14-local p14-local-only-secret
+        mc mb --ignore-existing local/p14-local
+        mc version enable local/p14-local
+        mc anonymous set none local/p14-local
+    networks: [nC-internal]
+    restart: 'no'
+
+  clamav:
+    container_name: nC-clamav
+    image: clamav/clamav:stable@sha256:78810772a92b4a9168115bc6b2e0ffd702640893b9577f8c3d0432762d2655c4
+    healthcheck:
+      test: ['CMD-SHELL', 'printf "PING\\n" | nc 127.0.0.1 3310 | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    networks: [nC-internal]
+    restart: unless-stopped
+
+  port-proxy:
+    container_name: nC-port-proxy
+    image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+    command:
+      - node
+      - -e
+      - >-
+        const net=require('node:net');
+        const routes={56340:['postgres',5432],56341:['redis',6379],56342:['minio',9000],56343:['minio',9001],56347:['clamav',3310]};
+        const allowed=new Set(['postgres:5432','redis:6379','minio:9000','minio:9001','clamav:3310']);
+        const connect=net.connect.bind(net);
+        const createConnection=net.createConnection.bind(net);
+        const socketConnect=net.Socket.prototype.connect;
+        const guard=(args)=>{
+          const first=Array.isArray(args[0])?args[0][0]:args[0];
+          const options=typeof first==='object'?first:{port:first,host:args[1]};
+          if(!allowed.has(options.host+':'+options.port)) throw new Error('local proxy destination denied');
+        };
+        net.connect=(...args)=>{
+          guard(args);
+          return connect(...args);
+        };
+        net.createConnection=(...args)=>{
+          guard(args);
+          return createConnection(...args);
+        };
+        net.Socket.prototype.connect=function(...args){
+          guard(args);
+          return socketConnect.apply(this,args);
+        };
+        for(const [rawPort,[host,targetPort]] of Object.entries(routes)){
+          const port=Number(rawPort);
+          net.createServer(client=>{
+            const upstream=net.connect(targetPort,host);
+            client.pipe(upstream).pipe(client);
+            client.on('error',()=>upstream.destroy());
+            upstream.on('error',()=>client.destroy());
+          }).listen(port,'0.0.0.0');
+        }
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:56340:56340'
+      - '127.0.0.1:56341:56341'
+      - '127.0.0.1:56342:56342'
+      - '127.0.0.1:56343:56343'
+      - '127.0.0.1:56347:56347'
+    networks: [nC-internal, nC-ingress]
+    restart: unless-stopped
+
+networks:
+  nC-internal:
+    name: nC-local-full-stack
+    internal: true
+  nC-ingress:
+    name: nC-local-full-stack-ingress
+    driver: bridge
