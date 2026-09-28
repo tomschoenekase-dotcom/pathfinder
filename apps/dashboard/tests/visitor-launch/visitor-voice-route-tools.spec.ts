@@ -78,9 +78,9 @@ function trpcPayload(procedure: string): unknown {
     'voice.availability': { enabled: true, premiumAvailable: false },
     'voice.start': {
       voiceSessionId: '22222222-2222-4222-8222-222222222222',
-      clientSecret: 'fixture-client-secret',
       maxDurationSeconds: 120,
     },
+    'voice.connect': { sdpAnswer: 'v=0\r\n' },
     'voice.connected': { ok: true },
     'voice.end': { ok: true },
     'voice.usage': { ok: true },
