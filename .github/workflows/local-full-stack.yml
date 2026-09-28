@@ -1,0 +1,83 @@
+name: Local full stack
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-full-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PLAYWRIGHT_DASHBOARD_BASE_URL: http://127.0.0.1:56346
+      PLAYWRIGHT_VISITOR_BASE_URL: http://127.0.0.1:56345
+      NEXT_FONT_GOOGLE_MOCKED_RESPONSES: ${{ github.workspace }}/scripts/local-font-mocks.cjs
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
+      - name: Reset local full stack
+        env:
+          TORCHIKO_LOCAL_FULL_STACK_ROOT: ${{ runner.temp }}/MachineWorkspaces/torchiko/20260928-local-full-stack
+        run: pnpm local:reset
+      - name: Start local full stack
+        env:
+          TORCHIKO_LOCAL_FULL_STACK_ROOT: ${{ runner.temp }}/MachineWorkspaces/torchiko/20260928-local-full-stack
+        run: pnpm local:up
+      - name: Verify local network boundaries
+        env:
+          TORCHIKO_LOCAL_FULL_STACK_ROOT: ${{ runner.temp }}/MachineWorkspaces/torchiko/20260928-local-full-stack
+        run: node scripts/local-full-stack-network-proof.mjs
+      - name: Run fixture auth refusal tests
+        run: node --test scripts/local-fixture-auth-config.test.mjs scripts/verify-local-fixture-auth-bundle.test.mjs
+      - name: Run fixture auth unit tests
+        run: pnpm --dir packages/auth exec vitest run src/local-fixture/guard.test.ts src/local-fixture/edge.test.ts
+      - name: Build web with fixture auth disabled
+        env:
+          NEXT_DIST_DIR: .next-p14-ci-build
+        run: pnpm --dir apps/web build
+      - name: Build dashboard with fixture auth disabled
+        env:
+          NEXT_DIST_DIR: .next-p14-ci-build
+        run: pnpm --dir apps/dashboard build
+      - name: Verify fixture auth is absent from both production bundles
+        run: node scripts/verify-local-fixture-auth-bundle.mjs apps/web/.next-p14-ci-build apps/dashboard/.next-p14-ci-build
+      - name: Verify production builds refuse fixture auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          for app in web dashboard; do
+            log_file="${RUNNER_TEMP}/fixture-auth-${app}.log"
+            if TORCHIKO_LOCAL_FIXTURE_AUTH=1 NODE_ENV=production NEXT_DIST_DIR=.next-p14-ci-refusal pnpm --dir "apps/${app}" exec next build >"${log_file}" 2>&1; then
+              cat "${log_file}"
+              echo "${app} production build unexpectedly accepted fixture auth" >&2
+              exit 1
+            fi
+            cat "${log_file}"
+            grep -F "Local fixture authentication is forbidden outside development" "${log_file}"
+          done
+      - name: Run local full-stack journeys three times
+        run: |
+          for run in 1 2 3; do
+            echo "Local full-stack journey run ${run}/3"
+            pnpm --dir apps/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/local-full-stack.spec.ts --project phone-390x844 --retries=0
+          done
+      - name: Stop local full stack
+        if: always()
+        env:
+          TORCHIKO_LOCAL_FULL_STACK_ROOT: ${{ runner.temp }}/MachineWorkspaces/torchiko/20260928-local-full-stack
+        run: pnpm local:down
