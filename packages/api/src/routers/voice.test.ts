@@ -295,6 +295,27 @@ describe('voice router', () => {
     )
   })
 
+  it('keeps the quota denial when capacity event publishing fails', async () => {
+    dbMocks.voiceAggregate
+      .mockResolvedValueOnce({ _sum: { durationSeconds: 500 } })
+      .mockResolvedValueOnce({ _sum: { durationSeconds: 17_500 } })
+    dbMocks.voiceFindMany.mockResolvedValue([
+      {
+        maxDurationSeconds: 600,
+        durationSeconds: 0,
+        createdAt: new Date(),
+        connectedAt: new Date(),
+      },
+    ])
+    mocks.publishOperationalEvent.mockRejectedValueOnce(new Error('event store unavailable'))
+
+    await expect(
+      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+    ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    expect(mocks.publishOperationalEvent).toHaveBeenCalledOnce()
+    expect(provider.authorizeSession).not.toHaveBeenCalled()
+  })
+
   it('rechecks quota under the venue lock and records a competing-admission denial', async () => {
     dbMocks.voiceAggregate
       .mockResolvedValueOnce({ _sum: { durationSeconds: 0 } })

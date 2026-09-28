@@ -219,6 +219,7 @@ function quotaError(): TRPCError {
 }
 
 function recordVoiceCapacityEvent(ctx: TRPCContext, scope: PublicVoiceScope, now: Date): void {
+  // Capacity telemetry is best-effort and must not turn a quota denial into an unhandled rejection.
   void publishOperationalEvent({
     client: ctx.db,
     event: {
@@ -234,7 +235,7 @@ function recordVoiceCapacityEvent(ctx: TRPCContext, scope: PublicVoiceScope, now
       linkedObjectType: 'venue',
       linkedObjectId: scope.venueId,
     },
-  })
+  }).catch(() => {})
 }
 
 const VOICE_POLICY = `VOICE INTERFACE (MANDATORY):
