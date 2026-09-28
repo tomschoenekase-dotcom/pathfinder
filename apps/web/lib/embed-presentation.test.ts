@@ -11,6 +11,10 @@ import {
 describe('embed presentation query boundary', () => {
   it('selects web-view chrome only for the one exact supported parameter', () => {
     expect(resolveEmbedPresentation({ chrome: APP_WEBVIEW_CHROME_VALUE })).toBe('webview')
+    expect(resolveEmbedPresentation({ chrome: APP_WEBVIEW_CHROME_VALUE, ask: 'Where?' })).toBe(
+      'webview',
+    )
+    expect(resolveEmbedPresentation({ ask: 'Where?', place: 'public-1' })).toBe('embed')
   })
 
   it.each([
@@ -45,6 +49,8 @@ describe('embed presentation query boundary', () => {
 describe('app header query boundary', () => {
   it('selects compact chrome only for the one exact supported parameter', () => {
     expect(resolveAppHeader({ header: 'compact' })).toBe('compact')
+    expect(resolveAppHeader({ header: 'compact', ask: 'Where?' })).toBe('compact')
+    expect(resolveAppHeader({ header: 'none', ask: 'Where?', place: 'public-1' })).toBe('none')
   })
 
   it.each([{}, { header: 'full' }, { header: ['compact'] }, { header: 'compact', source: 'app' }])(

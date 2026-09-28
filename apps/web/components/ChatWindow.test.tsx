@@ -643,6 +643,33 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('applies a later host prefill once without sending or overwriting subsequent typing', () => {
+    const onSend = vi.fn()
+    const { rerender } = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        prefill={{ sequence: 1, ask: 'Find the entrance' }}
+      />,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement
+    expect(composer.value).toBe('Find the entrance')
+    expect(onSend).not.toHaveBeenCalled()
+    fireEvent.change(composer, { target: { value: 'My own question' } })
+    rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        prefill={{ sequence: 1, ask: 'Find the entrance' }}
+      />,
+    )
+    expect(composer.value).toBe('My own question')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('restores a tab draft for the same visitor scope and clears it after an accepted send', async () => {
     const storageKey = 'torchiko:test-draft:venue-a:session-a'
     window.sessionStorage.removeItem(storageKey)

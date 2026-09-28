@@ -2,6 +2,15 @@
 
 This is a code-level RC-1 procedure. Do not perform its hosted steps until Tom authorizes the relevant rollout rung. No RC-1 build or PR changes a hosted environment, deployed flag, or customer venue.
 
+## Give a partner the right installation details
+
+Before sending instructions, confirm the release containing the app and website doors is deployed and the venue is active. Check which door the partner wants:
+
+- **Website:** Confirm the venue has website access in its plan, turn on website access for that venue, and add each exact HTTPS website origin in platform admin **Visitor access**. Include the production origin and any preview origin the partner will test. Enable the overall website switch only under the approved rollout. Check that the admin screen reports access as on. Send the venue slug, exact public Torchiko web origin, and [Add Torchiko to your website](add-to-your-website.md). Ask the partner to test from each allowed origin.
+- **App:** Confirm the venue has app WebView access in its plan and turn on app access for that venue. Enable the overall app switch only under the approved rollout. Check that the admin screen reports access as on. Send the exact `https://.../app/<slug>?header=none` URL, the venue's app background color, and [Add Torchiko to your app](add-to-your-app.md). Ask for a device or emulator check. A website origin entry is not needed for a top-level app WebView.
+
+Neither snippet contains a secret. Pasting code does not enable access: the venue and overall switches must already be on. If the door does not load, check the admin access status, the exact origin for websites, and the partner site's Content Security Policy before changing anything. The native reference snippets are examples awaiting compilation and device verification by the integrating app team.
+
 ## Enable one venue
 
 1. Confirm the exact deployed revision, venue ID/slug, configured guest web origin, tenant, and intended surface. Confirm the venue is active and its normal public chat/QR route works.

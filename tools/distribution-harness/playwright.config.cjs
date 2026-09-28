@@ -118,12 +118,16 @@ module.exports = defineConfig({
   workers: 1,
   retries: 0,
   timeout: 45_000,
-  reporter: [['list'], ['html', { open: 'never', outputFolder: path.join(runDirectory, 'report') }]],
+  reporter: [
+    ['list'],
+    ['html', { open: 'never', outputFolder: path.join(runDirectory, 'report') }],
+    ['json', { outputFile: path.join(runDirectory, 'results.json') }],
+  ],
   outputDir: path.join(runDirectory, 'results'),
   use: {
     baseURL: fixtureOrigin,
     ignoreHTTPSErrors: true,
-    screenshot: 'only-on-failure',
+    screenshot: 'on',
     trace: 'retain-on-failure',
     ...devices['Desktop Chrome'],
   },

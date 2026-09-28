@@ -123,7 +123,7 @@ export default async function VisitorChatVisualFixture({
     ['standalone', 'embed', 'embed-inline', 'webview'] as const,
     'standalone',
   )
-  const appHeader = oneOf(params.appHeader, ['full', 'compact'] as const, 'full')
+  const appHeader = oneOf(params.appHeader, ['full', 'compact', 'none'] as const, 'full')
   const language = oneOf(
     params.language,
     SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),

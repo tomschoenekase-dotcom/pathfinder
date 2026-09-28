@@ -45,6 +45,82 @@ test('@stub admitted host opens the cross-origin frame and preserves its browser
   await expect(chat.locator('#count')).toHaveText('1')
 })
 
+test('@stub public bridge opens with unsent prefill, rejects a spoofed origin, and closes', async ({
+  page,
+}) => {
+  await page.goto(fixturePath('launcher'))
+  await expect(page.locator('.pf-launcher')).toBeVisible({ timeout: 15_000 })
+  await page.evaluate(() => {
+    const host = window as typeof window & {
+      Torchiko: {
+        version: unknown
+        open: (options: { ask: string }) => void
+        close: () => void
+        on: (event: 'ready' | 'open' | 'close', handler: () => void) => void
+      }
+      bridgeEvents: string[]
+    }
+    host.bridgeEvents = []
+    for (const event of ['ready', 'open', 'close'] as const) {
+      host.Torchiko.on(event, () => host.bridgeEvents.push(event))
+    }
+    host.Torchiko.open({ ask: 'Where is the visitor desk?' })
+  })
+  const frame = page.locator('iframe[data-pathfinder-widget-frame]')
+  await expect(frame).toBeVisible({ timeout: 15_000 })
+  const closeBounds = await page
+    .getByRole('button', { name: 'Close Torchiko venue guide' })
+    .boundingBox()
+  const frameBounds = await frame.boundingBox()
+  expect(closeBounds && frameBounds && closeBounds.y + closeBounds.height <= frameBounds.y).toBe(
+    true,
+  )
+  const guide = page.frameLocator('iframe[data-pathfinder-widget-frame]')
+  await expect(guide.getByRole('textbox', { name: 'Question' })).toHaveValue(
+    'Where is the visitor desk?',
+  )
+  await expect(guide.locator('#count')).toHaveText('0')
+  const beforeSpoof = await page.evaluate(
+    () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents.length,
+  )
+  await frame.evaluate((iframe) => {
+    const frameWindow = (iframe as HTMLIFrameElement).contentWindow
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://spoofed.example',
+        source: frameWindow,
+        data: { source: 'torchiko', v: 1, type: 'open', payload: null },
+      }),
+    )
+  })
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents.length,
+    ),
+  ).toBe(beforeSpoof)
+  await page.evaluate(() =>
+    (window as typeof window & { Torchiko: { close: () => void } }).Torchiko.close(),
+  )
+  await expect(frame).toBeHidden()
+  const events = await page.evaluate(
+    () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents,
+  )
+  expect(events).toContain('ready')
+  expect(events).toContain('open')
+  expect(events).toContain('close')
+  const launcher = page.locator('.pf-launcher')
+  await expect(launcher).toBeFocused()
+  await launcher.press('Enter')
+  await expect(frame).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close Torchiko venue guide' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(frame).toBeHidden()
+  await expect(launcher).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+})
+
 test('@stub inline mount stays in its container and has no launcher', async ({ page }) => {
   await page.goto(fixturePath('inline'))
   const container = page.locator('[data-torchiko-inline]')

@@ -15,9 +15,39 @@ function routeShell(slug, path, isAdmitted) {
   const title = path.endsWith('/inline') ? 'Inline venue guide' : 'Torchiko venue guide'
   const csp = isAdmitted ? `frame-ancestors 'self' ${admittedOrigin}` : "frame-ancestors 'self'"
   const stateMessage = state === 'paused' ? 'Venue temporarily unavailable' : 'CITY SC visitor guide'
+  const fixtureScript = `
+    (function () {
+      const key = 'torchiko-distribution-session-${slug}'
+      let count = Number(sessionStorage.getItem(key) || 0)
+      const question = document.querySelector('#question')
+      document.querySelector('#count').textContent = String(count)
+      document.querySelector('#send').addEventListener('click', function () {
+        count += 1
+        sessionStorage.setItem(key, String(count))
+        document.querySelector('#count').textContent = String(count)
+        document.querySelector('#answer').textContent = 'Question saved in this browser session.'
+      })
+      const initialAsk = new URLSearchParams(location.search).get('ask')
+      if (initialAsk && initialAsk.length <= 200) question.value = initialAsk
+      window.addEventListener('message', function (event) {
+        if (event.source !== parent || event.origin !== '${admittedOrigin}') return
+        const data = event.data
+        if (!data || data.source !== 'torchiko' || data.v !== 1) return
+        if (data.type === 'prefill' && typeof data.payload?.ask === 'string' && data.payload.ask.length <= 200) {
+          question.value = data.payload.ask
+        }
+        if (data.type === 'open') parent.postMessage({ source: 'torchiko', v: 1, type: 'open', payload: null }, '${admittedOrigin}')
+      })
+      parent.postMessage({ type: 'pathfinder:embed-ready', version: 1, venueSlug: '${slug}' }, '${admittedOrigin}')
+      parent.postMessage({ source: 'torchiko', v: 1, type: 'ready', payload: null }, '${admittedOrigin}')
+      if (location.pathname.endsWith('/inline')) {
+        parent.postMessage({ source: 'torchiko', v: 1, type: 'height', payload: { height: 720 } }, '${admittedOrigin}')
+      }
+    })()
+  `
   return {
     status: 200,
-    body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui;margin:24px;color:#142b39}input,button{font:inherit;padding:10px}#answer{margin-top:12px}</style></head><body><main><h1>${stateMessage}</h1><p id="session">Session: <span id="count">0</span></p><label>Question <input id="question" aria-label="Question"></label><button id="send" type="button">Send</button><p id="answer" aria-live="polite"></p></main><script>(function(){const key='torchiko-distribution-session-${slug}';let count=Number(sessionStorage.getItem(key)||0);document.querySelector('#count').textContent=String(count);document.querySelector('#send').addEventListener('click',function(){count+=1;sessionStorage.setItem(key,String(count));document.querySelector('#count').textContent=String(count);document.querySelector('#answer').textContent='Question saved in this browser session.'});parent.postMessage({type:'pathfinder:embed-ready',version:1,venueSlug:'${slug}'},'*')})()</script></body></html>`,
+    body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui;margin:24px;color:#142b39}input,button{font:inherit;padding:10px}#answer{margin-top:12px}</style></head><body><main><h1>${stateMessage}</h1><p id="session">Session: <span id="count">0</span></p><label>Question <input id="question" aria-label="Question"></label><button id="send" type="button">Send</button><p id="answer" aria-live="polite"></p></main><script>${fixtureScript}</script></body></html>`,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp },
   }
 }

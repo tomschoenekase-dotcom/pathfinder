@@ -51,8 +51,9 @@ type VenueChatExperienceProps = {
   venueSlug: string
   initialVenue?: { slug: string; venue: VenueSummary }
   presentation?: VenueChatPresentation
-  appHeader?: 'full' | 'compact'
+  appHeader?: 'full' | 'compact' | 'none'
   initialDraft?: string
+  bridgeOrigins?: readonly string[]
   accessSurface?: VisitorEntrySurface
   initialEntryPlaceId?: string
   secondLayerKey?: string
@@ -142,6 +143,7 @@ export function VenueChatExperience({
   presentation = 'standalone',
   appHeader = 'full',
   initialDraft = '',
+  bridgeOrigins,
   accessSurface,
   initialEntryPlaceId,
   secondLayerKey,
@@ -963,6 +965,10 @@ export function VenueChatExperience({
         preferences={preferences}
         onPreferencesChange={updatePreferences}
         initialDraft={initialDraft}
+        bridgeOrigins={bridgeOrigins}
+        onBridgePlace={(placeId) => {
+          entryPlaceRef.current.value = placeId
+        }}
         connectionState={connectionState}
         characterState={characterState}
         location={{ lat, lng, permission, refresh }}

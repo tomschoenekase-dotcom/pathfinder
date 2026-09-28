@@ -1,8 +1,9 @@
 # App WebView host guide
 
 Load the venue's canonical `https://<torchiko-web-origin>/app/<slug>` as the
-top-level page of the native Ask tab. Add `?header=compact` only when native
-chrome already supplies the venue title. The compatible
+top-level page of the native Ask tab. Use `?header=none` when the native screen
+provides the title and Close control, or `?header=compact` for a small guide
+header with a `close-requested` control. The compatible
 `/embed/<slug>?chrome=hidden` alias renders the same visitor surface. These
 public routes require no customer secret, cookie injection, API key, tenant ID,
 or special request header.

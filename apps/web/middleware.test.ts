@@ -37,7 +37,7 @@ describe('middleware response boundaries', () => {
     expect(canonical?.get('X-Frame-Options')).toBe('SAMEORIGIN')
   })
 
-  it('adds exact resolver-owned origins only for canonical queryless embed paths', () => {
+  it('adds exact resolver-owned origins only for canonical embed paths with bounded start input', () => {
     const request = new NextRequest('https://guide.example/embed/museum')
     expect(
       getEmbedResponseHeaders(request, ['https://museum.example'])?.get('Content-Security-Policy'),
@@ -52,6 +52,24 @@ describe('middleware response boundaries', () => {
         'https://museum.example',
       ])?.get('Content-Security-Policy'),
     ).toBe("frame-ancestors 'self'")
+    for (const query of [
+      '?ask=Where%20is%20the%20desk%3F',
+      '?place=public-place',
+      '?ask=Hi&place=public-place',
+    ]) {
+      expect(
+        getEmbedResponseHeaders(new NextRequest(`${request.url}${query}`), [
+          'https://museum.example',
+        ])?.get('Content-Security-Policy'),
+      ).toBe("frame-ancestors 'self' https://museum.example")
+    }
+    for (const query of ['?ask=Hi&unknown=1', '?ask=one&ask=two', `?ask=${'x'.repeat(201)}`]) {
+      expect(
+        getEmbedResponseHeaders(new NextRequest(`${request.url}${query}`), [
+          'https://museum.example',
+        ])?.get('Content-Security-Policy'),
+      ).toBe("frame-ancestors 'self'")
+    }
     expect(
       getEmbedResponseHeaders(new NextRequest('https://guide.example/embed/museum/extra'), [
         'https://museum.example',
