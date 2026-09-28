@@ -379,7 +379,7 @@ export function VenueChatShell(props: {
         >
           <ChatWindow
             key={venue.id}
-            locationAware={venue.guideMode === 'location_aware'}
+            locationAware={venue.guideMode !== 'non_location'}
             conversationTools={
               <>
                 {routePlanner}

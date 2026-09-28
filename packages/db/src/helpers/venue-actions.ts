@@ -5,6 +5,7 @@ import {
   type TonePresetId,
 } from '@pathfinder/contracts/tone-presets'
 import { chatAppearanceEquals, type ChatAppearance } from '@pathfinder/contracts/chat-appearance'
+import type { GuideMode } from '@pathfinder/contracts/venue-configuration'
 import * as prismaClient from '@prisma/client'
 
 import { db } from '../client'
@@ -114,7 +115,7 @@ export type UpdateVenueFields = {
   description?: string | undefined
   guideNotes?: string | undefined
   category?: string | undefined
-  guideMode?: 'location_aware' | 'non_location' | undefined
+  guideMode?: GuideMode | undefined
   defaultCenterLat?: number | undefined
   defaultCenterLng?: number | undefined
 }

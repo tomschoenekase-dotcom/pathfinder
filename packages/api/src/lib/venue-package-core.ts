@@ -5,6 +5,7 @@ import {
   TONE_PRESET_BEHAVIOR_VERSION,
   TONE_PRESET_TO_LEGACY_AI_TONE,
 } from '@pathfinder/contracts/tone-presets'
+import { usesVisitorLocation } from '@pathfinder/contracts/venue-configuration'
 import {
   approveVenuePackageAction,
   applyVenuePackageAction,
@@ -845,7 +846,7 @@ export async function buildVenuePackagePreview(
         },
       ]
     })
-    if (venue.guideMode === 'location_aware') {
+    if (usesVisitorLocation(venue.guideMode)) {
       payload.places.create.forEach((operation, index) => {
         if (operation.value.lat === undefined || operation.value.lng === undefined) {
           errors.push({
@@ -927,7 +928,7 @@ export async function buildVenuePackagePreview(
     })
   }
   if (
-    venue.guideMode === 'location_aware' &&
+    usesVisitorLocation(venue.guideMode) &&
     payload.places.some((place) => place.lat === undefined || place.lng === undefined)
   ) {
     payload.places.forEach((place, index) => {

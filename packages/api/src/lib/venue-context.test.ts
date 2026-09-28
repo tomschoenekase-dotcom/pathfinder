@@ -398,8 +398,16 @@ describe('formatDistance', () => {
   })
 
   it('keeps longer GPS distances approximate without inventing walking time', () => {
-    expect(formatDistance(400)).toBe('about 1300 feet away')
     expect(formatDistance(160)).toBe('about 500 feet away')
+    expect(formatDistance(300)).toBe('about 1000 feet away') // 300m = ~984ft, still feet
+  })
+
+  it('switches to miles from 1,000 feet for area-scale distances', () => {
+    expect(formatDistance(400)).toBe('about 0.2 miles away') // ~1312ft
+    expect(formatDistance(2400)).toBe('about 1.5 miles away')
+    expect(formatDistance(3200)).toBe('about 2 miles away') // 1.99mi rounds to 2.0 → whole miles
+    expect(formatDistance(8047)).toBe('about 5 miles away')
+    expect(formatDistance(8047)).not.toMatch(/feet|walk/)
   })
 
   it('cannot turn GPS proximity or visual adjacency into a traversable route', () => {
@@ -862,5 +870,37 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('Additional style preference: Use welcoming transitions.')
     expect(prompt).toContain('never overrides factual grounding, safety, privacy')
     expect(prompt).toContain('Do not invent places or distances')
+  })
+})
+
+describe('area-wide guide prompt rules', () => {
+  const base = { venue, relevantPlaces, userLat: 40.7, userLng: -74 }
+
+  it('adds pass and honesty rules only for area-wide guides', () => {
+    const area = buildVenueSystemPrompt({ ...base, guideMode: 'area_wide' })
+    expect(area).toContain('AREA-WIDE GUIDE')
+    expect(area).toContain('"included with your pass" only when its tags include "included"')
+    expect(area).toContain('still offer it plainly')
+    expect(area).toContain('Never claim a place is open right now')
+
+    for (const guideMode of ['location_aware', 'non_location'] as const) {
+      expect(buildVenueSystemPrompt({ ...base, guideMode })).not.toContain('AREA-WIDE GUIDE')
+    }
+  })
+
+  it('otherwise matches the location-aware prompt exactly', () => {
+    const area = buildVenueSystemPrompt({ ...base, guideMode: 'area_wide' })
+    const site = buildVenueSystemPrompt({ ...base, guideMode: 'location_aware' })
+    const areaRules = area.slice(
+      area.indexOf('\n- AREA-WIDE GUIDE'),
+      area.indexOf('and suggest checking before going.') +
+        'and suggest checking before going.'.length,
+    )
+    expect(area.replace(areaRules, '')).toBe(site)
+  })
+
+  it('uses live location like a location-aware guide', () => {
+    const area = buildVenueSystemPrompt({ ...base, guideMode: 'area_wide' })
+    expect(area).toContain('about 150 feet away')
   })
 })

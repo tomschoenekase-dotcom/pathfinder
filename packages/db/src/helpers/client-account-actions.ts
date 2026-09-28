@@ -1,4 +1,5 @@
 import { db } from '../client'
+import type { GuideMode } from '@pathfinder/contracts/venue-configuration'
 import { writeAuditLogStrict } from './audit'
 import { setContentVersionContext } from './content-version-context'
 
@@ -31,7 +32,7 @@ type OwnerIdentity = { id: string; email: string }
 type InitialVenue = {
   name: string
   slug: string
-  guideMode: 'location_aware' | 'non_location'
+  guideMode: GuideMode
   description?: string | undefined
   guideNotes?: string | undefined
   category?: string | undefined

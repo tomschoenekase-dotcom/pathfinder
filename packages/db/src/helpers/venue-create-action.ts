@@ -1,4 +1,5 @@
 import { db } from '../client'
+import { usesVisitorLocation, type GuideMode } from '@pathfinder/contracts/venue-configuration'
 import { writeAuditLogStrict } from './audit'
 import { setContentVersionContext } from './content-version-context'
 
@@ -110,7 +111,7 @@ export type CreateVenueActionInput = {
   description?: string | undefined
   guideNotes?: string | undefined
   category?: string | undefined
-  guideMode: 'location_aware' | 'non_location'
+  guideMode: GuideMode
   defaultCenterLat?: number | undefined
   defaultCenterLng?: number | undefined
   initialContent?: VenueInitialContent | undefined
@@ -182,8 +183,8 @@ function createMatches(
     storedPlace.itemType === null &&
     storedPlace.shortDescription === value.shortDescription &&
     storedPlace.longDescription === (value.longDescription ?? null) &&
-    storedPlace.lat === (input.guideMode === 'location_aware' ? input.defaultCenterLat! : null) &&
-    storedPlace.lng === (input.guideMode === 'location_aware' ? input.defaultCenterLng! : null) &&
+    storedPlace.lat === (usesVisitorLocation(input.guideMode) ? input.defaultCenterLat! : null) &&
+    storedPlace.lng === (usesVisitorLocation(input.guideMode) ? input.defaultCenterLng! : null) &&
     JSON.stringify(storedPlace.tags) === JSON.stringify(value.tags) &&
     storedPlace.importanceScore === value.importanceScore &&
     storedPlace.areaName === (value.areaName ?? null) &&
@@ -305,7 +306,7 @@ export async function createVenueAction(
                     : {}),
                   tags: initial.value.tags,
                   importanceScore: initial.value.importanceScore,
-                  ...(input.guideMode === 'location_aware'
+                  ...(usesVisitorLocation(input.guideMode)
                     ? { lat: input.defaultCenterLat!, lng: input.defaultCenterLng! }
                     : {}),
                 },

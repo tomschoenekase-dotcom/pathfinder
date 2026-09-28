@@ -1536,7 +1536,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: 'afa1d9a5c2b9bf70adf8eb6569e9ad01c918266aaf82efe861dbbed52c4d5ab8',
+    hash: '52962773e1e19b1889a06e292b10f802a1de070282d8681369de1eff8f02c91a',
     policy: 'tenant-and-venue',
   },
   {

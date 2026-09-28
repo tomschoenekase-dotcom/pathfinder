@@ -6,6 +6,7 @@ import {
   intakeSourceMappingDigest,
   onboardingBootstrapInputHash,
 } from '@pathfinder/db'
+import { usesVisitorLocation } from '@pathfinder/contracts/venue-configuration'
 
 import type { TRPCContext } from '../context'
 import { buildInterviewClarificationReview } from './intake-interview-clarifications'
@@ -657,7 +658,7 @@ export async function buildIntakeVenuePackageCandidate(input: {
     }
     const sourceHash = createHash('sha256').update(JSON.stringify(bootstrap.data)).digest('hex')
     if (bootstrap.data.content.kind === 'place') {
-      if (run.venue.guideMode === 'location_aware') {
+      if (usesVisitorLocation(run.venue.guideMode)) {
         issues.push({
           code: 'PACKAGE_FIELD_INVALID',
           path: 'places.create.0.value',

@@ -343,3 +343,15 @@ export type EffectiveVenueConfiguration = z.infer<typeof EffectiveVenueConfigura
 export function isOverrideConfigurationLayer(layer: ConfigurationLayerId): boolean {
   return layer.endsWith('-override')
 }
+
+/**
+ * Stored `Venue.guideMode` values. `area_wide` is one guide for a whole area
+ * (many separate attractions); it uses visitor location exactly like
+ * `location_aware` and differs only in place ranking and prompt rules.
+ */
+export const GUIDE_MODES = ['location_aware', 'non_location', 'area_wide'] as const
+export type GuideMode = (typeof GUIDE_MODES)[number]
+
+export function usesVisitorLocation(guideMode: string | null | undefined): boolean {
+  return guideMode === 'location_aware' || guideMode === 'area_wide'
+}

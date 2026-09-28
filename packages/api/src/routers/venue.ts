@@ -10,6 +10,7 @@ import {
   resolvePublicVenueBotPresentation,
 } from '@pathfinder/contracts'
 import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
+import { usesVisitorLocation } from '@pathfinder/contracts/venue-configuration'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config'
 import {
   createVenueAction,
@@ -1088,7 +1089,7 @@ export const venueRouter = router({
       if (existingReceipt) return replayVenueContentImport(existingReceipt, payloadHash)
 
       if (
-        venue.guideMode === 'location_aware' &&
+        usesVisitorLocation(venue.guideMode) &&
         input.places.some((place) => place.lat === undefined || place.lng === undefined)
       ) {
         throw new TRPCError({

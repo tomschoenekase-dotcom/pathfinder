@@ -22,6 +22,7 @@ import {
 import { searchGuestWebWithAccounting } from '@pathfinder/ai/guest-web-search-accounting'
 import { emitEvent } from '@pathfinder/analytics'
 import { CustomPersonalityBoundsSchema } from '@pathfinder/contracts'
+import { usesVisitorLocation } from '@pathfinder/contracts/venue-configuration'
 import {
   assertVenueAiAvailable,
   applyNativeGuestContentRead,
@@ -58,6 +59,13 @@ import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
+import {
+  AREA_CANDIDATE_LIMIT,
+  orderKnowledgeAroundAnchor,
+  orderPlacesAroundAnchor,
+  rankAreaPlaces,
+  resolveAreaAnchor,
+} from '../lib/area-place-ranking'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
@@ -652,16 +660,19 @@ const chatReadRouter = router({
     const guideMode = venue.guideMode ?? 'location_aware'
     const callerLocation =
       input.lat !== undefined && input.lng !== undefined ? { lat: input.lat, lng: input.lng } : null
-    const liveLocation = guideMode === 'location_aware' ? callerLocation : null
+    const liveLocation = usesVisitorLocation(guideMode) ? callerLocation : null
     const defaultCenterLat = venue.defaultCenterLat
     const defaultCenterLng = venue.defaultCenterLng
     const defaultLocation =
       defaultCenterLat != null && defaultCenterLng != null
         ? { lat: defaultCenterLat, lng: defaultCenterLng }
         : null
-    const rankingLocation =
-      guideMode === 'location_aware' ? (liveLocation ?? defaultLocation) : null
+    const rankingLocation = usesVisitorLocation(guideMode)
+      ? (liveLocation ?? defaultLocation)
+      : null
     const hasLiveLocation = liveLocation !== null
+    // Area-wide guides rerank a wider semantic pool by visitor distance.
+    const areaRankingLocation = guideMode === 'area_wide' ? liveLocation : null
 
     // 2. Reserve an exact, monotonic session turn before any provider boundary.
     // Legacy callers may omit operationId, but only an explicit client UUID can be retried safely.
@@ -1186,7 +1197,9 @@ const chatReadRouter = router({
           tenantId: venue.tenantId,
           userLat: rankingLocation?.lat ?? null,
           userLng: rankingLocation?.lng ?? null,
-          limit: recommendationRetrievalLimit,
+          limit: areaRankingLocation
+            ? Math.max(AREA_CANDIDATE_LIMIT, recommendationRetrievalLimit)
+            : recommendationRetrievalLimit,
           includeSecondLayer,
         }),
         retrieveGuestKnowledge({
@@ -1208,9 +1221,17 @@ const chatReadRouter = router({
             }),
         }),
       ])
+      const rankedPlaces = (
+        areaRankingLocation
+          ? rankAreaPlaces(places, areaRankingLocation, { limit: recommendationRetrievalLimit })
+          : places
+      ).map(({ importanceScore, ...place }) => {
+        void importanceScore
+        return place
+      })
       relevantPlaces = hasLiveLocation
-        ? places
-        : places.map(({ distanceMeters, ...place }) => {
+        ? rankedPlaces
+        : rankedPlaces.map(({ distanceMeters, ...place }) => {
             void distanceMeters
             return place
           })
@@ -1384,6 +1405,19 @@ const chatReadRouter = router({
       identityUnresolved: Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
     })
     relevantPlaces = recommendationSelection.places
+    if (guideMode === 'area_wide') {
+      // The place the visitor is at narrows the answer to what is inside or next to it.
+      const anchor = resolveAreaAnchor({
+        query: effectiveIdentityQuery,
+        places: relevantPlaces,
+        entryPlace,
+        identityUnresolved: Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
+      })
+      if (anchor) {
+        relevantPlaces = orderPlacesAroundAnchor(relevantPlaces, anchor)
+        relevantKnowledgeEntries = orderKnowledgeAroundAnchor(relevantKnowledgeEntries, anchor)
+      }
+    }
     // Resolve over every authorized candidate before preserving the existing fact budget.
     relevantPlaces = selectGuestPlaceIdentityContext({
       query: effectiveIdentityQuery,
@@ -1824,7 +1858,7 @@ const chatReadRouter = router({
     const persistenceStartedAt = performance.now()
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
-      locationAware: guideMode === 'location_aware',
+      locationAware: usesVisitorLocation(guideMode),
       hasLiveLocation,
       places: relevantPlaces,
     })
@@ -1850,7 +1884,7 @@ const chatReadRouter = router({
     }
     mentionedPlaces = selectDisplayableGuestPlaceCards(
       mentionedPlaces,
-      guideMode === 'location_aware',
+      usesVisitorLocation(guideMode),
     )
     const citations = buildGuestCitations({
       assistantResponse,

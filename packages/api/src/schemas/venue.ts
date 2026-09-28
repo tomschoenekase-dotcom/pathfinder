@@ -4,6 +4,7 @@ import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts/venue-pac
 import { UpdateVenueBotConfiguration } from '@pathfinder/contracts/venue-bot-configuration'
 import { TonePresetId } from '@pathfinder/contracts/tone-presets'
 import { ChatAppearanceSchema } from '@pathfinder/contracts/chat-appearance'
+import { GUIDE_MODES, type GuideMode } from '@pathfinder/contracts/venue-configuration'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({
   shortDescription: z.string().min(1).max(500),
@@ -29,14 +30,14 @@ export function normalizeInitialVenueContent(value: {
 }
 
 const venueLocationShape = {
-  guideMode: z.enum(['location_aware', 'non_location']).optional(),
+  guideMode: z.enum(GUIDE_MODES).optional(),
   defaultCenterLat: z.number().min(-90).max(90).optional(),
   defaultCenterLng: z.number().min(-180).max(180).optional(),
 } as const
 
 function validateVenueLocation(
   value: {
-    guideMode?: 'location_aware' | 'non_location' | undefined
+    guideMode?: GuideMode | undefined
     defaultCenterLat?: number | undefined
     defaultCenterLng?: number | undefined
     initialGuideItem?: unknown

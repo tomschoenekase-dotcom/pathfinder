@@ -23,6 +23,9 @@ export type SemanticPlace = {
   // (0 = identical, ~1 = orthogonal). Reused as a free retrieval-confidence proxy.
   // Optional because the geo-importance fallback path has no semantic score.
   distance?: number
+  // Operator weight (0-100). Area-wide guides use it for a bounded partner boost;
+  // callers strip it before prompt or evidence use.
+  importanceScore?: number
 }
 
 type RawPlaceRow = {
@@ -41,6 +44,7 @@ type RawPlaceRow = {
   source_type: string
   source_name: string | null
   source_url: string | null
+  importance_score?: number | null
   distance: number
 }
 
@@ -215,6 +219,7 @@ export async function searchPlacesByEmbedding(params: {
       source_type,
       source_name,
       source_url,
+      importance_score,
       embedding <=> ${vectorStr}::vector AS distance
     FROM places
     WHERE venue_id     = ${venueId}
@@ -243,6 +248,7 @@ export async function searchPlacesByEmbedding(params: {
     sourceName: row.source_name,
     sourceUrl: row.source_url,
     distance: Number(row.distance),
+    ...(row.importance_score != null ? { importanceScore: Number(row.importance_score) } : {}),
     ...(row.lat != null && row.lng != null && userLat != null && userLng != null
       ? { distanceMeters: haversineDistanceMeters(userLat, userLng, row.lat, row.lng) }
       : {}),
