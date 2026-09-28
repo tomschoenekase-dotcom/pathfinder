@@ -23,6 +23,8 @@ test('synthetic job checks out the exact SHA and runs every staging-release test
   assert.ok(workflow.includes('[[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]'))
   assert.ok(workflow.includes('test "$REQUESTED_SHA" = "$(git rev-parse HEAD)"'))
   assert.match(workflow, /node --test scripts\/staging-release\/\*\.test\.mjs/u)
+  assert.match(workflow, /Run staging-release unit and workflow policy tests\n        env:\n          STAGING_RELEASE_TMP: \$\{\{ runner\.temp \}\}/u)
+  assert.doesNotMatch(workflow, /^      STAGING_RELEASE_TMP:/mu, 'runner.temp is unavailable in job-level env')
   assert.match(workflow, /Prove GitHub masks a synthetic log sentinel[\s\S]*?sentinel='packet10-mask-sentinel-not-a-secret'[\s\S]*?echo "::add-mask::\$sentinel"[\s\S]*?echo "\$sentinel"/u)
 })
 

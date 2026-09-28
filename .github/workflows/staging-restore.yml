@@ -40,7 +40,6 @@ jobs:
     env:
       RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
       STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
-      STAGING_RELEASE_TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

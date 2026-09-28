@@ -55,7 +55,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
       RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
       STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
-      STAGING_RELEASE_TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -80,6 +79,8 @@ jobs:
           echo "::add-mask::$sentinel"
           echo "$sentinel"
       - name: Run staging-release unit and workflow policy tests
+        env:
+          STAGING_RELEASE_TMP: ${{ runner.temp }}
         run: node --test scripts/staging-release/*.test.mjs
       - name: Seed synthetic source only
         run: |
