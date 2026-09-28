@@ -307,7 +307,7 @@ export function VenueFeatureAccessControl({
             <p className="mt-1 text-xl font-semibold text-pf-deep">
               {usageLoading ? 'Loading…' : (voiceUsage?.minutes ?? '—')}
             </p>
-            <p className="text-xs text-pf-deep/60">{voiceUsage?.sessionCount ?? '—'} sessions</p>
+            <p className="text-xs text-pf-deep/75">{voiceUsage?.sessionCount ?? '—'} sessions</p>
           </div>
           <div className="rounded-xl bg-pf-surface p-4">
             <p className="text-xs text-pf-deep/65">Client-reported cost estimate</p>
@@ -334,7 +334,7 @@ export function VenueFeatureAccessControl({
             <p className="mt-1 text-xl font-semibold text-pf-deep">
               {monthlyCapMinutes === null ? 'No active cap' : `${monthlyCapMinutes} min`}
             </p>
-            <p className="text-xs text-pf-deep/60">
+            <p className="text-xs text-pf-deep/75">
               {hasActiveVoiceCap
                 ? 'From the effective Premium voice entitlement'
                 : 'Default grant setting: 300 min'}
