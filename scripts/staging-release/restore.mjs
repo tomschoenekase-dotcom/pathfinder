@@ -3,21 +3,27 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { decryptArchive, sha256 } from './archive.mjs'
 import { assertEmptyRestoreTarget, postgresClient, syntheticSnapshot } from './postgres-client.mjs'
+import { assertArtifactBinding, assertAuthenticatedMetadata } from './restore-provenance.mjs'
+import { safeErrorCode } from './error-code.mjs'
 
 function inputDir(args) {
-  if (args.length !== 2 || args[0] !== '--input-dir' || !args[1]) throw new Error('restore-input-dir-required')
-  return path.resolve(args[1])
+  if (![2, 3].includes(args.length) || args[0] !== '--input-dir' || !args[1] || (args.length === 3 && args[2] !== '--require-evidence')) throw new Error('restore-input-dir-required')
+  return { directory: path.resolve(args[1]), requireEvidence: args.length === 3 }
 }
 
 try {
-  const directory = inputDir(process.argv.slice(2))
+  const { directory, requireEvidence } = inputDir(process.argv.slice(2))
   const source = new URL(process.env.DATABASE_URL || 'postgresql://none:none@127.0.0.1:1/pathfinder_disposable_source')
   const target = new URL(process.env.RESTORE_DATABASE_URL)
   if (source.href === target.href || target.pathname !== '/pathfinder_disposable_restore') throw new Error('unsafe-restore-target')
   const manifest = JSON.parse(await readFile(path.join(directory, 'backup-manifest.json'), 'utf8'))
   if (manifest.schemaVersion !== 1 || manifest.mode !== 'synthetic-disposable') throw new Error('unsupported-backup-manifest')
-  assert.deepEqual(manifest.authenticatedMetadata, { schemaVersion: manifest.schemaVersion, mode: manifest.mode, source: manifest.source, plaintextBytes: manifest.plaintextBytes })
+  assertAuthenticatedMetadata(manifest)
   const encrypted = await readFile(path.join(directory, 'backup.enc'))
+  if (requireEvidence) {
+    const evidence = JSON.parse(await readFile(path.join(directory, 'evidence.json'), 'utf8'))
+    assertArtifactBinding(encrypted, manifest, evidence)
+  }
   const dump = decryptArchive(encrypted, process.env.STAGING_BACKUP_PASSPHRASE, manifest)
   assert.equal(dump.length, manifest.plaintextBytes)
   const restoreTarget = await assertEmptyRestoreTarget(process.env.RESTORE_DATABASE_URL)
@@ -32,7 +38,11 @@ try {
   const proof = { schemaVersion: 1, mode: 'synthetic-disposable', verifiedAt: new Date().toISOString(), archiveSha256: manifest.archiveSha256, source: manifest.source, restored, dumpSha256: sha256(dump), ok: true }
   await writeFile(path.join(directory, 'restore-proof.json'), `${JSON.stringify(proof, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
   process.stdout.write(`${JSON.stringify({ ok: true, mode: proof.mode, archiveSha256: proof.archiveSha256, ledgerCount: restored.ledger.length, tableCount: restored.tableCount, fixtureCount: restored.fixtureCount })}\n`)
-} catch {
-  process.stderr.write(`${JSON.stringify({ ok: false, code: 'synthetic-restore-failed' })}\n`)
+} catch (error) {
+  const code = safeErrorCode(error, [
+    'artifact-binding-mismatch', 'artifact-source-mismatch', 'archive-hash-mismatch',
+    'restore-target-not-empty', 'unsafe-restore-target', 'unsupported-backup-manifest',
+  ], 'synthetic-restore-failed')
+  process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`)
   process.exitCode = 1
 }

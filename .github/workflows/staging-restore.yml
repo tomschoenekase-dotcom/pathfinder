@@ -19,13 +19,15 @@ on:
         options: [synthetic]
 
 permissions:
-  actions: read
-  attestations: read
   contents: read
 
 jobs:
   restore-to-new-disposable-database:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
     timeout-minutes: 20
     services:
       restore:
@@ -60,6 +62,12 @@ jobs:
           passphrase='synthetic-disposable-'
           passphrase+='passphrase-for-ci-only'
           echo "::add-mask::$passphrase"
+      - name: Verify source run belongs to the trusted release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: node scripts/staging-release/verify-source-run.mjs "$SOURCE_RUN_ID" "$RELEASE_SHA"
       - name: Download the encrypted archive from the named run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -75,7 +83,7 @@ jobs:
           gh attestation verify "$RUNNER_TEMP/staging-restore/evidence.json" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/staging-release.yml" \
-            --source-ref refs/heads/codex/torchiko-one-click-staging \
+            --source-ref refs/heads/master \
             --source-digest "$RELEASE_SHA"
       - name: Verify evidence and restore only into new disposable service container
         env:
@@ -85,7 +93,7 @@ jobs:
           node scripts/staging-release/evidence.mjs \
             --verify "$RUNNER_TEMP/staging-restore/evidence.json" \
             --release-sha "$RELEASE_SHA"
-          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-restore"
+          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-restore" --require-evidence
       - name: Upload new restore proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

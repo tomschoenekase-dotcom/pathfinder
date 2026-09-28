@@ -56,12 +56,21 @@ test('every workflow keeps repository contents read-only; synthetic evidence may
     assert.ok(permissions, name)
     assert.match(permissions, /^  contents: read\r?$/mu, name)
     const writes = [...source.matchAll(/^  ([A-Za-z-]+):\s+write\s*$/gmu)].map((match) => match[1])
+    assert.deepEqual(writes, [], `${name}: workflow-wide write permission`)
+    const jobWrites = workflowJobBlocks(source).map((job) => ({
+      name: job.name,
+      writes: [...job.source.matchAll(/^      ([A-Za-z-]+):\s+write\s*$/gmu)]
+        .map((match) => match[1]).sort(),
+    }))
     if (name === 'staging-release.yml') {
-      assert.deepEqual(writes.sort(), ['attestations', 'id-token'], name)
+      assert.deepEqual(jobWrites.find((job) => job.name === 'synthetic-dry-run')?.writes,
+        ['attestations', 'id-token'], name)
+      assert.ok(jobWrites.filter((job) => job.name !== 'synthetic-dry-run')
+        .every((job) => job.writes.length === 0), `${name}: non-synthetic job write permission`)
       assert.match(source, /^      - name: Sign evidence provenance with GitHub OIDC\r?\n        uses: actions\/attest@[a-f0-9]{40}/mu, name)
       assert.match(source, /^          subject-path: \$\{\{ runner\.temp \}\}\/staging-release\/evidence\.json$/mu, name)
     } else {
-      assert.deepEqual(writes, [], name)
+      assert.ok(jobWrites.every((job) => job.writes.length === 0), name)
     }
   }
 })

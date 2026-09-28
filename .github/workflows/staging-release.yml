@@ -20,8 +20,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: staging-one-click
@@ -31,6 +29,10 @@ jobs:
   synthetic-dry-run:
     if: github.event_name == 'push' || inputs.mode == 'dry-run'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     timeout-minutes: 30
     services:
       source:
