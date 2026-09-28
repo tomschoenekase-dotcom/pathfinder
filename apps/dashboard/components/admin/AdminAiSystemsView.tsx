@@ -88,36 +88,42 @@ function AdminWorkerStatus({ credentials }: { credentials: PlatformWorkerCredent
 
       <dl className="mt-6 grid border-y border-slate-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <div className="py-4 sm:px-5 sm:first:pl-0">
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Runtime surface
           </dt>
-          <dd className="mt-2 text-sm font-semibold text-emerald-700">Implemented</dd>
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            Reuse the existing per-venue worker views; no second runtime is created here.
-          </p>
+          <dd className="mt-2">
+            <span className="text-sm font-semibold text-emerald-700">Implemented</span>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Reuse the existing per-venue worker views; no second runtime is created here.
+            </p>
+          </dd>
         </div>
         <div className="border-t border-slate-200 py-4 sm:border-t-0 sm:px-5">
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Policy activation
           </dt>
-          <dd
-            className={`mt-2 text-sm font-semibold ${hasActivePolicyCredential ? 'text-emerald-700' : 'text-amber-800'}`}
-          >
-            {hasActivePolicyCredential ? 'Credential active' : 'Inactive'}
+          <dd className="mt-2">
+            <span
+              className={`text-sm font-semibold ${hasActivePolicyCredential ? 'text-emerald-700' : 'text-amber-800'}`}
+            >
+              {hasActivePolicyCredential ? 'Credential active' : 'Inactive'}
+            </span>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              A policy credential is not the same thing as a connected worker session.
+            </p>
           </dd>
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            A policy credential is not the same thing as a connected worker session.
-          </p>
         </div>
         <div className="border-t border-slate-200 py-4 sm:border-t-0 sm:px-5 sm:pr-0">
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Live session
           </dt>
-          <dd className="mt-2 text-sm font-semibold text-slate-700">Not evaluated here</dd>
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            This page does not query per-venue sessions. Open a venue workspace to inspect its
-            short-lived bridge heartbeat.
-          </p>
+          <dd className="mt-2">
+            <span className="text-sm font-semibold text-slate-700">Not evaluated here</span>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              This page does not query per-venue sessions. Open a venue workspace to inspect its
+              short-lived bridge heartbeat.
+            </p>
+          </dd>
         </div>
       </dl>
 
@@ -282,7 +288,7 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
 
       <dl className="mt-6 grid gap-x-8 gap-y-4 border-y border-slate-200 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Effective route
           </dt>
           <dd className="mt-1 font-semibold text-slate-950">
@@ -293,7 +299,7 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Global override
           </dt>
           <dd className="mt-1 font-semibold text-slate-950">
@@ -303,7 +309,7 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Dashboard keys present
           </dt>
           <dd className="mt-1 font-semibold text-slate-950">
@@ -312,7 +318,7 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-700">
             Scoped exceptions
           </dt>
           <dd className="mt-1 font-semibold text-slate-950">

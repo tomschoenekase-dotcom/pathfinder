@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   Bot,
   Box,
@@ -45,9 +45,63 @@ const GROUP_META: Record<string, { label: string; icon: LucideIcon }> = {
   evaluations: { label: 'Evaluation runs', icon: FileSearch },
 }
 const SEARCH_REQUEST_TIMEOUT_MS = 15_000
+const RECENT_ROUTES_KEY = 'torchiko.admin.recent-routes.v1'
+const VENUE_PAGES = [
+  ['Overview', ''],
+  ['Content', '/content'],
+  ['Older content format', '/compatibility-content'],
+  ['Locations', '/locations'],
+  ['Guided intake', '/intake'],
+  ['Deployment manifest', '/deployment-manifest'],
+  ['Packages', '/packages'],
+  ['Full content releases', '/native-releases'],
+  ['Media', '/media'],
+  ['Knowledge proposals', '/knowledge-proposals'],
+  ['Source freshness', '/freshness'],
+  ['AI settings', '/ai-configuration'],
+  ['Feature access', '/feature-access'],
+  ['Guest design', '/guest-design'],
+  ['Visitor access', '/visitor-access'],
+  ['QR codes', '/qr-kit'],
+  ['Guest conversations', '/chatlogs'],
+  ['Answer analysis', '/analysis'],
+  ['Quality checks', '/evaluations'],
+  ['Reports', '/reports'],
+  ['Agent operations', '/agents'],
+  ['Agent integrations', '/agents/integrations'],
+  ['Agent routines', '/agents/routines'],
+  ['Agent settings', '/agents/settings'],
+  ['Support', '/support-operations'],
+] as const
 
-export function AdminCommandPalette({ compact = false }: { compact?: boolean }) {
+function venueJumpQuery(value: string) {
+  const [venueQuery, pageQuery] = value.split(/\s*(?:→|->)\s*/u, 2)
+  return { venueQuery: venueQuery?.trim() ?? '', pageQuery: pageQuery?.trim().toLowerCase() }
+}
+
+function safeRecentRoute(value: string): value is string {
+  return /^\/admin(?:\/[A-Za-z0-9_-]+)*$/u.test(value)
+}
+
+function recentLabel(route: string) {
+  const last = route.split('/').at(-1) ?? 'admin'
+  if (route === '/admin') return 'Needs you'
+  if (/^\/admin\/clients\/[^/]+\/venues\/[^/]+$/u.test(route)) return 'Venue workspace'
+  return (
+    VENUE_PAGES.find(([, suffix]) => suffix && route.endsWith(suffix))?.[0] ??
+    last.replaceAll('-', ' ').replace(/\b\w/gu, (character) => character.toUpperCase())
+  )
+}
+
+export function AdminCommandPalette({
+  compact = false,
+  light = false,
+}: {
+  compact?: boolean
+  light?: boolean
+}) {
   const router = useRouter()
+  const pathname = usePathname()
   const client = useTRPCClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -60,7 +114,56 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
   const [loadError, setLoadError] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const [loadingGroup, setLoadingGroup] = useState<string | null>(null)
-  const matches = useMemo(() => groups.flatMap((group) => group.items), [groups])
+  const [recentRoutes, setRecentRoutes] = useState<string[]>([])
+  const { venueQuery, pageQuery } = venueJumpQuery(query.trim())
+  const displayGroups = useMemo(() => {
+    if (pageQuery === undefined) return groups
+    return groups.map((group) =>
+      group.name !== 'venues'
+        ? group
+        : {
+            ...group,
+            items: group.items.flatMap((venue) =>
+              VENUE_PAGES.filter(
+                ([label]) => !pageQuery || label.toLowerCase().includes(pageQuery),
+              ).map(([label, suffix]) => ({
+                ...venue,
+                id: `${venue.id}:${suffix}`,
+                label: `${venue.label} → ${label}`,
+                detail: 'Venue page',
+                route: `${venue.route}${suffix}`,
+              })),
+            ),
+          },
+    )
+  }, [groups, pageQuery])
+  const matches = useMemo(() => displayGroups.flatMap((group) => group.items), [displayGroups])
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem(RECENT_ROUTES_KEY) ?? '[]')
+      if (Array.isArray(stored))
+        setRecentRoutes(
+          stored
+            .filter((item): item is string => typeof item === 'string' && safeRecentRoute(item))
+            .slice(0, 5),
+        )
+    } catch {
+      /* Malformed browser storage is ignored. */
+    }
+  }, [])
+  useEffect(() => {
+    if (!safeRecentRoute(pathname)) return
+    setRecentRoutes((current) => {
+      const next = [pathname, ...current.filter((route) => route !== pathname)].slice(0, 5)
+      try {
+        window.sessionStorage.setItem(RECENT_ROUTES_KEY, JSON.stringify(next))
+      } catch {
+        /* Storage may be unavailable. */
+      }
+      return next
+    })
+  }, [pathname])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -91,7 +194,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
   )
   useEffect(() => {
     if (!open) return
-    const normalized = query.trim()
+    const normalized = venueQuery
     if (!normalized) {
       setGroups([])
       setLoading(false)
@@ -127,7 +230,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
       controller.abort()
       window.clearTimeout(timeout)
     }
-  }, [client, open, query])
+  }, [client, open, venueQuery])
   useEffect(() => {
     if (!open) return
     const previousOverflow = document.body.style.overflow
@@ -159,6 +262,17 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
 
   function navigate(item: SearchItem) {
     setOpen(false)
+    if (safeRecentRoute(item.route)) {
+      setRecentRoutes((current) => {
+        const next = [item.route, ...current.filter((route) => route !== item.route)].slice(0, 5)
+        try {
+          window.sessionStorage.setItem(RECENT_ROUTES_KEY, JSON.stringify(next))
+        } catch {
+          /* Storage may be unavailable. */
+        }
+        return next
+      })
+    }
     router.push(item.route)
   }
   async function loadMore(group: SearchGroup) {
@@ -175,7 +289,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
         request: (signal) =>
           client.admin.searchAdminOs.query(
             {
-              query: query.trim(),
+              query: venueQuery,
               limitPerGroup: 5,
               group: group.name as
                 | 'clients'
@@ -217,14 +331,19 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
         type="button"
         onClick={() => setOpen(true)}
         className={[
-          'inline-flex min-h-11 items-center gap-3 border border-slate-700 bg-slate-900/70 px-3 text-left text-sm text-slate-300 transition hover:border-slate-500 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+          'inline-flex min-h-11 items-center gap-3 border px-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+          light
+            ? 'border-slate-300 bg-slate-50 text-slate-700 hover:border-sky-500 hover:bg-sky-50'
+            : 'border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:bg-slate-800',
           compact ? 'rounded-xl' : 'w-full rounded-xl',
         ].join(' ')}
-        aria-label="Search Admin OS"
+        aria-label="Search or jump"
       >
         <Search className="h-4 w-4" aria-hidden="true" />
-        {compact ? null : <span className="min-w-0 flex-1 truncate">Search Admin OS</span>}
-        <span className="hidden items-center gap-1 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 sm:inline-flex">
+        {compact ? null : <span className="min-w-0 flex-1 truncate">Search or jump</span>}
+        <span
+          className={`hidden items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex ${light ? 'border-slate-300 text-slate-500' : 'border-slate-600 text-slate-400'}`}
+        >
           <Command className="h-3 w-3" aria-hidden="true" />K
         </span>
       </button>
@@ -271,7 +390,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
                     navigate(matches[activeIndex])
                   }
                 }}
-                placeholder="Search clients, venues, content, support, agents, jobs…"
+                placeholder="Search records or type a venue → page"
                 className="min-h-14 min-w-0 flex-1 bg-transparent text-base text-slate-950 outline-none placeholder:text-slate-400"
               />
               <button
@@ -301,15 +420,40 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
                   </p>
                 </div>
               ) : !query.trim() ? (
-                <p className="px-4 py-10 text-center text-sm text-slate-500">
-                  Type to search operational records across Torchiko.
-                </p>
+                <div className="px-4 py-5 text-sm text-slate-600">
+                  <p>
+                    Search records, or type “venue name → Guest design” to jump to a venue page.
+                  </p>
+                  {recentRoutes.length ? (
+                    <div className="mt-5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Recent pages
+                      </h3>
+                      <ul className="mt-2 space-y-1">
+                        {recentRoutes.map((route) => (
+                          <li key={route}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpen(false)
+                                router.push(route)
+                              }}
+                              className="flex min-h-10 w-full items-center rounded-lg px-3 text-left hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500"
+                            >
+                              {recentLabel(route)}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
               ) : matches.length === 0 ? (
                 <p className="px-4 py-10 text-center text-sm text-slate-500">
                   No matching operational records.
                 </p>
               ) : (
-                groups.map((group) => {
+                displayGroups.map((group) => {
                   const meta = GROUP_META[group.name] ?? { label: group.name, icon: Search }
                   const Icon = meta.icon
                   return group.items.length ? (

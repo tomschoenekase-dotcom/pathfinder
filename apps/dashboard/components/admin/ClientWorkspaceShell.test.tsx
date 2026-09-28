@@ -60,12 +60,15 @@ describe('ClientWorkspaceShell', () => {
 
     expect(screen.getByText('Venue scope')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Harbor Museum' })).toBeTruthy()
-    expect(screen.getByText('Build & manage')).toBeTruthy()
-    expect(screen.getByText('Observe & improve')).toBeTruthy()
+    expect(screen.getAllByText('Overview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Content').length).toBeGreaterThan(0)
+    expect(screen.getByText('Visitor experience')).toBeTruthy()
+    expect(screen.getByText('Conversations & quality')).toBeTruthy()
+    expect(screen.getByText('Operations')).toBeTruthy()
     expect(screen.getByRole('link', { name: /External credentials/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/credentials',
     )
-    expect(screen.getByRole('link', { name: /AI configuration/ }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: /AI settings/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/ai-configuration',
     )
     expect(screen.getByRole('link', { name: /Feature access/ }).getAttribute('href')).toBe(
@@ -77,20 +80,23 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('link', { name: /Open guest preview/ }).getAttribute('href')).toBe(
       'https://guide.example/harbor/chat',
     )
-    expect(screen.getByRole('link', { name: /Manifest review/ }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: /Deployment manifest/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/deployment-manifest',
     )
     expect(screen.getByRole('link', { name: /Guided intake/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/intake',
     )
-    expect(screen.getByRole('link', { name: /Venue packages/ }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: /Packages/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/packages',
     )
-    expect(screen.getByRole('link', { name: /Native FULL releases/ }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: /Full content releases/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/native-releases',
     )
-    expect(screen.getByRole('link', { name: /Legacy compatibility/ }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: /Older content format/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/compatibility-content',
+    )
+    expect(screen.getByRole('link', { name: /Visitor access/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/visitor-access',
     )
     expect(screen.getByRole('link', { name: /Open guest preview/ }).getAttribute('rel')).toBe(
       'noreferrer',
@@ -133,9 +139,7 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('link', { name: 'Harbor Museum' }).getAttribute('aria-current')).toBe(
       null,
     )
-    expect(
-      screen.getByRole('link', { name: /Universal content/ }).getAttribute('aria-current'),
-    ).toBe('page')
+    expect(screen.getByRole('link', { name: /^Content/ }).getAttribute('aria-current')).toBe('page')
   })
 
   it('does not mark a workflow active when its href is only a text prefix', () => {
@@ -146,8 +150,6 @@ describe('ClientWorkspaceShell', () => {
       </ClientWorkspaceShell>,
     )
 
-    expect(
-      screen.getByRole('link', { name: /Universal content/ }).getAttribute('aria-current'),
-    ).toBe(null)
+    expect(screen.getByRole('link', { name: /^Content/ }).getAttribute('aria-current')).toBe(null)
   })
 })

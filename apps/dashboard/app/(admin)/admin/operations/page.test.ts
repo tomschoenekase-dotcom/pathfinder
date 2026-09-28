@@ -9,12 +9,12 @@ describe('founder operations readiness surface', () => {
     expect(source).toContain('<OperationsReadinessSummary readiness={readiness} />')
   })
 
-  it('separates current work, bot making, system evidence, and AI systems', () => {
+  it('separates work, bot making, and system evidence while linking to the single Needs you home', () => {
     expect(source).toContain("query.view === 'work' || query.view === 'bot-maker'")
-    expect(source).toContain(
-      '<OperationsAttentionConsole actorId={userId} data={data} summaryOnly />',
-    )
-    expect(source).toContain("['/admin/ai', 'AI systems']")
+    expect(source).toContain('<OperationsAnchorRedirect />')
+    expect(source).toContain('href="/admin"')
+    expect(source).toContain('<OperationsAttentionConsole actorId={userId} data={data} />')
+    expect(source).not.toContain("['/admin/ai', 'AI systems']")
     expect(source).toContain("['/admin/operations?view=bot-maker', 'Bot Maker']")
     expect(source).toContain('<BotMakerWorkspace')
     expect(source).not.toContain('FounderProviderConnections')

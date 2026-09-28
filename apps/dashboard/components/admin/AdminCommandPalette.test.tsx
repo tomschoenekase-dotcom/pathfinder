@@ -8,7 +8,10 @@ vi.mock('../../lib/trpc', () => {
   const client = { admin: { searchAdminOs: { query: mocks.query } } }
   return { useTRPCClient: () => client }
 })
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/admin',
+  useRouter: () => ({ push: mocks.push }),
+}))
 import { AdminCommandPalette } from './AdminCommandPalette'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -71,7 +74,7 @@ describe('AdminCommandPalette', () => {
   afterEach(cleanup)
   async function search() {
     render(<AdminCommandPalette />)
-    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
     await waitFor(
       () =>
@@ -90,6 +93,68 @@ describe('AdminCommandPalette', () => {
     fireEvent.click(screen.getByText('City Museum'))
     expect(mocks.push).toHaveBeenCalledWith('/admin/clients/t1/venues/v1')
   })
+  it('jumps to an exact venue sub-page without changing the backend search contract', async () => {
+    render(<AdminCommandPalette />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'City Museum → Guest design' },
+    })
+    await waitFor(() =>
+      expect(mocks.query).toHaveBeenCalledWith(
+        { query: 'City Museum', limitPerGroup: 5 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
+    fireEvent.click(await screen.findByText('City Museum → Guest design'))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/clients/t1/venues/v1/guest-design')
+  })
+  it('keeps entity results available while jumping to nested agent settings', async () => {
+    render(<AdminCommandPalette />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'City Museum → Agent settings' },
+    })
+    expect(await screen.findByText('Museum hours')).toBeTruthy()
+    fireEvent.click(await screen.findByText('City Museum → Agent settings'))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/clients/t1/venues/v1/agents/settings')
+  })
+  it('can load later matching venues while in page-jump mode', async () => {
+    const cursor = { createdAt: '2026-08-11T12:00:00.000Z', id: 'v1' }
+    mocks.query
+      .mockResolvedValueOnce({
+        groups: result.groups.map((group) =>
+          group.name === 'venues' ? { ...group, nextCursor: cursor } : group,
+        ),
+      })
+      .mockResolvedValueOnce({
+        groups: [
+          {
+            name: 'venues',
+            items: [
+              {
+                ...result.groups[1]!.items[0]!,
+                id: 'v2',
+                label: 'North Museum',
+                route: '/admin/clients/t1/venues/v2',
+              },
+            ],
+            nextCursor: null,
+          },
+        ],
+      })
+    render(<AdminCommandPalette />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Museum → Guest design' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'More venues' }))
+    await waitFor(() =>
+      expect(mocks.query).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'Museum', group: 'venues', cursor }),
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
+    fireEvent.click(await screen.findByText('North Museum → Guest design'))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/clients/t1/venues/v2/guest-design')
+  })
   it('supports combobox arrow navigation and Enter', async () => {
     await search()
     const input = screen.getByRole('combobox')
@@ -100,7 +165,7 @@ describe('AdminCommandPalette', () => {
   it('does not search an empty query and exposes an accessible error', async () => {
     mocks.query.mockRejectedValue(new Error('down'))
     render(<AdminCommandPalette />)
-    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
     expect(mocks.query).not.toHaveBeenCalled()
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
     expect((await screen.findByRole('alert')).textContent).toContain(
@@ -110,7 +175,7 @@ describe('AdminCommandPalette', () => {
   it('aborts an in-flight search when the palette unmounts', async () => {
     mocks.query.mockImplementation(() => new Promise(() => undefined))
     const view = render(<AdminCommandPalette />)
-    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
     await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1), { timeout: 1000 })
     const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
@@ -123,7 +188,7 @@ describe('AdminCommandPalette', () => {
     vi.useFakeTimers()
     mocks.query.mockImplementation(() => new Promise(() => undefined))
     render(<AdminCommandPalette />)
-    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search or jump' }))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
 
     await act(async () => vi.advanceTimersByTimeAsync(180))

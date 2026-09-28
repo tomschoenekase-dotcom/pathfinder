@@ -37,12 +37,8 @@ describe('AdminSectionShell browser foundation', () => {
 
     const navigations = screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })
     expect(navigations).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
-      'page',
-    )
-    expect(screen.getByRole('link', { name: 'Command center' }).getAttribute('aria-current')).toBe(
-      null,
-    )
+    expect(screen.getByRole('link', { name: 'System' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Needs you' }).getAttribute('aria-current')).toBe(null)
     expect(screen.getByRole('main').textContent).toContain('Operations attention')
     expect(screen.getByRole('link', { name: 'New client' }).getAttribute('href')).toBe('/admin/new')
     expect(screen.getByRole('link', { name: 'Open client portal' }).getAttribute('href')).toBe('/')
@@ -97,16 +93,12 @@ describe('AdminSectionShell browser foundation', () => {
     pathname = '/admin/operations/incidents/incident-1'
     render(<AdminSectionShell>Incident detail</AdminSectionShell>)
 
-    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
-      'page',
-    )
-    expect(screen.getByRole('link', { name: 'Command center' }).getAttribute('aria-current')).toBe(
-      null,
-    )
+    expect(screen.getByRole('link', { name: 'System' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Needs you' }).getAttribute('aria-current')).toBe(null)
     expect(screen.getByRole('main').textContent).toContain('Incident detail')
   })
 
-  it('exposes the global Billing portfolio as a first-class operator route', () => {
+  it('keeps Billing reachable from System', () => {
     pathname = '/admin/billing'
     render(<AdminSectionShell>Billing portfolio</AdminSectionShell>)
 
@@ -115,16 +107,14 @@ describe('AdminSectionShell browser foundation', () => {
     expect(link.getAttribute('aria-current')).toBe('page')
   })
 
-  it('offers AI systems as a distinct founder surface', () => {
+  it('keeps AI reachable from System', () => {
     pathname = '/admin/ai'
     render(<AdminSectionShell>AI systems</AdminSectionShell>)
 
-    const link = screen.getByRole('link', { name: 'AI systems' })
+    const link = screen.getByRole('link', { name: 'AI' })
     expect(link.getAttribute('href')).toBe('/admin/ai')
     expect(link.getAttribute('aria-current')).toBe('page')
-    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
-      null,
-    )
+    expect(screen.getByRole('link', { name: 'System' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('offers a skip link and moves route-change focus to the new page heading', async () => {

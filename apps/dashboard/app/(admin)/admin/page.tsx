@@ -1,392 +1,195 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  Bot,
-  Building2,
-  CheckCircle2,
-  Clock3,
-  ServerCog,
-} from 'lucide-react'
-
-import { GlobalAiIncidentControl } from '../../../components/admin/GlobalAiIncidentControl'
-import { AiProviderHealthControl } from '../../../components/admin/AiProviderHealthControl'
+import { ArrowRight, CheckCircle2, CircleAlert, HeartPulse } from 'lucide-react'
 import { createAdminCaller } from '../../../lib/admin-caller'
-import { getJobStatusClasses, getStatusClasses } from '../../../lib/admin-status'
 
 type AttentionItem = {
-  id: string
   label: string
   detail: string
   href: string
-  tone: 'critical' | 'warning' | 'info'
+  count: number
+  more?: boolean
+  urgent?: boolean
 }
-
-const attentionTone = {
-  critical: 'border-rose-200 bg-rose-50 text-rose-900',
-  warning: 'border-amber-200 bg-amber-50 text-amber-900',
-  info: 'border-sky-200 bg-sky-50 text-sky-900',
-} as const
 
 export default async function AdminOverviewPage() {
   const caller = await createAdminCaller()
-  const [overview, globalAiControl, providerHealthControl, operations] = await Promise.all([
+  const [overview, incident, providers, operations] = await Promise.all([
     caller.admin.overview(),
     caller.admin.getGlobalAiControl(),
     caller.admin.getAiProviderHealthControl(),
-    caller.admin.attentionConsole({ limit: 6 }),
+    caller.admin.attentionConsole({ limit: 10 }),
   ])
-
-  const attention: AttentionItem[] = []
-  if (globalAiControl.paused || globalAiControl.malformed) {
-    attention.push({
-      id: 'ai-incident',
-      label: globalAiControl.malformed
-        ? 'AI incident control needs review'
-        : 'AI operations paused',
-      detail: globalAiControl.reason || 'Review the global incident state before resuming AI work.',
-      href: '#incident-control',
-      tone: 'critical',
-    })
-  }
-  if (
-    providerHealthControl.malformed ||
-    providerHealthControl.activeUnhealthyProviders.length > 0
-  ) {
-    attention.push({
-      id: 'ai-provider-health',
-      label: providerHealthControl.malformed
-        ? 'AI provider routing control needs review'
-        : `${providerHealthControl.activeUnhealthyProviders.length} AI provider ${providerHealthControl.activeUnhealthyProviders.length === 1 ? 'exclusion' : 'exclusions'} active`,
-      detail: providerHealthControl.malformed
-        ? 'Provider-backed routing is fail-closed until the stored control is repaired.'
-        : 'Review the expiring provider-health evidence before changing route availability.',
-      href: '#provider-health-control',
-      tone: 'critical',
-    })
-  }
-  if (overview.jobs.failed7d > 0) {
-    attention.push({
-      id: 'failed-jobs',
-      label: `${overview.jobs.failed7d} failed ${overview.jobs.failed7d === 1 ? 'job' : 'jobs'} in 7 days`,
-      detail: 'Review recent failures, their tenant scope, and safe retry options.',
-      href: '/admin/operations',
-      tone: 'critical',
-    })
-  }
-  if (operations.evaluations.items.length > 0) {
-    attention.push({
-      id: 'evaluation-attention',
-      label: `${operations.evaluations.items.length}${operations.evaluations.nextCursor ? '+' : ''} evaluation runs need review`,
-      detail: 'Includes failed, staged, retry-scheduled, and expired-lease runs.',
-      href: '/admin/operations#evaluation-attention-heading',
-      tone: 'critical',
-    })
-  }
-  if (operations.approvals.items.length > 0) {
-    attention.push({
-      id: 'approval-attention',
-      label: `${operations.approvals.items.length}${operations.approvals.nextCursor ? '+' : ''} approval requests are undecided`,
-      detail: 'Review pending and expired approval windows in exact client scope.',
-      href: '/admin/operations#approval-attention-heading',
-      tone: 'warning',
-    })
-  }
-  if (operations.support.items.length > 0) {
-    attention.push({
-      id: 'support-attention',
-      label: `${operations.support.items.length}${operations.support.nextCursor ? '+' : ''} support requests need workflow attention`,
-      detail: 'Waiting-for-client, validation, and approval states are represented.',
-      href: '/admin/operations#support-attention-heading',
-      tone: 'warning',
-    })
-  }
-  if (overview.tenants.byStatus.SUSPENDED > 0) {
-    attention.push({
-      id: 'suspended-clients',
-      label: `${overview.tenants.byStatus.SUSPENDED} suspended ${overview.tenants.byStatus.SUSPENDED === 1 ? 'client' : 'clients'}`,
-      detail: 'Confirm access, offboarding, and operational state are intentional.',
+  const attention: AttentionItem[] = [
+    {
+      label: 'AI incident needs review',
+      detail: 'Inspect the paused or malformed global AI control.',
+      href: '/admin/operations?view=system#incident-control',
+      count: incident.paused || incident.malformed ? 1 : 0,
+      urgent: true,
+    },
+    {
+      label: 'AI provider routing needs review',
+      detail: 'Inspect unhealthy providers or a malformed health control.',
+      href: '/admin/operations?view=system#provider-health-control',
+      count: providers.malformed || providers.activeUnhealthyProviders.length > 0 ? 1 : 0,
+      urgent: true,
+    },
+    {
+      label: 'Questions for you',
+      detail: 'Agents are waiting for a human answer.',
+      href: '/admin/operations?view=work#needs-you-heading',
+      count: operations.questions.items.length,
+      more: !!operations.questions.nextCursor,
+    },
+    {
+      label: 'Approvals to decide',
+      detail: 'Review the exact client scope before deciding.',
+      href: '/admin/operations?view=work#approval-attention-heading',
+      count: operations.approvals.items.length,
+      more: !!operations.approvals.nextCursor,
+    },
+    {
+      label: 'Blocked agent work',
+      detail: 'Open the run evidence and decide what can proceed.',
+      href: '/admin/operations?view=work#ai-workforce',
+      count: operations.blockedAgents.items.length,
+      more: !!operations.blockedAgents.nextCursor,
+      urgent: true,
+    },
+    {
+      label: 'Failed jobs',
+      detail: 'Inspect recent failures and safe retry options.',
+      href: '/admin/operations?view=work#job-attention-heading',
+      count: overview.jobs.failed7d,
+      urgent: true,
+    },
+    {
+      label: 'Evaluation runs to review',
+      detail: 'Includes failed, staged, retry-scheduled and expired-lease runs.',
+      href: '/admin/operations?view=work#evaluation-attention-heading',
+      count: operations.evaluations.items.length,
+      more: !!operations.evaluations.nextCursor,
+    },
+    {
+      label: 'Support requests',
+      detail: 'Requests waiting for validation, approval or a client reply.',
+      href: '/admin/operations?view=work#support-attention-heading',
+      count: operations.support.items.length,
+      more: !!operations.support.nextCursor,
+    },
+    {
+      label: 'Suspended clients',
+      detail: 'Confirm access, offboarding and operating state are intentional.',
       href: '/admin/directory?status=SUSPENDED',
-      tone: 'warning',
-    })
-  }
-  if (overview.tenants.byStatus.TRIAL > 0) {
-    attention.push({
-      id: 'trial-clients',
-      label: `${overview.tenants.byStatus.TRIAL} ${overview.tenants.byStatus.TRIAL === 1 ? 'client is' : 'clients are'} in setup`,
-      detail: 'Open the client workspace to check onboarding readiness and next actions.',
+      count: overview.tenants.byStatus.SUSPENDED,
+    },
+    {
+      label: 'Clients in setup',
+      detail: 'Check onboarding readiness and next actions.',
       href: '/admin/directory?status=TRIAL',
-      tone: 'info',
-    })
-  }
-
-  const recentClients = overview.tenants.recent
-  const recentAgentRuns = operations.agents.items
+      count: overview.tenants.byStatus.TRIAL,
+    },
+  ].filter((item) => item.count > 0)
+  const agentRuns = operations.workingAgents.items.length
+  const providerWarning = providers.malformed || providers.activeUnhealthyProviders.length > 0
+  const incidentWarning = incident.paused || incident.malformed
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-5 border-b border-slate-200 pb-7 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-            Torchiko OS
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-            What needs attention?
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Triage platform work, enter a client workspace, and understand operating health without
-            scanning the entire customer directory.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 text-sm text-slate-600">
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
-            <Building2 className="h-4 w-4 text-sky-700" aria-hidden="true" />
-            {overview.tenants.total} clients
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
-            {overview.content.venueCount} venues
-          </span>
-        </div>
+    <div className="mx-auto max-w-5xl space-y-8">
+      <header className="border-b border-slate-200 pb-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
+          Your workspace
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+          Needs you
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          Decisions and exceptions that need your attention now.
+        </p>
       </header>
-
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <div>
-              <h2 className="font-semibold text-slate-950">Needs attention</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Prioritized operational exceptions</p>
-            </div>
-            <AlertTriangle className="h-5 w-5 text-amber-500" aria-hidden="true" />
-          </div>
-          {attention.length === 0 ? (
-            <div className="flex min-h-52 flex-col items-center justify-center px-6 py-10 text-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-              <h3 className="mt-3 font-semibold text-slate-950">No current exceptions</h3>
-              <p className="mt-1 max-w-sm text-sm text-slate-500">
-                Current job, client, and incident signals do not require immediate action.
-              </p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {attention.map((item) => (
-                <li key={item.id} className="p-3 sm:p-4">
-                  <Link
-                    href={item.href}
-                    className={`group flex items-start gap-4 rounded-xl border p-4 transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${attentionTone[item.tone]}`}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-semibold">{item.label}</span>
-                      <span className="mt-1 block text-sm opacity-75">{item.detail}</span>
-                    </span>
-                    <ArrowRight
-                      className="mt-0.5 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5 motion-reduce:transform-none"
-                      aria-hidden="true"
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+      <section
+        aria-labelledby="needs-you-list-heading"
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <h2 id="needs-you-list-heading" className="font-semibold text-slate-950">
+            Your attention list
+          </h2>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            {attention.reduce((sum, item) => sum + item.count, 0)}
+            {attention.some((item) => item.more) ? '+' : ''} items
+          </span>
         </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-slate-950 text-white shadow-sm">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-sky-300" aria-hidden="true" />
-              <h2 className="font-semibold">Agent activity</h2>
-            </div>
-            <p className="mt-1 text-xs text-slate-400">Live work and approval state</p>
-          </div>
-          <div className="p-5">
-            {recentAgentRuns.length === 0 ? (
-              <div className="min-h-40 rounded-xl border border-dashed border-slate-700 p-5">
-                <p className="font-medium text-slate-100">No recent runs</p>
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  No agent lifecycle records are available in the current bounded snapshot.
-                </p>
-                <Link
-                  href="/admin/operations"
-                  className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-sky-300 hover:text-sky-200"
-                >
-                  Open operations <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              </div>
-            ) : (
-              <ul className="space-y-3">
-                {recentAgentRuns.slice(0, 4).map((run) => (
-                  <li key={run.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                    <p className="truncate text-sm font-semibold text-slate-100">
-                      {run.requestedOperation}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {run.agentIdentity.name} · {run.status.replaceAll('_', ' ')}
-                    </p>
-                    {run.venueId ? (
-                      <Link
-                        href={`/admin/clients/${run.tenantId}/venues/${run.venueId}/agents/runs/${run.id}`}
-                        className="mt-2 inline-block text-xs font-semibold text-sky-300"
-                      >
-                        Open run evidence
-                      </Link>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="font-semibold text-slate-950">Recent work</h2>
-              <p className="mt-1 text-xs text-slate-500">Recently created client accounts</p>
-            </div>
-            <Link
-              href="/admin/directory"
-              className="text-sm font-semibold text-sky-700 hover:text-sky-900"
-            >
-              Full directory
-            </Link>
-          </div>
-          {recentClients.length === 0 ? (
-            <p className="mt-6 rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-              No client accounts yet.
+        {attention.length === 0 ? (
+          <div className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center">
+            <CheckCircle2 className="h-9 w-9 text-emerald-600" aria-hidden="true" />
+            <h3 className="mt-4 text-lg font-semibold text-slate-950">Nothing needs you.</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Agents are handling {agentRuns}
+              {operations.workingAgents.nextCursor ? '+' : ''}{' '}
+              {agentRuns === 1 && !operations.workingAgents.nextCursor ? 'run' : 'runs'}.
             </p>
-          ) : (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {recentClients.map((client) => (
-                <Link
-                  key={client.id}
-                  href={`/admin/clients/${client.id}`}
-                  className="group flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-4 transition hover:border-sky-300 hover:bg-sky-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-slate-950">
-                      {client.name}
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">
-                      {client.slug}
-                    </span>
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStatusClasses(client.status)}`}
-                  >
-                    {client.status}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2">
-            <ServerCog className="h-5 w-5 text-sky-700" aria-hidden="true" />
-            <h2 className="font-semibold text-slate-950">Operational status</h2>
           </div>
-          <dl className="mt-5 space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-sm text-slate-600">AI control</dt>
-              <dd
-                className={`text-sm font-semibold ${globalAiControl.paused ? 'text-rose-700' : 'text-emerald-700'}`}
-              >
-                {globalAiControl.paused ? 'Paused' : 'Available'}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-sm text-slate-600">Failed jobs, 7d</dt>
-              <dd
-                className={`text-sm font-semibold ${overview.jobs.failed7d ? 'text-rose-700' : 'text-slate-900'}`}
-              >
-                {overview.jobs.failed7d}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-sm text-slate-600">Active venues</dt>
-              <dd className="text-sm font-semibold text-slate-900">
-                {overview.content.venueCount}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-
-      <section id="incident-control" className="scroll-mt-24">
-        <GlobalAiIncidentControl
-          initialState={{
-            paused: globalAiControl.paused,
-            reason: globalAiControl.reason,
-            configured: globalAiControl.configured,
-            malformed: globalAiControl.malformed,
-            updatedAt: globalAiControl.updatedAt?.toISOString() ?? null,
-            updatedBy: globalAiControl.updatedBy,
-          }}
-        />
-      </section>
-
-      <section id="provider-health-control" className="scroll-mt-24">
-        <AiProviderHealthControl
-          initialState={{
-            overrides: providerHealthControl.overrides.map((override) => ({
-              ...override,
-              expiresAt: override.expiresAt.toISOString(),
-            })),
-            activeUnhealthyProviders: providerHealthControl.activeUnhealthyProviders,
-            configured: providerHealthControl.configured,
-            malformed: providerHealthControl.malformed,
-            updatedAt: providerHealthControl.updatedAt?.toISOString() ?? null,
-            updatedBy: providerHealthControl.updatedBy,
-          }}
-        />
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-sky-700" aria-hidden="true" />
-            <h2 className="font-semibold text-slate-950">Recent operations</h2>
-          </div>
-          <Link
-            href="/admin/operations"
-            className="text-sm font-semibold text-sky-700 hover:text-sky-900"
-          >
-            View all
-          </Link>
-        </div>
-        {overview.jobs.recent.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">No job runs recorded yet.</div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {overview.jobs.recent.slice(0, 5).map((job) => (
-              <li
-                key={job.id}
-                className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{job.jobName}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{job.queue}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
+            {attention.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className="group flex min-h-20 items-center gap-4 px-5 py-4 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500"
+                >
                   <span
-                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getJobStatusClasses(job.status)}`}
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.urgent ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800'}`}
                   >
-                    {job.status}
+                    <CircleAlert className="h-5 w-5" aria-hidden="true" />
                   </span>
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                    <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-                    {job.createdAt.toLocaleString()}
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-slate-950">{item.label}</span>
+                    <span className="mt-0.5 block text-sm text-slate-600">{item.detail}</span>
                   </span>
-                </div>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-bold text-slate-900">
+                    {item.count}
+                    {item.more ? '+' : ''}
+                  </span>
+                  <ArrowRight
+                    className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 motion-reduce:transform-none"
+                    aria-hidden="true"
+                  />
+                </Link>
               </li>
             ))}
           </ul>
         )}
+      </section>
+      <section
+        aria-label="System health"
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-200 pt-4 text-sm text-slate-600"
+      >
+        <span className="inline-flex items-center gap-2 font-medium text-slate-700">
+          <HeartPulse className="h-4 w-4" aria-hidden="true" /> System health
+        </span>
+        <Link
+          id="incident-control"
+          href="/admin/operations?view=system#incident-control"
+          className="scroll-mt-24 underline decoration-slate-300 underline-offset-4 hover:text-sky-800"
+        >
+          AI incident: {incidentWarning ? 'needs review' : 'clear'}
+        </Link>
+        <Link
+          id="provider-health-control"
+          href="/admin/operations?view=system#provider-health-control"
+          className="scroll-mt-24 underline decoration-slate-300 underline-offset-4 hover:text-sky-800"
+        >
+          Providers: {providerWarning ? 'needs review' : 'available'}
+        </Link>
+        <Link
+          href="/admin/operations?view=work#job-attention-heading"
+          className="underline decoration-slate-300 underline-offset-4 hover:text-sky-800"
+        >
+          Queues: {overview.jobs.failed7d} failed in 7 days
+        </Link>
       </section>
     </div>
   )

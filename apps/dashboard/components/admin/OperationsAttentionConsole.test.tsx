@@ -344,6 +344,27 @@ const empty: Data = {
 describe('operations attention console', () => {
   afterEach(cleanup)
 
+  it('keeps the work view when opening older attention items', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          questions: {
+            items: [],
+            nextCursor: { createdAt: '2026-08-11T14:30:00.000Z', id: 'question_1' },
+          },
+        }}
+      />,
+    )
+    const href = screen.getByRole('link', { name: 'Older questions' }).getAttribute('href')
+    const destination = new URL(href!, 'http://localhost')
+    expect(destination.pathname).toBe('/admin/operations')
+    expect(destination.searchParams.get('view')).toBe('work')
+    expect(destination.searchParams.get('questionsCursor')).toBe(
+      '2026-08-11T14:30:00.000Z|question_1',
+    )
+  })
+
   it('renders honest empty states for every bounded queue', () => {
     render(<OperationsAttentionConsole data={empty} />)
     expect(screen.getByText('No failed job records need attention.')).toBeTruthy()

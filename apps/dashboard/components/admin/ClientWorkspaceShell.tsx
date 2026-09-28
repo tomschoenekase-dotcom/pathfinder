@@ -69,16 +69,16 @@ function NavigationGroup({
   pathname: string
 }) {
   return (
-    <div className="contents lg:block lg:min-w-0 lg:space-y-1">
-      <p className="hidden px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70 lg:block">
+    <section className="min-w-0 space-y-1">
+      <p className="px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70">
         {label}
       </p>
-      <div className="contents lg:block lg:space-y-1">
+      <div className="space-y-1">
         {items.map((item) => (
           <WorkspaceLink key={item.href} item={item} pathname={pathname} />
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -132,77 +132,90 @@ export function ClientWorkspaceShell({
     },
   ]
 
-  const venueBuildNavigation: NavigationItem[] = venueRoot
+  const venueContentNavigation: NavigationItem[] = venueRoot
     ? [
         {
-          href: venueRoot,
-          label: 'Venue overview',
-          description: 'Status, content and availability',
-          exact: true,
-        },
-        {
           href: `${venueRoot}/content`,
-          label: 'Universal content',
-          description: 'Typed modules and provenance',
+          label: 'Content',
+          description: 'Manage visitor guide content',
         },
         {
           href: `${venueRoot}/compatibility-content`,
-          label: 'Legacy compatibility',
-          description: 'Internal Place and Knowledge upkeep',
+          label: 'Older content format',
+          description: 'Maintain older content records',
         },
         {
           href: `${venueRoot}/locations`,
-          label: 'Location anchors',
-          description: 'Verified guest map and place references',
+          label: 'Locations',
+          description: 'Manage places on the guest map',
         },
         {
           href: `${venueRoot}/intake`,
           label: 'Guided intake',
-          description: 'Website and staff draft proposals',
+          description: 'Collect website and staff updates',
         },
         {
           href: `${venueRoot}/deployment-manifest`,
-          label: 'Manifest review',
-          description: 'Validate v2 package handoff',
+          label: 'Deployment manifest',
+          description: 'Review the deployment contents',
         },
         {
           href: `${venueRoot}/packages`,
-          label: 'Venue packages',
-          description: 'Review immutable package evidence',
+          label: 'Packages',
+          description: 'Review saved content packages',
         },
         {
           href: `${venueRoot}/native-releases`,
-          label: 'Native FULL releases',
-          description: 'Review NATIVE_CORE_V1 deployment evidence',
+          label: 'Full content releases',
+          description: 'Review complete content releases',
         },
         {
           href: `${venueRoot}/media`,
-          label: 'Media intake',
-          description: 'Process and review source media',
+          label: 'Media',
+          description: 'Add and review venue media',
         },
         {
+          href: `${venueRoot}/knowledge-proposals`,
+          label: 'Knowledge proposals',
+          description: 'Review suggested information changes',
+        },
+        {
+          href: `${venueRoot}/freshness`,
+          label: 'Source freshness',
+          description: 'Find outdated or missing sources',
+        },
+      ]
+    : []
+  const venueVisitorNavigation: NavigationItem[] = venueRoot
+    ? [
+        {
           href: `${venueRoot}/ai-configuration`,
-          label: 'AI configuration',
-          description: 'Effective models and safety defaults',
+          label: 'AI settings',
+          description: 'Review guide behavior and defaults',
         },
         {
           href: `${venueRoot}/feature-access`,
           label: 'Feature access',
-          description: 'Audited, expiring venue entitlements',
+          description: 'Manage available features',
         },
         {
           href: `${venueRoot}/guest-design`,
           label: 'Guest design',
-          description: 'Branding and responsive preview',
+          description: 'Preview the visitor guide design',
+        },
+        {
+          href: `${venueRoot}/visitor-access`,
+          label: 'Visitor access',
+          description: 'Manage website access and allowed sites',
         },
         {
           href: `${venueRoot}/qr-kit`,
-          label: 'QR launch kit',
-          description: 'Print and scan-test guest entry codes',
+          label: 'QR codes',
+          description: 'Prepare and test guide entry codes',
         },
       ]
     : []
-  const venueInsightNavigation: NavigationItem[] = venueRoot
+  const venueQualityNavigation: NavigationItem[] = venueRoot
     ? [
         {
           href: `${venueRoot}/chatlogs`,
@@ -216,39 +229,37 @@ export function ClientWorkspaceShell({
         },
         {
           href: `${venueRoot}/evaluations`,
-          label: 'Evaluations',
-          description: 'Quality, failures and conclusions',
-        },
-        {
-          href: `${venueRoot}/freshness`,
-          label: 'Freshness',
-          description: 'Stale sources and metadata gaps',
-        },
-        {
-          href: `${venueRoot}/knowledge-proposals`,
-          label: 'Knowledge proposals',
-          description: 'Review evidence-backed change suggestions',
-        },
-        {
-          href: `${venueRoot}/agents`,
-          label: 'Agent operations',
-          description: 'Runs, actions and approvals',
-        },
-        {
-          href: `${venueRoot}/support-operations`,
-          label: 'Support',
-          description: 'Client requests and internal notes',
+          label: 'Quality checks',
+          description: 'Review guide quality and results',
         },
         {
           href: `${venueRoot}/reports`,
           label: 'Reports',
-          description: 'Prepare client-ready reporting',
+          description: 'Prepare reports for the client',
+        },
+      ]
+    : []
+  const venueOperationsNavigation: NavigationItem[] = venueRoot
+    ? [
+        {
+          href: `${venueRoot}/agents`,
+          label: 'Agent operations',
+          description: 'Review runs, actions and approvals',
+        },
+        {
+          href: `${venueRoot}/support-operations`,
+          label: 'Support',
+          description: 'Review client requests and notes',
         },
       ]
     : []
 
   return (
-    <div className="space-y-5">
+    <div
+      className="space-y-5"
+      data-admin-tenant-name={client.name}
+      data-admin-venue-name={selectedVenue?.name}
+    >
       <nav
         aria-label="Breadcrumb"
         className="flex flex-wrap items-center gap-2 text-xs font-medium text-pf-deep/70"
@@ -326,7 +337,7 @@ export function ClientWorkspaceShell({
             className="min-w-0 border-b border-pf-light bg-pf-surface/60 p-3 lg:border-b-0 lg:border-r lg:p-4"
             aria-label="Workspace navigation"
           >
-            <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 lg:block lg:space-y-5 lg:overflow-visible lg:pb-0">
+            <div className="grid min-w-0 grid-cols-1 gap-4 pb-1 sm:grid-cols-2 lg:block lg:space-y-5 lg:overflow-visible lg:pb-0">
               <NavigationGroup label="Client" items={clientNavigation} pathname={pathname} />
 
               <div className="contents lg:block lg:min-w-0">
@@ -363,15 +374,43 @@ export function ClientWorkspaceShell({
 
               {venueRoot ? (
                 <NavigationGroup
-                  label="Build & manage"
-                  items={venueBuildNavigation}
+                  label="Overview"
+                  items={[
+                    {
+                      href: venueRoot,
+                      label: 'Overview',
+                      description: 'Status, content and availability',
+                      exact: true,
+                    },
+                  ]}
                   pathname={pathname}
                 />
               ) : null}
               {venueRoot ? (
                 <NavigationGroup
-                  label="Observe & improve"
-                  items={venueInsightNavigation}
+                  label="Content"
+                  items={venueContentNavigation}
+                  pathname={pathname}
+                />
+              ) : null}
+              {venueRoot ? (
+                <NavigationGroup
+                  label="Visitor experience"
+                  items={venueVisitorNavigation}
+                  pathname={pathname}
+                />
+              ) : null}
+              {venueRoot ? (
+                <NavigationGroup
+                  label="Conversations & quality"
+                  items={venueQualityNavigation}
+                  pathname={pathname}
+                />
+              ) : null}
+              {venueRoot ? (
+                <NavigationGroup
+                  label="Operations"
+                  items={venueOperationsNavigation}
                   pathname={pathname}
                 />
               ) : null}

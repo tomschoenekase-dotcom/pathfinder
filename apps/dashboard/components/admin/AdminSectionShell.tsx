@@ -4,14 +4,11 @@ import { type ReactNode, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Activity,
   Building2,
-  CircleGauge,
   ContactRound,
   CreditCard,
   ExternalLink,
   BookOpen,
-  Bot,
   BrainCircuit,
   Home,
   Menu,
@@ -24,6 +21,7 @@ import { useState } from 'react'
 import { TorchikoBrand } from '@pathfinder/ui'
 
 import { AdminCommandPalette } from './AdminCommandPalette'
+import { CopyForCodex } from './CopyForCodex'
 import { useRouteChangeFocus } from '../useRouteChangeFocus'
 
 type AdminSectionShellProps = {
@@ -32,14 +30,18 @@ type AdminSectionShellProps = {
 }
 
 const navigationItems = [
-  { href: '/admin', label: 'Command center', icon: Home, exact: true },
-  { href: '/admin/directory', label: 'Client directory', icon: Building2 },
-  { href: '/admin/prospects', label: 'Prospect CRM', icon: ContactRound },
+  { href: '/admin', label: 'Needs you', icon: Home, exact: true },
+  { href: '/admin/directory', label: 'Clients', icon: Building2 },
+  { href: '/admin/prospects', label: 'Prospects', icon: ContactRound },
   { href: '/admin/company-brain', label: 'Company Brain', icon: BrainCircuit },
+  { href: '/admin/operations', label: 'System', icon: ShieldCheck },
+] as const
+
+const systemTabs = [
+  { href: '/admin/operations', label: 'Operations', icon: ShieldCheck },
+  { href: '/admin/ai', label: 'AI', icon: BrainCircuit },
   { href: '/admin/billing', label: 'Billing', icon: CreditCard },
-  { href: '/admin/operations', label: 'Control room', icon: Activity },
-  { href: '/admin/ai', label: 'AI systems', icon: Bot },
-  { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
+  { href: '/admin/help', label: 'Help', icon: BookOpen },
 ] as const
 
 function isActivePath(pathname: string, href: string, exact?: boolean) {
@@ -50,6 +52,10 @@ function isActivePath(pathname: string, href: string, exact?: boolean) {
 export function AdminSectionShell({ children, routePathname }: AdminSectionShellProps) {
   const livePathname = usePathname()
   const pathname = routePathname ?? livePathname
+  const inSystem =
+    systemTabs.some((tab) => isActivePath(pathname, tab.href)) ||
+    pathname === '/admin/character-lab'
+  const scopedIds = /^\/admin\/clients\/([^/]+)(?:\/venues\/([^/]+))?/u.exec(pathname)
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileCloseRef = useRef<HTMLButtonElement>(null)
   const mobileTriggerRef = useRef<HTMLButtonElement>(null)
@@ -101,13 +107,16 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
         </div>
       </div>
 
-      <div className="px-4 py-4">
-        <AdminCommandPalette />
-      </div>
-
       <nav className="flex-1 space-y-1 px-3" aria-label="Torchiko OS navigation">
         {navigationItems.map((item) => {
-          const active = isActivePath(pathname, item.href, 'exact' in item ? item.exact : false)
+          const active =
+            item.href === '/admin/operations'
+              ? inSystem
+              : item.href === '/admin/directory'
+                ? isActivePath(pathname, item.href) ||
+                  pathname.startsWith('/admin/clients/') ||
+                  pathname === '/admin/new'
+                : isActivePath(pathname, item.href, 'exact' in item ? item.exact : false)
           const Icon = item.icon
           return (
             <Link
@@ -200,18 +209,46 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
               >
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </button>
-              <div>
+              <div className="hidden sm:block">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
                   Founder operations
                 </p>
                 <p className="text-sm font-semibold text-slate-900">Platform scope</p>
               </div>
             </div>
-            <div className="hidden items-center gap-2 text-xs font-medium text-emerald-700 sm:flex">
-              <CircleGauge className="h-4 w-4" aria-hidden="true" />
-              Operational view
+            <div className="flex min-w-0 items-center gap-2">
+              <AdminCommandPalette light />
+              <CopyForCodex
+                route={pathname}
+                tenant={scopedIds?.[1] ? { id: scopedIds[1], name: '' } : null}
+                venue={scopedIds?.[2] ? { id: scopedIds[2], name: '' } : null}
+              />
             </div>
           </div>
+          {inSystem ? (
+            <nav
+              aria-label="System sections"
+              className="flex gap-1 overflow-x-auto border-t border-slate-100 px-4 sm:px-6 lg:px-8"
+            >
+              {systemTabs.map((tab) => {
+                const Icon = tab.icon
+                const active =
+                  isActivePath(pathname, tab.href) ||
+                  (tab.href === '/admin/ai' && pathname === '/admin/character-lab')
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    aria-current={active ? 'page' : undefined}
+                    className={`inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${active ? 'border-sky-700 text-sky-900' : 'border-transparent text-slate-600 hover:text-slate-950'}`}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    {tab.label}
+                  </Link>
+                )
+              })}
+            </nav>
+          ) : null}
         </header>
 
         <main

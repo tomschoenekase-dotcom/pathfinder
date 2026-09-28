@@ -25,6 +25,7 @@ function date(value: Date | string | null) {
 
 function nextHref(param: string, value: Cursor) {
   const query = new URLSearchParams({
+    view: 'work',
     [param]: `${value.createdAt}|${value.id}`,
   })
   return `/admin/operations?${query.toString()}`
@@ -791,7 +792,8 @@ export function OperationsAttentionConsole({
       </section>
 
       <section
-        className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm"
+        id="customer-alerts"
+        className="scroll-mt-24 rounded-2xl border border-orange-200 bg-white p-5 shadow-sm"
         aria-labelledby="operational-events-heading"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
