@@ -34,13 +34,20 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
     attemptNumber: execution.attemptNumber,
     maxAttempts: execution.maxAttempts,
   })
+  let providerHangupFailures = 0
 
   try {
     const dueProviderSessions = await findDueVoiceSessionHangups({ now: startedAt })
     let providerExpired = 0
     for (const session of dueProviderSessions) {
-      const expiredProviderSession = await hangupDueVoiceSession(session.id, { now: startedAt })
-      if (expiredProviderSession) providerExpired += 1
+      try {
+        const expiredProviderSession = await hangupDueVoiceSession(session.id, { now: startedAt })
+        if (expiredProviderSession) providerExpired += 1
+      } catch {
+        // Keep processing this bounded batch. The failed session remains due and
+        // will be retried by the next recovery run or this job's retry.
+        providerHangupFailures += 1
+      }
     }
     const expired = await expireAbandonedVoiceSessions({ now: startedAt })
     for (const session of expired) {
@@ -59,6 +66,9 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
         },
       })
     }
+    if (providerHangupFailures > 0) {
+      throw new Error('One or more due voice sessions failed provider hangup.')
+    }
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
     logger.info({
       action: 'workers.voice-session-recovery.completed',
@@ -76,6 +86,7 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
       action: 'workers.voice-session-recovery.failed',
       attemptNumber: execution.attemptNumber,
       maxAttempts: execution.maxAttempts,
+      providerHangupFailures,
       error: 'Voice session recovery run failed.',
     })
     throw toQueueSafeJobError(error, 'VOICE_SESSION_RECOVERY_FAILED')
