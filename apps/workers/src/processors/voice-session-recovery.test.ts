@@ -109,4 +109,46 @@ describe('voice session recovery processor', () => {
     expect(mocks.hangup).toHaveBeenCalledWith('voice_provider_1', { now: expect.any(Date) })
     expect(mocks.expire).toHaveBeenCalledOnce()
   })
+
+  it('continues after a provider hangup failure, runs cleanup, and records a retryable job failure', async () => {
+    const cleanedUp = {
+      id: 'voice_abandoned_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      visitorSessionId: 'visitor_1',
+      previousStatus: 'ACTIVE',
+      durationSeconds: 600,
+    }
+    mocks.due.mockResolvedValue([{ id: 'voice_provider_1' }, { id: 'voice_provider_2' }])
+    mocks.hangup
+      .mockRejectedValueOnce(new Error('provider unavailable'))
+      .mockResolvedValueOnce({ id: 'voice_provider_2' })
+    mocks.expire.mockResolvedValue([cleanedUp])
+    mocks.recordFailure.mockResolvedValue(undefined)
+
+    await expect(processVoiceSessionRecovery({ attemptNumber: 1, maxAttempts: 3 })).rejects.toThrow(
+      'VOICE_SESSION_RECOVERY_FAILED',
+    )
+
+    expect(mocks.hangup).toHaveBeenNthCalledWith(1, 'voice_provider_1', { now: expect.any(Date) })
+    expect(mocks.hangup).toHaveBeenNthCalledWith(2, 'voice_provider_2', { now: expect.any(Date) })
+    expect(mocks.expire).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'voice.session.failed',
+        sessionId: 'visitor_1',
+        metadata: expect.objectContaining({ voiceSessionId: 'voice_abandoned_1' }),
+      }),
+    )
+    expect(mocks.recordFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobRecordId: 'job_record_1',
+        execution: { attemptNumber: 1, maxAttempts: 3 },
+        error: expect.objectContaining({
+          message: 'One or more due voice sessions failed provider hangup.',
+        }),
+      }),
+    )
+    expect(mocks.updateJob).not.toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
 })
