@@ -269,8 +269,9 @@ test('streaming response remains readable, quiet to assistive tech, and composer
   await expect(page.locator('[data-fixture-state="speaking"]')).toBeVisible()
   await expect(page.getByText(/lake ecology gallery is on the upper floor/)).toBeVisible()
   const liveStatus = page.getByRole('status').filter({ hasText: 'Museum Guide is responding' })
-  await expect(liveStatus).toHaveText('Museum Guide is responding')
-  await expect(liveStatus).toHaveClass(/sr-only/u)
+  // This fixture already contains the first response delta. The pending status
+  // must not linger once assistant text is available.
+  await expect(liveStatus).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Sending message' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Tell me more' })).toHaveCount(0)
 
