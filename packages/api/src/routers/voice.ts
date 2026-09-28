@@ -398,7 +398,11 @@ export const voiceRouter = router({
       monthlyBoundarySeconds: endedVoiceBoundarySeconds(monthlyBoundary, monthStart),
       activeSessions,
     })
-    if (remainingSeconds < MIN_VOICE_SESSION_SECONDS) return { enabled: false as const }
+    if (
+      activeSessions.length >= settings.maxConcurrentSessions ||
+      remainingSeconds < MIN_VOICE_SESSION_SECONDS
+    )
+      return { enabled: false as const }
     return {
       enabled: true as const,
       premiumAvailable: true,

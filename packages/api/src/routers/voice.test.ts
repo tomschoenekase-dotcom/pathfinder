@@ -224,6 +224,30 @@ describe('voice router', () => {
     ).resolves.toEqual({ enabled: false })
   })
 
+  it('hides voice when active sessions fill concurrency while quota remains', async () => {
+    dbMocks.voiceFindMany
+      .mockResolvedValueOnce([
+        {
+          maxDurationSeconds: 600,
+          durationSeconds: 0,
+          createdAt: new Date(),
+          connectedAt: new Date(),
+        },
+        {
+          maxDurationSeconds: 600,
+          durationSeconds: 0,
+          createdAt: new Date(),
+          connectedAt: new Date(),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    await expect(
+      caller.voice.availability({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+    ).resolves.toEqual({ enabled: false })
+  })
+
   it('admits only the remaining reserved time and ignores visitor premium-tier requests', async () => {
     dbMocks.voiceAggregate
       .mockResolvedValueOnce({ _sum: { durationSeconds: 3_350 } })
