@@ -50,10 +50,19 @@ function workflowJobBlocks(source) {
   return jobs
 }
 
-test('every workflow has an explicit read-only repository token ceiling', async () => {
+test('every workflow keeps repository contents read-only; synthetic evidence may request attestation writes only', async () => {
   for (const { name, source } of await workflows()) {
-    assert.match(source, /^permissions:\r?\n  contents: read\r?$/mu, name)
-    assert.doesNotMatch(source, /^\s{2,}[A-Za-z-]+:\s+write\s*$/mu, name)
+    const permissions = source.match(/^permissions:\r?\n((?:  [A-Za-z-]+: (?:read|write)\r?\n)+)/mu)?.[1]
+    assert.ok(permissions, name)
+    assert.match(permissions, /^  contents: read\r?$/mu, name)
+    const writes = [...source.matchAll(/^  ([A-Za-z-]+):\s+write\s*$/gmu)].map((match) => match[1])
+    if (name === 'staging-release.yml') {
+      assert.deepEqual(writes.sort(), ['attestations', 'id-token'], name)
+      assert.match(source, /^      - name: Sign evidence provenance with GitHub OIDC\r?\n        uses: actions\/attest@[a-f0-9]{40}/mu, name)
+      assert.match(source, /^          subject-path: \$\{\{ runner\.temp \}\}\/staging-release\/evidence\.json$/mu, name)
+    } else {
+      assert.deepEqual(writes, [], name)
+    }
   }
 })
 
