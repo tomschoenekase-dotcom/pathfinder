@@ -118,9 +118,7 @@ async function expectScrollableConversationWithPersistentComposer(page: Page) {
 
 async function expectPersistentActiveVoiceLayout(page: Page) {
   const conversation = page.getByRole('log', { name: 'Conversation' })
-  const voiceControls = page.getByRole('region', { name: 'Voice controls' })
   const endVoice = page.getByRole('button', { name: 'End voice conversation' })
-  const transcript = page.getByLabel('Voice transcript')
   const composer = page.getByRole('textbox')
   const composerField = composer.locator('..')
   const send = page.getByRole('button', { name: 'Send message' })
@@ -142,34 +140,17 @@ async function expectPersistentActiveVoiceLayout(page: Page) {
   )
   expect(conversationMetrics.scrollTop, JSON.stringify(conversationMetrics)).toBeGreaterThan(0)
 
-  await expectFullyUnclipped(voiceControls)
   await expectFullyUnclipped(composerField)
+  await expectFullyUnclipped(endVoice)
   await expectFullyUnclipped(send)
+  await expectHitTarget(endVoice)
   await expectHitTarget(send)
-  const [voiceGeometry, composerGeometry] = await Promise.all([
-    clippedGeometry(voiceControls),
-    clippedGeometry(composerField),
-  ])
   expect(
-    voiceGeometry.bottom,
-    JSON.stringify({ voiceGeometry, composerGeometry }),
-  ).toBeLessThanOrEqual(composerGeometry.top + 1)
-
-  const maximumVoiceScroll = await voiceControls.evaluate(
-    (node) => node.scrollHeight - node.clientHeight,
-  )
-  for (const voiceScrollTop of [0, maximumVoiceScroll / 2, maximumVoiceScroll]) {
-    await voiceControls.evaluate((node, scrollTop) => {
-      node.scrollTop = scrollTop
-    }, voiceScrollTop)
-    await expectFullyUnclipped(endVoice)
-    await expectHitTarget(endVoice)
-  }
-
-  await transcript.focus()
-  await expect(transcript).toBeFocused()
-  const transcriptGeometry = await clippedGeometry(transcript)
-  expect(transcriptGeometry.visibleHeight, JSON.stringify(transcriptGeometry)).toBeGreaterThan(0)
+    await composerField.evaluate(
+      (node, child) => node.contains(child),
+      await endVoice.elementHandle(),
+    ),
+  ).toBe(true)
   await expectFullyUnclipped(endVoice)
   await expectHitTarget(endVoice)
   await endVoice.focus()

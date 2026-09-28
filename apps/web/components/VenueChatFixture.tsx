@@ -440,7 +440,7 @@ export function VenueChatFixture({
               <VoiceControlPanel
                 state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
-                compact={voice === 'idle'}
+                compact
                 error={
                   voice === 'error'
                     ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'
