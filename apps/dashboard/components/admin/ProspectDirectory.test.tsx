@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   listProspectSavedViews: vi.fn(),
+  listProspectTerritories: vi.fn(),
   listProspects: vi.fn(),
   saveProspectView: vi.fn(),
   createProspectCampaign: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../../lib/trpc', () => {
   const client = {
     admin: {
       listProspectSavedViews: { query: mocks.listProspectSavedViews },
+      listProspectTerritories: { query: mocks.listProspectTerritories },
       listProspects: { query: mocks.listProspects },
       saveProspectView: { mutate: mocks.saveProspectView },
       createProspectCampaign: { mutate: mocks.createProspectCampaign },
@@ -37,6 +39,7 @@ vi.mock('../../lib/trpc', () => {
 })
 
 import { ProspectDirectory } from './ProspectDirectory'
+import { defaultProspectGoodFitRules } from '@pathfinder/contracts/prospect-size'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const prospect = {
@@ -66,6 +69,7 @@ describe('ProspectDirectory request lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.listProspectSavedViews.mockResolvedValue([])
+    mocks.listProspectTerritories.mockResolvedValue([])
     mocks.listProspects.mockResolvedValue({ items: [prospect], nextCursor: null })
   })
 
@@ -124,5 +128,87 @@ describe('ProspectDirectory request lifecycle', () => {
 
     rendered.unmount()
     expect(pageSignal?.aborted).toBe(true)
+  })
+
+  it('edits and saves a scoped Good fit view variation', async () => {
+    mocks.saveProspectView.mockResolvedValue({})
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('Tiny museums')
+    try {
+      render(<ProspectDirectory />)
+      await screen.findByText('Harbor Museum')
+      fireEvent.click(screen.getByRole('button', { name: /Good fit ·/u }))
+      fireEvent.click(screen.getByText('Edit Good fit rules'))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'L' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Exclude outreach drafts' }))
+      fireEvent.change(
+        screen.getByRole('textbox', { name: 'Supported categories, one per line' }),
+        { target: { value: 'museum' } },
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Apply text rules' }))
+      await waitFor(() =>
+        expect(mocks.listProspects).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            goodFit: true,
+            goodFitRules: expect.objectContaining({
+              supportedCategories: ['museum'],
+              sizeClasses: ['S', 'M'],
+              excludeDrafts: false,
+            }),
+            limit: 100,
+          }),
+          { signal: expect.any(AbortSignal) },
+        ),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Save current view' }))
+      await waitFor(() =>
+        expect(mocks.saveProspectView).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'Tiny museums',
+            filters: expect.objectContaining({
+              goodFit: true,
+              goodFitRules: expect.objectContaining({
+                supportedCategories: ['museum'],
+                excludeDrafts: false,
+              }),
+            }),
+          }),
+        ),
+      )
+    } finally {
+      prompt.mockRestore()
+    }
+  })
+
+  it('reapplies the stored rule settings when a named view is selected', async () => {
+    mocks.listProspectSavedViews.mockResolvedValue([
+      {
+        id: 'view-tiny',
+        name: 'Tiny museums',
+        filters: {
+          goodFit: true,
+          goodFitRules: {
+            ...defaultProspectGoodFitRules,
+            supportedCategories: ['museum'],
+            sizeClasses: ['XS'],
+            preferredSizeClass: 'XS',
+          },
+        },
+      },
+    ])
+    render(<ProspectDirectory />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Tiny museums' }))
+    await waitFor(() =>
+      expect(mocks.listProspects).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          goodFit: true,
+          goodFitRules: expect.objectContaining({
+            supportedCategories: ['museum'],
+            sizeClasses: ['XS'],
+            preferredSizeClass: 'XS',
+          }),
+        }),
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
   })
 })
