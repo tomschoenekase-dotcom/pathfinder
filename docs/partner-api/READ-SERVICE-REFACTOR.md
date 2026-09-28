@@ -27,6 +27,28 @@ page without a concrete gap.
 Any admin UI work must follow the current v2 brand system. A v1 visual in an older packet is not a
 current design reference.
 
+## Architecture decision and current status
+
+Keep the proposed `tk_<env>_<publicId>_<secret>` credential contract separate for the future v1
+HTTP API. It carries an explicit environment and public lookup ID, scopes one client credential to
+an explicit set of venues and capabilities, and is designed for an overlap rotation period. The
+existing `pf_read_` `ExternalAccessCredential` path uses an Argon2id verifier, represents one
+nullable venue scope (or client scope), and rotation immediately revokes the old credential while
+creating its replacement disabled. Those lifecycle and scope semantics do not implement the
+environment-tagged, multi-venue, overlap contract. Keeping the formats separate also prevents the
+HTTP verifier from treating an existing MCP/partner credential as authority by prefix fallback.
+
+The new HMAC credential service remains dark: it is not wired to an HTTP authentication route or
+dashboard issuance flow. Existing `pf_read_` credentials remain excluded from v1 HTTP
+authentication. The local schema, migration, and service work in this packet is not authorization
+to apply a migration or enable credentials in any hosted environment; no rollout or enablement
+decision is implied.
+
+M1/M2 are partial in the local worktree: the additive model/migration and HMAC lifecycle code exist,
+but their full acceptance proof and dashboard integration are incomplete. M3/M4 are blocked pending
+the shared canonical-read boundary and guide/entitlement decisions in this proposal; no bound HTTP
+read actions or guide endpoint are claimed.
+
 ## Why stop here
 
 The partner contract and registry define six operations (`clients.get`, `venues.list`,

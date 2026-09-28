@@ -20,6 +20,10 @@ const input = {
 
 function harness() {
   const records = new Map<string, PartnerApiCredentialRecord>()
+  const venueTenantById = new Map([
+    ['venue-a', 'tenant-a'],
+    ['venue-b', 'tenant-b'],
+  ])
   let nextId = 0
   const repository: PartnerApiCredentialRepository = {
     async create(data) {
@@ -44,6 +48,9 @@ function harness() {
     async listByTenant(tenantId) {
       return [...records.values()].filter((record) => record.tenantId === tenantId)
     },
+    async venueIdsBelongToTenant(tenantId, venueIds) {
+      return venueIds.every((venueId) => venueTenantById.get(venueId) === tenantId)
+    },
     async update(id, tenantId, data) {
       const existing = records.get(id)
       if (!existing || existing.tenantId !== tenantId) throw new Error('not found')
@@ -54,6 +61,7 @@ function harness() {
   }
   return {
     records,
+    venueTenantById,
     service: createPartnerApiCredentialService({ repository, pepper, environment: 'test' }),
   }
 }
@@ -147,5 +155,27 @@ describe('partner API credential service', () => {
     await expect(service.create({ ...input, clientId: 'tenant-b' })).rejects.toThrow(
       'Client must match tenant scope.',
     )
+  })
+
+  it('rejects cross-tenant and nonexistent venue IDs when creating a credential', async () => {
+    const { service } = harness()
+
+    await expect(service.create({ ...input, venueIds: ['venue-b'] })).rejects.toThrow(
+      'Venue scope must belong to the client tenant.',
+    )
+    await expect(service.create({ ...input, venueIds: ['venue-missing'] })).rejects.toThrow(
+      'Venue scope must belong to the client tenant.',
+    )
+  })
+
+  it('rejects a credential during verification if any scoped venue is missing or changes tenant', async () => {
+    const { service, venueTenantById } = harness()
+    const created = await service.create(input)
+
+    venueTenantById.delete('venue-a')
+    await expect(service.verify(created.token)).resolves.toBeNull()
+
+    venueTenantById.set('venue-a', 'tenant-b')
+    await expect(service.verify(created.token)).resolves.toBeNull()
   })
 })

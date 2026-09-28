@@ -49,6 +49,7 @@ export type PartnerApiCredentialRepository = Readonly<{
   findByPublicId: (publicId: string) => Promise<PartnerApiCredentialRecord | null>
   findById: (id: string, tenantId: string) => Promise<PartnerApiCredentialRecord | null>
   listByTenant: (tenantId: string) => Promise<PartnerApiCredentialRecord[]>
+  venueIdsBelongToTenant: (tenantId: string, venueIds: readonly string[]) => Promise<boolean>
   update: (
     id: string,
     tenantId: string,
@@ -181,6 +182,9 @@ export function createPartnerApiCredentialService(
 
   async function mint(input: CreatePartnerApiCredentialInput, rotatedFromId: string | null) {
     validateCreateInput(input)
+    if (!(await repository.venueIdsBelongToTenant(input.tenantId, input.venueIds))) {
+      throw new PartnerApiCredentialInputError('Venue scope must belong to the client tenant.')
+    }
     const publicId = randomBytes(12).toString('base64url')
     const secret = randomBytes(32).toString('base64url')
     const token = `tk_${environment}_${publicId}_${secret}`
@@ -252,6 +256,7 @@ export function createPartnerApiCredentialService(
         (record.expiresAt && record.expiresAt <= now)
       )
         return null
+      if (!(await repository.venueIdsBelongToTenant(record.tenantId, record.venueIds))) return null
       await repository.update(record.id, record.tenantId, { lastUsedAt: now })
       return safeScope(record)
     },
@@ -271,6 +276,13 @@ const prismaPartnerApiCredentialRepository: PartnerApiCredentialRepository = {
   },
   async listByTenant(tenantId) {
     return db.partnerApiCredential.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } })
+  },
+  async venueIdsBelongToTenant(tenantId, venueIds) {
+    if (venueIds.length === 0) return true
+    const matchingVenueCount = await db.venue.count({
+      where: { tenantId, id: { in: [...venueIds] } },
+    })
+    return matchingVenueCount === venueIds.length
   },
   async update(id, tenantId, data) {
     return db.partnerApiCredential.update({ where: { id_tenantId: { id, tenantId } }, data })
