@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const workflow = await readFile(new URL('../../.github/workflows/staging-release.yml', import.meta.url), 'utf8')
-const restore = await readFile(new URL('../../.github/workflows/staging-restore.yml', import.meta.url), 'utf8')
+const workflow = (await readFile(new URL('../../.github/workflows/staging-release.yml', import.meta.url), 'utf8')).replace(/\r\n/gu, '\n')
+const restore = (await readFile(new URL('../../.github/workflows/staging-restore.yml', import.meta.url), 'utf8')).replace(/\r\n/gu, '\n')
 
 test('branch push can only enter the synthetic job', () => {
   assert.match(workflow, /branches: \[codex\/torchiko-one-click-staging\]/u)
