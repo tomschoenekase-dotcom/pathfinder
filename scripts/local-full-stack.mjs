@@ -293,9 +293,9 @@ function installNetworkGuard() {
       throw new Error(`Packet 14 local network guard denied a socket path (${label})`)
     }
     const host = normalized && typeof normalized === 'object'
-      ? normalized.host ?? normalized.hostname ?? '127.0.0.1'
+      ? normalized.host ?? normalized.hostname
       : typeof normalized === 'number'
-        ? typeof rest[0] === 'string' ? rest[0] : '127.0.0.1'
+        ? typeof rest[0] === 'string' ? rest[0] : undefined
         : undefined
     if (!host || !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
       throw new Error(`Packet 14 local network guard denied a non-loopback socket (${label})`)
@@ -357,7 +357,7 @@ function installNetworkGuard() {
       : typeof options === 'number' && typeof rest[0] === 'string'
         ? rest[0]
         : undefined
-    if (host && !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
+    if (!host || !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
       throw new Error('Packet 14 local network guard denied a non-loopback TLS socket')
     }
     return originalTlsConnect.call(this, options, ...rest)
@@ -372,7 +372,7 @@ function installNetworkGuard() {
   }
   const originalDgramConnect = dgram.Socket.prototype.connect
   dgram.Socket.prototype.connect = function (port, address, ...rest) {
-    if (address && !allowed.has(String(address).replace(/^\[|\]$/gu, '').toLowerCase())) {
+    if (!address || !allowed.has(String(address).replace(/^\[|\]$/gu, '').toLowerCase())) {
       throw new Error('Packet 14 local network guard denied a non-loopback UDP socket')
     }
     return originalDgramConnect.call(this, port, address, ...rest)
@@ -397,22 +397,40 @@ function installNetworkGuard() {
     }
   }
   for (const module of [http, https]) {
+    const assertHttpDestination = (input, rest) => {
+      const options = rest.find((value) => value && typeof value === 'object' && !(value instanceof URL))
+      for (const candidate of [input, options]) {
+        if (!candidate || typeof candidate !== 'object') continue
+        if (candidate.socketPath != null) {
+          throw new Error('Packet 14 local network guard denied an HTTP socket path')
+        }
+        if (candidate.createConnection != null || (candidate.agent != null && candidate.agent !== false)) {
+          throw new Error('Packet 14 local network guard denied a custom HTTP connection')
+        }
+        for (const host of [candidate.hostname, candidate.host]) {
+          if (host != null) {
+            deny(`${candidate.protocol ?? (module === https ? 'https:' : 'http:')}//${host}`)
+          }
+        }
+      }
+      const target = input instanceof URL
+        ? input.href
+        : typeof input === 'string'
+          ? input
+          : input && typeof input === 'object'
+            ? `${input.protocol ?? (module === https ? 'https:' : 'http:')}//${input.hostname ?? input.host ?? ''}`
+            : undefined
+      if (target) deny(target)
+      else throw new Error('Packet 14 local network guard denied an HTTP destination without a host')
+    }
     const originalRequest = module.request
     module.request = function (input, ...rest) {
-      if (input && typeof input === 'object' && input.socketPath != null) {
-        throw new Error('Packet 14 local network guard denied an HTTP socket path')
-      }
-      const target = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.hostname ? `http://${input.hostname}` : undefined
-      if (target) deny(target)
+      assertHttpDestination(input, rest)
       return originalRequest.call(this, input, ...rest)
     }
     const originalGet = module.get
     module.get = function (input, ...rest) {
-      if (input && typeof input === 'object' && input.socketPath != null) {
-        throw new Error('Packet 14 local network guard denied an HTTP socket path')
-      }
-      const target = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.hostname ? `http://${input.hostname}` : undefined
-      if (target) deny(target)
+      assertHttpDestination(input, rest)
       return originalGet.call(this, input, ...rest)
     }
   }
