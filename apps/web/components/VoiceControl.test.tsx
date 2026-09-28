@@ -1791,8 +1791,8 @@ describe('VoiceControl', () => {
         }),
       ),
     )
-    expect(onCaptionAnnouncement.mock.invocationCallOrder[1]).toBeLessThan(
-      onTranscriptLine.mock.invocationCallOrder[0],
+    expect(onCaptionAnnouncement.mock.invocationCallOrder[1]!).toBeLessThan(
+      onTranscriptLine.mock.invocationCallOrder[0]!,
     )
   })
 })
