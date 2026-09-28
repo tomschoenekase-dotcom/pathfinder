@@ -7,6 +7,10 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  waitForDisposableUploadProof,
+  withDisposableUploadProofDeadline,
+} from './disposable-upload-proof-wait'
 
 type DatabaseModule = typeof import('@pathfinder/db')
 type JobsModule = typeof import('@pathfinder/jobs')
@@ -72,20 +76,6 @@ function assertDisposableBoundary(): void {
   ) {
     throw new Error('Shakedown must remain preview-scoped and outbound-provider dark')
   }
-}
-
-async function waitFor<T>(
-  probe: () => Promise<T | null>,
-  description: string,
-  timeoutMs = 45_000,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const value = await probe()
-    if (value !== null) return value
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  throw new Error(`Timed out waiting for ${description}`)
 }
 
 type PreparedUpload = {
@@ -253,35 +243,47 @@ describe.runIf(enabled)('authoritative upload worker disposable shakedown', () =
 
   async function waitForTerminal(uploadId: string) {
     try {
-      return await waitFor(async () => {
+      return await waitForDisposableUploadProof(async () => {
         const row = await uploadRow(uploadId)
         return row.status === 'AWAITING_REVIEW' || row.status === 'REJECTED' ? row : null
       }, `terminal upload ${uploadId}`)
     } catch (error) {
-      const row = await uploadRow(uploadId)
-      const jobs = await resources!.queue.getJobs(
-        ['waiting', 'active', 'delayed', 'completed', 'failed'],
-        0,
-        200,
-        true,
-      )
-      const jobEvidence = await Promise.all(
-        jobs
-          .filter((job) => (job.data as { uploadId?: string }).uploadId === uploadId)
-          .map(async (job) => ({
-            state: await job.getState(),
-            attemptsMade: job.attemptsMade,
-            failedReason: job.failedReason,
-          })),
-      )
+      let diagnostic = 'unavailable'
+      try {
+        diagnostic = await withDisposableUploadProofDeadline(
+          async () => {
+            const row = await uploadRow(uploadId)
+            const jobs = await resources!.queue.getJobs(
+              ['waiting', 'active', 'delayed', 'completed', 'failed'],
+              0,
+              200,
+              true,
+            )
+            const jobEvidence = await Promise.all(
+              jobs
+                .filter((job) => (job.data as { uploadId?: string }).uploadId === uploadId)
+                .map(async (job) => ({
+                  state: await job.getState(),
+                  attemptsMade: job.attemptsMade,
+                  failedReason: job.failedReason,
+                })),
+            )
+            return `state=${row.status}; jobs=${JSON.stringify(jobEvidence)}`
+          },
+          5_000,
+          'terminal worker diagnostics',
+        )
+      } catch {
+        diagnostic = 'diagnostics-timed-out'
+      }
       throw new Error(
-        `Terminal wait failed: ${error instanceof Error ? error.message : 'unknown'}; state=${row.status}; jobs=${JSON.stringify(jobEvidence)}`,
+        `Terminal wait failed: ${error instanceof Error ? error.message : 'unknown'}; ${diagnostic}`,
       )
     }
   }
 
   async function queueJob(uploadId: string, state?: string) {
-    return waitFor(
+    return waitForDisposableUploadProof(
       async () => {
         const jobs = await resources!.queue.getJobs(
           ['waiting', 'active', 'delayed', 'completed', 'failed'],

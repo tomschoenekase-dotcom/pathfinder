@@ -25,6 +25,30 @@ export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
 export class DisposableIntakeVerificationRefusal extends Error {}
 export class DisposableIntakeVerificationExecutionError extends Error {}
 
+function timedOut(code, message) {
+  const error = new DisposableIntakeVerificationExecutionError(message)
+  error.code = code
+  throw error
+}
+
+export async function withDisposableDeadline(operation, milliseconds, code, message) {
+  let timer
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new DisposableIntakeVerificationExecutionError(message)
+          error.code = code
+          reject(error)
+        }, milliseconds)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function refuse(message) {
   throw new DisposableIntakeVerificationRefusal(message)
 }
@@ -40,11 +64,13 @@ function runNative(spawnSyncImpl, command, args, options = {}) {
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,
     timeout: 30_000,
+    killSignal: 'SIGKILL',
     ...options,
   })
 }
 
 function assertStarted(result, action) {
+  if (result.error?.code === 'ETIMEDOUT') timedOut('disposable-child-timeout', `${action} timed out`)
   if (result.error || typeof result.status !== 'number') fail(`${action} could not be started`)
   if (result.status !== 0) fail(`${action} failed`)
 }
@@ -159,12 +185,17 @@ function removeExactContainer(spawnSyncImpl, runtime, containerName) {
   }
 }
 
-async function waitFor({ description, probe, waitImpl, attempts = 120, delayMs = 500 }) {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    if (await probe()) return
-    await waitImpl(delayMs)
+export async function waitFor({ description, code, probe, waitImpl, timeoutMs = 90_000, probeTimeoutMs = 10_000, delayMs = 500 }) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now()
+    if (await withDisposableDeadline(probe, Math.min(remaining, probeTimeoutMs), code, `${description} probe timed out`)) return
+    const pause = Math.min(delayMs, deadline - Date.now())
+    if (pause > 0) {
+      await withDisposableDeadline(() => waitImpl(pause), pause + 1_000, code, `${description} retry wait timed out`)
+    }
   }
-  fail(`${description} did not become ready`)
+  timedOut(code, `${description} did not become ready within ${timeoutMs} ms`)
 }
 
 function containerHealth(spawnSyncImpl, runtime, containerName) {
@@ -322,6 +353,7 @@ function runMigration({
     ],
     { cwd: repositoryRoot, env: migrationEnv, timeout: 300_000 },
   )
+  if (result.error?.code === 'ETIMEDOUT') timedOut('disposable-migration-timeout', 'Disposable migration timed out')
   if (result.error || typeof result.status !== 'number')
     fail('Disposable migration could not start')
   if (result.status !== 0) {
@@ -361,6 +393,7 @@ function runIntegration({
     ],
     { cwd: repositoryRoot, env: childEnv, timeout: 300_000 },
   )
+  if (result.error?.code === 'ETIMEDOUT') timedOut('disposable-worker-proof-timeout', 'Shakedown test timed out')
   if (result.error || typeof result.status !== 'number') fail('Shakedown test could not start')
   if (result.status !== 0) {
     let reportFailure = ''
@@ -380,6 +413,10 @@ function runIntegration({
         reportFailure = 'Machine-readable failure report could not be parsed.'
       }
     }
+    if (reportFailure.includes('INTAKE_CLAMAV_STREAM_TIMEOUT'))
+      timedOut('disposable-stream-timeout', 'ClamAV stream proof timed out')
+    if (reportFailure.includes('DISPOSABLE_UPLOAD_WORKER_WAIT_TIMEOUT'))
+      timedOut('disposable-worker-completion-timeout', 'Upload worker did not reach a terminal state')
     const detail = redact(
       `${result.stdout ?? ''}\n${result.stderr ?? ''}\n${reportFailure}`,
       sensitiveTokens,
@@ -394,6 +431,8 @@ export async function runDisposableServiceShakedown({
   spawnSyncImpl = spawnSync,
   fetchImpl = fetch,
   waitImpl = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds)),
+  readinessTimeoutMs = 90_000,
+  readinessProbeTimeoutMs = 10_000,
   stdout = process.stdout,
   repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url))),
   configuration,
@@ -503,7 +542,10 @@ export async function runDisposableServiceShakedown({
 
     await waitFor({
       description: 'Disposable PostgreSQL',
+      code: 'disposable-postgres-readiness-timeout',
       waitImpl,
+      timeoutMs: readinessTimeoutMs,
+      probeTimeoutMs: readinessProbeTimeoutMs,
       probe: async () => {
         const check = runDocker(
           spawnSyncImpl,
@@ -516,7 +558,10 @@ export async function runDisposableServiceShakedown({
     })
     await waitFor({
       description: 'Disposable Redis',
+      code: 'disposable-redis-readiness-timeout',
       waitImpl,
+      timeoutMs: readinessTimeoutMs,
+      probeTimeoutMs: readinessProbeTimeoutMs,
       probe: async () => {
         const check = runDocker(
           spawnSyncImpl,
@@ -529,10 +574,15 @@ export async function runDisposableServiceShakedown({
     })
     await waitFor({
       description: 'Disposable MinIO',
+      code: 'disposable-minio-readiness-timeout',
       waitImpl,
+      timeoutMs: readinessTimeoutMs,
+      probeTimeoutMs: readinessProbeTimeoutMs,
       probe: async () => {
         try {
-          const response = await fetchImpl(`http://127.0.0.1:${minioPort}/minio/health/live`)
+          const response = await fetchImpl(`http://127.0.0.1:${minioPort}/minio/health/live`, {
+            signal: AbortSignal.timeout(10_000),
+          })
           return response.ok
         } catch {
           return false
@@ -541,8 +591,10 @@ export async function runDisposableServiceShakedown({
     })
     await waitFor({
       description: 'Disposable ClamAV',
+      code: 'disposable-clamav-readiness-timeout',
       waitImpl,
-      attempts: 360,
+      timeoutMs: Math.max(readinessTimeoutMs, 180_000),
+      probeTimeoutMs: readinessProbeTimeoutMs,
       probe: async () => containerHealth(spawnSyncImpl, runtime, names.clamav) === 'healthy',
     })
 

@@ -12,7 +12,9 @@ export function disposableRunnerFailureRecord(error, entrypointUrl) {
   return {
     ok: false,
     action: `disposable.${operation}.failed`,
-    errorCode: refusal
+    errorCode: typeof error?.code === 'string' && /^disposable-[a-z-]+-timeout$/u.test(error.code)
+      ? error.code
+      : refusal
       ? 'disposable-runner-refused'
       : cleanupFailure
         ? 'disposable-runner-cleanup-failed'

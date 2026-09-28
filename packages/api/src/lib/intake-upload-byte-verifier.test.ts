@@ -5,6 +5,7 @@ import {
   createBoundedClamAvResponseCollector,
   nextClamAvInputChunk,
   parseClamAvResponse,
+  requestAsyncIteratorClose,
   verifyIntakeUploadBytes,
   withClamAvSocketLifecycle,
 } from './intake-upload-byte-verifier'
@@ -49,6 +50,24 @@ describe('bounded intake upload byte verification', () => {
       }),
     ).rejects.toThrow('ClamAV scan timed out')
     expect(failedSocket.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('bounds an unsettled ClamAV stream and destroys its socket', async () => {
+    const socket = { destroy: vi.fn() }
+    const iterator = {
+      next: () => new Promise<IteratorResult<Uint8Array>>(() => undefined),
+      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+    }
+    await expect(
+      withClamAvSocketLifecycle(
+        socket,
+        () => iterator.next(),
+        5,
+        () => requestAsyncIteratorClose(iterator),
+      ),
+    ).rejects.toMatchObject({ code: 'INTAKE_CLAMAV_STREAM_TIMEOUT' })
+    expect(socket.destroy).toHaveBeenCalledOnce()
+    expect(iterator.return).toHaveBeenCalledOnce()
   })
 
   it('observes scanner failure while the upload byte source is stalled', async () => {

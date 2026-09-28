@@ -15,6 +15,8 @@ import {
   runDisposableServiceShakedown,
   validateLocalDockerEndpoint,
   validateVitestReport,
+  waitFor,
+  withDisposableDeadline,
 } from './lib/disposable-intake-upload-verification.mjs'
 
 const resources = {
@@ -149,7 +151,7 @@ test('refuses before Docker inspection without the exact package lifecycle', asy
   assert.equal(spawned, false)
 })
 
-function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
+function fakeRuntime({ integrationFails = false, cleanupFails = false, timeoutStage, proofFailureMarker } = {}) {
   const running = new Set()
   const childEnvironments = []
   const calls = []
@@ -160,6 +162,12 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
     spawnSyncImpl(command, args, options) {
       calls.push({ command, args, options })
       assert.equal(options.shell, false)
+      assert.ok(options.timeout > 0)
+      assert.equal(options.killSignal, 'SIGKILL')
+      if (timeoutStage === 'migration' && args.some((value) => value.endsWith('migrate-disposable-db.mjs')))
+        return { error: { code: 'ETIMEDOUT' }, status: null, stdout: '', stderr: '' }
+      if (timeoutStage === 'worker' && command === process.execPath && args.includes('vitest'))
+        return { error: { code: 'ETIMEDOUT' }, status: null, stdout: '', stderr: '' }
       if (command === 'docker' && args[0] === 'context' && args[1] === 'show') {
         return { status: 0, stdout: 'desktop-linux\n', stderr: '' }
       }
@@ -185,6 +193,8 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
           /^pathfinder-disposable-(?:intake|golden|retention|opsreadiness|prospectoutreach)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
         )
         running.add(name)
+        if (timeoutStage === 'docker-start')
+          return { error: { code: 'ETIMEDOUT' }, status: null, stdout: '', stderr: '' }
         return { status: 0, stdout: 'container-id\n', stderr: '' }
       }
       if (command === 'docker' && args[0] === 'port') {
@@ -224,7 +234,7 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
         const outputPath = args[args.indexOf('--outputFile') + 1]
         writeFileSync(
           outputPath,
-          integrationFails
+          integrationFails || proofFailureMarker
             ? JSON.stringify({
                 success: false,
                 numPassedTests: 0,
@@ -233,11 +243,11 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
                 numSkippedTests: 0,
                 numTodoTests: 0,
                 numTotalTests: 1,
-                testResults: [{ assertionResults: [{ status: 'failed' }] }],
+                testResults: [{ assertionResults: [{ status: 'failed', failureMessages: proofFailureMarker ? [proofFailureMarker] : [] }] }],
               })
             : passingReport(),
         )
-        return { status: integrationFails ? 1 : 0, stdout: '', stderr: '' }
+        return { status: integrationFails || proofFailureMarker ? 1 : 0, stdout: '', stderr: '' }
       }
       throw new Error(`Unexpected command: ${command} ${args.join(' ')}`)
     },
@@ -478,4 +488,83 @@ test('removes every exact container when the integration fails', async () => {
     DisposableIntakeVerificationExecutionError,
   )
   assert.equal(runtime.running.size, 0)
+})
+
+test('readiness probe and retry wait cannot leave top-level await unsettled', async () => {
+  for (const [probe, waitImpl, message] of [
+    [() => new Promise(() => {}), async () => {}, /probe timed out/u],
+    [async () => false, () => new Promise(() => {}), /retry wait timed out/u],
+  ]) {
+    await assert.rejects(
+      waitFor({ description: 'Disposable MinIO', code: 'disposable-minio-readiness-timeout',
+        probe, waitImpl, timeoutMs: 50, probeTimeoutMs: 10, delayMs: 5 }),
+      (error) => error.code === 'disposable-minio-readiness-timeout' && message.test(error.message),
+    )
+  }
+  await assert.rejects(
+    withDisposableDeadline(() => new Promise(() => {}), 5, 'disposable-stream-timeout', 'stream end timed out'),
+    (error) => error.code === 'disposable-stream-timeout',
+  )
+})
+
+test('hung MinIO readiness reports its code and still removes every container', async () => {
+  const runtime = fakeRuntime()
+  await assert.rejects(
+    runDisposableIntakeVerificationShakedown({
+      env: { npm_execpath: 'pnpm-cli.cjs', npm_lifecycle_event: 'test:intake-upload-verification:disposable' },
+      spawnSyncImpl: runtime.spawnSyncImpl,
+      fetchImpl: () => new Promise(() => {}),
+      waitImpl: async () => {},
+      readinessTimeoutMs: 50,
+      readinessProbeTimeoutMs: 10,
+      stdout: { write() {} },
+      repositoryRoot: 'C:/pathfinder',
+    }),
+    (error) => error.code === 'disposable-minio-readiness-timeout',
+  )
+  assert.equal(runtime.running.size, 0)
+  assert.equal(runtime.calls.filter(({ args }) => args[0] === 'rm').length, 4)
+})
+
+test('migration and worker child timeouts retain their own codes and cleanup', async () => {
+  for (const [timeoutStage, code] of [
+    ['docker-start', 'disposable-child-timeout'],
+    ['migration', 'disposable-migration-timeout'],
+    ['worker', 'disposable-worker-proof-timeout'],
+  ]) {
+    const runtime = fakeRuntime({ timeoutStage })
+    await assert.rejects(
+      runDisposableIntakeVerificationShakedown({
+        env: { npm_execpath: 'pnpm-cli.cjs', npm_lifecycle_event: 'test:intake-upload-verification:disposable' },
+        spawnSyncImpl: runtime.spawnSyncImpl,
+        fetchImpl: async () => ({ ok: true }),
+        waitImpl: async () => {},
+        stdout: { write() {} },
+        repositoryRoot: 'C:/pathfinder',
+      }),
+      (error) => error.code === code,
+    )
+    assert.equal(runtime.running.size, 0)
+  }
+})
+
+test('stream and worker completion timeouts retain specific runner codes', async () => {
+  for (const [proofFailureMarker, code] of [
+    ['INTAKE_CLAMAV_STREAM_TIMEOUT', 'disposable-stream-timeout'],
+    ['DISPOSABLE_UPLOAD_WORKER_WAIT_TIMEOUT', 'disposable-worker-completion-timeout'],
+  ]) {
+    const runtime = fakeRuntime({ proofFailureMarker })
+    await assert.rejects(
+      runDisposableIntakeVerificationShakedown({
+        env: { npm_execpath: 'pnpm-cli.cjs', npm_lifecycle_event: 'test:intake-upload-verification:disposable' },
+        spawnSyncImpl: runtime.spawnSyncImpl,
+        fetchImpl: async () => ({ ok: true }),
+        waitImpl: async () => {},
+        stdout: { write() {} },
+        repositoryRoot: 'C:/pathfinder',
+      }),
+      (error) => error.code === code,
+    )
+    assert.equal(runtime.running.size, 0)
+  }
 })

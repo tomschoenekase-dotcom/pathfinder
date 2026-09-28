@@ -43,6 +43,18 @@ test('refusal and cleanup outcomes keep distinct exit semantics without cause te
   assert.match(chunks[1], /disposable-runner-cleanup-failed/u)
 })
 
+test('a known timeout keeps its specific code without exposing failure details', () => {
+  const error = Object.assign(new Error('private endpoint'), {
+    code: 'disposable-minio-readiness-timeout',
+  })
+  const record = disposableRunnerFailureRecord(
+    error,
+    new URL('./run-disposable-intake-upload-verification.mjs', import.meta.url),
+  )
+  assert.equal(record.errorCode, 'disposable-minio-readiness-timeout')
+  assert.doesNotMatch(JSON.stringify(record), /private endpoint/u)
+})
+
 test('every disposable shakedown entrypoint uses the code-only reporter', async () => {
   const directory = new URL('./', import.meta.url)
   const entrypoints = (await readdir(directory))
