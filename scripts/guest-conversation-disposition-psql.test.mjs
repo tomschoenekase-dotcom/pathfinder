@@ -23,10 +23,16 @@ test('result is not acknowledged before the post-command marker', async () => {
   assert.deepEqual(await promise, { committed: true })
   await session.close()
 })
-for (const mode of ['malformed', 'multiple', 'stderr', 'loss', 'timeout']) {
-  test(`${mode} retires exact channel and forbids later queries`, async () => {
+for (const [mode, expectedCode] of [
+  ['malformed', 'PSQL_JSON_REFUSED'],
+  ['multiple', 'PSQL_RESULT_REFUSED'],
+  ['stderr', 'PSQL_RESULT_REFUSED'],
+  ['loss', 'PSQL_CONNECTION_ENDED'],
+  ['timeout', 'PSQL_QUERY_TIMEOUT'],
+]) {
+  test(`${mode} rejects as ${expectedCode}, retires exact channel and forbids later queries`, async () => {
     const session = fixture(mode)
-    await assert.rejects(session.query('SELECT true'), /PSQL_/u)
+    await assert.rejects(session.query('SELECT true'), (error) => error.code === expectedCode)
     assert.equal(session.retired, true)
     await assert.rejects(session.query('SELECT false'), /PSQL_SESSION_UNAVAILABLE/u)
     await session.close()
