@@ -19,6 +19,8 @@ test('hosted approval waits for preflight and is never requested by synthetic pu
 })
 
 test('synthetic job checks out the exact SHA and runs every staging-release test', () => {
+  assert.match(workflow, /node-version: 22\n          package-manager-cache: false/u)
+  assert.match(restore, /node-version: 22\n          package-manager-cache: false/u)
   assert.match(workflow, /REQUESTED_SHA: \$\{\{ github\.event_name == 'push' && github\.sha \|\| inputs\.release_sha \}\}/u)
   assert.ok(workflow.includes('[[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]'))
   assert.ok(workflow.includes('test "$REQUESTED_SHA" = "$(git rev-parse HEAD)"'))
