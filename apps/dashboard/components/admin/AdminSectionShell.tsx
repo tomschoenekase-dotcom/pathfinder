@@ -216,7 +216,7 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
                 <p className="text-sm font-semibold text-slate-900">Platform scope</p>
               </div>
             </div>
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
               <AdminCommandPalette light />
               <CopyForCodex
                 route={pathname}

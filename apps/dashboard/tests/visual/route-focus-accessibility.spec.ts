@@ -23,10 +23,7 @@ test('dashboard shell exposes skip navigation and focuses new route content', as
   if ((page.viewportSize()?.width ?? 0) < 1024) {
     await page.getByRole('button', { name: 'Open navigation' }).click()
   }
-  await expect(page.getByRole('link', { name: 'Control room' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page.getByRole('link', { name: 'System' })).toHaveAttribute('aria-current', 'page')
   if ((page.viewportSize()?.width ?? 0) < 1024) {
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
@@ -35,6 +32,7 @@ test('dashboard shell exposes skip navigation and focuses new route content', as
   const overflowNodes = await page.evaluate(() => {
     const width = document.documentElement.clientWidth
     return [...document.querySelectorAll<HTMLElement>('body *')]
+      .filter((element) => !element.closest('nav[aria-label="System sections"]'))
       .map((element) => {
         const rect = element.getBoundingClientRect()
         return { tag: element.tagName, left: rect.left, right: rect.right, width: rect.width }
@@ -45,6 +43,11 @@ test('dashboard shell exposes skip navigation and focuses new route content', as
       )
   })
   expect(overflowNodes).toEqual([])
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1)
 
   const result = await new AxeBuilder({ page }).include('body').analyze()
   expect(

@@ -335,12 +335,14 @@ export function AdminCommandPalette({
           light
             ? 'border-slate-300 bg-slate-50 text-slate-700 hover:border-sky-500 hover:bg-sky-50'
             : 'border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:bg-slate-800',
-          compact ? 'rounded-xl' : 'w-full rounded-xl',
+          'max-w-full rounded-xl',
         ].join(' ')}
         aria-label="Search or jump"
       >
         <Search className="h-4 w-4" aria-hidden="true" />
-        {compact ? null : <span className="min-w-0 flex-1 truncate">Search or jump</span>}
+        {compact ? null : (
+          <span className="hidden min-w-0 flex-1 truncate sm:inline">Search or jump</span>
+        )}
         <span
           className={`hidden items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex ${light ? 'border-slate-300 text-slate-500' : 'border-slate-600 text-slate-400'}`}
         >

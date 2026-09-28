@@ -404,14 +404,11 @@ test('Founder Control Room shell is responsive and restores mobile navigation fo
     await navigationTrigger.focus()
     await navigationTrigger.press('Enter')
     await expect(page.getByRole('navigation', { name: 'Torchiko OS navigation' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Control room' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
+    await expect(page.getByRole('link', { name: 'System' })).toHaveAttribute('aria-current', 'page')
     await page.keyboard.press('Escape')
     await expect(navigationTrigger).toBeFocused()
   } else {
-    const search = page.getByRole('button', { name: 'Search Admin OS' })
+    const search = page.getByRole('button', { name: 'Search or jump' })
     await search.focus()
     await search.press('Enter')
     await expect(page.getByRole('dialog', { name: 'Admin OS command search' })).toBeVisible()
@@ -522,7 +519,7 @@ test('exact-scoped Internal Workspace remains usable across real browser widths'
   ).toBeVisible()
   await expect(page.getByText('Venue scope')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Harbor Discovery Museum' })).toBeVisible()
-  const contentLink = page.getByRole('link', { name: /Universal content/ })
+  const contentLink = page.getByRole('link', { name: /^Content\b/ })
   await expect(contentLink).toHaveAttribute('aria-current', 'page')
   await contentLink.focus()
   await expect(contentLink).toBeFocused()
