@@ -683,15 +683,14 @@ export function LookAndFeelEditorView({
     >
       <div
         className="mb-4 grid grid-cols-2 rounded-lg border border-tk-rule bg-white p-1 lg:hidden"
-        role="tablist"
+        role="group"
         aria-label="Look & feel view"
       >
         {(['edit', 'preview'] as const).map((view) => (
           <button
             key={view}
             type="button"
-            role="tab"
-            aria-selected={mobileView === view}
+            aria-pressed={mobileView === view}
             aria-controls={`${titleId}-${view}`}
             onClick={() => setMobileView(view)}
             className={`min-h-11 rounded-md text-sm font-semibold ${portalFocus} ${

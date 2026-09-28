@@ -215,4 +215,16 @@ describe('Look & feel', () => {
     ).toBeGreaterThan(0)
     expect(document.querySelector('iframe')).toBeNull()
   })
+
+  it('exposes the mobile edit and preview switch as pressed buttons', () => {
+    renderEditor()
+    const viewGroup = screen.getByRole('group', { name: 'Look & feel view' })
+    const edit = within(viewGroup).getByRole('button', { name: 'Edit' })
+    const preview = within(viewGroup).getByRole('button', { name: 'Preview' })
+    expect(edit.getAttribute('aria-pressed')).toBe('true')
+    expect(preview.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(preview)
+    expect(edit.getAttribute('aria-pressed')).toBe('false')
+    expect(preview.getAttribute('aria-pressed')).toBe('true')
+  })
 })

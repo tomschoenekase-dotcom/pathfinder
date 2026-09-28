@@ -60,6 +60,21 @@ jobs:
           passphrase='synthetic-disposable-'
           passphrase+='passphrase-for-ci-only'
           echo "::add-mask::$passphrase"
+      - name: Bind the selected artifact run to an approved source branch and exact SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          metadata=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            --jq '[.head_branch, .head_sha] | @tsv')
+          IFS=$'\t' read -r source_branch source_sha <<< "$metadata"
+          [[ "$source_sha" == "$RELEASE_SHA" ]]
+          case "$source_branch" in
+            codex/torchiko-one-click-staging|codex/torchiko-r2-20260928|codex/torchiko-r2-1-20260928) ;;
+            *) echo 'Artifact run is outside the approved synthetic source branches' >&2; exit 1 ;;
+          esac
+          echo "SOURCE_REF=refs/heads/$source_branch" >> "$GITHUB_ENV"
       - name: Download the encrypted archive from the named run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -75,7 +90,7 @@ jobs:
           gh attestation verify "$RUNNER_TEMP/staging-restore/evidence.json" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/staging-release.yml" \
-            --source-ref refs/heads/codex/torchiko-one-click-staging \
+            --source-ref "$SOURCE_REF" \
             --source-digest "$RELEASE_SHA"
       - name: Verify evidence and restore only into new disposable service container
         env:
