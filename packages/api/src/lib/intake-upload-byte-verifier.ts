@@ -392,7 +392,8 @@ export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScann
     engine: 'clamav-clamd',
     engineVersion: 'daemon',
     async scan(input) {
-      const iterator = input.bytes[Symbol.asyncIterator]()
+      const createIterator = input.bytes[Symbol.asyncIterator]
+      const iterator = createIterator.call(input.bytes)
       const socket = createConnection({ host, port: parsedPort })
       const disposableProof =
         process.env.PATHFINDER_DISPOSABLE_INTAKE_CONFIRMATION ===
