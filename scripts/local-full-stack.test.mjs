@@ -92,8 +92,8 @@ test('preloaded egress guard denies external fetch and sockets while allowing lo
   const packetProtectorUrl = `data:text/javascript,${encodeURIComponent(packetProtector)}`
   const code = `
     import assert from 'node:assert/strict';
-    import { createServer } from 'node:http';
-    import { connect, Server, Socket } from 'node:net';
+    import { createServer, request as httpRequest } from 'node:http';
+    import { connect, createConnection, Server, Socket } from 'node:net';
     import * as dns from 'node:dns';
     import { Socket as DgramSocket } from 'node:dgram';
     import tls from 'node:tls';
@@ -116,10 +116,16 @@ test('preloaded egress guard denies external fetch and sockets while allowing lo
     await assert.rejects(Promise.resolve().then(() => fetch('https://example.com')), /network guard denied/u);
     assert.throws(() => connect(443, 'example.com'), /network guard denied/u);
     assert.throws(() => new Socket().connect({ port: 443, host: '8.8.8.8' }), /network guard denied/u);
+    assert.throws(() => connect('/var/run/docker.sock'), /socket path/u);
+    assert.throws(() => createConnection({ path: '/var/run/docker.sock' }), /socket path/u);
+    assert.throws(() => new Socket().connect({ path: '/var/run/docker.sock' }), /socket path/u);
+    assert.throws(() => new Socket().connect([{ port: 443, host: '8.8.8.8' }]), /network guard denied/u);
+    assert.throws(() => httpRequest({ socketPath: '/var/run/docker.sock', path: '/containers/json' }), /socket path/u);
     await assert.rejects(Promise.resolve().then(() => dns.promises.resolve4('example.com')), /network guard denied/u);
     await assert.rejects(Promise.resolve().then(() => dns.promises.resolve4('127.0.0.1')), /network guard denied/u);
     assert.throws(() => tls.connect({ host: 'example.com', port: 443 }), /network guard denied/u);
     assert.throws(() => tls.connect(443, 'example.com'), /network guard denied/u);
+    assert.throws(() => tls.connect({ path: '/var/run/docker.sock' }), /socket path/u);
     const udp = new DgramSocket('udp4');
     assert.throws(() => udp.send(Buffer.from('blocked'), 9, '8.8.8.8'), /network guard denied/u);
     udp.close();

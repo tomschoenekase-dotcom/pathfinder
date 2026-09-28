@@ -99,6 +99,26 @@ const knowledge = [
   },
 ] as const
 
+// Invented analytics rows keep the admin visitor-speed readout deterministic in
+// the local full-stack lane without making any visitor or provider calls.
+function localVisitorSpeedEvents() {
+  const now = Date.now()
+  // AnalyticsEvent is append-only. Date-scoped IDs keep repeated local seeds
+  // idempotent while giving a long-lived disposable stack fresh weekly samples.
+  const day = new Date(now).toISOString().slice(0, 10).replaceAll('-', '')
+  return [
+    { id: `event_p14_local_aurora_speed_${day}_1`, requestFirstTextMs: 420, minutesAgo: 2 },
+    { id: `event_p14_local_aurora_speed_${day}_2`, requestFirstTextMs: 780, minutesAgo: 5 },
+  ].map(({ id, requestFirstTextMs, minutesAgo }) => ({
+    id,
+    tenantId: 'org_LocalTenantA',
+    venueId: 'cpacket14aurora0000000000',
+    eventType: 'message.received',
+    metadata: { requestFirstTextMs, synthetic: true, fixture: 'packet14-local-full-stack' },
+    occurredAt: new Date(now - minutesAgo * 60 * 1000),
+  }))
+}
+
 // Entirely invented local CRM review data. These records deliberately have no
 // contacts, activities, campaigns, drafts, or email history.
 const crmTerritory = {
@@ -367,6 +387,40 @@ async function main() {
       `Seeded synthetic venue ${venue.slug}; guide=${venue.slug}; qr=http://127.0.0.1:56345/${venue.slug}/chat?source=qr`,
     )
   }
+
+  const visitorSpeedEvents = localVisitorSpeedEvents()
+  await db.analyticsEvent.createMany({ data: visitorSpeedEvents, skipDuplicates: true })
+  const visitorSpeedReadback = await db.analyticsEvent.findMany({
+    where: { id: { in: visitorSpeedEvents.map(({ id }) => id) } },
+    select: {
+      id: true,
+      tenantId: true,
+      venueId: true,
+      eventType: true,
+      metadata: true,
+      occurredAt: true,
+    },
+  })
+  const speedManifest = new Map(visitorSpeedEvents.map((event) => [event.id, event]))
+  if (
+    visitorSpeedReadback.length !== visitorSpeedEvents.length ||
+    visitorSpeedReadback.some(
+      (event) =>
+        !speedManifest.has(event.id) ||
+        event.tenantId !== 'org_LocalTenantA' ||
+        event.venueId !== 'cpacket14aurora0000000000' ||
+        event.eventType !== 'message.received' ||
+        typeof event.metadata !== 'object' ||
+        event.metadata === null ||
+        !('requestFirstTextMs' in event.metadata) ||
+        event.metadata.requestFirstTextMs !==
+          speedManifest.get(event.id)?.metadata.requestFirstTextMs ||
+        event.occurredAt.getTime() < Date.now() - 7 * 24 * 60 * 60 * 1000,
+    )
+  ) {
+    throw new Error('Packet 14 synthetic visitor speed fixture readback did not match its manifest')
+  }
+  console.log('Seeded two synthetic visitor speed samples for Aurora Science Museum.')
 
   const verifiedQrCount = await writeAndVerifyVenueQrs()
 

@@ -11,6 +11,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
+import net from 'node:net'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -276,7 +277,7 @@ function installNetworkGuard() {
     try {
       host = new URL(target).hostname.replace(/^\[|\]$/gu, '').toLowerCase()
     } catch {
-      return
+      throw new Error('Packet 14 local network guard denied an invalid destination')
     }
     if (!allowed.has(host)) throw new Error('Packet 14 local network guard denied a non-loopback destination')
   }
@@ -286,32 +287,32 @@ function installNetworkGuard() {
   const tls = awaitImportSync('node:tls')
   const http = awaitImportSync('node:http')
   const https = awaitImportSync('node:https')
+  const assertLocalSocket = (options, rest, label) => {
+    const normalized = Array.isArray(options) ? options[0] : options
+    if (typeof normalized === 'string' || (normalized && typeof normalized === 'object' && (normalized.path != null || normalized.socketPath != null))) {
+      throw new Error(`Packet 14 local network guard denied a socket path (${label})`)
+    }
+    const host = normalized && typeof normalized === 'object'
+      ? normalized.host ?? normalized.hostname ?? '127.0.0.1'
+      : typeof normalized === 'number'
+        ? typeof rest[0] === 'string' ? rest[0] : '127.0.0.1'
+        : undefined
+    if (!host || !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
+      throw new Error(`Packet 14 local network guard denied a non-loopback socket (${label})`)
+    }
+  }
   for (const module of [net]) {
     for (const name of ['connect', 'createConnection']) {
       const original = module[name]
       module[name] = function (options, ...rest) {
-        const host = typeof options === 'object'
-          ? options.host ?? options.hostname
-          : typeof options === 'number' && typeof rest[0] === 'string'
-            ? rest[0]
-            : undefined
-        if (host && !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
-          throw new Error('Packet 14 local network guard denied a non-loopback socket')
-        }
+        assertLocalSocket(options, rest, name)
         return original.call(this, options, ...rest)
       }
     }
   }
   const originalSocketConnect = net.Socket.prototype.connect
   net.Socket.prototype.connect = function (options, ...rest) {
-    const host = typeof options === 'object'
-      ? options.host ?? options.hostname
-      : typeof options === 'number' && typeof rest[0] === 'string'
-        ? rest[0]
-        : undefined
-    if (host && !allowed.has(String(host).replace(/^\[|\]$/gu, '').toLowerCase())) {
-      throw new Error('Packet 14 local network guard denied a non-loopback socket')
-    }
+    assertLocalSocket(options, rest, 'Socket.connect')
     return originalSocketConnect.call(this, options, ...rest)
   }
   const originalServerListen = net.Server.prototype.listen
@@ -348,6 +349,9 @@ function installNetworkGuard() {
   }
   const originalTlsConnect = tls.connect
   tls.connect = function (options, ...rest) {
+    if (typeof options === 'string' || (options && typeof options === 'object' && (options.path != null || options.socketPath != null))) {
+      throw new Error('Packet 14 local network guard denied a TLS socket path')
+    }
     const host = typeof options === 'object'
       ? options.host ?? options.hostname
       : typeof options === 'number' && typeof rest[0] === 'string'
@@ -373,6 +377,19 @@ function installNetworkGuard() {
     }
     return originalDgramConnect.call(this, port, address, ...rest)
   }
+  const originalDgramBind = dgram.Socket.prototype.bind
+  dgram.Socket.prototype.bind = function (...args) {
+    const options = args[0]
+    const address = options && typeof options === 'object'
+      ? options.address
+      : typeof options === 'number' && typeof args[1] === 'string'
+        ? args[1]
+        : undefined
+    if (!address || !allowed.has(String(address).replace(/^\[|\]$/gu, '').toLowerCase())) {
+      throw new Error('Packet 14 local network guard denied a non-loopback UDP bind')
+    }
+    return originalDgramBind.apply(this, args)
+  }
   for (const name of ['resolve', 'resolve4', 'resolve6', 'resolveAny', 'resolveCname', 'resolveMx', 'resolveNaptr', 'resolveNs', 'resolvePtr', 'resolveSoa', 'resolveSrv', 'resolveTxt']) {
     if (typeof dns.Resolver.prototype[name] !== 'function') continue
     dns.Resolver.prototype[name] = function () {
@@ -382,12 +399,18 @@ function installNetworkGuard() {
   for (const module of [http, https]) {
     const originalRequest = module.request
     module.request = function (input, ...rest) {
+      if (input && typeof input === 'object' && input.socketPath != null) {
+        throw new Error('Packet 14 local network guard denied an HTTP socket path')
+      }
       const target = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.hostname ? `http://${input.hostname}` : undefined
       if (target) deny(target)
       return originalRequest.call(this, input, ...rest)
     }
     const originalGet = module.get
     module.get = function (input, ...rest) {
+      if (input && typeof input === 'object' && input.socketPath != null) {
+        throw new Error('Packet 14 local network guard denied an HTTP socket path')
+      }
       const target = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.hostname ? `http://${input.hostname}` : undefined
       if (target) deny(target)
       return originalGet.call(this, input, ...rest)
@@ -607,7 +630,7 @@ async function prepareFolders(paths) {
 function runCompose(paths, ...args) {
   const env = verifyLocalDockerTarget()
   const info = spawnSync('docker', ['info', '--format', '{{.OSType}}'], {
-    encoding: 'utf8', windowsHide: true, timeout: 10_000, env,
+    encoding: 'utf8', windowsHide: true, timeout: 30_000, env,
   })
   if (info.status !== 0) refuse('local Docker engine is unavailable; refusing Compose operation')
   if (info.stdout.trim() !== 'linux') refuse('local Docker engine must use Linux containers for Packet 14')
@@ -616,7 +639,24 @@ function runCompose(paths, ...args) {
   return runSync(command, composeArguments, {
     env: composeEnvironment(paths),
     label: `Docker Compose ${args[0]}`,
+    timeout: args[0] === 'up' ? 900_000 : 120_000,
   })
+}
+
+async function waitForLoopbackPort(port, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const connected = await new Promise((resolve) => {
+      const socket = net.connect({ host: '127.0.0.1', port })
+      socket.setTimeout(2_000)
+      socket.once('connect', () => { socket.destroy(); resolve(true) })
+      socket.once('timeout', () => { socket.destroy(); resolve(false) })
+      socket.once('error', () => resolve(false))
+    })
+    if (connected) return
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  refuse(`loopback port ${port} did not become reachable after local Compose health`)
 }
 
 async function makeFixtureEnv(paths, key, port) {
@@ -635,13 +675,16 @@ async function up(paths) {
   const state = await readState(paths)
   if (Object.keys(state.processes ?? {}).length) await stopTracked(paths, state)
   runCompose(paths, 'up', '-d', '--wait', 'postgres', 'redis', 'minio', 'clamav', 'port-proxy')
+  for (const port of [PORTS.postgres, PORTS.redis, PORTS.minio, PORTS.clamav]) {
+    await waitForLoopbackPort(port)
+  }
   runCompose(paths, 'run', '--rm', 'minio-init')
 
   runSync(process.execPath, [MIGRATION_FILE, '--database', DB_NAME, '--confirm-database', DB_NAME], {
     cwd: ROOT,
     env: migrationEnvironment(paths),
     label: 'guarded disposable migration',
-    timeout: 300_000,
+    timeout: 900_000,
   })
   runPnpm(['--dir', 'packages/db', 'db:generate'], {
     cwd: ROOT,
@@ -761,7 +804,7 @@ async function reset(paths) {
 
 async function dockerAvailable() {
   const env = verifyLocalDockerTarget()
-  const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}} {{.OSType}}'], { encoding: 'utf8', windowsHide: true, timeout: 10_000, env })
+  const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}} {{.OSType}}'], { encoding: 'utf8', windowsHide: true, timeout: 30_000, env })
   if (result.status !== 0 || !result.stdout.trim()) return false
   if (!result.stdout.trim().endsWith(' linux')) refuse('local Docker engine must use Linux containers for Packet 14')
   return true
@@ -770,7 +813,7 @@ async function dockerAvailable() {
 function verifyLocalDockerTarget(environment = process.env) {
   const env = safeChildEnvironment({}, environment)
   const inspected = spawnSync('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'], {
-    encoding: 'utf8', windowsHide: true, timeout: 10_000, env,
+    encoding: 'utf8', windowsHide: true, timeout: 30_000, env,
   })
   if (inspected.error || inspected.status !== 0) refuse('could not verify the selected Docker engine; refusing Docker operation')
   assertLocalDockerEndpoint(inspected.stdout, environment)

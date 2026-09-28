@@ -15,10 +15,12 @@ jobs:
       PLAYWRIGHT_VISITOR_BASE_URL: http://127.0.0.1:56345
       NEXT_FONT_GOOGLE_MOCKED_RESPONSES: ${{ github.workspace }}/scripts/local-font-mocks.cjs
       NEXT_TELEMETRY_DISABLED: '1'
+      TORCHIKO_PACKET12_R2_SHA: ef0c3760fcc3e97fe95c1ed9252c579097582a0b
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
         with:
           version: 9.15.4
@@ -74,7 +76,7 @@ jobs:
         run: |
           for run in 1 2 3; do
             echo "Local full-stack journey run ${run}/3"
-            pnpm --dir apps/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/local-full-stack.spec.ts --project phone-390x844 --retries=0
+            pnpm --dir apps/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/local-full-stack.spec.ts tests/visual/local-full-stack-admin.spec.ts --project phone-390x844 --retries=0
           done
       - name: Stop local full stack
         if: always()

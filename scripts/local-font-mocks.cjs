@@ -7,6 +7,7 @@ const families = new Set([
   'Plus Jakarta Sans',
   'Poppins',
   'Space Grotesk',
+  'Source Serif 4',
 ])
 
 module.exports = new Proxy(Object.create(null), {

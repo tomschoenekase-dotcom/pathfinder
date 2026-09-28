@@ -120,16 +120,11 @@ async function expectGuestWebProtectedQueryDenied(page: Page, venueId: string) {
 }
 
 async function openVisitorExperience(page: Page) {
-  await page
-    .getByRole('navigation', { name: 'Also here' })
-    .getByRole('link', { name: /Visitor experience/u })
-    .click()
-  await expect(page.getByRole('heading', { name: 'Visitor conversation settings' })).toBeVisible({
+  await page.goto(`${dashboardBaseUrl}/look-and-feel`)
+  await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible({
     timeout: 30_000,
   })
-  await expect(page.getByRole('region', { name: 'Appearance preview' })).toBeVisible({
-    timeout: 30_000,
-  })
+  await expect(page.getByRole('heading', { name: 'Messages' })).toBeVisible()
 }
 
 async function captureFirstVisibleWords(
@@ -316,40 +311,27 @@ test('tenant A saves visitor look and feel, previews it, then signs out at phone
     await signInAs(page, 'Tenant A owner')
     await expect(page.getByRole('heading', { name: 'Tenant A' })).toBeVisible()
     await openVisitorExperience(page)
+    await expect(page.getByLabel('Venue', { exact: true })).toHaveValue('cpacket14aurora0000000000')
+    await page.getByRole('radio', { name: 'Both in bubbles' }).check()
+    await page
+      .getByRole('group', { name: 'Visitor messages' })
+      .getByLabel('Custom bubble colour')
+      .fill('#2d6a4f')
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(page.getByRole('status')).toContainText(/Saved\./u)
+    await page.reload()
     await expect(
-      page
-        .getByRole('region', { name: 'Customize the visitor chat' })
-        .getByLabel('Venue', { exact: true }),
-    ).toHaveValue('cpacket14aurora0000000000')
-
-    await page.getByRole('button', { name: 'Forest', exact: true }).click()
-    await page.getByLabel('Custom accent colour').fill('')
-    await page.getByRole('button', { name: 'Save design', exact: true }).click()
-    await expect(page.getByRole('status')).toContainText('Design saved for this venue.')
-    await expect(page.getByRole('region', { name: 'Appearance preview' })).toContainText(
-      'Showing the saved appearance.',
-    )
-
-    const previewPopupPromise = page.waitForEvent('popup')
-    await page.getByRole('link', { name: 'Preview appearance', exact: true }).click()
-    const preview = await previewPopupPromise
-    await expect(preview).toHaveURL(/\/appearance-preview\?/u)
-    await expect(preview.getByLabel('Appearance preview notice')).toBeVisible()
-    expect(new URL(preview.url()).searchParams.get('theme')).toBe('forest')
-    await preview.close()
-
-    const savedGuidePopupPromise = page.waitForEvent('popup')
-    await page.getByRole('link', { name: 'Open saved visitor guide' }).click()
-    const savedGuide = await savedGuidePopupPromise
-    await expect(savedGuide).toHaveURL(`${webBaseUrl}/aurora-science-museum/chat`)
-    await expect(savedGuide.getByRole('log')).toBeVisible()
-    const persistedAccent = await savedGuide
-      .locator('[style*="--chat-accent"]')
-      .filter({ has: savedGuide.getByRole('log') })
-      .first()
-      .evaluate((element) => getComputedStyle(element).getPropertyValue('--chat-accent').trim())
-    expect(persistedAccent.toLowerCase()).toBe('#2d6a4f')
-    await savedGuide.close()
+      page.getByRole('group', { name: 'Visitor messages' }).getByLabel('Custom bubble colour'),
+    ).toHaveValue('#2d6a4f')
+    if (viewport.width < 1024) {
+      await page
+        .getByRole('group', { name: 'Look & feel view' })
+        .getByRole('button', { name: 'Preview' })
+        .click()
+    }
+    const preview = page.getByTitle('Preview of the Aurora Science Museum visitor guide')
+    await expect(preview).toBeVisible()
+    await expect(page.getByText('Sample conversation, showing your saved design.')).toBeVisible()
 
     await page.screenshot({
       path: testInfo.outputPath(`local-full-stack-client-${viewport.name}.png`),
@@ -375,9 +357,7 @@ test('tenant B cannot read a tenant A venue through the client portal or its pro
     await signInAs(page, 'Tenant A owner')
     await expect(page.getByRole('heading', { name: 'Tenant A' })).toBeVisible()
     await openVisitorExperience(page)
-    const venueSelect = page
-      .getByRole('region', { name: 'Customize the visitor chat' })
-      .getByLabel('Venue', { exact: true })
+    const venueSelect = page.getByLabel('Venue', { exact: true })
     const tenantAVenueOption = venueSelect.getByRole('option', {
       name: 'Aurora Science Museum',
       exact: true,
@@ -390,13 +370,11 @@ test('tenant B cannot read a tenant A venue through the client portal or its pro
 
     await signInAs(page, 'Tenant B owner')
     await expect(page.getByRole('heading', { name: 'Tenant B' })).toBeVisible()
-    await page.goto(`${dashboardBaseUrl}/ai-controls`)
-    await expect(page.getByRole('heading', { name: 'Visitor conversation settings' })).toBeVisible({
+    await page.goto(`${dashboardBaseUrl}/look-and-feel`)
+    await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible({
       timeout: 30_000,
     })
-    const tenantBVenueSelect = page
-      .getByRole('region', { name: 'Customize the visitor chat' })
-      .getByLabel('Venue', { exact: true })
+    const tenantBVenueSelect = page.getByLabel('Venue', { exact: true })
     expect(
       await tenantBVenueSelect.locator('option').evaluateAll((options) =>
         options.map((option) => ({
@@ -432,17 +410,10 @@ test('tenant B cannot read a tenant A venue through the client portal or its pro
   }
 })
 
-const packet12R2Sha = process.env.TORCHIKO_PACKET12_R2_SHA
-const hasPinnedPacket12R2 = /^[a-f0-9]{40}$/iu.test(packet12R2Sha ?? '')
-
-test('platform admin reviews CRM Good fit and the visitor speed readout', async ({
+test('tenant A sends a harmless file through the R2 portal Home review flow', async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000)
-  test.skip(
-    !hasPinnedPacket12R2,
-    'Pending Packet 12 R2: set TORCHIKO_PACKET12_R2_SHA to its published 40-character commit before enabling these selectors.',
-  )
   test.skip(
     testInfo.project.name !== 'phone-390x844',
     'This test explicitly covers both viewport widths.',
@@ -451,18 +422,23 @@ test('platform admin reviews CRM Good fit and the visitor speed readout', async 
 
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
-    await signInAs(page, 'Platform admin')
-    await page.goto(`${dashboardBaseUrl}/admin/prospects`)
-    await expect(page.getByText(/Good fit/u).first()).toBeVisible()
-    await page
-      .getByText(/Good fit/u)
-      .first()
-      .click()
-    await expect(page.getByRole('heading', { name: /Good fit/u })).toBeVisible()
-    await page.getByRole('link', { name: /visitor speed/i }).click()
-    await expect(page.getByRole('heading', { name: /visitor speed/i })).toBeVisible()
+    await signInAs(page, 'Tenant A owner')
+    const information = page.getByRole('region', { name: 'Send us information' })
+    await expect(information).toBeVisible()
+    const fileName = `packet14-invented-venue-notes-${viewport.name}.txt`
+    await information.locator('input[type="file"]').setInputFiles({
+      name: fileName,
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Invented local fixture: the museum has a new family activity.\n'),
+    })
+    await expect(information.getByText(fileName)).toBeVisible()
+    await information.getByRole('button', { name: 'Send to Torchiko', exact: true }).click()
+    await expect(information.getByText(/Sent to Torchiko|finishing safety check/u)).toBeVisible({
+      timeout: 90_000,
+    })
+    await expect(information.getByRole('link', { name: 'See what you’ve sent' })).toBeVisible()
     await page.screenshot({
-      path: testInfo.outputPath(`local-full-stack-admin-${viewport.name}.png`),
+      path: testInfo.outputPath(`local-full-stack-portal-upload-${viewport.name}.png`),
       fullPage: true,
     })
     await signOut(page)

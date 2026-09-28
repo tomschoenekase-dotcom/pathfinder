@@ -17,7 +17,7 @@ export const LOCAL_TARGETS = Object.freeze([
 
 // RFC 5737 TEST-NET-3; the preloader must reject this before a socket opens.
 export const SYNTHETIC_EGRESS_TARGET = 'http://203.0.113.17:80/packet14-egress-proof'
-const AUDITED_PROCESSES = Object.freeze(['provider', 'web', 'dashboard'])
+const AUDITED_PROCESSES = Object.freeze(['provider', 'workers', 'web', 'dashboard'])
 
 function fail(message) {
   throw new Error(`LOCAL_FULL_STACK_NETWORK_PROOF_FAILED: ${message}`)
@@ -66,7 +66,7 @@ function taskOwnerRoot(environment = process.env) {
   return root
 }
 
-export function taskProcessRecords(state, checkoutRoot = ROOT) {
+export function taskProcessRecords(state, checkoutRoot = ROOT, ownerRoot) {
   const records = state?.processes
   const selected = {}
   for (const name of AUDITED_PROCESSES) {
@@ -76,9 +76,12 @@ export function taskProcessRecords(state, checkoutRoot = ROOT) {
     }
     const expectedMarker = name === 'provider'
       ? path.join(checkoutRoot, 'scripts', 'local-provider-stub.mjs')
-      : path.join(checkoutRoot, 'apps', name, 'node_modules', 'next', 'dist', 'bin', 'next')
+      : name === 'workers'
+        ? path.join(ownerRoot ?? '', 'data', 'workers-dist', 'bootstrap.js')
+        : path.join(checkoutRoot, 'apps', name, 'node_modules', 'next', 'dist', 'bin', 'next')
     if (path.resolve(record.marker ?? '') !== path.resolve(expectedMarker)) fail(`task state ${name} process marker is invalid`)
-    if (name !== 'provider' && path.resolve(record.cwd ?? '') !== path.join(checkoutRoot, 'apps', name)) {
+    const expectedCwd = name === 'provider' ? undefined : path.join(checkoutRoot, 'apps', name)
+    if (expectedCwd && path.resolve(record.cwd ?? '') !== expectedCwd) {
       fail(`task state ${name} working directory is invalid`)
     }
     selected[name] = record.pid
@@ -238,7 +241,7 @@ export async function assertOwnedConnectionsLoopback(listenerPids, environment =
   } catch {
     fail('could not read the Packet 14 task process state')
   }
-  const parentPids = taskProcessRecords(state)
+  const parentPids = taskProcessRecords(state, ROOT, ownerRoot)
   const pids = await resolveAuditedPids(parentPids, listenerPids)
   const peers = process.platform === 'win32'
     ? windowsEstablishedPeers(Object.fromEntries(pids.map((pid, index) => [`p${index}`, pid])))
@@ -315,6 +318,37 @@ export function assertSyntheticEgressDenied() {
   return { target: SYNTHETIC_EGRESS_TARGET, deniedBeforeSocket: true }
 }
 
+export function assertUdpWildcardBindDenied() {
+  const preloaderUrl = pathToFileURL(PRELOADER).href
+  const childScript = `
+    import assert from 'node:assert/strict';
+    import dgram from 'node:dgram';
+    assert.equal(globalThis[Symbol.for('torchiko.p14.egressGuardInstalled')], true);
+    const socket = dgram.createSocket('udp4');
+    assert.throws(() => socket.bind({ port: 0, address: '0.0.0.0' }), /non-loopback UDP bind/u);
+    assert.throws(() => socket.bind(0), /non-loopback UDP bind/u);
+    const loopbackSocket = dgram.createSocket('udp4');
+    await new Promise((resolve, reject) => {
+      loopbackSocket.once('error', reject);
+      loopbackSocket.bind({ port: 0, address: '127.0.0.1' }, resolve);
+    });
+    assert.equal(loopbackSocket.address().address, '127.0.0.1');
+    loopbackSocket.close();
+    process.stdout.write('wildcard-denied-loopback-allowed\\n');
+  `
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', childScript], {
+    cwd: ROOT,
+    env: { NODE_OPTIONS: `--import=${preloaderUrl}`, TORCHIKO_LOCAL_FULL_STACK_NETWORK_GUARD: '1' },
+    encoding: 'utf8',
+    timeout: 10_000,
+    windowsHide: true,
+  })
+  if (result.error || result.status !== 0 || result.stdout.trim() !== 'wildcard-denied-loopback-allowed') {
+    fail(`UDP bind guard proof failed${result.stderr ? `: ${result.stderr.trim()}` : ''}`)
+  }
+  return { wildcardDeniedBeforeBind: true, loopbackAllowed: true }
+}
+
 export async function runNetworkProof() {
   const listenerPids = await assertLoopbackListeners()
   const services = []
@@ -322,8 +356,9 @@ export async function runNetworkProof() {
     services.push({ name: target.name, port: target.port, status: await requestStatus(target) })
   }
   const egress = assertSyntheticEgressDenied()
+  const udpBind = assertUdpWildcardBindDenied()
   const connections = await assertOwnedConnectionsLoopback(listenerPids)
-  return { services, egress, connections }
+  return { services, egress, udpBind, connections }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

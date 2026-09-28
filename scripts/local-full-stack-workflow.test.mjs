@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const workflow = await readFile(resolve(root, '.github/workflows/local-full-stack.yml'), 'utf8')
+const workflow = (await readFile(resolve(root, '.github/workflows/local-full-stack.yml'), 'utf8')).replaceAll('\r\n', '\n')
 
 function indexOf(text) {
   const index = workflow.indexOf(text)
@@ -19,6 +19,7 @@ test('local full-stack workflow is opt-in and least-privilege', () => {
   assert.match(workflow, /runs-on: ubuntu-latest/u)
   assert.match(workflow, /timeout-minutes: (?:[1-5]?\d|60)\s*$/mu)
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}[\s\S]*?persist-credentials: false/u)
+  assert.match(workflow, /fetch-depth: 0/u)
   assert.match(workflow, /pnpm\/action-setup@[a-f0-9]{40}/u)
   assert.match(workflow, /actions\/setup-node@[a-f0-9]{40}/u)
   assert.doesNotMatch(workflow, /\bsecrets\./iu)
@@ -60,6 +61,7 @@ test('workflow resets and starts the pinned local stack before M3 and M4', () =>
   assert.match(workflow, /NEXT_DIST_DIR: \.next-p14-ci-build/u)
   assert.match(workflow, /NEXT_FONT_GOOGLE_MOCKED_RESPONSES: \$\{\{ github\.workspace \}\}\/scripts\/local-font-mocks\.cjs/u)
   assert.match(workflow, /NEXT_TELEMETRY_DISABLED: '1'/u)
+  assert.match(workflow, /TORCHIKO_PACKET12_R2_SHA: ef0c3760fcc3e97fe95c1ed9252c579097582a0b/u)
   assert.match(workflow, /Local fixture authentication is forbidden outside development/u)
 })
 
@@ -67,7 +69,7 @@ test('journeys use the running local endpoints and pass three serial times', () 
   assert.match(workflow, /PLAYWRIGHT_DASHBOARD_BASE_URL: http:\/\/127\.0\.0\.1:56346/u)
   assert.match(workflow, /PLAYWRIGHT_VISITOR_BASE_URL: http:\/\/127\.0\.0\.1:56345/u)
   assert.match(workflow, /for run in 1 2 3/u)
-  assert.match(workflow, /playwright test --config playwright\.visual\.config\.ts tests\/visual\/local-full-stack\.spec\.ts --project phone-390x844 --retries=0/u)
+  assert.match(workflow, /playwright test --config playwright\.visual\.config\.ts tests\/visual\/local-full-stack\.spec\.ts tests\/visual\/local-full-stack-admin\.spec\.ts --project phone-390x844 --retries=0/u)
 })
 
 test('stack cleanup is the final unconditional step', () => {

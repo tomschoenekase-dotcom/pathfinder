@@ -8,6 +8,7 @@ import {
   PRELOADER,
   SYNTHETIC_EGRESS_TARGET,
   assertSyntheticEgressDenied,
+  assertUdpWildcardBindDenied,
   decodeProcAddress,
   hasNextServerArgv,
   isLoopbackAddress,
@@ -35,6 +36,13 @@ test('guard rejects the fixed TEST-NET-3 request before any socket attempt', () 
   })
 })
 
+test('UDP guard denies wildcard binds before bind while allowing loopback', () => {
+  assert.deepEqual(assertUdpWildcardBindDenied(), {
+    wildcardDeniedBeforeBind: true,
+    loopbackAllowed: true,
+  })
+})
+
 test('fixed TEST-NET-3 target is never a probe listener or service request target', () => {
   const source = readFileSync(script, 'utf8')
   assert.equal(LOCAL_TARGETS.some(({ port }) => port === 80), false)
@@ -44,18 +52,20 @@ test('fixed TEST-NET-3 target is never a probe listener or service request targe
   assert.match(source, /fileURLToPath\(import\.meta\.url\)/u)
 })
 
-test('connection audit selects only provider, web, and dashboard from validated task state', () => {
+test('connection audit selects provider, workers, web, and dashboard from validated task state', () => {
   const checkout = process.cwd()
+  const ownerRoot = path.join(path.parse(checkout).root, 'MachineWorkspaces', 'torchiko', '20260928-local-full-stack')
   const state = {
     processes: {
       provider: { pid: 101, root: checkout, marker: path.join(checkout, 'scripts', 'local-provider-stub.mjs') },
+      workers: { pid: 104, root: checkout, marker: path.join(ownerRoot, 'data', 'workers-dist', 'bootstrap.js'), cwd: path.join(checkout, 'apps', 'workers') },
       web: { pid: 102, root: checkout, marker: path.join(checkout, 'apps', 'web', 'node_modules', 'next', 'dist', 'bin', 'next'), cwd: path.join(checkout, 'apps', 'web') },
       dashboard: { pid: 103, root: checkout, marker: path.join(checkout, 'apps', 'dashboard', 'node_modules', 'next', 'dist', 'bin', 'next'), cwd: path.join(checkout, 'apps', 'dashboard') },
-      workers: { pid: 999, root: checkout, marker: 'worker' },
     },
   }
-  assert.deepEqual(taskProcessRecords(state, checkout), { provider: 101, web: 102, dashboard: 103 })
-  assert.throws(() => taskProcessRecords({ processes: { ...state.processes, provider: { ...state.processes.provider, root: `${checkout}/other` } } }, checkout), /owned provider/u)
+  assert.deepEqual(taskProcessRecords(state, checkout, ownerRoot), { provider: 101, workers: 104, web: 102, dashboard: 103 })
+  assert.throws(() => taskProcessRecords({ processes: { ...state.processes, provider: { ...state.processes.provider, root: `${checkout}/other` } } }, checkout, ownerRoot), /owned provider/u)
+  assert.throws(() => taskProcessRecords({ processes: { ...state.processes, workers: { ...state.processes.workers, marker: 'worker' } } }, checkout, ownerRoot), /workers process marker/u)
 })
 
 test('Linux TCP ownership parser recognizes IPv4 and IPv6 loopback peers only', () => {
