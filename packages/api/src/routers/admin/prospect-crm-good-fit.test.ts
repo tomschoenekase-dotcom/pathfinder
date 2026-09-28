@@ -13,14 +13,14 @@ vi.mock('@pathfinder/db', () => ({
 import {
   describeProspectGoodFitVenue,
   prospectGoodFitOrganizationWhere,
-} from './prospect-crm-directory'
+} from './prospect-crm-good-fit'
 import { prospectGoodFitSavedView } from './prospect-crm-saved-views'
 import { defaultProspectGoodFitRules } from '@pathfinder/contracts/prospect-size'
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
-import { adminProspectCrmIntelligenceRouter } from './prospect-crm-intelligence'
+import { adminProspectCrmAssistantDiscoveryRouter } from './prospect-crm-assistant-discovery'
 
-const assistantRouter = router({ crm: adminProspectCrmIntelligenceRouter })
+const assistantRouter = router({ crm: adminProspectCrmAssistantDiscoveryRouter })
 
 function context(): TRPCContext {
   return {

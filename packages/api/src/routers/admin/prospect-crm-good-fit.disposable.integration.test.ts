@@ -4,10 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
-import {
-  adminProspectCrmDirectoryRouter,
-  prospectGoodFitVenueWhere,
-} from './prospect-crm-directory'
+import { adminProspectCrmDirectoryRouter } from './prospect-crm-directory'
+import { prospectGoodFitVenueWhere } from './prospect-crm-good-fit'
 
 const run = process.env.RUN_PROSPECT_SIZE_DB_INTEGRATION === '1' ? describe : describe.skip
 
