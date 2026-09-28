@@ -36,6 +36,7 @@ export type VisitorFixtureConversation =
   | 'voice-history'
   | 'reference'
   | 'placeholder'
+  | 'pass'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
@@ -255,6 +256,65 @@ const VOICE_HISTORY_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+/** A multi-attraction pass guide recommending places an app host can open natively. */
+const PASS_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'We have one afternoon and two kids. Where should we go first?' },
+  {
+    role: 'assistant',
+    content:
+      'Start at the Harbor Aquarium when it opens, since the shark tunnel gets busy after lunch. The Riverfront Science Center is a 10-minute walk away and good for a second stop. Save the Skyline Observation Deck for sunset.',
+    places: [
+      {
+        id: 'fixture-pass-aquarium',
+        name: 'Harbor Aquarium',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Shark tunnel, touch pools and a daily sea lion talk.',
+        areaName: 'Harbor district',
+        hours: '9 AM–6 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: 'fixture-pass-science',
+        name: 'Riverfront Science Center',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Hands-on physics floor and a toddler water lab.',
+        areaName: 'Riverfront',
+        hours: '10 AM–5 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: 'fixture-pass-skyline',
+        name: 'Skyline Observation Deck',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Glass-floor ledge 94 floors up.',
+        areaName: 'Downtown',
+        hours: '9 AM–10 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+    ],
+  },
+]
+
+const FIXTURE_CONVERSATIONS: Record<VisitorFixtureConversation, ChatMessage[]> = {
+  empty: [],
+  long: LONG_CONVERSATION,
+  placeholder: PLACEHOLDER_CONVERSATION,
+  reference: REFERENCE_CONVERSATION,
+  multilingual: MULTILINGUAL_CONVERSATION,
+  streaming: STREAMING_CONVERSATION,
+  'voice-history': VOICE_HISTORY_CONVERSATION,
+  pass: PASS_CONVERSATION,
+}
+
 function fixtureVenue(
   mode: VisitorFixtureMode,
   asset: VisitorFixtureAsset,
@@ -400,21 +460,7 @@ export function VenueChatFixture({
           venueSlug="fixture-great-lakes-museum"
           presentation={presentation}
           appHeader={appHeader}
-          messages={
-            conversation === 'long'
-              ? LONG_CONVERSATION
-              : conversation === 'placeholder'
-                ? PLACEHOLDER_CONVERSATION
-                : conversation === 'reference'
-                  ? REFERENCE_CONVERSATION
-                  : conversation === 'multilingual'
-                    ? MULTILINGUAL_CONVERSATION
-                    : conversation === 'streaming'
-                      ? STREAMING_CONVERSATION
-                      : conversation === 'voice-history'
-                        ? VOICE_HISTORY_CONVERSATION
-                        : []
-          }
+          messages={FIXTURE_CONVERSATIONS[conversation]}
           isSending={state === 'thinking' || state === 'speaking'}
           isRestoringHistory={booting}
           conversationLocked={readOnly}

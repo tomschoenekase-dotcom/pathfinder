@@ -14,6 +14,16 @@ question appears in the composer and does not send a chat turn. The native
 Close button returns to Home, and a validated `close-requested` message from
 the guide does the same. Neither path destroys the long-lived WebView.
 
+To demonstrate a multi-attraction app, set `EXPO_PUBLIC_TORCHIKO_PLACE_ACTION=1` (or a label of
+up to 32 characters) and `EXPO_PUBLIC_TORCHIKO_PLACES` to a JSON list of the venue's public places,
+for example `[{"id":"fixture-pass-aquarium","name":"Harbor Aquarium"}]`. Home then lists those
+attractions. **Ask the guide about this** switches to Ask and, once the guide has sent `ready`,
+injects an unsent `prefill` with that place into the live guide, keeping the conversation. A guide
+**Open in app** tap posts `place-action`; the shell validates it and opens its native attraction
+screen for that ID. Against the DB-free fixture, use
+`/dev-fixtures/visitor-chat?presentation=webview&appHeader=none&mode=classic&conversation=pass`
+with the three `fixture-pass-*` IDs; that proves layout and messaging only (`fixture`).
+
 The host keeps that WebView mounted while another tab is visible. Conversation
 identity/history is scoped to its WebView `sessionStorage`; creating a new
 WebView instance starts a new conversation. The shell routes same-origin guide

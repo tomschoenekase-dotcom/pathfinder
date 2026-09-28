@@ -3,14 +3,17 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  buildPlaceActionMessage,
+  DEFAULT_PLACE_ACTION_LABEL,
   normalizeBridgeOrigins,
   parseHostAsk,
   parseHostPlace,
   parseHostPrefill,
   parseHostStartParams,
   parseHostToGuideMessage,
+  parsePlaceActionLabel,
 } from './host-bridge'
-import { useHostBridge } from './use-host-bridge'
+import { postPlaceActionToNativeHost, useHostBridge } from './use-host-bridge'
 
 afterEach(() => {
   cleanup()
@@ -168,5 +171,94 @@ describe('app bridge', () => {
       { source: 'torchiko', v: 1, type: 'open', payload: null },
       { source: 'torchiko', v: 1, type: 'close-requested', payload: null },
     ])
+  })
+
+  it('accepts only a same-document prefill injected by the native host', () => {
+    const onPlace = vi.fn()
+    function AppPrefillProbe() {
+      const bridge = useHostBridge({ presentation: 'webview', onPlace })
+      return <span>{bridge.prefill?.ask ?? 'empty'}</span>
+    }
+    render(<AppPrefillProbe />)
+    const prefill = {
+      source: 'torchiko',
+      v: 1,
+      type: 'prefill',
+      payload: { ask: 'What is at the aquarium?', place: 'place-1' },
+    }
+    const origin = window.location.origin
+    const rejected: MessageEventInit<unknown>[] = [
+      { source: window, origin: 'https://evil.example', data: prefill },
+      { source: null, origin, data: prefill },
+      { source: window, origin, data: { ...prefill, type: 'close', payload: null } },
+      { source: window, origin, data: { ...prefill, payload: { ask: 'a'.repeat(201) } } },
+    ]
+    for (const event of rejected)
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', event))
+      })
+    expect(screen.getByText('empty')).toBeTruthy()
+    expect(onPlace).not.toHaveBeenCalled()
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { source: window, origin, data: prefill }))
+    })
+    expect(screen.getByText('What is at the aquarium?')).toBeTruthy()
+    expect(onPlace).toHaveBeenCalledWith('place-1')
+  })
+})
+
+describe('app place action', () => {
+  it('accepts only a short, single-line, partner-chosen label', () => {
+    expect(parsePlaceActionLabel('1')).toBe(DEFAULT_PLACE_ACTION_LABEL)
+    expect(parsePlaceActionLabel('true')).toBe(DEFAULT_PLACE_ACTION_LABEL)
+    expect(parsePlaceActionLabel('  Open   in our app ')).toBe('Open in our app')
+    expect(parsePlaceActionLabel('a'.repeat(32))).toHaveLength(32)
+    for (const value of [
+      undefined,
+      '',
+      '   ',
+      'a'.repeat(33),
+      'Open\nnow',
+      'Open\u0000',
+      'Open \u202eppa',
+      ['Open', 'Again'],
+    ])
+      expect(parsePlaceActionLabel(value)).toBeUndefined()
+  })
+
+  it('builds a message holding only the public place ID and name', () => {
+    expect(buildPlaceActionMessage({ id: ' place-1 ', name: '  Sky   Deck ' })).toEqual({
+      source: 'torchiko',
+      v: 1,
+      type: 'place-action',
+      payload: { placeId: 'place-1', name: 'Sky Deck' },
+    })
+    expect(buildPlaceActionMessage({ id: '', name: 'Sky Deck' })).toBeNull()
+    expect(buildPlaceActionMessage({ id: 'p'.repeat(192), name: 'Sky Deck' })).toBeNull()
+    expect(buildPlaceActionMessage({ id: 'place-1', name: 'Sky\u0000Deck' })).toBeNull()
+    expect(buildPlaceActionMessage({ id: 'place-1', name: 'n'.repeat(192) })).toBeNull()
+  })
+
+  it('posts to React Native, then WKWebView, and reports when no native channel exists', () => {
+    expect(postPlaceActionToNativeHost({ id: 'place-1', name: 'Sky Deck' })).toBe(false)
+
+    const webkitPost = vi.fn()
+    vi.stubGlobal('webkit', { messageHandlers: { torchiko: { postMessage: webkitPost } } })
+    expect(postPlaceActionToNativeHost({ id: 'place-1', name: 'Sky Deck' })).toBe(true)
+    expect(JSON.parse(webkitPost.mock.calls[0]![0] as string)).toEqual({
+      source: 'torchiko',
+      v: 1,
+      type: 'place-action',
+      payload: { placeId: 'place-1', name: 'Sky Deck' },
+    })
+
+    const reactNativePost = vi.fn()
+    vi.stubGlobal('ReactNativeWebView', { postMessage: reactNativePost })
+    expect(postPlaceActionToNativeHost({ id: 'place-2', name: 'Aquarium' })).toBe(true)
+    expect(reactNativePost).toHaveBeenCalledTimes(1)
+    expect(webkitPost).toHaveBeenCalledTimes(1)
+    expect(postPlaceActionToNativeHost({ id: '', name: 'Aquarium' })).toBe(false)
+    expect(reactNativePost).toHaveBeenCalledTimes(1)
   })
 })

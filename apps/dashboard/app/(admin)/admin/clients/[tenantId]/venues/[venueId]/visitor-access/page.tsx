@@ -55,6 +55,8 @@ export default async function AdminVenueVisitorAccessPage({ params }: Props) {
             revokedAt: origin.revokedAt?.toISOString() ?? null,
           }))}
           sessions30d={data.sessions30d}
+          publicPlaces={data.publicPlaces}
+          appHandBacks30d={data.appHandBacks30d}
           previewUrl={previewUrl}
           proposals={data.proposals.map((proposal) => ({
             approvalRequestId: proposal.approvalRequestId,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { GuestReplyKind } from '@pathfinder/contracts/guest-reply-kind'
@@ -22,6 +22,7 @@ import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
 import { browserUuid } from '../lib/browser-uuid'
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
+import { postPlaceActionToNativeHost } from '../lib/use-host-bridge'
 import { getChatPalette } from '@pathfinder/ui/theme'
 import {
   requestedReplyLanguage,
@@ -34,6 +35,7 @@ import {
   InAppConfirmationProvider,
   useInAppConfirmationController,
 } from './InAppConfirmation'
+import { createHostPlaceAction, HostPlaceActionProvider } from './HostPlaceAction'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
@@ -56,6 +58,8 @@ type VenueChatExperienceProps = {
   bridgeOrigins?: readonly string[]
   accessSurface?: VisitorEntrySurface
   initialEntryPlaceId?: string
+  /** App doors only: host opted in to an "open in app" button on place cards. */
+  placeActionLabel?: string
   secondLayerKey?: string
 }
 
@@ -146,6 +150,7 @@ export function VenueChatExperience({
   bridgeOrigins,
   accessSurface,
   initialEntryPlaceId,
+  placeActionLabel,
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
@@ -218,6 +223,7 @@ export function VenueChatExperience({
     endSession,
     resetAnalytics,
     sessionStartedAtRef,
+    trackHostPlaceAction,
     trackPlaceEvent,
     trackVisitorAction,
     viewedPlaceIdsRef,
@@ -227,6 +233,18 @@ export function VenueChatExperience({
     visitorId,
     ...(!secondLayerKey && accessSurface ? { entrySurface: accessSurface } : {}),
   })
+
+  const hostPlaceAction = useMemo(
+    () =>
+      createHostPlaceAction({
+        presentation,
+        label: placeActionLabel,
+        secondLayer: Boolean(secondLayerKey),
+        post: postPlaceActionToNativeHost,
+        track: trackHostPlaceAction,
+      }),
+    [placeActionLabel, presentation, secondLayerKey, trackHostPlaceAction],
+  )
 
   useLayoutEffect(() => {
     currentVenueIdRef.current = venue?.id ?? null
@@ -951,74 +969,76 @@ export function VenueChatExperience({
 
   return (
     <InAppConfirmationProvider controller={confirmationController} palette={palette}>
-      <VenueChatShell
-        venue={venue}
-        venueSlug={venueSlug}
-        presentation={presentation}
-        appHeader={appHeader}
-        messages={messages}
-        isSending={isSending}
-        isRestoringHistory={isBooting}
-        sendError={sendError}
-        anonymousToken={anonymousToken}
-        language={language}
-        preferences={preferences}
-        onPreferencesChange={updatePreferences}
-        initialDraft={initialDraft}
-        bridgeOrigins={bridgeOrigins}
-        onBridgePlace={(placeId) => {
-          entryPlaceRef.current.value = placeId
-        }}
-        connectionState={connectionState}
-        characterState={characterState}
-        location={{ lat, lng, permission, refresh }}
-        routePlanner={
-          !secondLayerKey ? (
-            <LocationRoutePlanner
-              key={`${venue.id}:${anonymousToken ?? 'pending'}:${sessionId ?? 'unconfirmed'}`}
-              venueId={venue.id}
-              anonymousToken={sessionId ? anonymousToken : null}
-              disabled={!isOnline || isSending}
-              language={language}
-            />
-          ) : null
-        }
-        onSend={(message) => handleSend(message)}
-        {...(messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK'
-          ? { onRequestMore: () => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND') }
-          : {})}
-        requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
-        onDraftChange={handleDraftChange}
-        onRetry={recoveryMode ? handleRetry : null}
-        retryLabel={
-          recoveryMode === 'check-history' || recoveryMode === 'load-history'
-            ? recoveryCopy[12]
-            : recoveryCopy[13]
-        }
-        {...(isSending && recoveryMode !== 'check-history' && recoveryMode !== 'load-history'
-          ? { onStopResponse: handleStopResponse }
-          : {})}
-        stopResponseLabel={stopCopy.stop}
-        conversationLocked={
-          reconciliationRequiredRef.current ||
-          recoveryMode === 'check-history' ||
-          recoveryMode === 'load-history'
-        }
-        onNewConversation={() => handleNewConversation()}
-        visitContext={visitContext}
-        onVoiceCharacterState={setStableCharacterState}
-        onVoiceTranscriptLine={handleVoiceTranscriptLine}
-        {...(recoveryMode === 'load-history' ? { voiceControl: null } : {})}
-        onPlaceView={(placeId) => {
-          if (!viewedPlaceIdsRef.current.has(placeId)) {
-            viewedPlaceIdsRef.current.add(placeId)
-            trackPlaceEvent('place_card.viewed', placeId)
+      <HostPlaceActionProvider value={hostPlaceAction}>
+        <VenueChatShell
+          venue={venue}
+          venueSlug={venueSlug}
+          presentation={presentation}
+          appHeader={appHeader}
+          messages={messages}
+          isSending={isSending}
+          isRestoringHistory={isBooting}
+          sendError={sendError}
+          anonymousToken={anonymousToken}
+          language={language}
+          preferences={preferences}
+          onPreferencesChange={updatePreferences}
+          initialDraft={initialDraft}
+          bridgeOrigins={bridgeOrigins}
+          onBridgePlace={(placeId) => {
+            entryPlaceRef.current.value = placeId
+          }}
+          connectionState={connectionState}
+          characterState={characterState}
+          location={{ lat, lng, permission, refresh }}
+          routePlanner={
+            !secondLayerKey ? (
+              <LocationRoutePlanner
+                key={`${venue.id}:${anonymousToken ?? 'pending'}:${sessionId ?? 'unconfirmed'}`}
+                venueId={venue.id}
+                anonymousToken={sessionId ? anonymousToken : null}
+                disabled={!isOnline || isSending}
+                language={language}
+              />
+            ) : null
           }
-        }}
-        onPlaceClick={(placeId) => trackPlaceEvent('place_card.clicked', placeId)}
-        onDirections={(placeId) => trackPlaceEvent('directions.opened', placeId)}
-        onVisitorAction={trackVisitorAction}
-      />
+          onSend={(message) => handleSend(message)}
+          {...(messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK'
+            ? { onRequestMore: () => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND') }
+            : {})}
+          requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
+          onDraftChange={handleDraftChange}
+          onRetry={recoveryMode ? handleRetry : null}
+          retryLabel={
+            recoveryMode === 'check-history' || recoveryMode === 'load-history'
+              ? recoveryCopy[12]
+              : recoveryCopy[13]
+          }
+          {...(isSending && recoveryMode !== 'check-history' && recoveryMode !== 'load-history'
+            ? { onStopResponse: handleStopResponse }
+            : {})}
+          stopResponseLabel={stopCopy.stop}
+          conversationLocked={
+            reconciliationRequiredRef.current ||
+            recoveryMode === 'check-history' ||
+            recoveryMode === 'load-history'
+          }
+          onNewConversation={() => handleNewConversation()}
+          visitContext={visitContext}
+          onVoiceCharacterState={setStableCharacterState}
+          onVoiceTranscriptLine={handleVoiceTranscriptLine}
+          {...(recoveryMode === 'load-history' ? { voiceControl: null } : {})}
+          onPlaceView={(placeId) => {
+            if (!viewedPlaceIdsRef.current.has(placeId)) {
+              viewedPlaceIdsRef.current.add(placeId)
+              trackPlaceEvent('place_card.viewed', placeId)
+            }
+          }}
+          onPlaceClick={(placeId) => trackPlaceEvent('place_card.clicked', placeId)}
+          onDirections={(placeId) => trackPlaceEvent('directions.opened', placeId)}
+          onVisitorAction={trackVisitorAction}
+        />
+      </HostPlaceActionProvider>
     </InAppConfirmationProvider>
   )
 }

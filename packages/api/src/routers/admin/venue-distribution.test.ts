@@ -48,8 +48,35 @@ const mocks = vi.hoisted(() => {
     approvalDecision: { create: vi.fn(async () => ({ id: 'decision-1' })) },
     agentAction: { create: vi.fn(async () => ({ id: 'action-1' })) },
   }
+  const read = {
+    venue: {
+      findFirst: vi.fn(async () => ({
+        id: 'venue-1',
+        slug: 'harbor-bundle',
+        name: 'Harbor bundle',
+        isActive: true,
+        chatTheme: 'default',
+        chatAccentColor: null,
+      })),
+    },
+    venueDistribution: { findFirst: vi.fn(async () => null) },
+    venueWebsiteOrigin: { findMany: vi.fn(async () => []) },
+    approvalRequest: { findMany: vi.fn(async () => []) },
+    analyticsEvent: { count: vi.fn(async () => 7) },
+    place: {
+      findMany: vi.fn(async () => [{ id: 'place-1', name: 'Harbor Aquarium', type: 'ATTRACTION' }]),
+    },
+  }
   return {
     tx,
+    read,
+    resolve: vi.fn(async () => ({
+      venueId: 'venue-1',
+      tenantId: 'tenant-1',
+      website: { effective: false, reason: 'SURFACE_DISABLED', framed: false, frameReason: null },
+      app: { effective: false, reason: 'SURFACE_DISABLED' },
+    })),
+    sessionCounts: vi.fn(async () => ({ direct: 0, qr: 0, website: 0, app: 0, unknown: 0 })),
     upsert,
     normalizeOrigin: vi.fn(() => 'https://host.example'),
     audit: vi.fn(async () => undefined),
@@ -58,10 +85,11 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock('@pathfinder/db', () => ({
-  db: { $transaction: mocks.transaction },
+  db: { $transaction: mocks.transaction, ...mocks.read },
   writeAuditLogStrict: mocks.audit,
   normalizeVenueWebsiteOrigin: mocks.normalizeOrigin,
-  resolveVenueDistribution: vi.fn(),
+  resolveVenueDistribution: mocks.resolve,
+  getVenueDistributionSessionCounts: mocks.sessionCounts,
 }))
 
 import { router } from '../../core'
@@ -74,6 +102,33 @@ const ctx = {
   headers: new Headers(),
   session: { userId: 'admin-1', activeTenantId: null, role: null, isPlatformAdmin: true },
 } as unknown as TRPCContext
+
+describe('admin venue distribution readback', () => {
+  it('lists only active public places of the exact venue for partner ID mapping', async () => {
+    const result = await app.createCaller(ctx).admin.venueDistribution.get({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(result.publicPlaces).toEqual([
+      { id: 'place-1', name: 'Harbor Aquarium', type: 'ATTRACTION' },
+    ])
+    expect(result.appHandBacks30d).toBe(7)
+    expect(mocks.read.analyticsEvent.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        eventType: 'visitor.action.clicked',
+        metadata: { path: ['analyticsKey'], equals: 'host.open-in-app' },
+      }),
+    })
+    expect(mocks.read.place.findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', venueId: 'venue-1', isActive: true, visibility: 'PUBLIC' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: 500,
+      select: { id: true, name: true, type: true },
+    })
+  })
+})
 
 describe('admin venue distribution mutations', () => {
   beforeEach(() => vi.clearAllMocks())

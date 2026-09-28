@@ -6,7 +6,7 @@ import { getChatPalette } from '@pathfinder/ui/theme'
 import { VenueChatExperience } from '../../../components/VenueChatExperience'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
 import { type EmbedSearchParams, resolveAppHeader } from '../../../lib/embed-presentation'
-import { parseHostStartParams } from '../../../lib/host-bridge'
+import { parseHostStartParams, parsePlaceActionLabel } from '../../../lib/host-bridge'
 import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { getPublicVenue } from '../../../lib/public-venue'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -35,6 +35,7 @@ export default async function AppVenuePage({ params, searchParams }: AppVenuePag
   const query = await searchParams
   const appHeader = resolveAppHeader(query)
   const start = parseHostStartParams(query)
+  const placeActionLabel = parsePlaceActionLabel(query.placeAction)
   const distribution = await resolveCachedVenueDistribution({ venueSlug })
   if (!distribution) notFound()
   if (!distribution.venueActive) return <VenueTemporarilyUnavailable showHomeLink={false} />
@@ -60,6 +61,7 @@ export default async function AppVenuePage({ params, searchParams }: AppVenuePag
         appHeader={appHeader}
         initialDraft={start.ask ?? ''}
         {...(start.place ? { initialEntryPlaceId: start.place } : {})}
+        {...(placeActionLabel ? { placeActionLabel } : {})}
         accessSurface="app"
       />
     </TRPCProvider>

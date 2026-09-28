@@ -9,6 +9,8 @@ import { useTRPCClient } from '../lib/trpc'
 
 type PlaceEvent = 'place_card.viewed' | 'place_card.clicked' | 'directions.opened'
 
+export const HOST_PLACE_ACTION_ANALYTICS_KEY = 'host.open-in-app'
+
 function runBestEffortAnalytics(action: () => Promise<unknown>) {
   try {
     void Promise.resolve(action()).catch(() => {})
@@ -126,9 +128,32 @@ export function useVenueChatAnalytics({
     [anonymousToken, client, venue, visitorId],
   )
 
+  // Reuses the public visitor-action event so "sent back to the host app" needs no new schema.
+  const trackHostPlaceAction = useCallback(
+    (placeId: string) => {
+      if (!venue || !anonymousToken) return
+      runBestEffortAnalytics(() =>
+        client.analytics.trackEvent.mutate({
+          venueId: venue.id,
+          sessionId: anonymousToken,
+          ...(visitorId ? { visitorId } : {}),
+          eventType: 'visitor.action.clicked',
+          metadata: {
+            actionType: 'OPEN_EXHIBIT',
+            analyticsKey: HOST_PLACE_ACTION_ANALYTICS_KEY,
+            targetKind: 'PLACE_ID',
+            targetId: placeId,
+          },
+        }),
+      )
+    },
+    [anonymousToken, client, venue, visitorId],
+  )
+
   return {
     endSession,
     resetAnalytics,
+    trackHostPlaceAction,
     sessionStartedAtRef,
     trackPlaceEvent,
     trackVisitorAction,

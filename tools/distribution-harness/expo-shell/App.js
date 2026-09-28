@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Linking, Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { WebView } from 'react-native-webview'
 
@@ -6,14 +6,34 @@ const initialUrl = process.env.EXPO_PUBLIC_TORCHIKO_APP_URL || 'http://localhost
 const configuredHeader = process.env.EXPO_PUBLIC_TORCHIKO_HEADER === 'compact' ? 'compact' : 'none'
 const configuredAsk = process.env.EXPO_PUBLIC_TORCHIKO_START_ASK || ''
 const configuredBackground = process.env.EXPO_PUBLIC_TORCHIKO_APP_BACKGROUND || '#ffffff'
+const configuredPlaceAction = process.env.EXPO_PUBLIC_TORCHIKO_PLACE_ACTION || ''
+// Demo-only mapping of Torchiko public place IDs to this app's own attraction screens.
+const attractions = parseAttractions(process.env.EXPO_PUBLIC_TORCHIKO_PLACES)
 const appBackground = /^#[\da-fA-F]{6}$/.test(configuredBackground) ? configuredBackground : '#ffffff'
 const tabs = ['Home', 'Tickets', 'Map', 'Ask']
+
+function parseAttractions(value) {
+  try {
+    const parsed = JSON.parse(value || '[]')
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => typeof item?.id === 'string' && typeof item?.name === 'string').slice(0, 50)
+      : []
+  } catch {
+    return []
+  }
+}
 
 function guideUrl() {
   const url = new URL(initialUrl)
   url.searchParams.set('header', configuredHeader)
   if (configuredAsk.length > 0 && configuredAsk.length <= 200) url.searchParams.set('ask', configuredAsk)
+  if (configuredPlaceAction.length > 0 && configuredPlaceAction.length <= 32) url.searchParams.set('placeAction', configuredPlaceAction)
   return url.href
+}
+
+function prefillScript(place, ask) {
+  const envelope = { source: 'torchiko', v: 1, type: 'prefill', payload: { place, ask } }
+  return `window.postMessage(${JSON.stringify(envelope)}, window.location.origin); true;`
 }
 
 const appUrl = guideUrl()
@@ -22,6 +42,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('Ask')
   const [loadError, setLoadError] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
+  const [openAttraction, setOpenAttraction] = useState(null)
+  const webViewRef = useRef(null)
+  const guideReady = useRef(false)
   const appOrigin = useMemo(() => {
     try { return new URL(appUrl).origin } catch { return '' }
   }, [])
@@ -32,11 +55,24 @@ export default function App() {
     try {
       if (new URL(nativeEvent.url).origin !== appOrigin) return
       const message = JSON.parse(nativeEvent.data)
-      if (message?.source === 'torchiko' && message.v === 1 && message.type === 'close-requested') {
-        closeGuide()
+      if (message?.source !== 'torchiko' || message.v !== 1) return
+      if (message.type === 'ready') guideReady.current = true
+      if (message.type === 'close-requested') closeGuide()
+      if (message.type === 'place-action' && typeof message.payload?.placeId === 'string') {
+        // Navigation only. Unknown IDs fall back to the public name for this demo screen.
+        const known = attractions.find((item) => item.id === message.payload.placeId)
+        setOpenAttraction(known || { id: message.payload.placeId, name: String(message.payload.name || 'Attraction') })
+        setActiveTab('Home')
       }
     } catch {
       // A malformed or unrelated WebView message cannot control native navigation.
+    }
+  }
+
+  const askAbout = (attraction) => {
+    setActiveTab('Ask')
+    if (guideReady.current) {
+      webViewRef.current?.injectJavaScript(prefillScript(attraction.id, `What should I know before visiting ${attraction.name}?`.slice(0, 200)))
     }
   }
 
@@ -84,6 +120,7 @@ export default function App() {
           importantForAccessibility={activeTab === 'Ask' && !loadError ? 'auto' : 'no-hide-descendants'}
         >
           <WebView
+            ref={webViewRef}
             key={retryKey}
             source={{ uri: appUrl }}
             style={[styles.webview, { backgroundColor: appBackground }]}
@@ -98,12 +135,34 @@ export default function App() {
             onError={() => setLoadError(true)}
             onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 500) setLoadError(true) }}
             allowsBackForwardNavigationGestures={false}
+            onLoadStart={() => { guideReady.current = false }}
             onContentProcessDidTerminate={() => setRetryKey((key) => key + 1)}
             onRenderProcessGone={() => setRetryKey((key) => key + 1)}
             bounces={false}
           />
         </View>
-        {activeTab !== 'Ask' && (
+        {activeTab === 'Home' && (openAttraction || attractions.length > 0) ? (
+          <View style={[styles.placeholder, { backgroundColor: appBackground }]}>
+            {openAttraction ? (
+              <>
+                <Text style={styles.placeholderTitle}>{openAttraction.name}</Text>
+                <Text style={styles.placeholderCopy}>Native attraction screen opened from the guide.</Text>
+                <TouchableOpacity onPress={() => askAbout(openAttraction)} accessibilityRole="button" style={styles.askButton}>
+                  <Text style={styles.askButtonLabel}>Ask the guide about this</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setOpenAttraction(null)} accessibilityRole="button">
+                  <Text style={styles.retryLink}>All attractions</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              attractions.map((attraction) => (
+                <TouchableOpacity key={attraction.id} onPress={() => setOpenAttraction(attraction)} accessibilityRole="button" style={styles.attractionRow}>
+                  <Text style={styles.attractionName}>{attraction.name}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        ) : activeTab !== 'Ask' && (
           <View style={[styles.placeholder, { backgroundColor: appBackground }]}>
             <Text style={styles.placeholderTitle}>{activeTab}</Text>
             <Text style={styles.placeholderCopy}>Native shell placeholder for distribution testing.</Text>
@@ -149,4 +208,8 @@ const styles = StyleSheet.create({
   retryTitle: { fontSize: 20, fontWeight: '700', color: '#142b39' },
   retryCopy: { marginTop: 8, color: '#526673' },
   retryLink: { marginTop: 16, color: '#087f8c', fontWeight: '700' },
+  askButton: { marginTop: 20, minHeight: 48, paddingHorizontal: 20, borderRadius: 24, backgroundColor: '#087f8c', alignItems: 'center', justifyContent: 'center' },
+  askButtonLabel: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  attractionRow: { alignSelf: 'stretch', minHeight: 52, justifyContent: 'center', paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#d2dce0' },
+  attractionName: { color: '#142b39', fontSize: 16, fontWeight: '600' },
 })

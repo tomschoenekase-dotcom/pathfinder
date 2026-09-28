@@ -51,6 +51,10 @@ describe('app header query boundary', () => {
     expect(resolveAppHeader({ header: 'compact' })).toBe('compact')
     expect(resolveAppHeader({ header: 'compact', ask: 'Where?' })).toBe('compact')
     expect(resolveAppHeader({ header: 'none', ask: 'Where?', place: 'public-1' })).toBe('none')
+    expect(resolveAppHeader({ header: 'none', placeAction: 'Open in app' })).toBe('none')
+    expect(resolveEmbedPresentation({ chrome: APP_WEBVIEW_CHROME_VALUE, placeAction: '1' })).toBe(
+      'webview',
+    )
   })
 
   it.each([{}, { header: 'full' }, { header: ['compact'] }, { header: 'compact', source: 'app' }])(

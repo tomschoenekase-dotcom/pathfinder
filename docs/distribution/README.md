@@ -4,22 +4,23 @@ Torchiko serves one venue guide through the public chat page, a venue website, o
 
 ## URL map
 
-| Visitor entry      | URL                           | Session entry surface | Framing                           |
-| ------------------ | ----------------------------- | --------------------- | --------------------------------- |
-| Direct             | `/<slug>/chat`                | Direct                | Self only                         |
-| QR                 | `/<slug>/chat?source=qr`      | QR                    | Self only                         |
-| Website launcher   | `/embed/<slug>`               | Website               | Self plus admitted active origins |
-| Website inline     | `/embed/<slug>/inline`        | Website               | Self plus admitted active origins |
-| App                | `/app/<slug>`                 | App                   | Self only                         |
-| App compact header | `/app/<slug>?header=compact`  | App                   | Self only                         |
-| App native header  | `/app/<slug>?header=none`     | App                   | Self only                         |
-| Older app alias    | `/embed/<slug>?chrome=hidden` | App                   | Self only                         |
+| Visitor entry      | URL                                     | Session entry surface | Framing                           |
+| ------------------ | --------------------------------------- | --------------------- | --------------------------------- |
+| Direct             | `/<slug>/chat`                          | Direct                | Self only                         |
+| QR                 | `/<slug>/chat?source=qr`                | QR                    | Self only                         |
+| Website launcher   | `/embed/<slug>`                         | Website               | Self plus admitted active origins |
+| Website inline     | `/embed/<slug>/inline`                  | Website               | Self plus admitted active origins |
+| App                | `/app/<slug>`                           | App                   | Self only                         |
+| App compact header | `/app/<slug>?header=compact`            | App                   | Self only                         |
+| App native header  | `/app/<slug>?header=none`               | App                   | Self only                         |
+| App place buttons  | `/app/<slug>?header=none&placeAction=1` | App                   | Self only                         |
+| Older app alias    | `/embed/<slug>?chrome=hidden`           | App                   | Self only                         |
 
 Website embed routes may include bounded `ask` and `place` start parameters while retaining the admitted-origin frame policy. Other queries on `/embed/<slug>` stay self-frame-only. An unknown or disabled venue returns the contained public unavailable boundary. A paused venue uses the existing temporary-unavailable presentation.
 
 ## Installation artifacts
 
-The operator panel derives a public link, QR link, website snippets, and app URLs from one configured guest web origin and venue slug. Partner quick starts are [Add Torchiko to your website](add-to-your-website.md) and [Add Torchiko to your app](add-to-your-app.md). The [host bridge contract](host-bridge.md) explains the website JavaScript API and app close message. These Packet 3 additions remain local until the release is approved and deployed.
+The operator panel derives a public link, QR link, website snippets, and app URLs from one configured guest web origin and venue slug. Partner quick starts are [Add Torchiko to your website](add-to-your-website.md) and [Add Torchiko to your app](add-to-your-app.md). The [host bridge contract](host-bridge.md) explains the website JavaScript API and the app close, place-action and prefill messages. [One guide for a multi-attraction pass](multi-attraction-guide.md) covers bundles such as city passes, where each attraction is a place and the partner app opens its own screens from the guide. These Packet 3 additions remain local until the release is approved and deployed.
 
 The website snippets are:
 

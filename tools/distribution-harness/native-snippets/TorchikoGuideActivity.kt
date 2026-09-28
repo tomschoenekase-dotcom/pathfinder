@@ -73,8 +73,14 @@ class TorchikoGuideActivity : Activity() {
                             if (!isMainFrame || !sameGuideOrigin(sourceOrigin)) return
                             val data = message.data ?: return
                             val body = runCatching { JSONObject(data) }.getOrNull() ?: return
-                            if (body.optString("source") == "torchiko" && body.optInt("v") == 1 &&
-                                body.optString("type") == "close-requested") finish()
+                            if (body.optString("source") != "torchiko" || body.optInt("v") != 1) return
+                            when (body.optString("type")) {
+                                "close-requested" -> finish()
+                                // Only sent when the guide URL includes placeAction.
+                                "place-action" -> body.optJSONObject("payload")
+                                    ?.optString("placeId")?.takeIf { it.isNotEmpty() }
+                                    ?.let { openPlace(it) }
+                            }
                         }
                     }
                 )
@@ -83,6 +89,11 @@ class TorchikoGuideActivity : Activity() {
         }
         container.addView(webView, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(container)
+    }
+
+    /** Open your own screen for this public place ID. Navigation only, never a purchase signal. */
+    private fun openPlace(placeId: String) {
+        // Example: startActivity(Intent(this, AttractionActivity::class.java).putExtra("placeId", placeId))
     }
 
     override fun onDestroy() { webView.destroy(); super.onDestroy() }
