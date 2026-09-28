@@ -9,7 +9,12 @@ import {
   prospectGoodFitRulesSchema,
   type ProspectGoodFitRules,
 } from '@pathfinder/contracts/prospect-size'
-import { db, withTenantIsolationBypass, type Prisma } from '@pathfinder/db'
+import {
+  db,
+  withTenantIsolationBypass,
+  type ProspectOrganizationWhereInput,
+  type ProspectVenueWhereInput,
+} from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { prospectPriority, prospectStage } from './prospect-crm-common'
@@ -22,10 +27,10 @@ import {
 export function prospectGoodFitVenueWhere(
   territoryId?: string,
   rules: ProspectGoodFitRules = defaultProspectGoodFitRules,
-): Prisma.ProspectVenueWhereInput {
+): ProspectVenueWhereInput {
   const categories = rules.supportedCategories.map((category) => category.trim().toLowerCase())
   const scopedTerritory = territoryId || rules.requireTerritory
-  const priorityClauses: Prisma.ProspectVenueWhereInput[] = [
+  const priorityClauses: ProspectVenueWhereInput[] = [
     {
       fitAttributes: {
         path: ['torchikoFounderPriorityV1', 'bucket'],
@@ -129,7 +134,7 @@ export function prospectGoodFitVenueWhere(
 export function prospectGoodFitOrganizationWhere(
   territoryId?: string,
   rules: ProspectGoodFitRules = defaultProspectGoodFitRules,
-): Prisma.ProspectOrganizationWhereInput {
+): ProspectOrganizationWhereInput {
   return {
     venues: { some: prospectGoodFitVenueWhere(territoryId, rules) },
     ...(territoryId

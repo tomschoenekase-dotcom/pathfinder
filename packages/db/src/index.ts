@@ -894,7 +894,9 @@ export type {
   WeeklyDigestStatus,
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
-export { Prisma } from '@prisma/client'
+export type ProspectVenueWhereInput = import('@prisma/client').Prisma.ProspectVenueWhereInput
+export type ProspectOrganizationWhereInput =
+  import('@prisma/client').Prisma.ProspectOrganizationWhereInput
 export {
   AgentQuestionActionError,
   answerAgentQuestionAction,
