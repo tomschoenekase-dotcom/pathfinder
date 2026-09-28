@@ -8,7 +8,14 @@ import { describe, expect, it } from 'vitest'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const dashboardRoot = join(repoRoot, 'apps/dashboard')
 const adminRoutesRoot = join(dashboardRoot, 'app/(admin)/admin')
-const reviewedR2 = 'ef0c3760fcc3e97fe95c1ed9252c579097582a0b'
+// GitHub's push checkout is shallow, so the R2 commit object may be absent.
+// Tree IDs still prove these four directories have the exact reviewed R2 content.
+const reviewedR2ProtectedTrees = {
+  'packages/api': '755c440dad6c34efcf75dc0701409009dbbab740',
+  'packages/db': '07f11ba22143bb20c33ef0e1116bb3751eaa4fd8',
+  'apps/workers': '9613390ac79466bc72424208b0a8e9dc1e0033cd',
+  scripts: 'c4e8619f276654842830fd818d11a4ee7bbe7a70',
+} as const
 
 const reviewedAdminRoutes = [
   '/admin',
@@ -124,24 +131,19 @@ describe('Packet 11 admin contracts', () => {
   })
 
   it('does not change agent backend, worker, or script files from R2', () => {
+    for (const [path, expectedTree] of Object.entries(reviewedR2ProtectedTrees)) {
+      const actualTree = execFileSync('git', ['rev-parse', `HEAD:${path}`], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }).trim()
+      expect(actualTree, `${path} differs from reviewed R2`).toBe(expectedTree)
+    }
     const changedProtectedFiles = execFileSync(
       'git',
-      [
-        'diff',
-        '--name-only',
-        reviewedR2,
-        '--',
-        'packages/api',
-        'packages/db',
-        'apps/workers',
-        'scripts',
-      ],
+      ['diff', '--name-only', 'HEAD', '--', ...Object.keys(reviewedR2ProtectedTrees)],
       { cwd: repoRoot, encoding: 'utf8' },
-    )
-      .split(/\r?\n/)
-      .filter(Boolean)
-
-    expect(changedProtectedFiles).toEqual([])
+    ).trim()
+    expect(changedProtectedFiles).toBe('')
   })
 
   it('exposes the five top-level destinations, four System tabs, and five venue groups', () => {
