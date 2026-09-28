@@ -150,6 +150,7 @@ export function VenueChatShell(props: {
   onVisitorAction?: (action: GuestVisitorAction) => void
   voiceControl?: ReactNode
   fixtureLiveVoiceCaption?: LiveAssistantCaption | null
+  fixtureLiveVoiceAnnouncement?: string | null
   visitContext?: GuestVisitContextInput
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
@@ -191,6 +192,7 @@ export function VenueChatShell(props: {
     onVisitorAction,
     voiceControl,
     fixtureLiveVoiceCaption,
+    fixtureLiveVoiceAnnouncement,
     visitContext,
     routePlanner,
     connectionState = 'online',
@@ -199,6 +201,10 @@ export function VenueChatShell(props: {
   const [voiceConversationEnabled, setVoiceConversationEnabled] = useState(true)
   const [voiceVenueScope, setVoiceVenueScope] = useState(venue.id)
   const [liveVoiceCaption, setLiveVoiceCaption] = useState<LiveAssistantCaption | null>(null)
+  const [liveVoiceAnnouncement, setLiveVoiceAnnouncement] = useState<{
+    text: string
+    sequence: number
+  } | null>(null)
   const handleVoiceAvailabilityChange = useCallback(
     (available: boolean) => {
       setVoiceEligible(available)
@@ -206,11 +212,21 @@ export function VenueChatShell(props: {
     },
     [venue.id],
   )
+  const handleVoiceCaptionAnnouncement = useCallback((announcement: 'started' | 'interrupted') => {
+    setLiveVoiceAnnouncement((current) => ({
+      text:
+        announcement === 'interrupted'
+          ? 'Voice response interrupted. Finalizing caption.'
+          : 'Voice caption started.',
+      sequence: (current?.sequence ?? 0) + 1,
+    }))
+  }, [])
   useEffect(() => {
     setVoiceEligible(false)
     setVoiceConversationEnabled(true)
     setVoiceVenueScope(venue.id)
     setLiveVoiceCaption(null)
+    setLiveVoiceAnnouncement(null)
   }, [venue.id])
   useDocumentScrollLock()
   const bridge = useHostBridge({
@@ -426,6 +442,7 @@ export function VenueChatShell(props: {
                     compact
                     onAvailabilityChange={handleVoiceAvailabilityChange}
                     onLiveCaptionChange={setLiveVoiceCaption}
+                    onCaptionAnnouncement={handleVoiceCaptionAnnouncement}
                     {...(visitContext ? { visitContext } : {})}
                     {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
                     {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
@@ -439,6 +456,12 @@ export function VenueChatShell(props: {
             voiceCaption={
               fixtureLiveVoiceCaption === undefined ? liveVoiceCaption : fixtureLiveVoiceCaption
             }
+            voiceCaptionAnnouncement={
+              fixtureLiveVoiceAnnouncement === undefined
+                ? (liveVoiceAnnouncement?.text ?? null)
+                : fixtureLiveVoiceAnnouncement
+            }
+            voiceCaptionAnnouncementKey={liveVoiceAnnouncement?.sequence ?? 0}
             language={language}
             assistantLabel={guideName}
             {...(tokens.speakerLabels ? { speakerLabels: { guide: settingsCopy.guide } } : {})}

@@ -21,13 +21,22 @@ test('rolling and interrupted captions stay readable in the mobile conversation'
 
     const fixture = page.locator('[data-fixture="visitor-chat"]')
     const conversation = page.getByRole('log', { name: 'Conversation' })
-    const caption = page.getByRole('status', { name: 'Live voice caption' })
+    const caption = page.getByRole('group', { name: 'Live voice caption' })
+    const captionAnnouncement = page.getByRole('status', { name: 'Voice caption updates' })
     const provisionalLabel =
       voice === 'interrupted' ? 'Guide · Interrupted; finalizing' : 'Guide · Caption in progress'
+    const announcement =
+      voice === 'interrupted'
+        ? 'Voice response interrupted. Finalizing caption.'
+        : 'Voice caption started.'
     await expect(fixture).toHaveAttribute('data-fixture-voice', voice)
     await expect(conversation).toContainText('The quieter route continues past the family lounge')
     await expect(caption).toContainText(provisionalLabel)
-    await expect(caption).toHaveAttribute('aria-live', 'polite')
+    await expect(caption).not.toHaveAttribute('aria-live', 'polite')
+    await expect(captionAnnouncement).toHaveText(announcement)
+    await expect(captionAnnouncement).not.toContainText(
+      'The quieter route continues past the family lounge',
+    )
     await expect(page.getByRole('region', { name: 'Voice controls' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'End voice conversation' })).toHaveCount(1)
     if (voice === 'interrupted') {

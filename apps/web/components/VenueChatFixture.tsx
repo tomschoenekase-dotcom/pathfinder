@@ -482,6 +482,13 @@ export function VenueChatFixture({
                 }
               : null
           }
+          fixtureLiveVoiceAnnouncement={
+            voice === 'interrupted'
+              ? 'Voice response interrupted. Finalizing caption.'
+              : voice === 'speaking'
+                ? 'Voice caption started.'
+                : null
+          }
           routePlanner={
             route === 'ready' ? (
               <LocationRoutePlanner

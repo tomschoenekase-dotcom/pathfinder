@@ -129,6 +129,7 @@ export function VoiceControl({
   onCharacterState,
   onTranscriptLine,
   onLiveCaptionChange,
+  onCaptionAnnouncement,
   visitContext,
   enabled = true,
   onAvailabilityChange,
@@ -142,6 +143,7 @@ export function VoiceControl({
   onCharacterState?: (state: CharacterState) => void
   onTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
   onLiveCaptionChange?: (caption: LiveAssistantCaption | null) => void
+  onCaptionAnnouncement?: (announcement: 'started' | 'interrupted') => void
   enabled?: boolean
   onAvailabilityChange?: (available: boolean) => void
   compact?: boolean
@@ -191,10 +193,25 @@ export function VoiceControl({
   onCharacterStateRef.current = onCharacterState
   const onTranscriptLineRef = useRef(onTranscriptLine)
   onTranscriptLineRef.current = onTranscriptLine
+  const onCaptionAnnouncementRef = useRef(onCaptionAnnouncement)
+  onCaptionAnnouncementRef.current = onCaptionAnnouncement
+  const announcedCaptionResponseRef = useRef<string | null>(null)
+  const liveCaptionResponseRef = useRef<string | null>(null)
 
   useEffect(() => {
     onLiveCaptionChange?.(liveAssistantCaption)
   }, [liveAssistantCaption, onLiveCaptionChange])
+
+  useEffect(() => {
+    if (!liveAssistantCaption) {
+      announcedCaptionResponseRef.current = null
+      return
+    }
+    if (announcedCaptionResponseRef.current !== liveAssistantCaption.responseId) {
+      announcedCaptionResponseRef.current = liveAssistantCaption.responseId
+      onCaptionAnnouncementRef.current?.('started')
+    }
+  }, [liveAssistantCaption?.responseId])
 
   useEffect(() => () => onLiveCaptionChange?.(null), [onLiveCaptionChange])
   const scopeKey = JSON.stringify([venueId, anonymousToken])
@@ -559,6 +576,7 @@ export function VoiceControl({
               }
             }
             handledCaptionDeltaEventIdsRef.current.add(eventId)
+            liveCaptionResponseRef.current = responseId
             setLiveAssistantCaption((caption) => ({
               responseId,
               text: `${caption?.responseId === responseId ? caption.text : ''}${delta}`.slice(
@@ -838,6 +856,10 @@ export function VoiceControl({
           if (finalizedResponseIdsRef.current.has(event.response_id)) return
           const responseId = event.response_id
           interruptedResponseIdsRef.current.add(responseId)
+          if (liveCaptionResponseRef.current === responseId) {
+            onCaptionAnnouncementRef.current?.('interrupted')
+            liveCaptionResponseRef.current = null
+          }
           routeRequestsRef.current.get(responseId)?.abort()
           setLiveAssistantCaption((caption) =>
             caption?.responseId === responseId ? { ...caption, interrupted: true } : caption,

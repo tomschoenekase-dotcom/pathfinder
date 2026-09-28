@@ -50,6 +50,8 @@ type ChatWindowProps = {
   conversationTools?: ReactNode
   composerVoiceControl?: ReactNode
   voiceCaption?: { text: string; interrupted: boolean } | null
+  voiceCaptionAnnouncement?: string | null
+  voiceCaptionAnnouncementKey?: number
   assistantLabel?: string
   /** Visible speaker labels, used when neither speaker has a bubble. */
   speakerLabels?: { guide: string }
@@ -88,6 +90,8 @@ export function ChatWindow({
   conversationTools,
   composerVoiceControl,
   voiceCaption = null,
+  voiceCaptionAnnouncement = null,
+  voiceCaptionAnnouncementKey = 0,
   assistantLabel = 'Venue guide',
   speakerLabels,
   surfaces,
@@ -310,11 +314,9 @@ export function ChatWindow({
         {voiceCaption?.text.trim() ? (
           <div
             aria-label="Live voice caption"
-            aria-live="polite"
-            aria-atomic="true"
             className="mx-auto w-full max-w-2xl rounded-xl border border-[var(--chat-header-border)] bg-[var(--chat-header-bg)] px-4 py-3 text-[var(--chat-text)]"
             dir="auto"
-            role="status"
+            role="group"
             tabIndex={0}
           >
             <p className="mb-1 text-xs font-semibold text-[var(--chat-text-muted)]">
@@ -383,6 +385,17 @@ export function ChatWindow({
             ) : null}
           </div>
         ) : null}
+      </div>
+
+      <div
+        key={voiceCaptionAnnouncementKey}
+        className="sr-only"
+        aria-label="Voice caption updates"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {voiceCaptionAnnouncement}
       </div>
 
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
