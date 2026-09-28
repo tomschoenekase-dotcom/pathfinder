@@ -119,7 +119,7 @@ export function ChatWindow({
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const wasLoadingRef = useRef(isLoading)
-  const announcementWasLoadingRef = useRef(isLoading)
+  const announcementWasLoadingRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
@@ -200,6 +200,7 @@ export function ChatWindow({
     const previousMessageCount = previousMessageCountRef.current
     const hasNewMessage = messages.length > previousMessageCount
     const latestMessage = messages.at(-1)
+    const responseStarted = !announcementWasLoadingRef.current && isLoading
     const responseCompleted = announcementWasLoadingRef.current && !isLoading
 
     previousMessageCountRef.current = messages.length
@@ -213,14 +214,14 @@ export function ChatWindow({
         kind: 'response',
         content: latestMessage.content,
       })
-    } else if (isLoading) {
+    } else if (responseStarted) {
       setLiveAnnouncement({ kind: 'responding' })
-    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+    } else if (!isLoading && hasNewMessage && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
         kind: 'response',
         content: latestMessage.content,
       })
-    } else {
+    } else if (!isLoading) {
       setLiveAnnouncement((current) => (current?.kind === 'responding' ? null : current))
     }
   }, [isLoading, messages])
@@ -310,7 +311,21 @@ export function ChatWindow({
           </div>
         ) : null}
 
-        {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
+        {isLoading && messages.at(-1)?.role !== 'assistant' ? (
+          <TypingIndicator
+            statusLabel={
+              presentation.code === 'en' ? (
+                <span lang="en" dir="ltr">
+                  This is taking a little longer…
+                </span>
+              ) : (
+                <span lang={presentation.code} dir={presentation.direction}>
+                  {assistantLabel} {respondingLabel}…
+                </span>
+              )
+            }
+          />
+        ) : null}
 
         {errorMessage ? (
           <div
@@ -343,11 +358,17 @@ export function ChatWindow({
         </div>
       ) : null}
 
-      <div className="sr-only" role="status" aria-atomic="true">
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
-          <span lang={presentation.code} dir={presentation.direction}>
-            {assistantLabel} {respondingLabel}
-          </span>
+          presentation.code === 'en' ? (
+            <span lang="en" dir="ltr">
+              Guide is answering
+            </span>
+          ) : (
+            <span lang={presentation.code} dir={presentation.direction}>
+              {assistantLabel} {respondingLabel}
+            </span>
+          )
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
             <span lang="en" dir="ltr">

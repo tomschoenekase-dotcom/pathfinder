@@ -804,6 +804,10 @@ describe('chat router', () => {
 
     it('starts a first turn without the adjacent identity transaction', async () => {
       setupHappyPath('The elephants are nearby.')
+      checkRateLimit.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        return true
+      })
       const stream = vi.fn(() => ({
         async *[Symbol.asyncIterator]() {
           yield {
@@ -844,6 +848,8 @@ describe('chat router', () => {
         delta: 'The elephants are nearby.',
         requestFirstTextMs: expect.any(Number),
       })
+      const firstDelta = events.find((event) => event.type === 'delta')
+      expect(firstDelta?.requestFirstTextMs).toBeGreaterThanOrEqual(15)
       expect(events.at(-1)).toMatchObject({
         type: 'complete',
         result: { response: 'The elephants are nearby.' },
@@ -853,16 +859,67 @@ describe('chat router', () => {
           eventType: 'message.received',
           metadata: expect.objectContaining({
             firstTurn: true,
+            admissionMs: expect.any(Number),
+            rateLimitMs: expect.any(Number),
+            reservationMs: expect.any(Number),
+            claimMs: expect.any(Number),
+            configurationMs: expect.any(Number),
             turnSetupMs: expect.any(Number),
             preEmbeddingMs: expect.any(Number),
             requestFirstTextMs: expect.any(Number),
           }),
         }),
       )
+      const received = emitEvent.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.eventType === 'message.received')
+        .at(-1)
+      expect(received?.metadata?.admissionMs).toBeGreaterThanOrEqual(15)
+      expect(received?.metadata?.rateLimitMs).toBeGreaterThanOrEqual(15)
       expect(guestTurnActions.readAdjacentIdentity).not.toHaveBeenCalled()
       expect(embeddingCreate).toHaveBeenCalledOnce()
       expect(stream).toHaveBeenCalledOnce()
       expect(anthropicCreate).not.toHaveBeenCalled()
+    })
+
+    it('overlaps provider-health lookup with the durable claim but waits before embedding', async () => {
+      setupHappyPath('The elephants are nearby.')
+      let resolveClaim!: () => void
+      guestTurnActions.claim.mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => {
+          resolveClaim = resolve
+        })
+        return {
+          state: 'GENERATING',
+          turnId: '11111111-1111-4111-8111-111111111111',
+          turnSequence: 1,
+          sessionId: SESSION_ID,
+          claimId: '22222222-2222-4222-8222-222222222222',
+          providerOperations: [
+            { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+            { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+          ],
+          replayed: false,
+        }
+      })
+      let resolveHealth!: (providers: string[]) => void
+      readActiveUnhealthyAiProviders.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveHealth = resolve
+        }),
+      )
+
+      const send = caller.chat.send(sendInput)
+      await vi.waitFor(() => expect(guestTurnActions.claim).toHaveBeenCalledOnce())
+      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledOnce()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+
+      resolveClaim()
+      await vi.waitFor(() => expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce())
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      resolveHealth([])
+      await expect(send).resolves.toMatchObject({ response: 'The elephants are nearby.' })
+      expect(embeddingCreate).toHaveBeenCalledOnce()
     })
 
     it.skipIf(!process.env.TORCHIKO_LATENCY_BENCHMARK_OUTPUT)(
@@ -898,7 +955,21 @@ describe('chat router', () => {
             }
             guestTurnActions.claim.mockImplementationOnce(async () => {
               mark('claimStartedMs')
+              const setupDelayMs = Number(process.env.TORCHIKO_LATENCY_SETUP_DELAY_MS ?? 0)
+              if (setupDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, setupDelayMs))
+              }
+              mark('claimFinishedMs')
               return claimResult
+            })
+            readActiveUnhealthyAiProviders.mockImplementationOnce(async () => {
+              mark('providerHealthStartedMs')
+              const setupDelayMs = Number(process.env.TORCHIKO_LATENCY_SETUP_DELAY_MS ?? 0)
+              if (setupDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, setupDelayMs))
+              }
+              mark('providerHealthFinishedMs')
+              return []
             })
             guestTurnActions.readAdjacentIdentity.mockImplementationOnce(async () => {
               mark('adjacentReadStartedMs')

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 554,
-    "sha256": "2666e12fed4568ed01988880fc8d9376d039c15c62d0bf061dede2eaa758b301",
+    "count": 555,
+    "sha256": "b1c5f75bb242b8e95dd04ef9b8cc14cbffd053c85781e1212a1d7d6b28ff84c7",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "2666e12fed4568ed01988880fc8d9376d039c15c62d0bf061dede2eaa758b301",
-      "sha256": "b3cb41b79ba08893ea743d285b70bbb82039185cfd38c7e9e56921540e01f632"
+      "operationInventorySha256": "b1c5f75bb242b8e95dd04ef9b8cc14cbffd053c85781e1212a1d7d6b28ff84c7",
+      "sha256": "49e0d7980955c535cd306ed308bbed87c0846d88d318185697e7b7b95c42a3d4"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -592,6 +592,14 @@
       "developerCoverage": "full",
       "decision": "The platform-admin aggregate is represented through its domain routers; no generic super-admin agent tool is permitted.",
       "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "visitor-speed",
+      "pattern": "^adminVisitorSpeedRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The seven-day visitor first-text timing aggregate is a read-only platform-admin diagnostic; it exposes venue-level operational telemetry and has no agent surface.",
+      "evidence": "packages/api/src/routers/admin/visitor-speed.test.ts"
     },
     {
       "id": "conversation-learning-review",
