@@ -23,6 +23,7 @@ describe('stage-only appearance preview boundary', () => {
     expect(
       appearancePreviewAllowed({ RAILWAY_ENVIRONMENT: 'preview', NODE_ENV: 'production' }),
     ).toBe(false)
+    expect(appearancePreviewAllowed({ NODE_ENV: 'test' })).toBe(false)
   })
 
   it('accepts stored theme choices and a valid accent but never passes arbitrary preview values', () => {

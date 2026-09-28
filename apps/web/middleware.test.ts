@@ -107,6 +107,44 @@ describe('middleware response boundaries', () => {
     ).toBe("frame-ancestors 'self'")
   })
 
+  it('resolves the exact tenant frame origin when bounded ask and place start input is present', async () => {
+    const originalToken = process.env.INTERNAL_POLICY_TOKEN
+    const originalOrigin = process.env.INTERNAL_WEB_ORIGIN
+    const originalFetch = globalThis.fetch
+    process.env.INTERNAL_POLICY_TOKEN = 'test-internal-policy-token-with-more-than-32-bytes'
+    process.env.INTERNAL_WEB_ORIGIN = 'http://127.0.0.1:3100'
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ origins: ['https://museum.example'] })))
+    globalThis.fetch = fetch as typeof globalThis.fetch
+    try {
+      const handler = middleware as unknown as (
+        auth: unknown,
+        request: NextRequest,
+      ) => Promise<Response | undefined>
+      const response = await handler(
+        undefined,
+        new NextRequest(
+          'https://guide.example/embed/museum?ask=Where%20is%20the%20desk%3F&place=front-desk',
+        ),
+      )
+
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0]?.[0]?.toString()).toBe(
+        'http://127.0.0.1:3100/api/internal/embed-frame-policy/museum',
+      )
+      expect(response?.headers.get('Content-Security-Policy')).toBe(
+        "frame-ancestors 'self' https://museum.example",
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      if (originalToken === undefined) delete process.env.INTERNAL_POLICY_TOKEN
+      else process.env.INTERNAL_POLICY_TOKEN = originalToken
+      if (originalOrigin === undefined) delete process.env.INTERNAL_WEB_ORIGIN
+      else process.env.INTERNAL_WEB_ORIGIN = originalOrigin
+    }
+  })
+
   it('uses self-only policy on resolver timeout, failure, or invalid payload', async () => {
     const originalFetch = globalThis.fetch
     const originalToken = process.env.INTERNAL_POLICY_TOKEN
