@@ -83,18 +83,22 @@ describe('prospect CRM Good fit view', () => {
       candidate('Zoo 2', 'zoo'),
       candidate('Zoo 3', 'zoo'),
       candidate('Zoo 4', 'zoo'),
-      candidate('Natural History Museum', 'museum', 'Natural History Museum'),
+      candidate('Natural History Museum', 'museum', 'science center', 'cultural organization'),
     ]
     mocks.prospectVenueFindMany.mockImplementation(
       async (args: { take: number; where: { AND: unknown[] } }) => {
         const query = JSON.stringify(args.where).toLowerCase()
-        const categoryWasPushedDown = query.includes('"string_contains":"museum"')
+        const categoryWasPushedDown =
+          query.includes('"path":["torchikotriagev1","normalizedtype"]') &&
+          query.includes('"string_contains":"museum"')
         return (
           categoryWasPushedDown
             ? newestFirst.filter((venue) =>
-                [venue.venueType, venue.organization.organizationType].some((value) =>
-                  value.toLowerCase().includes('museum'),
-                ),
+                [
+                  venue.fitAttributes.torchikoTriageV1.normalizedType,
+                  venue.venueType,
+                  venue.organization.organizationType,
+                ].some((value) => value.toLowerCase().includes('museum')),
               )
             : newestFirst
         ).slice(0, args.take)
@@ -109,6 +113,9 @@ describe('prospect CRM Good fit view', () => {
     expect(mocks.prospectVenueFindMany).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(mocks.prospectVenueFindMany.mock.calls[0]?.[0].where)).toContain(
       '"string_contains":"museum"',
+    )
+    expect(JSON.stringify(mocks.prospectVenueFindMany.mock.calls[0]?.[0].where)).toContain(
+      '"path":["torchikoTriageV1","normalizedType"]',
     )
     expect(mocks.prospectVenueFindMany.mock.calls[0]?.[0].take).toBe(4)
   })
