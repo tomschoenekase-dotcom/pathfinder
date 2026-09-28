@@ -712,6 +712,28 @@ function runSelfTests() {
 
 runSelfTests()
 
+// R2 combines three independently reviewed additions on the R1.1 inventory.
+// Keep their per-file counts and the aggregate explicit so a later packet must
+// review any drift instead of inheriting a silently expanded cross-tenant grant.
+const r2ApprovedDelta = new Map([
+  ['packages/api/src/routers/admin/visitor-speed.ts', 1],
+  ['packages/api/src/routers/admin/prospect-crm-size-proposals.ts', 2],
+  ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+])
+for (const [fileName, addition] of r2ApprovedDelta) {
+  const r11Count = fileName.endsWith('prospect-crm-intelligence.ts') ? 1 : 0
+  if (approvedCallCounts.get(fileName) !== r11Count + addition) {
+    throw new Error(`R2 tenant bypass delta differs for ${fileName}`)
+  }
+}
+const r2ApprovedTotal = [...approvedCallCounts.values()].reduce((sum, count) => sum + count, 0)
+if (
+  r2ApprovedTotal !==
+  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0)
+) {
+  throw new Error('R2 tenant bypass approved total differs from the reviewed R1.1 + input deltas')
+}
+
 const sourceFiles = (
   await Promise.all(
     ['apps', 'packages'].map((directory) => collectFiles(path.join(repositoryRoot, directory))),
