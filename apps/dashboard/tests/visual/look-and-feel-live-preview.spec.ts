@@ -12,7 +12,7 @@ test('shows the visitor guide in Look & feel at phone and desktop widths', async
   ]) {
     await page.setViewportSize(viewport)
     await page.goto(`${dashboardBaseUrl}/dev-fixtures/client-portal?page=look`, {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
     })
     await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible()
     const previewButton = page
