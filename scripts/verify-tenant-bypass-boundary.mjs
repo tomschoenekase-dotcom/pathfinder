@@ -288,9 +288,10 @@ const approvedCallCounts = new Map([
   // tenant+venue scope before creating or storing the verified candidate bundle.
   ['apps/dashboard/lib/character-import.ts', 1],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
-  // Added assistant Good fit read stays platform-admin-only, returns at most 25
+  ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+  // Assistant Good fit read stays platform-admin-only, returns at most 25
   // bounded CRM results, and shares the directory's explicit venue filter.
-  ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 2],
+  ['packages/api/src/routers/admin/prospect-crm-assistant-discovery.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.
   // The human-only inbox performs one bounded list and one append-only review transaction;
   // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
