@@ -800,9 +800,15 @@ export const voiceRouter = router({
       const exchange = await voiceSdpExchange({
         clientSecret: authorization.clientSecret,
         sdpOffer: input.sdpOffer,
+        onCallId: (providerCallId) => {
+          callId = providerCallId
+          providerConnectedAt = new Date()
+        },
       })
+      if (callId && callId !== exchange.callId)
+        throw new Error('Realtime voice provider returned inconsistent call IDs')
       callId = exchange.callId
-      const connectedAt = new Date()
+      const connectedAt = providerConnectedAt ?? new Date()
       providerConnectedAt = connectedAt
       const deadlineAt = new Date(connectedAt.getTime() + voiceSession.maxDurationSeconds * 1_000)
       const updated = await ctx.db.voiceSession.updateMany({

@@ -55,6 +55,31 @@ describe('realtime voice routing and authorization', () => {
     ).rejects.toThrow('too large')
   })
 
+  it('reports a validated call ID before a later SDP body read failure', async () => {
+    const onCallId = vi.fn()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error('SDP body read failed'))
+      },
+    })
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(body, { headers: { Location: '/v1/realtime/calls/rtc_local_test' } }),
+      )
+
+    await expect(
+      exchangeRealtimeVoiceSdp({
+        clientSecret: 'ephemeral-test-only',
+        sdpOffer: 'v=0\r\noffer',
+        fetchImpl,
+        onCallId,
+      }),
+    ).rejects.toThrow('SDP body read failed')
+    expect(onCallId).toHaveBeenCalledOnce()
+    expect(onCallId).toHaveBeenCalledWith('rtc_local_test')
+  })
+
   it('hangs up only validated WebRTC call IDs with a server credential', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
     await hangupOpenAiRealtimeCall({

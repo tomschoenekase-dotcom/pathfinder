@@ -377,10 +377,13 @@ describe('voice router', () => {
     })
     expect(result).toEqual({ sdpAnswer: 'v=0\r\nanswer' })
     expect(JSON.stringify(result)).not.toContain('ek-browser-ephemeral')
-    expect(exchange).toHaveBeenCalledWith({
-      clientSecret: 'ek-browser-ephemeral',
-      sdpOffer: 'v=0\r\noffer',
-    })
+    expect(exchange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientSecret: 'ek-browser-ephemeral',
+        sdpOffer: 'v=0\r\noffer',
+        onCallId: expect.any(Function),
+      }),
+    )
     expect(dbMocks.voiceUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: 'AUTHORIZING' }),
@@ -401,6 +404,43 @@ describe('voice router', () => {
       voiceSessionId: VOICE_ID,
       deadlineAt: expect.any(Date),
     })
+  })
+
+  it('hangs up a provider call whose SDP answer body fails after its call ID arrives', async () => {
+    const hangup = vi.fn().mockResolvedValue(undefined)
+    _setVoiceHangupForTesting(hangup)
+    _setVoiceSdpExchangeForTesting(
+      vi.fn().mockImplementation(async (input: { onCallId?: (callId: string) => void }) => {
+        input.onCallId?.('rtc_local_test')
+        throw new Error('SDP answer body failed')
+      }),
+    )
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'READY',
+      provider: 'openai',
+      model: 'gpt-realtime-2.1-mini',
+      tier: 'ECONOMY',
+      capability: 'REALTIME_VOICE_ECONOMY',
+      locale: 'en-US',
+      voice: 'marin',
+      maxDurationSeconds: 600,
+      clientSecretExpiresAt: new Date(Date.now() + 60_000),
+    })
+    await expect(
+      caller.voice.connect({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: VOICE_ID,
+        sdpOffer: 'v=0\r\noffer',
+      }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+    expect(hangup).toHaveBeenCalledWith({ apiKey: 'sk-server-only', callId: 'rtc_local_test' })
+    expect(dbMocks.voiceUpdateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED', durationSeconds: 1 }),
+      }),
+    )
   })
 
   it('hangs up a provider call and fails closed if the durable deadline cannot be scheduled', async () => {

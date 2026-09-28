@@ -153,6 +153,7 @@ const realtimeCallId = z.string().regex(/^rtc_[A-Za-z0-9_-]{1,180}$/u)
 export async function exchangeRealtimeVoiceSdp(input: {
   clientSecret: string
   sdpOffer: string
+  onCallId?: (callId: string) => void
   fetchImpl?: typeof fetch
   requestTimeoutMs?: number
 }): Promise<{ sdpAnswer: string; callId: string }> {
@@ -184,6 +185,7 @@ export async function exchangeRealtimeVoiceSdp(input: {
       throw new Error('Realtime voice call did not return a valid call ID')
     }
     const callId = realtimeCallId.parse(url.pathname.slice('/v1/realtime/calls/'.length))
+    input.onCallId?.(callId)
     const declared = Number(response.headers.get('content-length') ?? 0)
     if (declared > REALTIME_SDP_MAX_BYTES) {
       void response.body?.cancel().catch(() => undefined)
