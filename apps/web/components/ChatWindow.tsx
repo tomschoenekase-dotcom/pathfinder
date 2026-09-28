@@ -48,7 +48,7 @@ type ChatWindowProps = {
   draftStorageKey?: string | null
   emptyState?: ReactNode
   conversationTools?: ReactNode
-  persistentVoiceControl?: ReactNode
+  composerVoiceControl?: ReactNode
   assistantLabel?: string
   /** Visible speaker labels, used when neither speaker has a bubble. */
   speakerLabels?: { guide: string }
@@ -85,7 +85,7 @@ export function ChatWindow({
   draftStorageKey = null,
   emptyState,
   conversationTools,
-  persistentVoiceControl,
+  composerVoiceControl,
   assistantLabel = 'Venue guide',
   speakerLabels,
   surfaces,
@@ -358,17 +358,6 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      {persistentVoiceControl ? (
-        <div
-          className={styles.persistentControl}
-          role="region"
-          aria-label="Voice controls"
-          tabIndex={0}
-        >
-          {persistentVoiceControl}
-        </div>
-      ) : null}
-
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
           presentation.code === 'en' ? (
@@ -425,6 +414,7 @@ export function ChatWindow({
               }
             }}
           />
+          {composerVoiceControl}
           <button
             ref={sendButtonRef}
             style={{

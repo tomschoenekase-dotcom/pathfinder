@@ -21,6 +21,7 @@ import {
   BILLING_RECONCILIATION_SCHEDULER_JOB,
   VOICE_SESSION_RECOVERY_QUEUE,
   VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+  VOICE_SESSION_HANGUP_JOB,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -105,6 +106,7 @@ import {
   type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
   type VenueMediaDerivativeJobPayload,
+  type VoiceSessionHangupJobPayload,
   type OperationalEventDeliveryJobPayload,
   type ProspectImportCommitJobPayload,
   type ProspectImportInspectionJobPayload,
@@ -139,6 +141,7 @@ import { processVenueMediaDerivativeJob } from './processors/venue-media-derivat
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
 import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
+import { processVoiceSessionHangup } from './processors/voice-session-hangup'
 import { processAgentQuestionExpiration } from './processors/agent-question-expiration'
 import { processAgentRoutineDispatch } from './processors/agent-routine-dispatch'
 import {
@@ -462,6 +465,13 @@ async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>)
 }
 
 async function handleVoiceSessionRecoveryQueueJob(job: Job<Record<string, never>>) {
+  if (job.name === VOICE_SESSION_HANGUP_JOB) {
+    await processVoiceSessionHangup(
+      job.data as unknown as VoiceSessionHangupJobPayload,
+      getJobExecutionMetadata(job),
+    )
+    return
+  }
   if (job.name !== VOICE_SESSION_RECOVERY_SCHEDULER_JOB) {
     throw new Error(`Unsupported voice session recovery job: ${job.name}`)
   }

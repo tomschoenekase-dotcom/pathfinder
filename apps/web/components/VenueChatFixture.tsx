@@ -40,6 +40,7 @@ export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
   | 'idle'
+  | 'server'
   | 'listening'
   | 'speaking'
   | 'interrupted'
@@ -435,10 +436,11 @@ export function VenueChatFixture({
           onPlaceClick={() => undefined}
           onDirections={() => undefined}
           voiceControl={
-            voice === 'none' ? null : (
+            voice === 'server' ? undefined : voice === 'none' ? null : (
               <VoiceControlPanel
                 state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
+                compact={voice === 'idle'}
                 error={
                   voice === 'error'
                     ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'

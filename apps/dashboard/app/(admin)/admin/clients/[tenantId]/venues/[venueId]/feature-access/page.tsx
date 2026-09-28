@@ -14,12 +14,20 @@ export default async function VenueFeatureAccessPage({ params }: Props) {
       caller.admin.getClientVenue({ tenantId, venueId }),
       caller.admin.listProductEntitlements({ tenantId, venueId }),
     ])
+    const voiceUsage = await caller.admin
+      .getVenueVoiceUsageSummary({
+        tenantId,
+        venueId,
+        month: new Date().toISOString().slice(0, 7),
+      })
+      .catch(() => null)
     return (
       <VenueFeatureAccessControl
         tenantId={tenantId}
         venueId={venueId}
         venueName={venue.venue.name}
         entitlements={entitlements}
+        initialVoiceUsage={voiceUsage}
       />
     )
   } catch {

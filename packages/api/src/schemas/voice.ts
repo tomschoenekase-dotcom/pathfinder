@@ -33,6 +33,13 @@ export const VoiceSessionStartInput = z
   .strict()
 
 export const VoiceSessionConnectedInput = VoiceSessionIdentity
+export const VoiceSessionConnectInput = VoiceSessionIdentity.extend({
+  sdpOffer: z
+    .string()
+    .min(1)
+    .max(64 * 1024),
+  visitContext: GuestVisitContextInput.optional(),
+}).strict()
 
 export const VoiceGroundingInput = VoiceSessionIdentity.extend({
   toolCallId: z.string().trim().min(1).max(191),
@@ -50,19 +57,21 @@ export const VoiceTranscriptSegmentInput = VoiceSessionIdentity.extend({
 
 export const VoiceUsageInput = VoiceSessionIdentity.extend({
   providerEventId: z.string().trim().min(1).max(191),
-  inputTokens: z.number().int().min(0).max(10_000_000),
-  outputTokens: z.number().int().min(0).max(10_000_000),
-  cachedInputTokens: z.number().int().min(0).max(10_000_000),
-  cachedAudioInputTokens: z.number().int().min(0).max(10_000_000),
-  audioInputTokens: z.number().int().min(0).max(10_000_000),
-  audioOutputTokens: z.number().int().min(0).max(10_000_000),
+  inputTokens: z.number().int().min(0).max(100_000),
+  outputTokens: z.number().int().min(0).max(100_000),
+  cachedInputTokens: z.number().int().min(0).max(100_000),
+  cachedAudioInputTokens: z.number().int().min(0).max(100_000),
+  audioInputTokens: z.number().int().min(0).max(100_000),
+  audioOutputTokens: z.number().int().min(0).max(100_000),
 })
   .strict()
   .superRefine((usage, ctx) => {
     if (
       usage.audioInputTokens > usage.inputTokens ||
       usage.audioOutputTokens > usage.outputTokens ||
-      usage.cachedAudioInputTokens > usage.cachedInputTokens
+      usage.cachedInputTokens > usage.inputTokens ||
+      usage.cachedAudioInputTokens > usage.cachedInputTokens ||
+      usage.cachedAudioInputTokens > usage.audioInputTokens
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

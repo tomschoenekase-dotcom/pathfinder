@@ -189,6 +189,21 @@ export function VenueChatShell(props: {
     routePlanner,
     connectionState = 'online',
   } = props
+  const [voiceEligible, setVoiceEligible] = useState(false)
+  const [voiceConversationEnabled, setVoiceConversationEnabled] = useState(true)
+  const [voiceVenueScope, setVoiceVenueScope] = useState(venue.id)
+  const handleVoiceAvailabilityChange = useCallback(
+    (available: boolean) => {
+      setVoiceEligible(available)
+      setVoiceVenueScope(venue.id)
+    },
+    [venue.id],
+  )
+  useEffect(() => {
+    setVoiceEligible(false)
+    setVoiceConversationEnabled(true)
+    setVoiceVenueScope(venue.id)
+  }, [venue.id])
   useDocumentScrollLock()
   const bridge = useHostBridge({
     presentation,
@@ -391,7 +406,7 @@ export function VenueChatShell(props: {
                 />
               </>
             }
-            persistentVoiceControl={
+            composerVoiceControl={
               voiceControl === undefined ? (
                 isOnline ? (
                   <VoiceControl
@@ -399,6 +414,9 @@ export function VenueChatShell(props: {
                     anonymousToken={anonymousToken}
                     language={language}
                     disabled={isSending}
+                    enabled={voiceConversationEnabled}
+                    compact
+                    onAvailabilityChange={handleVoiceAvailabilityChange}
                     {...(visitContext ? { visitContext } : {})}
                     {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
                     {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
@@ -495,6 +513,9 @@ export function VenueChatShell(props: {
           attribution={
             presentation === 'webview' ? 'none' : presentation === 'standalone' ? 'link' : 'text'
           }
+          voiceAvailable={isOnline && voiceEligible && voiceVenueScope === venue.id}
+          voiceConversationEnabled={voiceConversationEnabled}
+          onVoiceConversationChange={setVoiceConversationEnabled}
         />
       </footer>
     </div>

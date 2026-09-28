@@ -880,6 +880,19 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
   })
 
+  it('places the voice control inside the composer field', () => {
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        composerVoiceControl={<button aria-label="Start voice conversation">Mic</button>}
+      />,
+    )
+    const voice = screen.getByRole('button', { name: 'Start voice conversation' })
+    expect(voice.closest('[class*="composerField"]')).toBeTruthy()
+  })
+
   it('localizes Arabic conversation, composer, and send accessibility labels', () => {
     render(
       <ChatWindow

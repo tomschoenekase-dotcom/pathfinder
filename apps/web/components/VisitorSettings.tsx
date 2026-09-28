@@ -30,6 +30,9 @@ export type VisitorSettingsProps = {
   aboutGuidance: string
   poweredByLabel: string
   attribution: 'link' | 'text' | 'none'
+  voiceAvailable?: boolean
+  voiceConversationEnabled?: boolean
+  onVoiceConversationChange?: (enabled: boolean) => void
 }
 
 /**
@@ -46,6 +49,9 @@ export function VisitorSettings({
   aboutGuidance,
   poweredByLabel,
   attribution,
+  voiceAvailable = false,
+  voiceConversationEnabled = true,
+  onVoiceConversationChange,
 }: VisitorSettingsProps) {
   const copy = getVisitorSettingsCopy(language)
   const presentation = getChatLanguagePresentation(language)
@@ -58,6 +64,7 @@ export function VisitorSettings({
   const contrastHintId = useId()
   const clearHintId = useId()
   const aboutId = useId()
+  const voiceHintId = useId()
 
   useLayoutEffect(() => {
     if (!open) return
@@ -210,6 +217,26 @@ export function VisitorSettings({
                 onChange={(event) => onPreferencesChange({ highContrast: event.target.checked })}
               />
             </label>
+
+            {voiceAvailable ? (
+              <label className={`${styles.group} ${styles.switchRow}`}>
+                <span>
+                  <span className={styles.label}>Voice conversation</span>
+                  <span id={voiceHintId} className={styles.hint}>
+                    Use your microphone for a spoken conversation. Text chat stays available.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className={styles.switch}
+                  checked={voiceConversationEnabled}
+                  aria-label="Voice conversation"
+                  aria-describedby={voiceHintId}
+                  onChange={(event) => onVoiceConversationChange?.(event.target.checked)}
+                />
+              </label>
+            ) : null}
 
             {onClearChat ? (
               <div className={styles.group}>

@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   geolocationEnabled: vi.fn(),
   connectionState: 'online' as 'online' | 'offline' | 'reconnected',
   voiceControlProps: null as null | {
+    enabled?: boolean
+    onAvailabilityChange?: (available: boolean) => void
     onTranscriptLine?: (line: {
       id: string
       venueId: string
@@ -123,7 +125,7 @@ vi.mock('./VoiceControl', () => ({
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
     conversationTools,
-    persistentVoiceControl,
+    composerVoiceControl,
     emptyState,
     errorMessage,
     messages,
@@ -140,7 +142,7 @@ vi.mock('./ChatWindow', () => ({
     onPlaceCardView,
   }: {
     conversationTools?: React.ReactNode
-    persistentVoiceControl?: React.ReactNode
+    composerVoiceControl?: React.ReactNode
     emptyState: React.ReactNode
     errorMessage?: string | null
     messages: Array<{
@@ -162,7 +164,7 @@ vi.mock('./ChatWindow', () => ({
   }) => (
     <div>
       {conversationTools}
-      {persistentVoiceControl}
+      {composerVoiceControl}
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
@@ -355,6 +357,20 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(within(openSettings()).getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('shows Settings voice only after the browser and server report voice eligibility', async () => {
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum' })
+    expect(within(openSettings()).queryByText('Voice conversation')).toBeNull()
+
+    act(() => mocks.voiceControlProps?.onAvailabilityChange?.(true))
+    const dialog = openSettings()
+    const voiceToggle = within(dialog).getByRole('switch', { name: 'Voice conversation' })
+    expect((voiceToggle as HTMLInputElement).checked).toBe(true)
+    act(() => mocks.voiceControlProps?.onAvailabilityChange?.(false))
+    expect(within(openSettings()).queryByText('Voice conversation')).toBeNull()
   })
 
   it('uses only the matching server-admitted public venue and still restores its history', async () => {

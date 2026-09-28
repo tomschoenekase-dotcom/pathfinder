@@ -50,6 +50,7 @@ import {
   enqueueWeeklyReport,
   enqueueWeeklyReportDispatch,
   enqueueWeeklyReportRecovery,
+  enqueueVoiceSessionHangup,
 } from './enqueue'
 
 const LEASE_TOKEN_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -91,6 +92,45 @@ describe('job enqueues', () => {
       { tenantId: 'tenant_1', runId: 'run_1' },
       expect.objectContaining({ jobId: 'agent-run-run_1', attempts: 3 }),
     )
+  })
+
+  it('enqueues one durable delayed provider hangup per voice session deadline', async () => {
+    const deadlineAt = new Date(Date.now() + 60_000)
+    const input = {
+      voiceSessionId: '00000000-0000-4000-8000-000000000001',
+      deadlineAt,
+    }
+    await enqueueVoiceSessionHangup(input)
+    const first = mocks.add.mock.calls[0]
+    await enqueueVoiceSessionHangup(input)
+    const second = mocks.add.mock.calls[1]
+
+    expect(first?.[0]).toBe('voice-session-hangup')
+    expect(first?.[1]).toEqual({
+      voiceSessionId: input.voiceSessionId,
+      deadlineAt: deadlineAt.toISOString(),
+    })
+    expect(first?.[2]).toMatchObject({
+      attempts: 12,
+      delay: expect.any(Number),
+      jobId: expect.stringMatching(/^voice-session-hangup-[a-f0-9]{64}$/u),
+    })
+    expect(second?.[2]?.jobId).toBe(first?.[2]?.jobId)
+    expect(first?.[2]?.delay).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['bad voice session ID', { voiceSessionId: 'not-a-uuid', deadlineAt: new Date() }],
+    [
+      'invalid deadline',
+      {
+        voiceSessionId: '00000000-0000-4000-8000-000000000001',
+        deadlineAt: new Date('invalid'),
+      },
+    ],
+  ])('rejects %s before opening the queue', async (_label, input) => {
+    await expect(enqueueVoiceSessionHangup(input)).rejects.toThrow()
+    expect(mocks.add).not.toHaveBeenCalled()
   })
 
   it('redrives a retained failed agent run job', async () => {

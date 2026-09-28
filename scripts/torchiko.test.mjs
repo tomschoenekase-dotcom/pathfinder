@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 558)
+  assert.equal(report.operations.total, 560)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
-  assert.equal(report.operations.counts.byKind.query, 243)
-  assert.equal(report.operations.counts.byKind.mutation, 315)
+  assert.equal(report.operations.counts.byKind.query, 244)
+  assert.equal(report.operations.counts.byKind.mutation, 316)
   assert.equal(report.operations.bindings.healthy, true)
   assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
   assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)
@@ -151,6 +151,8 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
     'admin.setAgentRoutineEnabled',
     'admin.getVenueLaunchAsset',
     'portal.getVenueLaunchAsset',
+    'admin.getVenueVoiceUsageSummary',
+    'voice.connect',
   ]) {
     assert.deepEqual(
       report.operations.bindings.entries.find((operation) => operation.path === operationPath),

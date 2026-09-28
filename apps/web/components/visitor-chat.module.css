@@ -176,25 +176,6 @@
   background: var(--chat-assistant-bg);
   color: var(--chat-assistant-text);
 }
-.persistentControl {
-  position: relative;
-  z-index: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--chat-footer-bg);
-}
-.persistentControl:focus-visible {
-  outline: 2px solid var(--chat-accent-text);
-  outline-offset: -2px;
-}
-.persistentControl [data-voice-control-header] {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  background: var(--chat-card);
-}
-
 /* ---- Messages -------------------------------------------------------------- */
 .message {
   display: flex;
@@ -433,10 +414,6 @@
   }
   .composerField textarea {
     max-height: 96px;
-  }
-  .persistentControl {
-    flex-shrink: 0;
-    max-height: 64px;
   }
   .character {
     display: none;
