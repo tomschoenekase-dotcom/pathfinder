@@ -4,6 +4,7 @@ export const TENANTED_TABLES = [
   'SemanticReviewedDecline',
   'TenantMembership',
   'CustomerAccessRequest',
+  'PartnerApiCredential',
   'FounderDirectiveTaskRequest',
   'TenantFeatureFlag',
   'ProductEntitlementOverride',

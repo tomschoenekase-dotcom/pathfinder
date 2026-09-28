@@ -1,4 +1,14 @@
 export { db } from './client'
+export {
+  createDatabasePartnerApiCredentialService,
+  createPartnerApiCredentialService,
+  PartnerApiCredentialConfigurationError,
+  PartnerApiCredentialInputError,
+  PartnerApiCredentialNotFoundError,
+  type PartnerApiCredentialEnvironment,
+  type PartnerApiCredentialScope,
+  type PartnerApiCapability,
+} from './partner-api-credentials'
 export { resolveVenueLaunchSource, type VenueLaunchSource } from './helpers/venue-launch-source'
 export {
   createDefaultVenueDistributionResolverCache,
