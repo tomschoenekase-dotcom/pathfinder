@@ -3,6 +3,10 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 const webBaseUrl = 'http://127.0.0.1:56345'
 const webSameHostBaseUrl = 'http://localhost:56345'
 const dashboardBaseUrl = 'http://localhost:56346'
+const localFullStackSelected =
+  process.env.PLAYWRIGHT_DASHBOARD_BASE_URL === 'http://127.0.0.1:56346' &&
+  process.env.PLAYWRIGHT_VISITOR_BASE_URL === 'http://127.0.0.1:56345'
+test.skip(!localFullStackSelected, 'Packet 14 journeys require the explicit disposable stack URLs.')
 const allowedOrigins = new Set([
   webBaseUrl,
   webSameHostBaseUrl,

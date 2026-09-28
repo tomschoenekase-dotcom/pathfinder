@@ -3,6 +3,13 @@ import { execFileSync } from 'node:child_process'
 import { expect, test, type Page } from '@playwright/test'
 
 const dashboardBaseUrl = 'http://localhost:56346'
+const localFullStackSelected =
+  process.env.PLAYWRIGHT_DASHBOARD_BASE_URL === 'http://127.0.0.1:56346' &&
+  process.env.PLAYWRIGHT_VISITOR_BASE_URL === 'http://127.0.0.1:56345'
+test.skip(
+  !localFullStackSelected,
+  'Packet 14 admin proof requires the explicit disposable stack URLs.',
+)
 const allowedOrigins = new Set([dashboardBaseUrl])
 const packet12PublishedR2Sha = 'ef0c3760fcc3e97fe95c1ed9252c579097582a0b'
 const syntheticTerritoryId = 'territory_p14_synthetic_central'
