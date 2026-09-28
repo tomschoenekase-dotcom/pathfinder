@@ -44,6 +44,7 @@ type ChatWindowProps = {
   accentContrastColor?: string
   placeholder?: string
   initialDraft?: string
+  prefill?: { sequence: number; ask: string } | null
   draftStorageKey?: string | null
   emptyState?: ReactNode
   conversationTools?: ReactNode
@@ -80,6 +81,7 @@ export function ChatWindow({
   accentContrastColor,
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
+  prefill = null,
   draftStorageKey = null,
   emptyState,
   conversationTools,
@@ -140,6 +142,15 @@ export function ChatWindow({
       // Private browsing can make session storage unavailable; keep the in-memory draft.
     }
   }, [draftStorageKey, draft])
+
+  useEffect(() => {
+    if (!prefill) return
+    setDraft(prefill.ask)
+    rememberDraft(prefill.ask)
+    onDraftChange?.(prefill.ask)
+    // Each host prefill carries a new sequence. Other renders cannot overwrite visitor typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.sequence])
 
   function rememberDraft(nextDraft: string) {
     if (!draftStorageKey) return

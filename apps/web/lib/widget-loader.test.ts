@@ -10,6 +10,22 @@ const READY_MESSAGE = {
 }
 const originalWindowFetch = Object.getOwnPropertyDescriptor(window, 'fetch')
 const originalVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+type TorchikoApi = {
+  version: number
+  open: (options?: { ask?: unknown; place?: unknown }) => void
+  close: () => void
+  on: (event: 'ready' | 'open' | 'close', listener: () => void) => () => void
+}
+
+function api(): TorchikoApi {
+  return (window as typeof window & { Torchiko: TorchikoApi }).Torchiko
+}
+
+function mockGuideWindow(frame: HTMLIFrameElement) {
+  // jsdom leaves iframe.contentWindow null when the frame is inside a shadow root.
+  Object.defineProperty(frame, 'contentWindow', { configurable: true, value: window })
+  return vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+}
 
 function runWidgetSource() {
   const source = readFileSync(resolve(process.cwd(), 'public/widget.js'), 'utf8')
@@ -87,6 +103,24 @@ function dispatchReady(
   )
 }
 
+function dispatchBridge(
+  frame: HTMLIFrameElement,
+  type: string,
+  options: {
+    origin?: string
+    source?: MessageEventSource | null
+    payload?: unknown
+  } = {},
+) {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: { source: 'torchiko', v: 1, type, payload: options.payload ?? null },
+      origin: options.origin ?? 'https://guide.example',
+      source: options.source === undefined ? frame.contentWindow : options.source,
+    }),
+  )
+}
+
 describe('classic third-party staging widget launcher', () => {
   beforeEach(() => {
     document.body.replaceChildren()
@@ -106,6 +140,7 @@ describe('classic third-party staging widget launcher', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     if (originalWindowFetch) Object.defineProperty(window, 'fetch', originalWindowFetch)
     else Reflect.deleteProperty(window, 'fetch')
@@ -116,6 +151,7 @@ describe('classic third-party staging widget launcher', () => {
     if (originalVisualViewport)
       Object.defineProperty(window, 'visualViewport', originalVisualViewport)
     else Reflect.deleteProperty(window, 'visualViewport')
+    Reflect.deleteProperty(window, 'Torchiko')
   })
 
   it('reveals an accessible closed launcher only after CSS and venue availability', async () => {
@@ -278,6 +314,106 @@ describe('classic third-party staging widget launcher', () => {
         new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }),
       )
     expect(widget.panel()?.hidden).toBe(true)
+  })
+
+  it('opens through the public API, sends bounded unsent prefill, and emits lifecycle events', async () => {
+    const widget = executeWidget({ slug: 'museum', attribute: 'torchiko' })
+    const events: string[] = []
+    expect(api().version).toBe(1)
+    const unsubscribe = api().on('open', () => events.push('open'))
+    api().on('ready', () => events.push('ready'))
+    api().on('close', () => events.push('close'))
+    api().open({ ask: 'Where is the entrance?', place: ' place_1 ' })
+    expect(widget.frame()).toBeNull()
+    await completeAvailability(widget)
+    await vi.waitFor(() => expect(widget.frame()).not.toBeNull())
+    const frame = widget.frame()!
+    const postMessage = mockGuideWindow(frame)
+    dispatchBridge(frame, 'ready')
+    expect(widget.panel()?.hidden).toBe(false)
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        source: 'torchiko',
+        v: 1,
+        type: 'prefill',
+        payload: { ask: 'Where is the entrance?', place: 'place_1' },
+      },
+      'https://guide.example',
+    )
+    expect(postMessage).toHaveBeenCalledWith(
+      { source: 'torchiko', v: 1, type: 'open', payload: null },
+      'https://guide.example',
+    )
+    expect(events).toEqual(['ready', 'open'])
+    api().close()
+    expect(widget.panel()?.hidden).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith(
+      { source: 'torchiko', v: 1, type: 'close', payload: null },
+      'https://guide.example',
+    )
+    expect(events).toEqual(['ready', 'open', 'close'])
+    api().open()
+    expect(widget.frame()).toBe(frame)
+    expect(events).toEqual(['ready', 'open', 'close', 'open'])
+    unsubscribe()
+    api().close()
+    api().open()
+    expect(events).toEqual(['ready', 'open', 'close', 'open', 'close'])
+  })
+
+  it('ignores spoofed bridge messages and drops invalid API parameters', async () => {
+    const widget = executeWidget({ slug: 'museum' })
+    await completeAvailability(widget)
+    api().open({ ask: 'x'.repeat(201), place: 'bad\nplace' })
+    await vi.waitFor(() => expect(widget.frame()).not.toBeNull())
+    const frame = widget.frame()!
+    const postMessage = mockGuideWindow(frame)
+    dispatchBridge(frame, 'ready', { origin: 'https://attacker.example' })
+    dispatchBridge(frame, 'ready', { source: null })
+    dispatchBridge(frame, 'ready', { payload: { extra: true } })
+    expect(widget.panel()?.hidden).toBe(true)
+    dispatchBridge(frame, 'ready')
+    expect(widget.panel()?.hidden).toBe(false)
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'prefill' }),
+      expect.anything(),
+    )
+    dispatchBridge(frame, 'close-requested', { origin: 'https://attacker.example' })
+    expect(widget.panel()?.hidden).toBe(false)
+    dispatchBridge(frame, 'close-requested')
+    expect(widget.panel()?.hidden).toBe(true)
+  })
+
+  it('does not bypass an unavailable venue through the public API', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }))
+    const widget = executeWidget({ slug: 'museum' })
+    api().open({ ask: 'hello' })
+    await completeAvailability(widget)
+    expect(widget.host?.isConnected).toBe(false)
+    expect(widget.frame()).toBeNull()
+  })
+
+  it('accepts bounded height only from the exact inline frame', async () => {
+    const widget = executeWidget({ slug: null, inlineSlug: 'museum' })
+    const events: string[] = []
+    api().on('ready', () => events.push('ready'))
+    api().on('open', () => events.push('open'))
+    await Promise.resolve()
+    await Promise.resolve()
+    const frame = widget.inlineFrame()!
+    dispatchReady(frame)
+    dispatchBridge(frame, 'open')
+    dispatchBridge(frame, 'open')
+    expect(events).toEqual(['ready', 'open'])
+    dispatchBridge(frame, 'height', {
+      payload: { height: 900 },
+      origin: 'https://attacker.example',
+    })
+    dispatchBridge(frame, 'height', { payload: { height: 9000 } })
+    expect(frame.style.height).toBe('')
+    dispatchBridge(frame, 'height', { payload: { height: 900 } })
+    expect(frame.style.height).toBe('900px')
+    expect(widget.inlineContainer?.style.height).toBe('900px')
   })
 
   it('contains sequential focus and exposes modal semantics at the full-screen breakpoint', async () => {

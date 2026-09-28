@@ -36,6 +36,7 @@ import {
   type VisitorPreferences,
 } from '../lib/visitor-preferences'
 import { chatAppearanceStyle } from '../lib/chat-appearance-style'
+import { useHostBridge } from '../lib/use-host-bridge'
 
 const LazyVenueCharacterStage = dynamic(
   () => import('./VenueCharacterStage').then((module) => module.VenueCharacterStage),
@@ -106,7 +107,9 @@ export function VenueChatShell(props: {
   venue: VenueSummary
   venueSlug: string
   presentation: VenueChatPresentation
-  appHeader?: 'full' | 'compact'
+  appHeader?: 'full' | 'compact' | 'none'
+  bridgeOrigins?: readonly string[] | undefined
+  onBridgePlace?: (placeId: string) => void
   messages: ChatMessage[]
   isSending: boolean
   sendError: string | null
@@ -151,6 +154,8 @@ export function VenueChatShell(props: {
     venueSlug,
     presentation,
     appHeader = 'full',
+    bridgeOrigins,
+    onBridgePlace,
     messages,
     isSending,
     sendError,
@@ -185,6 +190,11 @@ export function VenueChatShell(props: {
     connectionState = 'online',
   } = props
   useDocumentScrollLock()
+  const bridge = useHostBridge({
+    presentation,
+    allowedOrigins: bridgeOrigins,
+    onPlace: onBridgePlace,
+  })
   const isOnline = connectionState !== 'offline'
   const compactAppHeader = presentation === 'webview' && appHeader === 'compact'
   const viewportHeight = useChatViewportHeight()
@@ -230,6 +240,9 @@ export function VenueChatShell(props: {
 
   return (
     <div
+      ref={bridge.shellRef}
+      inert={!bridge.hostOpen}
+      aria-hidden={!bridge.hostOpen || undefined}
       lang={languagePresentation.code}
       dir={languagePresentation.direction}
       className={`${styles.shell} flex flex-col`}
@@ -254,64 +267,78 @@ export function VenueChatShell(props: {
         } as CSSProperties
       }
     >
-      <header
-        className={`${styles.header} relative overflow-hidden pt-[env(safe-area-inset-top,0px)]`}
-        data-branding-banner-state={headerBanner ? bannerLoad.status : 'none'}
-        data-app-header={presentation === 'webview' ? appHeader : undefined}
-      >
-        {headerBanner && bannerLoad.status !== 'failed' ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={bannerUrl}
-            ref={bannerLoad.inspect}
-            src={bannerUrl!}
-            alt=""
-            className={`absolute inset-0 h-full w-full object-cover ${headerBannerReady ? 'opacity-100' : 'opacity-0'}`}
-            onLoad={bannerLoad.onLoad}
-            onError={bannerLoad.onError}
-          />
-        ) : null}
-        {headerBannerReady ? (
-          <span aria-hidden="true" className="absolute inset-0 bg-black/65" />
-        ) : null}
-        <div
-          className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}
-          data-on-banner={headerBannerReady ? true : undefined}
+      {!(presentation === 'webview' && appHeader === 'none') ? (
+        <header
+          className={`${styles.header} relative overflow-hidden pt-[env(safe-area-inset-top,0px)]`}
+          data-branding-banner-state={headerBanner ? bannerLoad.status : 'none'}
+          data-app-header={presentation === 'webview' ? appHeader : undefined}
         >
-          {presentation === 'standalone' ? (
-            <Link
-              href={`/${venueSlug}`}
-              aria-label={backLabel}
-              lang={languagePresentation.code}
-              dir={languagePresentation.direction}
-              className={styles.back}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d={
-                    languagePresentation.direction === 'rtl'
-                      ? 'M4 12h15M13 6l6 6-6 6'
-                      : 'M20 12H5M11 6l-6 6 6 6'
-                  }
-                />
-              </svg>
-            </Link>
+          {headerBanner && bannerLoad.status !== 'failed' ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={bannerUrl}
+              ref={bannerLoad.inspect}
+              src={bannerUrl!}
+              alt=""
+              className={`absolute inset-0 h-full w-full object-cover ${headerBannerReady ? 'opacity-100' : 'opacity-0'}`}
+              onLoad={bannerLoad.onLoad}
+              onError={bannerLoad.onError}
+            />
           ) : null}
-          <div className={styles.identity}>
-            {venue.chatLogoUrl ? (
-              <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
+          {headerBannerReady ? (
+            <span aria-hidden="true" className="absolute inset-0 bg-black/65" />
+          ) : null}
+          <div
+            className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}
+            data-on-banner={headerBannerReady ? true : undefined}
+          >
+            {presentation === 'standalone' ? (
+              <Link
+                href={`/${venueSlug}`}
+                aria-label={backLabel}
+                lang={languagePresentation.code}
+                dir={languagePresentation.direction}
+                className={styles.back}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d={
+                      languagePresentation.direction === 'rtl'
+                        ? 'M4 12h15M13 6l6 6-6 6'
+                        : 'M20 12H5M11 6l-6 6 6 6'
+                    }
+                  />
+                </svg>
+              </Link>
             ) : null}
-            <div className={styles.identityCopy}>
-              <h1 lang="" dir="auto" title={title}>
-                {title}
-              </h1>
-              {venue.experienceLabel ? (
-                <p className={styles.experience}>{venue.experienceLabel}</p>
+            {presentation === 'webview' ? (
+              <button
+                type="button"
+                aria-label="Close guide"
+                className={styles.back}
+                onClick={bridge.requestClose}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 5l14 14M19 5L5 19" />
+                </svg>
+              </button>
+            ) : null}
+            <div className={styles.identity}>
+              {venue.chatLogoUrl ? (
+                <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
               ) : null}
+              <div className={styles.identityCopy}>
+                <h1 lang="" dir="auto" title={title}>
+                  {title}
+                </h1>
+                {venue.experienceLabel ? (
+                  <p className={styles.experience}>{venue.experienceLabel}</p>
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      ) : null}
       <ConnectionStatusBanner state={connectionState} language={language} />
       <main className={`${styles.main} relative flex flex-1 flex-col`}>
         {wantsBackdrop && !preferences.highContrast && bannerLoad.status !== 'failed' ? (
@@ -413,6 +440,7 @@ export function VenueChatShell(props: {
             accentContrastColor={palette.accentContrast}
             placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
             initialDraft={initialDraft}
+            prefill={bridge.prefill}
             draftStorageKey={
               anonymousToken ? `torchiko:visitor-draft:${venue.id}:${anonymousToken}` : null
             }

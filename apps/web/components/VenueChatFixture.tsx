@@ -321,7 +321,7 @@ export function VenueChatFixture({
   branding?: VisitorFixtureBranding
   readOnly?: boolean
   presentation?: VenueChatPresentation
-  appHeader?: 'full' | 'compact'
+  appHeader?: 'full' | 'compact' | 'none'
   booting?: boolean
   appearance?: ChatAppearance
   /** Same-origin reviewed background image used with an `image` appearance. */

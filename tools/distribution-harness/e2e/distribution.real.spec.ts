@@ -176,12 +176,14 @@ test('@real admitted HTTPS site launches the real embed, checks cross-site heade
   await guide.getByRole('textbox', { name: 'Question' }).fill('P7 confirmation after reopen')
   await guide.getByRole('button', { name: 'Send' }).click()
   await expect(guide.getByText('P7 confirmation after reopen')).toBeVisible()
+  await guide.getByRole('button', { name: 'Settings' }).click()
   await guide.getByRole('button', { name: 'Clear chat' }).click()
   const dialog = guide.getByRole('alertdialog')
   await expect(dialog).toBeVisible()
   await expect(dialog).toHaveAccessibleName('Clear chat')
   await dialog.getByRole('button', { name: /cancel/i }).click()
   await expect(guide.getByText('P7 confirmation after reopen')).toBeVisible()
+  await guide.getByRole('button', { name: 'Settings' }).click()
   await guide.getByRole('button', { name: 'Clear chat' }).click()
   const confirmed = guide.getByRole('alertdialog')
   await confirmed.getByRole('button', { name: 'Clear chat' }).click()
@@ -208,6 +210,81 @@ test('@real admitted inline host mounts the real inline route over cross-site HT
   await expect(frame).toBeVisible({ timeout: 15_000 })
   await expect(frame).toHaveAttribute('src', new RegExp(`/embed/${slug}/inline$`))
   await expect(page.locator('.pf-launcher')).toHaveCount(0)
+})
+
+test('@real bridge opens an admitted guide with unsent ask and ignores spoofed lifecycle', async ({
+  page,
+}) => {
+  await page.goto(hostUrl('launcher', 'launcher'))
+  await expect(page.locator('.pf-launcher')).toBeVisible({ timeout: 15_000 })
+  await page.evaluate(() => {
+    const host = window as typeof window & {
+      Torchiko: {
+        open: (options: { ask: string }) => void
+        close: () => void
+        on: (event: 'ready' | 'open' | 'close', handler: () => void) => void
+      }
+      bridgeEvents: string[]
+    }
+    host.bridgeEvents = []
+    for (const event of ['ready', 'open', 'close'] as const)
+      host.Torchiko.on(event, () => host.bridgeEvents.push(event))
+    host.Torchiko.open({ ask: 'Where is the entrance?' })
+  })
+  const frame = page.locator('iframe[data-pathfinder-widget-frame]')
+  await expect(frame).toBeVisible({ timeout: 15_000 })
+  const guide = page.frameLocator('iframe[data-pathfinder-widget-frame]')
+  await expect(guide.getByRole('textbox', { name: 'Question' })).toHaveValue(
+    'Where is the entrance?',
+  )
+  await expect(guide.getByRole('log').getByText('Where is the entrance?')).toHaveCount(0)
+  const beforeSpoof = await page.evaluate(
+    () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents.length,
+  )
+  await frame.evaluate((iframe) => {
+    const frameWindow = (iframe as HTMLIFrameElement).contentWindow
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://spoofed.example',
+        source: frameWindow,
+        data: { source: 'torchiko', v: 1, type: 'open', payload: null },
+      }),
+    )
+  })
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents.length,
+    ),
+  ).toBe(beforeSpoof)
+  await page.evaluate(() =>
+    (window as typeof window & { Torchiko: { close: () => void } }).Torchiko.close(),
+  )
+  await expect(frame).toBeHidden()
+  const events = await page.evaluate(
+    () => (window as typeof window & { bridgeEvents: string[] }).bridgeEvents,
+  )
+  expect(events).toContain('ready')
+  expect(events).toContain('open')
+  expect(events).toContain('close')
+})
+
+test('@real app route header=none opens in browser mobile emulation with unsent ask', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'phone-390',
+    'This is the labeled mobile-emulation app check.',
+  )
+  const slug = fixture.slugs.launcher
+  const response = await page.goto(
+    `${webOrigin}/app/${slug}?header=none&ask=${encodeURIComponent('What can I see here?')}`,
+  )
+  expect(response?.status()).toBe(200)
+  expect(response?.headers()['x-frame-options']).toBe('SAMEORIGIN')
+  await expect(page.getByRole('textbox', { name: 'Question' })).toHaveValue('What can I see here?')
+  await expect(page.getByRole('log').getByText('What can I see here?')).toHaveCount(0)
+  await expect(page.locator('[data-app-header]')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /back/i })).toHaveCount(0)
 })
 
 test('@real unadmitted HTTPS host has no launcher and cannot be framed', async ({

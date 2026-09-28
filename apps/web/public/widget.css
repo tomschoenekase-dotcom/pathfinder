@@ -50,6 +50,7 @@
   height: min(720px, calc(100vh - 112px));
   height: min(720px, calc(100dvh - 112px));
   overflow: hidden;
+  padding-top: max(60px, calc(env(safe-area-inset-top) + 50px));
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
   width: min(420px, calc(100vw - 32px));
@@ -72,7 +73,7 @@
   padding: 10px;
   position: absolute;
   right: 10px;
-  top: 10px;
+  top: max(10px, env(safe-area-inset-top));
   z-index: 2;
 }
 

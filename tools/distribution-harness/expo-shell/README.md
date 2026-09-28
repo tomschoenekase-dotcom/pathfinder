@@ -6,6 +6,14 @@ bottom tab bar for Home, Tickets, Map, and Ask. Ask loads
 `EXPO_PUBLIC_TORCHIKO_APP_URL` in one `react-native-webview` with JavaScript and
 DOM storage enabled.
 
+Set `EXPO_PUBLIC_TORCHIKO_HEADER=none` to let the native shell supply the title
+and Close button (`compact` is also supported). To demonstrate an unsent start
+question, set `EXPO_PUBLIC_TORCHIKO_START_ASK='Where is the entrance?'`; the
+shell adds `ask` to the app URL only when it is at most 200 characters. The
+question appears in the composer and does not send a chat turn. The native
+Close button returns to Home, and a validated `close-requested` message from
+the guide does the same. Neither path destroys the long-lived WebView.
+
 The host keeps that WebView mounted while another tab is visible. Conversation
 identity/history is scoped to its WebView `sessionStorage`; creating a new
 WebView instance starts a new conversation. The shell routes same-origin guide
@@ -15,6 +23,11 @@ off, covers renderer loss, and removes the hidden Ask view from VoiceOver and
 TalkBack. Set `EXPO_PUBLIC_TORCHIKO_APP_BACKGROUND` to the venue app background
 from operator readback; the shell accepts only `#RRGGBB` and uses the value
 before first paint.
+
+The [Packet 3 emulator evidence](proof/README.md) is explicitly shell-only:
+the disposable guide backend was unavailable, so it tests native Close,
+`close-requested`, retained WebView state, and the offline Retry screen using a
+local static fixture.
 
 ## Android emulator
 

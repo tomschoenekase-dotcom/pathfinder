@@ -12,6 +12,21 @@ const VISITOR_VOICE_POLICY = 'camera=(), geolocation=(self), microphone=(self), 
 const INTERNAL_POLICY_TOKEN_HEADER = 'x-torchiko-internal-policy-token'
 let warnedMissingInternalPolicyToken = false
 
+/** Only bounded start input may accompany a website frame without changing its CSP gate. */
+function hasWebsiteStartQuery(searchParams: URLSearchParams): boolean {
+  const entries = [...searchParams.entries()]
+  if (entries.length > 2) return false
+  const seen = new Set<string>()
+  for (const [name, value] of entries) {
+    if (seen.has(name)) return false
+    seen.add(name)
+    if (name === 'ask' && value.length <= 200) continue
+    if (name === 'place' && value.length <= 200) continue
+    return false
+  }
+  return true
+}
+
 function getInternalPolicyOrigin(
   environment: Readonly<Record<string, string | undefined>>,
 ): string | null {
@@ -51,13 +66,15 @@ export function getEmbedResponseHeaders(
   origins: readonly string[] = [],
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Headers | null {
-  const { pathname, search } = request.nextUrl
+  const { pathname, searchParams } = request.nextUrl
   if (pathname !== '/embed' && !pathname.startsWith('/embed/')) return null
 
-  // Third-party framing is limited to canonical queryless website document routes.
-  // In particular, app aliases and every query-bearing presentation remain self-frame-only.
+  // Only canonical website documents with bounded start parameters can use
+  // tenant-owned frame ancestors. App aliases and unknown queries stay self-only.
   const framingPathname =
-    search.length === 0 && extractExactWebsiteEmbedVenueSlug(pathname) ? pathname : '/embed'
+    hasWebsiteStartQuery(searchParams) && extractExactWebsiteEmbedVenueSlug(pathname)
+      ? pathname
+      : '/embed'
 
   return new Headers({
     'Cache-Control': 'private, no-store',
@@ -107,10 +124,9 @@ export default clerkMiddleware(async (_auth, request) => {
     return NextResponse.next()
   }
   let origins: readonly string[] = []
-  const slug =
-    request.nextUrl.search.length === 0
-      ? extractExactWebsiteEmbedVenueSlug(request.nextUrl.pathname)
-      : null
+  const slug = hasWebsiteStartQuery(request.nextUrl.searchParams)
+    ? extractExactWebsiteEmbedVenueSlug(request.nextUrl.pathname)
+    : null
   if (slug) {
     try {
       const token = process.env.INTERNAL_POLICY_TOKEN

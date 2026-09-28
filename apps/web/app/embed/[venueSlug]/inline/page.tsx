@@ -6,11 +6,15 @@ import { getChatPalette } from '@pathfinder/ui/theme'
 import { VenueChatExperience } from '../../../../components/VenueChatExperience'
 import { VenueTemporarilyUnavailable } from '../../../../components/VenueTemporarilyUnavailable'
 import { WidgetReadySignal } from '../../../../components/WidgetReadySignal'
+import { parseHostStartParams } from '../../../../lib/host-bridge'
 import { classifyPublicVenueLookupError } from '../../../../lib/public-venue-error'
 import { getPublicVenue } from '../../../../lib/public-venue'
 import { TRPCProvider } from '../../../../lib/trpc'
 
-type InlineVenuePageProps = { params: Promise<{ venueSlug: string }> }
+type InlineVenuePageProps = {
+  params: Promise<{ venueSlug: string }>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}
 
 export const metadata: Metadata = { robots: { index: false, follow: false } }
 
@@ -24,8 +28,9 @@ export async function generateViewport({ params }: InlineVenuePageProps): Promis
   }
 }
 
-export default async function InlineVenuePage({ params }: InlineVenuePageProps) {
+export default async function InlineVenuePage({ params, searchParams }: InlineVenuePageProps) {
   const { venueSlug } = await params
+  const start = parseHostStartParams((await searchParams) ?? {})
   const distribution = await resolveCachedVenueDistribution({ venueSlug })
   if (!distribution) notFound()
   if (!distribution.venueActive) return <VenueTemporarilyUnavailable showHomeLink={false} />
@@ -49,6 +54,9 @@ export default async function InlineVenuePage({ params }: InlineVenuePageProps) 
         venueSlug={venueSlug}
         initialVenue={{ slug: venueSlug, venue }}
         presentation="embed-inline"
+        initialDraft={start.ask ?? ''}
+        {...(start.place ? { initialEntryPlaceId: start.place } : {})}
+        bridgeOrigins={distribution.website.origins}
         accessSurface="website"
       />
     </TRPCProvider>
