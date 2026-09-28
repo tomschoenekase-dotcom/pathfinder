@@ -4,7 +4,10 @@ on:
   # Push proves the new workflow before it reaches the default branch. It can
   # only run the synthetic path, regardless of event inputs.
   push:
-    branches: [codex/torchiko-one-click-staging]
+    branches:
+      - codex/torchiko-one-click-staging
+      - codex/torchiko-r2-20260928
+      - codex/torchiko-r2-1-20260928
   workflow_dispatch:
     inputs:
       mode:

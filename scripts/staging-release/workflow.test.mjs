@@ -6,7 +6,13 @@ const workflow = (await readFile(new URL('../../.github/workflows/staging-releas
 const restore = (await readFile(new URL('../../.github/workflows/staging-restore.yml', import.meta.url), 'utf8')).replace(/\r\n/gu, '\n')
 
 test('branch push can only enter the synthetic job', () => {
-  assert.match(workflow, /branches: \[codex\/torchiko-one-click-staging\]/u)
+  for (const branch of [
+    'codex/torchiko-one-click-staging',
+    'codex/torchiko-r2-20260928',
+    'codex/torchiko-r2-1-20260928',
+  ]) {
+    assert.ok(workflow.includes(`- ${branch}\n`), `synthetic push trigger must include ${branch}`)
+  }
   assert.match(workflow, /synthetic-dry-run:\n    if: github\.event_name == 'push' \|\| inputs\.mode == 'dry-run'/u)
   assert.match(workflow, /staging-preflight:\n    if: github\.event_name == 'workflow_dispatch' && inputs\.mode == 'staging'/u)
 })
