@@ -154,8 +154,22 @@ describe('VenueChatShell venue scoped voice captions', () => {
         text: 'Caption from new-venue',
         interrupted: true,
       })
-      newCallbacks.onCaptionAnnouncement('interrupted')
+      newCallbacks.onCaptionAnnouncement('started')
     })
     expect(screen.getByText('Caption from new-venue')).toBeTruthy()
+    expect(screen.getByText('Voice caption started.')).toBeTruthy()
+
+    act(() => {
+      oldCallbacks.onLiveCaptionChange({
+        responseId: 'late-old-venue-response',
+        text: 'Late caption from old-venue',
+        interrupted: true,
+      })
+      oldCallbacks.onCaptionAnnouncement('interrupted')
+    })
+    expect(screen.queryByText('Late caption from old-venue')).toBeNull()
+    expect(screen.getByText('Caption from new-venue')).toBeTruthy()
+    expect(screen.getByText('Voice caption started.')).toBeTruthy()
+    expect(screen.queryByText('Voice response interrupted. Finalizing caption.')).toBeNull()
   })
 })

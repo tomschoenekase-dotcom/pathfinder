@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
@@ -199,6 +199,8 @@ export function VenueChatShell(props: {
   } = props
   const [voiceEligible, setVoiceEligible] = useState(false)
   const [voiceConversationEnabled, setVoiceConversationEnabled] = useState(true)
+  const currentVenueIdRef = useRef(venue.id)
+  currentVenueIdRef.current = venue.id
   const [voiceVenueScope, setVoiceVenueScope] = useState(venue.id)
   const [liveVoiceCaption, setLiveVoiceCaption] = useState<{
     venueId: string
@@ -211,6 +213,7 @@ export function VenueChatShell(props: {
   } | null>(null)
   const handleLiveVoiceCaptionChange = useCallback(
     (caption: LiveAssistantCaption | null) => {
+      if (currentVenueIdRef.current !== venue.id) return
       setLiveVoiceCaption({ venueId: venue.id, caption })
     },
     [venue.id],
@@ -224,6 +227,7 @@ export function VenueChatShell(props: {
   )
   const handleVoiceCaptionAnnouncement = useCallback(
     (announcement: 'started' | 'interrupted') => {
+      if (currentVenueIdRef.current !== venue.id) return
       setLiveVoiceAnnouncement((current) => ({
         venueId: venue.id,
         text:
