@@ -30,13 +30,34 @@ test('synthetic job checks out the exact SHA and runs every staging-release test
   assert.match(workflow, /Prove GitHub masks a synthetic log sentinel[\s\S]*?sentinel='packet10-mask-sentinel-not-a-secret'[\s\S]*?echo "::add-mask::\$sentinel"[\s\S]*?echo "\$sentinel"/u)
 })
 
+test('synthetic hosted rehearsal runs with its explicit synthetic gate and is attested', () => {
+  const validateIndex = workflow.indexOf('Validate synthetic evidence')
+  const rehearsalIndex = workflow.indexOf('Run synthetic hosted rehearsal')
+  const evidenceAttestIndex = workflow.indexOf('Sign evidence provenance with GitHub OIDC')
+  const rehearsalAttestIndex = workflow.indexOf('Sign rehearsal evidence provenance with GitHub OIDC')
+  assert.ok(validateIndex < rehearsalIndex && rehearsalIndex < evidenceAttestIndex)
+  assert.match(workflow, /Run synthetic hosted rehearsal\n        env:\n          STAGING_SYNTHETIC_REHEARSAL: '1'\n          RELEASE_SHA: \$\{\{ github\.sha \}\}\n        run: \|\n          node scripts\/staging-release\/synthetic-hosted-rehearsal\.mjs \\\n            --synthetic-evidence "\$RUNNER_TEMP\/staging-release\/evidence\.json" \\\n            --release-sha "\$RELEASE_SHA" \\\n            --output "\$RUNNER_TEMP\/staging-release\/rehearsal-evidence\.json"/u)
+  assert.ok(rehearsalIndex < rehearsalAttestIndex)
+  assert.match(workflow, /Sign rehearsal evidence provenance with GitHub OIDC\n        uses: actions\/attest@[0-9a-f]{40}[\s\S]*?subject-path: \$\{\{ runner\.temp \}\}\/staging-release\/rehearsal-evidence\.json/u)
+  assert.ok(workflow.includes('staging-release/rehearsal-evidence.json'))
+  assert.doesNotMatch(workflow.slice(rehearsalIndex, evidenceAttestIndex), /STAGING_DATABASE_URL|RAILWAY_TOKEN/u)
+  assert.doesNotMatch(workflow.slice(workflow.indexOf('Run synthetic hosted rehearsal'), workflow.indexOf('Sign rehearsal evidence provenance')), /DATABASE_URL|RESTORE_DATABASE_URL/u, 'rehearsal must not inherit disposable database URLs')
+  assert.doesNotMatch(workflow, /^      (?:DATABASE_URL|RESTORE_DATABASE_URL):/mu, 'disposable database URLs must not be job-level environment')
+  const syntheticSourceUrl = 'postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source'
+  const syntheticRestoreUrl = 'postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore'
+  assert.match(workflow, new RegExp(`Mask synthetic connection strings and passphrase\\n        env:\\n          DATABASE_URL: ${syntheticSourceUrl.replaceAll('.', '\\.')}\\n          RESTORE_DATABASE_URL: ${syntheticRestoreUrl.replaceAll('.', '\\.')}\\n`, 'u'))
+  assert.match(workflow, new RegExp(`Backup and verify disposable restore\\n        env:\\n          DATABASE_URL: ${syntheticSourceUrl.replaceAll('.', '\\.')}\\n          RESTORE_DATABASE_URL: ${syntheticRestoreUrl.replaceAll('.', '\\.')}\\n          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only`, 'u'))
+  assert.match(workflow, /staging-preflight:\n    if: github\.event_name == 'workflow_dispatch' && inputs\.mode == 'staging'[\s\S]*?Block before requesting an environment approval[\s\S]*?exit 1/u)
+  assert.match(workflow, /staging-release:\n    if: github\.event_name == 'workflow_dispatch' && inputs\.mode == 'staging'\n    needs: \[staging-preflight\][\s\S]*?environment: staging/u)
+})
+
 test('synthetic job uses disposable Postgres, masks credentials, and keeps artifacts briefly', () => {
   assert.equal((workflow.match(/image: postgres:17/gu) ?? []).length, 2)
   assert.match(workflow, /::add-mask::\$DATABASE_URL/u)
   assert.match(workflow, /::add-mask::\$RESTORE_DATABASE_URL/u)
   assert.match(workflow, /passphrase='synthetic-disposable-'\n          passphrase\+='passphrase-for-ci-only'\n          echo "::add-mask::\$passphrase"/u)
   assert.doesNotMatch(workflow, /^      STAGING_BACKUP_PASSPHRASE:/mu, 'passphrase must be masked before entering a step environment')
-  assert.match(workflow, /Backup and verify disposable restore\n        env:\n          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only/u)
+  assert.match(workflow, /Backup and verify disposable restore\n        env:\n          DATABASE_URL: postgresql:\/\/postgres:synthetic-password@127\.0\.0\.1:5432\/pathfinder_disposable_source\n          RESTORE_DATABASE_URL: postgresql:\/\/postgres:synthetic-password@127\.0\.0\.1:5433\/pathfinder_disposable_restore\n          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only/u)
   assert.ok(workflow.indexOf('Mask synthetic connection strings and passphrase') < workflow.indexOf('Backup and verify disposable restore'))
   assert.match(workflow, /retention-days: 2/u)
   assert.match(workflow, /if-no-files-found: error/u)
