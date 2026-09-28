@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+const mocks = vi.hoisted(() => ({ prospectVenueFindMany: vi.fn() }))
+
 vi.mock('@pathfinder/db', () => ({
-  db: { prospectOrganization: { findMany: vi.fn() } },
+  db: {
+    prospectOrganization: { findMany: vi.fn() },
+    prospectVenue: { findMany: mocks.prospectVenueFindMany },
+  },
   withTenantIsolationBypass: (work: () => unknown) => work(),
 }))
 
@@ -11,6 +16,19 @@ import {
 } from './prospect-crm-directory'
 import { prospectGoodFitSavedView } from './prospect-crm-saved-views'
 import { defaultProspectGoodFitRules } from '@pathfinder/contracts/prospect-size'
+import { router } from '../../core'
+import type { TRPCContext } from '../../context'
+import { adminProspectCrmIntelligenceRouter } from './prospect-crm-intelligence'
+
+const assistantRouter = router({ crm: adminProspectCrmIntelligenceRouter })
+
+function context(): TRPCContext {
+  return {
+    db: {} as TRPCContext['db'],
+    headers: new Headers(),
+    session: { userId: 'admin_1', activeTenantId: null, role: null, isPlatformAdmin: true },
+  }
+}
 
 const fitAttributes = {
   torchikoSizeV1: {
@@ -35,6 +53,66 @@ const fitAttributes = {
 }
 
 describe('prospect CRM Good fit view', () => {
+  it('filters requested categories before limiting each size band', async () => {
+    const candidate = (
+      id: string,
+      normalizedType: string,
+      venueType = normalizedType,
+      organizationType = normalizedType,
+    ) => ({
+      id,
+      name: id,
+      city: 'Chicago',
+      region: 'IL',
+      venueType,
+      territoryId: 'chicago',
+      estimatedSize: 'M',
+      fitAttributes: {
+        ...fitAttributes,
+        torchikoTriageV1: { ...fitAttributes.torchikoTriageV1, normalizedType },
+      },
+      organization: {
+        id: `org-${id}`,
+        canonicalName: id,
+        organizationType,
+        territoryId: 'chicago',
+      },
+    })
+    const newestFirst = [
+      candidate('Zoo 1', 'zoo'),
+      candidate('Zoo 2', 'zoo'),
+      candidate('Zoo 3', 'zoo'),
+      candidate('Zoo 4', 'zoo'),
+      candidate('Natural History Museum', 'museum', 'Natural History Museum'),
+    ]
+    mocks.prospectVenueFindMany.mockImplementation(
+      async (args: { take: number; where: { AND: unknown[] } }) => {
+        const query = JSON.stringify(args.where).toLowerCase()
+        const categoryWasPushedDown = query.includes('"string_contains":"museum"')
+        return (
+          categoryWasPushedDown
+            ? newestFirst.filter((venue) =>
+                [venue.venueType, venue.organization.organizationType].some((value) =>
+                  value.toLowerCase().includes('museum'),
+                ),
+              )
+            : newestFirst
+        ).slice(0, args.take)
+      },
+    )
+
+    const result = await assistantRouter
+      .createCaller(context())
+      .crm.findProspectsForAssistant({ ask: 'museum', territoryId: 'chicago', limit: 1 })
+
+    expect(result.items.map((item) => item.venueName)).toEqual(['Natural History Museum'])
+    expect(mocks.prospectVenueFindMany).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(mocks.prospectVenueFindMany.mock.calls[0]?.[0].where)).toContain(
+      '"string_contains":"museum"',
+    )
+    expect(mocks.prospectVenueFindMany.mock.calls[0]?.[0].take).toBe(4)
+  })
+
   it('publishes the explicit editable Good fit saved-view rules', () => {
     expect(prospectGoodFitSavedView.name).toBe('Good fit')
     expect(prospectGoodFitSavedView.filters).toMatchObject({

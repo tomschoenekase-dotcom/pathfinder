@@ -195,13 +195,36 @@ export const adminProspectCrmIntelligenceRouter = router({
           unknown: string | null
           excludedReason: string | null
         }> = []
+        const categoryWhere = categories.length
+          ? {
+              OR: categories.flatMap((term) => [
+                {
+                  fitAttributes: {
+                    path: ['torchikoTriageV1', 'normalizedType'],
+                    string_contains: term,
+                    mode: 'insensitive' as const,
+                  },
+                },
+                { venueType: { contains: term, mode: 'insensitive' as const } },
+                {
+                  organization: {
+                    is: { organizationType: { contains: term, mode: 'insensitive' as const } },
+                  },
+                },
+              ]),
+            }
+          : null
         // Query each band in preference order so M remains first even in a large CRM.
         for (const sizeClass of ['M', 'S', 'L'] as const) {
           if (items.length >= input.limit) break
           if (requestedSizes && !requestedSizes.has(sizeClass)) continue
           const venues = await db.prospectVenue.findMany({
             where: {
-              AND: [prospectGoodFitVenueWhere(input.territoryId), { estimatedSize: sizeClass }],
+              AND: [
+                prospectGoodFitVenueWhere(input.territoryId),
+                { estimatedSize: sizeClass },
+                ...(categoryWhere ? [categoryWhere] : []),
+              ],
             },
             orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
             take: input.limit * 4,
