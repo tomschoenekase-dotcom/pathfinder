@@ -101,6 +101,13 @@
       "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
     },
     {
+      "path": "voice.connect",
+      "kind": "mutation",
+      "exposure": "public-ai",
+      "controlProfile": "bounded-ai-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
       "path": "voice.connected",
       "kind": "mutation",
       "exposure": "public",

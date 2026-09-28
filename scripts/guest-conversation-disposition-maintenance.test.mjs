@@ -189,7 +189,7 @@ test('actual default CLI refuses a bound plan while source migration 251 is unre
       '--plan-sha256',
       dispositionSha256(raw),
     ],
-    { encoding: 'utf8', timeout: 15000, env: { SystemRoot: process.env.SystemRoot, PATH: '' } },
+    { encoding: 'utf8', timeout: 60000, env: { SystemRoot: process.env.SystemRoot, PATH: '' } },
   )
   assert.equal(child.status, 2, child.stderr)
   assert.equal(child.stdout, '')

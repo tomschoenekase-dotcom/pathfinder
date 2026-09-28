@@ -48,7 +48,10 @@ type ChatWindowProps = {
   draftStorageKey?: string | null
   emptyState?: ReactNode
   conversationTools?: ReactNode
-  persistentVoiceControl?: ReactNode
+  composerVoiceControl?: ReactNode
+  voiceCaption?: { text: string; interrupted: boolean } | null
+  voiceCaptionAnnouncement?: string | null
+  voiceCaptionAnnouncementKey?: number
   assistantLabel?: string
   /** Visible speaker labels, used when neither speaker has a bubble. */
   speakerLabels?: { guide: string }
@@ -85,7 +88,10 @@ export function ChatWindow({
   draftStorageKey = null,
   emptyState,
   conversationTools,
-  persistentVoiceControl,
+  composerVoiceControl,
+  voiceCaption = null,
+  voiceCaptionAnnouncement = null,
+  voiceCaptionAnnouncementKey = 0,
   assistantLabel = 'Venue guide',
   speakerLabels,
   surfaces,
@@ -187,7 +193,7 @@ export function ChatWindow({
         behavior: 'auto',
       })
     }
-  }, [errorMessage, isLoading, messages])
+  }, [errorMessage, isLoading, messages, voiceCaption?.text, voiceCaption?.interrupted])
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && shouldRestoreComposerFocusRef.current) {
@@ -305,6 +311,29 @@ export function ChatWindow({
           </div>
         ))}
 
+        {voiceCaption?.text.trim() ? (
+          <div
+            aria-label="Live voice caption"
+            className="mx-auto w-full max-w-2xl rounded-xl border border-[var(--chat-header-border)] bg-[var(--chat-header-bg)] px-4 py-3 text-[var(--chat-text)]"
+            dir="auto"
+            role="group"
+            tabIndex={0}
+          >
+            <p className="mb-1 text-xs font-semibold text-[var(--chat-text-muted)]">
+              {voiceCaption.interrupted
+                ? 'Guide · Interrupted; finalizing'
+                : 'Guide · Caption in progress'}
+            </p>
+            <p
+              aria-label="Caption text"
+              className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
+              tabIndex={0}
+            >
+              {voiceCaption.text}
+            </p>
+          </div>
+        ) : null}
+
         {onRequestMore &&
         !isLoading &&
         messages.at(-1)?.role === 'assistant' &&
@@ -358,16 +387,16 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      {persistentVoiceControl ? (
-        <div
-          className={styles.persistentControl}
-          role="region"
-          aria-label="Voice controls"
-          tabIndex={0}
-        >
-          {persistentVoiceControl}
-        </div>
-      ) : null}
+      <div
+        key={voiceCaptionAnnouncementKey}
+        className="sr-only"
+        aria-label="Voice caption updates"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {voiceCaptionAnnouncement}
+      </div>
 
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
@@ -425,6 +454,7 @@ export function ChatWindow({
               }
             }}
           />
+          {composerVoiceControl}
           <button
             ref={sendButtonRef}
             style={{

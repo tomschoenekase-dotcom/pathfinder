@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
@@ -23,7 +23,11 @@ import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
-import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
+import {
+  VoiceControl,
+  type FinalizedVoiceTranscriptLine,
+  type LiveAssistantCaption,
+} from './VoiceControl'
 import { VisitorSettings } from './VisitorSettings'
 import { getVisitorSettingsCopy } from './visitor-settings-copy'
 import { getVisitorStateCopy, getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
@@ -145,6 +149,8 @@ export function VenueChatShell(props: {
   onVoiceTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   voiceControl?: ReactNode
+  fixtureLiveVoiceCaption?: LiveAssistantCaption | null
+  fixtureLiveVoiceAnnouncement?: string | null
   visitContext?: GuestVisitContextInput
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
@@ -185,10 +191,65 @@ export function VenueChatShell(props: {
     onVoiceTranscriptLine,
     onVisitorAction,
     voiceControl,
+    fixtureLiveVoiceCaption,
+    fixtureLiveVoiceAnnouncement,
     visitContext,
     routePlanner,
     connectionState = 'online',
   } = props
+  const [voiceEligible, setVoiceEligible] = useState(false)
+  const [voiceConversationEnabled, setVoiceConversationEnabled] = useState(true)
+  const currentVenueIdRef = useRef(venue.id)
+  currentVenueIdRef.current = venue.id
+  const [voiceVenueScope, setVoiceVenueScope] = useState(venue.id)
+  const [liveVoiceCaption, setLiveVoiceCaption] = useState<{
+    venueId: string
+    caption: LiveAssistantCaption | null
+  } | null>(null)
+  const [liveVoiceAnnouncement, setLiveVoiceAnnouncement] = useState<{
+    venueId: string
+    text: string
+    sequence: number
+  } | null>(null)
+  const handleLiveVoiceCaptionChange = useCallback(
+    (caption: LiveAssistantCaption | null) => {
+      if (currentVenueIdRef.current !== venue.id) return
+      setLiveVoiceCaption({ venueId: venue.id, caption })
+    },
+    [venue.id],
+  )
+  const handleVoiceAvailabilityChange = useCallback(
+    (available: boolean) => {
+      setVoiceEligible(available)
+      setVoiceVenueScope(venue.id)
+    },
+    [venue.id],
+  )
+  const handleVoiceCaptionAnnouncement = useCallback(
+    (announcement: 'started' | 'interrupted') => {
+      if (currentVenueIdRef.current !== venue.id) return
+      setLiveVoiceAnnouncement((current) => ({
+        venueId: venue.id,
+        text:
+          announcement === 'interrupted'
+            ? 'Voice response interrupted. Finalizing caption.'
+            : 'Voice caption started.',
+        sequence: (current?.venueId === venue.id ? current.sequence : 0) + 1,
+      }))
+    },
+    [venue.id],
+  )
+  useEffect(() => {
+    setVoiceEligible(false)
+    setVoiceConversationEnabled(true)
+    setVoiceVenueScope(venue.id)
+    setLiveVoiceCaption(null)
+    setLiveVoiceAnnouncement(null)
+  }, [venue.id])
+  const scopedLiveVoiceCaption =
+    liveVoiceCaption?.venueId === venue.id ? liveVoiceCaption.caption : null
+  const scopedLiveVoiceAnnouncement =
+    liveVoiceAnnouncement?.venueId === venue.id ? liveVoiceAnnouncement : null
   useDocumentScrollLock()
   const bridge = useHostBridge({
     presentation,
@@ -391,7 +452,7 @@ export function VenueChatShell(props: {
                 />
               </>
             }
-            persistentVoiceControl={
+            composerVoiceControl={
               voiceControl === undefined ? (
                 isOnline ? (
                   <VoiceControl
@@ -399,6 +460,11 @@ export function VenueChatShell(props: {
                     anonymousToken={anonymousToken}
                     language={language}
                     disabled={isSending}
+                    enabled={voiceConversationEnabled}
+                    compact
+                    onAvailabilityChange={handleVoiceAvailabilityChange}
+                    onLiveCaptionChange={handleLiveVoiceCaptionChange}
+                    onCaptionAnnouncement={handleVoiceCaptionAnnouncement}
                     {...(visitContext ? { visitContext } : {})}
                     {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
                     {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
@@ -409,6 +475,17 @@ export function VenueChatShell(props: {
               )
             }
             messages={messages}
+            voiceCaption={
+              fixtureLiveVoiceCaption === undefined
+                ? scopedLiveVoiceCaption
+                : fixtureLiveVoiceCaption
+            }
+            voiceCaptionAnnouncement={
+              fixtureLiveVoiceAnnouncement === undefined
+                ? (scopedLiveVoiceAnnouncement?.text ?? null)
+                : fixtureLiveVoiceAnnouncement
+            }
+            voiceCaptionAnnouncementKey={scopedLiveVoiceAnnouncement?.sequence ?? 0}
             language={language}
             assistantLabel={guideName}
             {...(tokens.speakerLabels ? { speakerLabels: { guide: settingsCopy.guide } } : {})}
@@ -495,6 +572,9 @@ export function VenueChatShell(props: {
           attribution={
             presentation === 'webview' ? 'none' : presentation === 'standalone' ? 'link' : 'text'
           }
+          voiceAvailable={isOnline && voiceEligible && voiceVenueScope === venue.id}
+          voiceConversationEnabled={voiceConversationEnabled}
+          onVoiceConversationChange={setVoiceConversationEnabled}
         />
       </footer>
     </div>

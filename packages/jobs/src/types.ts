@@ -108,6 +108,12 @@ export type GmailSyncJobPayload = {
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 
+/** Carries only the durable voice-session identity and expected deadline. */
+export type VoiceSessionHangupJobPayload = {
+  voiceSessionId: string
+  deadlineAt: string
+}
+
 /** Carries only durable upload identity. The worker reloads all object and policy evidence. */
 export type IntakeUploadVerificationJobPayload = {
   tenantId: string

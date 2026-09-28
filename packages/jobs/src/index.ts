@@ -3,6 +3,7 @@ export {
   ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
   VOICE_SESSION_RECOVERY_QUEUE,
   VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+  VOICE_SESSION_HANGUP_JOB,
   AGENT_RUN_PROCESS_JOB,
   AGENT_RUN_QUEUE,
   AGENT_RUN_RETRY_BACKOFF,
@@ -137,6 +138,7 @@ export {
   enqueueIntakeV1SourceProcessing,
   enqueueIntakeV1FileExtraction,
   enqueueVenueMediaDerivative,
+  enqueueVoiceSessionHangup,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
 export type {
@@ -167,4 +169,5 @@ export type {
   IntakeV1SourceProcessingJobPayload,
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
+  VoiceSessionHangupJobPayload,
 } from './types'

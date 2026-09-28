@@ -112,6 +112,8 @@ export {
 } from './cost-decimal'
 export {
   estimateRealtimeVoiceCostUsd,
+  exchangeRealtimeVoiceSdp,
+  hangupOpenAiRealtimeCall,
   openAiRealtimeVoiceAdapter,
   REALTIME_VOICE_PRICING_VERSION,
   RealtimeVoiceTier,

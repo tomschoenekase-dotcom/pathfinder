@@ -107,7 +107,7 @@ export default async function VisitorChatVisualFixture({
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
   const voice = oneOf(
     params.voice,
-    ['none', 'idle', 'listening', 'speaking', 'interrupted', 'error'] as const,
+    ['none', 'idle', 'server', 'listening', 'speaking', 'interrupted', 'error'] as const,
     'none',
   )
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')

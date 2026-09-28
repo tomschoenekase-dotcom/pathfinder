@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatWindow } from './ChatWindow'
 
+const getChatResponseStatus = () => screen.getByRole('status', { name: '' })
+
 describe('ChatWindow accessibility and motion behavior', () => {
   const scrollTo = vi.fn()
 
@@ -178,7 +180,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading={false}
       />,
     )
-    const announcedResponse = screen.getByRole('status').querySelector('span[lang=""][dir="auto"]')
+    const announcedResponse = getChatResponseStatus().querySelector('span[lang=""][dir="auto"]')
     expect(announcedResponse?.textContent).toBe(arabicResponse)
   })
 
@@ -196,8 +198,8 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(alert.textContent).toContain('The guide could not respond.')
     expect(alert.closest('[role="log"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
-    expect(screen.getByRole('status').getAttribute('aria-live')).toBe('polite')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
+    expect(getChatResponseStatus().getAttribute('aria-live')).toBe('polite')
 
     view.rerender(
       <ChatWindow
@@ -208,7 +210,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toBe('')
+    expect(getChatResponseStatus().textContent).toBe('')
     expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
   })
 
@@ -234,7 +236,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     const history = [{ role: 'assistant' as const, content: 'Earlier answer.' }]
     const view = render(<ChatWindow messages={history} onSend={vi.fn()} isLoading={false} />)
 
-    expect(screen.getByRole('status').textContent).toBe('')
+    expect(getChatResponseStatus().textContent).toBe('')
 
     view.rerender(
       <ChatWindow
@@ -248,7 +250,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toBe('Venue guide: A new answer.')
+    expect(getChatResponseStatus().textContent).toBe('Venue guide: A new answer.')
   })
 
   it('keeps streamed fragments out of the live region and announces only the completed answer', () => {
@@ -270,7 +272,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
 
     view.rerender(
       <ChatWindow
@@ -282,7 +284,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading={false}
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe(
+    expect(getChatResponseStatus().textContent).toBe(
       'Venue guide: Nearby, beside the east gallery.',
     )
   })
@@ -299,7 +301,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
     expect(screen.queryByText('This is taking a little longer…')).toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
 
     act(() => vi.advanceTimersByTime(1_499))
     expect(screen.queryByText('This is taking a little longer…')).toBeNull()
@@ -320,7 +322,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(screen.queryByText('This is taking a little longer…')).toBeNull()
     expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('Guide is answering')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
   })
 
   it('uses localized waiting and live status copy for French visitors', () => {
@@ -335,7 +337,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    const status = screen.getByRole('status')
+    const status = getChatResponseStatus()
     expect(status.textContent).toBe('Le guide répond')
     expect(status.getAttribute('aria-live')).toBe('polite')
     expect(status.querySelector('[lang="fr"]')?.getAttribute('dir')).toBe('ltr')
@@ -878,6 +880,19 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText(/10:00 AM–4:00 PM/)).toBeTruthy()
     expect(onPlaceCardClick).toHaveBeenCalledOnce()
     expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
+  })
+
+  it('places the voice control inside the composer field', () => {
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        composerVoiceControl={<button aria-label="Start voice conversation">Mic</button>}
+      />,
+    )
+    const voice = screen.getByRole('button', { name: 'Start voice conversation' })
+    expect(voice.closest('[class*="composerField"]')).toBeTruthy()
   })
 
   it('localizes Arabic conversation, composer, and send accessibility labels', () => {

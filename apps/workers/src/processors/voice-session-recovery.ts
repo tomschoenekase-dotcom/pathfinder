@@ -2,10 +2,12 @@ import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config'
 import {
   expireAbandonedVoiceSessions,
+  findDueVoiceSessionHangups,
   updateJobRecord,
   VOICE_SESSION_RECOVERY_BATCH_MAX,
   writeJobRecord,
 } from '@pathfinder/db'
+import { hangupDueVoiceSession } from './voice-session-hangup'
 import {
   VOICE_SESSION_RECOVERY_QUEUE,
   VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
@@ -34,6 +36,12 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
   })
 
   try {
+    const dueProviderSessions = await findDueVoiceSessionHangups({ now: startedAt })
+    let providerExpired = 0
+    for (const session of dueProviderSessions) {
+      const expiredProviderSession = await hangupDueVoiceSession(session.id, { now: startedAt })
+      if (expiredProviderSession) providerExpired += 1
+    }
     const expired = await expireAbandonedVoiceSessions({ now: startedAt })
     for (const session of expired) {
       await emitEvent({
@@ -54,10 +62,10 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
     logger.info({
       action: 'workers.voice-session-recovery.completed',
-      expired: expired.length,
+      expired: expired.length + providerExpired,
       batchLimit: VOICE_SESSION_RECOVERY_BATCH_MAX,
     })
-    return { expired: expired.length }
+    return { expired: expired.length + providerExpired }
   } catch (error) {
     await recordJobFailure({
       jobRecordId,

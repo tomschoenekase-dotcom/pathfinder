@@ -248,8 +248,8 @@ const approvedCallCounts = new Map([
   // Relocated platform-admin proposal listing retains exact tenant+venue and bounded projections.
   ['packages/api/src/routers/admin/knowledge-proposal-reads.ts', 1],
   ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
-  // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
-  ['packages/api/src/routers/admin/product-entitlements.ts', 3],
+  // Platform-admin entitlement reads, bounded venue voice usage, and append-only overrides retain explicit tenant scope.
+  ['packages/api/src/routers/admin/product-entitlements.ts', 4],
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
@@ -336,10 +336,10 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
-  // Platform maintenance atomically selects a bounded set of abandoned voice
-  // sessions and terminalizes only their exact identities. Returned rows contain
-  // lifecycle metadata for analytics; no transcript or customer content is read.
-  ['packages/db/src/helpers/voice-session-recovery.ts', 1],
+  // Voice recovery loads one exact active session, discovers bounded due hangups,
+  // finalizes one exact due session, and expires bounded abandoned sessions. Returned
+  // rows contain lifecycle metadata; no transcript or customer content is read.
+  ['packages/db/src/helpers/voice-session-recovery.ts', 4],
   // Platform maintenance performs one bounded, read-only Gmail retention inventory across
   // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
   // never returns body content or mutates retention state.
@@ -714,6 +714,7 @@ function runSelfTests() {
 runSelfTests()
 
 // R2 combines three independently reviewed additions on the R1.1 inventory.
+// Packet 5 adds one platform-admin usage read and three voice recovery calls.
 // Keep their per-file counts and the aggregate explicit so a later packet must
 // review any drift instead of inheriting a silently expanded cross-tenant grant.
 const r2ApprovedDelta = new Map([
@@ -728,11 +729,21 @@ for (const [fileName, addition] of r2ApprovedDelta) {
   }
 }
 const r2ApprovedTotal = [...approvedCallCounts.values()].reduce((sum, count) => sum + count, 0)
+const packet5ApprovedDelta = 4
+if (
+  approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !==
+  3 + 1
+) {
+  throw new Error('Packet 5 venue voice usage bypass delta differs')
+}
+if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') !== 1 + 3) {
+  throw new Error('Packet 5 voice-session recovery bypass delta differs')
+}
 if (
   r2ApprovedTotal !==
-  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0)
+  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) + packet5ApprovedDelta
 ) {
-  throw new Error('R2 tenant bypass approved total differs from the reviewed R1.1 + input deltas')
+  throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
 }
 
 const sourceFiles = (

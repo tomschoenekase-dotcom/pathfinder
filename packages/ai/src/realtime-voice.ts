@@ -19,17 +19,18 @@ const safeModelName = z
   .regex(/^[A-Za-z0-9._-]+$/u)
 
 export function resolveRealtimeVoiceRoute(params: {
-  tier: RealtimeVoiceTier
-  premiumEntitled?: boolean
+  /** Trusted server configuration. Never pass a visitor supplied tier here. */
+  tier?: RealtimeVoiceTier
+  voiceEntitled: boolean
   providerAvailable?: boolean
   environment?: Readonly<Record<string, string | undefined>>
 }): RealtimeVoiceRoute {
-  const tier = RealtimeVoiceTier.parse(params.tier)
-  if (params.providerAvailable === false) throw new Error('Realtime voice provider is unavailable')
-  if (tier === 'PREMIUM' && params.premiumEntitled !== true) {
-    throw new Error('Premium realtime voice is not entitled')
-  }
+  if (params.voiceEntitled !== true) throw new Error('Realtime voice is not entitled')
   const environment = params.environment ?? process.env
+  const tier = RealtimeVoiceTier.parse(
+    params.tier ?? environment.OPENAI_REALTIME_VOICE_TIER ?? 'ECONOMY',
+  )
+  if (params.providerAvailable === false) throw new Error('Realtime voice provider is unavailable')
   const model = safeModelName.parse(
     tier === 'PREMIUM'
       ? (environment.OPENAI_REALTIME_PREMIUM_MODEL ?? 'gpt-realtime-2.1')
@@ -145,6 +146,116 @@ const voiceName = z
 const safetyId = z.string().regex(/^[a-f0-9]{64}$/u)
 const REALTIME_AUTH_RESPONSE_MAX_BYTES = 1024 * 1024
 const REALTIME_AUTH_TIMEOUT_MS = 30_000
+const REALTIME_SDP_MAX_BYTES = 64 * 1024
+const realtimeCallId = z.string().regex(/^rtc_[A-Za-z0-9_-]{1,180}$/u)
+
+/** The browser never receives the provider credential or the call ID. */
+export async function exchangeRealtimeVoiceSdp(input: {
+  clientSecret: string
+  sdpOffer: string
+  onCallId?: (callId: string) => void
+  fetchImpl?: typeof fetch
+  requestTimeoutMs?: number
+}): Promise<{ sdpAnswer: string; callId: string }> {
+  const offer = z.string().min(1).max(REALTIME_SDP_MAX_BYTES).parse(input.sdpOffer)
+  const secret = z.string().min(1).parse(input.clientSecret)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), authorizationTimeout(input.requestTimeoutMs))
+  try {
+    const response = await (input.fetchImpl ?? fetch)('https://api.openai.com/v1/realtime/calls', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/sdp' },
+      body: offer,
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined)
+      throw new Error(`Realtime voice call failed (${response.status})`)
+    }
+    const location = response.headers.get('location')
+    const url = location ? new URL(location, 'https://api.openai.com') : null
+    if (
+      !url ||
+      url.origin !== 'https://api.openai.com' ||
+      !url.pathname.startsWith('/v1/realtime/calls/') ||
+      url.search ||
+      url.hash
+    ) {
+      void response.body?.cancel().catch(() => undefined)
+      throw new Error('Realtime voice call did not return a valid call ID')
+    }
+    const callId = realtimeCallId.parse(url.pathname.slice('/v1/realtime/calls/'.length))
+    input.onCallId?.(callId)
+    const declared = Number(response.headers.get('content-length') ?? 0)
+    if (declared > REALTIME_SDP_MAX_BYTES) {
+      void response.body?.cancel().catch(() => undefined)
+      throw new Error('Realtime voice SDP answer is too large')
+    }
+    if (!response.body) throw new Error('Realtime voice SDP answer is invalid')
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let totalBytes = 0
+    let reading = true
+    const cancelOnAbort = () => void reader.cancel().catch(() => undefined)
+    controller.signal.addEventListener('abort', cancelOnAbort, { once: true })
+    try {
+      while (reading) {
+        const { done, value } = await reader.read()
+        if (done) {
+          reading = false
+          continue
+        }
+        totalBytes += value.byteLength
+        if (totalBytes > REALTIME_SDP_MAX_BYTES) {
+          void reader.cancel().catch(() => undefined)
+          throw new Error('Realtime voice SDP answer is too large')
+        }
+        chunks.push(value)
+      }
+    } finally {
+      controller.signal.removeEventListener('abort', cancelOnAbort)
+      reader.releaseLock()
+    }
+    const answerBytes = new Uint8Array(totalBytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      answerBytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    const sdpAnswer = new TextDecoder().decode(answerBytes)
+    if (!sdpAnswer) throw new Error('Realtime voice SDP answer is invalid')
+    return { sdpAnswer, callId }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function hangupOpenAiRealtimeCall(input: {
+  apiKey: string
+  callId: string
+  fetchImpl?: typeof fetch
+  requestTimeoutMs?: number
+}): Promise<void> {
+  const callId = realtimeCallId.parse(input.callId)
+  const apiKey = z.string().min(1).parse(input.apiKey)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), authorizationTimeout(input.requestTimeoutMs))
+  try {
+    const response = await (input.fetchImpl ?? fetch)(
+      `https://api.openai.com/v1/realtime/calls/${callId}/hangup`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      },
+    )
+    void response.body?.cancel().catch(() => undefined)
+    if (!response.ok && response.status !== 404)
+      throw new Error(`Realtime voice hangup failed (${response.status})`)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 function authorizationTimeout(value: number | undefined) {
   const timeoutMs = value ?? REALTIME_AUTH_TIMEOUT_MS

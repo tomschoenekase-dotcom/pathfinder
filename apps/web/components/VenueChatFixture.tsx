@@ -40,6 +40,7 @@ export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
   | 'idle'
+  | 'server'
   | 'listening'
   | 'speaking'
   | 'interrupted'
@@ -401,19 +402,21 @@ export function VenueChatFixture({
           presentation={presentation}
           appHeader={appHeader}
           messages={
-            conversation === 'long'
-              ? LONG_CONVERSATION
-              : conversation === 'placeholder'
-                ? PLACEHOLDER_CONVERSATION
-                : conversation === 'reference'
-                  ? REFERENCE_CONVERSATION
-                  : conversation === 'multilingual'
-                    ? MULTILINGUAL_CONVERSATION
-                    : conversation === 'streaming'
-                      ? STREAMING_CONVERSATION
-                      : conversation === 'voice-history'
-                        ? VOICE_HISTORY_CONVERSATION
-                        : []
+            voice === 'interrupted'
+              ? VOICE_HISTORY_CONVERSATION
+              : conversation === 'long'
+                ? LONG_CONVERSATION
+                : conversation === 'placeholder'
+                  ? PLACEHOLDER_CONVERSATION
+                  : conversation === 'reference'
+                    ? REFERENCE_CONVERSATION
+                    : conversation === 'multilingual'
+                      ? MULTILINGUAL_CONVERSATION
+                      : conversation === 'streaming'
+                        ? STREAMING_CONVERSATION
+                        : conversation === 'voice-history'
+                          ? VOICE_HISTORY_CONVERSATION
+                          : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
           isRestoringHistory={booting}
@@ -435,10 +438,11 @@ export function VenueChatFixture({
           onPlaceClick={() => undefined}
           onDirections={() => undefined}
           voiceControl={
-            voice === 'none' ? null : (
+            voice === 'server' ? undefined : voice === 'none' ? null : (
               <VoiceControlPanel
                 state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
+                compact
                 error={
                   voice === 'error'
                     ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'
@@ -464,19 +468,26 @@ export function VenueChatFixture({
                       ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
                       : []
                 }
-                {...(voice === 'speaking' || voice === 'interrupted'
-                  ? {
-                      liveAssistantCaption: {
-                        responseId: 'fixture-live-caption',
-                        text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift.',
-                        interrupted: voice === 'interrupted',
-                      },
-                    }
-                  : {})}
                 onStart={() => undefined}
                 onEnd={() => undefined}
               />
             )
+          }
+          fixtureLiveVoiceCaption={
+            voice === 'speaking' || voice === 'interrupted'
+              ? {
+                  responseId: 'fixture-live-caption',
+                  text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift. From there, follow the blue signs along the quieter east corridor. The next landmark is the glass reading room, just beyond the family displays. If the corridor feels busy, pause near the small seating area beside the lift; the route continues straight after the doorway and avoids the central stairs. You can also ask me to repeat any part of these directions while we walk together.',
+                  interrupted: voice === 'interrupted',
+                }
+              : null
+          }
+          fixtureLiveVoiceAnnouncement={
+            voice === 'interrupted'
+              ? 'Voice response interrupted. Finalizing caption.'
+              : voice === 'speaking'
+                ? 'Voice caption started.'
+                : null
           }
           routePlanner={
             route === 'ready' ? (

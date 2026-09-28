@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -240,6 +241,70 @@ describe('neutral fixture architecture proof', () => {
 })
 
 describe('agent-callable production engine', () => {
+  it('runs the synthetic friendly asteroid Asty through the local candidate pipeline', async () => {
+    // Original throwaway vector concept. It is intentionally not a real venue or a publishable art pack.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><path fill="#9b806d" d="M35 4 45 10 58 8 62 20 68 29 63 39 66 51 54 57 47 68 34 64 22 68 16 57 5 51 10 39 4 28 12 18 16 8 28 11Z"/><circle fill="#20252b" cx="28" cy="32" r="2.5"/><circle fill="#20252b" cx="44" cy="32" r="2.5"/><path fill="none" stroke="#20252b" stroke-linecap="round" stroke-width="2.5" d="M29 43q7 8 14 0"/></svg>`
+    const spec: CharacterSpec = {
+      schemaVersion: 1,
+      characterId: 'sample-asty-friendly-asteroid',
+      version: 1,
+      revision: 1,
+      displayName: 'Asty',
+      rigFamily: 'morph-v1',
+      source: {
+        kind: 'imported',
+        sourceUrl: 'https://local.invalid/synthetic-asty.svg',
+        sourceRevision: 'synthetic-asty-v1',
+        license: 'Original synthetic sample authored for this local proof; no external source.',
+        attribution: 'Torchiko Packet 5 local synthetic sample',
+        importedAt: '2026-09-28T00:00:00.000Z',
+        sha256: createHash('sha256').update(svg).digest('hex'),
+        mediaType: 'image/svg+xml',
+        byteLength: Buffer.byteLength(svg),
+      },
+      masterReference: 'source/asty.svg',
+      protectedTraits: ['friendly asteroid', 'round eyes', 'small smile'],
+      slotMap: { body: 'asteroid-body', face: 'friendly-face' },
+      supportedStates: FACTORY_STATES,
+      status: 'candidate',
+    }
+    const engine = new CharacterFactoryEngine(new MemoryCharacterFactoryStore())
+    const run = (requestId: string, action: import('./types').FactoryAction) =>
+      engine.run({ requestId, action })
+
+    const created = await run('asty-create', { type: 'create-from-import', spec, svg })
+    expect(created).toMatchObject({ status: 'succeeded', output: { compatible: true } })
+    const inspected = await run('asty-inspect', { type: 'inspect', characterId: spec.characterId })
+    expect(inspected).toMatchObject({
+      status: 'succeeded',
+      output: { characterId: spec.characterId, displayName: 'Asty', status: 'candidate' },
+    })
+    const preview = await run('asty-preview-speaking', {
+      type: 'preview',
+      characterId: spec.characterId,
+      state: 'speaking',
+    })
+    expect(preview).toMatchObject({
+      status: 'succeeded',
+      output: { characterId: spec.characterId, state: 'speaking', rigFamily: 'morph-v1' },
+    })
+    const validated = await run('asty-validate', {
+      type: 'validate',
+      characterId: spec.characterId,
+    })
+    expect(validated).toMatchObject({ status: 'succeeded', output: { valid: true } })
+    const exported = await run('asty-export-local-only', {
+      type: 'export',
+      characterId: spec.characterId,
+    })
+    expect(exported.status).toBe('succeeded')
+    expect(
+      await readCharacterExportArtifact(
+        exported.output as import('./types').CharacterExportArtifact,
+      ),
+    ).toMatchObject({ characterId: spec.characterId, status: 'exported', version: 1 })
+  })
+
   it('creates, inspects, previews, validates, revises, and exports with safe replay', async () => {
     const { spec, svg } = await firstFixture()
     const store = new MemoryCharacterFactoryStore()
@@ -432,23 +497,47 @@ describe('agent-callable production engine', () => {
         role: 'fallback',
         bytes: new TextEncoder().encode(svg),
       },
-      { path: 'slots/body.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'body', bytes: new TextEncoder().encode(body) },
-      { path: 'slots/eyes.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'eyes', bytes: new TextEncoder().encode(face) },
-      { path: 'slots/wings.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'wings', bytes: new TextEncoder().encode(wing) },
+      {
+        path: 'slots/body.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'body',
+        bytes: new TextEncoder().encode(body),
+      },
+      {
+        path: 'slots/eyes.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'eyes',
+        bytes: new TextEncoder().encode(face),
+      },
+      {
+        path: 'slots/wings.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'wings',
+        bytes: new TextEncoder().encode(wing),
+      },
     ]
     const pack = await neutralOwlRuntimePack(spec, assets)
     const bundle = await createCharacterBundle(spec, assets, pack)
     const verified = await readCharacterRuntimePack(bundle)
     expect(verified).toMatchObject({
       spec: { characterId: spec.characterId, version: spec.version },
-      runtimePack: { renderer: 'family-rig-v1', sourceSha256: spec.source.sha256, family: spec.rigFamily },
+      runtimePack: {
+        renderer: 'family-rig-v1',
+        sourceSha256: spec.source.sha256,
+        family: spec.rigFamily,
+      },
     })
     const publicAsset = await readCharacterRuntimeAsset(bundle, { assetId: 'body-layer' })
     expect(publicAsset).toMatchObject({
       asset: { id: 'body-layer', path: 'slots/body.svg', width: 72, height: 72 },
     })
     expect(new TextDecoder().decode(publicAsset.bytes)).toBe(body)
-    await expect(readCharacterRuntimeAsset(bundle, { assetId: 'unlisted' })).rejects.toThrow('not allowlisted')
+    await expect(readCharacterRuntimeAsset(bundle, { assetId: 'unlisted' })).rejects.toThrow(
+      'not allowlisted',
+    )
     const changedState = {
       ...pack,
       supportedContexts: ['marketing'] as CharacterRuntimePackInput['supportedContexts'],
@@ -463,32 +552,75 @@ describe('agent-callable production engine', () => {
     const face = await readFile(`${fixtureRoot}/segmented/owl/face.svg`, 'utf8')
     const wing = await readFile(`${fixtureRoot}/segmented/owl/wing.svg`, 'utf8')
     const assets: CharacterBundleAssetInput[] = [
-      { path: spec.masterReference, mediaType: 'image/svg+xml', role: 'master', bytes: new TextEncoder().encode(svg) },
-      { path: 'fallback/static.svg', mediaType: 'image/svg+xml', role: 'fallback', bytes: new TextEncoder().encode(svg) },
-      { path: 'slots/body.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'body', bytes: new TextEncoder().encode(body) },
-      { path: 'slots/eyes.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'eyes', bytes: new TextEncoder().encode(face) },
-      { path: 'slots/wings.svg', mediaType: 'image/svg+xml', role: 'slot', slot: 'wings', bytes: new TextEncoder().encode(wing) },
-      { path: 'rig/source.svg', mediaType: 'image/svg+xml', role: 'rig-source', bytes: new TextEncoder().encode(wing) },
+      {
+        path: spec.masterReference,
+        mediaType: 'image/svg+xml',
+        role: 'master',
+        bytes: new TextEncoder().encode(svg),
+      },
+      {
+        path: 'fallback/static.svg',
+        mediaType: 'image/svg+xml',
+        role: 'fallback',
+        bytes: new TextEncoder().encode(svg),
+      },
+      {
+        path: 'slots/body.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'body',
+        bytes: new TextEncoder().encode(body),
+      },
+      {
+        path: 'slots/eyes.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'eyes',
+        bytes: new TextEncoder().encode(face),
+      },
+      {
+        path: 'slots/wings.svg',
+        mediaType: 'image/svg+xml',
+        role: 'slot',
+        slot: 'wings',
+        bytes: new TextEncoder().encode(wing),
+      },
+      {
+        path: 'rig/source.svg',
+        mediaType: 'image/svg+xml',
+        role: 'rig-source',
+        bytes: new TextEncoder().encode(wing),
+      },
     ]
     const pack = await neutralOwlRuntimePack(spec, assets)
     await expect(
       createCharacterBundle(
         spec,
-        assets.map((asset) => asset.path === 'slots/wings.svg' ? { ...asset, bytes: new TextEncoder().encode(`${wing} `) } : asset),
+        assets.map((asset) =>
+          asset.path === 'slots/wings.svg'
+            ? { ...asset, bytes: new TextEncoder().encode(`${wing} `) }
+            : asset,
+        ),
         pack,
       ),
     ).rejects.toThrow('does not match bundled bytes')
-    await expect(createCharacterBundle(spec, assets.slice(0, -1), pack)).rejects.toThrow('reference every bundled asset')
+    await expect(createCharacterBundle(spec, assets.slice(0, -1), pack)).rejects.toThrow(
+      'reference every bundled asset',
+    )
     await expect(
       createCharacterBundle(spec, assets, {
         ...pack,
-        assets: pack.assets.map((asset) => asset.id === 'body-layer' ? { ...asset, width: 71 } : asset),
+        assets: pack.assets.map((asset) =>
+          asset.id === 'body-layer' ? { ...asset, width: 71 } : asset,
+        ),
       }),
     ).rejects.toThrow('format is unsupported')
     await expect(
       createCharacterBundle(spec, assets, {
         ...pack,
-        assets: pack.assets.map((asset) => asset.id === 'body-layer' ? { ...asset, sha256: '0'.repeat(64) } : asset),
+        assets: pack.assets.map((asset) =>
+          asset.id === 'body-layer' ? { ...asset, sha256: '0'.repeat(64) } : asset,
+        ),
       }),
     ).rejects.toThrow('does not match bundled bytes')
     const malformedSvgAssets = assets.map((asset) =>
@@ -504,7 +636,15 @@ describe('agent-callable production engine', () => {
       ),
     ).rejects.toThrow('dimensions do not match asset bytes')
     const malformedPng = Uint8Array.from([
-      137, 80, 78, 71, 13, 10, 26, 10, ...Array<number>(37).fill(0),
+      137,
+      80,
+      78,
+      71,
+      13,
+      10,
+      26,
+      10,
+      ...Array<number>(37).fill(0),
     ])
     const malformedPngAssets = assets.map((asset) =>
       asset.path === 'slots/body.svg'
@@ -518,7 +658,9 @@ describe('agent-callable production engine', () => {
         await neutralOwlRuntimePack(spec, malformedPngAssets),
       ),
     ).rejects.toThrow('dimensions do not match asset bytes')
-    await expect(createCharacterBundle(spec, assets, { ...pack, family: 'morph-v1' })).rejects.toThrow('family or capability')
+    await expect(
+      createCharacterBundle(spec, assets, { ...pack, family: 'morph-v1' }),
+    ).rejects.toThrow('family or capability')
     const unsupportedStateFallbacks = { ...pack.stateFallbacks, speaking: 'idle' as const }
     delete unsupportedStateFallbacks.processing
     await expect(
@@ -536,7 +678,13 @@ describe('agent-callable production engine', () => {
     const assets: CharacterBundleAssetInput[] = [
       { path: spec.masterReference, mediaType: 'image/svg+xml', role: 'master', bytes },
       { path: 'fallback/static.svg', mediaType: 'image/svg+xml', role: 'fallback', bytes },
-      ...Object.keys(spec.slotMap).map((slot) => ({ path: `slots/${slot}.svg`, mediaType: 'image/svg+xml' as const, role: 'slot' as const, slot, bytes })),
+      ...Object.keys(spec.slotMap).map((slot) => ({
+        path: `slots/${slot}.svg`,
+        mediaType: 'image/svg+xml' as const,
+        role: 'slot' as const,
+        slot,
+        bytes,
+      })),
     ]
     const legacy = await createCharacterBundle(spec, assets)
     expect((await readCharacterExportArtifact(legacy)).characterId).toBe(spec.characterId)

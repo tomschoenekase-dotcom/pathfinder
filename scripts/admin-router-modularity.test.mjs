@@ -172,6 +172,7 @@ const expectedAdminProcedures = [
   'getVenueLocationAuthoring',
   'getVenuePackageForReview',
   'getVenueReportConfiguration',
+  'getVenueVoiceUsageSummary',
   'getVisitorSpeed',
   'getWeeklyReport',
   'getWeeklyReportLifecycle',

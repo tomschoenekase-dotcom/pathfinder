@@ -54,7 +54,9 @@ const approvedPolicies = new Set([
   'platform-generation-dispatch-lease',
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
-  'platform-expired-voice-session-recovery',
+  'platform-due-voice-session-hangups',
+  'platform-finalize-due-voice-session-hangup',
+  'platform-expire-abandoned-voice-sessions',
   'platform-due-agent-question-discovery',
   'tenant-agent-question-operation-lock',
   'platform-dispatch-lease',
@@ -1426,8 +1428,22 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/voice-session-recovery.ts',
     method: '$queryRaw',
-    hash: 'd1b6e1f4a302ba10b883dd5495008ee10ff02e6eb8b4c62c401e1a5ea8f45975',
-    policy: 'platform-expired-voice-session-recovery',
+    hash: '5ce87351879fe163752be2b4f6c9df240a264a7feefbacdc216bda888cf14f46',
+    policy: 'platform-due-voice-session-hangups',
+  },
+  {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
+    policy: 'platform-finalize-due-voice-session-hangup',
+    effect: 'write',
+  },
+  {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
+    policy: 'platform-expire-abandoned-voice-sessions',
+    effect: 'write',
   },
   {
     file: 'packages/db/src/helpers/generation-recovery.ts',
@@ -1592,6 +1608,13 @@ const approvedOperations = [
 ]
 
 const approvedEffectOverrides = new Map([
+  ...[
+    '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
+    '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
+  ].map((hash) => [
+    ['packages/db/src/helpers/voice-session-recovery.ts', '$queryRaw', hash].join('\0'),
+    'write',
+  ]),
   [
     [
       'packages/db/src/helpers/guest-conversation-disposition.ts',

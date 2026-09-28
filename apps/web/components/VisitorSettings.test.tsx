@@ -41,6 +41,28 @@ describe('VisitorSettings', () => {
     expect(screen.queryByText('AI-generated answers can be wrong.')).toBeNull()
   })
 
+  it('shows Voice conversation only when the venue is eligible and keeps it on by default', () => {
+    renderSettings({ voiceAvailable: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    const toggle = within(screen.getByRole('dialog')).getByRole('switch', {
+      name: 'Voice conversation',
+    }) as HTMLInputElement
+    expect(toggle.checked).toBe(true)
+  })
+
+  it('hides voice settings for ineligible venues and reports the visitor choice', () => {
+    renderSettings({ voiceAvailable: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(within(screen.getByRole('dialog')).queryByText('Voice conversation')).toBeNull()
+    cleanup()
+    const eligible = renderSettings({ voiceAvailable: true, onVoiceConversationChange: vi.fn() })
+    fireEvent.click(within(eligible.container).getByRole('button', { name: 'Settings' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('switch', { name: 'Voice conversation' }),
+    )
+    expect(eligible.props.onVoiceConversationChange).toHaveBeenCalledWith(false)
+  })
+
   it('offers text size, Auto language, high contrast, Clear chat and About', () => {
     const { props } = renderSettings()
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))

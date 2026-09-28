@@ -108,6 +108,7 @@ export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-sc
 
 export const VOICE_SESSION_RECOVERY_QUEUE = queueName('voice-session-recovery')
 export const VOICE_SESSION_RECOVERY_SCHEDULER_JOB = 'voice-session-recovery-scheduler'
+export const VOICE_SESSION_HANGUP_JOB = 'voice-session-hangup'
 
 export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verification')
 export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'

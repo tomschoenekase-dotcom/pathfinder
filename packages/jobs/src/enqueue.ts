@@ -50,6 +50,8 @@ import {
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
   OPERATIONAL_QUEUE_NAMES,
+  VOICE_SESSION_HANGUP_JOB,
+  VOICE_SESSION_RECOVERY_QUEUE,
   PROSPECT_IMPORT_COMMIT_JOB,
   PROSPECT_IMPORT_INSPECT_JOB,
   PROSPECT_IMPORT_STAGE_JOB,
@@ -93,6 +95,7 @@ import type {
   IntakeV1SourceProcessingJobPayload,
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
+  VoiceSessionHangupJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -100,6 +103,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const GENERATION_DISPATCH_ID_MAX_LENGTH = 200
 const INTAKE_V1_SOURCE_PROCESSING_ID_MAX_LENGTH = 200
 const INTAKE_V1_FILE_EXTRACTION_ID_MAX_LENGTH = 200
+const VOICE_SESSION_ID_PATTERN = UUID_PATTERN
 const WELCOME_EMAIL_DELIVERY_DOMAIN = 'pathfinder-welcome-email-v1'
 
 function validateGenerationDispatchId(dispatchId: string): void {
@@ -174,6 +178,13 @@ function recoveryJobId(type: 'answer-analysis' | 'weekly-report', identity: stri
     .update(JSON.stringify(['pathfinder-generation-recovery-v1', type, ...identity]))
     .digest('hex')
   return `generation-recovery-${type}-${digest}`
+}
+
+function voiceSessionHangupJobId(voiceSessionId: string, deadlineAt: string): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-voice-session-hangup-v1', voiceSessionId, deadlineAt]))
+    .digest('hex')
+  return `voice-session-hangup-${digest}`
 }
 
 function getQueue(name: string): Queue {
@@ -722,6 +733,29 @@ export async function enqueueWeeklyReportRecovery(
   )
 
   logger.info({ action: 'jobs.weekly-report.recovery-enqueued' })
+}
+
+export async function enqueueVoiceSessionHangup(input: {
+  voiceSessionId: string
+  deadlineAt: Date
+}): Promise<void> {
+  if (!VOICE_SESSION_ID_PATTERN.test(input.voiceSessionId)) {
+    throw new Error('Voice session ID must be a UUID')
+  }
+  if (!(input.deadlineAt instanceof Date) || Number.isNaN(input.deadlineAt.getTime())) {
+    throw new Error('Voice session hangup deadline must be a valid date')
+  }
+  const deadlineAt = input.deadlineAt.toISOString()
+  const payload: VoiceSessionHangupJobPayload = { voiceSessionId: input.voiceSessionId, deadlineAt }
+  await getQueue(VOICE_SESSION_RECOVERY_QUEUE).add(VOICE_SESSION_HANGUP_JOB, payload, {
+    attempts: 12,
+    backoff: { type: 'exponential', delay: 5_000 },
+    delay: Math.max(0, input.deadlineAt.getTime() - Date.now()),
+    removeOnComplete: 1000,
+    removeOnFail: 5000,
+    jobId: voiceSessionHangupJobId(input.voiceSessionId, deadlineAt),
+  })
+  logger.info({ action: 'jobs.voice-session.hangup-enqueued' })
 }
 
 export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promise<void> {

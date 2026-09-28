@@ -256,9 +256,13 @@ export type {
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export {
   expireAbandonedVoiceSessions,
+  findDueVoiceSessionHangups,
+  finalizeExpiredVoiceSessionHangup,
+  loadVoiceSessionForHangup,
   VOICE_AUTHORIZATION_LEASE_SECONDS,
   VOICE_SESSION_RECOVERY_BATCH_MAX,
   type ExpiredVoiceSession,
+  type VoiceSessionHangupRecord,
 } from './helpers/voice-session-recovery'
 export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
 export { inspectDeclaredOperationalUsage } from './helpers/declared-operational-usage'
