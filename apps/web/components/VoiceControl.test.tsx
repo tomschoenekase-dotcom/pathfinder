@@ -622,6 +622,7 @@ describe('VoiceControl', () => {
 
   it('renders ordered rolling captions and replaces them with one played transcript line', async () => {
     const onTranscriptLine = vi.fn()
+    const onCaptionAnnouncement = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
@@ -651,7 +652,13 @@ describe('VoiceControl', () => {
       })),
     )
 
-    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    render(
+      <VoiceControl
+        {...props}
+        onTranscriptLine={onTranscriptLine}
+        onCaptionAnnouncement={onCaptionAnnouncement}
+      />,
+    )
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const providerEvent = (payload: Record<string, unknown>) =>
@@ -666,6 +673,8 @@ describe('VoiceControl', () => {
         delta: 'The gallery ',
       })
     })
+    expect(onCaptionAnnouncement).toHaveBeenCalledOnce()
+    expect(onCaptionAnnouncement).toHaveBeenCalledWith('started')
     const transcriptViewport = screen.getByLabelText('Voice transcript')
     Object.defineProperties(transcriptViewport, {
       clientHeight: { configurable: true, value: 100 },
@@ -725,6 +734,7 @@ describe('VoiceControl', () => {
     )
     expect(screen.getByLabelText('Voice transcript').textContent).not.toContain('must not replace')
     expect(screen.getByRole('status').textContent).toContain('Speaking')
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started'], ['started']])
     expect(mocks.transcript).toHaveBeenCalledOnce()
     expect(mocks.transcript).toHaveBeenCalledWith(
       expect.objectContaining({ providerEventId: 'caption-done', text: 'The gallery is open.' }),
@@ -1689,6 +1699,7 @@ describe('VoiceControl', () => {
 
   it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {
     const onTranscriptLine = vi.fn()
+    const onCaptionAnnouncement = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
@@ -1721,7 +1732,13 @@ describe('VoiceControl', () => {
       vi.fn(() => peer),
     )
 
-    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    render(
+      <VoiceControl
+        {...props}
+        onTranscriptLine={onTranscriptLine}
+        onCaptionAnnouncement={onCaptionAnnouncement}
+      />,
+    )
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const event = (payload: Record<string, unknown>) =>
@@ -1729,11 +1746,20 @@ describe('VoiceControl', () => {
     act(() => {
       event({ type: 'response.created', response: { id: 'response-2' } })
       event({ type: 'output_audio_buffer.started', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-2',
+        delta: 'Partly heard.',
+      })
     })
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started']])
     expect(screen.getByRole('status').textContent).toContain('Speaking')
     act(() => {
       event({ type: 'response.done', response: { id: 'response-2' } })
       event({ type: 'input_audio_buffer.speech_started' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'different-response' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
       event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
       event({
         type: 'response.output_audio_transcript.done',
@@ -1753,6 +1779,7 @@ describe('VoiceControl', () => {
     expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
       { type: 'output_audio_buffer.clear' },
     ])
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started'], ['interrupted']])
     expect(screen.getAllByText('(interrupted)')).toHaveLength(1)
     expect(mocks.transcript).toHaveBeenCalledTimes(1)
     await waitFor(() =>
@@ -1763,6 +1790,9 @@ describe('VoiceControl', () => {
           persistence: 'UNCONFIRMED',
         }),
       ),
+    )
+    expect(onCaptionAnnouncement.mock.invocationCallOrder[1]).toBeLessThan(
+      onTranscriptLine.mock.invocationCallOrder[0],
     )
   })
 })
