@@ -44,6 +44,13 @@ authentication. The local schema, migration, and service work in this packet is 
 to apply a migration or enable credentials in any hosted environment; no rollout or enablement
 decision is implied.
 
+The M2 verifier currently has one injected pepper, with no pepper version on a credential row.
+Changing that pepper therefore invalidates every extant `tk_` key. Until versioned verifier keys
+and a reviewed keyring migration exist, treat pepper replacement as a deliberate mass-reissue
+event and keep this credential path dark. Ordinary credential rotation preserves the source expiry
+unless a new future expiry is explicitly supplied; revoked or expired source credentials cannot
+be rotated. A separate create operation is needed after expiry.
+
 M1/M2 are partial in the local worktree: the additive model/migration and HMAC lifecycle code exist,
 but their full acceptance proof and dashboard integration are incomplete. M3/M4 are blocked pending
 the shared canonical-read boundary and guide/entitlement decisions in this proposal; no bound HTTP

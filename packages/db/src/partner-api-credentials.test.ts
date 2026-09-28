@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('./client', () => ({ db: {} }))
 
 import {
   createPartnerApiCredentialService,
   PartnerApiCredentialConfigurationError,
+  PartnerApiCredentialInputError,
   PartnerApiCredentialNotFoundError,
   type PartnerApiCredentialRecord,
   type PartnerApiCredentialRepository,
@@ -76,6 +79,8 @@ describe('partner API credential service', () => {
     expect(stored.secretHmac).toMatch(/^[a-f0-9]{64}$/)
     expect(stored.secretHmac).not.toContain(token.split('_').at(-1)!)
     expect(JSON.stringify(stored)).not.toContain(token)
+    expect(credential).not.toHaveProperty('secretHmac')
+    expect((await service.list('tenant-a'))[0]).not.toHaveProperty('secretHmac')
     expect(await service.verify(token, new Date('2026-09-28T11:00:00.000Z'))).toEqual({
       credentialId: credential.id,
       publicId: credential.publicId,
@@ -100,27 +105,72 @@ describe('partner API credential service', () => {
     expect(await service.verify(first.token)).not.toBeNull()
     expect(await service.verify(second.token)).not.toBeNull()
 
-    await service.revoke({
+    const revoked = await service.revoke({
       id: first.credential.id,
       tenantId: 'tenant-a',
       reason: 'Routine rotation',
     })
+    expect(second.credential).not.toHaveProperty('secretHmac')
+    expect(revoked).not.toHaveProperty('secretHmac')
     expect(await service.verify(first.token)).toBeNull()
     expect(await service.verify(second.token)).not.toBeNull()
   })
 
   it('rejects expired, malformed, wrong-environment, and unknown credentials', async () => {
     const { service } = harness()
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
     const expired = await service.create({
       ...input,
-      expiresAt: new Date('2026-09-28T10:59:59.999Z'),
+      expiresAt,
     })
     const active = await service.create(input)
 
-    expect(await service.verify(expired.token, new Date('2026-09-28T11:00:00.000Z'))).toBeNull()
+    expect(await service.verify(expired.token, new Date(expiresAt.getTime() + 1))).toBeNull()
     expect(await service.verify(active.token.replace('tk_test_', 'tk_live_'))).toBeNull()
     expect(await service.verify(`${active.token}&other=1`)).toBeNull()
     expect(await service.verify('malformed')).toBeNull()
+  })
+
+  it('refuses past expiries and rotating an expired or revoked source', async () => {
+    const { service, records } = harness()
+    await expect(
+      service.create({ ...input, expiresAt: new Date(Date.now() - 1000) }),
+    ).rejects.toBeInstanceOf(PartnerApiCredentialInputError)
+    const expiring = await service.create({ ...input, expiresAt: new Date(Date.now() + 60_000) })
+    const revoked = await service.create(input)
+    await service.revoke({
+      id: revoked.credential.id,
+      tenantId: input.tenantId,
+      reason: 'No longer needed',
+    })
+    await expect(
+      service.rotate({
+        id: revoked.credential.id,
+        tenantId: input.tenantId,
+        createdByUserId: input.createdByUserId,
+      }),
+    ).rejects.toThrow('Only active credentials may be rotated.')
+    const alreadyExpired = await service.create(input)
+    records.set(alreadyExpired.credential.id, {
+      ...records.get(alreadyExpired.credential.id)!,
+      expiresAt: new Date(Date.now() - 1000),
+    })
+    await expect(
+      service.rotate({
+        id: alreadyExpired.credential.id,
+        tenantId: input.tenantId,
+        createdByUserId: input.createdByUserId,
+      }),
+    ).rejects.toThrow('Only active credentials may be rotated.')
+    const farFuture = new Date(Date.now() + 60 * 60 * 1000)
+    const renewed = await service.rotate({
+      id: expiring.credential.id,
+      tenantId: input.tenantId,
+      createdByUserId: input.createdByUserId,
+      expiresAt: farFuture,
+    })
+    expect(renewed.credential.expiresAt).toEqual(farFuture)
+    expect(await service.verify(renewed.token, new Date(Date.now() + 120_000))).not.toBeNull()
   })
 
   it('scopes management reads and mutations to tenant and validates service configuration', async () => {

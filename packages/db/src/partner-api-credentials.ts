@@ -30,6 +30,8 @@ export type PartnerApiCredentialRecord = Readonly<{
   rotatedFromId: string | null
 }>
 
+export type PartnerApiCredentialMetadata = Omit<PartnerApiCredentialRecord, 'secretHmac'>
+
 export type PartnerApiCredentialScope = Readonly<{
   credentialId: string
   publicId: string
@@ -123,6 +125,26 @@ function safeScope(record: PartnerApiCredentialRecord): PartnerApiCredentialScop
   }
 }
 
+function safeMetadata(record: PartnerApiCredentialRecord): PartnerApiCredentialMetadata {
+  return {
+    id: record.id,
+    publicId: record.publicId,
+    environment: record.environment,
+    tenantId: record.tenantId,
+    clientId: record.clientId,
+    venueIds: [...record.venueIds],
+    capabilities: [...record.capabilities],
+    label: record.label,
+    createdByUserId: record.createdByUserId,
+    createdAt: record.createdAt,
+    lastUsedAt: record.lastUsedAt,
+    expiresAt: record.expiresAt,
+    revokedAt: record.revokedAt,
+    revokedReason: record.revokedReason,
+    rotatedFromId: record.rotatedFromId,
+  }
+}
+
 function validateCreateInput(input: CreatePartnerApiCredentialInput): void {
   for (const [name, value] of Object.entries({
     tenantId: input.tenantId,
@@ -146,8 +168,11 @@ function validateCreateInput(input: CreatePartnerApiCredentialInput): void {
     throw new PartnerApiCredentialInputError('Capability is invalid.')
   if (new Set(input.capabilities).size !== input.capabilities.length)
     throw new PartnerApiCredentialInputError('Capabilities must be unique.')
-  if (input.expiresAt && !Number.isFinite(input.expiresAt.getTime()))
-    throw new PartnerApiCredentialInputError('Expiry must be a valid date.')
+  if (
+    input.expiresAt &&
+    (!Number.isFinite(input.expiresAt.getTime()) || input.expiresAt <= new Date())
+  )
+    throw new PartnerApiCredentialInputError('Expiry must be a future date.')
 }
 
 export function createPartnerApiCredentialService(
@@ -159,16 +184,16 @@ export function createPartnerApiCredentialService(
 ): Readonly<{
   create: (
     input: CreatePartnerApiCredentialInput,
-  ) => Promise<{ credential: PartnerApiCredentialRecord; token: string }>
+  ) => Promise<{ credential: PartnerApiCredentialMetadata; token: string }>
   rotate: (
-    input: Readonly<{ id: string; tenantId: string; createdByUserId: string }>,
-  ) => Promise<{ credential: PartnerApiCredentialRecord; token: string }>
+    input: Readonly<{ id: string; tenantId: string; createdByUserId: string; expiresAt?: Date }>,
+  ) => Promise<{ credential: PartnerApiCredentialMetadata; token: string }>
   revoke: (
     input: Readonly<{ id: string; tenantId: string; reason: string }>,
     now?: Date,
-  ) => Promise<PartnerApiCredentialRecord>
+  ) => Promise<PartnerApiCredentialMetadata>
   verify: (token: string, now?: Date) => Promise<PartnerApiCredentialScope | null>
-  list: (tenantId: string) => Promise<PartnerApiCredentialRecord[]>
+  list: (tenantId: string) => Promise<PartnerApiCredentialMetadata[]>
 }> {
   const { repository, pepper, environment } = options
   if (
@@ -201,14 +226,17 @@ export function createPartnerApiCredentialService(
       expiresAt: input.expiresAt ?? null,
       rotatedFromId,
     })
-    return { credential, token }
+    return { credential: safeMetadata(credential), token }
   }
 
   return {
     create: (input) => mint(input, null),
-    async rotate({ id, tenantId, createdByUserId }) {
+    async rotate({ id, tenantId, createdByUserId, expiresAt }) {
       const existing = await repository.findById(id, tenantId)
       if (!existing) throw new PartnerApiCredentialNotFoundError()
+      if (existing.revokedAt || (existing.expiresAt && existing.expiresAt <= new Date())) {
+        throw new PartnerApiCredentialInputError('Only active credentials may be rotated.')
+      }
       return mint(
         {
           tenantId: existing.tenantId,
@@ -217,7 +245,7 @@ export function createPartnerApiCredentialService(
           capabilities: existing.capabilities as PartnerApiCapability[],
           label: existing.label,
           createdByUserId,
-          expiresAt: existing.expiresAt,
+          expiresAt: expiresAt ?? existing.expiresAt,
         },
         existing.id,
       )
@@ -229,8 +257,10 @@ export function createPartnerApiCredentialService(
         )
       const existing = await repository.findById(id, tenantId)
       if (!existing) throw new PartnerApiCredentialNotFoundError()
-      if (existing.revokedAt) return existing
-      return repository.update(id, tenantId, { revokedAt: now, revokedReason: reason.trim() })
+      if (existing.revokedAt) return safeMetadata(existing)
+      return safeMetadata(
+        await repository.update(id, tenantId, { revokedAt: now, revokedReason: reason.trim() }),
+      )
     },
     async verify(token, now = new Date()) {
       const match = tokenPattern.exec(token)
@@ -260,7 +290,9 @@ export function createPartnerApiCredentialService(
       await repository.update(record.id, record.tenantId, { lastUsedAt: now })
       return safeScope(record)
     },
-    list: (tenantId) => repository.listByTenant(tenantId),
+    async list(tenantId) {
+      return (await repository.listByTenant(tenantId)).map(safeMetadata)
+    },
   }
 }
 
