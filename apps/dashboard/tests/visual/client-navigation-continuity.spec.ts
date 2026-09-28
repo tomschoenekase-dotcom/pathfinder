@@ -8,6 +8,7 @@ const support = `/support?venue=${venueId}&returnTo=${encodeURIComponent(onboard
 
 for (const viewport of [
   { name: 'phone-320', width: 320, height: 568 },
+  { name: 'phone-390', width: 390, height: 844 },
   { name: 'tablet-820', width: 820, height: 1180 },
   { name: 'laptop-1024', width: 1024, height: 768 },
   { name: 'desktop-1440', width: 1440, height: 900 },
@@ -17,7 +18,7 @@ for (const viewport of [
   }, testInfo) => {
     test.skip(
       testInfo.project.name !== 'phone-390x844',
-      'This test explicitly covers four viewport sizes.',
+      'This test explicitly covers five viewport sizes.',
     )
     await page.setViewportSize(viewport)
     await page.emulateMedia({ reducedMotion: 'reduce' })
