@@ -99,6 +99,12 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof SupportW
   )
 }
 
+function earlierFiles() {
+  const reveal = screen.queryByRole('button', { name: 'Use a file you already sent' })
+  if (reveal) fireEvent.click(reveal)
+  return screen.getByLabelText('Choose a file you already sent')
+}
+
 describe('SupportWorkspace', () => {
   it('explains the operator-preview boundary and links to the full Support workspace', () => {
     renderWorkspace({
@@ -178,19 +184,14 @@ describe('SupportWorkspace', () => {
       initialDetail: requestedDetail,
     })
 
-    expect(
-      screen.getByRole('heading', { name: 'A few details will help us continue' }),
-    ).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'What we need from you' })).toBeTruthy()
     expect(screen.getByText('Current admission price')).toBeTruthy()
-    expect(screen.getByText('3 more details in this request')).toBeTruthy()
+    expect(screen.getByText('3 more in this conversation')).toBeTruthy()
     expect(screen.queryByText('Group admission price')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Reply with details' }).getAttribute('href')).toBe(
-      '#support-reply',
-    )
-    expect(screen.getByRole('link', { name: 'Share a file or website' }).getAttribute('href')).toBe(
-      '/venues/venue_alpha/intake',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'I don’t know' }))
+    // A new photo or file is attached from the reply composer itself, not another page.
+    expect(screen.getByText('Attach photo or file')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Share a file or website' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'say you don’t know' }))
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe("I don't know.")
     expect(document.body.textContent).not.toMatch(/package|handoff|hash|quarantin|internal note/iu)
 
@@ -206,7 +207,7 @@ describe('SupportWorkspace', () => {
       />,
     )
     await waitFor(() => expect(screen.queryByText('Current admission price')).toBeNull())
-    expect(screen.queryByRole('link', { name: 'Reply with details' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'What we need from you' })).toBeNull()
   })
 
   it('answers missing information in the same thread and shows the reopened review state', async () => {
@@ -226,7 +227,7 @@ describe('SupportWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Reply'), {
       target: { value: 'Use the east entrance.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     await waitFor(() => expect(screen.getByText('In review')).toBeTruthy())
     expect(screen.queryByText('Which entrance should visitors use?')).toBeNull()
@@ -244,12 +245,12 @@ describe('SupportWorkspace', () => {
     })
     renderWorkspace({ initialRequests: [completed], initialDetail: completed })
 
-    expect(screen.getByText(/reopen this conversation for review/i)).toBeTruthy()
+    expect(screen.getByText(/pick it back up/i)).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'One more detail.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     await waitFor(() => expect(screen.getByText('In review')).toBeTruthy())
-    expect(screen.queryByText(/reopen this conversation for review/i)).toBeNull()
+    expect(screen.queryByText(/pick it back up/i)).toBeNull()
     expect(mocks.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: request.id, expectedClientVersion: 4 }),
     )
@@ -271,7 +272,7 @@ describe('SupportWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Reply'), {
       target: { value: 'Use the east entrance.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -287,7 +288,7 @@ describe('SupportWorkspace', () => {
     const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
     renderWorkspace({ initialNextCursor: cursor })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show older conversations' }))
 
     await waitFor(() =>
       expect(mocks.listRequests).toHaveBeenCalledWith(
@@ -306,7 +307,7 @@ describe('SupportWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Message'), {
       target: { value: 'Please show our summer schedule.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sending…' }))
 
     expect(mocks.createRequest).toHaveBeenCalledOnce()
@@ -338,9 +339,7 @@ describe('SupportWorkspace', () => {
       },
     })
 
-    expect(screen.getByLabelText<HTMLSelectElement>('What is this about?').value).toBe(
-      'CONTENT_CORRECTION',
-    )
+    expect(screen.getByLabelText<HTMLSelectElement>('About').value).toBe('CONTENT_CORRECTION')
     expect(screen.getByLabelText<HTMLInputElement>('Subject').value).toBe(
       'Visitor experience review',
     )
@@ -354,7 +353,7 @@ describe('SupportWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Reply'), {
       target: { value: 'The revised wording looks right.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     await waitFor(() =>
       expect(mocks.addMessage).toHaveBeenCalledWith({
@@ -395,7 +394,7 @@ describe('SupportWorkspace', () => {
     mocks.addMessage.mockReturnValueOnce(pending.promise)
     renderWorkspace()
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Thank you.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     expect(screen.queryByText('Your reply was sent.')).toBeNull()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('Thank you.')
@@ -407,11 +406,7 @@ describe('SupportWorkspace', () => {
       }),
     )
 
-    expect(
-      await screen.findByText(
-        'Your message and selected files were submitted for review. Nothing was published.',
-      ),
-    ).toBeTruthy()
+    expect(await screen.findByText('Sent to Torchiko. We’ll reply here.')).toBeTruthy()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
   })
 
@@ -442,7 +437,7 @@ describe('SupportWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Reply'), {
       target: { value: 'Effective September 1.' },
     })
-    const submit = screen.getByRole('button', { name: 'Send reply' })
+    const submit = screen.getByRole('button', { name: 'Send' })
     fireEvent.click(submit)
     fireEvent.submit(submit.closest('form')!)
 
@@ -471,7 +466,7 @@ describe('SupportWorkspace', () => {
       .mockRejectedValueOnce(new Error(sentinel))
     renderWorkspace()
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Keep this reply.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledOnce())
     const operationId = mocks.addMessage.mock.calls[0]![0].operationId
     await waitFor(() =>
@@ -480,13 +475,11 @@ describe('SupportWorkspace', () => {
     expect(document.body.textContent).not.toContain(sentinel)
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('Keep this reply.')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
     expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(operationId)
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
-        false,
-      ),
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(false),
     )
   })
 
@@ -503,7 +496,7 @@ describe('SupportWorkspace', () => {
     })
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Old venue request' } })
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Old venue message' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     rendered.rerender(
       <SupportWorkspace
@@ -526,7 +519,7 @@ describe('SupportWorkspace', () => {
     expect(screen.getByText(otherVenue.name)).toBeTruthy()
     expect(screen.queryByText('Old venue request')).toBeNull()
     expect(screen.queryByText(/submitted for review/)).toBeNull()
-    expect(screen.getByRole('button', { name: 'Send request' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy()
   })
 
   it('ignores a late reply result and releases the write lock after venue scope changes', async () => {
@@ -537,7 +530,7 @@ describe('SupportWorkspace', () => {
     mocks.addMessage.mockReturnValueOnce(pending.promise)
     const rendered = renderWorkspace({ venues: [venue, otherVenue] })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Old venue reply' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     const otherRequest = { ...request, id: 'request_beta', venueId: otherVenue.id }
     const otherDetail = {
@@ -565,7 +558,7 @@ describe('SupportWorkspace', () => {
 
     expect(screen.getByText('Current venue message.')).toBeTruthy()
     expect(screen.queryByText('Old venue reply')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Send reply' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy()
   })
 
   it('sends only exact server-provided source references for create and retains text and selection on failure', async () => {
@@ -577,10 +570,10 @@ describe('SupportWorkspace', () => {
     })
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Review hours' } })
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please review this.' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.createRequest).toHaveBeenCalledOnce())
     expect(mocks.createRequest).toHaveBeenCalledWith(
       expect.objectContaining({ attachments: [{ intakeUploadId: 'upload_alpha' }] }),
@@ -602,38 +595,32 @@ describe('SupportWorkspace', () => {
       .mockReturnValueOnce(changed.promise)
     renderWorkspace({ initialEligibleAttachments: eligible })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the file.' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     fireEvent.submit(screen.getByLabelText('Reply').closest('form')!)
     expect(mocks.addMessage).toHaveBeenCalledOnce()
     const first = mocks.addMessage.mock.calls[0]![0]
     expect(first).toMatchObject({ attachments: [{ intakeUploadId: 'upload_alpha' }] })
     await act(async () => pending.reject(new Error('Unknown outcome.')))
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
-        false,
-      ),
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(false),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
     expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(first.operationId)
     await act(async () => retry.reject(new Error('Again')))
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
-        false,
-      ),
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(false),
     )
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the revised file.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(3))
     expect(mocks.addMessage.mock.calls[2]![0].operationId).not.toBe(first.operationId)
     await act(async () => changed.reject(new Error('Again')))
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
-        false,
-      ),
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(false),
     )
   })
 
@@ -652,7 +639,7 @@ describe('SupportWorkspace', () => {
     }
     renderWorkspace({ venues: [venue, otherVenue], initialRequests: [request, secondRequest] })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Pending reply' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
     const secondConversation = screen.getByText('Second request').closest('button')!
     expect((secondConversation as HTMLButtonElement).disabled).toBe(true)
@@ -681,10 +668,10 @@ describe('SupportWorkspace', () => {
     mocks.addMessage.mockRejectedValueOnce(new Error('Unknown outcome'))
     renderWorkspace({ initialEligibleAttachments: eligible })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Old hidden reply' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy())
     const oldOperationId = mocks.addMessage.mock.calls[0]![0].operationId
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
@@ -693,7 +680,7 @@ describe('SupportWorkspace', () => {
     await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(''))
     expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Fresh reply' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
     expect(mocks.addMessage.mock.calls[1]![0].operationId).not.toBe(oldOperationId)
   })
@@ -720,7 +707,8 @@ describe('SupportWorkspace', () => {
         id: 'upload_alpha',
       },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Show more recent files' }))
+    earlierFiles()
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier files' }))
     await waitFor(() =>
       expect(mocks.listEligibleAttachments).toHaveBeenCalledWith(
         {
@@ -832,7 +820,7 @@ describe('SupportWorkspace', () => {
       initialEligibleAttachments: eligible,
     })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Private page draft.' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
 
@@ -859,7 +847,7 @@ describe('SupportWorkspace', () => {
     mocks.getRequest.mockReturnValueOnce(nextDetail.promise)
     renderWorkspace({ initialRequests: [request, secondRequest], initialNextCursor: cursor })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show older conversations' }))
     fireEvent.click(screen.getByText(secondRequest.subject).closest('button')!)
     expect(screen.getByText('Opening conversation…')).toBeTruthy()
 
@@ -880,7 +868,7 @@ describe('SupportWorkspace', () => {
     mocks.getRequest.mockRejectedValueOnce({ data: { code: 'NOT_FOUND' } })
     renderWorkspace({ initialEligibleAttachments: eligible })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Private draft.' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
 
@@ -898,7 +886,7 @@ describe('SupportWorkspace', () => {
       initialEligibleAttachments: eligible,
     })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Venue-only draft.' } })
-    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+    fireEvent.change(earlierFiles(), {
       target: { value: 'upload_alpha' },
     })
 
@@ -917,7 +905,7 @@ describe('SupportWorkspace', () => {
     await waitFor(() => expect(screen.queryByText(request.subject)).toBeNull())
     expect(screen.queryByText('Venue-only draft.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
-    expect(screen.getByText('You have no support conversations yet.')).toBeTruthy()
+    expect(screen.getByText('No conversations yet.')).toBeTruthy()
   })
 
   it('cancels a pending conversation read when the venue scope changes', async () => {

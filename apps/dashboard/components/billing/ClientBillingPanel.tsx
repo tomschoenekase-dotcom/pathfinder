@@ -2,131 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { type DashboardTRPCClient, useTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { ClientBillingView } from './ClientBillingView'
 import {
-  ClientBillingView,
-  type ClientBillingState,
-  type ClientBillingViewModel,
-} from './ClientBillingView'
-
-type Overview = Awaited<ReturnType<DashboardTRPCClient['billing']['overview']['query']>>
+  clientBillingPresentation as presentation,
+  type ClientBillingOverview as Overview,
+} from '../../lib/client-billing-presentation'
 
 const BILLING_READ_TIMEOUT_MS = 15_000
-
-function dateLabel(value: Date | string | null | undefined) {
-  return value
-    ? new Date(value).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : null
-}
-
-function moneyLabel(amount: bigint | number, currency: string) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-  }).format(Number(amount) / 100)
-}
-
-function presentation(overview: Overview): {
-  state: ClientBillingState
-  model: ClientBillingViewModel | null
-} {
-  const account = overview.account
-  if (!account) return { state: 'empty', model: null }
-  const agreement =
-    account.commercialAgreements.find((item) => item.isBase) ?? account.commercialAgreements[0]
-  if (!agreement) return { state: 'empty', model: null }
-  const mode = agreement.billingMode
-  const state: ClientBillingState =
-    mode === 'COMPLIMENTARY' || mode === 'PILOT'
-      ? 'complimentary'
-      : mode !== 'STRIPE_SUBSCRIPTION' && mode !== 'STRIPE_INVOICE'
-        ? 'manual'
-        : overview.access?.state === 'GRACE_PERIOD'
-          ? 'grace'
-          : overview.access?.state === 'PAID_THROUGH' || overview.access?.state === 'ENDED'
-            ? 'canceled'
-            : agreement.status === 'PAST_DUE' || agreement.status === 'UNPAID'
-              ? 'past_due'
-              : agreement.status === 'PENDING' || agreement.status === 'DRAFT'
-                ? 'pending'
-                : 'active'
-  const catalogPlan = overview.catalog.find(
-    (plan) =>
-      plan.key === agreement.internalPlanKey && plan.version === agreement.internalPlanVersion,
-  )
-  return {
-    state,
-    model: {
-      planName: catalogPlan?.displayName ?? agreement.internalPlanKey.replaceAll('_', ' '),
-      arrangementLabel: mode.replaceAll('_', ' ').toLowerCase(),
-      amountLabel:
-        agreement.agreedAmountMinor === null
-          ? null
-          : moneyLabel(agreement.agreedAmountMinor, agreement.currency),
-      intervalLabel:
-        agreement.billingInterval === 'CUSTOM'
-          ? null
-          : `per ${agreement.billingInterval.toLowerCase()}`,
-      statusDetail: overview.access?.reason ?? 'Torchiko is waiting for a durable billing update.',
-      nextBillingLabel: agreement.cancelAtPeriodEnd
-        ? null
-        : dateLabel(agreement.currentPeriodEndsAt),
-      paidThroughLabel: dateLabel(
-        account.paidThroughAt ?? agreement.currentPeriodEndsAt ?? agreement.accessEndsAt,
-      ),
-      coveredVenues: agreement.coveredVenues.map((coverage) => ({
-        ...coverage.venue,
-        amountLabel:
-          agreement.venuePriceBreakdownComplete && coverage.agreedAmountMinor !== null
-            ? moneyLabel(coverage.agreedAmountMinor, agreement.currency)
-            : null,
-      })),
-      invoices: account.invoiceProjections.map((invoice) => ({
-        id: invoice.id,
-        number: invoice.invoiceNumber,
-        statusLabel: invoice.status.toLowerCase(),
-        amountLabel: moneyLabel(invoice.amountDueMinor, invoice.currency),
-        dateLabel:
-          dateLabel(invoice.paidAt ?? invoice.dueAt ?? invoice.createdAt) ?? 'Date unavailable',
-        documentUrl: invoice.invoiceDocumentUrl ?? invoice.hostedInvoiceUrl,
-      })),
-      canStartCheckout:
-        overview.capabilities.checkout &&
-        agreement.status === 'PENDING' &&
-        Boolean(overview.currentCheckoutUrl),
-      canRetryCheckout:
-        overview.capabilities.portal &&
-        overview.hasStripeCustomer &&
-        (agreement.status === 'PAST_DUE' || agreement.status === 'UNPAID'),
-      canManageBilling: overview.capabilities.portal && overview.hasStripeCustomer,
-      canCancel:
-        overview.capabilities.cancellation &&
-        Boolean(agreement.cancelAtPeriodEnd === false) &&
-        Boolean(agreement.status === 'ACTIVE' || agreement.status === 'PAST_DUE'),
-      cancellationPending:
-        agreement.cancelAtPeriodEnd ||
-        account.customerRequests.some(
-          (request) =>
-            request.kind === 'CANCELLATION' && ['PROCESSING', 'COMPLETED'].includes(request.status),
-        ),
-      addOns: overview.addOnCatalog.map((addOn) => ({
-        ...addOn,
-        interested: account.customerRequests.some(
-          (request) =>
-            request.kind === 'ADD_ON_INTEREST' &&
-            request.featureKey === addOn.key &&
-            ['OPEN', 'PROCESSING'].includes(request.status),
-        ),
-      })),
-      supportUrl: '/support',
-    },
-  }
-}
 
 export function ClientBillingPanel() {
   const client = useTRPCClient()
@@ -274,7 +158,7 @@ export function ClientBillingPanel() {
   if (hidden) return null
   if (loadError) {
     return (
-      <section className="rounded-3xl border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+      <section className="rounded-xl border border-tk-rule bg-tk-card p-5 sm:p-6">
         <h2 className="text-xl font-semibold text-pf-deep">Payment details are unavailable</h2>
         <p role="alert" className="mt-2 text-sm leading-6 text-pf-deep/70">
           We could not load your payment status. Please try again or contact Torchiko support.
@@ -291,7 +175,7 @@ export function ClientBillingPanel() {
   }
   if (!overview || !view) return <ClientBillingView state="loading" billing={null} />
   return (
-    <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm sm:p-8">
+    <section className="rounded-xl border border-tk-rule bg-tk-card p-5 sm:p-6">
       {error ? (
         <p
           role="alert"

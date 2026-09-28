@@ -16,6 +16,36 @@ describe('middleware response boundaries', () => {
     expect(headers?.has('Cache-Control')).toBe(false)
   })
 
+  it('lets only the configured client portal frame the data-free appearance preview', () => {
+    const portal = { DASHBOARD_URL: 'https://app.staging.torchiko.com', NODE_ENV: 'production' }
+    const preview = getPageResponseHeaders(
+      new NextRequest('https://guide.example/appearance-preview?embed=1'),
+      portal,
+    )
+    expect(preview?.get('Content-Security-Policy')).toBe(
+      "frame-ancestors 'self' https://app.staging.torchiko.com",
+    )
+    expect(preview?.has('X-Frame-Options')).toBe(false)
+    expect(preview?.get('Permissions-Policy')).toContain('microphone=()')
+    expect(preview?.get('X-Robots-Tag')).toBe('noindex, nofollow')
+
+    // Every other page, including the real visitor chat, stays self-framed.
+    for (const path of ['/museum/chat', '/appearance-preview-other', '/app/museum']) {
+      const headers = getPageResponseHeaders(
+        new NextRequest(`https://guide.example${path}`),
+        portal,
+      )
+      expect(headers?.get('Content-Security-Policy')).toBe("frame-ancestors 'self'")
+      expect(headers?.get('X-Frame-Options')).toBe('SAMEORIGIN')
+    }
+    // Without a configured portal origin, the preview is self-framed too.
+    const unconfigured = getPageResponseHeaders(
+      new NextRequest('https://guide.example/appearance-preview'),
+      { NODE_ENV: 'production' },
+    )
+    expect(unconfigured?.get('X-Frame-Options')).toBe('SAMEORIGIN')
+  })
+
   it('gives canonical and alias app URLs the same voice and privacy policy', () => {
     const canonical = getPageResponseHeaders(new NextRequest('https://guide.example/app/museum'))
     const compact = getPageResponseHeaders(

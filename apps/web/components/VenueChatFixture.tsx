@@ -35,6 +35,7 @@ export type VisitorFixtureConversation =
   | 'streaming'
   | 'voice-history'
   | 'reference'
+  | 'placeholder'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
@@ -176,6 +177,25 @@ const LONG_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+/**
+ * Neutral sample used by the client portal's appearance preview. Both speakers use the same
+ * placeholder language so the preview shows styling, never invented venue facts.
+ */
+const PLACEHOLDER_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'Lorem ipsum dolor sit amet?' },
+  {
+    role: 'assistant',
+    content:
+      'Consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.',
+  },
+  { role: 'user', content: 'Quis nostrud exercitation ullamco laboris?' },
+  {
+    role: 'assistant',
+    content:
+      'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+  },
+]
+
 /** The exchange from the approved visitor-guide reference screenshot. */
 const REFERENCE_CONVERSATION: ChatMessage[] = [
   { role: 'user', content: "I'm a 10 year old boy. What will I like?" },
@@ -302,6 +322,7 @@ export function VenueChatFixture({
   booting = false,
   appearance,
   backgroundUrl,
+  logoUrl,
   venueName,
   preferences = DEFAULT_VISITOR_PREFERENCES,
 }: {
@@ -326,6 +347,8 @@ export function VenueChatFixture({
   appearance?: ChatAppearance
   /** Same-origin reviewed background image used with an `image` appearance. */
   backgroundUrl?: string
+  /** Same-origin reviewed logo, or a local draft image in the portal's preview. */
+  logoUrl?: string
   venueName?: string
   preferences?: VisitorPreferences
 }) {
@@ -366,6 +389,7 @@ export function VenueChatFixture({
                 }
               : {}),
             ...(backgroundUrl ? { chatBannerUrl: backgroundUrl } : {}),
+            ...(logoUrl ? { chatLogoUrl: logoUrl } : {}),
             ...(appearance ? { chatAppearance: appearance } : {}),
             ...(venueName ? { name: venueName } : {}),
           }}
@@ -379,15 +403,17 @@ export function VenueChatFixture({
           messages={
             conversation === 'long'
               ? LONG_CONVERSATION
-              : conversation === 'reference'
-                ? REFERENCE_CONVERSATION
-                : conversation === 'multilingual'
-                  ? MULTILINGUAL_CONVERSATION
-                  : conversation === 'streaming'
-                    ? STREAMING_CONVERSATION
-                    : conversation === 'voice-history'
-                      ? VOICE_HISTORY_CONVERSATION
-                      : []
+              : conversation === 'placeholder'
+                ? PLACEHOLDER_CONVERSATION
+                : conversation === 'reference'
+                  ? REFERENCE_CONVERSATION
+                  : conversation === 'multilingual'
+                    ? MULTILINGUAL_CONVERSATION
+                    : conversation === 'streaming'
+                      ? STREAMING_CONVERSATION
+                      : conversation === 'voice-history'
+                        ? VOICE_HISTORY_CONVERSATION
+                        : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
           isRestoringHistory={booting}

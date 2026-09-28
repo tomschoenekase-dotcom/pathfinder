@@ -14,7 +14,7 @@ export default function PaymentCanceledPage() {
         </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
           <Link
-            href="/payment"
+            href="/settings#payment"
             className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
           >
             Return to payment

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-/** Legacy customization now maps to the client-safe tone preset surface. */
+/** Legacy customization links now open Look & feel. */
 export default function ChatDesignPage() {
-  redirect('/ai-controls')
+  redirect('/look-and-feel')
 }

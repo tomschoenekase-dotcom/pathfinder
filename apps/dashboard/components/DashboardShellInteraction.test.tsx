@@ -63,10 +63,8 @@ describe('DashboardShell interaction semantics', () => {
     render(<DashboardShell>Setup form</DashboardShell>)
     expect(screen.queryByRole('link', { name: 'Your information' })).toBeNull()
     expect(screen.getByText('Your information').closest('[aria-current="page"]')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/')
-    expect(screen.getByRole('link', { name: 'Questions & help' }).getAttribute('href')).toBe(
-      '/support',
-    )
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe('/support')
   })
 
   it('keeps an encoded venue through recognized onboarding navigation', () => {
@@ -75,26 +73,26 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.getByRole('link', { name: 'Your information' }).getAttribute('href')).toBe(
       '/venues/venue%20%2F%201/onboarding#materials',
     )
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe(
       '/?venue=venue%20%2F%201',
     )
-    expect(screen.getByRole('link', { name: 'Questions & help' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
       '/support?venue=venue%20%2F%201&returnTo=%2Fvenues%2Fvenue%2520%252F%25201%2Fonboarding',
     )
     expect(
       screen.getByRole('link', { name: 'Your information' }).getAttribute('aria-current'),
     ).toBe('page')
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('aria-current')).toBeNull()
   })
 
   it('returns from a venue QR kit using its path scope instead of a conflicting query', () => {
     pathname = '/venues/venue%20B/qr-kit'
     searchParams = new URLSearchParams({ venue: 'venue A' })
     render(<DashboardShell>QR kit</DashboardShell>)
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe(
       '/?venue=venue%20B',
     )
-    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
       '/support?venue=venue%20B',
     )
     expect(screen.queryByRole('link', { name: 'Your information' })).toBeNull()
@@ -103,10 +101,10 @@ describe('DashboardShell interaction semantics', () => {
   it('keeps the selected venue when leaving a reviewed preview', () => {
     pathname = '/venues/venue-beta/preview/package-1'
     render(<DashboardShell>Preview</DashboardShell>)
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe(
       '/?venue=venue-beta',
     )
-    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
       '/support?venue=venue-beta',
     )
   })
@@ -114,7 +112,7 @@ describe('DashboardShell interaction semantics', () => {
   it('does not mistake the new venue route for a venue ID', () => {
     pathname = '/venues/new'
     render(<DashboardShell>New venue</DashboardShell>)
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/')
   })
 
   it('moves focus to the refreshed page on a same-path venue change', async () => {
@@ -140,15 +138,13 @@ describe('DashboardShell interaction semantics', () => {
     searchParams = new URLSearchParams({ venue: 'venue B' })
     render(<DashboardShell>Help</DashboardShell>)
 
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe(
       '/?venue=venue%20B',
     )
-    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
       '/support?venue=venue%20B',
     )
-    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('aria-current')).toBe(
-      'page',
-    )
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('keeps venue-scoped onboarding links keyboard reachable in the mobile drawer', async () => {
@@ -156,9 +152,9 @@ describe('DashboardShell interaction semantics', () => {
     render(<DashboardShell>Journey</DashboardShell>)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
-    const today = screen.getByRole('link', { name: 'Today' })
-    expect(today.getAttribute('href')).toBe('/?venue=venue-1')
-    await waitFor(() => expect(document.activeElement).toBe(today))
+    const home = screen.getByRole('link', { name: 'Home' })
+    expect(home.getAttribute('href')).toBe('/?venue=venue-1')
+    await waitFor(() => expect(document.activeElement).toBe(home))
 
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -227,46 +223,45 @@ describe('DashboardShell interaction semantics', () => {
     ).toBe(false)
   })
 
-  it('shows the Payment tab only when the server-owned billing gate is available', () => {
-    const { rerender } = render(<DashboardShell>Account</DashboardShell>)
-    expect(screen.queryByRole('link', { name: 'Payment' })).toBeNull()
-
-    rerender(<DashboardShell paymentAvailable>Payment content</DashboardShell>)
-    expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
-  })
-
-  it('shows every client destination without collapsed menus and preserves paths and gates', () => {
-    pathname = '/information'
+  it('offers exactly five destinations, scoped to the selected venue', () => {
     searchParams = new URLSearchParams({ venue: 'venue-1' })
-    render(
-      <DashboardShell weeklyReportsAvailable paymentAvailable>
-        Guide
-      </DashboardShell>,
-    )
-
-    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/?venue=venue-1')
-    expect(screen.getByRole('link', { name: 'Information' }).getAttribute('href')).toBe(
-      '/information',
-    )
-    expect(screen.getByRole('link', { name: 'Information' }).getAttribute('aria-current')).toBe(
-      'page',
+    render(<DashboardShell>Home</DashboardShell>)
+    const nav = screen.getByRole('navigation', { name: 'Client portal navigation' })
+    const labels = [...nav.querySelectorAll('ul a')].map((link) => link.textContent)
+    expect(labels).toEqual(['Home', 'Look & feel', 'Updates', 'Help', 'Account'])
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/?venue=venue-1')
+    expect(screen.getByRole('link', { name: 'Look & feel' }).getAttribute('href')).toBe(
+      '/look-and-feel?venue=venue-1',
     )
     expect(screen.getByRole('link', { name: 'Updates' }).getAttribute('href')).toBe(
       '/operational-updates',
     )
-    expect(screen.getByRole('link', { name: 'Visitor experience' }).getAttribute('href')).toBe(
-      '/ai-controls',
-    )
-    expect(screen.getByRole('link', { name: 'Reports' }).getAttribute('href')).toBe(
-      '/weekly-reports',
-    )
-    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
       '/support?venue=venue-1',
     )
-    expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
     expect(screen.getByRole('link', { name: 'Account' }).getAttribute('href')).toBe('/settings')
+    for (const retired of ['Information', 'Reports', 'Payment', 'Visitor experience', 'Today'])
+      expect(screen.queryByRole('link', { name: retired })).toBeNull()
     expect(document.querySelector('nav details')).toBeNull()
-    expect(screen.getByRole('group', { name: 'Your guide' })).toBeTruthy()
+  })
+
+  it('keeps older deep links working under the destination that now owns them', () => {
+    const owners: Array<[string, string]> = [
+      ['/information', 'Home'],
+      ['/venues/venue-1/qr-kit', 'Home'],
+      ['/ai-controls', 'Look & feel'],
+      ['/chat-design', 'Look & feel'],
+      ['/help', 'Help'],
+      ['/payment', 'Account'],
+      ['/weekly-reports/report-1', 'Account'],
+      ['/operational-updates/new', 'Updates'],
+    ]
+    for (const [path, owner] of owners) {
+      pathname = path
+      const { unmount } = render(<DashboardShell>Page</DashboardShell>)
+      expect(screen.getByRole('link', { name: owner }).getAttribute('aria-current')).toBe('page')
+      unmount()
+    }
   })
 
   it('offers a skip link and moves route-change focus to the new page heading', async () => {

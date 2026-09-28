@@ -7,6 +7,7 @@ import {
 import { resolveRemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
 
 import { DashboardOverviewView } from '../../../components/DashboardOverview'
+import { SendInformation } from '../../../components/portal/SendInformation'
 import { RemoteOnboardingJourney } from '../../../components/RemoteOnboardingJourney'
 import { SupportWorkspace } from '../../../components/SupportWorkspace'
 import { VenueQrKit } from '../../../components/VenueQrKit'
@@ -120,16 +121,20 @@ function content(target: string) {
         />
       </div>
     )
-  const lifecycle = resolveClientPortalLifecycle(liveEvidence)
   return (
     <DashboardOverviewView
-      venue={{ id: VENUE_ID, name: 'Great Lakes Discovery Museum', lifecycle }}
+      venue={{ id: VENUE_ID, name: 'Great Lakes Discovery Museum' }}
       venues={[
         { id: 'fixture-river-archive', name: 'River Archive' },
         { id: VENUE_ID, name: 'Great Lakes Discovery Museum' },
       ]}
-      activeUpdates={0}
-      chatUrl="https://guide.example.com/great-lakes-discovery-museum/chat"
+      guide={{
+        kind: 'published',
+        url: 'https://guide.example.com/great-lakes-discovery-museum/chat',
+      }}
+      requests={[]}
+      sendSection={<SendInformation venueId={VENUE_ID} canSendLinksAndNotes />}
+      paymentSection={null}
     />
   )
 }

@@ -26,23 +26,17 @@ for (const viewport of viewports) {
       await page.goto(surface.path)
       await expect(page.locator('[class*="core"] svg')).toHaveCount(0)
       const wordmarks = page.locator('[class*="coreWordmark"]')
-      if (surface.name === 'error') {
+      if (surface.name === 'today') {
+        // Home carries no brand mark of its own; the portal shell owns the Torchiko wordmark.
+        await expect(wordmarks).toHaveCount(0)
+        await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+      } else if (surface.name === 'error') {
         await expect(wordmarks).toHaveCount(0)
         await page.getByRole('button').first().focus()
         await expect(page.getByRole('button').first()).toBeFocused()
       } else {
         await expect(wordmarks.first()).toHaveText('Torchiko')
         await expect(wordmarks.first()).toHaveAttribute('aria-hidden', 'true')
-      }
-      if (surface.name === 'today') {
-        const wordmarkBox = await wordmarks.first().boundingBox()
-        const footerBox = await page
-          .getByText('Right now', { exact: true })
-          .locator('..')
-          .boundingBox()
-        expect(wordmarkBox).not.toBeNull()
-        expect(footerBox).not.toBeNull()
-        expect(wordmarkBox!.y + wordmarkBox!.height).toBeLessThan(footerBox!.y)
       }
       const dimensions = await page.evaluate(() => ({
         body: document.body.scrollWidth,
