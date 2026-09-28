@@ -125,7 +125,9 @@ describe('VenueChatFixture', () => {
 
     const retryButton = screen.getByRole('button', { name: 'Try voice conversation again' })
     expect(retryButton.getAttribute('title')).toBe('Voice unavailable')
-    expect(screen.getByRole('alert').textContent).toContain('Microphone access was denied')
+    const recoveryAlert = screen.getByRole('alert')
+    expect(recoveryAlert.textContent).toContain('Microphone access was denied')
+    expect(recoveryAlert.textContent).toContain('You can continue in text')
   })
 
   it('renders offline and reconnected guidance through the production shell', () => {
