@@ -49,6 +49,7 @@ type ChatWindowProps = {
   emptyState?: ReactNode
   conversationTools?: ReactNode
   composerVoiceControl?: ReactNode
+  voiceCaption?: { text: string; interrupted: boolean } | null
   assistantLabel?: string
   /** Visible speaker labels, used when neither speaker has a bubble. */
   speakerLabels?: { guide: string }
@@ -86,6 +87,7 @@ export function ChatWindow({
   emptyState,
   conversationTools,
   composerVoiceControl,
+  voiceCaption = null,
   assistantLabel = 'Venue guide',
   speakerLabels,
   surfaces,
@@ -187,7 +189,7 @@ export function ChatWindow({
         behavior: 'auto',
       })
     }
-  }, [errorMessage, isLoading, messages])
+  }, [errorMessage, isLoading, messages, voiceCaption?.text, voiceCaption?.interrupted])
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && shouldRestoreComposerFocusRef.current) {
@@ -304,6 +306,31 @@ export function ChatWindow({
             />
           </div>
         ))}
+
+        {voiceCaption?.text.trim() ? (
+          <div
+            aria-label="Live voice caption"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mx-auto w-full max-w-2xl rounded-xl border border-[var(--chat-header-border)] bg-[var(--chat-header-bg)] px-4 py-3 text-[var(--chat-text)]"
+            dir="auto"
+            role="status"
+            tabIndex={0}
+          >
+            <p className="mb-1 text-xs font-semibold text-[var(--chat-text-muted)]">
+              {voiceCaption.interrupted
+                ? 'Guide · Interrupted; finalizing'
+                : 'Guide · Caption in progress'}
+            </p>
+            <p
+              aria-label="Caption text"
+              className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
+              tabIndex={0}
+            >
+              {voiceCaption.text}
+            </p>
+          </div>
+        ) : null}
 
         {onRequestMore &&
         !isLoading &&

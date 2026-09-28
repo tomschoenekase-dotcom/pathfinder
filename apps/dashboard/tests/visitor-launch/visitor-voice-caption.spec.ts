@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
-test('rolling and interrupted captions remain readable at the bottom of the mobile transcript', async ({
+test('rolling and interrupted captions stay readable in the mobile conversation', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -13,31 +13,60 @@ test('rolling and interrupted captions remain readable at the bottom of the mobi
   for (const voice of ['speaking', 'interrupted'] as const) {
     await page.goto(
       `/dev-fixtures/visitor-chat?mode=classic&state=speaking&conversation=empty&motion=reduced&voice=${voice}&network=online&language=English`,
+      { waitUntil: 'domcontentloaded' },
     )
     await page
       .locator('nextjs-portal')
       .evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
 
     const fixture = page.locator('[data-fixture="visitor-chat"]')
-    const transcript = page.getByLabel('Voice transcript')
+    const conversation = page.getByRole('log', { name: 'Conversation' })
+    const caption = page.getByRole('status', { name: 'Live voice caption' })
     const provisionalLabel =
-      voice === 'interrupted' ? '(interrupted; finalizing)' : '(caption in progress)'
+      voice === 'interrupted' ? 'Guide · Interrupted; finalizing' : 'Guide · Caption in progress'
     await expect(fixture).toHaveAttribute('data-fixture-voice', voice)
-    await expect(transcript).toContainText('The quieter route continues past the family lounge')
-    await expect(transcript).toContainText(provisionalLabel)
+    await expect(conversation).toContainText('The quieter route continues past the family lounge')
+    await expect(caption).toContainText(provisionalLabel)
+    await expect(caption).toHaveAttribute('aria-live', 'polite')
+    await expect(page.getByRole('region', { name: 'Voice controls' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'End voice conversation' })).toHaveCount(1)
+    if (voice === 'interrupted') {
+      await expect(conversation).toContainText(
+        'Take the east corridor past the family lounge, then use the accessible lift.',
+      )
+      await expect(conversation).toContainText('Interrupted; may be incomplete')
+    }
 
-    const transcriptMetrics = await transcript.evaluate((element) => ({
+    const captionText = caption.locator('p').nth(1)
+    const transcriptMetrics = await captionText.evaluate((element) => ({
       clientHeight: element.clientHeight,
       scrollHeight: element.scrollHeight,
       scrollTop: element.scrollTop,
     }))
     expect(transcriptMetrics.scrollHeight).toBeGreaterThan(transcriptMetrics.clientHeight)
+    await captionText.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     expect(
-      transcriptMetrics.scrollTop + transcriptMetrics.clientHeight,
+      await captionText.evaluate((element) => element.scrollTop + element.clientHeight),
       JSON.stringify(transcriptMetrics),
     ).toBeGreaterThanOrEqual(transcriptMetrics.scrollHeight - 1)
-    await transcript.focus()
-    await expect(transcript).toBeFocused()
+    await captionText.focus()
+    await expect(captionText).toBeFocused()
+    const captionBounds = await caption.boundingBox()
+    const conversationBounds = await conversation.boundingBox()
+    expect(captionBounds).not.toBeNull()
+    expect(conversationBounds).not.toBeNull()
+    expect(captionBounds!.x).toBeGreaterThanOrEqual(conversationBounds!.x - 1)
+    expect(captionBounds!.x + captionBounds!.width).toBeLessThanOrEqual(
+      conversationBounds!.x + conversationBounds!.width + 1,
+    )
+    expect(captionBounds!.y + captionBounds!.height).toBeLessThanOrEqual(
+      conversationBounds!.y + conversationBounds!.height + 1,
+    )
+    await captionText.evaluate((element) => {
+      element.scrollTop = 0
+    })
 
     const dimensions = await page.evaluate(() => ({
       body: document.body.scrollWidth,

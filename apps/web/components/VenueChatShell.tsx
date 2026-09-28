@@ -23,7 +23,11 @@ import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
-import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
+import {
+  VoiceControl,
+  type FinalizedVoiceTranscriptLine,
+  type LiveAssistantCaption,
+} from './VoiceControl'
 import { VisitorSettings } from './VisitorSettings'
 import { getVisitorSettingsCopy } from './visitor-settings-copy'
 import { getVisitorStateCopy, getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
@@ -145,6 +149,7 @@ export function VenueChatShell(props: {
   onVoiceTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   voiceControl?: ReactNode
+  fixtureLiveVoiceCaption?: LiveAssistantCaption | null
   visitContext?: GuestVisitContextInput
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
@@ -185,6 +190,7 @@ export function VenueChatShell(props: {
     onVoiceTranscriptLine,
     onVisitorAction,
     voiceControl,
+    fixtureLiveVoiceCaption,
     visitContext,
     routePlanner,
     connectionState = 'online',
@@ -192,6 +198,7 @@ export function VenueChatShell(props: {
   const [voiceEligible, setVoiceEligible] = useState(false)
   const [voiceConversationEnabled, setVoiceConversationEnabled] = useState(true)
   const [voiceVenueScope, setVoiceVenueScope] = useState(venue.id)
+  const [liveVoiceCaption, setLiveVoiceCaption] = useState<LiveAssistantCaption | null>(null)
   const handleVoiceAvailabilityChange = useCallback(
     (available: boolean) => {
       setVoiceEligible(available)
@@ -203,6 +210,7 @@ export function VenueChatShell(props: {
     setVoiceEligible(false)
     setVoiceConversationEnabled(true)
     setVoiceVenueScope(venue.id)
+    setLiveVoiceCaption(null)
   }, [venue.id])
   useDocumentScrollLock()
   const bridge = useHostBridge({
@@ -417,6 +425,7 @@ export function VenueChatShell(props: {
                     enabled={voiceConversationEnabled}
                     compact
                     onAvailabilityChange={handleVoiceAvailabilityChange}
+                    onLiveCaptionChange={setLiveVoiceCaption}
                     {...(visitContext ? { visitContext } : {})}
                     {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
                     {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
@@ -427,6 +436,9 @@ export function VenueChatShell(props: {
               )
             }
             messages={messages}
+            voiceCaption={
+              fixtureLiveVoiceCaption === undefined ? liveVoiceCaption : fixtureLiveVoiceCaption
+            }
             language={language}
             assistantLabel={guideName}
             {...(tokens.speakerLabels ? { speakerLabels: { guide: settingsCopy.guide } } : {})}

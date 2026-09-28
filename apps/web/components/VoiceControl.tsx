@@ -33,7 +33,7 @@ export type FinalizedVoiceTranscriptLine = {
   voiceDelivery: 'CAPTURED' | 'INTERRUPTED'
   persistence: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
 }
-type LiveAssistantCaption = {
+export type LiveAssistantCaption = {
   responseId: string
   text: string
   interrupted: boolean
@@ -128,6 +128,7 @@ export function VoiceControl({
   disabled,
   onCharacterState,
   onTranscriptLine,
+  onLiveCaptionChange,
   visitContext,
   enabled = true,
   onAvailabilityChange,
@@ -140,6 +141,7 @@ export function VoiceControl({
   visitContext?: GuestVisitContextInput
   onCharacterState?: (state: CharacterState) => void
   onTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
+  onLiveCaptionChange?: (caption: LiveAssistantCaption | null) => void
   enabled?: boolean
   onAvailabilityChange?: (available: boolean) => void
   compact?: boolean
@@ -189,6 +191,12 @@ export function VoiceControl({
   onCharacterStateRef.current = onCharacterState
   const onTranscriptLineRef = useRef(onTranscriptLine)
   onTranscriptLineRef.current = onTranscriptLine
+
+  useEffect(() => {
+    onLiveCaptionChange?.(liveAssistantCaption)
+  }, [liveAssistantCaption, onLiveCaptionChange])
+
+  useEffect(() => () => onLiveCaptionChange?.(null), [onLiveCaptionChange])
   const scopeKey = JSON.stringify([venueId, anonymousToken])
   const scopeKeyRef = useRef(scopeKey)
   if (scopeKeyRef.current !== scopeKey) {
