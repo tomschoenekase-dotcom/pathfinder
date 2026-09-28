@@ -54,7 +54,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
       RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
-      STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -73,7 +72,9 @@ jobs:
         run: |
           echo "::add-mask::$DATABASE_URL"
           echo "::add-mask::$RESTORE_DATABASE_URL"
-          echo "::add-mask::$STAGING_BACKUP_PASSPHRASE"
+          passphrase='synthetic-disposable-'
+          passphrase+='passphrase-for-ci-only'
+          echo "::add-mask::$passphrase"
       - name: Prove GitHub masks a synthetic log sentinel
         run: |
           sentinel='packet10-mask-sentinel-not-a-secret'
@@ -89,6 +90,8 @@ jobs:
             psql -h 127.0.0.1 -U postgres -d pathfinder_disposable_source -v ON_ERROR_STOP=1 \
             -c "CREATE TABLE _prisma_migrations (migration_name text PRIMARY KEY, finished_at timestamptz); INSERT INTO _prisma_migrations VALUES ('synthetic_fixture_001', now()); CREATE TABLE release_fixture (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO release_fixture VALUES (1, 'synthetic-only');"
       - name: Backup and verify disposable restore
+        env:
+          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
         run: |
           mkdir -p "$RUNNER_TEMP/staging-release"
           node scripts/staging-release/backup.mjs --output-dir "$RUNNER_TEMP/staging-release"

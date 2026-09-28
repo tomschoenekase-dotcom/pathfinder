@@ -39,7 +39,6 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
-      STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -58,7 +57,9 @@ jobs:
       - name: Mask synthetic restore connection and passphrase
         run: |
           echo "::add-mask::$RESTORE_DATABASE_URL"
-          echo "::add-mask::$STAGING_BACKUP_PASSPHRASE"
+          passphrase='synthetic-disposable-'
+          passphrase+='passphrase-for-ci-only'
+          echo "::add-mask::$passphrase"
       - name: Download the encrypted archive from the named run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -79,6 +80,7 @@ jobs:
       - name: Verify evidence and restore only into new disposable service container
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
         run: |
           node scripts/staging-release/evidence.mjs \
             --verify "$RUNNER_TEMP/staging-restore/evidence.json" \
