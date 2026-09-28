@@ -1428,20 +1428,20 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/voice-session-recovery.ts',
     method: '$queryRaw',
-    hash: '9e85903cbe839134536b15b7977bb8dd12f89740c38b0c3a7d4434979d00b577',
+    hash: '5ce87351879fe163752be2b4f6c9df240a264a7feefbacdc216bda888cf14f46',
     policy: 'platform-due-voice-session-hangups',
   },
   {
     file: 'packages/db/src/helpers/voice-session-recovery.ts',
     method: '$queryRaw',
-    hash: '76cd3df469b38503b2a73f0ca72ef73b27563548ce05630ae4b6f85bae35c60c',
+    hash: '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
     policy: 'platform-finalize-due-voice-session-hangup',
     effect: 'write',
   },
   {
     file: 'packages/db/src/helpers/voice-session-recovery.ts',
     method: '$queryRaw',
-    hash: '3e233e7650cd1ea2d8e71372573689d3de64e69b2ccaa18f0c24df45f8a6de0e',
+    hash: '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
     policy: 'platform-expire-abandoned-voice-sessions',
     effect: 'write',
   },
@@ -1609,8 +1609,8 @@ const approvedOperations = [
 
 const approvedEffectOverrides = new Map([
   ...[
-    '76cd3df469b38503b2a73f0ca72ef73b27563548ce05630ae4b6f85bae35c60c',
-    '3e233e7650cd1ea2d8e71372573689d3de64e69b2ccaa18f0c24df45f8a6de0e',
+    '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
+    '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
   ].map((hash) => [
     ['packages/db/src/helpers/voice-session-recovery.ts', '$queryRaw', hash].join('\0'),
     'write',
