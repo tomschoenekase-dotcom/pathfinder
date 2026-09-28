@@ -15,8 +15,10 @@ test('shows the visitor guide in Look & feel at phone and desktop widths', async
       waitUntil: 'networkidle',
     })
     await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible()
-    const previewTab = page.getByRole('tab', { name: 'Preview' })
-    if (await previewTab.isVisible()) await previewTab.click()
+    const previewButton = page
+      .getByRole('group', { name: 'Look & feel view' })
+      .getByRole('button', { name: 'Preview' })
+    if (await previewButton.isVisible()) await previewButton.click()
 
     const preview = page.getByTitle('Preview of the Maple Hollow Nature Center visitor guide')
     await expect(preview).toBeVisible()
