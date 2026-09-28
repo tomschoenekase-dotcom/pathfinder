@@ -96,7 +96,6 @@ test('restore workflow only targets a new synthetic disposable database', () => 
   assert.match(restore, /codex\/torchiko-one-click-staging\|codex\/torchiko-r2-20260928\|codex\/torchiko-r2-1-20260928/u)
   assert.match(restore, /SOURCE_REF=refs\/heads\/\$source_branch/u)
   assert.match(restore, /gh attestation verify[\s\S]*?--repo "\$GITHUB_REPOSITORY"[\s\S]*?--signer-workflow "\$GITHUB_REPOSITORY\/\.github\/workflows\/staging-release\.yml"[\s\S]*?--source-ref "\$SOURCE_REF"[\s\S]*?--source-digest "\$RELEASE_SHA"/u)
-  assert.match(restore, /gh attestation verify[\s\S]*?--repo "\$GITHUB_REPOSITORY"[\s\S]*?--signer-workflow "\$GITHUB_REPOSITORY\/\.github\/workflows\/staging-release\.yml"[\s\S]*?--source-ref "\$SOURCE_REF"[\s\S]*?--source-digest "\$RELEASE_SHA"/u)
   assert.match(restore, /Bind the selected artifact run to an approved source branch and exact SHA[\s\S]*?SOURCE_RUN_ID/u)
   assert.match(restore, /restore\.mjs --input-dir "\$RUNNER_TEMP\/staging-restore" --require-evidence/u)
   assert.ok(restore.indexOf('gh attestation verify') < restore.indexOf('--verify'), 'GitHub provenance must verify before evidence and archive restore')
