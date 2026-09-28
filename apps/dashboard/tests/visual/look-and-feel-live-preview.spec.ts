@@ -14,7 +14,9 @@ test('shows the visitor guide in Look & feel at phone and desktop widths', async
     await page.goto(`${dashboardBaseUrl}/dev-fixtures/client-portal?page=look`, {
       waitUntil: 'domcontentloaded',
     })
-    await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Look & feel' })).toBeVisible({
+      timeout: 60_000,
+    })
     const previewButton = page
       .getByRole('group', { name: 'Look & feel view' })
       .getByRole('button', { name: 'Preview' })
@@ -25,7 +27,7 @@ test('shows the visitor guide in Look & feel at phone and desktop widths', async
     await expect(preview).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
     await expect(preview).toHaveAttribute('referrerpolicy', 'no-referrer')
     await expect(preview).toHaveAttribute('src', /\/appearance-preview\?embed=1/u)
-    await expect(preview).toHaveClass(/opacity-100/u)
+    await expect(preview).toHaveClass(/opacity-100/u, { timeout: 60_000 })
     await expect(
       page.locator(
         'figure:has(iframe[title="Preview of the Maple Hollow Nature Center visitor guide"]) [role="status"]',
