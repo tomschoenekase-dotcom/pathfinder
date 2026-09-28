@@ -191,6 +191,13 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/admin/prospect-agent-snapshot/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["apps/dashboard/app/api/admin/prospect-agent-snapshot/route.test.ts"]
+    },
+    {
       "source": "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts",
       "methods": ["GET"],
       "exposure": "handler-platform-admin",
