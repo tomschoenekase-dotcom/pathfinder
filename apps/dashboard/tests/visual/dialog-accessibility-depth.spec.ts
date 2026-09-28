@@ -27,6 +27,14 @@ test('campaign dialog remains keyboard-contained and readable at 200% text', asy
   await cancel.press('Tab')
   await expect(name).toBeFocused()
 
+  const territory = page.getByRole('combobox', { name: 'Prospect territory' })
+  const territoryBounds = await territory.evaluate((element) => {
+    const { left, right } = element.getBoundingClientRect()
+    return { left, right, viewport: document.documentElement.clientWidth }
+  })
+  expect(territoryBounds.left).toBeGreaterThanOrEqual(0)
+  expect(territoryBounds.right).toBeLessThanOrEqual(territoryBounds.viewport)
+
   const overflowNodes = await page.evaluate(() => {
     const width = document.documentElement.clientWidth
     return [...document.querySelectorAll<HTMLElement>('body *')]
