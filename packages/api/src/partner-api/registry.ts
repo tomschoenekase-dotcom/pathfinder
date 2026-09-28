@@ -5,17 +5,22 @@ import {
   assertPartnerReadScope,
   GetPartnerClientInput,
   GetPartnerConfigurationInput,
+  GetPartnerGuideInput,
   GetPartnerReadinessInput,
+  GetPartnerVenueInput,
   ListApprovedContentInput,
   ListPartnerUpdatesInput,
   ListPartnerVenuesInput,
   PARTNER_READ_OPERATIONS,
   PartnerReadResult,
+  PartnerGuideProjection,
   PartnerScopeError,
   PrevalidatedPartnerCredential,
   type GetPartnerClientInput as GetPartnerClientInputType,
   type GetPartnerConfigurationInput as GetPartnerConfigurationInputType,
+  type GetPartnerGuideInput as GetPartnerGuideInputType,
   type GetPartnerReadinessInput as GetPartnerReadinessInputType,
+  type GetPartnerVenueInput as GetPartnerVenueInputType,
   type ListApprovedContentInput as ListApprovedContentInputType,
   type ListPartnerUpdatesInput as ListPartnerUpdatesInputType,
   type ListPartnerVenuesInput as ListPartnerVenuesInputType,
@@ -39,12 +44,20 @@ export type PartnerReadDomainActions = Readonly<{
     input: ListPartnerVenuesInputType,
     context: PartnerReadInvocationContext,
   ) => Promise<PartnerReadResultType>
+  getVenue: (
+    input: GetPartnerVenueInputType,
+    context: PartnerReadInvocationContext,
+  ) => Promise<PartnerReadResultType>
   listApprovedContent: (
     input: ListApprovedContentInputType,
     context: PartnerReadInvocationContext,
   ) => Promise<PartnerReadResultType>
   getPartnerSafeConfiguration: (
     input: GetPartnerConfigurationInputType,
+    context: PartnerReadInvocationContext,
+  ) => Promise<PartnerReadResultType>
+  getPartnerGuide: (
+    input: GetPartnerGuideInputType,
     context: PartnerReadInvocationContext,
   ) => Promise<PartnerReadResultType>
   getReadiness: (
@@ -164,6 +177,12 @@ export function createPartnerReadRegistry(
         let parsedResult: PartnerReadResultType
         try {
           parsedResult = PartnerReadResult.parse(result)
+          if (operation === 'guide.get') {
+            parsedResult = {
+              ...parsedResult,
+              data: PartnerGuideProjection.parse(parsedResult.data),
+            }
+          }
         } catch {
           throw new PartnerReadRegistryError('INTERNAL_ERROR')
         }
@@ -196,6 +215,12 @@ async function executeOperation(
       assertPartnerReadScope(context.credential, input, definition.capability, definition.scope)
       return actions.listVenues(input, context)
     }
+    case 'venues.get': {
+      const input = GetPartnerVenueInput.parse(rawInput)
+      captureVenueId(input.venueId)
+      assertPartnerReadScope(context.credential, input, definition.capability, definition.scope)
+      return actions.getVenue(input, context)
+    }
     case 'approved-content.list': {
       const input = ListApprovedContentInput.parse(rawInput)
       captureVenueId(input.venueId)
@@ -207,6 +232,12 @@ async function executeOperation(
       captureVenueId(input.venueId)
       assertPartnerReadScope(context.credential, input, definition.capability, definition.scope)
       return actions.getPartnerSafeConfiguration(input, context)
+    }
+    case 'guide.get': {
+      const input = GetPartnerGuideInput.parse(rawInput)
+      captureVenueId(input.venueId)
+      assertPartnerReadScope(context.credential, input, definition.capability, definition.scope)
+      return actions.getPartnerGuide(input, context)
     }
     case 'readiness.get': {
       const input = GetPartnerReadinessInput.parse(rawInput)

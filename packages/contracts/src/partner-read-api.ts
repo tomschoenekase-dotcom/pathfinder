@@ -76,14 +76,43 @@ export const GetPartnerClientInput = PartnerClientScopeInput
 export type GetPartnerClientInput = z.infer<typeof GetPartnerClientInput>
 export const ListPartnerVenuesInput = PartnerClientScopeInput.merge(PageInput).strict()
 export type ListPartnerVenuesInput = z.infer<typeof ListPartnerVenuesInput>
+export const GetPartnerVenueInput = PartnerVenueScopeInput
+export type GetPartnerVenueInput = z.infer<typeof GetPartnerVenueInput>
 export const ListApprovedContentInput = PartnerVenueScopeInput.merge(PageInput).strict()
 export type ListApprovedContentInput = z.infer<typeof ListApprovedContentInput>
 export const GetPartnerConfigurationInput = PartnerVenueScopeInput
 export type GetPartnerConfigurationInput = z.infer<typeof GetPartnerConfigurationInput>
+export const GetPartnerGuideInput = PartnerVenueScopeInput
+export type GetPartnerGuideInput = z.infer<typeof GetPartnerGuideInput>
 export const GetPartnerReadinessInput = PartnerVenueScopeInput
 export type GetPartnerReadinessInput = z.infer<typeof GetPartnerReadinessInput>
 export const ListPartnerUpdatesInput = PartnerVenueScopeInput.merge(PageInput).strict()
 export type ListPartnerUpdatesInput = z.infer<typeof ListPartnerUpdatesInput>
+
+const HexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/u)
+export const PartnerGuideProjection = z
+  .object({
+    venueId: Identifier,
+    urls: z
+      .object({
+        app: z
+          .string()
+          .url()
+          .refine((value) => new URL(value).protocol === 'https:'),
+        compactApp: z
+          .string()
+          .url()
+          .refine((value) => new URL(value).protocol === 'https:'),
+      })
+      .strict(),
+    theme: z
+      .object({
+        appBackground: HexColor.nullable(),
+      })
+      .strict(),
+  })
+  .strict()
+export type PartnerGuideProjection = z.infer<typeof PartnerGuideProjection>
 
 export const PartnerReadResult = z
   .object({
@@ -97,8 +126,10 @@ export type PartnerReadResult = z.infer<typeof PartnerReadResult>
 export type PartnerReadOperationName =
   | 'clients.get'
   | 'venues.list'
+  | 'venues.get'
   | 'approved-content.list'
   | 'configuration.get'
+  | 'guide.get'
   | 'readiness.get'
   | 'updates.list'
 
@@ -136,6 +167,16 @@ export const PARTNER_READ_OPERATIONS: readonly PartnerReadOperationDefinition[] 
   },
   {
     version: PARTNER_READ_API_VERSION,
+    name: 'venues.get',
+    description: 'Read one authorized venue summary.',
+    scope: 'venue',
+    capability: 'venues:read',
+    readOnly: true,
+    risk: 'low',
+    public: false,
+  },
+  {
+    version: PARTNER_READ_API_VERSION,
     name: 'approved-content.list',
     description: 'List approved visitor-facing content for one authorized venue.',
     scope: 'venue',
@@ -148,6 +189,16 @@ export const PARTNER_READ_OPERATIONS: readonly PartnerReadOperationDefinition[] 
     version: PARTNER_READ_API_VERSION,
     name: 'configuration.get',
     description: 'Read approved partner-safe configuration for one authorized venue.',
+    scope: 'venue',
+    capability: 'configuration:read',
+    readOnly: true,
+    risk: 'low',
+    public: false,
+  },
+  {
+    version: PARTNER_READ_API_VERSION,
+    name: 'guide.get',
+    description: 'Read the authorized app guide links and allowlisted host theme projection.',
     scope: 'venue',
     capability: 'configuration:read',
     readOnly: true,
@@ -175,6 +226,42 @@ export const PARTNER_READ_OPERATIONS: readonly PartnerReadOperationDefinition[] 
     public: false,
   },
 ]
+
+/** Stable HTTP surface map. Guide links deliberately use the app WebView door only. */
+export const PARTNER_HTTP_ROUTE_BINDINGS = [
+  { method: 'GET', path: '/api/partner/v1/client', operation: 'clients.get' },
+  { method: 'GET', path: '/api/partner/v1/venues', operation: 'venues.list' },
+  { method: 'GET', path: '/api/partner/v1/venues/{venueId}', operation: 'venues.get' },
+  {
+    method: 'GET',
+    path: '/api/partner/v1/venues/{venueId}/content',
+    operation: 'approved-content.list',
+  },
+  {
+    method: 'GET',
+    path: '/api/partner/v1/venues/{venueId}/configuration',
+    operation: 'configuration.get',
+  },
+  {
+    method: 'GET',
+    path: '/api/partner/v1/venues/{venueId}/guide',
+    operation: 'guide.get',
+  },
+  {
+    method: 'GET',
+    path: '/api/partner/v1/venues/{venueId}/readiness',
+    operation: 'readiness.get',
+  },
+  {
+    method: 'GET',
+    path: '/api/partner/v1/venues/{venueId}/updates',
+    operation: 'updates.list',
+  },
+] as const satisfies readonly Readonly<{
+  method: 'GET'
+  path: string
+  operation: PartnerReadOperationName
+}>[]
 
 export class PartnerScopeError extends Error {
   readonly code = 'PARTNER_SCOPE_DENIED'
@@ -206,5 +293,16 @@ export function validatePartnerReadCatalog(): void {
       throw new Error(`Invalid partner API operation name: ${operation.name}`)
     if (!operation.readOnly || operation.public)
       throw new Error(`Unsafe partner operation: ${operation.name}`)
+  }
+  const routeKeys = PARTNER_HTTP_ROUTE_BINDINGS.map(({ method, path }) => `${method} ${path}`)
+  if (new Set(routeKeys).size !== routeKeys.length)
+    throw new Error('Partner HTTP routes must be unique')
+  const routeOperations = new Set(PARTNER_HTTP_ROUTE_BINDINGS.map(({ operation }) => operation))
+  if (
+    PARTNER_HTTP_ROUTE_BINDINGS.length !== PARTNER_READ_OPERATIONS.length ||
+    routeOperations.size !== PARTNER_READ_OPERATIONS.length ||
+    PARTNER_READ_OPERATIONS.some(({ name }) => !routeOperations.has(name))
+  ) {
+    throw new Error('Every partner read operation must have an HTTP route')
   }
 }

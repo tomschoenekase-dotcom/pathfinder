@@ -1,8 +1,10 @@
 # Partner API shared read service refactor proposal
 
-Status: design proposal only. No read service, HTTP route, credential, entitlement, or
-hosted configuration is changed by this document. Packet 4's stop condition applies: resolve
-the shared-read boundary before implementing partner domain actions that would duplicate reads.
+Status: route/catalog and guide-door decision, with executable contract tests. Route bindings and
+the guide DTO are recorded in `packages/contracts/src/partner-read-api.ts`; the pure URL/allowlist
+projection is covered by `packages/api/src/partner-api/guide-projection.test.ts`. No canonical
+Prisma read, HTTP listener, credential, hosted configuration, or enablement is added. Packet 4's
+stop condition still applies to domain read bindings until the shared-read boundary is implemented.
 
 ## R1.1 source correction: credentials and admin UI already exist
 
@@ -91,31 +93,46 @@ selected for MCP rather than partners.
    across two tables must not skip or repeat rows. Establish a single ordering tuple and opaque,
    versioned cursor over `(createdAt, contentKind, id)` (or another stable unique key), with bounded
    database reads and a documented snapshot-consistency expectation.
-4. **Guide projection has no implementation in the partner registry.** The packet asks for guide
-   URLs and theme tokens, while existing distribution docs describe URL generation and the app
-   host guide separately. Build a narrow projection by composing the existing distribution URL
-   builder and public appearance normalization, not by serializing the MCP `configuration` result.
-   Return only canonical URLs and an allowlisted theme shape; never expose private configuration,
-   prompt settings, or internal origin policy.
-5. **Door entitlement is ambiguous.** Product capability IDs include `app-webview` and `api`,
-   while the distribution runbook says the app surface requires the `app-webview` entitlement,
-   an active venue, global app gate, and enabled app state. Packet 4 separately requires a partner
-   API capability/key and asks for URLs “for each door the client is actually entitled to.” The
-   current partner contract has capabilities but no product-entitlement or per-door field. Do not
-   infer that a partner key grants `app-webview`, or that `api` grants guide access. Before coding
-   the guide response, define whether guide URL visibility follows the current app distribution
-   resolver per venue, another explicitly named entitlement, or is omitted while unavailable. The
-   credential must never bypass the public guide's own runtime gates.
+4. **Guide projection is narrowly defined.** Packet 4's partner use case is opening the guide in
+   an app WebView, so `guide.get` exposes only the app WebView door. It returns canonical app and
+   compact-app URLs plus the validated `appBackground` token required by the current App WebView
+   host guide. It never serializes MCP configuration, private settings, or internal origin policy.
+5. **Guide entitlement follows the existing distribution resolver.** The domain action must call
+   `resolveVenueDistribution` for the exact credential-scoped venue and return a projection only
+   when `app.effective` is true. That resolver composes the global app flag, active venue,
+   `app-webview` product entitlement, and enabled app state. Neither the partner key nor its
+   `configuration:read` capability grants these. If the resolver denies access, return no guide
+   projection (mapped to not-found) and do not recreate or bypass the public guide gates. Website,
+   QR, and direct doors are excluded from this WebView operation; adding another door needs a
+   separate contract decision.
 6. **Credential and admin assumptions differ from R1.1.** The `pf_read_` Argon2 lifecycle and
    generic page mean the packet's “no key creation/dashboard” statements cannot be followed
    literally without a source check. Pick one reviewed storage/verifier lifecycle, document how
    legacy credentials remain excluded from new HTTP auth, and avoid duplicating the admin surface.
-7. **The route list and operation catalog differ.** The packet's HTTP endpoint list names client,
-   venues, venue detail, content, updates, and guide. The contract/catalog has configuration and
-   readiness but no venue detail or guide operation. Decide whether HTTP detail maps to an existing
-   operation, and whether configuration/readiness are exposed as routes. Update contract, registry,
-   generated OpenAPI, tests, and guide together so no undocumented or unreachable operation is
-   implied. Keep the API dark while deciding.
+7. **HTTP routes map explicitly to operations.** `PARTNER_HTTP_ROUTE_BINDINGS` is a declarative
+   route catalog; no HTTP router consumes it yet. Catalog validation enforces unique routes and
+   exactly one planned route for every operation:
+
+   | HTTP route                                           | Operation               | Capability              |
+   | ---------------------------------------------------- | ----------------------- | ----------------------- |
+   | `GET /api/partner/v1/client`                         | `clients.get`           | `clients:read`          |
+   | `GET /api/partner/v1/venues`                         | `venues.list`           | `venues:read`           |
+   | `GET /api/partner/v1/venues/{venueId}`               | `venues.get` (added)    | `venues:read`           |
+   | `GET /api/partner/v1/venues/{venueId}/content`       | `approved-content.list` | `approved-content:read` |
+   | `GET /api/partner/v1/venues/{venueId}/configuration` | `configuration.get`     | `configuration:read`    |
+   | `GET /api/partner/v1/venues/{venueId}/guide`         | `guide.get` (added)     | `configuration:read`    |
+   | `GET /api/partner/v1/venues/{venueId}/readiness`     | `readiness.get`         | `readiness:read`        |
+   | `GET /api/partner/v1/venues/{venueId}/updates`       | `updates.list`          | `updates:read`          |
+
+   Configuration and readiness routes expose existing catalog operations and satisfy the
+   objective's explicit promise to read readiness. `guide.get` stays separate from configuration
+   because it has a narrower output and app-entitlement gate; it reuses `configuration:read` and
+   adds no new key capability. The new `venues.get` and `guide.get` domain actions remain injected
+   and introduce no Prisma reads. Contract and registry tests prove this planned map and its
+   capability boundary. Before the guide action is bound, compare its exact output URLs with
+   `projectPartnerGuide` built from the configured web origin and the credential-scoped venue's
+   canonical slug/distribution readback. The current strict DTO checks shape and HTTPS, not that
+   an arbitrary HTTPS host is Torchiko's configured origin; no partner caller can reach it yet.
 
 ## Proposed boundary
 
@@ -131,14 +148,17 @@ client predicates, visibility filters, stable pagination, and data minimization.
 The MCP adapter can adopt extracted functions only where the semantics match exactly. Preserve its
 existing MCP response shape and cursor contract via a thin mapper; do not silently narrow or broaden
 MCP behavior as a side effect. Partner output types should be separately allowlisted and contract
-validated. For approved content, updates, and guide projection, write down partner visibility
-semantics first and keep them distinct where MCP's current behavior is broader.
+validated. For approved content and updates, keep partner visibility semantics distinct where MCP's
+current behavior is broader. The guide action must compose `resolveVenueDistribution`,
+`buildVenueAccessArtifacts`, and the existing public theme projection. `packages/api` must not query
+Prisma directly or import app-only presentation code for this response.
 
 ## Suggested implementation order and proof
 
-1. Agree the HTTP-to-operation mapping and the entitlement answer for guide URLs. Keep global
+1. Extract the shared read boundary for tenant/client venue scope, stable partner content
+   pagination, partner-visible update filtering, and partner-safe projections. Keep global
    `partnerReadApi` default-off and add no live key or hosted configuration.
-2. Add shared service contracts and focused tests for cross-tenant/client scope, cursor stability,
+2. Add focused tests for cross-tenant/client scope, cursor stability,
    mixed content pagination, update visibility/time boundaries, guide field allowlisting, and
    entitlement denial. Prefer disposable database tests for query semantics.
 3. Extract only the reusable MCP reads needed by the partner surface, then verify MCP behavior and

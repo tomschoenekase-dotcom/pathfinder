@@ -24,13 +24,25 @@ const credential: PrevalidatedPartnerCredential = {
 }
 const context = { credential, requestId: 'request-1' } as const
 const success = { data: { id: 'result-1' }, nextCursor: null } as const
+const guideSuccess = {
+  data: {
+    venueId: 'venue-1',
+    urls: {
+      app: 'https://guide.example.com/app/museum',
+      compactApp: 'https://guide.example.com/app/museum?header=compact',
+    },
+    theme: { appBackground: '#0d1116' },
+  },
+} as const
 
 function actions(): PartnerReadDomainActions {
   return {
     getClient: vi.fn().mockResolvedValue(success),
     listVenues: vi.fn().mockResolvedValue(success),
+    getVenue: vi.fn().mockResolvedValue(success),
     listApprovedContent: vi.fn().mockResolvedValue(success),
     getPartnerSafeConfiguration: vi.fn().mockResolvedValue(success),
+    getPartnerGuide: vi.fn().mockResolvedValue(guideSuccess),
     getReadiness: vi.fn().mockResolvedValue(success),
     listPartnerVisibleUpdates: vi.fn().mockResolvedValue(success),
   }
@@ -80,6 +92,64 @@ describe('dark partner read registry', () => {
         outcome: 'allowed',
       }),
     )
+  })
+
+  it('routes venue detail and guide reads through scoped, capability-checked actions', async () => {
+    const domain = actions()
+    const security = hooks()
+    const registry = createPartnerReadRegistry(domain, security, {
+      PARTNER_READ_API_ENABLED: 'true',
+    })!
+
+    await expect(
+      registry.call('venues.get', { clientId: 'client-1', venueId: 'venue-1' }, context),
+    ).resolves.toEqual(success)
+    await expect(
+      registry.call('guide.get', { clientId: 'client-1', venueId: 'venue-1' }, context),
+    ).resolves.toEqual(guideSuccess)
+    expect(domain.getVenue).toHaveBeenCalledOnce()
+    expect(domain.getPartnerGuide).toHaveBeenCalledOnce()
+    expect(security.checkRateLimit).toHaveBeenNthCalledWith(1, context, 'venues.get')
+    expect(security.checkRateLimit).toHaveBeenNthCalledWith(2, context, 'guide.get')
+
+    const noConfigurationCapability = {
+      ...credential,
+      capabilities: credential.capabilities.filter(
+        (capability) => capability !== 'configuration:read',
+      ),
+    }
+    await expect(
+      registry.call(
+        'guide.get',
+        { clientId: 'client-1', venueId: 'venue-1' },
+        {
+          credential: noConfigurationCapability,
+          requestId: 'request-no-guide-capability',
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(domain.getPartnerGuide).toHaveBeenCalledOnce()
+  })
+
+  it('rejects guide action output outside the allowlisted public projection', async () => {
+    const domain = actions()
+    vi.mocked(domain.getPartnerGuide).mockResolvedValue({
+      data: {
+        venueId: 'venue-1',
+        urls: {
+          app: 'https://guide.example.com/app/museum',
+          compactApp: 'https://guide.example.com/app/museum',
+        },
+        theme: { appBackground: '#0d1116' },
+        privateSetting: 'must not escape',
+      },
+    } as never)
+    const registry = createPartnerReadRegistry(domain, hooks(), {
+      PARTNER_READ_API_ENABLED: 'true',
+    })!
+    await expect(
+      registry.call('guide.get', { clientId: 'client-1', venueId: 'venue-1' }, context),
+    ).rejects.toMatchObject({ code: 'INTERNAL_ERROR' })
   })
 
   it('blocks cross-client, cross-venue, injected-tenant, and missing-capability requests', async () => {
