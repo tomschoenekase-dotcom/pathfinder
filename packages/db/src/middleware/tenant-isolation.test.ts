@@ -85,6 +85,7 @@ describe('tenantIsolationMiddleware', () => {
       'SemanticReviewedDecline',
       'TenantMembership',
       'CustomerAccessRequest',
+      'PartnerApiCredential',
       'FounderDirectiveTaskRequest',
       'TenantFeatureFlag',
       'ProductEntitlementOverride',

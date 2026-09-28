@@ -1,9 +1,9 @@
 # Partner Read API v1 guide (draft skeleton)
 
-Status: draft for a dark, server-to-server read API. The HTTP transport, OpenAPI, and end-to-end
-walkthrough are not implemented or verified. Existing `pf_read_` credential lifecycle and the
-generic admin credentials page are separate groundwork; neither makes this HTTP API available.
-This guide does not enable access.
+Status: draft for a dark, server-to-server read API. The contract now declares eight GET routes,
+but the HTTP transport, OpenAPI, and end-to-end walkthrough are not implemented or verified.
+Existing `pf_read_` credential lifecycle and the generic admin credentials page are separate
+groundwork; neither makes this HTTP API available. This guide does not enable access.
 
 ## What this API is for
 
@@ -24,12 +24,29 @@ Do not put credentials in a browser, mobile app, query string, source repository
 configuration. The eventual transport and credential instructions must be documented and reviewed
 before this section can become operational guidance.
 
-## Intended read surface (subject to contract alignment)
+## Intended read surface
 
-The current registry names client, venue-list, approved-content, configuration, readiness, and
-updates reads. The packet also proposes venue detail and guide-link HTTP paths. Those lists do not
-yet match. Endpoint names, response schemas, pagination, and guide entitlement behavior remain
-unsettled; no route examples are provided until the contract and implementation agree.
+The contract's declarative route catalog maps one GET path to each operation. None of these paths
+is served yet:
+
+| Path                                             | Read                            | Required capability     |
+| ------------------------------------------------ | ------------------------------- | ----------------------- |
+| `/api/partner/v1/client`                         | Authorized client               | `clients:read`          |
+| `/api/partner/v1/venues`                         | Scoped venue list               | `venues:read`           |
+| `/api/partner/v1/venues/{venueId}`               | Scoped venue summary            | `venues:read`           |
+| `/api/partner/v1/venues/{venueId}/content`       | Approved visitor-facing content | `approved-content:read` |
+| `/api/partner/v1/venues/{venueId}/configuration` | Partner-safe configuration      | `configuration:read`    |
+| `/api/partner/v1/venues/{venueId}/guide`         | App WebView URLs and host theme | `configuration:read`    |
+| `/api/partner/v1/venues/{venueId}/readiness`     | Partner-safe readiness          | `readiness:read`        |
+| `/api/partner/v1/venues/{venueId}/updates`       | Partner-visible updates         | `updates:read`          |
+
+The guide operation is narrower than configuration. Its projected response contains only the
+venue ID, canonical app and compact-app HTTPS URLs, and a nullable `appBackground` color. The eventual
+domain action must read the exact credential-scoped venue, derive its slug and configured origin
+from server state, and require `resolveVenueDistribution(...).app.effective` before returning this
+projection. A credential alone cannot enable the app door. Pagination and public-visibility rules
+still need a shared canonical read service, as described in
+[READ-SERVICE-REFACTOR.md](READ-SERVICE-REFACTOR.md). No `curl` examples are given for unserved paths.
 
 ## Integration steps
 
@@ -54,7 +71,7 @@ enforces them.
 
 ## Status checklist
 
-- [ ] Route and operation catalog agree.
+- [x] Declarative route and operation catalog agree; HTTP binding remains open.
 - [ ] Shared read services enforce scope and partner-specific visibility.
 - [ ] Credential authentication, revocation, limits, and body-free audit are implemented.
 - [ ] Guide URL availability and entitlement behavior are defined and tested.
