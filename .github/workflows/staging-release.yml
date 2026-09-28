@@ -23,8 +23,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: staging-one-click
@@ -34,6 +32,10 @@ jobs:
   synthetic-dry-run:
     if: github.event_name == 'push' || inputs.mode == 'dry-run'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     timeout-minutes: 30
     services:
       source:
@@ -54,9 +56,6 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres -d pathfinder_disposable_restore"
           --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
-      RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -72,6 +71,9 @@ jobs:
           [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$REQUESTED_SHA" = "$(git rev-parse HEAD)"
       - name: Mask synthetic connection strings and passphrase
+        env:
+          DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
+          RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
         run: |
           echo "::add-mask::$DATABASE_URL"
           echo "::add-mask::$RESTORE_DATABASE_URL"
@@ -94,6 +96,8 @@ jobs:
             -c "CREATE TABLE _prisma_migrations (migration_name text PRIMARY KEY, finished_at timestamptz); INSERT INTO _prisma_migrations VALUES ('synthetic_fixture_001', now()); CREATE TABLE release_fixture (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO release_fixture VALUES (1, 'synthetic-only');"
       - name: Backup and verify disposable restore
         env:
+          DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
+          RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
           STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
         run: |
           mkdir -p "$RUNNER_TEMP/staging-release"
@@ -111,10 +115,23 @@ jobs:
           node scripts/staging-release/evidence.mjs \
             --verify "$RUNNER_TEMP/staging-release/evidence.json" \
             --release-sha "$RELEASE_SHA"
+      - name: Run synthetic hosted rehearsal
+        env:
+          STAGING_SYNTHETIC_REHEARSAL: '1'
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node scripts/staging-release/synthetic-hosted-rehearsal.mjs \
+            --synthetic-evidence "$RUNNER_TEMP/staging-release/evidence.json" \
+            --release-sha "$RELEASE_SHA" \
+            --output "$RUNNER_TEMP/staging-release/rehearsal-evidence.json"
       - name: Sign evidence provenance with GitHub OIDC
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ runner.temp }}/staging-release/evidence.json
+      - name: Sign rehearsal evidence provenance with GitHub OIDC
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: ${{ runner.temp }}/staging-release/rehearsal-evidence.json
       - name: Upload encrypted backup and signed synthetic evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -124,6 +141,7 @@ jobs:
             ${{ runner.temp }}/staging-release/backup-manifest.json
             ${{ runner.temp }}/staging-release/restore-proof.json
             ${{ runner.temp }}/staging-release/evidence.json
+            ${{ runner.temp }}/staging-release/rehearsal-evidence.json
           retention-days: 2
           if-no-files-found: error
 

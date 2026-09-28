@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { safeErrorCode } from './error-code.mjs'
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex')
 const exactSha = (value) => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value)
@@ -84,7 +85,13 @@ async function main() {
   return { ok: true, type: payload.type, releaseSha, integritySha256: payload.integritySha256 }
 }
 
-main().then((result) => process.stdout.write(`${JSON.stringify(result)}\n`)).catch(() => {
-  process.stderr.write(`${JSON.stringify({ ok: false, code: 'one-click-evidence-failed' })}\n`)
+main().then((result) => process.stdout.write(`${JSON.stringify(result)}\n`)).catch((error) => {
+  const code = safeErrorCode(error, [
+    'wrong-evidence-type', 'evidence-sha-mismatch', 'evidence-restore-mismatch',
+    'evidence-database-mismatch', 'evidence-preservation-mismatch',
+    'evidence-timestamp-invalid', 'evidence-provenance-invalid',
+    'evidence-integrity-mismatch', 'invalid-backup-proof',
+  ], 'one-click-evidence-failed')
+  process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`)
   process.exitCode = 1
 })

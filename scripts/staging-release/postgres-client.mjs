@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process'
+import { PassThrough } from 'node:stream'
 
 const MAX_OUTPUT = 64 * 1024 * 1024
 const DATABASE_PORTS = {
-  pathfinder_disposable_source: new Set(['5432', '55432']),
-  pathfinder_disposable_restore: new Set(['5433', '55433']),
+  pathfinder_disposable_source: new Set(['5432', '55432', '56232']),
+  pathfinder_disposable_restore: new Set(['5433', '55433', '56233']),
 }
 
 function target(raw) {
@@ -38,6 +39,26 @@ function runDocker(args, { input, maxOutput = MAX_OUTPUT, password } = {}) {
 export async function postgresClient(rawUrl, command, { input, maxOutput } = {}) {
   const db = target(rawUrl)
   return runDocker(['run', '--rm', '-i', '--network', process.platform === 'win32' ? 'bridge' : 'host', '-e', 'PGPASSWORD', 'postgres:17', command.name, '-h', db.host, '-p', db.port, '-U', db.user, '-d', db.database, ...command.args], { input, maxOutput, password: db.password })
+}
+
+export function postgresClientStream(rawUrl, command, { spawnImpl = spawn } = {}) {
+  const db = target(rawUrl)
+  const child = spawnImpl('docker', ['run', '--rm', '-i', '--network', process.platform === 'win32' ? 'bridge' : 'host', '-e', 'PGPASSWORD', 'postgres:17', command.name, '-h', db.host, '-p', db.port, '-U', db.user, '-d', db.database, ...command.args], { shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PGPASSWORD: db.password } })
+  const stream = new PassThrough()
+  child.stdout.pipe(stream)
+  // Provider stderr can include URLs or private dump text. It is deliberately discarded.
+  child.stderr.resume()
+  const completion = new Promise((resolve, reject) => {
+    child.on('error', () => { stream.destroy(new Error('postgres-client-start-failed')); reject(new Error('postgres-client-start-failed')) })
+    child.on('close', (code) => {
+      if (code === 0) resolve()
+      else { const error = new Error('postgres-client-failed'); stream.destroy(error); reject(error) }
+    })
+  })
+  // The caller is expected to consume the stream and await completion. Attach a handler
+  // immediately so a spawn failure cannot become an unhandled rejection during setup.
+  completion.catch(() => {})
+  return { stream, completion, cancel: () => child.kill() }
 }
 
 export const syntheticSnapshotSql = "SELECT json_build_object('database',current_database(),'oid',(SELECT oid FROM pg_database WHERE datname=current_database()),'ledger',(SELECT coalesce(json_agg(migration_name ORDER BY migration_name),'[]'::json) FROM _prisma_migrations WHERE finished_at IS NOT NULL),'tableCount',(SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'),'fixtureCount',(SELECT count(*) FROM release_fixture),'fixtureFingerprint',(SELECT md5(coalesce(string_agg(id::text || ':' || value, ',' ORDER BY id),'')) FROM release_fixture))::text"

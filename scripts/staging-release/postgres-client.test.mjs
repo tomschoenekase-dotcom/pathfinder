@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { postgresClient, validateEmptyRestoreTarget } from './postgres-client.mjs'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
+import { postgresClient, postgresClientStream, validateEmptyRestoreTarget } from './postgres-client.mjs'
 
 test('restore preflight accepts only a fresh named disposable database', () => {
   const empty = { database: 'pathfinder_disposable_restore', oid: 16384, userObjectCount: 0, userFunctionCount: 0, userTypeCount: 0, userOperatorCount: 0, extraSchemaCount: 0 }
@@ -16,6 +18,26 @@ test('restore preflight accepts only a fresh named disposable database', () => {
     { ...empty, oid: '0' },
     { ...empty, oid: '4294967296' },
   ]) assert.throws(() => validateEmptyRestoreTarget(change), /restore-target-not-empty/u)
+})
+
+test('postgres client streams synthetic dumps beyond 64 MiB without buffering', async () => {
+  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough() })
+  const result = postgresClientStream('postgresql://user:pass@127.0.0.1:55432/pathfinder_disposable_source', { name: 'pg_dump', args: [] }, {
+    spawnImpl: (_file, _args, options) => {
+      assert.equal(options.shell, false)
+      setImmediate(() => {
+        const chunk = Buffer.alloc(1024 * 1024, 0x7a)
+        for (let index = 0; index < 65; index++) child.stdout.write(chunk)
+        child.stdout.end()
+        child.emit('close', 0)
+      })
+      return child
+    },
+  })
+  let bytes = 0
+  for await (const chunk of result.stream) bytes += chunk.length
+  await result.completion
+  assert.equal(bytes, 65 * 1024 * 1024)
 })
 
 test('database client rejects unrelated databases and ports before Docker starts', async () => {

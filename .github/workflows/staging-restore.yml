@@ -19,13 +19,15 @@ on:
         options: [synthetic]
 
 permissions:
-  actions: read
-  attestations: read
   contents: read
 
 jobs:
   restore-to-new-disposable-database:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
     timeout-minutes: 20
     services:
       restore:
@@ -100,7 +102,7 @@ jobs:
           node scripts/staging-release/evidence.mjs \
             --verify "$RUNNER_TEMP/staging-restore/evidence.json" \
             --release-sha "$RELEASE_SHA"
-          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-restore"
+          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-restore" --require-evidence
       - name: Upload new restore proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
