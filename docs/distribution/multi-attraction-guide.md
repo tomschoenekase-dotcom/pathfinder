@@ -37,6 +37,15 @@ context of the first answer. The rest of the conversation still covers the whole
 Both directions use the same place IDs. Operators copy them from platform admin **Visitor access →
 Place IDs for app and website hosts** as a CSV and send them to the partner's developers once.
 
+## Show it without a phone build
+
+Run the web app in development and open `/dev-fixtures/app-host`. It is a phone-sized partner app
+around the real guide fixture: a pass screen with three invented attractions, an Ask tab that keeps
+the guide mounted, the guide's **See in app** buttons opening a native-style attraction screen, and
+**Ask the guide about this** injecting an unsent question into the same conversation. It uses the
+exact messages a real app receives, so it doubles as a reference for partner developers. It is
+development-only and never served by a production build.
+
 ## What the partner can measure
 
 - Sessions that entered through the app door (entry surface **App**), the website, QR and direct.
