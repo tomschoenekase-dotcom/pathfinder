@@ -23,7 +23,15 @@ function probe(app, mode) {
       fs.default.readdirSync = (...args) => [...original(...args), '.env.local'];
       (await import('node:module')).syncBuiltinESMExports();
     }
-    const config = (await import('./apps/${app}/next.config.ts')).default;
+    const { createRequire } = await import('node:module');
+    const appRequire = createRequire(${JSON.stringify(resolve(root, `apps/${app}/package.json`))});
+    const { transpileConfig } = appRequire('next/dist/build/next-config-ts/transpile-config');
+    const loadedConfig = await transpileConfig({
+      nextConfigPath: ${JSON.stringify(resolve(root, `apps/${app}/next.config.ts`))},
+      configFileName: 'next.config.ts',
+      cwd: ${JSON.stringify(resolve(root, `apps/${app}`))},
+    });
+    const config = loadedConfig.default ?? loadedConfig;
     if (process.env.NODE_ENV === 'production' && process.env.TORCHIKO_LOCAL_FIXTURE_AUTH === '1')
       process.exit(8);
     const edge = config.webpack({resolve:{alias:{}}}, {nextRuntime:'edge',dev:true});
@@ -48,7 +56,7 @@ function probe(app, mode) {
     ...(mode !== 'no-guard' ? { TORCHIKO_LOCAL_FULL_STACK_NETWORK_GUARD: '1' } : {}),
     ...(mode === 'internal-worker' ? { NEXT_PRIVATE_WORKER: '1' } : {}),
   }
-  return spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+  return spawnSync(process.execPath, ['--input-type=module', '-e', source], {
     cwd: root,
     env: environment,
     encoding: 'utf8',
