@@ -321,6 +321,33 @@ describe('analytics router', () => {
     )
   })
 
+  it('analytics.trackEvent stores the app hand-back action exactly as the guide sends it', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
+    // Mirrors useVenueChatAnalytics.trackHostPlaceAction; the admin hand-back count filters on it.
+    const metadata = {
+      actionType: 'OPEN_EXHIBIT',
+      analyticsKey: 'host.open-in-app',
+      targetKind: 'PLACE_ID',
+      targetId: 'cplaceabc123456789012',
+    } as const
+
+    const result = await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'visitor.action.clicked',
+      metadata,
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(analyticsEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ eventType: 'visitor.action.clicked', metadata }),
+      }),
+    )
+  })
+
   it('analytics.trackEvent accepts stable synthetic staging entity IDs', async () => {
     dbQueryRaw.mockResolvedValueOnce([
       { id: 'demo-venue-riverside-aquarium', tenantId: 'demo-tenant' },
