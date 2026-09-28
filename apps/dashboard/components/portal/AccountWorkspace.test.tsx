@@ -3,6 +3,7 @@
 import React from 'react'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -32,7 +33,6 @@ import { AccountWorkspace } from './AccountWorkspace'
 function SettingsPage() {
   return <AccountWorkspace paymentAvailable={false} reportsAvailable={false} />
 }
-;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const settings = {
   tenant: { name: 'Harbor Museum', planTier: 'pro', status: 'ACTIVE' },
