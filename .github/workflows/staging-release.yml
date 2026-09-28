@@ -1,0 +1,140 @@
+name: One-click staging release
+
+on:
+  # Push proves the new workflow before it reaches the default branch. It can
+  # only run the synthetic path, regardless of event inputs.
+  push:
+    branches: [codex/torchiko-one-click-staging]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Synthetic dry run or reviewed staging release
+        required: true
+        default: dry-run
+        type: choice
+        options: [dry-run, staging]
+      release_sha:
+        description: Exact 40-character commit to release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: staging-one-click
+  cancel-in-progress: false
+
+jobs:
+  synthetic-dry-run:
+    if: github.event_name == 'push' || inputs.mode == 'dry-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      source:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-password
+          POSTGRES_DB: pathfinder_disposable_source
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pathfinder_disposable_source"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      restore:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-password
+          POSTGRES_DB: pathfinder_disposable_restore
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pathfinder_disposable_restore"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5432/pathfinder_disposable_source
+      RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
+      STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
+      STAGING_RELEASE_TMP: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Confirm exact source SHA
+        env:
+          REQUESTED_SHA: ${{ github.event_name == 'push' && github.sha || inputs.release_sha }}
+        run: |
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$REQUESTED_SHA" = "$(git rev-parse HEAD)"
+      - name: Mask synthetic connection strings and passphrase
+        run: |
+          echo "::add-mask::$DATABASE_URL"
+          echo "::add-mask::$RESTORE_DATABASE_URL"
+          echo "::add-mask::$STAGING_BACKUP_PASSPHRASE"
+      - name: Prove GitHub masks a synthetic log sentinel
+        run: |
+          sentinel='packet10-mask-sentinel-not-a-secret'
+          echo "::add-mask::$sentinel"
+          echo "$sentinel"
+      - name: Run staging-release unit and workflow policy tests
+        run: node --test scripts/staging-release/*.test.mjs
+      - name: Seed synthetic source only
+        run: |
+          docker run --rm --network host -e PGPASSWORD=synthetic-password postgres:17 \
+            psql -h 127.0.0.1 -U postgres -d pathfinder_disposable_source -v ON_ERROR_STOP=1 \
+            -c "CREATE TABLE _prisma_migrations (migration_name text PRIMARY KEY, finished_at timestamptz); INSERT INTO _prisma_migrations VALUES ('synthetic_fixture_001', now()); CREATE TABLE release_fixture (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO release_fixture VALUES (1, 'synthetic-only');"
+      - name: Backup and verify disposable restore
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging-release"
+          node scripts/staging-release/backup.mjs --output-dir "$RUNNER_TEMP/staging-release"
+          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-release"
+      - name: Validate synthetic evidence
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node scripts/staging-release/evidence.mjs \
+            --backup-manifest "$RUNNER_TEMP/staging-release/backup-manifest.json" \
+            --restore-proof "$RUNNER_TEMP/staging-release/restore-proof.json" \
+            --release-sha "$RELEASE_SHA" \
+            --output "$RUNNER_TEMP/staging-release/evidence.json"
+          node scripts/staging-release/evidence.mjs \
+            --verify "$RUNNER_TEMP/staging-release/evidence.json" \
+            --release-sha "$RELEASE_SHA"
+      - name: Sign evidence provenance with GitHub OIDC
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: ${{ runner.temp }}/staging-release/evidence.json
+      - name: Upload encrypted backup and signed synthetic evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: staging-synthetic-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/staging-release/backup.enc
+            ${{ runner.temp }}/staging-release/backup-manifest.json
+            ${{ runner.temp }}/staging-release/restore-proof.json
+            ${{ runner.temp }}/staging-release/evidence.json
+          retention-days: 2
+          if-no-files-found: error
+
+  staging-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Block before requesting an environment approval
+        run: |
+          echo 'Hosted staging release is held: writer drain, exact target baseline, preserve-existing incident-stop reconciliation, and safe Railway deployment route need machine proof.'
+          exit 1
+
+  staging-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'staging'
+    needs: [staging-preflight]
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    steps:
+      - name: Confirm staging preflight was admitted
+        run: test '${{ needs.staging-preflight.result }}' = 'success'

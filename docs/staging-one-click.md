@@ -1,0 +1,33 @@
+# One-click staging release — Packet 10 operator guide
+
+Status: **synthetic proof only**. The checked-in `staging-release` workflow deliberately fails its hosted staging preflight before requesting Environment approval. Do not treat a successful synthetic run as permission to use the staging database, migrate, deploy, or restore over any existing database.
+
+## What the first run proves
+
+The `dry-run` mode uses two disposable PostgreSQL 17 service containers and synthetic rows. It makes a custom-format logical dump, encrypts the archive, restores into the second database, compares the migration ledger, table count and fixture fingerprint, validates `evidence.json`, requests a GitHub OIDC artifact attestation, and uploads a two-day artifact. No Railway token, staging URL, staging database, or customer data enters this mode. The branch push also runs this synthetic job. The separate `staging-restore` workflow can restore that artifact only into a newly created disposable service database.
+
+Evidence is valid only for the **exact 40-character commit SHA** shown by the run. Record the workflow run URL, commit SHA, downloaded `evidence.json` hash, artifact name, attestation verification result, job conclusions, and the log-mask check in the Packet 10 handoff. The JSON's `synthetic-proof-only` admission field never admits a hosted release.
+
+## Run the synthetic proof
+
+This workflow and `staging-restore` are on the feature branch, not the repository's default branch. GitHub requires a `workflow_dispatch` workflow to exist on the default branch before its **Run workflow** button is available. Do not merge as part of this packet. The branch's `push` trigger runs the synthetic job when the reviewed branch is pushed; manual dispatch and the restore workflow become available only after an authorized merge to the default branch.
+
+1. After the reviewed branch is pushed, open the repository's **Actions** page and select the automatically started **One-click staging release** run for `codex/torchiko-one-click-staging`.
+2. Wait for the synthetic job and exact-SHA CI checks to finish. A green local test is not a substitute for a green Actions run.
+3. Download the `staging-synthetic-<full SHA>` artifact. Check the four expected files: `backup.enc`, `backup-manifest.json`, `restore-proof.json`, and `evidence.json`. Validate the evidence against the same SHA with `node scripts/staging-release/evidence.mjs --verify PATH_TO_EVIDENCE --release-sha FULL_SHA`. Verify GitHub's attestation against the downloaded `evidence.json` with `gh attestation verify PATH_TO_EVIDENCE --repo tomschoenekase-dotcom/pathfinder --signer-workflow tomschoenekase-dotcom/pathfinder/.github/workflows/staging-release.yml --source-ref refs/heads/codex/torchiko-one-click-staging --source-digest FULL_SHA`. Do not publish the encrypted archive or its passphrase.
+4. Inspect the run logs for accidental credential or passphrase output. The workflow's static test checks that the synthetic sentinel is masked before it is printed; only the GitHub Actions log confirms that GitHub masked it at runtime. This synthetic run does not establish that future real secrets were safe. If a real value appears, stop and rotate it through the owning provider.
+
+## Tom's preparation for a later staging dry run
+
+These are future setup steps; **do not add secrets or start a staging run while the current hosted path remains held**. First require the synthetic exact-SHA proof and review that the hosted gates are implemented and enabled on a new SHA. Tom completes authentication and enters secret values himself. Agents do not receive them.
+
+1. In the GitHub repository, open **Settings → Environments → New environment**. Name it `staging`, then select **Configure environment**. If `staging` already exists, inspect that exact environment instead of creating another. Add Tom as a **Required reviewer** and restrict deployment branches to the reviewed release branch. If Tom starts the run and is the sole reviewer, leave **Prevent self-review** off; otherwise GitHub will refuse his own approval. Confirm the protection rules were saved.
+2. On that environment page, under **Environment secrets**, choose **Add secret** for `STAGING_DATABASE_URL`, `RAILWAY_TOKEN`, and `STAGING_BACKUP_PASSPHRASE`, one at a time. The database URL must be the direct TCP proxy to the independently confirmed staging database. The Railway token must be a project token scoped to the staging environment. Use an independently generated backup passphrase. Do not paste any value into a repository file, chat, command line, run log, or handoff.
+3. Before any hosted run, the release owner must reconcile the actual database resource and system/database identity with a **current** ledger and checksum baseline; establish an exclusive writer hold; prove an encrypted backup and disposable restore under the preserve-existing policy; reconcile `docs/database-incident-stop.md` with that policy; and implement and test the same-SHA web/dashboard/workers Railway route. The existing historic resource ID alone cannot clear these checks. Keep the USD 10 staging ceiling and provider-disabled workers.
+4. Only after those gates are implemented, reviewed, and the hosted preflight is intentionally enabled on a new exact SHA, Tom can trigger a **staging** run and approve its protected Environment job. A dry run against the real staging database is a separate owner action. It must read current identity/ledger first and stop before migration or deployment unless all release-specific conditions match. No approval click overrides a failed check.
+
+## Recovery boundary
+
+`staging-restore` accepts a synthetic archive by run ID and full SHA, verifies the evidence and restores into a fresh disposable PostgreSQL service container. It does not target the existing staging database or cut over any service. A real recovery would need a separate reviewed plan and approval. Never use this workflow as an overwrite or rollback shortcut.
+
+GitHub UI paths and Environment secret/reviewer behavior: [Managing environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) and [Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets). GitHub's [workflow_dispatch default-branch requirement](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch) explains why the manual controls are unavailable before an authorized merge. Artifact verification: [Using artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
