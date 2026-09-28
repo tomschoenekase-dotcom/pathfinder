@@ -47,13 +47,22 @@ export default async function AppearancePreviewPage({
     // Framed by the client portal, which labels the preview itself. The sample is a picture of
     // the real renderer, so it takes no input and cannot navigate the frame away.
     return (
-      <div className={styles.layout} data-preview-embedded="true" inert>
-        <AppearancePreviewClient
-          initial={initial}
-          parentOrigin={appearancePreviewParentOrigin(process.env)}
-          inertFrame
-        />
-      </div>
+      <main
+        className={styles.layout}
+        data-preview-embedded="true"
+        aria-label={`${params.venueName ?? 'Visitor guide'} preview`}
+      >
+        <h1 className="sr-only">
+          {params.venueName ? `${params.venueName} visitor guide preview` : 'Visitor guide preview'}
+        </h1>
+        <div inert style={{ minHeight: 0, flex: 1 }}>
+          <AppearancePreviewClient
+            initial={initial}
+            parentOrigin={appearancePreviewParentOrigin(process.env)}
+            inertFrame
+          />
+        </div>
+      </main>
     )
   }
 
@@ -69,7 +78,12 @@ export default async function AppearancePreviewPage({
         </span>
         <span className={styles.compactNotice}>Preview only · Unsaved · No messages sent</span>
       </aside>
-      <AppearancePreviewClient initial={initial} parentOrigin={null} />
+      <main>
+        <h1 className="sr-only">
+          {params.venueName ? `${params.venueName} visitor guide preview` : 'Visitor guide preview'}
+        </h1>
+        <AppearancePreviewClient initial={initial} parentOrigin={null} />
+      </main>
     </div>
   )
 }
