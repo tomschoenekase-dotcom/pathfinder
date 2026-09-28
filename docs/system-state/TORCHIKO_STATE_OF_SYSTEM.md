@@ -77,7 +77,7 @@ The highest immediate value is no longer creating the first provider-dark golden
 | Kind        | Bottleneck                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Operational | Provider-dark lifecycle evidence exists; the equivalent hosted/provider-backed lifecycle and current deployment parity remain unproven.           |
-| Technical   | Two content/deployment generations coexist, and 453 approved tenant-isolation bypass calls plus 252 raw-SQL operations increase review burden.    |
+| Technical   | Two content/deployment generations coexist, and 457 approved tenant-isolation bypass calls plus 253 raw-SQL operations increase review burden.    |
 | Product     | Clients intentionally have narrow configuration; CRM, billing, and communication foundations exist but external operation remains tightly gated.  |
 | UX          | Provider-backed chat/voice quality, authenticated hosted mobile workflows, and the final owner/legal privacy text remain unproven.                |
 | Scale       | Human review, onboarding, package approval, support, and exception handling still concentrate in a sophisticated but operator-heavy admin system. |
