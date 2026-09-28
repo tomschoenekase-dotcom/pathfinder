@@ -49,6 +49,7 @@ describe('canonical app route', () => {
   it.each([
     [{}, 'full'],
     [{ header: 'compact' }, 'compact'],
+    [{ header: 'none', ask: 'Find the gallery', place: 'public-1' }, 'none'],
     [{ header: 'compact', source: 'app' }, 'full'],
   ])('renders SSR venue and bounded app chrome for query %#', async (searchParams, appHeader) => {
     render(
@@ -68,5 +69,25 @@ describe('canonical app route', () => {
       appHeader,
       accessSurface: 'app',
     })
+    if ('ask' in searchParams) {
+      expect(props.initialDraft).toBe('Find the gallery')
+      expect(props.initialEntryPlaceId).toBe('public-1')
+    }
+  })
+
+  it('rejects malformed start input without changing the app access gate', async () => {
+    render(
+      await AppVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ ask: 'a'.repeat(201), place: ['one', 'two'] }),
+      }),
+    )
+    const props = JSON.parse(screen.getByTestId('experience').textContent ?? '{}') as Record<
+      string,
+      unknown
+    >
+    expect(props.initialDraft).toBe('')
+    expect(props.initialEntryPlaceId).toBeUndefined()
+    expect(mocks.resolve).toHaveBeenCalledWith({ venueSlug: 'museum' })
   })
 })

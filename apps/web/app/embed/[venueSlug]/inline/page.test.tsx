@@ -40,7 +40,12 @@ describe('website inline route', () => {
   })
 
   it('renders the venue inline and sends the exact ready handshake', async () => {
-    render(await InlineVenuePage({ params: Promise.resolve({ venueSlug: 'museum' }) }))
+    render(
+      await InlineVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ ask: 'Where is the entrance?', place: 'public-1' }),
+      }),
+    )
     const props = JSON.parse(screen.getByTestId('experience').textContent ?? '{}') as Record<
       string,
       unknown
@@ -50,6 +55,9 @@ describe('website inline route', () => {
       initialVenue: { slug: 'museum' },
       presentation: 'embed-inline',
       accessSurface: 'website',
+      initialDraft: 'Where is the entrance?',
+      initialEntryPlaceId: 'public-1',
+      bridgeOrigins: ['https://venue.example'],
     })
     expect(screen.getByText('ready:museum')).toBeTruthy()
   })

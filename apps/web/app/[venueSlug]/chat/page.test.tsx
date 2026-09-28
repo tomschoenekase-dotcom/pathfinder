@@ -58,6 +58,18 @@ describe('standalone venue chat route', () => {
     expect(mocks.getPublicVenue).toHaveBeenCalledWith('museum')
   })
 
+  it('passes bounded ask and place through the shared direct guide', async () => {
+    render(
+      await VenueChatPage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ ask: 'Find the map', place: 'public-1' }),
+      }),
+    )
+    expect(
+      screen.getByText('standalone:museum:direct:public-1:Find the map:museum:venue-1'),
+    ).toBeTruthy()
+  })
+
   it('keeps a failed public admission out of the chat experience', async () => {
     mocks.getPublicVenue.mockRejectedValueOnce({ code: 'SERVICE_UNAVAILABLE' })
     const result = await VenueChatPage({

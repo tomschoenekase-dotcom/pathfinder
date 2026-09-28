@@ -4,6 +4,8 @@
 
   var READY_MESSAGE_TYPE = 'pathfinder:embed-ready'
   var READY_MESSAGE_VERSION = 1
+  var BRIDGE_VERSION = 1
+  var BRIDGE_SOURCE = 'torchiko'
   var READY_TIMEOUT_MS = 10000
   var AVAILABILITY_TIMEOUT_MS = 10000
   var script = document.currentScript
@@ -60,6 +62,97 @@
   var widgetPresentation = null
   var viewportListening = false
   var failed = false
+  var pendingOpen = false
+  var pendingPrefill = null
+  var closeWhileOpening = false
+  var inlineFrames = []
+  var subscribers = { ready: [], open: [], close: [] }
+
+  function emit(type) {
+    subscribers[type].slice().forEach(function (listener) {
+      try { listener() } catch { /* A host callback cannot interrupt the guide. */ }
+    })
+  }
+
+  function normalizeOptions(options) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) return null
+    var result = {}
+    if (typeof options.ask === 'string' && options.ask.length > 0 && options.ask.length <= 400 &&
+      Array.from(options.ask).length <= 200) {
+      result.ask = options.ask
+    }
+    if (typeof options.place === 'string') {
+      var place = options.place.trim()
+      var safe = place.length > 0 && place.length <= 191
+      for (var i = 0; safe && i < place.length; i += 1) {
+        var code = place.charCodeAt(i)
+        if (code < 32 || code === 127) safe = false
+      }
+      if (safe) result.place = place
+    }
+    return Object.keys(result).length ? result : null
+  }
+
+  function bridgeMessage(type, payload) {
+    return { source: BRIDGE_SOURCE, v: BRIDGE_VERSION, type: type, payload: payload || null }
+  }
+
+  function sendToGuide(type, payload) {
+    if (!frame || !frame.contentWindow || !ready) return
+    frame.contentWindow.postMessage(bridgeMessage(type, payload), sourceUrl.origin)
+  }
+
+  function applyPrefill(options) {
+    var value = normalizeOptions(options)
+    if (!value) return
+    if (ready) sendToGuide('prefill', value)
+    else pendingPrefill = value
+  }
+
+  function acceptBridgeMessage(event, expectedFrame) {
+    var data = event.data
+    if (event.origin !== sourceUrl.origin || event.source !== expectedFrame.contentWindow ||
+      !data || typeof data !== 'object' || Array.isArray(data) ||
+      Object.keys(data).sort().join(',') !== 'payload,source,type,v' ||
+      data.source !== BRIDGE_SOURCE || data.v !== BRIDGE_VERSION || data.payload !== null ||
+      (data.type !== 'ready' && data.type !== 'open' && data.type !== 'close-requested')) return null
+    return data.type
+  }
+
+  function onBridgeMessage(event) {
+    if (frame && event.source === frame.contentWindow) {
+      var type = acceptBridgeMessage(event, frame)
+      if (type === 'ready') {
+        if (opening && !ready) showReadyPanel()
+      } else if (type === 'close-requested') {
+        closePanel()
+      }
+      return
+    }
+    inlineFrames.forEach(function (item) {
+      if (event.source !== item.frame.contentWindow || event.origin !== sourceUrl.origin) return
+      var data = event.data
+      if (!data || typeof data !== 'object' || Array.isArray(data) ||
+        Object.keys(data).sort().join(',') !== 'payload,source,type,v' ||
+        data.source !== BRIDGE_SOURCE || data.v !== BRIDGE_VERSION) return
+      if (data.type === 'ready' && data.payload === null) {
+        item.finish(true)
+      } else if (item.ready && !item.open && data.type === 'open' && data.payload === null) {
+        item.open = true
+        emit('open')
+      } else if (item.ready && data.type === 'height' && data.payload &&
+        typeof data.payload === 'object' && !Array.isArray(data.payload) &&
+        Object.keys(data.payload).join(',') === 'height' &&
+        Number.isInteger(data.payload.height) && data.payload.height >= 320 && data.payload.height <= 1600 &&
+        data.payload.height !== item.lastHeight) {
+        item.lastHeight = data.payload.height
+        item.frame.style.height = data.payload.height + 'px'
+        if (!item.container.style.height) item.container.style.height = data.payload.height + 'px'
+      }
+    })
+  }
+
+  window.addEventListener('message', onBridgeMessage)
 
   function probe(slug, onReady, onFailure) {
     var timer = window.setTimeout(onFailure, AVAILABILITY_TIMEOUT_MS)
@@ -100,16 +193,24 @@
     probe(slug, function (presentation) {
       var inlineFrame = document.createElement('iframe')
       var timer
+      var finished = false
+      var item = { frame: inlineFrame, container: container, ready: false, open: false, lastHeight: 0, finish: finish }
       function finish(success) {
+        if (finished) return
+        finished = true
         window.removeEventListener('message', onMessage)
         if (timer !== undefined) window.clearTimeout(timer)
         if (!success) {
+          inlineFrames = inlineFrames.filter(function (candidate) { return candidate !== item })
+          if (failed && !inlineFrames.length) window.removeEventListener('message', onBridgeMessage)
           if (inlineFrame.parentNode) inlineFrame.parentNode.removeChild(inlineFrame)
           container.dataset.torchikoInlineMounted = 'failed'
           return
         }
+        item.ready = true
         inlineFrame.hidden = false
         container.dataset.torchikoInlineMounted = 'true'
+        emit('ready')
       }
       function onMessage(event) {
         var data = event.data
@@ -140,6 +241,7 @@
       inlineFrame.setAttribute('sandbox', 'allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts')
       inlineFrame.addEventListener('error', function () { finish(false) }, { once: true })
       window.addEventListener('message', onMessage)
+      inlineFrames.push(item)
       timer = window.setTimeout(function () { finish(false) }, READY_TIMEOUT_MS)
       container.appendChild(inlineFrame)
     }, function () {
@@ -190,6 +292,7 @@
     readyTimer = undefined
     availabilityTimer = undefined
     if (host && host.parentNode) host.parentNode.removeChild(host)
+    if (!inlineFrames.length) window.removeEventListener('message', onBridgeMessage)
     script.dataset.pathfinderMounted = 'failed'
   }
 
@@ -199,6 +302,10 @@
     availabilityTimer = undefined
     host.hidden = false
     script.dataset.pathfinderMounted = 'true'
+    if (pendingOpen) {
+      pendingOpen = false
+      openPanel()
+    }
   }
 
   function checkAvailability() {
@@ -220,7 +327,13 @@
   }
 
   function closePanel() {
-    if (!ready || !panel || !launcher) return
+    pendingOpen = false
+    if (opening && !ready) {
+      closeWhileOpening = true
+      return
+    }
+    if (!ready || !panel || !launcher || panel.hidden) return
+    sendToGuide('close')
     stopPanelViewportSync()
     panel.hidden = true
     launcher.hidden = false
@@ -230,6 +343,7 @@
     launcher.setAttribute('aria-expanded', 'false')
     launcher.removeAttribute('aria-busy')
     launcher.focus()
+    emit('close')
   }
 
   function updateDialogMode() {
@@ -285,6 +399,19 @@
     readyTimer = undefined
     if (listening) window.removeEventListener('message', onReadyMessage)
     listening = false
+    if (pendingPrefill) {
+      sendToGuide('prefill', pendingPrefill)
+      pendingPrefill = null
+    }
+    emit('ready')
+    if (closeWhileOpening) {
+      closeWhileOpening = false
+      launcher.disabled = false
+      launcher.textContent = launcher.dataset.label || 'Ask Torchiko'
+      launcher.setAttribute('aria-label', launcher.textContent + ', opens venue guide')
+      launcher.removeAttribute('aria-busy')
+      return
+    }
     launcher.hidden = true
     launcher.disabled = false
     launcher.removeAttribute('aria-busy')
@@ -292,6 +419,8 @@
     panel.hidden = false
     updateDialogMode()
     closeButton.focus()
+    sendToGuide('open')
+    emit('open')
   }
 
   function onReadyMessage(event) {
@@ -342,12 +471,21 @@
   }
 
   function openPanel() {
+    if (failed) return
+    closeWhileOpening = false
+    if (!host || host.hidden) {
+      pendingOpen = true
+      return
+    }
     if (ready) {
+      if (!panel.hidden) return
       launcher.hidden = true
       launcher.setAttribute('aria-expanded', 'true')
       panel.hidden = false
       updateDialogMode()
       closeButton.focus()
+      sendToGuide('open')
+      emit('open')
       return
     }
     if (opening) return
@@ -364,6 +502,26 @@
       if (!frame) createFrame()
     } catch {
       failInvisible()
+    }
+  }
+
+  if (!window.Torchiko) {
+    window.Torchiko = {
+      version: BRIDGE_VERSION,
+      open: function (options) {
+        applyPrefill(options)
+        if (venueSlug) openPanel()
+      },
+      close: closePanel,
+      on: function (event, listener) {
+        if (!Object.prototype.hasOwnProperty.call(subscribers, event) || typeof listener !== 'function') {
+          return function () {}
+        }
+        subscribers[event].push(listener)
+        return function () {
+          subscribers[event] = subscribers[event].filter(function (candidate) { return candidate !== listener })
+        }
+      },
     }
   }
 

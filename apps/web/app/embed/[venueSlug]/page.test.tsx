@@ -76,15 +76,39 @@ describe('distribution embed routes', () => {
     render(
       await EmbedVenuePage({
         params: Promise.resolve({ venueSlug: 'museum' }),
-        searchParams: Promise.resolve({ chrome: 'hidden' }),
+        searchParams: Promise.resolve({ chrome: 'hidden', ask: 'Find the map' }),
       }),
     )
     const props = JSON.parse(screen.getByTestId('experience').textContent ?? '{}') as Record<
       string,
       unknown
     >
-    expect(props).toMatchObject({ presentation: 'webview', accessSurface: 'app' })
+    expect(props).toMatchObject({
+      presentation: 'webview',
+      accessSurface: 'app',
+      initialDraft: 'Find the map',
+    })
+    expect(props.bridgeOrigins).toBeUndefined()
     expect(screen.queryByText('ready:museum')).toBeNull()
+  })
+
+  it('passes bounded website start input and the resolver-owned origin list', async () => {
+    render(
+      await EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ ask: 'Where is the entrance?', place: 'public-1' }),
+      }),
+    )
+    const props = JSON.parse(screen.getByTestId('experience').textContent ?? '{}') as Record<
+      string,
+      unknown
+    >
+    expect(props).toMatchObject({
+      presentation: 'embed',
+      initialDraft: 'Where is the entrance?',
+      initialEntryPlaceId: 'public-1',
+      bridgeOrigins: ['https://venue.example'],
+    })
   })
 
   it('fails closed when the effective website or app surface is unavailable', async () => {

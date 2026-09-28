@@ -8,6 +8,7 @@ import { VenueChatExperience } from '../../../components/VenueChatExperience'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
 import { WidgetReadySignal } from '../../../components/WidgetReadySignal'
 import { resolveEmbedPresentation, type EmbedSearchParams } from '../../../lib/embed-presentation'
+import { parseHostStartParams } from '../../../lib/host-bridge'
 import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { getPublicVenue } from '../../../lib/public-venue'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -37,6 +38,7 @@ export default async function EmbedVenuePage({ params, searchParams }: EmbedVenu
   const { venueSlug } = await params
   const resolvedSearchParams = await searchParams
   const presentation = resolveEmbedPresentation(resolvedSearchParams)
+  const start = parseHostStartParams(resolvedSearchParams)
   const distribution = await resolveCachedVenueDistribution({ venueSlug })
   if (!distribution) notFound()
   if (!distribution.venueActive) return <VenueTemporarilyUnavailable showHomeLink={false} />
@@ -67,6 +69,9 @@ export default async function EmbedVenuePage({ params, searchParams }: EmbedVenu
         venueSlug={venueSlug}
         initialVenue={{ slug: venueSlug, venue }}
         presentation={presentation}
+        initialDraft={start.ask ?? ''}
+        {...(start.place ? { initialEntryPlaceId: start.place } : {})}
+        {...(!appAlias ? { bridgeOrigins: distribution.website.origins } : {})}
         accessSurface={appAlias ? 'app' : 'website'}
       />
     </TRPCProvider>
