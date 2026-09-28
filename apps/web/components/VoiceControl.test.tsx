@@ -199,6 +199,30 @@ describe('VoiceControl', () => {
     expect(screen.queryByRole('button', { name: 'Start voice conversation' })).toBeNull()
   })
 
+  it('keeps voice available and allows retry after a temporary start rate limit', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    mocks.start.mockRejectedValue({ data: { code: 'TOO_MANY_REQUESTS' } })
+    const onAvailabilityChange = vi.fn()
+    render(<VoiceControl {...props} onAvailabilityChange={onAvailabilityChange} />)
+
+    await waitFor(() => expect(onAvailabilityChange).toHaveBeenCalledWith(true))
+    const availabilityCallsBeforeStart = onAvailabilityChange.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Voice is busy or has reached this venue’s limit. Continue in text and try again later.',
+    )
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(onAvailabilityChange).toHaveBeenCalledTimes(availabilityCallsBeforeStart)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try voice conversation again' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(onAvailabilityChange).toHaveBeenCalledTimes(availabilityCallsBeforeStart)
+  })
+
   it('handles denied microphone permission without requesting provider authorization', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.getUserMedia.mockRejectedValue(new DOMException('Denied', 'NotAllowedError'))

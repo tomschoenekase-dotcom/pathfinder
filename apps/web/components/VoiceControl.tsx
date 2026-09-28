@@ -1113,9 +1113,9 @@ export function VoiceControl({
             (cause as { code?: unknown }).code)
           : null
       if (errorCode === 'TOO_MANY_REQUESTS') {
-        setAvailable(false)
-        onAvailabilityChange?.(false)
-        setError(null)
+        setError(
+          'Voice is busy or has reached this venue’s limit. Continue in text and try again later.',
+        )
       } else {
         setError(readableError(cause))
       }
