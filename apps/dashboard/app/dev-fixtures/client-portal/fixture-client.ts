@@ -268,6 +268,7 @@ export function createPortalFixtureClient(options: FixtureOptions): DashboardTRP
   let reserveCalls = 0
   let sendCalls = 0
   let messageCounter = 10
+  let assistantPreference = { enabled: true, minimized: false, revision: 0 }
 
   const attach = (ids: Array<{ intakeUploadId: string }>) =>
     ids.map(({ intakeUploadId }) => {
@@ -322,6 +323,43 @@ export function createPortalFixtureClient(options: FixtureOptions): DashboardTRP
   }
 
   const client = {
+    clientAssistant: {
+      bootstrap: {
+        query: async (input: { venueId?: string }) => {
+          if (input.venueId && input.venueId !== FIXTURE_VENUE.id) {
+            throw fixtureError('Fixture venue not found', 'NOT_FOUND')
+          }
+          return {
+            available: true,
+            venues: [{ id: FIXTURE_VENUE.id, name: FIXTURE_VENUE.name }],
+            selectedVenueId: FIXTURE_VENUE.id,
+            preference: { ...assistantPreference },
+            history: [],
+          }
+        },
+      },
+      setPreference: {
+        mutate: async (input: {
+          venueId: string
+          enabled: boolean
+          minimized: boolean
+          expectedRevision: number
+        }) => {
+          if (input.venueId !== FIXTURE_VENUE.id) {
+            throw fixtureError('Fixture venue not found', 'NOT_FOUND')
+          }
+          if (input.expectedRevision !== assistantPreference.revision) {
+            throw fixtureError('Fixture preference changed. Reload and try again.', 'CONFLICT')
+          }
+          assistantPreference = {
+            enabled: input.enabled,
+            minimized: input.minimized,
+            revision: assistantPreference.revision + 1,
+          }
+          return { ...assistantPreference }
+        },
+      },
+    },
     intakeUpload: {
       reserve: {
         mutate: async (input: {
