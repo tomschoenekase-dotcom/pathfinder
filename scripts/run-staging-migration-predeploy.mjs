@@ -809,6 +809,24 @@ async function assertPostMigrationIntegrity(database, manifest) {
     "SELECT count(*)::int AS count FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND NOT c.convalidated",
   )
   if (unvalidatedConstraints !== 0) fail('unvalidated public constraints remain')
+  const appPlans = await database.$queryRawUnsafe(
+    "SELECT plan_tier, enabled FROM public.product_plan_capabilities WHERE capability = 'app-webview' ORDER BY plan_tier",
+  )
+  if (
+    appPlans.length !== 2 ||
+    appPlans[0].plan_tier !== 'free' ||
+    appPlans[1].plan_tier !== 'pro' ||
+    appPlans.some((plan) => plan.enabled !== false)
+  ) {
+    fail('app-webview plan backfill is not exactly disabled free and pro')
+  }
+}
+
+export function preservedTableCountMatches(table, before, after, initialState) {
+  if (!/^\d+$/u.test(before ?? '') || !/^\d+$/u.test(after ?? '')) return false
+  const addedDisabledAppPlans =
+    initialState === 'distribution-predecessor' && table === 'product_plan_capabilities' ? 2n : 0n
+  return BigInt(after) === BigInt(before) + addedDisabledAppPlans
 }
 
 function withMigrationApplicationName(raw, marker) {
@@ -938,7 +956,7 @@ async function main() {
       const afterCounts = await publicTableCounts(database)
       for (const [table, count] of beforeCounts) {
         if (table === '_prisma_migrations') continue
-        if (afterCounts.get(table) !== count)
+        if (!preservedTableCountMatches(table, count, afterCounts.get(table), initialState))
           fail(`row count changed for pre-existing table ${table}`)
       }
       console.log(

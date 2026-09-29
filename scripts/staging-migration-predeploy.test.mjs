@@ -21,7 +21,29 @@ import {
   assertStagingApplicationPolicy,
   withStagingApplicationHold,
   stagingPredeployExitClassification,
+  preservedTableCountMatches,
 } from './run-staging-migration-predeploy.mjs'
+
+test('preservation check admits only the two disabled plan rows added by migration 251', () => {
+  assert.equal(
+    preservedTableCountMatches('product_plan_capabilities', '2', '4', 'distribution-predecessor'),
+    true,
+  )
+  for (const after of ['2', '3', '5', 'invalid', undefined]) {
+    assert.equal(
+      preservedTableCountMatches(
+        'product_plan_capabilities',
+        '2',
+        after,
+        'distribution-predecessor',
+      ),
+      false,
+    )
+  }
+  assert.equal(preservedTableCountMatches('venues', '12', '12', 'distribution-predecessor'), true)
+  assert.equal(preservedTableCountMatches('venues', '12', '14', 'distribution-predecessor'), false)
+  assert.equal(preservedTableCountMatches('product_plan_capabilities', '2', '4', 'complete'), false)
+})
 
 test('application hold accepts exact 0/1, defaults unset to 0 and captures policy once', () => {
   assert.equal(readStagingApplicationPolicy({}).hold, false)
@@ -477,7 +499,10 @@ test('the reviewed 252 endpoint retains every frozen predecessor and rejects fut
   assert.equal(manifest.hash, '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e')
   assert.equal(EXPECTED.approval, 'torchiko-staging-lineage-to-252-20260927')
   assert.equal(EXPECTED.distributionPredecessorCount, 250)
-  assert.equal(EXPECTED.distributionPredecessorManifestHash, '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be')
+  assert.equal(
+    EXPECTED.distributionPredecessorManifestHash,
+    '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
+  )
   assert.equal(EXPECTED.routinePredecessorCount, 249)
   assert.equal(
     EXPECTED.routinePredecessorManifestHash,
@@ -1880,10 +1905,10 @@ test('exact 236, 247, 248, 249, 250 and 207 ledgers advance to 252 while complet
   const routinePredecessor = completedRows(manifest, 249)
   assert.equal(ledgerState(routinePredecessor, manifest), 'agent-routines-predecessor')
   assert.equal(expectedPublicTableCount('agent-routines-predecessor'), 265)
-  assert.deepEqual(
-    currentRemainingMigrationNames(routinePredecessor, manifest),
-    [...REVIEWED_249_TO_250, ...REVIEWED_250_TO_252],
-  )
+  assert.deepEqual(currentRemainingMigrationNames(routinePredecessor, manifest), [
+    ...REVIEWED_249_TO_250,
+    ...REVIEWED_250_TO_252,
+  ])
   const distributionPredecessor = completedRows(manifest, 250)
   assert.equal(ledgerState(distributionPredecessor, manifest), 'distribution-predecessor')
   assert.equal(expectedPublicTableCount('distribution-predecessor'), 267)
