@@ -397,6 +397,23 @@ test('distribution and appearance migrations are the exact admitted 250-to-252 s
   )
 })
 
+test('distribution migration never activates app-webview entitlements copied from enabled widget plans', async () => {
+  const sql = await readFile(
+    'packages/db/prisma/migrations/20260926120000_add_venue_distribution/migration.sql',
+    'utf8',
+  )
+  const backfill = sql.match(
+    /INSERT INTO "product_plan_capabilities"[\s\S]*?FROM "product_plan_capabilities" AS source[\s\S]*?ON CONFLICT \("plan_tier", "capability"\) DO NOTHING;/u,
+  )?.[0]
+  assert.ok(backfill, 'app-webview plan backfill must remain present')
+  assert.match(
+    backfill,
+    /SELECT md5\('app-webview:' \|\| "id"\), "plan_tier", 'app-webview', FALSE,/u,
+    'new app-webview rows must be disabled even when widget is enabled',
+  )
+  assert.match(backfill, /WHERE "capability" = 'widget'/u)
+})
+
 function completedRows(manifest, count = manifest.names.length) {
   return manifest.names.slice(0, count).map((migration_name) => ({
     migration_name,
@@ -457,7 +474,7 @@ test('248 guest-disposition predecessor remains frozen and accepts only the revi
 test('the reviewed 252 endpoint retains every frozen predecessor and rejects future manifests', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(manifest.names.length, 252)
-  assert.equal(manifest.hash, 'cc6a2a4bfda2b66e0520106520ffbaffcfa474e6bbeca547013790db32b26ce0')
+  assert.equal(manifest.hash, '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e')
   assert.equal(EXPECTED.approval, 'torchiko-staging-lineage-to-252-20260927')
   assert.equal(EXPECTED.distributionPredecessorCount, 250)
   assert.equal(EXPECTED.distributionPredecessorManifestHash, '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be')

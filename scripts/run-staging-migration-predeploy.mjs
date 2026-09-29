@@ -168,7 +168,7 @@ const EXPECTED = Object.freeze({
   distributionPredecessorManifestHash:
     '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
   finalMigration: '20260927090000_add_venue_chat_appearance',
-  manifestHash: 'cc6a2a4bfda2b66e0520106520ffbaffcfa474e6bbeca547013790db32b26ce0',
+  manifestHash: '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e',
   // Exact additive 252 endpoint; preserves the frozen 250 source prefix.
   finalPublicTableCount: 269,
 })

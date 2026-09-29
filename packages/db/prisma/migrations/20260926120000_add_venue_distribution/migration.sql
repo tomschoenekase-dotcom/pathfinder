@@ -65,11 +65,11 @@ ALTER TABLE "venue_website_origins"
 
 ALTER TABLE "visitor_sessions" ADD COLUMN "entry_surface" "VisitorEntrySurface";
 
--- Mirror existing website entitlements into the separately gated app surface.
+-- Create app entitlements for existing plans without activating the app surface.
 INSERT INTO "product_plan_capabilities" (
   "id", "plan_tier", "capability", "enabled", "settings", "created_by", "updated_by", "created_at", "updated_at"
 )
-SELECT md5('app-webview:' || "id"), "plan_tier", 'app-webview', "enabled", "settings", "created_by", "updated_by", "created_at", "updated_at"
+SELECT md5('app-webview:' || "id"), "plan_tier", 'app-webview', FALSE, "settings", "created_by", "updated_by", "created_at", "updated_at"
 FROM "product_plan_capabilities" AS source
 WHERE "capability" = 'widget'
 ON CONFLICT ("plan_tier", "capability") DO NOTHING;
