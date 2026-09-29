@@ -165,9 +165,9 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
       timeout: 60_000,
     })
     if (arrivalResponse?.status() !== 200) fail('golden-venue-arrival-not-200')
-    const heading = await page.getByRole('heading', { name: fixture.venueName }).innerText()
-    await page.getByRole('link', { name: /Open your guide/u }).click()
+    // The venue link opens the guide directly (no arrival screen).
     await page.waitForURL(`**/${fixture.venueSlug}/chat`, { timeout: 30_000 })
+    const heading = await page.getByRole('heading', { name: fixture.venueName }).innerText()
     const composer = page.getByRole('textbox', { name: 'Ask a question' })
     await composer.waitFor({ state: 'visible', timeout: 30_000 })
     const widths = await page.evaluate(() => ({

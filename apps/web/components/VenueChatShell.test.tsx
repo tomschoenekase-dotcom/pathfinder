@@ -217,4 +217,35 @@ describe('VenueChatShell venue scoped voice captions', () => {
     )
     expect(shell()).toBeNull()
   })
+
+  it('themes the document and browser chrome for the active venue, then restores them', () => {
+    const meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = '#1F4E8C'
+    document.head.appendChild(meta)
+    const root = document.documentElement
+    const dark = { ...venue('dark-venue'), chatTheme: 'dark' }
+    const { rerender, unmount } = render(
+      <VenueChatShell {...shellProps('dark-venue')} venue={dark} />,
+    )
+    const darkPage = root.style.getPropertyValue('--visitor-page-bg')
+    expect(root.dataset.visitorChat).toBe('')
+    expect(darkPage).not.toBe('')
+    expect(meta.content).not.toBe('#1F4E8C')
+
+    rerender(<VenueChatShell {...shellProps('light-venue')} venue={venue('light-venue')} />)
+    expect(root.style.getPropertyValue('--visitor-page-bg')).not.toBe(darkPage)
+
+    unmount()
+    expect(root.dataset.visitorChat).toBeUndefined()
+    expect(root.style.getPropertyValue('--visitor-page-bg')).toBe('')
+    expect(meta.content).toBe('#1F4E8C')
+    meta.remove()
+  })
+
+  it('opens straight into the guide with no arrival screen to go back to', () => {
+    render(<VenueChatShell {...shellProps('plain-venue')} />)
+    expect(screen.queryByRole('link', { name: /back/i })).toBeNull()
+    expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
+  })
 })

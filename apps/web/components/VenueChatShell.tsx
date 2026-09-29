@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
@@ -100,15 +99,30 @@ function useImageLoad(src: string | null) {
   }
 }
 
-/** Keeps the page itself from rubber-banding; only the transcript scrolls. */
-function useDocumentScrollLock() {
+/**
+ * Keeps the page itself from rubber-banding (only the transcript scrolls) and paints the document
+ * and browser chrome hint with the active venue's colors. Everything is restored on exit so other
+ * routes keep the global light surface and blue theme-color. Safari still owns its keyboard
+ * accessory bar and address pill; only page-controlled regions can be themed.
+ */
+function useVisitorDocumentSurface(pageColor: string, chromeColor: string) {
   useEffect(() => {
     const root = document.documentElement
     root.dataset.visitorChat = ''
+    root.style.setProperty('--visitor-page-bg', pageColor)
+    const themeMetas = Array.from(
+      document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'),
+    )
+    const previous = themeMetas.map((meta) => meta.content)
+    for (const meta of themeMetas) meta.content = chromeColor
     return () => {
       delete root.dataset.visitorChat
+      root.style.removeProperty('--visitor-page-bg')
+      themeMetas.forEach((meta, index) => {
+        if (meta.isConnected) meta.content = previous[index] ?? meta.content
+      })
     }
-  }, [])
+  }, [pageColor, chromeColor])
 }
 
 export function VenueChatShell(props: {
@@ -161,7 +175,6 @@ export function VenueChatShell(props: {
 }) {
   const {
     venue,
-    venueSlug,
     presentation,
     appHeader = 'full',
     bridgeOrigins,
@@ -254,7 +267,6 @@ export function VenueChatShell(props: {
     liveVoiceCaption?.venueId === venue.id ? liveVoiceCaption.caption : null
   const scopedLiveVoiceAnnouncement =
     liveVoiceAnnouncement?.venueId === venue.id ? liveVoiceAnnouncement : null
-  useDocumentScrollLock()
   const bridge = useHostBridge({
     presentation,
     allowedOrigins: bridgeOrigins,
@@ -272,7 +284,6 @@ export function VenueChatShell(props: {
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
   const shellCopy = getVisitorUiCopy(language).shell
-  const backLabel = shellCopy[1]
   const clearChatLabel = shellCopy[2]
   const aiGuidance = shellCopy[12]
   const poweredByLabel = shellCopy[13]
@@ -297,6 +308,7 @@ export function VenueChatShell(props: {
     hasBackgroundImage: backdropReady,
     highContrast: preferences.highContrast,
   })
+  useVisitorDocumentSurface(tokens.pageBg, tokens.headerBg)
   // Without a chosen background, a reviewed banner keeps its original header placement.
   const headerBanner =
     !wantsBackdrop && !compactAppHeader && !preferences.highContrast && Boolean(bannerUrl)
@@ -363,25 +375,6 @@ export function VenueChatShell(props: {
             className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}
             data-on-banner={headerBannerReady ? true : undefined}
           >
-            {presentation === 'standalone' ? (
-              <Link
-                href={`/${venueSlug}`}
-                aria-label={backLabel}
-                lang={languagePresentation.code}
-                dir={languagePresentation.direction}
-                className={styles.back}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d={
-                      languagePresentation.direction === 'rtl'
-                        ? 'M4 12h15M13 6l6 6-6 6'
-                        : 'M20 12H5M11 6l-6 6 6 6'
-                    }
-                  />
-                </svg>
-              </Link>
-            ) : null}
             {presentation === 'webview' ? (
               <button
                 type="button"

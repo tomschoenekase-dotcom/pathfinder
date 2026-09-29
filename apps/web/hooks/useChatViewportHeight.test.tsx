@@ -61,4 +61,34 @@ describe('chat keyboard viewport', () => {
     await act(async () => screen.getByRole('button').focus())
     expect(screen.getByRole('status').textContent).toBe('automatic')
   })
+
+  it('undoes any document scroll iOS applied once the keyboard closes', async () => {
+    vi.stubGlobal('React', React)
+    const viewport = Object.assign(new EventTarget(), {
+      height: 768,
+      scale: 1,
+      offsetTop: 0,
+      offsetLeft: 0,
+    })
+    vi.stubGlobal('visualViewport', viewport)
+    vi.stubGlobal('innerHeight', 768)
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
+    vi.stubGlobal('scrollY', 0)
+    render(<Probe />)
+    await act(async () => screen.getByRole('textbox').focus())
+    act(() => {
+      viewport.height = 360
+      viewport.offsetTop = 120
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    scrollTo.mockClear()
+    vi.stubGlobal('scrollY', 96)
+    act(() => {
+      viewport.height = 768
+      viewport.offsetTop = 0
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(scrollTo).toHaveBeenCalledWith(0, 0)
+  })
 })

@@ -1,15 +1,29 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
+// The dots appear at once. A calm status line follows after a short pause, and only a genuinely
+// long wait changes it once more. The whole indicator is aria-hidden; screen readers hear the
+// single "answering" status owned by ChatWindow, never these visual changes.
 const WAITING_STATUS_DELAY_MS = 1_500
+const LONG_WAIT_STATUS_DELAY_MS = 12_000
 
-export function TypingIndicator({ statusLabel }: { statusLabel: ReactNode }) {
-  const [showWaitingStatus, setShowWaitingStatus] = useState(false)
+export function TypingIndicator({
+  statusLabel,
+  longWaitLabel = statusLabel,
+}: {
+  statusLabel: ReactNode
+  longWaitLabel?: ReactNode
+}) {
+  const [stage, setStage] = useState<'dots' | 'waiting' | 'long'>('dots')
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => setShowWaitingStatus(true), WAITING_STATUS_DELAY_MS)
+    const waiting = window.setTimeout(() => setStage('waiting'), WAITING_STATUS_DELAY_MS)
+    const long = window.setTimeout(() => setStage('long'), LONG_WAIT_STATUS_DELAY_MS)
 
-    return () => window.clearTimeout(timeoutId)
+    return () => {
+      window.clearTimeout(waiting)
+      window.clearTimeout(long)
+    }
   }, [])
 
   return (
@@ -25,8 +39,10 @@ export function TypingIndicator({ statusLabel }: { statusLabel: ReactNode }) {
               />
             ))}
           </div>
-          {showWaitingStatus ? (
-            <p className="text-xs leading-4 text-[var(--chat-text-muted)]">{statusLabel}</p>
+          {stage !== 'dots' ? (
+            <p className="text-xs leading-4 text-[var(--chat-text-muted)]">
+              {stage === 'long' ? longWaitLabel : statusLabel}
+            </p>
           ) : null}
         </div>
       </div>

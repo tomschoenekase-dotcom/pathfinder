@@ -1151,12 +1151,12 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back to home')).toBeNull()
   })
 
-  it('retains standalone navigation and branding links', async () => {
+  it('opens directly with no back arrow and retains the branding link', async () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    const backLink = await screen.findByRole('link', { name: 'Back' })
-    expect(backLink.getAttribute('href')).toBe('/museum')
+    await screen.findByRole('heading', { name: 'Museum' })
+    expect(screen.queryByRole('link', { name: 'Back' })).toBeNull()
     const brandLink = within(openSettings()).getByText('Torchiko').closest('a')
     expect(brandLink?.getAttribute('href')).toBe('https://torchiko.com')
     expect(clearChatButton()).toBeTruthy()
@@ -1169,7 +1169,7 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum' })
     chooseLanguage('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')
 
-    expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /رجوع/ })).toBeNull()
     expect(screen.getByText('دليل بالذكاء الاصطناعي')).toBeTruthy()
     const settings = openSettings()
     expect(settings.getAttribute('lang')).toBe('ar')

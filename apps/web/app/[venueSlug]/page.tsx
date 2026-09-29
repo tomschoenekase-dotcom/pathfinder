@@ -1,81 +1,29 @@
-import { notFound } from 'next/navigation'
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-import type { PublicVenueMediaItem } from '@pathfinder/contracts'
-
-import { VenueArrival, type VenueArrivalSummary } from '../../components/VenueArrival'
-import { VenueTemporarilyUnavailable } from '../../components/VenueTemporarilyUnavailable'
-import { classifyPublicVenueLookupError } from '../../lib/public-venue-error'
+import { redirect } from 'next/navigation'
 
 type VenueLandingPageProps = {
   params: Promise<{
     venueSlug: string
   }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-type VenueSummary = VenueArrivalSummary & {
-  id: string
-  name: string
-  description: string | null
-  category: string | null
-  defaultCenterLat: number | null
-  defaultCenterLng: number | null
-}
-
-type VenueLookup =
-  | {
-      status: 'ready'
-      venue: VenueSummary
-      media: PublicVenueMediaItem[]
-      mediaStatus: 'ready' | 'unavailable'
-    }
-  | { status: 'not-found' }
-  | { status: 'temporarily-unavailable' }
-
-async function loadVenue(slug: string): Promise<VenueLookup> {
-  const ctx = await createTRPCContext({
-    req: new Request(`https://pathfinder.local/${slug}`),
-  })
-
-  try {
-    const caller = appRouter.createCaller(ctx)
-    // Both public reads depend on the slug, not on one another. A media outage
-    // remains optional and never changes the venue's admission decision.
-    const [venue, media] = await Promise.all([
-      caller.venue.getBySlug({ slug }),
-      caller.venue.mediaBySlug({ slug }).then(
-        (result) => ({ items: result.items, status: 'ready' as const }),
-        () => ({ items: [] as PublicVenueMediaItem[], status: 'unavailable' as const }),
-      ),
-    ])
-    return { status: 'ready', venue, media: media.items, mediaStatus: media.status }
-  } catch (error) {
-    const failure = classifyPublicVenueLookupError(error)
-    if (failure === 'not-found' || failure === 'temporarily-unavailable') {
-      return { status: failure }
-    }
-
-    throw error
-  }
-}
-
-export default async function VenueLandingPage({ params }: VenueLandingPageProps) {
+/**
+ * The venue's public link opens the guide directly. Existence, availability and admission are
+ * decided once by the chat route (not-found / temporarily-unavailable), so this page only
+ * forwards the visitor and every entry parameter (prompt, source, entry, item, ask, place).
+ * The former "Open your guide" arrival screen (components/VenueArrival) is intentionally unrouted.
+ */
+export default async function VenueLandingPage({ params, searchParams }: VenueLandingPageProps) {
   const { venueSlug } = await params
-  const lookup = await loadVenue(venueSlug)
-
-  if (lookup.status === 'not-found') {
-    notFound()
+  const query = await searchParams
+  const forwarded = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (Array.isArray(value)) {
+      for (const item of value) forwarded.append(key, item)
+    } else if (value !== undefined) {
+      forwarded.set(key, value)
+    }
   }
-
-  if (lookup.status === 'temporarily-unavailable') {
-    return <VenueTemporarilyUnavailable />
-  }
-
-  return (
-    <VenueArrival
-      venue={lookup.venue}
-      venueSlug={venueSlug}
-      media={lookup.media}
-      mediaStatus={lookup.mediaStatus}
-    />
-  )
+  const suffix = forwarded.size > 0 ? `?${forwarded.toString()}` : ''
+  redirect(`/${encodeURIComponent(venueSlug)}/chat${suffix}`)
 }

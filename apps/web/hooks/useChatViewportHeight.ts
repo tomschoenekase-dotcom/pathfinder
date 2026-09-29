@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from 'react'
 
-/** Mobile keyboards can shrink the visual viewport without changing CSS dvh. */
+/**
+ * Mobile keyboards can shrink the visual viewport without changing CSS dvh. The shell is
+ * `position: fixed` (layout-viewport coordinates), so `offsetTop`/`offsetLeft` are exactly how far
+ * iOS has panned the visual viewport inside it; the shell follows with `top`/`left`, never with
+ * document scroll. The page cannot scroll while the chat is open (see globals.css), and any scroll
+ * iOS applies while revealing the field is undone once the keyboard closes.
+ */
 export function useChatViewportHeight() {
   const [viewportRect, setViewportRect] = useState<
     { height: number; offsetTop: number; offsetLeft: number } | undefined
@@ -25,6 +31,7 @@ export function useChatViewportHeight() {
             offsetLeft: Math.round(viewport.offsetLeft),
           }
         : undefined
+      if (!keyboardOpen && (window.scrollY !== 0 || window.scrollX !== 0)) window.scrollTo(0, 0)
       setViewportRect((current) => {
         if (!nextViewportRect) return current ? undefined : current
         if (

@@ -289,7 +289,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     )
   })
 
-  it('keeps the dots visible, adds a delayed waiting line, and removes it on the first delta', () => {
+  it('keeps the dots visible, adds a calm waiting line, and a long-wait line, and removes it on the first delta', () => {
     vi.useFakeTimers()
     const view = render(
       <ChatWindow
@@ -300,14 +300,24 @@ describe('ChatWindow accessibility and motion behavior', () => {
     )
 
     expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     expect(getChatResponseStatus().textContent).toBe('Guide is answering')
 
     act(() => vi.advanceTimersByTime(1_499))
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     act(() => vi.advanceTimersByTime(1))
-    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+    expect(screen.getByText('Thinking…')).toBeTruthy()
     expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
+
+    act(() => vi.advanceTimersByTime(10_499))
+    expect(screen.getByText('Thinking…')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.queryByText('Thinking…')).toBeNull()
+    expect(screen.getByText('Still working on it.')).toBeTruthy()
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    // Visual wording changes never re-announce to screen readers.
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
 
     view.rerender(
       <ChatWindow
@@ -320,7 +330,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
     expect(getChatResponseStatus().textContent).toBe('Guide is answering')
   })
@@ -664,10 +674,10 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
     expect(onSend).not.toHaveBeenCalled()
     expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
 
     act(() => vi.advanceTimersByTime(1_500))
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     expect(onSend).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
@@ -684,9 +694,9 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
     expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     act(() => vi.advanceTimersByTime(1_500))
-    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+    expect(screen.getByText('Thinking…')).toBeTruthy()
 
     view.rerender(
       <ChatWindow
@@ -700,7 +710,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
     expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
     expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
   })
