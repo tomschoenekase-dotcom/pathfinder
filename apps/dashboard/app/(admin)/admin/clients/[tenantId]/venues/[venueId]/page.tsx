@@ -244,6 +244,9 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
           aria-label="Onboarding operator workflows"
           className="mt-4 flex flex-wrap gap-3 text-sm font-semibold text-pf-primary"
         >
+          <Link href={`/admin/clients/${tenantId}/venues/${venueId}/visitor-access`}>
+            Visitor access
+          </Link>
           <Link href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations`}>
             Questions and corrections
           </Link>

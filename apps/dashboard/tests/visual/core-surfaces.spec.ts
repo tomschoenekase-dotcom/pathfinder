@@ -166,7 +166,7 @@ test('single-venue client home remains simple and responsive', async ({ page }, 
     page.locator('[data-fixture="portal-home"][data-fixture-state="live"]'),
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
-  await expect(page.getByLabel('Viewing venue')).toHaveCount(0)
+  await expect(page.getByLabel('Venue', { exact: true })).toHaveCount(0)
   const firstAction = page.getByRole('link').first()
   await firstAction.focus()
   await expect(firstAction).toBeFocused()
@@ -551,7 +551,7 @@ test('bounded venue feature access is readable and keyboard reachable', async ({
   await expect(page.getByRole('heading', { name: 'Feature access' })).toBeVisible()
   await expect(page.getByText('Two-key activation')).toBeVisible()
   await expect(page.getByText('Not entitled')).toBeVisible()
-  const submit = page.getByRole('button', { name: 'Append Voice grant' })
+  const submit = page.getByRole('button', { name: 'Append Premium voice grant' })
   await expect(submit).toBeDisabled()
   await page.getByLabel('Audit reason').fill('Synthetic browser proof')
   await page.getByRole('checkbox').check()

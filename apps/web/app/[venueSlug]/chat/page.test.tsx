@@ -20,11 +20,11 @@ vi.mock('../../../components/VenueChatExperience', () => ({
     venueSlug,
     presentation,
     initialDraft,
-    entrySource,
+    accessSurface,
     initialEntryPlaceId,
     initialVenue,
   }: Record<string, string> & { initialVenue: { slug: string; venue: { id: string } } }) => (
-    <div>{`${presentation}:${venueSlug}:${entrySource}:${initialEntryPlaceId}:${initialDraft}:${initialVenue.slug}:${initialVenue.venue.id}`}</div>
+    <div>{`${presentation}:${venueSlug}:${accessSurface}:${initialEntryPlaceId}:${initialDraft}:${initialVenue.slug}:${initialVenue.venue.id}`}</div>
   ),
 }))
 
@@ -56,6 +56,18 @@ describe('standalone venue chat route', () => {
       ),
     ).toBeTruthy()
     expect(mocks.getPublicVenue).toHaveBeenCalledWith('museum')
+  })
+
+  it('passes bounded ask and place through the shared direct guide', async () => {
+    render(
+      await VenueChatPage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ ask: 'Find the map', place: 'public-1' }),
+      }),
+    )
+    expect(
+      screen.getByText('standalone:museum:direct:public-1:Find the map:museum:venue-1'),
+    ).toBeTruthy()
   })
 
   it('keeps a failed public admission out of the chat experience', async () => {

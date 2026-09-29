@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   expire: vi.fn(),
+  due: vi.fn(),
+  hangup: vi.fn(),
   emit: vi.fn(),
   writeJob: vi.fn(),
   updateJob: vi.fn(),
@@ -17,10 +19,12 @@ vi.mock('@pathfinder/config', () => ({
 }))
 vi.mock('@pathfinder/db', () => ({
   expireAbandonedVoiceSessions: mocks.expire,
+  findDueVoiceSessionHangups: mocks.due,
   VOICE_SESSION_RECOVERY_BATCH_MAX: 250,
   writeJobRecord: mocks.writeJob,
   updateJobRecord: mocks.updateJob,
 }))
+vi.mock('./voice-session-hangup', () => ({ hangupDueVoiceSession: mocks.hangup }))
 vi.mock('../lib/job-execution', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/job-execution')>()),
   recordJobFailure: mocks.recordFailure,
@@ -34,6 +38,8 @@ describe('voice session recovery processor', () => {
     mocks.writeJob.mockResolvedValue('job_record_1')
     mocks.updateJob.mockResolvedValue(undefined)
     mocks.emit.mockResolvedValue(undefined)
+    mocks.due.mockResolvedValue([])
+    mocks.hangup.mockResolvedValue(null)
   })
 
   it('expires a bounded batch and emits machine-readable recovery evidence', async () => {
@@ -82,5 +88,67 @@ describe('voice session recovery processor', () => {
       }),
     )
     expect(mocks.updateJob).not.toHaveBeenCalled()
+  })
+
+  it('hangs up due provider sessions before recording their expiration', async () => {
+    const due = { id: 'voice_provider_1' }
+    const expired = {
+      id: 'voice_provider_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      visitorSessionId: 'visitor_1',
+      previousStatus: 'ACTIVE',
+      durationSeconds: 600,
+    }
+    mocks.due.mockResolvedValue([due])
+    mocks.hangup.mockResolvedValue(expired)
+    mocks.expire.mockResolvedValue([])
+
+    await expect(processVoiceSessionRecovery()).resolves.toEqual({ expired: 1 })
+    expect(mocks.due).toHaveBeenCalledWith({ now: expect.any(Date) })
+    expect(mocks.hangup).toHaveBeenCalledWith('voice_provider_1', { now: expect.any(Date) })
+    expect(mocks.expire).toHaveBeenCalledOnce()
+  })
+
+  it('continues after a provider hangup failure, runs cleanup, and records a retryable job failure', async () => {
+    const cleanedUp = {
+      id: 'voice_abandoned_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      visitorSessionId: 'visitor_1',
+      previousStatus: 'ACTIVE',
+      durationSeconds: 600,
+    }
+    mocks.due.mockResolvedValue([{ id: 'voice_provider_1' }, { id: 'voice_provider_2' }])
+    mocks.hangup
+      .mockRejectedValueOnce(new Error('provider unavailable'))
+      .mockResolvedValueOnce({ id: 'voice_provider_2' })
+    mocks.expire.mockResolvedValue([cleanedUp])
+    mocks.recordFailure.mockResolvedValue(undefined)
+
+    await expect(processVoiceSessionRecovery({ attemptNumber: 1, maxAttempts: 3 })).rejects.toThrow(
+      'VOICE_SESSION_RECOVERY_FAILED',
+    )
+
+    expect(mocks.hangup).toHaveBeenNthCalledWith(1, 'voice_provider_1', { now: expect.any(Date) })
+    expect(mocks.hangup).toHaveBeenNthCalledWith(2, 'voice_provider_2', { now: expect.any(Date) })
+    expect(mocks.expire).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'voice.session.failed',
+        sessionId: 'visitor_1',
+        metadata: expect.objectContaining({ voiceSessionId: 'voice_abandoned_1' }),
+      }),
+    )
+    expect(mocks.recordFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobRecordId: 'job_record_1',
+        execution: { attemptNumber: 1, maxAttempts: 3 },
+        error: expect.objectContaining({
+          message: 'One or more due voice sessions failed provider hangup.',
+        }),
+      }),
+    )
+    expect(mocks.updateJob).not.toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 })

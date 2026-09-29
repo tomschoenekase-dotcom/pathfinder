@@ -78,9 +78,9 @@ function trpcPayload(procedure: string): unknown {
     'voice.availability': { enabled: true, premiumAvailable: false },
     'voice.start': {
       voiceSessionId: '22222222-2222-4222-8222-222222222222',
-      clientSecret: 'fixture-client-secret',
       maxDurationSeconds: 120,
     },
+    'voice.connect': { sdpAnswer: 'v=0\r\n' },
     'voice.connected': { ok: true },
     'voice.end': { ok: true },
     'voice.usage': { ok: true },
@@ -190,6 +190,7 @@ test('real VoiceControl dispatches reviewed route tools through local browser se
   const delayedRouteSettled = deferred()
   let delayNextRoute = false
   const trpcCalls: Array<{ procedure: string; input: unknown }> = []
+  const directProviderRequests: string[] = []
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url())
     if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
@@ -220,7 +221,8 @@ test('real VoiceControl dispatches reviewed route tools through local browser se
       return
     }
     if (url.hostname === 'api.openai.com') {
-      await route.fulfill({ status: 200, contentType: 'application/sdp', body: 'v=0\r\n' })
+      directProviderRequests.push(url.href)
+      await route.abort('blockedbyclient')
       return
     }
     await route.abort('blockedbyclient')
@@ -242,6 +244,12 @@ test('real VoiceControl dispatches reviewed route tools through local browser se
     .toBe(1)
   await expect(page.getByRole('button', { name: 'End voice conversation' })).toBeVisible()
   await expect(page.getByTestId('voice-route-last-event')).toContainText('Voice state: listening')
+  expect(trpcCalls.map(({ procedure }) => procedure)).toContain('voice.connect')
+  expect(trpcCalls.find(({ procedure }) => procedure === 'voice.connect')?.input).toMatchObject({
+    voiceSessionId: '22222222-2222-4222-8222-222222222222',
+    sdpOffer: 'v=0\r\n',
+  })
+  expect(directProviderRequests).toEqual([])
 
   const sentAfterOpen = await page.evaluate(() =>
     (window as unknown as { __voiceRouteSent: () => string[] }).__voiceRouteSent(),

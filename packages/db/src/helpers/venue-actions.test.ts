@@ -1,3 +1,4 @@
+import * as prismaClient from '@prisma/client'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -392,6 +393,70 @@ describe('canonical venue actions', () => {
       ),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
     expect(invalid.tx.venue.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('replays a stored appearance regardless of JSON key order and clears it with a database null', async () => {
+    const appearance = {
+      version: 1 as const,
+      userBubble: false,
+      assistantBubble: true,
+      userTextColor: null,
+      assistantTextColor: '#102030',
+      userBubbleColor: null,
+      assistantSurfaceColor: null,
+      title: 'City Zoo',
+      headerTitleColor: null,
+      headerColor: '#0B1426',
+      footerColor: null,
+      background: { mode: 'image' as const, focalX: 30, focalY: 70, dim: 40 },
+      requestMore: false,
+    }
+    const storedDesign = {
+      chatTheme: 'forest',
+      chatAccentColor: null,
+      chatFont: 'inter',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      // PostgreSQL JSONB returns keys in its own order.
+      chatAppearance: Object.fromEntries(Object.entries(appearance).reverse()),
+      updatedAt: revision,
+    }
+    const replay = fixture()
+    replay.tx.venue.findFirst.mockResolvedValueOnce(storedDesign)
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor,
+          fields: { chatAppearance: appearance },
+        },
+        replay.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(replay.tx.venue.updateMany).not.toHaveBeenCalled()
+
+    const reset = fixture()
+    reset.tx.venue.findFirst
+      .mockResolvedValueOnce(storedDesign)
+      .mockResolvedValueOnce({ ...storedDesign, chatAppearance: null })
+    await updateVenueChatDesignAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        expectedUpdatedAt: revision,
+        actor,
+        fields: { chatAppearance: null },
+      },
+      reset.client as never,
+    )
+    const [[update]] = reset.tx.venue.updateMany.mock.calls as unknown as [
+      [{ data: Record<string, unknown> }],
+    ]
+    const data = update.data
+    expect(data.chatAppearance).toBe(prismaClient.Prisma.DbNull)
+    expect(reset.tx.auditLog.create).toHaveBeenCalledOnce()
   })
 
   it('enforces OWNER at the delete domain boundary before transaction or audit work', async () => {

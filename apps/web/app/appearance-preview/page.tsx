@@ -1,7 +1,11 @@
 import { notFound } from 'next/navigation'
 
-import { VenueChatFixture } from '../../components/VenueChatFixture'
-import { appearancePreviewAllowed, parseAppearancePreviewParams } from './preview-params'
+import { AppearancePreviewClient } from './AppearancePreviewClient'
+import {
+  appearancePreviewAllowed,
+  appearancePreviewParentOrigin,
+  parseAppearancePreviewParams,
+} from './preview-params'
 import styles from './preview-layout.module.css'
 
 // The staging guard must run with the deployed service environment, not while
@@ -20,14 +24,52 @@ export default async function AppearancePreviewPage({
     theme?: string | string[]
     font?: string | string[]
     accent?: string | string[]
+    appearance?: string | string[]
+    background?: string | string[]
+    logo?: string | string[]
+    name?: string | string[]
+    embed?: string | string[]
   }>
 }) {
   if (!appearancePreviewAllowed(process.env)) notFound()
-  const appearance = parseAppearancePreviewParams(await searchParams)
+  const params = parseAppearancePreviewParams(await searchParams)
+  const initial = {
+    theme: params.theme,
+    font: params.font,
+    accent: params.accent,
+    appearance: params.appearance,
+    background: params.background ? { kind: 'path' as const, path: params.background } : null,
+    logo: params.logo ? { kind: 'path' as const, path: params.logo } : null,
+    venueName: params.venueName,
+  }
+
+  if (params.embedded) {
+    // Framed by the client portal, which labels the preview itself. The sample is a picture of
+    // the real renderer, so it takes no input and cannot navigate the frame away.
+    return (
+      <main
+        className={styles.layout}
+        data-preview-embedded="true"
+        aria-label={`${params.venueName ?? 'Visitor guide'} preview`}
+      >
+        <h1 className="sr-only">
+          {params.venueName ? `${params.venueName} visitor guide preview` : 'Visitor guide preview'}
+        </h1>
+        <div inert style={{ minHeight: 0, flex: 1 }}>
+          <AppearancePreviewClient
+            initial={initial}
+            parentOrigin={appearancePreviewParentOrigin(process.env)}
+            inertFrame
+          />
+        </div>
+      </main>
+    )
+  }
 
   return (
-    <main className={styles.layout}>
-      <div
+    <div className={styles.layout}>
+      <aside
+        aria-label="Appearance preview notice"
         className={`${styles.notice} border-b border-slate-300 bg-slate-50 px-4 py-3 text-center text-sm text-slate-700`}
       >
         <span className={styles.fullNotice}>
@@ -35,22 +77,13 @@ export default async function AppearancePreviewPage({
           changes remain unsaved until you save them in your venue settings.
         </span>
         <span className={styles.compactNotice}>Preview only · Unsaved · No messages sent</span>
-      </div>
-      <VenueChatFixture
-        mode="classic"
-        state="idle"
-        conversation="long"
-        asset="ok"
-        motion="reduced"
-        voice="none"
-        network="online"
-        route="none"
-        branding="none"
-        readOnly
-        theme={appearance.theme}
-        font={appearance.font}
-        accent={appearance.accent}
-      />
-    </main>
+      </aside>
+      <main>
+        <h1 className="sr-only">
+          {params.venueName ? `${params.venueName} visitor guide preview` : 'Visitor guide preview'}
+        </h1>
+        <AppearancePreviewClient initial={initial} parentOrigin={null} />
+      </main>
+    </div>
   )
 }

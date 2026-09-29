@@ -4,6 +4,8 @@ import { TRPCError } from '@trpc/server'
 
 import {
   openAiRealtimeVoiceAdapter,
+  exchangeRealtimeVoiceSdp,
+  hangupOpenAiRealtimeCall,
   estimateRealtimeVoiceCostUsd,
   REALTIME_VOICE_PRICING_VERSION,
   resolveRealtimeVoiceRoute,
@@ -11,6 +13,7 @@ import {
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
+import { enqueueVoiceSessionHangup } from '@pathfinder/jobs'
 import {
   publishOperationalEvent,
   resolveNativeGuestReadSnapshotAction,
@@ -25,9 +28,16 @@ import {
   type VoiceGroundingReader,
 } from '../lib/voice-grounding-context'
 import { checkRateLimit } from '../lib/rate-limit'
-import { resolveVoiceEntitlementSettings, voiceQuotaWindows } from '../lib/voice-session-policy'
+import {
+  MIN_VOICE_SESSION_SECONDS,
+  endedVoiceBoundarySeconds,
+  remainingVoiceSeconds,
+  resolveVoiceEntitlementSettings,
+  voiceQuotaWindows,
+} from '../lib/voice-session-policy'
 import {
   VoiceSessionConnectedInput,
+  VoiceSessionConnectInput,
   VoiceGroundingInput,
   VoiceSessionEndInput,
   VoiceSessionStartInput,
@@ -38,11 +48,23 @@ import {
 import { publicAiProcedure, publicProcedure } from '../trpc'
 
 let voiceProviderAdapter: RealtimeVoiceProviderAdapter = openAiRealtimeVoiceAdapter
+let voiceSdpExchange = exchangeRealtimeVoiceSdp
+let voiceHangup = hangupOpenAiRealtimeCall
 
 export function _setVoiceProviderAdapterForTesting(
   adapter: RealtimeVoiceProviderAdapter | null,
 ): void {
   voiceProviderAdapter = adapter ?? openAiRealtimeVoiceAdapter
+}
+
+export function _setVoiceSdpExchangeForTesting(
+  exchange: typeof exchangeRealtimeVoiceSdp | null,
+): void {
+  voiceSdpExchange = exchange ?? exchangeRealtimeVoiceSdp
+}
+
+export function _setVoiceHangupForTesting(hangup: typeof hangupOpenAiRealtimeCall | null): void {
+  voiceHangup = hangup ?? hangupOpenAiRealtimeCall
 }
 
 type PublicVoiceScope = {
@@ -143,6 +165,28 @@ async function requireUsableVoiceSession(
     now.getTime() - voiceSession.connectedAt.getTime() >= voiceSession.maxDurationSeconds * 1_000
   if (!authorizationExpired && !durationExpired) return resolved
 
+  if (
+    durationExpired &&
+    voiceSession.status === 'ACTIVE' &&
+    voiceSession.providerSessionId?.startsWith('rtc_')
+  ) {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey)
+      throw new TRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice is ending. Continue in text.',
+      })
+    try {
+      await voiceHangup({ apiKey, callId: voiceSession.providerSessionId })
+    } catch {
+      // Leave the row active for the delayed hangup and minute recovery retries.
+      throw new TRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice is ending. Continue in text.',
+      })
+    }
+  }
+
   const errorCode = authorizationExpired ? 'AUTHORIZATION_EXPIRED' : 'SESSION_DURATION_EXCEEDED'
   await ctx.db.voiceSession.updateMany({
     where: {
@@ -157,6 +201,7 @@ async function requireUsableVoiceSession(
       errorCode,
       endedAt: now,
       lastActiveAt: now,
+      ...(durationExpired ? { durationSeconds: voiceSession.maxDurationSeconds } : {}),
       fallbackToText: true,
     },
   })
@@ -171,6 +216,26 @@ function quotaError(): TRPCError {
     code: 'TOO_MANY_REQUESTS',
     message: 'Voice time is currently unavailable. Continue in text or try again later.',
   })
+}
+
+function recordVoiceCapacityEvent(ctx: TRPCContext, scope: PublicVoiceScope, now: Date): void {
+  // Capacity telemetry is best-effort and must not turn a quota denial into an unhandled rejection.
+  void publishOperationalEvent({
+    client: ctx.db,
+    event: {
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      eventType: 'voice.monthly-cap-or-concurrency-reached',
+      sourceSubsystem: 'realtime-voice',
+      deduplicationKey: `voice-capacity:${scope.tenantId}:${scope.venueId}:${now.toISOString().slice(0, 10)}`,
+      severity: 'WARNING',
+      title: 'Voice capacity unavailable',
+      summary:
+        'The venue voice limit or concurrent-session limit was reached; text remains available.',
+      linkedObjectType: 'venue',
+      linkedObjectId: scope.venueId,
+    },
+  }).catch(() => {})
 }
 
 const VOICE_POLICY = `VOICE INTERFACE (MANDATORY):
@@ -196,6 +261,31 @@ export function composeVoiceInstructions(input: {
   return `${VOICE_POLICY}${staticHeading}${boundedStatic}${dynamicHeading}${boundedDynamic}`
 }
 
+function voiceInstructions(
+  scope: PublicVoiceScope,
+  locale: string,
+  visitContext?: VoiceSessionStartInput['visitContext'],
+): string {
+  const prompt = buildVenueSystemPromptParts({
+    venue: {
+      ...scope,
+      description: scope.description?.slice(0, 1_000) ?? null,
+      // Current retrieval, rather than a frozen startup snapshot, owns visitor facts.
+      guideNotes: null,
+      aiGuideNotes: null,
+    },
+    relevantPlaces: [],
+    knowledgeEntries: [],
+    activeUpdates: [],
+    userLat: null,
+    userLng: null,
+    language: locale,
+    ...(visitContext ? { visitContext } : {}),
+    guideMode: scope.guideMode,
+  })
+  return composeVoiceInstructions(prompt)
+}
+
 export const voiceRouter = router({
   groundingContext: publicProcedure.input(VoiceGroundingInput).mutation(async ({ ctx, input }) => {
     const resolved = await requireUsableVoiceSession(
@@ -212,7 +302,7 @@ export const voiceRouter = router({
       client: ctx.db,
       tenantId: resolved.scope.tenantId,
       venueId: resolved.scope.venueId,
-      capability: 'voice',
+      capability: 'premium-voice',
       featureAvailable: isFeatureEnabled('voiceMode'),
     })
     if (!entitlement.enabled) {
@@ -247,23 +337,78 @@ export const voiceRouter = router({
       client: ctx.db,
       tenantId: scope.tenantId,
       venueId: scope.venueId,
-      capability: 'voice',
-      featureAvailable: true,
-    })
-    if (!voice.enabled) return { enabled: false as const }
-
-    const premium = await resolveProductEntitlement({
-      client: ctx.db,
-      tenantId: scope.tenantId,
-      venueId: scope.venueId,
       capability: 'premium-voice',
       featureAvailable: true,
     })
+    if (!voice.enabled) return { enabled: false as const }
     const settings = resolveVoiceEntitlementSettings(voice.settings)
+    const { dayStart, monthStart } = voiceQuotaWindows(new Date())
+    const [dailyUsage, monthlyUsage, activeSessions, dailyBoundary, monthlyBoundary] =
+      await Promise.all([
+        ctx.db.voiceSession.aggregate({
+          where: { tenantId: scope.tenantId, venueId: scope.venueId, createdAt: { gte: dayStart } },
+          _sum: { durationSeconds: true },
+        }),
+        ctx.db.voiceSession.aggregate({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { gte: monthStart },
+          },
+          _sum: { durationSeconds: true },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+          },
+          select: {
+            maxDurationSeconds: true,
+            durationSeconds: true,
+            createdAt: true,
+            connectedAt: true,
+          },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { lt: dayStart },
+            endedAt: { gte: dayStart },
+          },
+          select: { durationSeconds: true, endedAt: true },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { lt: monthStart },
+            endedAt: { gte: monthStart },
+          },
+          select: { durationSeconds: true, endedAt: true },
+        }),
+      ])
+    const remainingSeconds = remainingVoiceSeconds({
+      settings,
+      dayStart,
+      monthStart,
+      dailyUsedSeconds: dailyUsage._sum.durationSeconds ?? 0,
+      monthlyUsedSeconds: monthlyUsage._sum.durationSeconds ?? 0,
+      dailyBoundarySeconds: endedVoiceBoundarySeconds(dailyBoundary, dayStart),
+      monthlyBoundarySeconds: endedVoiceBoundarySeconds(monthlyBoundary, monthStart),
+      activeSessions,
+    })
+    if (
+      activeSessions.length >= settings.maxConcurrentSessions ||
+      remainingSeconds < MIN_VOICE_SESSION_SECONDS
+    )
+      return { enabled: false as const }
     return {
       enabled: true as const,
-      premiumAvailable: premium.enabled,
-      maxDurationSeconds: settings.maxSessionSeconds,
+      premiumAvailable: true,
+      maxDurationSeconds: Math.min(settings.maxSessionSeconds, remainingSeconds),
+      remainingSeconds,
     }
   }),
 
@@ -283,60 +428,93 @@ export const voiceRouter = router({
       client: ctx.db,
       tenantId: scope.tenantId,
       venueId: scope.venueId,
-      capability: 'voice',
+      capability: 'premium-voice',
       featureAvailable: true,
     })
     if (!voiceEntitlement.enabled) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Voice is not enabled for this venue.' })
     }
-    const premiumEntitlement =
-      input.tier === 'PREMIUM'
-        ? await resolveProductEntitlement({
-            client: ctx.db,
-            tenantId: scope.tenantId,
-            venueId: scope.venueId,
-            capability: 'premium-voice',
-            featureAvailable: true,
-          })
-        : null
     const route = resolveRealtimeVoiceRoute({
-      tier: input.tier,
-      premiumEntitled: premiumEntitlement?.enabled ?? false,
+      voiceEntitled: true,
+      // Only trusted server configuration may select the higher-cost route.
+      environment: process.env,
     })
     const settings = resolveVoiceEntitlementSettings(voiceEntitlement.settings)
     const now = new Date()
     const { dayStart, monthStart } = voiceQuotaWindows(now)
 
-    const [activeCount, dailyUsage, monthlyUsage] = await Promise.all([
-      ctx.db.voiceSession.count({
-        where: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
-        },
-      }),
-      ctx.db.voiceSession.aggregate({
-        where: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          createdAt: { gte: dayStart },
-        },
-        _sum: { durationSeconds: true },
-      }),
-      ctx.db.voiceSession.aggregate({
-        where: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          createdAt: { gte: monthStart },
-        },
-        _sum: { durationSeconds: true },
-      }),
-    ])
+    const [activeCount, dailyUsage, monthlyUsage, activeSessions, dailyBoundary, monthlyBoundary] =
+      await Promise.all([
+        ctx.db.voiceSession.count({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+          },
+        }),
+        ctx.db.voiceSession.aggregate({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { gte: dayStart },
+          },
+          _sum: { durationSeconds: true },
+        }),
+        ctx.db.voiceSession.aggregate({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { gte: monthStart },
+          },
+          _sum: { durationSeconds: true },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+          },
+          select: {
+            maxDurationSeconds: true,
+            durationSeconds: true,
+            createdAt: true,
+            connectedAt: true,
+          },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { lt: dayStart },
+            endedAt: { gte: dayStart },
+          },
+          select: { durationSeconds: true, endedAt: true },
+        }),
+        ctx.db.voiceSession.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { lt: monthStart },
+            endedAt: { gte: monthStart },
+          },
+          select: { durationSeconds: true, endedAt: true },
+        }),
+      ])
+    const preflightRemaining = remainingVoiceSeconds({
+      settings,
+      dayStart,
+      monthStart,
+      dailyUsedSeconds: dailyUsage._sum.durationSeconds ?? 0,
+      monthlyUsedSeconds: monthlyUsage._sum.durationSeconds ?? 0,
+      dailyBoundarySeconds: endedVoiceBoundarySeconds(dailyBoundary, dayStart),
+      monthlyBoundarySeconds: endedVoiceBoundarySeconds(monthlyBoundary, monthStart),
+      activeSessions,
+    })
     if (
       activeCount >= settings.maxConcurrentSessions ||
-      (dailyUsage._sum.durationSeconds ?? 0) >= settings.dailySeconds ||
-      (monthlyUsage._sum.durationSeconds ?? 0) >= settings.monthlySeconds
+      preflightRemaining < MIN_VOICE_SESSION_SECONDS
     ) {
+      recordVoiceCapacityEvent(ctx, scope, now)
       throw quotaError()
     }
 
@@ -353,77 +531,115 @@ export const voiceRouter = router({
         revision: true,
       },
     })
-    const prompt = buildVenueSystemPromptParts({
-      venue: {
-        ...scope,
-        description: scope.description?.slice(0, 1_000) ?? null,
-        // Guide notes may contain factual claims. Per-turn retrieval, rather than
-        // a frozen startup snapshot, is the authority for visitor facts.
-        guideNotes: null,
-        aiGuideNotes: null,
-      },
-      relevantPlaces: [],
-      knowledgeEntries: [],
-      activeUpdates: [],
-      userLat: null,
-      userLng: null,
-      language: input.locale,
-      ...(input.visitContext ? { visitContext: input.visitContext } : {}),
-      guideMode: scope.guideMode,
-    })
-    const instructions = composeVoiceInstructions(prompt)
-    const saved = await ctx.db.$transaction(async (tx) => {
-      // Deliberate tenant/venue-scoped advisory lock: quota admission and session
-      // reservation must serialize across horizontally scaled API replicas.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:voice-quota:${scope.tenantId}:${scope.venueId}`}, 0))`
-      const [atomicActiveCount, atomicDailyUsage, atomicMonthlyUsage] = await Promise.all([
-        tx.voiceSession.count({
-          where: {
+    const instructions = voiceInstructions(scope, input.locale, input.visitContext)
+    const saved = await ctx.db
+      .$transaction(async (tx) => {
+        // Deliberate tenant/venue-scoped advisory lock: quota admission and session
+        // reservation must serialize across horizontally scaled API replicas.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:voice-quota:${scope.tenantId}:${scope.venueId}`}, 0))`
+        const [
+          atomicActiveCount,
+          atomicDailyUsage,
+          atomicMonthlyUsage,
+          atomicActiveSessions,
+          dailyBoundary,
+          monthlyBoundary,
+        ] = await Promise.all([
+          tx.voiceSession.count({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+            },
+          }),
+          tx.voiceSession.aggregate({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              createdAt: { gte: dayStart },
+            },
+            _sum: { durationSeconds: true },
+          }),
+          tx.voiceSession.aggregate({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              createdAt: { gte: monthStart },
+            },
+            _sum: { durationSeconds: true },
+          }),
+          tx.voiceSession.findMany({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+            },
+            select: {
+              maxDurationSeconds: true,
+              durationSeconds: true,
+              createdAt: true,
+              connectedAt: true,
+            },
+          }),
+          tx.voiceSession.findMany({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              createdAt: { lt: dayStart },
+              endedAt: { gte: dayStart },
+            },
+            select: { durationSeconds: true, endedAt: true },
+          }),
+          tx.voiceSession.findMany({
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              createdAt: { lt: monthStart },
+              endedAt: { gte: monthStart },
+            },
+            select: { durationSeconds: true, endedAt: true },
+          }),
+        ])
+        const remainingSeconds = remainingVoiceSeconds({
+          settings,
+          dayStart,
+          monthStart,
+          dailyUsedSeconds: atomicDailyUsage._sum.durationSeconds ?? 0,
+          monthlyUsedSeconds: atomicMonthlyUsage._sum.durationSeconds ?? 0,
+          dailyBoundarySeconds: endedVoiceBoundarySeconds(dailyBoundary, dayStart),
+          monthlyBoundarySeconds: endedVoiceBoundarySeconds(monthlyBoundary, monthStart),
+          activeSessions: atomicActiveSessions,
+        })
+        if (
+          atomicActiveCount >= settings.maxConcurrentSessions ||
+          remainingSeconds < MIN_VOICE_SESSION_SECONDS
+        )
+          throw quotaError()
+        const maxDurationSeconds = Math.min(settings.maxSessionSeconds, remainingSeconds)
+        return tx.voiceSession.create({
+          data: {
             tenantId: scope.tenantId,
             venueId: scope.venueId,
-            status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+            visitorSessionId: scope.sessionId,
+            provider: route.provider,
+            model: route.model,
+            capability: route.capability,
+            tier: route.tier,
+            locale: input.locale,
+            voice: settings.voice,
+            entitlementSnapshot: { premiumVoice: voiceEntitlement },
+            botConfigurationSnapshot: botConfiguration ?? {},
+            maxDurationSeconds,
           },
-        }),
-        tx.voiceSession.aggregate({
-          where: { tenantId: scope.tenantId, venueId: scope.venueId, createdAt: { gte: dayStart } },
-          _sum: { durationSeconds: true },
-        }),
-        tx.voiceSession.aggregate({
-          where: {
-            tenantId: scope.tenantId,
-            venueId: scope.venueId,
-            createdAt: { gte: monthStart },
-          },
-          _sum: { durationSeconds: true },
-        }),
-      ])
-      if (
-        atomicActiveCount >= settings.maxConcurrentSessions ||
-        (atomicDailyUsage._sum.durationSeconds ?? 0) >= settings.dailySeconds ||
-        (atomicMonthlyUsage._sum.durationSeconds ?? 0) >= settings.monthlySeconds
-      )
-        throw quotaError()
-      return tx.voiceSession.create({
-        data: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          visitorSessionId: scope.sessionId,
-          provider: route.provider,
-          model: route.model,
-          capability: route.capability,
-          tier: route.tier,
-          locale: input.locale,
-          voice: settings.voice,
-          entitlementSnapshot: {
-            voice: voiceEntitlement,
-            ...(premiumEntitlement ? { premiumVoice: premiumEntitlement } : {}),
-          },
-          botConfigurationSnapshot: botConfiguration ?? {},
-          maxDurationSeconds: settings.maxSessionSeconds,
-        },
-        select: { id: true },
+          select: { id: true, maxDurationSeconds: true },
+        })
       })
-    })
+      .catch((error: unknown) => {
+        if (error instanceof TRPCError && error.code === 'TOO_MANY_REQUESTS') {
+          recordVoiceCapacityEvent(ctx, scope, now)
+        }
+        throw error
+      })
 
     try {
       const apiKey = process.env.OPENAI_API_KEY
@@ -472,11 +688,12 @@ export const voiceRouter = router({
       })
       return {
         voiceSessionId: saved.id,
-        clientSecret: authorization.clientSecret,
+        // The credential is intentionally never sent to the browser. A second
+        // short-lived credential is minted during the server-owned SDP exchange.
         expiresAt: authorization.expiresAt,
         provider: authorization.provider,
         model: authorization.model,
-        maxDurationSeconds: settings.maxSessionSeconds,
+        maxDurationSeconds: saved.maxDurationSeconds,
       }
     } catch {
       const failed = await ctx.db.voiceSession.updateMany({
@@ -522,22 +739,169 @@ export const voiceRouter = router({
     }
   }),
 
-  connected: publicProcedure.input(VoiceSessionConnectedInput).mutation(async ({ ctx, input }) => {
-    const { scope } = await requireUsableVoiceSession(
+  connect: publicAiProcedure.input(VoiceSessionConnectInput).mutation(async ({ ctx, input }) => {
+    if (!isFeatureEnabled('voiceMode'))
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Voice is not available.' })
+    const { scope, voiceSession } = await requireUsableVoiceSession(
       ctx,
       await resolveOwnedVoiceSession(ctx, input),
     )
-    const connectedAt = new Date()
-    const updated = await ctx.db.voiceSession.updateMany({
+    if (voiceSession.status !== 'READY')
+      throw new TRPCError({ code: 'CONFLICT', message: 'Voice session already connected.' })
+    const entitlement = await resolveProductEntitlement({
+      client: ctx.db,
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      capability: 'premium-voice',
+      featureAvailable: true,
+    })
+    if (!entitlement.enabled)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Voice is not enabled for this venue.' })
+    const route = resolveRealtimeVoiceRoute({
+      voiceEntitled: true,
+      tier: voiceSession.tier === 'PREMIUM' ? 'PREMIUM' : 'ECONOMY',
+      environment: process.env,
+    })
+    if (
+      voiceSession.provider !== route.provider ||
+      voiceSession.model !== route.model ||
+      voiceSession.capability !== route.capability
+    )
+      throw new TRPCError({ code: 'CONFLICT', message: 'Voice route changed. Start voice again.' })
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey)
+      throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice is unavailable.' })
+    // Claim this READY row before any network call. A duplicate connect request
+    // must not create a second provider call for the same reserved session.
+    const claimed = await ctx.db.voiceSession.updateMany({
       where: {
-        id: input.voiceSessionId,
+        id: voiceSession.id,
         tenantId: scope.tenantId,
         venueId: scope.venueId,
-        status: { in: ['READY', 'ACTIVE'] },
+        visitorSessionId: scope.sessionId,
+        status: 'READY',
       },
-      data: { status: 'ACTIVE', connectedAt, lastActiveAt: connectedAt },
+      data: { status: 'AUTHORIZING', lastActiveAt: new Date() },
     })
-    return { connected: updated.count === 1 }
+    if (claimed.count !== 1)
+      throw new TRPCError({ code: 'CONFLICT', message: 'Voice session already connecting.' })
+    let callId: string | null = null
+    let providerConnectedAt: Date | null = null
+    try {
+      const authorization = await voiceProviderAdapter.authorizeSession({
+        route,
+        apiKey,
+        safetyIdentifier: createHash('sha256')
+          .update(`${scope.tenantId}:${scope.venueId}:${scope.sessionId}`)
+          .digest('hex'),
+        instructions: voiceInstructions(scope, voiceSession.locale, input.visitContext),
+        voice: voiceSession.voice,
+        ...(voiceSession.locale.split('-')[0]
+          ? { language: voiceSession.locale.split('-')[0] }
+          : {}),
+      })
+      if (authorization.provider !== route.provider || authorization.model !== route.model)
+        throw new Error('Realtime voice provider returned an unexpected route identity')
+      const exchange = await voiceSdpExchange({
+        clientSecret: authorization.clientSecret,
+        sdpOffer: input.sdpOffer,
+        onCallId: (providerCallId) => {
+          callId = providerCallId
+          providerConnectedAt = new Date()
+        },
+      })
+      if (callId && callId !== exchange.callId)
+        throw new Error('Realtime voice provider returned inconsistent call IDs')
+      callId = exchange.callId
+      const connectedAt = providerConnectedAt ?? new Date()
+      providerConnectedAt = connectedAt
+      const deadlineAt = new Date(connectedAt.getTime() + voiceSession.maxDurationSeconds * 1_000)
+      const updated = await ctx.db.voiceSession.updateMany({
+        where: {
+          id: input.voiceSessionId,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          visitorSessionId: scope.sessionId,
+          status: 'AUTHORIZING',
+        },
+        data: {
+          status: 'ACTIVE',
+          providerSessionId: callId,
+          connectedAt,
+          lastActiveAt: connectedAt,
+        },
+      })
+      if (updated.count !== 1) throw new Error('Voice session is no longer available')
+      await enqueueVoiceSessionHangup({ voiceSessionId: voiceSession.id, deadlineAt })
+      return { sdpAnswer: exchange.sdpAnswer }
+    } catch {
+      let providerHangupPending = false
+      if (callId) {
+        try {
+          await voiceHangup({ apiKey, callId })
+        } catch {
+          // Keep an already-persisted call active so the recovery worker can retry.
+          providerHangupPending = true
+        }
+      }
+      if (providerHangupPending && callId) {
+        const connectedAt = providerConnectedAt ?? new Date()
+        await ctx.db.voiceSession.updateMany({
+          where: {
+            id: voiceSession.id,
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            visitorSessionId: scope.sessionId,
+            status: { in: ['AUTHORIZING', 'ACTIVE', 'FAILED'] },
+          },
+          data: {
+            status: 'ACTIVE',
+            providerSessionId: callId,
+            connectedAt,
+            lastActiveAt: connectedAt,
+            errorCode: 'PROVIDER_HANGUP_PENDING',
+            fallbackToText: true,
+          },
+        })
+      } else
+        await ctx.db.voiceSession.updateMany({
+          where: {
+            id: voiceSession.id,
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            visitorSessionId: scope.sessionId,
+            status: { in: ['AUTHORIZING', 'ACTIVE', 'FAILED'] },
+          },
+          data: {
+            status: 'FAILED',
+            errorCode: 'CONNECTION_FAILED',
+            endedAt: new Date(),
+            ...(providerConnectedAt
+              ? {
+                  durationSeconds: Math.min(
+                    voiceSession.maxDurationSeconds,
+                    Math.max(1, Math.ceil((Date.now() - providerConnectedAt.getTime()) / 1_000)),
+                  ),
+                }
+              : {}),
+            fallbackToText: true,
+          },
+        })
+      throw new TRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice could not connect. Continue in text or try again.',
+      })
+    }
+  }),
+
+  connected: publicProcedure.input(VoiceSessionConnectedInput).mutation(async ({ ctx, input }) => {
+    const { voiceSession } = await requireUsableVoiceSession(
+      ctx,
+      await resolveOwnedVoiceSession(ctx, input),
+    )
+    // The provider call is already connected and deadline scheduled by connect.
+    // A client acknowledgment may not start or extend a metered session.
+    return { connected: voiceSession.status === 'ACTIVE' }
   }),
 
   transcript: publicProcedure
@@ -574,6 +938,18 @@ export const voiceRouter = router({
       ctx,
       await resolveOwnedVoiceSession(ctx, input),
     )
+    // These counters arrive through the visitor's data channel relay. They are
+    // useful operational estimates, but cannot be treated as provider-verified.
+    if (
+      !(await checkRateLimit(
+        `ratelimit:voice:usage:venue:${scope.tenantId}:${scope.venueId}`,
+        1_200,
+        3_600,
+      ))
+    )
+      throw quotaError()
+    if (!(await checkRateLimit(`ratelimit:voice:usage:session:${voiceSession.id}`, 120, 3_600)))
+      throw quotaError()
     const estimatedCostUsd = estimateRealtimeVoiceCostUsd(voiceSession.model, {
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
@@ -602,7 +978,7 @@ export const voiceRouter = router({
           provider: voiceSession.provider,
           model: voiceSession.model,
           pricingVersion: REALTIME_VOICE_PRICING_VERSION,
-          usageObservationStatus: 'OBSERVED',
+          usageObservationStatus: 'CLIENT_REPORTED',
           inputTokens: input.inputTokens,
           outputTokens: input.outputTokens,
           audioInputTokens: input.audioInputTokens,
@@ -631,12 +1007,68 @@ export const voiceRouter = router({
   }),
 
   end: publicProcedure.input(VoiceSessionEndInput).mutation(async ({ ctx, input }) => {
-    const { scope, voiceSession } = await resolveOwnedVoiceSession(ctx, input)
+    const { scope, voiceSession: ownedVoiceSession } = await resolveOwnedVoiceSession(ctx, input)
+    let voiceSession = ownedVoiceSession
+    if (voiceSession.status === 'AUTHORIZING') {
+      // Cancel the claimed row. The connecting request checks this status after SDP
+      // exchange and hangs up any provider call that was opened in the meantime.
+      const endedAt = new Date()
+      const cancelled = await ctx.db.voiceSession.updateMany({
+        where: {
+          id: input.voiceSessionId,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          visitorSessionId: scope.sessionId,
+          status: 'AUTHORIZING',
+        },
+        data: {
+          status: 'FAILED',
+          endedAt,
+          lastActiveAt: endedAt,
+          errorCode: input.errorCode ?? 'CLIENT_CANCELLED',
+          fallbackToText: input.fallbackToText,
+        },
+      })
+      if (cancelled.count === 1) return { ended: true, durationSeconds: 0 }
+      // The provider may have become ACTIVE between the read and cancellation.
+      // In that case, continue below and hang up the now-persisted call.
+      voiceSession = (await resolveOwnedVoiceSession(ctx, input)).voiceSession
+      if (voiceSession.status === 'AUTHORIZING')
+        throw new TRPCError({ code: 'CONFLICT', message: 'Voice is still connecting.' })
+    }
+    if (voiceSession.status === 'ACTIVE' && voiceSession.providerSessionId?.startsWith('rtc_')) {
+      const markHangupPending = () =>
+        ctx.db.voiceSession.updateMany({
+          where: {
+            id: input.voiceSessionId,
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            visitorSessionId: scope.sessionId,
+            status: 'ACTIVE',
+            providerSessionId: voiceSession.providerSessionId,
+          },
+          data: { errorCode: 'PROVIDER_HANGUP_PENDING', fallbackToText: true },
+        })
+      const apiKey = process.env.OPENAI_API_KEY
+      if (!apiKey) {
+        await markHangupPending()
+        throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice could not end yet.' })
+      }
+      try {
+        await voiceHangup({ apiKey, callId: voiceSession.providerSessionId })
+      } catch {
+        // Recovery sees the persisted pending marker on its next minute scan.
+        await markHangupPending()
+        throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice could not end yet.' })
+      }
+    }
     const endedAt = new Date()
     const startedAt = voiceSession.connectedAt ?? voiceSession.createdAt
     const durationSeconds = Math.min(
       voiceSession.maxDurationSeconds,
-      Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1_000)),
+      voiceSession.status === 'ACTIVE'
+        ? Math.max(1, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 1_000))
+        : 0,
     )
     const transcriptCount = await ctx.db.voiceTranscriptSegment.count({
       where: {
@@ -650,7 +1082,7 @@ export const voiceRouter = router({
         id: input.voiceSessionId,
         tenantId: scope.tenantId,
         venueId: scope.venueId,
-        status: { in: ['AUTHORIZING', 'READY', 'ACTIVE'] },
+        status: { in: ['READY', 'ACTIVE'] },
       },
       data: {
         status: input.errorCode ? 'FAILED' : 'ENDED',

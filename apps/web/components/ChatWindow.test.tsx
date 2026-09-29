@@ -1,8 +1,10 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatWindow } from './ChatWindow'
+
+const getChatResponseStatus = () => screen.getByRole('status', { name: '' })
 
 describe('ChatWindow accessibility and motion behavior', () => {
   const scrollTo = vi.fn()
@@ -20,8 +22,43 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('puts empty state before conversation tools, then keeps tools ahead of messages', () => {
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        emptyState={<div data-testid="empty-state">Start here</div>}
+        conversationTools={<div data-testid="conversation-tools">Share location</div>}
+      />,
+    )
+
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    const emptyState = screen.getByTestId('empty-state')
+    const tools = screen.getByTestId('conversation-tools')
+    expect(
+      emptyState.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the restroom?' }]}
+        onSend={vi.fn()}
+        isLoading={false}
+        emptyState={<div data-testid="empty-state">Start here</div>}
+        conversationTools={<div data-testid="conversation-tools">Share location</div>}
+      />,
+    )
+
+    expect(screen.queryByTestId('empty-state')).toBeNull()
+    const message = screen.getByText('Where is the restroom?')
+    expect(log.contains(tools)).toBe(true)
+    expect(tools.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('exposes messages as a labelled non-live conversation log', () => {
@@ -42,8 +79,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
-  it('labels durable voice history without offering text-message feedback for transcript rows', () => {
-    const onFeedback = vi.fn()
+  it('labels durable voice history without offering expansion for transcript rows', () => {
     render(
       <ChatWindow
         messages={[
@@ -63,7 +99,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
         ]}
         onSend={vi.fn()}
         onRequestMore={vi.fn()}
-        onMessageFeedback={onFeedback}
         isLoading={false}
       />,
     )
@@ -74,7 +109,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Continue past the family lounge.')).toBeTruthy()
     expect(screen.queryByLabelText('Rate this answer')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
-    expect(onFeedback).not.toHaveBeenCalled()
   })
 
   it('does not offer text-context expansion for a captured assistant voice line', () => {
@@ -146,7 +180,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading={false}
       />,
     )
-    const announcedResponse = screen.getByRole('status').querySelector('span[lang=""][dir="auto"]')
+    const announcedResponse = getChatResponseStatus().querySelector('span[lang=""][dir="auto"]')
     expect(announcedResponse?.textContent).toBe(arabicResponse)
   })
 
@@ -164,7 +198,8 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(alert.textContent).toContain('The guide could not respond.')
     expect(alert.closest('[role="log"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
+    expect(getChatResponseStatus().getAttribute('aria-live')).toBe('polite')
 
     view.rerender(
       <ChatWindow
@@ -175,7 +210,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toBe('')
+    expect(getChatResponseStatus().textContent).toBe('')
     expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
   })
 
@@ -201,7 +236,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     const history = [{ role: 'assistant' as const, content: 'Earlier answer.' }]
     const view = render(<ChatWindow messages={history} onSend={vi.fn()} isLoading={false} />)
 
-    expect(screen.getByRole('status').textContent).toBe('')
+    expect(getChatResponseStatus().textContent).toBe('')
 
     view.rerender(
       <ChatWindow
@@ -215,7 +250,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toBe('Venue guide: A new answer.')
+    expect(getChatResponseStatus().textContent).toBe('Venue guide: A new answer.')
   })
 
   it('keeps streamed fragments out of the live region and announces only the completed answer', () => {
@@ -237,7 +272,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
 
     view.rerender(
       <ChatWindow
@@ -249,9 +284,67 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading={false}
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe(
+    expect(getChatResponseStatus().textContent).toBe(
       'Venue guide: Nearby, beside the east gallery.',
     )
+  })
+
+  it('keeps the dots visible, adds a delayed waiting line, and removes it on the first delta', () => {
+    vi.useFakeTimers()
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the café?' }]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
+
+    act(() => vi.advanceTimersByTime(1_499))
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'By the east gallery.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(getChatResponseStatus().textContent).toBe('Guide is answering')
+  })
+
+  it('uses localized waiting and live status copy for French visitors', () => {
+    vi.useFakeTimers()
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Où se trouve le café ?' }]}
+        onSend={vi.fn()}
+        isLoading
+        language="Français"
+        assistantLabel="Le guide"
+      />,
+    )
+
+    const status = getChatResponseStatus()
+    expect(status.textContent).toBe('Le guide répond')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    expect(status.querySelector('[lang="fr"]')?.getAttribute('dir')).toBe('ltr')
+
+    act(() => vi.advanceTimersByTime(1_500))
+    const waitingLine = screen.getByText('Le guide répond…')
+    expect(waitingLine.getAttribute('lang')).toBe('fr')
   })
 
   it('restores focus to the composer after a request finishes', () => {
@@ -552,6 +645,93 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('keeps an ask prefill and selected place idle until send, then clears waiting on the first delta', () => {
+    vi.useFakeTimers()
+    const onSend = vi.fn()
+    const selectedPlace = <div data-testid="selected-place">Selected place: public-1</div>
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        initialDraft="Find the map"
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect((composer as HTMLTextAreaElement).value).toBe('Find the map')
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+
+    act(() => vi.advanceTimersByTime(1_500))
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(onSend).toHaveBeenCalledWith('Find the map')
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Find the map' }]}
+        onSend={onSend}
+        isLoading
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+    expect(screen.getByTestId('typing-indicator-dots')).toBeTruthy()
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    act(() => vi.advanceTimersByTime(1_500))
+    expect(screen.getByText('This is taking a little longer…')).toBeTruthy()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Find the map' },
+          { role: 'assistant', content: 'The map is beside the entrance.' },
+        ]}
+        onSend={onSend}
+        isLoading
+        conversationTools={selectedPlace}
+      />,
+    )
+
+    expect(screen.queryByText('This is taking a little longer…')).toBeNull()
+    expect(screen.queryByTestId('typing-indicator-dots')).toBeNull()
+    expect(screen.getByTestId('selected-place').textContent).toBe('Selected place: public-1')
+  })
+
+  it('applies a later host prefill once without sending or overwriting subsequent typing', () => {
+    const onSend = vi.fn()
+    const { rerender } = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        prefill={{ sequence: 1, ask: 'Find the entrance' }}
+      />,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement
+    expect(composer.value).toBe('Find the entrance')
+    expect(onSend).not.toHaveBeenCalled()
+    fireEvent.change(composer, { target: { value: 'My own question' } })
+    rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        prefill={{ sequence: 1, ask: 'Find the entrance' }}
+      />,
+    )
+    expect(composer.value).toBe('My own question')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('restores a tab draft for the same visitor scope and clears it after an accepted send', async () => {
     const storageKey = 'torchiko:test-draft:venue-a:session-a'
     window.sessionStorage.removeItem(storageKey)
@@ -610,7 +790,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).toHaveBeenCalledWith('My next question')
   })
 
-  it('omits feedback and expansion only for a temporary fallback', () => {
+  it('omits expansion only for a temporary fallback', () => {
     render(
       <ChatWindow
         messages={[
@@ -623,7 +803,6 @@ describe('ChatWindow accessibility and motion behavior', () => {
         ]}
         onSend={vi.fn()}
         onRequestMore={vi.fn()}
-        onMessageFeedback={vi.fn()}
         isLoading={false}
       />,
     )
@@ -657,7 +836,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
   })
 
-  it('renders descriptive cards without coordinates and records a real details action', () => {
+  it('renders an approved image card without coordinates and records a real details action', () => {
     const onPlaceCardClick = vi.fn()
     render(
       <ChatWindow
@@ -670,7 +849,13 @@ describe('ChatWindow accessibility and motion behavior', () => {
                 id: 'place-1',
                 name: 'East Gallery',
                 type: 'EXHIBIT',
-                photoUrl: null,
+                photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum',
+                photoAttribution: {
+                  altText: 'Textile collection',
+                  caption: null,
+                  sourceName: 'Museum',
+                  sourceUrl: null,
+                },
                 shortDescription: 'Rotating textiles from the permanent collection.',
                 areaName: 'Second floor',
                 hours: '10:00 AM–4:00 PM',
@@ -695,6 +880,19 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText(/10:00 AM–4:00 PM/)).toBeTruthy()
     expect(onPlaceCardClick).toHaveBeenCalledOnce()
     expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
+  })
+
+  it('places the voice control inside the composer field', () => {
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        composerVoiceControl={<button aria-label="Start voice conversation">Mic</button>}
+      />,
+    )
+    const voice = screen.getByRole('button', { name: 'Start voice conversation' })
+    expect(voice.closest('[class*="composerField"]')).toBeTruthy()
   })
 
   it('localizes Arabic conversation, composer, and send accessibility labels', () => {

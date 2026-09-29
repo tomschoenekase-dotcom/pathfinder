@@ -17,8 +17,18 @@ vi.mock('../../lib/trpc', () => ({
   }),
 }))
 vi.mock('./ClientBillingView', () => ({
-  ClientBillingView: ({ onRequestCancellation }: { onRequestCancellation?: () => void }) =>
-    onRequestCancellation ? (
+  ClientBillingView: ({
+    onRequestCancellation,
+    onRetryCheckout,
+  }: {
+    onRequestCancellation?: () => void
+    onRetryCheckout?: () => void
+  }) =>
+    onRetryCheckout ? (
+      <button type="button" onClick={onRetryCheckout}>
+        Update payment details
+      </button>
+    ) : onRequestCancellation ? (
       <button type="button" onClick={onRequestCancellation}>
         Cancel subscription
       </button>
@@ -105,5 +115,43 @@ describe('ClientBillingPanel cancellation dialog accessibility', () => {
 
     rendered.unmount()
     expect(signal?.aborted).toBe(true)
+  })
+
+  it('shows a retry instead of a blank Payment page when the overview fails', async () => {
+    mocks.overview.mockReset()
+    mocks.overview.mockRejectedValueOnce(new Error('Temporary read failure'))
+    mocks.overview.mockResolvedValueOnce(overview)
+    render(<ClientBillingPanel />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Payment details are unavailable' }),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mocks.overview).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Payment details are unavailable' })).toBeNull(),
+    )
+  })
+
+  it('offers Portal recovery only when a Stripe Customer exists', async () => {
+    mocks.overview.mockReset()
+    const pastDue = {
+      ...overview,
+      account: {
+        ...overview.account,
+        commercialAgreements: [{ ...overview.account.commercialAgreements[0], status: 'PAST_DUE' }],
+      },
+      capabilities: { ...overview.capabilities, portal: true, cancellation: false },
+      hasStripeCustomer: false,
+    }
+    mocks.overview.mockResolvedValueOnce(pastDue)
+    const first = render(<ClientBillingPanel />)
+    await waitFor(() => expect(mocks.overview).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('button', { name: 'Update payment details' })).toBeNull()
+    first.unmount()
+
+    mocks.overview.mockResolvedValueOnce({ ...pastDue, hasStripeCustomer: true })
+    render(<ClientBillingPanel />)
+    expect(await screen.findByRole('button', { name: 'Update payment details' })).toBeTruthy()
   })
 })

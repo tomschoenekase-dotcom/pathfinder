@@ -619,6 +619,35 @@ describe('EMBED_PREVIEW_ENABLED', () => {
   })
 })
 
+describe('internal embed policy hop configuration', () => {
+  it('accepts an optional server-only token and exact internal origin', () => {
+    process.env.NODE_ENV = 'test'
+    const parsed = envSchema.parse({
+      ...requiredEnvironment,
+      INTERNAL_POLICY_TOKEN: 'a-server-only-shared-token-with-32-bytes-plus',
+      INTERNAL_WEB_ORIGIN: 'http://127.0.0.1:3000',
+    })
+    expect(parsed.INTERNAL_POLICY_TOKEN).toBe('a-server-only-shared-token-with-32-bytes-plus')
+    expect(parsed.INTERNAL_WEB_ORIGIN).toBe('http://127.0.0.1:3000')
+  })
+
+  it('rejects short shared tokens and malformed internal origins', () => {
+    process.env.NODE_ENV = 'test'
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        INTERNAL_POLICY_TOKEN: 'too-short',
+      }),
+    ).toThrow()
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        INTERNAL_WEB_ORIGIN: 'not-an-origin',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('WIDGET_PREVIEW_ORIGINS_JSON', () => {
   it('is optional and bounds the raw server-only policy', () => {
     expect(

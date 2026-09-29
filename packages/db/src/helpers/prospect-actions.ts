@@ -1138,6 +1138,8 @@ export async function stageProspectImportRowsAction(
     )
   }
   for (const row of input.rows) assertImportSourceValues(row.sourceValues)
+  // Keep the existing row validation block stable while bounding remote database time.
+  // prettier-ignore
   return client.$transaction(async (tx) => {
     const prospectImport = await tx.prospectImport.findUnique({ where: { id: input.importId } })
     if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
@@ -1152,6 +1154,39 @@ export async function stageProspectImportRowsAction(
         })
       ).map((sheet) => sheet.sheetName),
     )
+    const existingRows = await tx.prospectImportRow.findMany({
+      where: {
+        importId: input.importId,
+        OR: input.rows.map((row) => ({
+          sheetName: row.sheetName,
+          originalRowNumber: row.originalRowNumber,
+        })),
+      },
+      select: { id: true, sheetName: true, originalRowNumber: true, status: true },
+    })
+    const rowKey = (sheetName: string, originalRowNumber: number) =>
+      `${sheetName}\u0000${originalRowNumber}`
+    const existingByKey = new Map(
+      existingRows.map((row) => [rowKey(row.sheetName, row.originalRowNumber), row]),
+    )
+    const seenKeys = new Set<string>()
+    const rowsToCreate = [] as Array<{
+      importId: string
+      sheetName: string
+      originalRowNumber: number
+      rowFingerprint: string
+      sourceValues: ReturnType<typeof jsonValue>
+      normalizedValues: ReturnType<typeof jsonValue>
+      status: 'FAILED' | 'DUPLICATE_REVIEW' | 'WARNING' | 'VALID'
+      warnings: string[]
+      errors: string[]
+      duplicateMatches: Array<{
+        organizationId: string
+        canonicalName: string
+        confidence: number
+        reasons: string[]
+      }>
+    }>
     let staged = 0
     for (const row of input.rows) {
       if (!allowedSheets.has(row.sheetName)) {
@@ -1163,16 +1198,12 @@ export async function stageProspectImportRowsAction(
           'Original row numbers must include the header offset',
         )
       }
-      const existing = await tx.prospectImportRow.findUnique({
-        where: {
-          importId_sheetName_originalRowNumber: {
-            importId: input.importId,
-            sheetName: row.sheetName,
-            originalRowNumber: row.originalRowNumber,
-          },
-        },
-        select: { status: true },
-      })
+      const key = rowKey(row.sheetName, row.originalRowNumber)
+      if (seenKeys.has(key)) {
+        throw new ProspectActionError('INVALID_INPUT', 'Import batch contains a repeated row')
+      }
+      seenKeys.add(key)
+      const existing = existingByKey.get(key)
       if (existing?.status === 'IMPORTED') continue
       const checked = validateImportRow(row)
       const candidates = checked.errors.length
@@ -1237,47 +1268,46 @@ export async function stageProspectImportRowsAction(
         })
         .filter((match) => match.confidence > 0)
         .sort((a, b) => b.confidence - a.confidence)
-      const status = checked.errors.length
+      const status: 'FAILED' | 'DUPLICATE_REVIEW' | 'WARNING' | 'VALID' = checked.errors.length
         ? 'FAILED'
         : duplicateMatches.length
           ? 'DUPLICATE_REVIEW'
           : checked.warnings.length
             ? 'WARNING'
             : 'VALID'
-      await tx.prospectImportRow.upsert({
-        where: {
-          importId_sheetName_originalRowNumber: {
-            importId: input.importId,
-            sheetName: row.sheetName,
-            originalRowNumber: row.originalRowNumber,
+      const rowData = {
+        importId: input.importId,
+        sheetName: row.sheetName,
+        originalRowNumber: row.originalRowNumber,
+        rowFingerprint: prospectSha256(row.sourceValues),
+        sourceValues: jsonValue(row.sourceValues),
+        normalizedValues: jsonValue(checked.normalized),
+        status,
+        warnings: checked.warnings,
+        errors: checked.errors,
+        duplicateMatches,
+      }
+      if (existing) {
+        await tx.prospectImportRow.update({
+          where: { id: existing.id },
+          data: {
+            rowFingerprint: rowData.rowFingerprint,
+            sourceValues: rowData.sourceValues,
+            normalizedValues: rowData.normalizedValues,
+            status,
+            warnings: checked.warnings,
+            errors: checked.errors,
+            duplicateMatches,
+            errorCode: null,
+            errorMessage: null,
           },
-        },
-        create: {
-          importId: input.importId,
-          sheetName: row.sheetName,
-          originalRowNumber: row.originalRowNumber,
-          rowFingerprint: prospectSha256(row.sourceValues),
-          sourceValues: jsonValue(row.sourceValues),
-          normalizedValues: jsonValue(checked.normalized),
-          status,
-          warnings: checked.warnings,
-          errors: checked.errors,
-          duplicateMatches,
-        },
-        update: {
-          rowFingerprint: prospectSha256(row.sourceValues),
-          sourceValues: jsonValue(row.sourceValues),
-          normalizedValues: jsonValue(checked.normalized),
-          status,
-          warnings: checked.warnings,
-          errors: checked.errors,
-          duplicateMatches,
-          errorCode: null,
-          errorMessage: null,
-        },
-      })
+        })
+      } else {
+        rowsToCreate.push(rowData)
+      }
       staged += 1
     }
+    if (rowsToCreate.length) await tx.prospectImportRow.createMany({ data: rowsToCreate })
     const counts = await tx.prospectImportRow.groupBy({
       by: ['status'],
       where: { importId: input.importId },
@@ -1300,7 +1330,7 @@ export async function stageProspectImportRowsAction(
       },
     })
     return { staged, totalRows, counts }
-  })
+  }, { maxWait: 10_000, timeout: 60_000 })
 }
 
 /** Reclaim a source-backed dry run that an older worker marked ready mid-workbook.
@@ -2049,11 +2079,16 @@ export async function commitProspectImportBatchAction(
     select: { id: true },
   })
   const rows: Array<{ id: string }> = []
-  for (const candidate of candidates) {
-    if (rows.length >= limit) break
+  for (let offset = 0; offset < candidates.length && rows.length < limit; ) {
+    // Claim a bounded slice in one statement. If another worker wins some rows,
+    // read back only rows carrying our unique token and use the remaining budget
+    // on later candidates. This keeps the conditional lease fence intact while
+    // avoiding one UPDATE roundtrip per row in the uncontended case.
+    const slice = candidates.slice(offset, offset + (limit - rows.length))
+    offset += slice.length
     const claimed = await client.prospectImportRow.updateMany({
       where: {
-        id: candidate.id,
+        id: { in: slice.map((candidate) => candidate.id) },
         importId: input.importId,
         OR: [
           { status: { in: ['VALID', 'WARNING'] } },
@@ -2067,7 +2102,20 @@ export async function commitProspectImportBatchAction(
         claimExpiresAt: new Date(now.getTime() + 5 * 60_000),
       },
     })
-    if (claimed.count === 1) rows.push(candidate)
+    if (claimed.count === slice.length) {
+      rows.push(...slice)
+      continue
+    }
+    const claimedRows = await client.prospectImportRow.findMany({
+      where: {
+        id: { in: slice.map((candidate) => candidate.id) },
+        importId: input.importId,
+        claimToken,
+      },
+      orderBy: [{ sheetName: 'asc' }, { originalRowNumber: 'asc' }],
+      select: { id: true },
+    })
+    rows.push(...claimedRows)
   }
   let processed = 0
   let failed = 0

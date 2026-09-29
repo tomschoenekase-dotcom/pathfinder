@@ -799,14 +799,23 @@ function clearTouches() {
 }
 
 async function invoke(entry: ProcedureCase, role: TenantRole): Promise<unknown> {
-  const [routerName, procedureName] = entry.path.split('.')
-  if (!routerName || !procedureName) throw new Error(`Malformed procedure path: ${entry.path}`)
+  const pathParts = entry.path.split('.')
+  const procedureName = pathParts.pop()
+  if (!procedureName || pathParts.length === 0)
+    throw new Error(`Malformed procedure path: ${entry.path}`)
 
-  const caller = testRouter.createCaller(context(role)) as unknown as Record<
-    string,
-    Record<string, (input?: unknown) => Promise<unknown>>
-  >
-  const procedure = caller[routerName]?.[procedureName]
+  const caller = testRouter.createCaller(context(role)) as unknown as Record<string, unknown>
+  let target: unknown = caller
+  for (const part of pathParts) {
+    target =
+      target && (typeof target === 'object' || typeof target === 'function')
+        ? (target as Record<string, unknown>)[part]
+        : undefined
+  }
+  const procedure =
+    target && (typeof target === 'object' || typeof target === 'function')
+      ? (target as Record<string, (input?: unknown) => Promise<unknown>>)[procedureName]
+      : undefined
   if (!procedure) throw new Error(`Procedure is not callable: ${entry.path}`)
   const input = materialize(entry.input)
   return entry.input === null ? procedure() : procedure(input)

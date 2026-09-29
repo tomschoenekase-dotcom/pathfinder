@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   availability: vi.fn(),
   start: vi.fn(),
+  connect: vi.fn(),
   connected: vi.fn(),
   transcript: vi.fn(),
   usage: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('../lib/trpc', () => {
     voice: {
       availability: { query: mocks.availability },
       start: { mutate: mocks.start },
+      connect: { mutate: mocks.connect },
       connected: { mutate: mocks.connected },
       transcript: { mutate: mocks.transcript },
       usage: { mutate: mocks.usage },
@@ -35,12 +37,7 @@ vi.mock('../lib/trpc', () => {
   return { useTRPCClient: () => client }
 })
 
-import {
-  MICROPHONE_REQUEST_TIMEOUT_MS,
-  REALTIME_SDP_RESPONSE_MAX_BYTES,
-  VoiceControl,
-  requestRealtimeSdpAnswer,
-} from './VoiceControl'
+import { MICROPHONE_REQUEST_TIMEOUT_MS, VoiceControl } from './VoiceControl'
 
 const props = {
   venueId: 'venue-1',
@@ -52,6 +49,7 @@ const props = {
 describe('VoiceControl', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.connect.mockResolvedValue({ sdpAnswer: 'answer' })
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: { getUserMedia: mocks.getUserMedia },
@@ -77,6 +75,152 @@ describe('VoiceControl', () => {
     render(<VoiceControl {...props} />)
     await waitFor(() => expect(mocks.availability).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: 'Start voice conversation' })).toBeNull()
+  })
+
+  it('renders only a compact, accessible composer microphone when requested', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: true })
+    render(<VoiceControl {...props} compact />)
+    const mic = await screen.findByRole('button', { name: 'Start voice conversation' })
+    expect(mic.getAttribute('aria-pressed')).toBe('false')
+    expect(mic.className).toContain('h-11')
+    expect(screen.queryByText('Talk')).toBeNull()
+    expect(screen.queryByText('Voice conversation')).toBeNull()
+  })
+
+  it('exchanges SDP through the server without sending credentials to the browser', async () => {
+    const voiceSessionId = '11111111-1111-4111-8111-111111111111'
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: true })
+    mocks.start.mockResolvedValue({ voiceSessionId, maxDurationSeconds: 600 })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const setRemoteDescription = vi.fn().mockResolvedValue(undefined)
+    const channel = { close: vi.fn(), addEventListener: vi.fn() }
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      setRemoteDescription,
+      close: vi.fn(),
+      ontrack: null,
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+
+    expect(mocks.start).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+      locale: 'en',
+      tier: 'ECONOMY',
+    })
+    expect(mocks.connect).toHaveBeenCalledWith(
+      {
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId,
+        sdpOffer: 'offer-sdp',
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(setRemoteDescription).toHaveBeenCalledWith({ type: 'answer', sdp: 'answer' })
+    expect(mocks.connected).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+      voiceSessionId,
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('aborts a pending server SDP exchange when the component leaves its scope', async () => {
+    const voiceSessionId = '11111111-1111-4111-8111-111111111111'
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: true })
+    mocks.start.mockResolvedValue({ voiceSessionId, maxDurationSeconds: 600 })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    mocks.connect.mockImplementation((_input, options) => {
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+      })
+    })
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => ({ close: vi.fn(), addEventListener: vi.fn() }),
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+      ontrack: null,
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    const view = render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connect).toHaveBeenCalledOnce())
+    const options = mocks.connect.mock.calls[0]?.[1] as { signal: AbortSignal }
+
+    view.unmount()
+
+    await waitFor(() => expect(options.signal.aborted).toBe(true))
+  })
+
+  it('hides voice in browsers without WebRTC or microphone support', async () => {
+    vi.stubGlobal('RTCPeerConnection', undefined)
+    const onAvailabilityChange = vi.fn()
+    render(<VoiceControl {...props} onAvailabilityChange={onAvailabilityChange} />)
+    await waitFor(() => expect(onAvailabilityChange).toHaveBeenCalledWith(false))
+    expect(mocks.availability).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Start voice conversation' })).toBeNull()
+  })
+
+  it('hides voice when mediaDevices exists without getUserMedia', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {},
+    })
+    const onAvailabilityChange = vi.fn()
+    render(<VoiceControl {...props} onAvailabilityChange={onAvailabilityChange} />)
+    await waitFor(() => expect(onAvailabilityChange).toHaveBeenCalledWith(false))
+    expect(mocks.availability).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Start voice conversation' })).toBeNull()
+  })
+
+  it('keeps voice available and allows retry after a temporary start rate limit', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    mocks.start.mockRejectedValue({ data: { code: 'TOO_MANY_REQUESTS' } })
+    const onAvailabilityChange = vi.fn()
+    render(<VoiceControl {...props} onAvailabilityChange={onAvailabilityChange} />)
+
+    await waitFor(() => expect(onAvailabilityChange).toHaveBeenCalledWith(true))
+    const availabilityCallsBeforeStart = onAvailabilityChange.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Voice is busy or has reached this venue’s limit. Continue in text and try again later.',
+    )
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(onAvailabilityChange).toHaveBeenCalledTimes(availabilityCallsBeforeStart)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try voice conversation again' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(onAvailabilityChange).toHaveBeenCalledTimes(availabilityCallsBeforeStart)
   })
 
   it('handles denied microphone permission without requesting provider authorization', async () => {
@@ -183,12 +327,10 @@ describe('VoiceControl', () => {
     mocks.end.mockResolvedValue({ ended: true })
     let resolveOldAuthorization!: (value: {
       voiceSessionId: string
-      clientSecret: string
       maxDurationSeconds: number
     }) => void
     let resolveCurrentAuthorization!: (value: {
       voiceSessionId: string
-      clientSecret: string
       maxDurationSeconds: number
     }) => void
     mocks.start
@@ -221,7 +363,6 @@ describe('VoiceControl', () => {
       'RTCPeerConnection',
       vi.fn(() => peer),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
     const view = render(<VoiceControl {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1))
@@ -242,7 +383,6 @@ describe('VoiceControl', () => {
     await act(async () => {
       resolveOldAuthorization({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'retired-ephemeral',
         maxDurationSeconds: 600,
       })
       await Promise.resolve()
@@ -264,7 +404,6 @@ describe('VoiceControl', () => {
     await act(async () => {
       resolveCurrentAuthorization({
         voiceSessionId: '22222222-2222-4222-8222-222222222222',
-        clientSecret: 'current-ephemeral',
         maxDurationSeconds: 600,
       })
       await Promise.resolve()
@@ -283,7 +422,6 @@ describe('VoiceControl', () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
-      clientSecret: 'ephemeral',
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -307,7 +445,6 @@ describe('VoiceControl', () => {
         ontrack: null,
       })),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
     const firstCharacterCallback = vi.fn()
     const secondCharacterCallback = vi.fn()
     const view = render(<VoiceControl {...props} onCharacterState={firstCharacterCallback} />)
@@ -329,12 +466,10 @@ describe('VoiceControl', () => {
     mocks.start
       .mockResolvedValueOnce({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'first-ephemeral',
         maxDurationSeconds: 600,
       })
       .mockResolvedValueOnce({
         voiceSessionId: '22222222-2222-4222-8222-222222222222',
-        clientSecret: 'second-ephemeral',
         maxDurationSeconds: 600,
       })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -375,10 +510,6 @@ describe('VoiceControl', () => {
         ontrack: null,
       })),
     )
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
-    )
 
     render(<VoiceControl {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
@@ -414,12 +545,10 @@ describe('VoiceControl', () => {
     mocks.start
       .mockResolvedValueOnce({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'first-ephemeral',
         maxDurationSeconds: 600,
       })
       .mockResolvedValueOnce({
         voiceSessionId: '22222222-2222-4222-8222-222222222222',
-        clientSecret: 'second-ephemeral',
         maxDurationSeconds: 600,
       })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -450,10 +579,6 @@ describe('VoiceControl', () => {
         close: vi.fn(),
         ontrack: null,
       })),
-    )
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
     )
 
     render(<VoiceControl {...props} />)
@@ -497,10 +622,10 @@ describe('VoiceControl', () => {
 
   it('renders ordered rolling captions and replaces them with one played transcript line', async () => {
     const onTranscriptLine = vi.fn()
+    const onCaptionAnnouncement = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
-      clientSecret: 'ephemeral',
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -526,9 +651,14 @@ describe('VoiceControl', () => {
         ontrack: null,
       })),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
 
-    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    render(
+      <VoiceControl
+        {...props}
+        onTranscriptLine={onTranscriptLine}
+        onCaptionAnnouncement={onCaptionAnnouncement}
+      />,
+    )
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const providerEvent = (payload: Record<string, unknown>) =>
@@ -543,6 +673,8 @@ describe('VoiceControl', () => {
         delta: 'The gallery ',
       })
     })
+    expect(onCaptionAnnouncement).toHaveBeenCalledOnce()
+    expect(onCaptionAnnouncement).toHaveBeenCalledWith('started')
     const transcriptViewport = screen.getByLabelText('Voice transcript')
     Object.defineProperties(transcriptViewport, {
       clientHeight: { configurable: true, value: 100 },
@@ -602,6 +734,7 @@ describe('VoiceControl', () => {
     )
     expect(screen.getByLabelText('Voice transcript').textContent).not.toContain('must not replace')
     expect(screen.getByRole('status').textContent).toContain('Speaking')
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started'], ['started']])
     expect(mocks.transcript).toHaveBeenCalledOnce()
     expect(mocks.transcript).toHaveBeenCalledWith(
       expect.objectContaining({ providerEventId: 'caption-done', text: 'The gallery is open.' }),
@@ -644,7 +777,6 @@ describe('VoiceControl', () => {
       mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
       mocks.start.mockResolvedValue({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'ephemeral',
         maxDurationSeconds: 600,
       })
       mocks.connected.mockResolvedValue({ connected: true })
@@ -674,7 +806,6 @@ describe('VoiceControl', () => {
           ontrack: null,
         })),
       )
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
       const onTranscriptLine = vi.fn()
       const view = render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
       fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
@@ -723,7 +854,6 @@ describe('VoiceControl', () => {
       mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
       mocks.start.mockResolvedValue({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'ephemeral',
         maxDurationSeconds: 600,
       })
       mocks.connected.mockResolvedValue({ connected: true })
@@ -750,7 +880,6 @@ describe('VoiceControl', () => {
           ontrack: null,
         })),
       )
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
       let resolveCatalog!: (value: unknown) => void
       let resolveRoute!: (value: unknown) => void
       mocks.locationCatalog.mockReturnValueOnce(
@@ -836,7 +965,6 @@ describe('VoiceControl', () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
-      clientSecret: 'ephemeral',
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -890,7 +1018,6 @@ describe('VoiceControl', () => {
         ontrack: null,
       })),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
 
     render(
       <VoiceControl {...props} visitContext={{ visitedPlaceIds: ['location-4'], interests: [] }} />,
@@ -1214,7 +1341,6 @@ describe('VoiceControl', () => {
       mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
       mocks.start.mockResolvedValue({
         voiceSessionId: '11111111-1111-4111-8111-111111111111',
-        clientSecret: 'ephemeral',
         maxDurationSeconds: 600,
       })
       mocks.connected.mockResolvedValue({ connected: true })
@@ -1257,13 +1383,16 @@ describe('VoiceControl', () => {
         'RTCPeerConnection',
         vi.fn(() => peer),
       )
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
 
       const visitContext = { visitedPlaceIds: [], interests: ['trains'], remainingMinutes: 15 }
       const view = render(<VoiceControl {...props} visitContext={visitContext} />)
       fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
       await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
       expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ visitContext }))
+      expect(mocks.connect).toHaveBeenCalledWith(
+        expect.objectContaining({ visitContext }),
+        expect.anything(),
+      )
       const updatedVisitContext = { ...visitContext, interests: ['local history'] }
       view.rerender(<VoiceControl {...props} visitContext={updatedVisitContext} />)
 
@@ -1506,7 +1635,6 @@ describe('VoiceControl', () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
-      clientSecret: 'ephemeral',
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -1541,7 +1669,6 @@ describe('VoiceControl', () => {
       'RTCPeerConnection',
       vi.fn(() => peer),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
 
     render(<VoiceControl {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
@@ -1572,10 +1699,10 @@ describe('VoiceControl', () => {
 
   it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {
     const onTranscriptLine = vi.fn()
+    const onCaptionAnnouncement = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
-      clientSecret: 'ephemeral',
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
@@ -1604,9 +1731,14 @@ describe('VoiceControl', () => {
       'RTCPeerConnection',
       vi.fn(() => peer),
     )
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
 
-    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+    render(
+      <VoiceControl
+        {...props}
+        onTranscriptLine={onTranscriptLine}
+        onCaptionAnnouncement={onCaptionAnnouncement}
+      />,
+    )
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const event = (payload: Record<string, unknown>) =>
@@ -1614,11 +1746,20 @@ describe('VoiceControl', () => {
     act(() => {
       event({ type: 'response.created', response: { id: 'response-2' } })
       event({ type: 'output_audio_buffer.started', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-2',
+        delta: 'Partly heard.',
+      })
     })
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started']])
     expect(screen.getByRole('status').textContent).toContain('Speaking')
     act(() => {
       event({ type: 'response.done', response: { id: 'response-2' } })
       event({ type: 'input_audio_buffer.speech_started' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'different-response' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
       event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
       event({
         type: 'response.output_audio_transcript.done',
@@ -1638,6 +1779,7 @@ describe('VoiceControl', () => {
     expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
       { type: 'output_audio_buffer.clear' },
     ])
+    expect(onCaptionAnnouncement.mock.calls).toEqual([['started'], ['interrupted']])
     expect(screen.getAllByText('(interrupted)')).toHaveLength(1)
     expect(mocks.transcript).toHaveBeenCalledTimes(1)
     await waitFor(() =>
@@ -1649,123 +1791,8 @@ describe('VoiceControl', () => {
         }),
       ),
     )
-  })
-})
-
-describe('requestRealtimeSdpAnswer', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('returns a bounded streamed SDP answer', async () => {
-    const answer = await requestRealtimeSdpAnswer({
-      offerSdp: 'offer',
-      clientSecret: 'secret',
-      controller: new AbortController(),
-      fetchImpl: vi.fn().mockResolvedValue(new Response('answer-sdp')),
-    })
-
-    expect(answer).toBe('answer-sdp')
-  })
-
-  it('cancels rejected response bodies without reading provider content', async () => {
-    const cancel = vi.fn().mockResolvedValue(undefined)
-    const response = {
-      ok: false,
-      status: 503,
-      body: { cancel },
-    } as unknown as Response
-
-    await expect(
-      requestRealtimeSdpAnswer({
-        offerSdp: 'offer',
-        clientSecret: 'secret',
-        controller: new AbortController(),
-        fetchImpl: vi.fn().mockResolvedValue(response),
-      }),
-    ).rejects.toThrow('REALTIME_CONNECT_503')
-    expect(cancel).toHaveBeenCalledOnce()
-  })
-
-  it('cancels streamed SDP answers that exceed the byte ceiling', async () => {
-    const cancel = vi.fn().mockResolvedValue(undefined)
-    const read = vi.fn().mockResolvedValueOnce({
-      done: false,
-      value: new Uint8Array(REALTIME_SDP_RESPONSE_MAX_BYTES + 1),
-    })
-    const response = {
-      ok: true,
-      headers: new Headers(),
-      body: { getReader: () => ({ read, cancel }) },
-    } as unknown as Response
-
-    await expect(
-      requestRealtimeSdpAnswer({
-        offerSdp: 'offer',
-        clientSecret: 'secret',
-        controller: new AbortController(),
-        fetchImpl: vi.fn().mockResolvedValue(response),
-      }),
-    ).rejects.toThrow('REALTIME_SDP_RESPONSE_TOO_LARGE')
-    expect(cancel).toHaveBeenCalled()
-  })
-
-  it('aborts a realtime request that does not return before its deadline', async () => {
-    vi.useFakeTimers()
-    const controller = new AbortController()
-    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () =>
-          reject(new DOMException('Aborted', 'AbortError')),
-        )
-      })
-    }) as typeof fetch
-    const expectation = expect(
-      requestRealtimeSdpAnswer({
-        offerSdp: 'offer',
-        clientSecret: 'secret',
-        controller,
-        timeoutMs: 25,
-        fetchImpl,
-      }),
-    ).rejects.toThrow('REALTIME_SDP_REQUEST_TIMEOUT')
-
-    await vi.advanceTimersByTimeAsync(25)
-    await expectation
-    expect(controller.signal.aborted).toBe(true)
-  })
-
-  it('cancels a realtime response body that stalls after headers', async () => {
-    vi.useFakeTimers()
-    const controller = new AbortController()
-    let finishRead!: (result: ReadableStreamReadResult<Uint8Array>) => void
-    const read = vi.fn(
-      () =>
-        new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
-          finishRead = resolve
-        }),
+    expect(onCaptionAnnouncement.mock.invocationCallOrder[1]!).toBeLessThan(
+      onTranscriptLine.mock.invocationCallOrder[0]!,
     )
-    const cancel = vi.fn().mockImplementation(() => {
-      finishRead({ done: true, value: undefined })
-      return Promise.resolve()
-    })
-    const response = {
-      ok: true,
-      headers: new Headers(),
-      body: { getReader: () => ({ read, cancel }) },
-    } as unknown as Response
-    const expectation = expect(
-      requestRealtimeSdpAnswer({
-        offerSdp: 'offer',
-        clientSecret: 'secret',
-        controller,
-        timeoutMs: 25,
-        fetchImpl: vi.fn().mockResolvedValue(response),
-      }),
-    ).rejects.toThrow('REALTIME_SDP_REQUEST_TIMEOUT')
-
-    await vi.advanceTimersByTimeAsync(25)
-    await expectation
-    expect(cancel).toHaveBeenCalled()
   })
 })

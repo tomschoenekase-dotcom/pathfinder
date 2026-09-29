@@ -7,7 +7,10 @@ import { gmailOAuthRuntime } from '../../../../../../lib/gmail-oauth-runtime'
 
 function result(request: NextRequest, status: 'connected' | 'failed') {
   return NextResponse.redirect(
-    new URL(`/admin/prospects/outreach?gmail=${status}`, request.url),
+    new URL(
+      `/admin/prospects/outreach?gmail=${status}`,
+      process.env.GMAIL_OAUTH_REDIRECT_URI ?? request.url,
+    ),
     303,
   )
 }

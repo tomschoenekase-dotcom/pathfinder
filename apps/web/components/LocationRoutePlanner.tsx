@@ -421,7 +421,7 @@ export function LocationRoutePlanner({
                   <a
                     href={destinationMedia.photoAttribution.sourceUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]"
                   >
                     {destinationMedia.photoAttribution.sourceName}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 
 export const OFFLINE_SUPPORT_ATTRIBUTE = 'data-pathfinder-offline-support'
@@ -8,7 +9,9 @@ export const OFFLINE_SUPPORT_UNAVAILABLE_EVENT = 'pathfinder:offline-support-una
 const OFFLINE_CACHE_PREFIX = 'pathfinder-offline-'
 
 export function ServiceWorkerRegistration({ enabled = true }: { enabled?: boolean }) {
+  const pathname = usePathname()
   useEffect(() => {
+    if (!pathname || /^\/(?:embed|app)(?:\/|$)/u.test(pathname)) return
     const serviceWorker = navigator.serviceWorker
 
     if (!serviceWorker || typeof serviceWorker.register !== 'function') {
@@ -96,7 +99,7 @@ export function ServiceWorkerRegistration({ enabled = true }: { enabled?: boolea
       active = false
       window.removeEventListener('load', register)
     }
-  }, [enabled])
+  }, [enabled, pathname])
 
   return null
 }

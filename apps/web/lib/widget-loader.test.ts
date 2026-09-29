@@ -8,6 +8,24 @@ const READY_MESSAGE = {
   version: 1,
   venueSlug: 'museum',
 }
+const originalWindowFetch = Object.getOwnPropertyDescriptor(window, 'fetch')
+const originalVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+type TorchikoApi = {
+  version: number
+  open: (options?: { ask?: unknown; place?: unknown }) => void
+  close: () => void
+  on: (event: 'ready' | 'open' | 'close', listener: () => void) => () => void
+}
+
+function api(): TorchikoApi {
+  return (window as typeof window & { Torchiko: TorchikoApi }).Torchiko
+}
+
+function mockGuideWindow(frame: HTMLIFrameElement) {
+  // jsdom leaves iframe.contentWindow null when the frame is inside a shadow root.
+  Object.defineProperty(frame, 'contentWindow', { configurable: true, value: window })
+  return vi.spyOn(window, 'postMessage').mockImplementation(() => undefined)
+}
 
 function runWidgetSource() {
   const source = readFileSync(resolve(process.cwd(), 'public/widget.js'), 'utf8')
@@ -16,14 +34,31 @@ function runWidgetSource() {
 
 function executeWidget(params: {
   slug: string | null
+  attribute?: 'torchiko' | 'pathfinder'
+  inlineSlug?: string
   source?: string
   mounted?: string
   placement?: 'body' | 'head'
+  appendInline?: boolean
+  inlineHeight?: string
+  async?: boolean
 }) {
   const script = document.createElement('script')
-  if (params.slug !== null) script.setAttribute('data-pathfinder-venue', params.slug)
+  if (params.slug !== null)
+    script.setAttribute(
+      params.attribute === 'torchiko' ? 'data-torchiko-venue' : 'data-pathfinder-venue',
+      params.slug,
+    )
+  let inlineContainer: HTMLDivElement | null = null
+  if (params.inlineSlug) {
+    inlineContainer = document.createElement('div')
+    inlineContainer.setAttribute('data-torchiko-inline', params.inlineSlug)
+    if (params.inlineHeight !== undefined) inlineContainer.style.height = params.inlineHeight
+    if (params.appendInline !== false) document.body.appendChild(inlineContainer)
+  }
   if (params.mounted) script.dataset.pathfinderMounted = params.mounted
   script.src = params.source ?? 'https://guide.example/widget.js'
+  if (params.async) script.async = true
   document[params.placement ?? 'body'].appendChild(script)
   Object.defineProperty(document, 'currentScript', {
     configurable: true,
@@ -43,6 +78,8 @@ function executeWidget(params: {
     styles: () => shadow?.querySelector<HTMLLinkElement>('link[rel="stylesheet"]') ?? null,
     script,
     shadow,
+    inlineContainer,
+    inlineFrame: () => inlineContainer?.querySelector<HTMLIFrameElement>('iframe') ?? null,
   }
 }
 
@@ -66,10 +103,30 @@ function dispatchReady(
   )
 }
 
+function dispatchBridge(
+  frame: HTMLIFrameElement,
+  type: string,
+  options: {
+    origin?: string
+    source?: MessageEventSource | null
+    payload?: unknown
+  } = {},
+) {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: { source: 'torchiko', v: 1, type, payload: options.payload ?? null },
+      origin: options.origin ?? 'https://guide.example',
+      source: options.source === undefined ? frame.contentWindow : options.source,
+    }),
+  )
+}
+
 describe('classic third-party staging widget launcher', () => {
   beforeEach(() => {
     document.body.replaceChildren()
-    document.head.querySelectorAll('script[data-pathfinder-venue]').forEach((node) => node.remove())
+    document.head
+      .querySelectorAll('script[data-pathfinder-venue],script[data-torchiko-venue]')
+      .forEach((node) => node.remove())
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -83,11 +140,18 @@ describe('classic third-party staging widget launcher', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    if (originalWindowFetch) Object.defineProperty(window, 'fetch', originalWindowFetch)
+    else Reflect.deleteProperty(window, 'fetch')
     Object.defineProperty(document, 'currentScript', {
       configurable: true,
       value: null,
     })
+    if (originalVisualViewport)
+      Object.defineProperty(window, 'visualViewport', originalVisualViewport)
+    else Reflect.deleteProperty(window, 'visualViewport')
+    Reflect.deleteProperty(window, 'Torchiko')
   })
 
   it('reveals an accessible closed launcher only after CSS and venue availability', async () => {
@@ -96,7 +160,7 @@ describe('classic third-party staging widget launcher', () => {
     expect(widget.host?.hidden).toBe(true)
     expect(widget.script.dataset.pathfinderMounted).toBe('pending')
     expect(fetch).toHaveBeenCalledWith(
-      'https://guide.example/api/widget-ready/museum',
+      'https://guide.example/api/widget-ready/museum?v=2',
       expect.objectContaining({
         cache: 'no-store',
         credentials: 'omit',
@@ -114,10 +178,58 @@ describe('classic third-party staging widget launcher', () => {
     expect(widget.launcher()?.textContent).toBe('Ask Torchiko')
     expect(widget.launcher()?.type).toBe('button')
     expect(widget.launcher()?.getAttribute('aria-expanded')).toBe('false')
-    expect(widget.launcher()?.getAttribute('aria-label')).toBe('Open Torchiko venue guide')
+    expect(widget.launcher()?.getAttribute('aria-label')).toBe('Ask Torchiko, opens venue guide')
     expect(widget.panel()?.hidden).toBe(true)
     expect(widget.frame()).toBeNull()
     expect(widget.script.dataset.pathfinderMounted).toBe('true')
+  })
+
+  it('accepts the Torchiko attribute and applies sanitized probe presentation', async () => {
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            v: 2,
+            label: 'Ask the Museum',
+            accent: '#0b5cff',
+            theme: 'dark',
+            background: '#0d1116',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    })
+    const widget = executeWidget({ slug: 'museum', attribute: 'torchiko' })
+    await completeAvailability(widget)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    expect(widget.launcher()?.textContent).toBe('Ask the Museum')
+    expect(widget.host?.style.getPropertyValue('--torchiko-widget-accent')).toBe('#0b5cff')
+    expect(widget.host?.style.getPropertyValue('--torchiko-widget-background')).toBe('#0d1116')
+    expect(widget.host?.style.getPropertyValue('color-scheme')).toBe('dark')
+    expect(widget.launcher()?.textContent).toBe('Ask the Museum')
+    expect(widget.launcher()?.getAttribute('aria-label')).toBe('Ask the Museum, opens venue guide')
+    widget.launcher()?.click()
+    expect(widget.panel()?.style.backgroundColor).toBe('rgb(13, 17, 22)')
+    expect(widget.frame()?.style.backgroundColor).toBe('rgb(13, 17, 22)')
+  })
+
+  it('mounts an inline venue iframe only after its exact ready handshake', async () => {
+    const widget = executeWidget({ slug: null, inlineSlug: 'museum' })
+    await Promise.resolve()
+    await Promise.resolve()
+    const frame = widget.inlineFrame()
+    expect(frame?.src).toBe('https://guide.example/embed/museum/inline')
+    expect(frame?.hidden).toBe(true)
+    expect(frame?.width).toBe('100%')
+    expect(frame?.style.minHeight).toBe('min(720px, 85vh)')
+    expect(widget.inlineContainer?.dataset.torchikoInlineMounted).toBe('pending')
+
+    dispatchReady(frame!)
+    expect(frame?.hidden).toBe(false)
+    expect(widget.inlineContainer?.dataset.torchikoInlineMounted).toBe('true')
+    runWidgetSource()
+    expect(widget.inlineContainer?.querySelectorAll('iframe')).toHaveLength(1)
   })
 
   it('stays hidden when readiness finishes first and reveals only after CSS loads', async () => {
@@ -202,6 +314,106 @@ describe('classic third-party staging widget launcher', () => {
         new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }),
       )
     expect(widget.panel()?.hidden).toBe(true)
+  })
+
+  it('opens through the public API, sends bounded unsent prefill, and emits lifecycle events', async () => {
+    const widget = executeWidget({ slug: 'museum', attribute: 'torchiko' })
+    const events: string[] = []
+    expect(api().version).toBe(1)
+    const unsubscribe = api().on('open', () => events.push('open'))
+    api().on('ready', () => events.push('ready'))
+    api().on('close', () => events.push('close'))
+    api().open({ ask: 'Where is the entrance?', place: ' place_1 ' })
+    expect(widget.frame()).toBeNull()
+    await completeAvailability(widget)
+    await vi.waitFor(() => expect(widget.frame()).not.toBeNull())
+    const frame = widget.frame()!
+    const postMessage = mockGuideWindow(frame)
+    dispatchBridge(frame, 'ready')
+    expect(widget.panel()?.hidden).toBe(false)
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        source: 'torchiko',
+        v: 1,
+        type: 'prefill',
+        payload: { ask: 'Where is the entrance?', place: 'place_1' },
+      },
+      'https://guide.example',
+    )
+    expect(postMessage).toHaveBeenCalledWith(
+      { source: 'torchiko', v: 1, type: 'open', payload: null },
+      'https://guide.example',
+    )
+    expect(events).toEqual(['ready', 'open'])
+    api().close()
+    expect(widget.panel()?.hidden).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith(
+      { source: 'torchiko', v: 1, type: 'close', payload: null },
+      'https://guide.example',
+    )
+    expect(events).toEqual(['ready', 'open', 'close'])
+    api().open()
+    expect(widget.frame()).toBe(frame)
+    expect(events).toEqual(['ready', 'open', 'close', 'open'])
+    unsubscribe()
+    api().close()
+    api().open()
+    expect(events).toEqual(['ready', 'open', 'close', 'open', 'close'])
+  })
+
+  it('ignores spoofed bridge messages and drops invalid API parameters', async () => {
+    const widget = executeWidget({ slug: 'museum' })
+    await completeAvailability(widget)
+    api().open({ ask: 'x'.repeat(201), place: 'bad\nplace' })
+    await vi.waitFor(() => expect(widget.frame()).not.toBeNull())
+    const frame = widget.frame()!
+    const postMessage = mockGuideWindow(frame)
+    dispatchBridge(frame, 'ready', { origin: 'https://attacker.example' })
+    dispatchBridge(frame, 'ready', { source: null })
+    dispatchBridge(frame, 'ready', { payload: { extra: true } })
+    expect(widget.panel()?.hidden).toBe(true)
+    dispatchBridge(frame, 'ready')
+    expect(widget.panel()?.hidden).toBe(false)
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'prefill' }),
+      expect.anything(),
+    )
+    dispatchBridge(frame, 'close-requested', { origin: 'https://attacker.example' })
+    expect(widget.panel()?.hidden).toBe(false)
+    dispatchBridge(frame, 'close-requested')
+    expect(widget.panel()?.hidden).toBe(true)
+  })
+
+  it('does not bypass an unavailable venue through the public API', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }))
+    const widget = executeWidget({ slug: 'museum' })
+    api().open({ ask: 'hello' })
+    await completeAvailability(widget)
+    expect(widget.host?.isConnected).toBe(false)
+    expect(widget.frame()).toBeNull()
+  })
+
+  it('accepts bounded height only from the exact inline frame', async () => {
+    const widget = executeWidget({ slug: null, inlineSlug: 'museum' })
+    const events: string[] = []
+    api().on('ready', () => events.push('ready'))
+    api().on('open', () => events.push('open'))
+    await Promise.resolve()
+    await Promise.resolve()
+    const frame = widget.inlineFrame()!
+    dispatchReady(frame)
+    dispatchBridge(frame, 'open')
+    dispatchBridge(frame, 'open')
+    expect(events).toEqual(['ready', 'open'])
+    dispatchBridge(frame, 'height', {
+      payload: { height: 900 },
+      origin: 'https://attacker.example',
+    })
+    dispatchBridge(frame, 'height', { payload: { height: 9000 } })
+    expect(frame.style.height).toBe('')
+    dispatchBridge(frame, 'height', { payload: { height: 900 } })
+    expect(frame.style.height).toBe('900px')
+    expect(widget.inlineContainer?.style.height).toBe('900px')
   })
 
   it('contains sequential focus and exposes modal semantics at the full-screen breakpoint', async () => {
@@ -342,7 +554,12 @@ describe('classic third-party staging widget launcher', () => {
     (slug) => {
       const widget = executeWidget({ slug })
       expect(widget.host).toBeNull()
-      expect(widget.script.dataset.pathfinderMounted).toBeUndefined()
+      if (slug === null || slug === '') {
+        expect(widget.script.dataset.torchikoMounted).toBe('true')
+        expect(widget.script.dataset.pathfinderMounted).toBe('true')
+      } else {
+        expect(widget.script.dataset.pathfinderMounted).toBeUndefined()
+      }
     },
   )
 
@@ -374,5 +591,65 @@ describe('classic third-party staging widget launcher', () => {
 
     document.body.replaceChildren()
     expect(executeWidget({ slug: 'museum', mounted: 'failed' }).host).toBeNull()
+  })
+
+  it('mounts async head snippets after their late container is inserted', async () => {
+    const widget = executeWidget({
+      slug: null,
+      inlineSlug: 'museum',
+      appendInline: false,
+      placement: 'head',
+      async: true,
+    })
+    expect(widget.inlineContainer?.isConnected).toBe(false)
+    document.body.appendChild(widget.inlineContainer!)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(widget.inlineContainer?.dataset.torchikoInlineMounted).toBe('pending')
+    expect(widget.inlineFrame()?.src).toBe('https://guide.example/embed/museum/inline')
+  })
+
+  it('sizes a zero-height inline container through the iframe only', async () => {
+    const widget = executeWidget({ slug: null, inlineSlug: 'museum', inlineHeight: '0px' })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(widget.inlineContainer?.style.height).toBe('0px')
+    expect(widget.inlineFrame()?.style.minHeight).toBe('min(720px, 85vh)')
+  })
+
+  it('sizes a mobile modal to the host visual viewport and restores CSS on close', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    )
+    const listeners: Record<string, Array<() => void>> = { resize: [], scroll: [] }
+    const viewport = {
+      offsetTop: 24,
+      height: 720,
+      addEventListener: vi.fn((type: 'resize' | 'scroll', listener: () => void) => {
+        listeners[type]!.push(listener)
+      }),
+      removeEventListener: vi.fn((type: 'resize' | 'scroll', listener: () => void) => {
+        listeners[type] = listeners[type]!.filter((candidate) => candidate !== listener)
+      }),
+    }
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    const widget = executeWidget({ slug: 'museum' })
+    await completeAvailability(widget)
+    widget.launcher()?.click()
+    dispatchReady(widget.frame()!)
+
+    expect(widget.panel()?.style.top).toBe('24px')
+    expect(widget.panel()?.style.height).toBe('720px')
+    viewport.offsetTop = 168
+    viewport.height = 520
+    listeners.resize?.forEach((listener) => listener())
+    expect(widget.panel()?.style.top).toBe('168px')
+    expect(widget.panel()?.style.height).toBe('520px')
+
+    widget.close()?.click()
+    expect(widget.panel()?.style.top).toBe('')
+    expect(widget.panel()?.style.height).toBe('')
+    expect(viewport.removeEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 })

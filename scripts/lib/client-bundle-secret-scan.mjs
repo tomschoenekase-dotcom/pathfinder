@@ -16,6 +16,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('REDIS_URL'),
     value: `redis://:${canary('REDIS_URL')}@127.0.0.1:6379`,
   },
+  INTERNAL_POLICY_TOKEN: {
+    marker: canary('INTERNAL_POLICY_TOKEN'),
+    value: canary('INTERNAL_POLICY_TOKEN'),
+  },
   CLERK_SECRET_KEY: {
     marker: canary('CLERK_SECRET_KEY'),
     value: `sk_test_${canary('CLERK_SECRET_KEY')}`,

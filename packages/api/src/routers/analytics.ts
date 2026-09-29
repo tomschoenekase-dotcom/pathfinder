@@ -27,6 +27,8 @@ const publicEntityId = z
   .max(191)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u)
 
+const visitorEntrySurfaceInput = z.enum(['direct', 'qr', 'website', 'app'])
+
 const publicEventIdentity = {
   sessionId: z.string().uuid(),
   // Public venue responses expose bounded database identifiers. Synthetic
@@ -41,6 +43,7 @@ const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
     .object({
       ...publicEventIdentity,
       eventType: z.literal('session.started'),
+      entrySurface: visitorEntrySurfaceInput.optional(),
       // Transitional compatibility for already-cached browser bundles. The server
       // deliberately discards this timestamp and owns occurredAt below.
       metadata: z
@@ -191,6 +194,8 @@ async function syncVisitorSession(
     tenantId: string
     venueId: string
     visitorId?: string
+    entrySurface?: z.infer<typeof visitorEntrySurfaceInput>
+    entrySource?: 'qr'
   },
 ) {
   // Set visitorId when provided so unique/returning visitor counts work even if
@@ -211,14 +216,23 @@ async function syncVisitorSession(
         venueId: params.venueId,
         anonymousToken: params.sessionId,
         ...visitorIdData,
+        ...((params.entrySurface ?? (params.entrySource === 'qr' ? 'qr' : undefined))
+          ? {
+              entrySurface: (params.entrySurface ?? params.entrySource)!.toUpperCase() as
+                | 'DIRECT'
+                | 'QR'
+                | 'WEBSITE'
+                | 'APP',
+            }
+          : {}),
       },
       update: {
         lastActiveAt: new Date(),
         ...visitorIdData,
       },
-      select: { id: true },
+      select: { id: true, entrySurface: true },
     })
-    return session.id
+    return session
   }
 
   const session = await db.visitorSession.findFirst({
@@ -240,7 +254,7 @@ async function syncVisitorSession(
     },
     data: { lastActiveAt: new Date() },
   })
-  return session.id
+  return { id: session.id, entrySurface: null }
 }
 
 export const analyticsRouter = router({
@@ -317,10 +331,25 @@ export const analyticsRouter = router({
       if (!update) return { ok: false as const }
     }
 
+    const internalSession = await syncVisitorSession(ctx.db, {
+      eventType: input.eventType,
+      sessionId: input.sessionId,
+      tenantId: venue.tenantId,
+      venueId: venue.id,
+      ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
+      ...(input.eventType === 'session.started' && input.entrySurface
+        ? { entrySurface: input.entrySurface }
+        : {}),
+      ...(input.eventType === 'session.started' && input.metadata?.entrySource === 'qr'
+        ? { entrySource: 'qr' as const }
+        : {}),
+    })
+    if (!internalSession) return { ok: false as const }
+
     const metadata =
       input.eventType === 'session.started'
-        ? input.metadata?.entrySource
-          ? { entrySource: input.metadata.entrySource }
+        ? internalSession.entrySurface
+          ? { entrySurface: internalSession.entrySurface.toLowerCase() }
           : undefined
         : input.eventType === 'session.ended' ||
             input.eventType === 'operational_update.viewed' ||
@@ -328,20 +357,11 @@ export const analyticsRouter = router({
           ? input.metadata
           : undefined
 
-    const internalSessionId = await syncVisitorSession(ctx.db, {
-      eventType: input.eventType,
-      sessionId: input.sessionId,
-      tenantId: venue.tenantId,
-      venueId: venue.id,
-      ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
-    })
-    if (!internalSessionId) return { ok: false as const }
-
     await ctx.db.analyticsEvent.create({
       data: {
         tenantId: venue.tenantId,
         venueId: venue.id,
-        sessionId: internalSessionId,
+        sessionId: internalSession.id,
         eventType: input.eventType,
         occurredAt,
         ...('placeId' in input ? { placeId: input.placeId } : {}),
@@ -650,6 +670,28 @@ export const analyticsRouter = router({
       totalMessages,
       totalSessions,
     }
+  }),
+
+  getSessionsByEntrySurface: tenantProcedure.input(getWindowInput).query(async ({ ctx, input }) => {
+    const startDate = startOfUtcDay(new Date())
+    startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
+    const rows = await ctx.db.visitorSession.groupBy({
+      by: ['entrySurface'],
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        experienceScope: 'PUBLIC',
+        startedAt: { gte: startDate },
+      },
+      _count: { _all: true },
+    })
+    const counts = new Map(rows.map((row) => [row.entrySurface ?? 'UNKNOWN', row._count._all]))
+    return [
+      { surface: 'direct', label: 'Direct', count: counts.get('DIRECT') ?? 0 },
+      { surface: 'qr', label: 'QR', count: counts.get('QR') ?? 0 },
+      { surface: 'website', label: 'Website', count: counts.get('WEBSITE') ?? 0 },
+      { surface: 'app', label: 'App', count: counts.get('APP') ?? 0 },
+      { surface: 'unknown', label: 'Unknown', count: counts.get('UNKNOWN') ?? 0 },
+    ] as const
   }),
 
   /**

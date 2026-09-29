@@ -5,10 +5,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
+import { HostPlaceActionProvider } from './HostPlaceAction'
 import { PlaceCard } from './PlaceCard'
 
 describe('PlaceCard', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('reveals descriptive details through a keyboard-operable control', () => {
     const onCardClick = vi.fn()
@@ -88,6 +92,28 @@ describe('PlaceCard', () => {
     expect(screen.queryByRole('link', { name: 'Get directions to Elephant House' })).toBeNull()
   })
 
+  it('reports an image that already failed before hydration', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(0)
+    const onImageError = vi.fn()
+    render(
+      <PlaceCard
+        id="place_1"
+        name="East Gallery"
+        type="EXHIBIT"
+        photoUrl="/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum"
+        shortDescription={null}
+        areaName={null}
+        hours={null}
+        distanceMeters={undefined}
+        lat={null}
+        lng={null}
+        onImageError={onImageError}
+      />,
+    )
+    expect(onImageError).toHaveBeenCalledOnce()
+  })
+
   it('localizes place controls and marks right-to-left content', () => {
     render(
       <PlaceCard
@@ -132,5 +158,38 @@ describe('PlaceCard', () => {
     const directions = screen.getByRole('link', { name: '東展示室への道順を見る' })
     expect(directions.textContent).toContain('道順を見る')
     expect(directions.textContent).not.toContain('：')
+  })
+
+  it('offers an opted-in app host button that hands over only the place ID and name', () => {
+    const onAction = vi.fn()
+    const onCardClick = vi.fn()
+    const card = (
+      <PlaceCard
+        id="place_skydeck"
+        name="Sky Deck"
+        type="ATTRACTION"
+        photoUrl={null}
+        shortDescription="Glass ledge 103 floors up."
+        areaName={null}
+        hours={null}
+        distanceMeters={undefined}
+        lat={null}
+        lng={null}
+        onCardClick={onCardClick}
+      />
+    )
+    const { rerender } = render(card)
+    expect(screen.queryByRole('button', { name: /Open in app/ })).toBeNull()
+
+    rerender(
+      <HostPlaceActionProvider value={{ label: 'Open in app', onAction }}>
+        {card}
+      </HostPlaceActionProvider>,
+    )
+    const hostButton = screen.getByRole('button', { name: 'Open in app: Sky Deck' })
+    fireEvent.click(hostButton)
+    expect(onAction).toHaveBeenCalledWith({ id: 'place_skydeck', name: 'Sky Deck' })
+    expect(onCardClick).not.toHaveBeenCalled()
+    expect(screen.queryByText('Glass ledge 103 floors up.')).toBeNull()
   })
 })

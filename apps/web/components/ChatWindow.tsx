@@ -8,7 +8,7 @@ import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 import type { GuestReplyKind } from '@pathfinder/contracts/guest-reply-kind'
 
-import { MessageBubble } from './MessageBubble'
+import { MessageBubble, type MessageSurfaces } from './MessageBubble'
 import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
@@ -44,18 +44,25 @@ type ChatWindowProps = {
   accentContrastColor?: string
   placeholder?: string
   initialDraft?: string
+  prefill?: { sequence: number; ask: string } | null
   draftStorageKey?: string | null
   emptyState?: ReactNode
   conversationTools?: ReactNode
-  persistentVoiceControl?: ReactNode
+  composerVoiceControl?: ReactNode
+  voiceCaption?: { text: string; interrupted: boolean } | null
+  voiceCaptionAnnouncement?: string | null
+  voiceCaptionAnnouncementKey?: number
   assistantLabel?: string
+  /** Visible speaker labels, used when neither speaker has a bubble. */
+  speakerLabels?: { guide: string }
+  surfaces?: MessageSurfaces
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
-  onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   isOnline?: boolean
   language?: SupportedChatLanguage
+  locationAware?: boolean
 }
 
 export function ChatWindow({
@@ -77,18 +84,24 @@ export function ChatWindow({
   accentContrastColor,
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
+  prefill = null,
   draftStorageKey = null,
   emptyState,
   conversationTools,
-  persistentVoiceControl,
+  composerVoiceControl,
+  voiceCaption = null,
+  voiceCaptionAnnouncement = null,
+  voiceCaptionAnnouncementKey = 0,
   assistantLabel = 'Venue guide',
+  speakerLabels,
+  surfaces,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
   onVisitorAction,
-  onMessageFeedback,
   isOnline = true,
   language = 'English',
+  locationAware = false,
 }: ChatWindowProps) {
   const presentation = getChatLanguagePresentation(language)
   const [
@@ -114,7 +127,7 @@ export function ChatWindow({
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const wasLoadingRef = useRef(isLoading)
-  const announcementWasLoadingRef = useRef(isLoading)
+  const announcementWasLoadingRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
@@ -135,6 +148,15 @@ export function ChatWindow({
       // Private browsing can make session storage unavailable; keep the in-memory draft.
     }
   }, [draftStorageKey, draft])
+
+  useEffect(() => {
+    if (!prefill) return
+    setDraft(prefill.ask)
+    rememberDraft(prefill.ask)
+    onDraftChange?.(prefill.ask)
+    // Each host prefill carries a new sequence. Other renders cannot overwrite visitor typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.sequence])
 
   function rememberDraft(nextDraft: string) {
     if (!draftStorageKey) return
@@ -171,7 +193,7 @@ export function ChatWindow({
         behavior: 'auto',
       })
     }
-  }, [errorMessage, isLoading, messages])
+  }, [errorMessage, isLoading, messages, voiceCaption?.text, voiceCaption?.interrupted])
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && shouldRestoreComposerFocusRef.current) {
@@ -195,6 +217,7 @@ export function ChatWindow({
     const previousMessageCount = previousMessageCountRef.current
     const hasNewMessage = messages.length > previousMessageCount
     const latestMessage = messages.at(-1)
+    const responseStarted = !announcementWasLoadingRef.current && isLoading
     const responseCompleted = announcementWasLoadingRef.current && !isLoading
 
     previousMessageCountRef.current = messages.length
@@ -208,14 +231,14 @@ export function ChatWindow({
         kind: 'response',
         content: latestMessage.content,
       })
-    } else if (isLoading) {
+    } else if (responseStarted) {
       setLiveAnnouncement({ kind: 'responding' })
-    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+    } else if (!isLoading && hasNewMessage && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
         kind: 'response',
         content: latestMessage.content,
       })
-    } else {
+    } else if (!isLoading) {
       setLiveAnnouncement((current) => (current?.kind === 'responding' ? null : current))
     }
   }, [isLoading, messages])
@@ -256,8 +279,8 @@ export function ChatWindow({
           followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120
         }}
       >
-        {conversationTools}
         {messages.length === 0 && emptyState ? emptyState : null}
+        {conversationTools ? <div className={styles.tools}>{conversationTools}</div> : null}
 
         {messages.map((message, index) => (
           <div key={message.id ?? `${message.role}-${index}`}>
@@ -265,7 +288,10 @@ export function ChatWindow({
               role={message.role}
               content={message.content}
               assistantLabel={assistantLabel}
+              {...(speakerLabels ? { visibleGuideLabel: speakerLabels.guide } : {})}
+              {...(surfaces ? { surfaces } : {})}
               language={language}
+              locationAware={locationAware}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
               {...(message.voiceDelivery ? { voiceDelivery: message.voiceDelivery } : {})}
@@ -274,12 +300,6 @@ export function ChatWindow({
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(onVisitorAction ? { onVisitorAction } : {})}
-              {...(message.id &&
-              !message.voiceDelivery &&
-              message.replyKind !== 'TEMPORARY_FALLBACK' &&
-              onMessageFeedback
-                ? { messageId: message.id, onFeedback: onMessageFeedback }
-                : {})}
               {...(message.role === 'assistant' &&
               !isLoading &&
               isOnline &&
@@ -287,32 +307,65 @@ export function ChatWindow({
               !sendDisabled
                 ? { onChoiceSelect: onSend }
                 : {})}
-              {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
-              {...(message.role === 'user' && accentContrastColor
-                ? { bubbleTextColor: accentContrastColor }
-                : {})}
             />
           </div>
         ))}
+
+        {voiceCaption?.text.trim() ? (
+          <div
+            aria-label="Live voice caption"
+            className="mx-auto w-full max-w-2xl rounded-xl border border-[var(--chat-header-border)] bg-[var(--chat-header-bg)] px-4 py-3 text-[var(--chat-text)]"
+            dir="auto"
+            role="group"
+            tabIndex={0}
+          >
+            <p className="mb-1 text-xs font-semibold text-[var(--chat-text-muted)]">
+              {voiceCaption.interrupted
+                ? 'Guide · Interrupted; finalizing'
+                : 'Guide · Caption in progress'}
+            </p>
+            <p
+              aria-label="Caption text"
+              className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
+              tabIndex={0}
+            >
+              {voiceCaption.text}
+            </p>
+          </div>
+        ) : null}
 
         {onRequestMore &&
         !isLoading &&
         messages.at(-1)?.role === 'assistant' &&
         !messages.at(-1)?.voiceDelivery &&
         messages.at(-1)?.replyKind !== 'TEMPORARY_FALLBACK' ? (
-          <div className="flex justify-start pl-1">
+          <div className="flex justify-start">
             <button
               type="button"
               onClick={onRequestMore}
               disabled={isLoading || !isOnline || conversationLocked || sendDisabled}
-              className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+              className={styles.requestMore}
             >
               {requestMoreLabel}
             </button>
           </div>
         ) : null}
 
-        {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
+        {isLoading && messages.at(-1)?.role !== 'assistant' ? (
+          <TypingIndicator
+            statusLabel={
+              presentation.code === 'en' ? (
+                <span lang="en" dir="ltr">
+                  This is taking a little longer…
+                </span>
+              ) : (
+                <span lang={presentation.code} dir={presentation.direction}>
+                  {assistantLabel} {respondingLabel}…
+                </span>
+              )
+            }
+          />
+        ) : null}
 
         {errorMessage ? (
           <div
@@ -334,22 +387,28 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      {persistentVoiceControl ? (
-        <div
-          className={styles.persistentControl}
-          role="region"
-          aria-label="Voice controls"
-          tabIndex={0}
-        >
-          {persistentVoiceControl}
-        </div>
-      ) : null}
+      <div
+        key={voiceCaptionAnnouncementKey}
+        className="sr-only"
+        aria-label="Voice caption updates"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {voiceCaptionAnnouncement}
+      </div>
 
-      <div className="sr-only" role="status" aria-atomic="true">
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
-          <span lang={presentation.code} dir={presentation.direction}>
-            {assistantLabel} {respondingLabel}
-          </span>
+          presentation.code === 'en' ? (
+            <span lang="en" dir="ltr">
+              Guide is answering
+            </span>
+          ) : (
+            <span lang={presentation.code} dir={presentation.direction}>
+              {assistantLabel} {respondingLabel}
+            </span>
+          )
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
             <span lang="en" dir="ltr">
@@ -395,6 +454,7 @@ export function ChatWindow({
               }
             }}
           />
+          {composerVoiceControl}
           <button
             ref={sendButtonRef}
             style={{

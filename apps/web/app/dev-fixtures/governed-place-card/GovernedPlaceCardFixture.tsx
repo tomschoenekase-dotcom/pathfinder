@@ -1,7 +1,35 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import { PlaceCard } from '../../../components/PlaceCard'
+import { ResponseRenderer } from '../../../components/ResponseRenderer'
+
+const image = {
+  id: 'east-gallery',
+  name: 'East Gallery',
+  type: 'EXHIBIT',
+  photoUrl: '/dev-fixtures/governed-place-card-photo.svg',
+  photoAttribution: {
+    altText: 'Warm daylight across the East Gallery entrance',
+    caption: 'East Gallery entrance after the 2026 renovation',
+    sourceName: 'Museum archive',
+    sourceUrl: null,
+  },
+  shortDescription: 'The ceramics exhibition begins beyond the carved oak doors.',
+  areaName: 'First floor · East wing',
+  hours: 'Open until 5 PM',
+  lat: null,
+  lng: null,
+}
+
+const location = {
+  ...image,
+  id: 'garden',
+  name: 'Garden',
+  photoUrl: null,
+  photoAttribution: null,
+  lat: 40.7,
+  lng: -74,
+}
 
 export function GovernedPlaceCardFixture() {
   return (
@@ -19,36 +47,20 @@ export function GovernedPlaceCardFixture() {
         } as CSSProperties
       }
     >
-      <section className="mx-auto max-w-md">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#8b4b30]">
-          Reviewed place reference
-        </p>
-        <h1 className="mb-5 mt-1 text-2xl font-semibold text-[#173d34]">
-          A grounded visual, with its source
-        </h1>
-        <PlaceCard
-          id="east-gallery"
-          name="East Gallery"
-          type="EXHIBIT"
-          photoUrl="/dev-fixtures/governed-place-card-photo.svg"
-          photoAttribution={{
-            altText: 'Warm daylight across the East Gallery entrance',
-            caption: 'East Gallery entrance after the 2026 renovation',
-            sourceName: 'Museum archive',
-            sourceUrl: null,
-          }}
-          shortDescription="The ceramics exhibition begins beyond the carved oak doors."
-          areaName="First floor · East wing"
-          hours="Open until 5 PM"
-          distanceMeters={86}
-          lat={null}
-          lng={null}
-        />
-        <p className="mt-4 text-sm leading-6 text-[#526d65]">
-          Source links are off for this guide. The required credit remains readable without becoming
-          a clickable external link.
-        </p>
-      </section>
+      <div className="mx-auto max-w-2xl space-y-8">
+        <section>
+          <h1 className="mb-4 text-lg font-semibold text-[#173d34]">Non-location · image</h1>
+          <ResponseRenderer content="Visit East Gallery." places={[image]} locationAware={false} />
+        </section>
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-[#173d34]">Location · directions</h2>
+          <ResponseRenderer content="Visit Garden." places={[location]} locationAware />
+        </section>
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-[#173d34]">Non-location · answer only</h2>
+          <ResponseRenderer content="Visit Garden." places={[location]} locationAware={false} />
+        </section>
+      </div>
     </main>
   )
 }

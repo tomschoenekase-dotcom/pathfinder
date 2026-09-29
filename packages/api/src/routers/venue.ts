@@ -9,6 +9,7 @@ import {
   PublicVenueMediaItem,
   resolvePublicVenueBotPresentation,
 } from '@pathfinder/contracts'
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config'
 import {
   createVenueAction,
@@ -304,6 +305,7 @@ const venueListSelect = {
   chatBannerDerivativeReceipt: true,
   chatShowPhotos: true,
   chatShowLinks: true,
+  chatAppearance: true,
   isActive: true,
   secondLayerEnabled: true,
   secondLayerLabel: true,
@@ -385,6 +387,7 @@ export const venueRouter = router({
           chatBannerDerivativeId: string | null
           chatLogoDerivativeReceipt: Record<string, unknown> | null
           chatBannerDerivativeReceipt: Record<string, unknown> | null
+          chatAppearance: unknown
           isActive: boolean
           secondLayerEnabled: boolean
           secondLayerLabel: string
@@ -411,6 +414,7 @@ export const venueRouter = router({
                chat_banner_derivative_id AS "chatBannerDerivativeId",
                chat_logo_derivative_receipt AS "chatLogoDerivativeReceipt",
                chat_banner_derivative_receipt AS "chatBannerDerivativeReceipt",
+               chat_appearance       AS "chatAppearance",
                is_active             AS "isActive"
                ,second_layer_enabled AS "secondLayerEnabled"
                ,second_layer_label AS "secondLayerLabel"
@@ -494,6 +498,8 @@ export const venueRouter = router({
       }
       const projectedBrandingVenue = {
         ...publicVenue,
+        // Always a complete, sanitized appearance so visitors never render a partial theme.
+        chatAppearance: parseChatAppearance(venue.chatAppearance),
         chatLogoUrl: chatLogoDerivativeId
           ? isValidBinding(chatLogoDerivativeId, chatLogoDerivativeReceipt)
             ? `/api/venue-media/${chatLogoDerivativeId}?venue=${encodeURIComponent(input.slug)}`

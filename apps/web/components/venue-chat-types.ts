@@ -1,4 +1,5 @@
 import type { GuestPlaceCard } from '@pathfinder/api'
+import type { ChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import type { PublicVenueBotPresentation } from '@pathfinder/contracts/venue-bot-configuration'
 import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 
@@ -16,6 +17,8 @@ export type VenueSummary = {
   chatFont: string | null
   chatLogoUrl: string | null
   chatBannerUrl: string | null
+  /** Sanitized venue appearance; missing means the default plain presentation. */
+  chatAppearance?: ChatAppearance | null
   experienceScope?: 'PUBLIC' | 'SECOND_LAYER'
   experienceLabel?: string | null
   /** Server-resolved, sanitized public presentation. Missing means Classic. */
@@ -35,4 +38,4 @@ export type ChatMessage = {
   pendingOperationId?: string
 }
 
-export type VenueChatPresentation = 'standalone' | 'embed' | 'webview'
+export type VenueChatPresentation = 'standalone' | 'embed' | 'embed-inline' | 'webview'

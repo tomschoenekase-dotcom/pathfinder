@@ -46,7 +46,7 @@ export function VenueTemporarilyUnavailable({
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-pf-deep">
           {unavailableTitle}
         </h1>
-        <p className="mt-3 text-sm leading-6 text-pf-deep/60">{unavailableBody}</p>
+        <p className="mt-3 text-sm leading-6 text-pf-deep/75">{unavailableBody}</p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <VenueRetryButton label={tryAgain} />
           {showHomeLink ? (

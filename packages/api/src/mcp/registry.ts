@@ -28,6 +28,8 @@ import {
   McpSemanticUniversalContentDraftInput,
   McpLegacyKnowledgeAdoptionDraftInput,
   McpLocationDraftProposalInput,
+  McpDistributionGetInput,
+  McpDistributionProposalInput,
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
   McpIntakeNotesProposalInput,
@@ -99,6 +101,8 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.quality.preview_answer_attribution_agreement'
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.locations.propose_draft'
+        | 'torchiko.distribution.get'
+        | 'torchiko.distribution.propose_change'
         | 'pathfinder.propose_support_triage'
         | 'pathfinder.propose_support_information_request'
         | 'pathfinder.propose_support_completion'
@@ -187,6 +191,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeLocationDraft: (
     input: McpLocationDraftProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  distributionGet: (
+    input: McpDistributionGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  distributionProposeChange: (
+    input: McpDistributionProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeSupportTriage: (
@@ -536,6 +548,20 @@ export function createPathfinderMcpRegistry(
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
           await options.beforeAction?.(name, input, context)
           result = await actions.proposeLocationDraft(input, context)
+          break
+        }
+        case 'torchiko.distribution.get': {
+          const input = McpDistributionGetInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.distributionGet(input, context)
+          break
+        }
+        case 'torchiko.distribution.propose_change': {
+          const input = McpDistributionProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.distributionProposeChange(input, context)
           break
         }
         case 'pathfinder.propose_support_triage': {
@@ -968,6 +994,8 @@ async function verifyApproval(
     | 'torchiko.quality.preview_answer_attribution_agreement'
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.locations.propose_draft'
+    | 'torchiko.distribution.get'
+    | 'torchiko.distribution.propose_change'
     | 'pathfinder.propose_support_triage'
     | 'pathfinder.propose_support_information_request'
     | 'pathfinder.propose_support_completion'

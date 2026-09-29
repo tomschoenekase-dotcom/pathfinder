@@ -58,3 +58,17 @@ export function useTRPCClient(): DashboardTRPCClient {
 
   return client
 }
+
+/**
+ * Development fixtures only: renders real portal components against an in-memory client.
+ * Production routes always use `TRPCProvider`, which builds the network client above.
+ */
+export function FixtureTRPCClientProvider({
+  client,
+  children,
+}: {
+  client: DashboardTRPCClient
+  children: ReactNode
+}) {
+  return <TRPCClientContext.Provider value={client}>{children}</TRPCClientContext.Provider>
+}

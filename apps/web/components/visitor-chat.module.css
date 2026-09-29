@@ -1,50 +1,71 @@
+/*
+ * Visitor chat. The header and composer stay anchored; the transcript is the only scrolling
+ * region. Colors come from resolved venue appearance tokens (--chat-*), see
+ * apps/web/lib/chat-appearance-style.ts.
+ */
 .shell {
+  --chat-text-scale: 1;
   height: 100svh;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   color: var(--chat-text);
-}
-.header {
-  flex-shrink: 0;
-}
-.shell[data-keyboard-open] .connectionDetail {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.shell[data-keyboard-open] .character {
-  display: none;
-}
-.shell[data-keyboard-open] .footer {
-  display: none;
-}
-.shell[data-keyboard-open] .composerField textarea {
-  max-height: var(--chat-keyboard-composer-max, 96px);
 }
 .shell[data-keyboard-open] {
   transform: translate3d(var(--chat-keyboard-offset-x, 0px), var(--chat-keyboard-offset-y, 0px), 0);
 }
+
+/* ---- Header ------------------------------------------------------------ */
+.header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--chat-header-border);
+  background: var(--chat-header-bg);
+  color: var(--chat-header-text);
+}
 .headerInner {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 12px;
-  padding-block: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 60px;
+  padding: 8px 16px 8px 8px;
 }
 .back {
-  grid-column: 1;
-  grid-row: 1;
-  align-self: center;
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  color: var(--chat-header-accent);
+  transition: background-color 150ms;
+}
+.back svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.back:hover {
+  background: color-mix(in srgb, var(--chat-header-text) 8%, transparent);
+}
+.back:focus-visible {
+  outline: 2px solid var(--chat-header-accent);
+  outline-offset: 1px;
 }
 .identity {
-  grid-column: 2;
-  grid-row: 1;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  margin: 0;
-  gap: 8px;
-  align-items: flex-start;
+  padding-inline-start: 8px;
+}
+.headerInner:not(:has(.back)) .identity {
+  padding-inline-start: 8px;
 }
 .identityCopy {
   display: grid;
@@ -52,30 +73,75 @@
   min-width: 0;
   gap: 2px;
 }
+/* Long names wrap onto more lines rather than clipping or pushing controls down. */
 .identity h1 {
-  font-size: 1.0625rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+  font-size: 1.1875rem;
+  font-weight: 650;
+  line-height: 1.22;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
-.identityCopy p {
+.experience {
   font-size: 0.75rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+  line-height: 1.3;
+  color: var(--chat-header-muted);
 }
-.toolbar {
-  grid-column: 1 / -1;
-  margin-top: 0;
-  gap: 8px;
+.headerInner[data-on-banner] {
+  --chat-header-text: #ffffff;
+  --chat-header-muted: rgb(255 255 255 / 85%);
+  --chat-header-accent: #ffffff;
+  color: #ffffff;
 }
-.toolbar > button {
-  border: 0;
-  font-size: 0.6875rem;
+.headerInner[data-on-banner] h1 {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 35%);
 }
+.header[data-app-header='compact'] .headerInner {
+  min-height: 48px;
+  padding-block: 4px;
+}
+.header[data-app-header='compact'] .identity h1 {
+  font-size: 1rem;
+}
+.header[data-app-header='compact'] .experience {
+  display: none;
+}
+
+/* ---- Transcript ---------------------------------------------------------- */
 .main {
   min-height: 0;
+  isolation: isolate;
+}
+.backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--chat-backdrop-position, 50% 50%);
+  transition: opacity 200ms ease-out;
+}
+.backdrop span {
+  position: absolute;
+  inset: 0;
+  background: var(--chat-backdrop-overlay, transparent);
+}
+.backdrop[data-state='loading'] img,
+.backdrop[data-state='loading'] span {
+  opacity: 0;
 }
 .body {
+  z-index: 1;
   padding-inline: 0;
+}
+.character {
+  z-index: 1;
 }
 .window {
   border: 0;
@@ -83,40 +149,147 @@
   box-shadow: none;
   background: transparent;
 }
+/* The transcript scrolls itself; the window must not clip the full-width composer band. */
+.body .window {
+  overflow: visible;
+}
 .conversation {
-  padding: 20px 20px 12px;
+  padding: 20px 20px 16px;
   scroll-padding-block: 20px;
-}
-.persistentControl {
-  min-height: 0;
-  overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
-.persistentControl:focus-visible {
+.shell:not([data-text-size='standard']) .conversation :global(.text-sm) {
+  font-size: calc(0.875rem * var(--chat-text-scale));
+  line-height: 1.5;
+}
+.shell:not([data-text-size='standard']) .conversation :global(.text-xs) {
+  font-size: calc(0.75rem * var(--chat-text-scale));
+  line-height: 1.45;
+}
+.shell[data-backdrop='image'] .emptyState,
+.shell[data-backdrop='image'] .tools:not(:empty) {
+  --chat-text: var(--chat-assistant-text);
+  padding: 4px 16px 8px;
+  border: 1px solid var(--chat-assistant-border);
+  border-radius: 20px;
+  background: var(--chat-assistant-bg);
+  color: var(--chat-assistant-text);
+}
+/* ---- Messages -------------------------------------------------------------- */
+.message {
+  display: flex;
+  flex-direction: column;
+}
+.message[data-role='user'] {
+  align-items: flex-end;
+}
+.message[data-role='assistant'] {
+  align-items: flex-start;
+}
+.speaker {
+  margin-bottom: 4px;
+  padding-inline: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--chat-speaker-label);
+}
+.user {
+  max-width: 85%;
+  border: 1px solid var(--chat-user-border);
+  border-radius: 20px;
+  border-end-end-radius: 6px;
+  padding: 11px 16px;
+  background: var(--chat-user-bg);
+  color: var(--chat-user-text);
+  font-size: calc(15px * var(--chat-text-scale));
+  line-height: 1.55;
+}
+/* Small labels never sit on a busy photo without their own surface. */
+.shell[data-backdrop='image'] .speaker {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--chat-assistant-bg);
+}
+.shell[data-speaker-labels] .user {
+  border-end-end-radius: 20px;
+}
+/* Without a bubble the visitor's words read as plain right-aligned text. */
+.message[data-surface='none'] .user {
+  border-color: transparent;
+  padding-inline: 2px;
+  background: transparent;
+}
+.assistant {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 2px 0 4px;
+  background: transparent;
+  color: var(--chat-assistant-text);
+  font-size: calc(15px * var(--chat-text-scale));
+  line-height: 1.7;
+}
+.assistant[data-surface='bubble'],
+.assistant[data-surface='protected'] {
+  border-color: var(--chat-assistant-border);
+  border-radius: 20px;
+  border-end-start-radius: 6px;
+  padding: 12px 16px;
+  background: var(--chat-assistant-bg);
+}
+.shell[data-speaker-labels] .assistant[data-surface='protected'] {
+  border-end-start-radius: 20px;
+}
+.assistant :global(.text-\[var\(--chat-text\)\]) {
+  color: var(--chat-assistant-text);
+}
+.requestMore {
+  min-height: 44px;
+  border: 1px solid var(--chat-action-border);
+  border-radius: 999px;
+  padding: 0 18px;
+  background: var(--chat-action-bg);
+  color: var(--chat-action-text);
+  font-size: calc(0.9375rem * var(--chat-text-scale));
+  font-weight: 600;
+  transition: border-color 150ms;
+}
+.requestMore:hover:not(:disabled) {
+  border-color: var(--chat-accent-text);
+}
+.requestMore:focus-visible {
   outline: 2px solid var(--chat-accent-text);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
-.persistentControl [data-voice-control-header] {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  background: var(--chat-card);
+.requestMore:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
+
+/* ---- Composer and bottom bar ---------------------------------------------- */
+/* The composer band spans the full window even though the column is centered. */
 .composer {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
-  border: 0;
   padding: 10px 16px 0;
-  background: var(--chat-surface);
+  background: var(--chat-footer-bg);
+  box-shadow:
+    0 0 0 100vmax var(--chat-footer-bg),
+    0 -1px 0 100vmax var(--chat-footer-border);
+  clip-path: inset(-1px -100vmax 0 -100vmax);
 }
 .composerField {
   display: flex;
   align-items: flex-end;
   gap: 6px;
   padding: 6px;
-  border: 1px solid var(--chat-border);
-  border-radius: 20px;
-  background: var(--chat-card);
-  box-shadow: 0 3px 16px rgb(0 0 0 / 4%);
+  border: 1px solid var(--chat-field-border);
+  border-radius: 22px;
+  background: var(--chat-field-bg);
 }
 .composerField:focus-within {
   border-color: var(--chat-accent-text);
@@ -129,26 +302,50 @@
   border-radius: 12px;
   background: transparent;
   box-shadow: none;
-  padding: 10px 8px;
+  padding: 10px 10px;
+  color: var(--chat-field-text);
   font-size: 16px;
   line-height: 24px;
+}
+.composerField textarea::placeholder {
+  color: var(--chat-field-muted);
 }
 .composerField button {
   flex-shrink: 0;
   padding-inline: 12px;
 }
+.composerField button:disabled {
+  border-color: var(--chat-field-border);
+  background: transparent;
+  color: var(--chat-field-muted);
+}
 .composerField button.stopButton {
-  border-color: var(--chat-border);
-  background: var(--chat-card);
-  color: var(--chat-text);
+  border-color: var(--chat-field-border);
+  background: var(--chat-field-bg);
+  color: var(--chat-field-text);
   white-space: nowrap;
 }
 .composerField button.stopButton:hover {
   border-color: var(--chat-accent-text);
   opacity: 1;
 }
+.footer {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  padding: 2px 16px max(2px, env(safe-area-inset-bottom, 0px));
+  background: var(--chat-footer-bg);
+}
+.shell[data-keyboard-open] .footer {
+  display: none;
+}
+.shell[data-keyboard-open] .composer {
+  padding-bottom: 8px;
+}
+
+/* ---- Empty state ------------------------------------------------------------ */
 .welcome {
-  padding: 24px 0 20px;
+  padding: 16px 0 16px;
   border: 0;
   border-radius: 0;
   background: none;
@@ -192,63 +389,20 @@
   font-size: 18px;
   color: var(--chat-accent-text);
 }
-.assistant {
-  width: 100%;
-  max-width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 4px 0 12px;
-  font-size: 15px;
-  line-height: 1.7;
+
+/* ---- Keyboard and short screens -------------------------------------------- */
+.shell[data-keyboard-open] .connectionDetail {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
-.user {
-  max-width: 88%;
-  border-radius: 20px;
-  border-end-end-radius: 5px;
-  padding: 11px 15px;
-  font-size: 15px;
-  line-height: 1.6;
-}
-.footer {
-  flex-shrink: 0;
-  padding: 0 20px max(4px, env(safe-area-inset-bottom, 0px));
-}
-.footerRow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  min-height: 44px;
-  font-size: 10px;
-  color: var(--chat-text-muted);
-}
-.guidance {
-  position: relative;
-}
-.guidance[open] {
-  display: contents;
-}
-.guidance[open] p {
-  flex-basis: 100%;
-  order: 1;
-}
-.guidance summary {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-  cursor: pointer;
-  list-style: none;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.guidance summary::-webkit-details-marker {
+.shell[data-keyboard-open] .character {
   display: none;
 }
-.guidance summary:focus-visible {
-  outline: 2px solid var(--chat-accent-text);
-  outline-offset: 2px;
+.shell[data-keyboard-open] .composerField textarea {
+  max-height: var(--chat-keyboard-composer-max, 96px);
 }
 @media (max-height: 540px) {
   .connectionDetail {
@@ -261,15 +415,12 @@
   .composerField textarea {
     max-height: 96px;
   }
-  .persistentControl {
-    flex-shrink: 0;
-    max-height: 64px;
-  }
   .character {
     display: none;
   }
   .headerInner {
-    padding-block: 0;
+    min-height: 48px;
+    padding-block: 2px;
   }
   .conversation {
     padding-block: 8px;
@@ -278,22 +429,12 @@
     padding-top: 8px;
   }
 }
-.guidance p {
-  margin: 0 0 8px;
-  padding: 12px 0 0;
-  border: 1px solid var(--chat-border);
-  border-width: 1px 0 0;
-  color: var(--chat-text);
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: start;
-}
 @media (max-width: 420px) {
   .character {
     padding-top: 8px;
   }
   .welcome {
-    padding-block: 16px 12px;
+    padding-block: 12px 12px;
   }
   .welcome p {
     margin-top: 10px;
@@ -319,9 +460,42 @@
     padding-block: 6px;
   }
 }
+@media (max-width: 420px) and (max-height: 540px) {
+  .conversation:has(.welcome) .welcome p {
+    display: none;
+  }
+  .conversation:has(.welcome) .prompt {
+    min-height: 44px;
+    padding-block: 4px;
+  }
+}
+.shell[data-keyboard-open] .headerInner {
+  min-height: 48px;
+  padding-block: 2px;
+}
+.shell[data-keyboard-open] .conversation:has(.welcome) {
+  padding-block: 8px;
+}
+.shell[data-keyboard-open] .conversation:has(.welcome) .welcome {
+  padding-block: 10px 6px;
+}
+.shell[data-keyboard-open] .conversation:has(.welcome) .welcome h2 {
+  font-size: 1.65rem;
+}
+.shell[data-keyboard-open] .conversation:has(.welcome) .welcome p {
+  display: none;
+}
+.shell[data-keyboard-open] .conversation:has(.welcome) .prompt {
+  min-height: 44px;
+  padding-block: 4px;
+}
 @media (min-width: 640px) {
   .headerInner {
-    padding-block: 12px;
+    min-height: 68px;
+    padding-inline-end: 24px;
+  }
+  .identity h1 {
+    font-size: 1.3125rem;
   }
   .conversation {
     padding-inline: 28px;
@@ -330,7 +504,12 @@
     padding-inline: 24px;
   }
   .welcome {
-    padding-block: 40px 28px;
+    padding-block: 32px 24px;
+  }
+}
+@media (max-width: 360px) {
+  .identity h1 {
+    font-size: 1.0625rem;
   }
 }
 @media (max-height: 400px) {
@@ -338,12 +517,10 @@
     max-height: 72px;
   }
 }
-@media (max-width: 360px) and (max-height: 400px) {
-  .identityCopy p {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
+@media (prefers-reduced-motion: reduce) {
+  .back,
+  .backdrop img,
+  .requestMore {
+    transition: none;
   }
 }

@@ -1,4 +1,6 @@
 import { TRPCError } from '@trpc/server'
+import { createHash } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import { GuestChatTurnActionError } from '@pathfinder/db'
@@ -277,6 +279,7 @@ describe('chat router', () => {
     guestTurnActions.claim.mockResolvedValue({
       state: 'GENERATING',
       turnId: '11111111-1111-4111-8111-111111111111',
+      turnSequence: 2,
       sessionId: SESSION_ID,
       claimId: '22222222-2222-4222-8222-222222222222',
       providerOperations: [
@@ -399,7 +402,11 @@ describe('chat router', () => {
       dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
 
-      const result = await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
+      const result = await caller.chat.session({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        entrySurface: 'website',
+      })
 
       expect(result).toEqual({ sessionId: SESSION_ID })
       expect(sessionUpsert).toHaveBeenCalledWith(
@@ -408,7 +415,12 @@ describe('chat router', () => {
             venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
             tenantId: TENANT_ID,
           },
-          create: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
+          create: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            entrySurface: 'WEBSITE',
+          }),
+          update: expect.not.objectContaining({ entrySurface: expect.anything() }),
         }),
       )
     })
@@ -448,6 +460,7 @@ describe('chat router', () => {
           venueId: VENUE_ID,
           anonymousToken: TOKEN,
           secondLayerKey,
+          entrySurface: 'app',
         }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
       expect(sessionUpsert).not.toHaveBeenCalled()
@@ -480,6 +493,7 @@ describe('chat router', () => {
           venueId: VENUE_ID,
           anonymousToken: TOKEN,
           secondLayerKey,
+          entrySurface: 'app',
         }),
       ).resolves.toEqual({ sessionId: SESSION_ID })
       expect(sessionUpsert).toHaveBeenCalledWith(
@@ -487,6 +501,7 @@ describe('chat router', () => {
           create: expect.objectContaining({ experienceScope: 'SECOND_LAYER' }),
         }),
       )
+      expect(sessionUpsert.mock.calls[0]?.[0]?.create).not.toHaveProperty('entrySurface')
     })
 
     it('calling session twice with same token returns same session (upsert idempotency)', async () => {
@@ -787,6 +802,252 @@ describe('chat router', () => {
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
+    it('starts a first turn without the adjacent identity transaction', async () => {
+      setupHappyPath('The elephants are nearby.')
+      checkRateLimit.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        return true
+      })
+      const stream = vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'The elephants are nearby.' },
+          }
+        },
+        finalMessage: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'The elephants are nearby.' }],
+          usage: { input_tokens: 20, output_tokens: 10 },
+        }),
+      }))
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate, stream },
+      } as unknown as AnthropicMessagesClient)
+      guestTurnActions.claim.mockResolvedValueOnce({
+        state: 'GENERATING',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        turnSequence: 1,
+        sessionId: SESSION_ID,
+        claimId: '22222222-2222-4222-8222-222222222222',
+        providerOperations: [
+          { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+          { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+        ],
+        replayed: false,
+      })
+      // A first turn has no predecessor. If this reader were called, the
+      // pre-embedding path would wait forever rather than reach the provider.
+      guestTurnActions.readAdjacentIdentity.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      )
+
+      const events = []
+      for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+      expect(events[0]).toMatchObject({
+        type: 'delta',
+        delta: 'The elephants are nearby.',
+        requestFirstTextMs: expect.any(Number),
+      })
+      const firstDelta = events.find((event) => event.type === 'delta')
+      expect(firstDelta?.requestFirstTextMs).toBeGreaterThanOrEqual(15)
+      expect(events.at(-1)).toMatchObject({
+        type: 'complete',
+        result: { response: 'The elephants are nearby.' },
+      })
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            firstTurn: true,
+            admissionMs: expect.any(Number),
+            rateLimitMs: expect.any(Number),
+            reservationMs: expect.any(Number),
+            claimMs: expect.any(Number),
+            configurationMs: expect.any(Number),
+            turnSetupMs: expect.any(Number),
+            preEmbeddingMs: expect.any(Number),
+            requestFirstTextMs: expect.any(Number),
+          }),
+        }),
+      )
+      const received = emitEvent.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.eventType === 'message.received')
+        .at(-1)
+      expect(received?.metadata?.admissionMs).toBeGreaterThanOrEqual(15)
+      expect(received?.metadata?.rateLimitMs).toBeGreaterThanOrEqual(15)
+      expect(guestTurnActions.readAdjacentIdentity).not.toHaveBeenCalled()
+      expect(embeddingCreate).toHaveBeenCalledOnce()
+      expect(stream).toHaveBeenCalledOnce()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    })
+
+    it('overlaps provider-health lookup with the durable claim but waits before embedding', async () => {
+      setupHappyPath('The elephants are nearby.')
+      let resolveClaim!: () => void
+      guestTurnActions.claim.mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => {
+          resolveClaim = resolve
+        })
+        return {
+          state: 'GENERATING',
+          turnId: '11111111-1111-4111-8111-111111111111',
+          turnSequence: 1,
+          sessionId: SESSION_ID,
+          claimId: '22222222-2222-4222-8222-222222222222',
+          providerOperations: [
+            { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+            { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+          ],
+          replayed: false,
+        }
+      })
+      let resolveHealth!: (providers: string[]) => void
+      readActiveUnhealthyAiProviders.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveHealth = resolve
+        }),
+      )
+
+      const send = caller.chat.send(sendInput)
+      await vi.waitFor(() => expect(guestTurnActions.claim).toHaveBeenCalledOnce())
+      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledOnce()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+
+      resolveClaim()
+      await vi.waitFor(() => expect(resolveNativeGuestReadSnapshotAction).toHaveBeenCalledOnce())
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      resolveHealth([])
+      await expect(send).resolves.toMatchObject({ response: 'The elephants are nearby.' })
+      expect(embeddingCreate).toHaveBeenCalledOnce()
+    })
+
+    it.skipIf(!process.env.TORCHIKO_LATENCY_BENCHMARK_OUTPUT)(
+      'benchmarks first visible text on the controlled first-turn fixture',
+      async () => {
+        const samples = []
+        const reply = 'The elephants are nearby.'
+        for (const adjacentDelayMs of [0, 80]) {
+          for (let iteration = 0; iteration < 12; iteration++) {
+            setupHappyPath(reply)
+            const claimResult = {
+              state: 'GENERATING',
+              turnId: '11111111-1111-4111-8111-111111111111',
+              turnSequence: 1,
+              sessionId: SESSION_ID,
+              claimId: '22222222-2222-4222-8222-222222222222',
+              providerOperations: [
+                {
+                  kind: 'QUERY_EMBEDDING',
+                  invocationId: '33333333-3333-4333-8333-333333333333',
+                },
+                {
+                  kind: 'RESPONSE_GENERATION',
+                  invocationId: '44444444-4444-4444-8444-444444444444',
+                },
+              ],
+              replayed: false,
+            }
+            const timeline: Record<string, number> = {}
+            let startedAt = 0
+            const mark = (name: string) => {
+              timeline[name] = Math.round((performance.now() - startedAt) * 1000) / 1000
+            }
+            guestTurnActions.claim.mockImplementationOnce(async () => {
+              mark('claimStartedMs')
+              const setupDelayMs = Number(process.env.TORCHIKO_LATENCY_SETUP_DELAY_MS ?? 0)
+              if (setupDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, setupDelayMs))
+              }
+              mark('claimFinishedMs')
+              return claimResult
+            })
+            readActiveUnhealthyAiProviders.mockImplementationOnce(async () => {
+              mark('providerHealthStartedMs')
+              const setupDelayMs = Number(process.env.TORCHIKO_LATENCY_SETUP_DELAY_MS ?? 0)
+              if (setupDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, setupDelayMs))
+              }
+              mark('providerHealthFinishedMs')
+              return []
+            })
+            guestTurnActions.readAdjacentIdentity.mockImplementationOnce(async () => {
+              mark('adjacentReadStartedMs')
+              if (adjacentDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, adjacentDelayMs))
+              }
+              mark('adjacentReadFinishedMs')
+              return null
+            })
+            embeddingCreate.mockImplementationOnce(async () => {
+              mark('embeddingProviderStartedMs')
+              return {
+                data: [{ embedding: Array.from({ length: 1_536 }, () => 0.1), index: 0 }],
+                usage: { prompt_tokens: 5, total_tokens: 5 },
+              }
+            })
+            semanticSearch.places.mockImplementationOnce(async () => {
+              mark('placeRetrievalStartedMs')
+              return placeRows
+            })
+            const stream = vi.fn(() => {
+              mark('answerProviderStartedMs')
+              return {
+                async *[Symbol.asyncIterator]() {
+                  yield { type: 'content_block_delta', delta: { type: 'text_delta', text: reply } }
+                },
+                finalMessage: vi.fn().mockResolvedValue({
+                  content: [{ type: 'text', text: reply }],
+                  usage: { input_tokens: 20, output_tokens: 10 },
+                }),
+              }
+            })
+            _setAnthropicClientForTesting({
+              messages: { create: anthropicCreate, stream },
+            } as unknown as AnthropicMessagesClient)
+
+            startedAt = performance.now()
+            const priorAdjacentReads = guestTurnActions.readAdjacentIdentity.mock.calls.length
+            const events = []
+            for await (const event of streamChatTurn(ctx, sendInput)) {
+              if (event.type === 'delta' && timeline.firstVisibleMs === undefined) {
+                mark('firstVisibleMs')
+              }
+              events.push(event)
+            }
+            const complete = events.at(-1)
+            expect(complete).toMatchObject({ type: 'complete', result: { response: reply } })
+            expect(events[0]).toMatchObject({ type: 'delta', delta: reply })
+            expect(stream).toHaveBeenCalledOnce()
+            const providerInput = (stream.mock.calls as unknown as Array<[unknown]>)[0]?.[0]
+            const providerInputSha256 = createHash('sha256')
+              .update(JSON.stringify(providerInput))
+              .digest('hex')
+            const receivedEvent = emitEvent.mock.calls
+              .map(([event]) => event)
+              .filter((event) => event.eventType === 'message.received')
+              .at(-1)
+            const firstDelta = events.find((event) => event.type === 'delta')
+            samples.push({
+              adjacentDelayMs,
+              iteration,
+              ...timeline,
+              adjacentReadCount:
+                guestTurnActions.readAdjacentIdentity.mock.calls.length - priorAdjacentReads,
+              reply,
+              providerInputSha256,
+              reportedFirstTextMs: firstDelta?.requestFirstTextMs ?? null,
+              telemetry: receivedEvent?.metadata ?? null,
+            })
+          }
+        }
+        writeFileSync(
+          process.env.TORCHIKO_LATENCY_BENCHMARK_OUTPUT!,
+          `${JSON.stringify({ schema: 'torchiko-first-text-benchmark/v1', samples }, null, 2)}\n`,
+        )
+      },
+    )
+
     it('returns a completed exact replay without provider, spend, or persistence work', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       guestTurnActions.reserve.mockResolvedValueOnce({
@@ -822,9 +1083,11 @@ describe('chat router', () => {
     it('passes the client operation UUID into the exact durable reservation', async () => {
       setupHappyPath('Near the entrance.')
       const operationId = '99999999-9999-4999-8999-999999999999'
-      await caller.chat.send({ ...sendInput, operationId })
+      await caller.chat.send({ ...sendInput, operationId, entrySurface: 'app' })
       expect(guestTurnActions.reserve).toHaveBeenCalledWith(
-        expect.objectContaining({ request: expect.objectContaining({ requestId: operationId }) }),
+        expect.objectContaining({
+          request: expect.objectContaining({ requestId: operationId, entrySurface: 'app' }),
+        }),
       )
     })
 
@@ -2342,7 +2605,7 @@ describe('chat router', () => {
       )
     })
 
-    it('returns a descriptive card for a non-location guide without location or image data', async () => {
+    it('keeps the answer but omits an image-free non-location card', async () => {
       setupHappyPath('The elephants are in the Safari Zone.', {
         ...venueRow,
         guideMode: 'non_location',
@@ -2377,18 +2640,8 @@ describe('chat router', () => {
         message: 'Tell me about the elephants.',
       })
 
-      expect(result.places).toEqual([
-        expect.objectContaining({
-          id: 'p1',
-          shortDescription: 'Meet the herd.',
-          areaName: 'Safari Zone',
-          hours: '9 AM-4 PM',
-          photoUrl: null,
-          distanceMeters: undefined,
-          lat: null,
-          lng: null,
-        }),
-      ])
+      expect(result.response).toBe('The elephants are in the Safari Zone.')
+      expect(result.places).toEqual([])
       expect(guestTurnActions.reserve).toHaveBeenCalledWith(
         expect.objectContaining({
           request: expect.objectContaining({ retainLocation: false }),
@@ -2401,11 +2654,47 @@ describe('chat router', () => {
         expect.objectContaining({
           eventType: 'message.received',
           metadata: expect.objectContaining({
-            placesReturned: 1,
+            placesReturned: 0,
             retrievalMode: 'semantic-without-live-location',
           }),
         }),
       )
+    })
+
+    it('returns an approved image card for a non-location guide without directions', async () => {
+      setupHappyPath('The Elephants habitat is open.', {
+        ...venueRow,
+        guideMode: 'non_location',
+        chatShowPhotos: true,
+      })
+      readApprovedGuestPlaceMedia.mockResolvedValueOnce(
+        new Map([
+          [
+            'p1',
+            {
+              photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=city-zoo',
+              photoAttribution: {
+                altText: 'Elephants',
+                caption: null,
+                sourceName: 'Zoo team',
+                sourceUrl: null,
+              },
+            },
+          ],
+        ]),
+      )
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.places).toEqual([
+        expect.objectContaining({
+          id: 'p1',
+          photoAttribution: expect.objectContaining({ altText: 'Elephants' }),
+          lat: null,
+          lng: null,
+          distanceMeters: undefined,
+        }),
+      ])
     })
 
     it('uses a complete default center only for ranking without claiming visitor distance', async () => {
@@ -2432,8 +2721,8 @@ describe('chat router', () => {
           id: 'p1',
           photoUrl: null,
           distanceMeters: undefined,
-          lat: null,
-          lng: null,
+          lat: 40.7,
+          lng: -74,
         }),
       ])
       expect(semanticSearch.places).toHaveBeenCalledWith(
@@ -2483,8 +2772,8 @@ describe('chat router', () => {
         expect.objectContaining({
           id: 'p1',
           distanceMeters: undefined,
-          lat: null,
-          lng: null,
+          lat: 40.7,
+          lng: -74,
         }),
       ])
       expect(semanticSearch.places).not.toHaveBeenCalled()

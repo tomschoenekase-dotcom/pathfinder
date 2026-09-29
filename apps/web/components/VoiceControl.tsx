@@ -33,7 +33,7 @@ export type FinalizedVoiceTranscriptLine = {
   voiceDelivery: 'CAPTURED' | 'INTERRUPTED'
   persistence: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
 }
-type LiveAssistantCaption = {
+export type LiveAssistantCaption = {
   responseId: string
   text: string
   interrupted: boolean
@@ -70,93 +70,6 @@ function parseToolArguments(value: unknown): Record<string, unknown> | null {
 function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
   const keys = Object.keys(value)
   return keys.length === expected.length && expected.every((key) => keys.includes(key))
-}
-
-async function cancelResponseBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel()
-  } catch {
-    // Cancellation is best-effort after the response has already failed closed.
-  }
-}
-
-export async function requestRealtimeSdpAnswer({
-  offerSdp,
-  clientSecret,
-  controller,
-  timeoutMs = REALTIME_SDP_REQUEST_TIMEOUT_MS,
-  fetchImpl = fetch,
-}: {
-  offerSdp: string
-  clientSecret: string
-  controller: AbortController
-  timeoutMs?: number
-  fetchImpl?: typeof fetch
-}): Promise<string> {
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-  let completed = false
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetchImpl('https://api.openai.com/v1/realtime/calls', {
-      method: 'POST',
-      body: offerSdp,
-      headers: {
-        Authorization: `Bearer ${clientSecret}`,
-        'Content-Type': 'application/sdp',
-      },
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      await cancelResponseBody(response)
-      throw new Error(`REALTIME_CONNECT_${response.status}`)
-    }
-
-    const declaredLength = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declaredLength) && declaredLength > REALTIME_SDP_RESPONSE_MAX_BYTES) {
-      await cancelResponseBody(response)
-      throw new Error('REALTIME_SDP_RESPONSE_TOO_LARGE')
-    }
-    if (!response.body) throw new Error('REALTIME_SDP_RESPONSE_UNAVAILABLE')
-
-    reader = response.body.getReader()
-    const chunks: Uint8Array[] = []
-    let receivedBytes = 0
-    const cancelReader = () => void reader?.cancel().catch(() => undefined)
-    controller.signal.addEventListener('abort', cancelReader, { once: true })
-    try {
-      for (;;) {
-        const result = await reader.read()
-        if (controller.signal.aborted) throw new Error('REALTIME_SDP_REQUEST_TIMEOUT')
-        if (result.done) break
-        receivedBytes += result.value.byteLength
-        if (receivedBytes > REALTIME_SDP_RESPONSE_MAX_BYTES) {
-          await reader.cancel()
-          throw new Error('REALTIME_SDP_RESPONSE_TOO_LARGE')
-        }
-        chunks.push(result.value)
-      }
-    } finally {
-      controller.signal.removeEventListener('abort', cancelReader)
-    }
-
-    const encodedAnswer = new Uint8Array(receivedBytes)
-    let offset = 0
-    for (const chunk of chunks) {
-      encodedAnswer.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    const answer = new TextDecoder().decode(encodedAnswer)
-    if (!answer.trim()) throw new Error('REALTIME_SDP_RESPONSE_INVALID')
-    completed = true
-    return answer
-  } catch (cause) {
-    if (controller.signal.aborted) throw new Error('REALTIME_SDP_REQUEST_TIMEOUT')
-    throw cause
-  } finally {
-    window.clearTimeout(timeoutId)
-    if (!completed && reader) await reader.cancel().catch(() => undefined)
-  }
 }
 
 function characterStateForVoice(state: VoiceState): CharacterState {
@@ -215,7 +128,12 @@ export function VoiceControl({
   disabled,
   onCharacterState,
   onTranscriptLine,
+  onLiveCaptionChange,
+  onCaptionAnnouncement,
   visitContext,
+  enabled = true,
+  onAvailabilityChange,
+  compact = false,
 }: {
   venueId: string
   anonymousToken: string | null
@@ -224,13 +142,18 @@ export function VoiceControl({
   visitContext?: GuestVisitContextInput
   onCharacterState?: (state: CharacterState) => void
   onTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
+  onLiveCaptionChange?: (caption: LiveAssistantCaption | null) => void
+  onCaptionAnnouncement?: (announcement: 'started' | 'interrupted') => void
+  enabled?: boolean
+  onAvailabilityChange?: (available: boolean) => void
+  compact?: boolean
 }) {
   const client = useTRPCClient()
   const visitContextRef = useRef(visitContext)
   visitContextRef.current = visitContext
   const [available, setAvailable] = useState(false)
   const [availabilityScopeKey, setAvailabilityScopeKey] = useState<string | null>(null)
-  const [premiumAvailable, setPremiumAvailable] = useState(false)
+  const [browserSupported, setBrowserSupported] = useState(false)
   const [state, setState] = useState<VoiceState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<VoiceTranscriptLine[]>([])
@@ -270,6 +193,27 @@ export function VoiceControl({
   onCharacterStateRef.current = onCharacterState
   const onTranscriptLineRef = useRef(onTranscriptLine)
   onTranscriptLineRef.current = onTranscriptLine
+  const onCaptionAnnouncementRef = useRef(onCaptionAnnouncement)
+  onCaptionAnnouncementRef.current = onCaptionAnnouncement
+  const announcedCaptionResponseRef = useRef<string | null>(null)
+  const liveCaptionResponseRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    onLiveCaptionChange?.(liveAssistantCaption)
+  }, [liveAssistantCaption, onLiveCaptionChange])
+
+  useEffect(() => {
+    if (!liveAssistantCaption) {
+      announcedCaptionResponseRef.current = null
+      return
+    }
+    if (announcedCaptionResponseRef.current !== liveAssistantCaption.responseId) {
+      announcedCaptionResponseRef.current = liveAssistantCaption.responseId
+      onCaptionAnnouncementRef.current?.('started')
+    }
+  }, [liveAssistantCaption?.responseId])
+
+  useEffect(() => () => onLiveCaptionChange?.(null), [onLiveCaptionChange])
   const scopeKey = JSON.stringify([venueId, anonymousToken])
   const scopeKeyRef = useRef(scopeKey)
   if (scopeKeyRef.current !== scopeKey) {
@@ -369,9 +313,20 @@ export function VoiceControl({
   )
 
   useEffect(() => {
-    if (!anonymousToken) {
+    const mediaDevices = navigator.mediaDevices as { getUserMedia?: unknown } | undefined
+    setBrowserSupported(
+      Boolean(
+        typeof mediaDevices?.getUserMedia === 'function' &&
+        typeof RTCPeerConnection !== 'undefined',
+      ),
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!browserSupported || !anonymousToken) {
       setAvailable(false)
       setAvailabilityScopeKey(scopeKey)
+      onAvailabilityChange?.(false)
       return
     }
     const controller = new AbortController()
@@ -388,8 +343,8 @@ export function VoiceControl({
         setLiveAssistantCaption(null)
         sequenceRef.current = 0
         setAvailable(result.enabled)
-        setPremiumAvailable(result.enabled && result.premiumAvailable)
         setAvailabilityScopeKey(scopeKey)
+        onAvailabilityChange?.(result.enabled)
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -399,14 +354,26 @@ export function VoiceControl({
           setLiveAssistantCaption(null)
           sequenceRef.current = 0
           setAvailable(false)
-          setPremiumAvailable(false)
           setAvailabilityScopeKey(scopeKey)
+          onAvailabilityChange?.(false)
         }
       })
     return () => {
       controller.abort()
     }
-  }, [anonymousToken, client.voice.availability, scopeKey, setVoiceState, venueId])
+  }, [
+    anonymousToken,
+    browserSupported,
+    client.voice.availability,
+    onAvailabilityChange,
+    scopeKey,
+    setVoiceState,
+    venueId,
+  ])
+
+  useEffect(() => {
+    if (!enabled) endSession()
+  }, [enabled, endSession])
 
   useEffect(
     () => () => {
@@ -609,6 +576,7 @@ export function VoiceControl({
               }
             }
             handledCaptionDeltaEventIdsRef.current.add(eventId)
+            liveCaptionResponseRef.current = responseId
             setLiveAssistantCaption((caption) => ({
               responseId,
               text: `${caption?.responseId === responseId ? caption.text : ''}${delta}`.slice(
@@ -888,6 +856,10 @@ export function VoiceControl({
           if (finalizedResponseIdsRef.current.has(event.response_id)) return
           const responseId = event.response_id
           interruptedResponseIdsRef.current.add(responseId)
+          if (liveCaptionResponseRef.current === responseId) {
+            onCaptionAnnouncementRef.current?.('interrupted')
+            liveCaptionResponseRef.current = null
+          }
           routeRequestsRef.current.get(responseId)?.abort()
           setLiveAssistantCaption((caption) =>
             caption?.responseId === responseId ? { ...caption, interrupted: true } : caption,
@@ -973,7 +945,7 @@ export function VoiceControl({
         venueId,
         anonymousToken,
         locale,
-        tier: premiumAvailable ? 'PREMIUM' : 'ECONOMY',
+        tier: 'ECONOMY',
         ...(visitContextRef.current ? { visitContext: visitContextRef.current } : {}),
       })
       voiceSessionId = authorization.voiceSessionId
@@ -1117,17 +1089,31 @@ export function VoiceControl({
       if (!offer.sdp) throw new Error('VOICE_SDP_UNAVAILABLE')
       const realtimeController = new AbortController()
       realtimeRequestRef.current = realtimeController
-      const answerSdp = await requestRealtimeSdpAnswer({
-        offerSdp: offer.sdp,
-        clientSecret: authorization.clientSecret,
-        controller: realtimeController,
+      const { sdpAnswer } = await runBoundedClientRequest({
+        parentSignal: realtimeController.signal,
+        timeoutMs: REALTIME_SDP_REQUEST_TIMEOUT_MS,
+        request: (signal) =>
+          client.voice.connect.mutate(
+            {
+              venueId,
+              anonymousToken,
+              voiceSessionId: authorization.voiceSessionId,
+              sdpOffer: offer.sdp!,
+              ...(visitContextRef.current ? { visitContext: visitContextRef.current } : {}),
+            },
+            { signal },
+          ),
       })
       if (realtimeRequestRef.current === realtimeController) realtimeRequestRef.current = null
       if (!isCurrentAttempt()) {
         await closeStaleAttempt()
         return
       }
-      await peer.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+      if (!sdpAnswer.trim()) throw new Error('REALTIME_SDP_RESPONSE_INVALID')
+      if (new TextEncoder().encode(sdpAnswer).byteLength > REALTIME_SDP_RESPONSE_MAX_BYTES) {
+        throw new Error('REALTIME_SDP_RESPONSE_TOO_LARGE')
+      }
+      await peer.setRemoteDescription({ type: 'answer', sdp: sdpAnswer })
       if (!isCurrentAttempt()) {
         await closeStaleAttempt()
         return
@@ -1151,14 +1137,25 @@ export function VoiceControl({
         await closeStaleAttempt()
         return
       }
-      setError(readableError(cause))
+      const errorCode =
+        cause && typeof cause === 'object'
+          ? ((cause as { data?: { code?: unknown }; code?: unknown }).data?.code ??
+            (cause as { code?: unknown }).code)
+          : null
+      if (errorCode === 'TOO_MANY_REQUESTS') {
+        setError(
+          'Voice is busy or has reached this venue’s limit. Continue in text and try again later.',
+        )
+      } else {
+        setError(readableError(cause))
+      }
       await endSession({ fallbackToText: true, errorCode: 'CLIENT_CONNECTION_FAILED' })
     } finally {
       if (startingAttemptRef.current === attemptGeneration) startingAttemptRef.current = null
     }
   }
 
-  if (!available || availabilityScopeKey !== scopeKey) return null
+  if (!available || availabilityScopeKey !== scopeKey || !enabled) return null
 
   return (
     <VoiceControlPanel
@@ -1169,6 +1166,7 @@ export function VoiceControl({
       liveAssistantCaption={liveAssistantCaption}
       onStart={() => void startSession()}
       onEnd={() => void endSession()}
+      compact={compact}
     />
   )
 }
@@ -1181,6 +1179,7 @@ export function VoiceControlPanel({
   liveAssistantCaption,
   onStart,
   onEnd,
+  compact = false,
 }: {
   state: VoiceState
   disabled: boolean
@@ -1189,6 +1188,7 @@ export function VoiceControlPanel({
   liveAssistantCaption?: LiveAssistantCaption | null
   onStart: () => void
   onEnd: () => void
+  compact?: boolean
 }) {
   const active = state !== 'idle' && state !== 'error'
   const canRetry = state === 'error'
@@ -1198,6 +1198,37 @@ export function VoiceControlPanel({
     const viewport = transcriptViewportRef.current
     if (viewport) viewport.scrollTop = viewport.scrollHeight
   }, [liveAssistantCaption?.interrupted, liveAssistantCaption?.text, transcript.length])
+
+  if (compact) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled={disabled || state === 'requesting' || state === 'connecting'}
+          onClick={active ? onEnd : onStart}
+          className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] text-[var(--chat-text)] hover:border-[var(--chat-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={
+            active
+              ? 'End voice conversation'
+              : canRetry
+                ? 'Try voice conversation again'
+                : 'Start voice conversation'
+          }
+          aria-pressed={active}
+          title={voiceStateLabel(state)}
+        >
+          {active ? (
+            <MicOff className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Mic className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
+        <span className="sr-only" role={error ? 'alert' : 'status'} aria-live="polite">
+          {error ?? (active ? voiceStateLabel(state) : '')}
+        </span>
+      </>
+    )
+  }
 
   return (
     <div className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-2">

@@ -827,8 +827,9 @@ export function ProspectImportWorkbench() {
                   Approve reviewed rows and import
                 </button>
               ) : null}
-              {detail.prospectImport.status === 'DRY_RUN_READY' &&
-              detail.prospectImport.progressCursor !== 'DRY_RUN_READY' ? (
+              {(detail.prospectImport.status === 'DRY_RUN_READY' &&
+                detail.prospectImport.progressCursor !== 'DRY_RUN_READY') ||
+              (detail.prospectImport.status === 'DRAFT' && detail.prospectImport.totalRows > 0) ? (
                 <button
                   type="button"
                   disabled={busy}

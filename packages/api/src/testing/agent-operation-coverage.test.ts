@@ -41,6 +41,36 @@ describe('agent operation coverage inventory', () => {
     expect(report.operations.bindings.validation.duplicateOperations).toEqual([])
     expect(report.operations.bindings.validation.unavailableSurfaces).toEqual([])
     expect(report.operations.bindings.validation.digestMatches).toBe(true)
+    for (const [operationPath, kind, router] of [
+      ['admin.findProspectsForAssistant', 'query', 'adminProspectCrmAssistantDiscoveryRouter'],
+      ['admin.previewProspectSizeProposals', 'mutation', 'adminProspectCrmSizeProposalsRouter'],
+      ['admin.applyProspectSizeProposals', 'mutation', 'adminProspectCrmSizeProposalsRouter'],
+    ] as const) {
+      expect(
+        report.operations.entries.find(
+          (operation: { path: string }) => operation.path === operationPath,
+        ),
+      ).toMatchObject({
+        kind,
+        router,
+        categories: ['crm-billing'],
+        agentCoverage: 'partial',
+        developerCoverage: 'full',
+        status: 'classified',
+      })
+      expect(
+        report.operations.bindings.entries.find(
+          (operation: { path: string }) => operation.path === operationPath,
+        ),
+      ).toEqual({
+        path: operationPath,
+        kind: 'unbound',
+        ruleId: null,
+        surfaces: [],
+        evidence: '',
+        decision: 'No concrete agent surface has been reviewed for this operation.',
+      })
+    }
     expect(
       report.operations.entries.find(
         (operation: { path: string }) => operation.path === 'admin.prepareSupportPortableExport',

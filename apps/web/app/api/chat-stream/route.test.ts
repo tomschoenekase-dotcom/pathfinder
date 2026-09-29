@@ -44,10 +44,38 @@ describe('private-body chat streaming route', () => {
 
     expect(request.url).not.toContain('Where')
     expect(response.status).toBe(200)
-    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('cache-control')).toBe('no-store, no-transform')
     expect(response.headers.get('content-type')).toContain('application/x-ndjson')
+    expect(response.headers.get('x-accel-buffering')).toBe('no')
     expect((await response.text()).trim().split('\n')).toHaveLength(2)
     expect(mocks.stream).toHaveBeenCalledWith({ scope: 'anonymous' }, input)
+  })
+
+  it('makes the first delta readable before the answer stream completes', async () => {
+    let completed = false
+    mocks.stream.mockImplementation(async function* () {
+      yield { type: 'delta', delta: 'First words' }
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      completed = true
+      yield { type: 'complete', result: { response: 'First words, then more.' } }
+    })
+    const response = await POST(
+      new Request('https://guide.example/api/chat-stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    )
+    const reader = response.body!.getReader()
+
+    const first = await reader.read()
+    expect(new TextDecoder().decode(first.value)).toContain('"delta":"First words"')
+    expect(completed).toBe(false)
+
+    const second = await reader.read()
+    expect(new TextDecoder().decode(second.value)).toContain('"type":"complete"')
+    expect(completed).toBe(true)
+    await reader.cancel()
   })
 
   it('rejects oversized input before context or execution', async () => {

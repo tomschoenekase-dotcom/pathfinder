@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   approveProspectSendBatchAction,
+  createProspectCampaignAction,
   detectProspectDraftEscalations,
   PROSPECT_OUTREACH_MAX_BATCH,
   PROSPECT_OUTREACH_MAX_COHORT,
@@ -14,6 +15,53 @@ import {
 } from './prospect-outreach-actions'
 
 describe('prospect outreach policy', () => {
+  it('admits a reviewed-later contact to a draft campaign without making it send-ready', async () => {
+    const tx = {
+      prospectOrganization: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'org-1',
+            venues: [{ id: 'venue-1' }],
+            contacts: [{ id: 'contact-1', venueId: 'venue-1' }],
+          },
+        ]),
+      },
+      prospectOutreachCampaign: {
+        create: vi.fn().mockResolvedValue({ id: 'campaign-1' }),
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await createProspectCampaignAction(
+      {
+        name: 'Draft-only Chicago cohort',
+        organizationIds: ['org-1'],
+        cohortSnapshot: { territory: 'Chicago Metro' },
+        actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+      },
+      client as never,
+    )
+
+    expect(tx.prospectOrganization.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          contacts: expect.objectContaining({
+            where: expect.objectContaining({ emailReadiness: { not: 'INVALID' } }),
+          }),
+        }),
+      }),
+    )
+    expect(tx.prospectOutreachCampaign.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          members: {
+            create: [expect.objectContaining({ status: 'SELECTED', contactId: 'contact-1' })],
+          },
+        }),
+      }),
+    )
+  })
+
   it('flags business commitments and strategic prospects for explicit human review', () => {
     expect(
       detectProspectDraftEscalations({
@@ -103,6 +151,88 @@ describe('prospect outreach policy', () => {
 })
 
 describe('prospect frozen-intent invalidation', () => {
+  it('retains an unsendable draft for a contact awaiting human readiness review', async () => {
+    const tx = {
+      prospectCampaignMember: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'member-1',
+          campaignId: 'campaign-1',
+          organizationId: 'organization-1',
+          venueId: 'venue-1',
+          contactId: 'contact-1',
+          contact: {
+            normalizedEmail: 'hello@example.org',
+            doNotContact: false,
+            emailReadiness: 'REVIEW_REQUIRED',
+            permissionState: 'REVIEW_REQUIRED',
+            suppressedAt: null,
+            unsubscribedAt: null,
+          },
+          organization: { relationshipTier: 'STANDARD' },
+          drafts: [],
+        }),
+        update: vi.fn(),
+      },
+      prospectOutreachDraft: {
+        create: vi.fn().mockResolvedValue({ id: 'draft-1', status: 'NEEDS_REVIEW' }),
+      },
+      prospectActivity: { create: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await saveProspectOutreachDraftAction(
+      {
+        memberId: 'member-1',
+        subject: 'Torchiko at Example Museum',
+        textBody:
+          'Hi, I’m Tom Schoenekase. I’d enjoy showing you how Torchiko could help your visitors.',
+        groundingSnapshot: { source: 'official-venue-page' },
+        actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+      },
+      client as never,
+    )
+
+    expect(tx.prospectCampaignMember.update).toHaveBeenCalledWith({
+      where: { id: 'member-1' },
+      data: { status: 'DRAFTED' },
+    })
+    expect(tx.prospectOutreachDraft.create).toHaveBeenCalled()
+
+    const stageClient = {
+      $transaction: vi.fn((work) =>
+        work({
+          prospectOutreachDraft: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'draft-1',
+                campaignId: 'campaign-1',
+                status: 'APPROVED',
+                contact: {
+                  normalizedEmail: 'hello@example.org',
+                  emailReadiness: 'REVIEW_REQUIRED',
+                  permissionState: 'REVIEW_REQUIRED',
+                  doNotContact: false,
+                  suppressedAt: null,
+                  unsubscribedAt: null,
+                },
+              },
+            ]),
+          },
+        }),
+      ),
+    }
+    await expect(
+      stageProspectSendBatchAction(
+        {
+          campaignId: 'campaign-1',
+          draftIds: ['draft-1'],
+          actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+        },
+        stageClient as never,
+      ),
+    ).rejects.toMatchObject({ code: 'SUPPRESSED' })
+  })
+
   it('cancels staged and approved send intent when a newer draft supersedes it', async () => {
     const tx = {
       prospectCampaignMember: {

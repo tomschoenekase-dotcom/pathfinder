@@ -32,6 +32,10 @@ const requestOnly =
   /^(?:please\s+)?(?:tell|show|give|find|explain|help|add|remove|change|update|publish|approve|ignore|open|close)\b[^.?!]*[.!]?\s*$/iu
 const correction =
   /\b(?:actually|correction|correct(?:ion)?|in fact|the answer is|is wrong|was wrong|should be|rather than|not\s+[^.?!]{1,80}\s+but)\b/iu
+const explicitCorrection =
+  /^(?:correction\s*:|actually\b|in fact\b)|\b(?:your|the|that)\s+(?:answer|guide)\s+(?:is|was)\s+wrong\b|\b(?:this|that)\s+(?:isn['’]?t|is not|wasn['’]?t|was not)\s+(?:quite\s+)?right\b/iu
+const feedbackOnly =
+  /^(?:this|that)\s+(?:isn['’]?t|is not|wasn['’]?t|was not)\s+(?:quite\s+)?right[.!]?$/iu
 const alias =
   /\b(?:also known as|also called|called the same as|goes by|known as|aka\.?|short for)\b|\b(?:the|this)\s+[^.?!]{1,80}\s+is\s+(?:also\s+)?(?:called|known as)\b/iu
 const temporary =
@@ -98,6 +102,7 @@ export function classifyConversationLearningCandidate(
   if (
     !text ||
     text.length > 4000 ||
+    feedbackOnly.test(text) ||
     promptInjection.test(text) ||
     personalAssertion.test(text) ||
     (pureCopularOpinion.test(text) &&
@@ -112,6 +117,7 @@ export function classifyConversationLearningCandidate(
 
   const hedged = hedge.test(text)
 
+  if (explicitCorrection.test(text)) return result('FACTUAL_CORRECTION', hedged)
   if (temporary.test(text)) return result('TEMPORARY_UPDATE', hedged)
   if (alias.test(text)) return result('ALIAS', hedged)
   if (location.test(text)) return result('LOCATION', hedged)

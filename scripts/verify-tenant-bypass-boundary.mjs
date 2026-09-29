@@ -172,6 +172,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
   ['packages/api/src/routers/admin/client-analytics.ts', 2],
+  // Platform-admin visitor-speed aggregates only valid response timing per exact tenant+venue.
+  ['packages/api/src/routers/admin/visitor-speed.ts', 1],
   // Platform-admin client lifecycle includes an exact-tenant payment-due mutation.
   ['packages/api/src/routers/admin/client-management.ts', 8],
   // A retry-fenced platform-admin client creation binds exact prospect/customer continuity.
@@ -246,8 +248,8 @@ const approvedCallCounts = new Map([
   // Relocated platform-admin proposal listing retains exact tenant+venue and bounded projections.
   ['packages/api/src/routers/admin/knowledge-proposal-reads.ts', 1],
   ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
-  // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
-  ['packages/api/src/routers/admin/product-entitlements.ts', 3],
+  // Platform-admin entitlement reads, bounded venue voice usage, and append-only overrides retain explicit tenant scope.
+  ['packages/api/src/routers/admin/product-entitlements.ts', 4],
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
@@ -266,6 +268,10 @@ const approvedCallCounts = new Map([
   // explicit audited actor and no customer-tenant procedure exposure.
   ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 9],
   ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
+  // Human platform-admin-only size proposal preview and apply operate on platform CRM venues.
+  // Preview is bounded by exact proposed IDs; Apply rechecks identity/geography/row version
+  // inside the audited native writer. Neither route enters a customer tenant scope.
+  ['packages/api/src/routers/admin/prospect-crm-size-proposals.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
@@ -285,6 +291,9 @@ const approvedCallCounts = new Map([
   ['apps/dashboard/lib/character-import.ts', 1],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+  // Assistant Good fit read stays platform-admin-only, returns at most 25
+  // bounded CRM results, and shares the directory's explicit venue filter.
+  ['packages/api/src/routers/admin/prospect-crm-assistant-discovery.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.
   // The human-only inbox performs one bounded list and one append-only review transaction;
   // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
@@ -327,10 +336,10 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
-  // Platform maintenance atomically selects a bounded set of abandoned voice
-  // sessions and terminalizes only their exact identities. Returned rows contain
-  // lifecycle metadata for analytics; no transcript or customer content is read.
-  ['packages/db/src/helpers/voice-session-recovery.ts', 1],
+  // Voice recovery loads one exact active session, discovers bounded due hangups,
+  // finalizes one exact due session, and expires bounded abandoned sessions. Returned
+  // rows contain lifecycle metadata; no transcript or customer content is read.
+  ['packages/db/src/helpers/voice-session-recovery.ts', 4],
   // Platform maintenance performs one bounded, read-only Gmail retention inventory across
   // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
   // never returns body content or mutates retention state.
@@ -703,6 +712,39 @@ function runSelfTests() {
 }
 
 runSelfTests()
+
+// R2 combines three independently reviewed additions on the R1.1 inventory.
+// Packet 5 adds one platform-admin usage read and three voice recovery calls.
+// Keep their per-file counts and the aggregate explicit so a later packet must
+// review any drift instead of inheriting a silently expanded cross-tenant grant.
+const r2ApprovedDelta = new Map([
+  ['packages/api/src/routers/admin/visitor-speed.ts', 1],
+  ['packages/api/src/routers/admin/prospect-crm-size-proposals.ts', 2],
+  ['packages/api/src/routers/admin/prospect-crm-assistant-discovery.ts', 1],
+])
+for (const [fileName, addition] of r2ApprovedDelta) {
+  const r11Count = 0
+  if (approvedCallCounts.get(fileName) !== r11Count + addition) {
+    throw new Error(`R2 tenant bypass delta differs for ${fileName}`)
+  }
+}
+const r2ApprovedTotal = [...approvedCallCounts.values()].reduce((sum, count) => sum + count, 0)
+const packet5ApprovedDelta = 4
+if (
+  approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !==
+  3 + 1
+) {
+  throw new Error('Packet 5 venue voice usage bypass delta differs')
+}
+if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') !== 1 + 3) {
+  throw new Error('Packet 5 voice-session recovery bypass delta differs')
+}
+if (
+  r2ApprovedTotal !==
+  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) + packet5ApprovedDelta
+) {
+  throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
+}
 
 const sourceFiles = (
   await Promise.all(

@@ -64,6 +64,11 @@ describe('ClientBillingView', () => {
 
     rerender(<ClientBillingView state="empty" billing={null} />)
     expect(screen.getByRole('heading', { name: 'No billing arrangement yet' })).toBeTruthy()
+    expect(screen.getByText(/agreed price and secure payment link/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Choose a plan' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Contact Torchiko' }).getAttribute('href')).toBe(
+      '/support',
+    )
   })
 
   it('shows reconciliation and failure recovery without exposing provider internals', () => {
@@ -86,7 +91,7 @@ describe('ClientBillingView', () => {
     )
 
     expect(screen.getByText('Billing update in progress')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Try payment again' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update payment details' }))
     expect(retry).toHaveBeenCalledOnce()
     expect(document.body.textContent).not.toContain('Do not show this internal note')
     expect(document.body.textContent).not.toContain('cus_private_test_identifier')

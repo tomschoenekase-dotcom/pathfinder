@@ -17,8 +17,95 @@ import { adminProcedure } from '../../trpc'
 
 const settingValue = z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()])
 const settings = z.record(z.string().max(100), settingValue)
+const monthInput = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/u, 'Month must use YYYY-MM format.')
 
 export const adminProductEntitlementsRouter = router({
+  getVenueVoiceUsageSummary: adminProcedure
+    .input(
+      z
+        .object({ tenantId: z.string().min(1), venueId: z.string().min(1), month: monthInput })
+        .strict(),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const venue = await db.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        })
+        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found.' })
+
+        const start = new Date(`${input.month}-01T00:00:00.000Z`)
+        const end = new Date(start)
+        end.setUTCMonth(end.getUTCMonth() + 1)
+        const [sessions, usage] = await Promise.all([
+          db.voiceSession.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              connectedAt: { not: null, lt: end },
+              OR: [{ endedAt: null }, { endedAt: { gt: start } }],
+            },
+            select: {
+              connectedAt: true,
+              endedAt: true,
+              durationSeconds: true,
+              maxDurationSeconds: true,
+            },
+          }),
+          db.aiUsageEvent.aggregate({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              feature: 'realtime-voice',
+              usageObservationStatus: 'CLIENT_REPORTED',
+              createdAt: { gte: start, lt: end },
+            },
+            _sum: { estimatedCostUsd: true },
+          }),
+        ])
+        const now = new Date()
+        let sessionCount = 0
+        const durationSeconds = sessions.reduce((sum, session) => {
+          if (!session.connectedAt) return sum
+          const sessionStart = session.connectedAt
+          const elapsedEnd = session.endedAt
+            ? new Date(
+                Math.min(
+                  session.endedAt.getTime(),
+                  sessionStart.getTime() + session.durationSeconds * 1_000,
+                ),
+              )
+            : new Date(
+                Math.min(
+                  now.getTime(),
+                  sessionStart.getTime() + session.maxDurationSeconds * 1_000,
+                ),
+              )
+          const overlapStart = Math.max(sessionStart.getTime(), start.getTime())
+          const overlapEnd = Math.min(elapsedEnd.getTime(), end.getTime())
+          const overlapSeconds = Math.max(0, (overlapEnd - overlapStart) / 1_000)
+          if (overlapSeconds > 0) sessionCount += 1
+          return sum + overlapSeconds
+        }, 0)
+        const minutes = durationSeconds / 60
+        const estimatedCost = usage._sum.estimatedCostUsd
+        return {
+          month: input.month,
+          durationSeconds: Number(durationSeconds.toFixed(3)),
+          minutes: Number(minutes.toFixed(2)),
+          sessionCount,
+          estimatedCostUsd: estimatedCost?.toFixed(8) ?? '0.00000000',
+          estimatedCostPerMinuteUsd:
+            minutes > 0
+              ? (estimatedCost?.dividedBy(durationSeconds).times(60).toFixed(8) ?? '0.00000000')
+              : null,
+          costIsEstimate: true as const,
+          durationAttribution: 'voiceSession.connectedAt UTC-month overlap' as const,
+          costAttribution: 'AiUsageEvent.createdAt' as const,
+        }
+      }),
+    ),
+
   listProductEntitlements: adminProcedure
     .input(
       z.object({ tenantId: z.string().min(1), venueId: z.string().min(1).optional() }).strict(),

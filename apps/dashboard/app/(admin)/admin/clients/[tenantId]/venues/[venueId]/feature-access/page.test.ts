@@ -14,6 +14,8 @@ describe('venue feature access route', () => {
     expect(shell).toContain("label: 'Feature access'")
     expect(page).toContain('caller.admin.getClientVenue({ tenantId, venueId })')
     expect(page).toContain('caller.admin.listProductEntitlements({ tenantId, venueId })')
+    expect(page).toContain('getVenueVoiceUsageSummary({')
+    expect(page).toContain('.catch(() => null)')
     expect(page).toContain('VenueFeatureAccessControl')
     expect(page).toContain('No entitlement, billing record, or provider setting was changed')
   })

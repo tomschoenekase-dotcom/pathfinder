@@ -1,144 +1,127 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
-  createContext: vi.fn(async (input: unknown) => {
-    void input
-    return {}
-  }),
-  enabled: vi.fn(),
-  getBySlug: vi.fn(),
-  availability: vi.fn(),
+const mocks = vi.hoisted(() => ({ resolve: vi.fn(), getPublicVenue: vi.fn() }))
+vi.mock('@pathfinder/db', () => ({ resolveCachedVenueDistribution: mocks.resolve }))
+vi.mock('@pathfinder/ui/theme', () => ({
+  getChatPalette: () => ({ accent: '#3570a8', bg: '#0d1116', isDark: true }),
+  isHexColor: (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}$/iu.test(value),
 }))
-
-vi.mock('@pathfinder/api', () => ({
-  appRouter: {
-    createCaller: () => ({
-      venue: { getBySlug: mocks.getBySlug },
-      widget: { availability: mocks.availability },
-    }),
-  },
-  createTRPCContext: mocks.createContext,
-}))
-
-vi.mock('@pathfinder/config/feature-flags', () => ({
-  isEmbedPreviewEnabled: mocks.enabled,
-}))
+vi.mock('../../../../lib/public-venue', () => ({ getPublicVenue: mocks.getPublicVenue }))
 
 import { GET } from './route'
 
-function request(slug = 'museum', headers?: HeadersInit) {
+const admitted = {
+  venueId: 'venue-1',
+  tenantId: 'tenant-1',
+  venueActive: true,
+  website: {
+    effective: true,
+    framed: true,
+    reason: null,
+    frameReason: null,
+    origins: ['https://venue.example'],
+  },
+  app: { effective: false, reason: 'SURFACE_DISABLED' },
+  revision: 3,
+}
+
+function request(slug = 'museum', version?: '2', headers?: HeadersInit) {
+  const suffix = version ? '?v=2' : ''
   return GET(
-    new Request(`https://guide.example/api/widget-ready/${slug}`, headers ? { headers } : {}),
-    {
-      params: Promise.resolve({ venueSlug: slug }),
-    },
+    new Request(
+      `https://guide.example/api/widget-ready/${slug}${suffix}`,
+      headers ? { headers } : {},
+    ),
+    { params: Promise.resolve({ venueSlug: slug }) },
   )
 }
 
 describe('widget fail-invisible readiness probe', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.enabled.mockReturnValue(true)
-    mocks.getBySlug.mockResolvedValue({ id: 'venue-1' })
-    mocks.availability.mockResolvedValue({ enabled: true })
+    mocks.resolve.mockResolvedValue(admitted)
+    mocks.getPublicVenue.mockResolvedValue({
+      id: 'venue-1',
+      name: 'Museum of Long Names That Need Truncation',
+      aiGuideName: null,
+      chatTheme: 'midnight',
+      chatAccentColor: '#0b5cff',
+    })
   })
 
-  it('returns only a non-cacheable public readiness bit for an available venue', async () => {
-    const response = await request('museum', {
-      Origin: 'https://venue.example',
-      Referer: 'https://venue.example/page',
-    })
-
+  it('keeps the legacy bodyless 204 contract for callers without v=2', async () => {
+    const response = await request('museum', undefined, { Origin: 'https://venue.example' })
     expect(response.status).toBe(204)
     expect(await response.text()).toBe('')
-    expect(response.headers.get('access-control-allow-origin')).toBe('*')
-    expect(response.headers.get('access-control-expose-headers')).toBe(
-      'X-PathFinder-Revision, X-PathFinder-Widget-Ready',
-    )
-    expect(response.headers.get('cache-control')).toBe('no-store')
-    expect(response.headers.get('cross-origin-resource-policy')).toBe('cross-origin')
     expect(response.headers.get('x-pathfinder-widget-ready')).toBe('1')
-    expect(response.headers.get('x-pathfinder-revision')).toEqual(expect.any(String))
-    expect([...response.headers.keys()].sort()).toEqual([
-      'access-control-allow-origin',
-      'access-control-expose-headers',
-      'cache-control',
-      'cross-origin-resource-policy',
-      'x-content-type-options',
-      'x-pathfinder-revision',
-      'x-pathfinder-widget-ready',
-    ])
-    expect(mocks.availability).toHaveBeenCalledWith({ venueSlug: 'museum' })
-    const contextInput = mocks.createContext.mock.calls[0]?.[0] as { req: Request }
-    const contextRequest = contextInput.req
-    expect(contextRequest.headers.get('origin')).toBeNull()
-    expect(contextRequest.headers.get('referer')).toBeNull()
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(mocks.getPublicVenue).not.toHaveBeenCalled()
   })
 
-  it('reports the reviewed release fallback and fails closed on provider drift', async () => {
-    const originalProvider = process.env.RAILWAY_GIT_COMMIT_SHA
-    const originalConfigured = process.env.PATHFINDER_RELEASE_SHA
-    const revision = 'a'.repeat(40)
-    try {
-      delete process.env.RAILWAY_GIT_COMMIT_SHA
-      process.env.PATHFINDER_RELEASE_SHA = revision
-      expect((await request()).headers.get('x-pathfinder-revision')).toBe(revision)
-
-      process.env.RAILWAY_GIT_COMMIT_SHA = 'b'.repeat(40)
-      expect((await request()).headers.get('x-pathfinder-revision')).toBe('unknown')
-    } finally {
-      if (originalProvider === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA
-      else process.env.RAILWAY_GIT_COMMIT_SHA = originalProvider
-      if (originalConfigured === undefined) delete process.env.PATHFINDER_RELEASE_SHA
-      else process.env.PATHFINDER_RELEASE_SHA = originalConfigured
-    }
+  it('returns a word-bounded label and sanitized accent, theme, and background for v2', async () => {
+    const response = await request('museum', '2')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      v: 2,
+      label: 'Ask Museum of Long Names That Need…',
+      accent: '#0b5cff',
+      theme: 'dark',
+      background: '#0d1116',
+    })
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('x-pathfinder-widget-ready')).toBeNull()
   })
 
-  it('fails closed before context or venue lookup when the preview is disabled', async () => {
-    mocks.enabled.mockReturnValue(false)
-
-    const response = await request()
-
-    expect(response.status).toBe(404)
-    expect(mocks.createContext).not.toHaveBeenCalled()
-    expect(mocks.getBySlug).not.toHaveBeenCalled()
+  it('prefers a configured AI guide name for the public launcher label', async () => {
+    mocks.getPublicVenue.mockResolvedValueOnce({
+      id: 'venue-1',
+      name: 'City Museum',
+      aiGuideName: 'CITY',
+      chatTheme: 'midnight',
+      chatAccentColor: '#0b5cff',
+    })
+    const response = await request('museum', '2')
+    expect(await response.json()).toMatchObject({ label: 'Ask CITY' })
   })
 
-  it.each(['Museum', '../museum', 'museum?admin=1', 'a'.repeat(201)])(
-    'rejects malformed slug authority before context creation: %s',
-    async (slug) => {
-      const response = await request(slug)
-
-      expect(response.status).toBe(404)
-      expect(mocks.createContext).not.toHaveBeenCalled()
-      expect(mocks.getBySlug).not.toHaveBeenCalled()
-    },
-  )
+  it('narrows the probe to an admitted Origin and allows missing Origin', async () => {
+    expect((await request('museum', '2', { Origin: 'https://unapproved.example' })).status).toBe(
+      404,
+    )
+    expect((await request('museum', '2')).status).toBe(200)
+    expect((await request('museum', '2', { Origin: 'https://venue.example' })).status).toBe(200)
+  })
 
   it.each([
-    [{ code: 'NOT_FOUND' }, 404],
-    [{ code: 'SERVICE_UNAVAILABLE' }, 503],
-    [new Error('unexpected internal failure'), 503],
-  ] as const)('returns a bodyless failure for %o', async (error, status) => {
-    mocks.availability.mockRejectedValue(error)
-
-    const response = await request('missing')
-
-    expect(response.status).toBe(status)
-    expect(await response.text()).toBe('')
-    expect(response.headers.get('access-control-allow-origin')).toBe('*')
-    expect(response.headers.get('cache-control')).toBe('no-store')
-    expect(response.headers.get('x-pathfinder-widget-ready')).toBeNull()
+    ['inactive venue', { ...admitted, venueActive: false }],
+    [
+      'disabled website',
+      {
+        ...admitted,
+        website: {
+          effective: false,
+          framed: false,
+          reason: 'SURFACE_DISABLED',
+          frameReason: 'NO_ORIGINS',
+          origins: [],
+        },
+      },
+    ],
+  ])('fails closed for %s', async (_label, distribution) => {
+    mocks.resolve.mockResolvedValueOnce(distribution)
+    expect((await request('museum', '2')).status).toBe(404)
   })
 
-  it('contains context-construction failures in the same bodyless unavailable response', async () => {
-    mocks.createContext.mockRejectedValueOnce(new Error('context unavailable'))
-
-    const response = await request()
-
+  it('returns 503 without leaking internal errors', async () => {
+    mocks.resolve.mockRejectedValueOnce(new Error('database detail'))
+    const response = await request('museum', '2')
     expect(response.status).toBe(503)
     expect(await response.text()).toBe('')
-    expect(response.headers.get('x-pathfinder-widget-ready')).toBeNull()
-    expect(mocks.getBySlug).not.toHaveBeenCalled()
+    expect(response.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('rejects malformed slugs before the public resolver', async () => {
+    expect((await request('../museum', '2')).status).toBe(404)
+    expect(mocks.resolve).not.toHaveBeenCalled()
   })
 })

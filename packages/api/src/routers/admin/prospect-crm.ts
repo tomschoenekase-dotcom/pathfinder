@@ -5,10 +5,12 @@ import { adminProspectCrmDirectoryRouter } from './prospect-crm-directory'
 import { adminProspectCrmImportRouter } from './prospect-crm-import'
 import { adminProspectCrmImportRetryRouter } from './prospect-crm-import-retry'
 import { adminProspectCrmImportRepairRouter } from './prospect-crm-import-repair'
+import { adminProspectCrmAssistantDiscoveryRouter } from './prospect-crm-assistant-discovery'
 import { adminProspectCrmIntelligenceRouter } from './prospect-crm-intelligence'
 import { adminProspectCrmMutationsRouter } from './prospect-crm-mutations'
 import { adminProspectCrmOutreachRouter } from './prospect-crm-outreach'
 import { adminProspectCrmSavedViewsRouter } from './prospect-crm-saved-views'
+import { adminProspectCrmSizeProposalsRouter } from './prospect-crm-size-proposals'
 import { adminProspectCrmTerritoriesRouter } from './prospect-crm-territories'
 
 export const adminProspectCrmRouter = mergeRouters(
@@ -20,7 +22,9 @@ export const adminProspectCrmRouter = mergeRouters(
   adminProspectCrmImportRetryRouter,
   adminProspectCrmImportRepairRouter,
   adminProspectCrmDuplicatesRouter,
+  adminProspectCrmAssistantDiscoveryRouter,
   adminProspectCrmIntelligenceRouter,
   adminProspectCrmOutreachRouter,
   adminProspectCrmSavedViewsRouter,
+  adminProspectCrmSizeProposalsRouter,
 )

@@ -95,6 +95,7 @@ import { createSemanticUniversalContentDraftService } from '../lib/semantic-univ
 import { createLegacyKnowledgeAdoptionDraftService } from '../lib/legacy-knowledge-adoption-service'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
+import { createDistributionMcpActions } from './distribution-actions'
 
 /** Exact tools with a real safe-runtime domain binding. Contract-only tools are deliberately
  * omitted until their canonical action, attribution, approval, and replay behavior are bound. */
@@ -116,6 +117,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.create_typed_draft',
   'torchiko.knowledge.adopt_legacy_draft',
   'torchiko.locations.propose_draft',
+  'torchiko.distribution.get',
+  'torchiko.distribution.propose_change',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
   'pathfinder.propose_support_information_request',
@@ -222,6 +225,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'createSemanticUniversalContentDraft'
     | 'createLegacyKnowledgeAdoptionDraft'
     | 'proposeLocationDraft'
+    | 'distributionGet'
+    | 'distributionProposeChange'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
     | 'proposeSupportInformationRequest'
@@ -4983,7 +4988,12 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const reads = createPathfinderMcpReadActions(
     database as unknown as Parameters<typeof createPathfinderMcpReadActions>[0],
-    { ...unavailableActions, ...companyBrainReads, ...approvedWrites },
+    {
+      ...unavailableActions,
+      ...companyBrainReads,
+      ...approvedWrites,
+      ...createDistributionMcpActions(database),
+    },
   )
   const actions = createPathfinderMcpAgentActions(database, reads)
   return createPathfinderMcpRegistry(actions, {

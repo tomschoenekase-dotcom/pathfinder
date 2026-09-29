@@ -24,6 +24,7 @@ const scopeSchema = z
 const requestObjectSchema = scopeSchema
   .extend({
     visitorId: z.string().uuid().nullable(),
+    entrySurface: z.enum(['direct', 'qr', 'website', 'app']).optional(),
     message: z.string().trim().min(1).max(1000),
     entryPlaceId: z.string().trim().min(1).max(191).optional(),
     language: z.string().trim().min(1).max(64).nullable(),
@@ -496,6 +497,15 @@ export async function reserveGuestChatTurnAction(args: {
               latestLat: request.retainLocation ? request.lat : null,
               latestLng: request.retainLocation ? request.lng : null,
               experienceScope,
+              ...(experienceScope === 'PUBLIC' && request.entrySurface
+                ? {
+                    entrySurface: request.entrySurface.toUpperCase() as
+                      | 'DIRECT'
+                      | 'QR'
+                      | 'WEBSITE'
+                      | 'APP',
+                  }
+                : {}),
             },
             select: {
               id: true,
@@ -920,6 +930,7 @@ export async function claimGuestChatTurnAction(args: {
     return {
       state: 'GENERATING' as const,
       turnId: turn.id,
+      turnSequence: turn.turnSequence,
       sessionId: turn.sessionId,
       claimId: claim.claimId,
       providerOperations: turn.providerOperations.map((op) => ({

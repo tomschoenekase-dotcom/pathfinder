@@ -132,6 +132,56 @@ function tenantProcedures(source, fileName = 'fixture.ts') {
   return { procedures, violations }
 }
 
+function applyTenantRouterMounts(procedures, tenantRouterSource) {
+  const sourceFile = ts.createSourceFile(
+    'routers/tenant.ts',
+    tenantRouterSource,
+    ts.ScriptTarget.Latest,
+    true,
+  )
+  const importedDistributionRouters = new Set()
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      statement.moduleSpecifier.text !== './tenant/venue-distribution' ||
+      !statement.importClause?.namedBindings ||
+      !ts.isNamedImports(statement.importClause.namedBindings)
+    ) continue
+    for (const element of statement.importClause.namedBindings.elements) {
+      importedDistributionRouters.add(element.name.text.replace(/Router$/u, ''))
+    }
+  }
+
+  let mountedAs = null
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name) || declaration.name.text !== 'tenantRouter' ||
+        !declaration.initializer
+      ) continue
+      const initializer = unwrapExpression(declaration.initializer)
+      if (
+        !ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression) ||
+        initializer.expression.text !== 'router' || !initializer.arguments[0] ||
+        !ts.isObjectLiteralExpression(initializer.arguments[0])
+      ) continue
+      for (const property of initializer.arguments[0].properties) {
+        if (
+          !ts.isPropertyAssignment(property) || staticPropertyName(property.name) !== 'venueDistribution' ||
+          !ts.isIdentifier(property.initializer) ||
+          !importedDistributionRouters.has(property.initializer.text.replace(/Router$/u, ''))
+        ) continue
+        mountedAs = { localName: property.initializer.text.replace(/Router$/u, ''), prefix: 'tenant.venueDistribution' }
+      }
+    }
+  }
+  if (!mountedAs) return procedures
+  return procedures.map((procedure) => procedure.path.startsWith(`${mountedAs.localName}.`)
+    ? { ...procedure, path: `${mountedAs.prefix}.${procedure.path.slice(mountedAs.localName.length + 1)}` }
+    : procedure)
+}
+
 function containsTenantAuthority(value) {
   if (Array.isArray(value)) return value.some(containsTenantAuthority)
   if (!value || typeof value !== 'object') return false
@@ -250,6 +300,17 @@ function runSelfTests() {
     throw new Error('Tenant procedure coverage verifier failed its alias self-test')
   }
 
+  const nested = tenantProcedures(`
+    const tenantDistributionReadbackRouter = router({ readback: tenantProcedure.query(async () => null) })
+  `, 'venue-distribution.ts')
+  const mounted = applyTenantRouterMounts(nested.procedures, `
+    import { tenantDistributionReadbackRouter } from './tenant/venue-distribution'
+    const tenantRouter = router({ venueDistribution: tenantDistributionReadbackRouter })
+  `)
+  if (mounted[0]?.path !== 'tenant.venueDistribution.readback') {
+    throw new Error('Tenant procedure coverage verifier failed its nested router mount self-test')
+  }
+
   for (const [name, fixtureSource] of [
     [
       'spread-hidden route',
@@ -282,14 +343,16 @@ const parsed = await Promise.all(
 )
 const procedures = parsed.flatMap((result) => result.procedures)
 const parserViolations = parsed.flatMap((result) => result.violations)
+const tenantRouterSource = await readFile(path.join(apiSourceDirectory, 'routers/tenant.ts'), 'utf8')
+const canonicalProcedures = applyTenantRouterMounts(procedures, tenantRouterSource)
 const cases = JSON.parse(await readFile(casesPath, 'utf8'))
 if (!Array.isArray(cases)) throw new Error('Tenant procedure case catalog must be an array')
 
-const violations = auditCoverage(procedures, cases, parserViolations)
+const violations = auditCoverage(canonicalProcedures, cases, parserViolations)
 if (violations.length > 0) {
   console.error('Tenant procedure cross-tenant coverage violations:')
   for (const violation of [...new Set(violations)].sort()) console.error(`- ${violation}`)
   process.exit(1)
 }
 
-console.log(`Verified generated cross-tenant coverage for ${procedures.length} tenant procedures.`)
+console.log(`Verified generated cross-tenant coverage for ${canonicalProcedures.length} tenant procedures.`)

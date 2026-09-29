@@ -23,6 +23,7 @@ import { adminAgentRoutinesRouter } from './agent-routines'
 import { adminAgentOutcomesRouter } from './agent-outcomes'
 import { adminChatlogsRouter } from './chatlogs'
 import { adminClientAnalyticsRouter } from './client-analytics'
+import { adminVisitorSpeedRouter } from './visitor-speed'
 import { adminClientManagementRouter } from './client-management'
 import { adminClientSearchRouter } from './client-search'
 import { adminClientDirectorySearchRouter } from './client-directory-search'
@@ -84,6 +85,7 @@ import { adminPublicInterestRouter } from './public-interest'
 import { adminReleaseEvidenceRouter } from './release-evidence'
 import { adminIntakeMediaAssetRouter } from './venue-media'
 import { adminCharacterFactoryRouter } from './character-factory'
+import { adminVenueDistributionRouter } from './venue-distribution'
 
 export const adminRouter = mergeRouters(
   adminVenueLaunchAssetsRouter,
@@ -150,6 +152,7 @@ export const adminRouter = mergeRouters(
   adminUniversalContentRouter,
   adminClientReadsRouter,
   adminClientAnalyticsRouter,
+  adminVisitorSpeedRouter,
   adminClientManagementRouter,
   adminClientSearchRouter,
   adminClientDirectorySearchRouter,
@@ -170,4 +173,5 @@ export const adminRouter = mergeRouters(
   adminVisitorFeedbackHazardEvidenceRouter,
   adminCustomerAccessExecutionRouter,
   adminCharacterFactoryRouter,
+  adminVenueDistributionRouter,
 )

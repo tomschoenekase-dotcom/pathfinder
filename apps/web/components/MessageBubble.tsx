@@ -1,6 +1,4 @@
-import { useState } from 'react'
 import styles from './visitor-chat.module.css'
-import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type {
   GuestResponseBlock,
@@ -12,12 +10,21 @@ import { ResponseRenderer } from './ResponseRenderer'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
 
+/** Which reading surface each speaker's text sits on, resolved from the venue appearance. */
+export type MessageSurfaces = {
+  user: 'bubble' | 'none'
+  assistant: 'bubble' | 'protected' | 'none'
+}
+
+const DEFAULT_SURFACES: MessageSurfaces = { user: 'bubble', assistant: 'none' }
+
 type MessageBubbleProps = {
   role: 'user' | 'assistant'
   content: string
   assistantLabel?: string
-  bubbleColor?: string
-  bubbleTextColor?: string
+  /** When set, both speakers show a small visible label ("You" / this value). */
+  visibleGuideLabel?: string
+  surfaces?: MessageSurfaces
   blocks?: GuestResponseBlock[]
   places?: GuestResponsePlace[]
   voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
@@ -27,17 +34,16 @@ type MessageBubbleProps = {
   onDirectionsClick?: (placeId: string) => void
   onChoiceSelect?: (value: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
-  messageId?: string
-  onFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   language?: SupportedChatLanguage
+  locationAware?: boolean
 }
 
 export function MessageBubble({
   role,
   content,
   assistantLabel = 'Venue guide',
-  bubbleColor,
-  bubbleTextColor,
+  visibleGuideLabel,
+  surfaces = DEFAULT_SURFACES,
   blocks,
   places,
   voiceDelivery,
@@ -47,69 +53,35 @@ export function MessageBubble({
   onDirectionsClick,
   onChoiceSelect,
   onVisitorAction,
-  messageId,
-  onFeedback,
   language = 'English',
+  locationAware = false,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
   const presentation = getChatLanguagePresentation(language)
-  const [
-    ,
-    ,
-    ,
-    ,
-    youLabel,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    ,
-    rateAnswerLabel,
-    helpfulQuestion,
-    helpfulLabel,
-    notHelpfulLabel,
-  ] = getVisitorUiCopy(language).shell
+  const youLabel = getVisitorUiCopy(language).shell[4]
   const voiceCopy = getVisitorUiCopy(language).voice
   const speaker = isUser ? youLabel : assistantLabel
-  const [feedback, setFeedback] = useState<'HELPFUL' | 'NOT_HELPFUL' | null>(null)
-  const [feedbackPending, setFeedbackPending] = useState(false)
-
-  async function submitFeedback(rating: 'HELPFUL' | 'NOT_HELPFUL') {
-    if (!messageId || !onFeedback || feedbackPending) return
-    setFeedbackPending(true)
-    try {
-      await onFeedback(messageId, rating)
-      setFeedback(rating)
-    } finally {
-      setFeedbackPending(false)
-    }
-  }
+  const visibleSpeaker = visibleGuideLabel ? (isUser ? youLabel : visibleGuideLabel) : null
+  const surface = isUser ? surfaces.user : surfaces.assistant
 
   return (
-    <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <article className={styles.message} data-role={role} data-surface={surface}>
+      {visibleSpeaker ? (
+        <p
+          className={styles.speaker}
+          lang={presentation.code}
+          dir={presentation.direction}
+          aria-hidden="true"
+        >
+          {visibleSpeaker}
+        </p>
+      ) : null}
       <div
-        className={`${isUser ? styles.user : styles.assistant} ${isUser ? 'max-w-[85%]' : 'w-full max-w-[92%]'} rounded-[1.75rem] px-4 py-3 text-sm leading-6 ${
-          isUser
-            ? 'rounded-br-md bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)]'
-            : 'rounded-bl-md border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-text)]'
-        }`}
-        style={{
-          backgroundColor: isUser ? bubbleColor : undefined,
-          color: isUser ? bubbleTextColor : undefined,
-        }}
+        className={isUser ? styles.user : styles.assistant}
+        {...(isUser ? {} : { 'data-surface': surface })}
       >
         {voiceDelivery ? (
-          <p
-            className={`mb-1 text-xs font-semibold ${isUser ? '' : 'text-[var(--chat-text-muted)]'}`}
-          >
+          <p className="mb-1 text-xs font-semibold opacity-80">
             {voiceCopy.transcript}
             <span className="font-medium">
               {voiceDelivery === 'INTERRUPTED'
@@ -138,6 +110,7 @@ export function MessageBubble({
           <ResponseRenderer
             content={content}
             language={language}
+            locationAware={locationAware}
             {...(blocks ? { blocks } : {})}
             {...(places ? { places } : {})}
             {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
@@ -147,34 +120,6 @@ export function MessageBubble({
             {...(onVisitorAction ? { onVisitorAction } : {})}
           />
         )}
-        {!isUser && messageId && onFeedback ? (
-          <div
-            className="mt-2 flex items-center gap-1 border-t border-[var(--chat-border)] pt-2"
-            aria-label={rateAnswerLabel}
-            lang={presentation.code}
-            dir={presentation.direction}
-          >
-            <span className="mr-1 text-xs text-[var(--chat-text-muted)]">{helpfulQuestion}</span>
-            {(
-              [
-                ['HELPFUL', ThumbsUp, helpfulLabel],
-                ['NOT_HELPFUL', ThumbsDown, notHelpfulLabel],
-              ] as const
-            ).map(([rating, Icon, label]) => (
-              <button
-                key={rating}
-                type="button"
-                aria-label={label}
-                aria-pressed={feedback === rating}
-                disabled={feedbackPending}
-                onClick={() => void submitFeedback(rating)}
-                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-[var(--chat-text-muted)] hover:bg-[var(--chat-card)] hover:text-[var(--chat-text)] disabled:opacity-50 aria-pressed:bg-[var(--chat-accent)] aria-pressed:text-[var(--chat-accent-contrast)]"
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
     </article>
   )

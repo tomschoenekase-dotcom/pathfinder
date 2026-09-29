@@ -1,16 +1,25 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import {
+  defaultProspectGoodFitRules,
+  explainProspectSize,
+  prospectGoodFitRulesSchema,
+} from '@pathfinder/contracts/prospect-size'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { prospectPriority, prospectStage } from './prospect-crm-common'
 import {
+  describeProspectGoodFitVenue,
+  prospectGoodFitOrganizationWhere,
+  prospectGoodFitVenueWhere,
+} from './prospect-crm-good-fit'
+import {
   decodeProspectCursor,
   encodeProspectCursor,
   prospectCursorWhere,
 } from './prospect-crm-pagination'
-
 export const adminProspectCrmDirectoryRouter = router({
   listProspects: adminProcedure
     .input(
@@ -22,6 +31,8 @@ export const adminProspectCrmDirectoryRouter = router({
           category: z.string().trim().max(200).optional(),
           priority: prospectPriority.optional(),
           relationshipTier: z.enum(['STANDARD', 'HIGH_VALUE', 'STRATEGIC']).optional(),
+          goodFit: z.boolean().default(false),
+          goodFitRules: prospectGoodFitRulesSchema.optional(),
           emailReadiness: z.enum(['READY', 'MISSING', 'SUPPRESSED']).optional(),
           outreachState: z
             .enum(['NOT_CONTACTED', 'DRAFTED', 'QUEUED', 'SENT', 'REPLIED', 'FAILED'])
@@ -46,11 +57,15 @@ export const adminProspectCrmDirectoryRouter = router({
             throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid pagination cursor' })
           }
         }
+        const scanLimit = input.goodFit ? input.limit * 4 : input.limit
         const rows = await db.prospectOrganization.findMany({
           where: {
             ...(cursorWhere ? { AND: [cursorWhere] } : {}),
             ...(input.includeArchived ? {} : { archivedAt: null }),
-            ...(input.territoryId ? { territoryId: input.territoryId } : {}),
+            ...(input.goodFit
+              ? prospectGoodFitOrganizationWhere(input.territoryId, input.goodFitRules)
+              : {}),
+            ...(input.territoryId && !input.goodFit ? { territoryId: input.territoryId } : {}),
             ...(input.relationshipTier ? { relationshipTier: input.relationshipTier } : {}),
             ...(input.emailReadiness === 'READY'
               ? {
@@ -130,7 +145,7 @@ export const adminProspectCrmDirectoryRouter = router({
             },
           },
           orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
+          take: scanLimit + 1,
           select: {
             id: true,
             canonicalName: true,
@@ -154,10 +169,29 @@ export const adminProspectCrmDirectoryRouter = router({
               },
             },
             venues: {
-              where: { archivedAt: null },
+              where: input.goodFit
+                ? prospectGoodFitVenueWhere(input.territoryId, input.goodFitRules)
+                : { archivedAt: null },
               orderBy: { createdAt: 'asc' },
-              take: 3,
-              select: { id: true, name: true, city: true, region: true, venueType: true },
+              take: input.goodFit ? 25 : 3,
+              select: {
+                id: true,
+                name: true,
+                city: true,
+                region: true,
+                venueType: true,
+                territoryId: true,
+                estimatedSize: true,
+                fitAttributes: true,
+                organization: {
+                  select: {
+                    canonicalName: true,
+                    organizationType: true,
+                    territoryId: true,
+                    tags: true,
+                  },
+                },
+              },
             },
             contacts: {
               where: { archivedAt: null },
@@ -168,16 +202,45 @@ export const adminProspectCrmDirectoryRouter = router({
             _count: { select: { venues: true, contacts: true, activities: true } },
           },
         })
-        return {
-          items: rows.slice(0, input.limit).map((row) => ({
+        const prepared = rows
+          .slice(0, scanLimit)
+          .map((row) => ({
             ...row,
+            venues: row.venues
+              .map((venue) => ({
+                ...venue,
+                goodFit: input.goodFit
+                  ? describeProspectGoodFitVenue(venue, input.territoryId, input.goodFitRules)
+                  : null,
+              }))
+              .filter((venue) => !input.goodFit || venue.goodFit?.qualifies)
+              .slice(0, 3),
             priority: row.opportunity?.priority ?? row.priority,
             ownerId: row.opportunity?.ownerId ?? row.ownerId,
-          })),
-          nextCursor:
-            rows.length > input.limit && rows[input.limit - 1]
-              ? encodeProspectCursor(rows[input.limit - 1]!)
-              : null,
+          }))
+          .filter((row) => !input.goodFit || row.venues.length > 0)
+        const page = prepared.slice(0, input.limit)
+        const rules = input.goodFitRules ?? defaultProspectGoodFitRules
+        const classOrder = [
+          rules.preferredSizeClass,
+          ...rules.sizeClasses.filter((sizeClass) => sizeClass !== rules.preferredSizeClass),
+        ]
+        const items = input.goodFit
+          ? [...page].sort(
+              (left, right) =>
+                classOrder.indexOf(explainProspectSize(left.venues[0]?.fitAttributes).sizeClass) -
+                classOrder.indexOf(explainProspectSize(right.venues[0]?.fitAttributes).sizeClass),
+            )
+          : page
+        const cursorRow =
+          prepared.length > input.limit
+            ? page[page.length - 1]
+            : rows.length > scanLimit
+              ? rows[scanLimit - 1]
+              : null
+        return {
+          items,
+          nextCursor: cursorRow ? encodeProspectCursor(cursorRow) : null,
         }
       }),
     ),

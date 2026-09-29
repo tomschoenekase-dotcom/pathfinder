@@ -54,7 +54,9 @@ const approvedPolicies = new Set([
   'platform-generation-dispatch-lease',
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
-  'platform-expired-voice-session-recovery',
+  'platform-due-voice-session-hangups',
+  'platform-finalize-due-voice-session-hangup',
+  'platform-expire-abandoned-voice-sessions',
   'platform-due-agent-question-discovery',
   'tenant-agent-question-operation-lock',
   'platform-dispatch-lease',
@@ -103,6 +105,7 @@ const approvedPolicies = new Set([
   'platform-prospect-mailbox-send-reservation-lock',
   'platform-prospect-campaign-send-reservation-lock',
   'platform-prospect-inbound-reply-review-lock',
+  'platform-admin-visitor-speed-analytics',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -1176,7 +1179,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: 'cffc7451aea5e65d6206c8818bd2fa09bfd43cee708ede3cb002892911a2032d',
+    hash: '5180cc88a1029b0c8542ef0e04d1702a2a16ce096373fb08168a08d6e925c2a5',
     policy: 'public-venue-slug',
   },
   {
@@ -1425,8 +1428,22 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/voice-session-recovery.ts',
     method: '$queryRaw',
-    hash: 'd1b6e1f4a302ba10b883dd5495008ee10ff02e6eb8b4c62c401e1a5ea8f45975',
-    policy: 'platform-expired-voice-session-recovery',
+    hash: '5ce87351879fe163752be2b4f6c9df240a264a7feefbacdc216bda888cf14f46',
+    policy: 'platform-due-voice-session-hangups',
+  },
+  {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
+    policy: 'platform-finalize-due-voice-session-hangup',
+    effect: 'write',
+  },
+  {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
+    policy: 'platform-expire-abandoned-voice-sessions',
+    effect: 'write',
   },
   {
     file: 'packages/db/src/helpers/generation-recovery.ts',
@@ -1576,14 +1593,28 @@ const approvedOperations = [
     policy: 'public-venue-session-token',
   },
   {
-    file: 'packages/api/src/routers/widget.ts',
+    file: 'packages/api/src/routers/admin/visitor-speed.ts',
     method: '$queryRaw',
-    hash: 'c459b550f7fb55a4454ca8c33f8959b27c97bfe844e3c99d37a980f5df913d58',
+    // Admin-only seven-day aggregate; bind the time window and join venue on tenant+venue identity.
+    hash: '3940000516d99782821e0bda976023d38a1de2b720d30fbbd3c42baf4d52a32a',
+    policy: 'platform-admin-visitor-speed-analytics',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-distribution.ts',
+    method: '$queryRaw',
+    hash: '9b9f7a51527650aed00bbfcb5916d9728d049205359b43942b11aa0cb2a210e1',
     policy: 'public-venue-slug',
   },
 ]
 
 const approvedEffectOverrides = new Map([
+  ...[
+    '46e0316bb53a8998c62565cbc16fc0d1a7dedbaa2a8c967872259592ad2de8e0',
+    '96f5b3d29c9dc43eb2464433514a75fbc1d3ac4fa4f3a9156e03b0fac2e2578e',
+  ].map((hash) => [
+    ['packages/db/src/helpers/voice-session-recovery.ts', '$queryRaw', hash].join('\0'),
+    'write',
+  ]),
   [
     [
       'packages/db/src/helpers/guest-conversation-disposition.ts',

@@ -16,6 +16,12 @@ import {
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import {
+  defaultProspectGoodFitRules,
+  prospectGoodFitRulesSchema,
+  type ProspectGoodFitRules,
+  type ProspectSizeClass,
+} from '@pathfinder/contracts/prospect-size'
 
 const PROSPECT_READ_TIMEOUT_MS = 15_000
 
@@ -39,12 +45,24 @@ type Stage = (typeof STAGES)[number]
 type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 type Tier = 'STANDARD' | 'HIGH_VALUE' | 'STRATEGIC'
 type EmailReadiness = 'READY' | 'MISSING' | 'SUPPRESSED'
+type Territory = { id: string; name: string; code: string; region: string | null }
 type DirectoryResult = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['listProspects']['query']>
 >
 type SavedView = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['listProspectSavedViews']['query']>
 >[number]
+
+const GOOD_FIT_SWITCHES = [
+  ['requireTerritory', 'Require an assigned territory'],
+  ['excludeEnterpriseDeferral', 'Exclude enterprise deferrals'],
+  ['excludeOutboundCorrespondence', 'Exclude recorded outbound correspondence'],
+  ['excludeCampaignMembership', 'Exclude campaign membership'],
+  ['excludeDrafts', 'Exclude outreach drafts'],
+  ['excludeOpenOrConfirmedDuplicates', 'Exclude open or confirmed duplicates'],
+  ['excludeStadiumArena', 'Exclude stadiums and arenas'],
+  ['excludeNonVenue', 'Exclude confirmed non-venues'],
+] as const
 
 function label(value: string) {
   return value
@@ -82,6 +100,19 @@ export function ProspectDirectory({
     const value = searchParams.get('emailReadiness')
     return ['READY', 'MISSING', 'SUPPRESSED'].includes(value ?? '') ? (value as EmailReadiness) : ''
   })
+  const [goodFit, setGoodFit] = useState(() => searchParams.get('goodFit') === 'true')
+  const [goodFitRules, setGoodFitRules] = useState<ProspectGoodFitRules>(
+    defaultProspectGoodFitRules,
+  )
+  const [categoryDraft, setCategoryDraft] = useState(
+    defaultProspectGoodFitRules.supportedCategories.join('\n'),
+  )
+  const [priorityDraft, setPriorityDraft] = useState(defaultProspectGoodFitRules.founderPriority)
+  const [buyerDraft, setBuyerDraft] = useState(
+    defaultProspectGoodFitRules.buyerAttainabilityAnyOf.join('\n'),
+  )
+  const [territoryId, setTerritoryId] = useState(() => searchParams.get('territoryId') ?? '')
+  const [territories, setTerritories] = useState<Territory[]>([])
   const [nextAction, setNextAction] = useState<'OVERDUE' | 'UPCOMING' | 'NONE' | ''>(() => {
     const value = searchParams.get('nextAction')
     return ['OVERDUE', 'UPCOMING', 'NONE'].includes(value ?? '')
@@ -113,8 +144,10 @@ export function ProspectDirectory({
       ...(tier ? { relationshipTier: tier } : {}),
       ...(emailReadiness ? { emailReadiness } : {}),
       ...(nextAction ? { nextAction } : {}),
+      ...(goodFit ? { goodFit: true, goodFitRules } : {}),
+      ...(territoryId ? { territoryId } : {}),
     }),
-    [emailReadiness, nextAction, priority, search, stage, tier],
+    [emailReadiness, goodFit, goodFitRules, nextAction, priority, search, stage, territoryId, tier],
   )
 
   useEffect(() => {
@@ -126,6 +159,8 @@ export function ProspectDirectory({
       tier,
       emailReadiness,
       nextAction,
+      goodFit: goodFit ? 'true' : '',
+      territoryId,
     }
     for (const [key, value] of Object.entries(values)) {
       if (value) next.set(key, value)
@@ -134,7 +169,34 @@ export function ProspectDirectory({
     const query = next.toString()
     if (query !== searchParams.toString())
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [emailReadiness, nextAction, pathname, priority, router, search, searchParams, stage, tier])
+  }, [
+    emailReadiness,
+    goodFit,
+    nextAction,
+    pathname,
+    priority,
+    router,
+    search,
+    searchParams,
+    stage,
+    territoryId,
+    tier,
+  ])
+
+  useEffect(() => {
+    if (fixture) return
+    const controller = new AbortController()
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+      request: (signal) => client.admin.listProspectTerritories.query(undefined, { signal }),
+    })
+      .then(setTerritories)
+      .catch(() => undefined)
+    return () => {
+      controller.abort()
+    }
+  }, [client, fixture])
 
   useEffect(() => {
     if (fixture) return
@@ -288,6 +350,46 @@ export function ProspectDirectory({
         ? (value.nextAction as typeof nextAction)
         : '',
     )
+    setGoodFit(value.goodFit === true)
+    const parsedRules = prospectGoodFitRulesSchema.safeParse(value.goodFitRules)
+    const rules = parsedRules.success ? parsedRules.data : defaultProspectGoodFitRules
+    setGoodFitRules(rules)
+    setCategoryDraft(rules.supportedCategories.join('\n'))
+    setPriorityDraft(rules.founderPriority)
+    setBuyerDraft(rules.buyerAttainabilityAnyOf.join('\n'))
+    setTerritoryId(typeof value.territoryId === 'string' ? value.territoryId : '')
+  }
+
+  function applyGoodFitTextRules() {
+    const next = {
+      ...goodFitRules,
+      supportedCategories: categoryDraft
+        .split(/[\n,]/u)
+        .map((item) => item.trim())
+        .filter(Boolean),
+      founderPriority: priorityDraft.trim(),
+      buyerAttainabilityAnyOf: buyerDraft
+        .split(/[\n,]/u)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    }
+    const parsed = prospectGoodFitRulesSchema.safeParse(next)
+    if (!parsed.success) {
+      setNotice(
+        'Good fit rules need at least one category and a founder priority; keep each value under 100 characters.',
+      )
+      return
+    }
+    setGoodFitRules(parsed.data)
+    setNotice('Good fit rules updated. Save the current view to reuse them.')
+  }
+
+  function resetGoodFitRules() {
+    setGoodFitRules(defaultProspectGoodFitRules)
+    setCategoryDraft(defaultProspectGoodFitRules.supportedCategories.join('\n'))
+    setPriorityDraft(defaultProspectGoodFitRules.founderPriority)
+    setBuyerDraft(defaultProspectGoodFitRules.buyerAttainabilityAnyOf.join('\n'))
+    setNotice('Default Good fit rules restored. Save the view to keep this choice.')
   }
 
   async function saveView() {
@@ -384,6 +486,12 @@ export function ProspectDirectory({
           >
             Import spreadsheet
           </Link>
+          <Link
+            href="/admin/prospects/review-proposals"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            Review size proposals
+          </Link>
           <a
             href="/api/admin/prospect-agent-snapshot"
             download
@@ -458,6 +566,30 @@ export function ProspectDirectory({
           />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            aria-pressed={goodFit}
+            onClick={() => setGoodFit((current) => !current)}
+            className={`min-h-10 rounded-xl border px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${goodFit ? 'border-sky-700 bg-sky-50 text-sky-900' : 'border-slate-300 text-slate-700'}`}
+          >
+            Good fit · S–L · no recorded outreach
+          </button>
+          <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold text-slate-700">
+            Territory
+            <select
+              aria-label="Prospect territory"
+              value={territoryId}
+              onChange={(event) => setTerritoryId(event.target.value)}
+              className="min-h-10 min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-3 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            >
+              <option value="">All assigned territories</option>
+              {territories.map((territory) => (
+                <option key={territory.id} value={territory.id}>
+                  {territory.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <FilterSelect
             labelText="Next action state"
             value={nextAction}
@@ -478,6 +610,145 @@ export function ProspectDirectory({
             </span>
           ) : null}
         </div>
+        {goodFit ? (
+          <details className="mt-4 border-t border-slate-200 pt-4">
+            <summary className="cursor-pointer text-sm font-semibold text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+              Edit Good fit rules
+            </summary>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-600">
+              These rules affect this directory view. The assistant keeps the conservative built-in
+              defaults. Save the current view after editing to keep your variation.
+            </p>
+            <fieldset className="mt-4">
+              <legend className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                Eligible size classes
+              </legend>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {(['XS', 'S', 'M', 'L', 'XL', 'UNKNOWN'] as ProspectSizeClass[]).map(
+                  (sizeClass) => (
+                    <label
+                      key={sizeClass}
+                      className="flex items-center gap-2 text-sm text-slate-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={goodFitRules.sizeClasses.includes(sizeClass)}
+                        onChange={(event) =>
+                          setGoodFitRules((current) => {
+                            const classes = event.target.checked
+                              ? [...current.sizeClasses, sizeClass]
+                              : current.sizeClasses.filter((item) => item !== sizeClass)
+                            return classes.length
+                              ? {
+                                  ...current,
+                                  sizeClasses: classes,
+                                  preferredSizeClass: classes.includes(current.preferredSizeClass)
+                                    ? current.preferredSizeClass
+                                    : classes[0]!,
+                                }
+                              : current
+                          })
+                        }
+                        className="h-4 w-4 accent-sky-700 focus-visible:ring-2 focus-visible:ring-sky-500"
+                      />
+                      {sizeClass}
+                    </label>
+                  ),
+                )}
+              </div>
+            </fieldset>
+            <label className="mt-4 block max-w-xs text-xs font-semibold text-slate-700">
+              Preferred size in each result page
+              <select
+                value={goodFitRules.preferredSizeClass}
+                onChange={(event) =>
+                  setGoodFitRules((current) => ({
+                    ...current,
+                    preferredSizeClass: event.target.value as ProspectSizeClass,
+                  }))
+                }
+                className="mt-1 block min-h-10 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                {goodFitRules.sizeClasses.map((sizeClass) => (
+                  <option key={sizeClass} value={sizeClass}>
+                    {sizeClass}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <label className="text-xs font-semibold text-slate-700">
+                Supported categories, one per line
+                <textarea
+                  value={categoryDraft}
+                  onChange={(event) => setCategoryDraft(event.target.value)}
+                  rows={6}
+                  className="mt-1 block w-full border border-slate-300 bg-white p-2 text-xs font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-700">
+                Founder priority bucket
+                <input
+                  value={priorityDraft}
+                  onChange={(event) => setPriorityDraft(event.target.value)}
+                  className="mt-1 block min-h-10 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-700">
+                Accepted buyer attainability values, one per line
+                <textarea
+                  value={buyerDraft}
+                  onChange={(event) => setBuyerDraft(event.target.value)}
+                  rows={4}
+                  className="mt-1 block w-full border border-slate-300 bg-white p-2 text-xs font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                />
+              </label>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {GOOD_FIT_SWITCHES.map(([key, title]) => (
+                <label key={key} className="flex items-start gap-2 text-xs text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={goodFitRules[key]}
+                    onChange={(event) =>
+                      setGoodFitRules((current) => ({ ...current, [key]: event.target.checked }))
+                    }
+                    className="mt-0.5 h-4 w-4 accent-sky-700 focus-visible:ring-2 focus-visible:ring-sky-500"
+                  />
+                  {title}
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={applyGoodFitTextRules}
+                className="min-h-10 border border-sky-700 bg-sky-50 px-3 text-xs font-semibold text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                Apply text rules
+              </button>
+              <button
+                type="button"
+                onClick={resetGoodFitRules}
+                className="min-h-10 border border-slate-300 px-3 text-xs font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              >
+                Restore defaults
+              </button>
+            </div>
+            {goodFitRules.sizeClasses.includes('XL') ||
+            goodFitRules.sizeClasses.includes('UNKNOWN') ||
+            !goodFitRules.excludeStadiumArena ||
+            !goodFitRules.excludeOutboundCorrespondence ? (
+              <p
+                role="status"
+                className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+              >
+                This custom view relaxes the conservative size or contact rules. Review every result
+                individually; UNKNOWN means size is still unverified.
+              </p>
+            ) : null}
+          </details>
+        ) : null}
       </section>
 
       {selected.size && outreachAvailable ? (
@@ -575,6 +846,14 @@ export function ProspectDirectory({
                         {item.venues[0]?.name ?? 'Organization prospect'} ·{' '}
                         {item.territory?.name ?? 'Unassigned territory'}
                       </p>
+                      {goodFit && item.venues[0]?.goodFit ? (
+                        <p className="mt-2 text-xs leading-5 text-slate-700">
+                          {item.venues[0].goodFit.reason}
+                          {item.venues[0].goodFit.unknown
+                            ? ` Unknown: ${item.venues[0].goodFit.unknown}`
+                            : ''}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
                       <span className="rounded-full bg-sky-100 px-2.5 py-1 font-semibold text-sky-800">

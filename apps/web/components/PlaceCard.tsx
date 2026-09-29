@@ -1,7 +1,8 @@
-import { useEffect, useId, useState } from 'react'
-import { Info, MapPin, Navigation } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { ArrowUpRight, Navigation } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
+import { useHostPlaceAction } from './HostPlaceAction'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
 
@@ -25,6 +26,7 @@ type PlaceCardProps = {
   onCardClick?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onView?: (placeId: string) => void
+  onImageError?: () => void
   language?: SupportedChatLanguage
 }
 
@@ -50,12 +52,15 @@ export function PlaceCard({
   onCardClick,
   onDirectionsClick,
   onView,
+  onImageError,
   language = 'English',
 }: PlaceCardProps) {
   const { place: copy } = getVisitorUiCopy(language)
   const [showDetails, hideDetails, areaLabel, hoursLabel, directionsLabel, directionsTo] = copy
   const presentation = getChatLanguagePresentation(language)
+  const hostAction = useHostPlaceAction()
   const [isExpanded, setIsExpanded] = useState(false)
+  const imageRef = useRef<HTMLImageElement>(null)
   const titleId = useId()
   const detailsId = useId()
   const hasCoordinates =
@@ -76,6 +81,11 @@ export function PlaceCard({
     onView?.(id)
   }, [id, onView])
 
+  useEffect(() => {
+    const image = imageRef.current
+    if (photoUrl && image?.complete && image.naturalWidth === 0) onImageError?.()
+  }, [photoUrl, onImageError])
+
   return (
     <article
       aria-labelledby={titleId}
@@ -88,22 +98,16 @@ export function PlaceCard({
           {/* Controlled, same-origin venue media delivery rechecks current review eligibility. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
+            ref={imageRef}
             src={photoUrl}
             alt={photoAttribution?.altText ?? name}
             loading="lazy"
             referrerPolicy="no-referrer"
+            onError={onImageError}
             className="h-full w-full object-cover"
           />
         </div>
-      ) : (
-        <div className="flex h-28 w-full items-center justify-center bg-[var(--chat-bg)]">
-          {hasCoordinates ? (
-            <MapPin className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
-          ) : (
-            <Info className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
-          )}
-        </div>
-      )}
+      ) : null}
 
       {photoUrl && photoAttribution ? (
         <p className="break-words px-4 pt-2 text-xs text-[var(--chat-text-muted)]">
@@ -112,7 +116,7 @@ export function PlaceCard({
             <a
               href={photoAttribution.sourceUrl}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="underline"
             >
               {photoAttribution.sourceName}
@@ -176,6 +180,21 @@ export function PlaceCard({
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {hostAction ? (
+          <button
+            type="button"
+            aria-label={`${hostAction.label}: ${name}`}
+            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--chat-accent)] px-4 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2"
+            onClick={(event) => {
+              event.stopPropagation()
+              hostAction.onAction({ id, name })
+            }}
+          >
+            <span className="truncate">{hostAction.label}</span>
+            <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+          </button>
         ) : null}
 
         {directionsUrl ? (

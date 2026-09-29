@@ -9,6 +9,7 @@ import {
   parseGuestEntryPlaceId,
   parseGuestEntrySource,
 } from '../../../lib/entry-prompt'
+import { parseHostStartParams } from '../../../lib/host-bridge'
 
 type VenueChatPageProps = {
   params: Promise<{ venueSlug: string }>
@@ -32,19 +33,22 @@ export default async function VenueChatPage({ params, searchParams }: VenueChatP
     throw error
   }
   const entrySource = parseGuestEntrySource(read('source'))
-  const initialEntryPlaceId = parseGuestEntryPlaceId({
-    entry: read('entry'),
-    source: read('source'),
-    item: read('item'),
-  })
+  const hostStart = parseHostStartParams(query)
+  const initialEntryPlaceId =
+    hostStart.place ??
+    parseGuestEntryPlaceId({
+      entry: read('entry'),
+      source: read('source'),
+      item: read('item'),
+    })
 
   return (
     <VenueChatExperience
       venueSlug={venueSlug}
       initialVenue={{ slug: venueSlug, venue }}
       presentation="standalone"
-      initialDraft={parseEntryPrompt(read('prompt'))}
-      {...(entrySource ? { entrySource } : {})}
+      initialDraft={hostStart.ask ?? parseEntryPrompt(read('prompt'))}
+      accessSurface={entrySource === 'qr' ? 'qr' : 'direct'}
       {...(initialEntryPlaceId ? { initialEntryPlaceId } : {})}
     />
   )

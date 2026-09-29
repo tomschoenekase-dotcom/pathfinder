@@ -42,6 +42,97 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  it('stores entrySurface only when the turn action creates a public session', async () => {
+    const createdSession = {
+      id: 'session-1',
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      nextTurnSequence: 1,
+      nextMessageSequence: 1,
+      pendingEngagementQuestionId: null,
+      pendingEngagementIsInvented: false,
+      pendingEngagementAskedMessageId: null,
+      pendingEngagementAskedAt: null,
+      experienceScope: 'PUBLIC',
+    }
+    const sessionCreate = vi.fn().mockResolvedValue(createdSession)
+    const tx = {
+      $executeRaw: vi.fn(),
+      visitorSession: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: sessionCreate,
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(({ data }) => ({
+          ...data,
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          sessionId: createdSession.id,
+          providerOperations: data.providerOperations.create,
+        })),
+      },
+      message: { findFirst: vi.fn() },
+    }
+
+    await reserveGuestChatTurnAction({
+      client: transactionClient(tx),
+      request: { ...request, entrySurface: 'website' },
+    })
+
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ entrySurface: 'WEBSITE', experienceScope: 'PUBLIC' }),
+      }),
+    )
+  })
+
+  it('keeps the turn request identity independent of entrySurface', () => {
+    expect(guestChatRequestHash({ ...request, entrySurface: 'app' })).toBe(
+      guestChatRequestHash(request),
+    )
+  })
+
+  it('ignores entrySurface when the turn action creates a second-layer session', async () => {
+    const sessionCreate = vi.fn().mockResolvedValue({
+      id: 'session-1',
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      nextTurnSequence: 1,
+      nextMessageSequence: 1,
+      pendingEngagementQuestionId: null,
+      pendingEngagementIsInvented: false,
+      pendingEngagementAskedMessageId: null,
+      pendingEngagementAskedAt: null,
+      experienceScope: 'SECOND_LAYER',
+    })
+    const tx = {
+      $executeRaw: vi.fn(),
+      visitorSession: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: sessionCreate,
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(({ data }) => ({
+          ...data,
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          sessionId: 'session-1',
+          providerOperations: data.providerOperations.create,
+        })),
+      },
+      message: { findFirst: vi.fn() },
+    }
+
+    await reserveGuestChatTurnAction({
+      client: transactionClient(tx),
+      request: { ...request, entrySurface: 'app', experienceScope: 'SECOND_LAYER' },
+    })
+
+    expect(sessionCreate.mock.calls[0]?.[0]?.data).not.toHaveProperty('entrySurface')
+  })
+
   it('bounds strict pending place identity metadata', () => {
     const valid = {
       version: 'guest-place-identity-pending-v1',
@@ -489,13 +580,17 @@ describe('guest chat turn actions', () => {
       },
       message: { findFirst: vi.fn() },
     }
-    const result = await reserveGuestChatTurnAction({ client: transactionClient(tx), request })
+    const result = await reserveGuestChatTurnAction({
+      client: transactionClient(tx),
+      request: { ...request, entrySurface: 'website' },
+    })
     expect(result).toMatchObject({ state: 'RESERVED', sessionId: 'session-1', replayed: false })
     expect(tx.visitorSession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ nextTurnSequence: 8, nextMessageSequence: 22 }),
       }),
     )
+    expect(tx.visitorSession.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty('entrySurface')
     expect(tx.guestChatTurn.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -936,7 +1031,7 @@ describe('guest chat turn actions', () => {
       },
       now: new Date('2026-01-01T00:00:00Z'),
     })
-    expect(result).toMatchObject({ state: 'GENERATING', claimId, replayed: false })
+    expect(result).toMatchObject({ state: 'GENERATING', claimId, turnSequence: 1, replayed: false })
     expect(tx.guestChatProviderOperation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ leaseToken: claimId }),

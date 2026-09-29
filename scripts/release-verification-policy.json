@@ -11,6 +11,13 @@
       "storage": "0a9b3c58-0c9e-47de-96ae-38df297996e8"
     }
   },
+  "oneClickStaging": {
+    "syntheticEvidenceType": "one-click-staging-synthetic",
+    "syntheticSchemaVersion": 1,
+    "syntheticAdmission": "synthetic-proof-only",
+    "signedProvenance": "GitHub OIDC artifact attestation on evidence.json",
+    "hostedReleaseAdmittedBySyntheticEvidence": false
+  },
   "rollback": {
     "application": "Redeploy the last admitted immutable staging revision.",
     "database": "Stop new writers and repair forward; do not improvise a destructive database rollback.",

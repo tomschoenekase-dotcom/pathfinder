@@ -1,15 +1,8 @@
-import { isEmbedPreviewEnabled } from '@pathfinder/config/feature-flags'
-
-const MAX_POLICY_BYTES = 16_384
-const MAX_VENUES = 100
-const MAX_ORIGINS_PER_VENUE = 20
 const MAX_ORIGIN_LENGTH = 2_048
 const MAX_FRAME_ANCESTORS_BYTES = 4_096
 const VENUE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export const SELF_ONLY_FRAME_ANCESTORS = "frame-ancestors 'self'"
-
-type WidgetOriginPolicy = ReadonlyMap<string, readonly string[]>
 
 function normalizeHttpsOrigin(value: unknown): string | null {
   if (
@@ -47,53 +40,6 @@ function normalizeHttpsOrigin(value: unknown): string | null {
   }
 }
 
-export function parseWidgetOriginPolicy(rawPolicy: string | undefined): WidgetOriginPolicy | null {
-  if (rawPolicy === undefined || rawPolicy.trim().length === 0) {
-    return new Map()
-  }
-  if (new TextEncoder().encode(rawPolicy).byteLength > MAX_POLICY_BYTES) {
-    return null
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(rawPolicy)
-  } catch {
-    return null
-  }
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return null
-  }
-
-  const entries = Object.entries(parsed)
-  if (entries.length > MAX_VENUES) {
-    return null
-  }
-
-  const policy = new Map<string, readonly string[]>()
-  for (const [venueSlug, configuredOrigins] of entries) {
-    if (
-      venueSlug.length > 200 ||
-      !VENUE_SLUG_PATTERN.test(venueSlug) ||
-      !Array.isArray(configuredOrigins) ||
-      configuredOrigins.length > MAX_ORIGINS_PER_VENUE
-    ) {
-      return null
-    }
-
-    const origins = new Set<string>()
-    for (const configuredOrigin of configuredOrigins) {
-      const origin = normalizeHttpsOrigin(configuredOrigin)
-      if (!origin) return null
-      origins.add(origin)
-    }
-    policy.set(venueSlug, [...origins].sort())
-  }
-
-  return policy
-}
-
 export function extractExactEmbedVenueSlug(pathname: string): string | null {
   if (!pathname.startsWith('/embed/')) return null
   const encodedSlug = pathname.slice('/embed/'.length)
@@ -109,21 +55,27 @@ export function extractExactEmbedVenueSlug(pathname: string): string | null {
   return encodedSlug
 }
 
-export function buildWidgetFrameAncestors(
-  pathname: string,
-  environment: Readonly<Record<string, string | undefined>> = process.env,
-): string {
-  if (environment.RAILWAY_ENVIRONMENT !== 'staging') return SELF_ONLY_FRAME_ANCESTORS
-  if (!isEmbedPreviewEnabled(environment)) return SELF_ONLY_FRAME_ANCESTORS
+/** Website widget document paths allowed to receive tenant-owned frame ancestors. */
+export function extractExactWebsiteEmbedVenueSlug(pathname: string): string | null {
+  if (!pathname.startsWith('/embed/')) return null
+  const remainder = pathname.slice('/embed/'.length)
+  const segments = remainder.split('/')
+  if (segments.length === 1) return extractExactEmbedVenueSlug(pathname)
+  if (segments.length !== 2 || segments[1] !== 'inline') return null
+  return extractExactEmbedVenueSlug(`/embed/${segments[0]}`)
+}
 
-  const venueSlug = extractExactEmbedVenueSlug(pathname)
-  if (!venueSlug) return SELF_ONLY_FRAME_ANCESTORS
-
-  const policy = parseWidgetOriginPolicy(environment.WIDGET_PREVIEW_ORIGINS_JSON)
-  const origins = policy?.get(venueSlug)
-  if (!origins || origins.length === 0) return SELF_ONLY_FRAME_ANCESTORS
-
-  const directive = `${SELF_ONLY_FRAME_ANCESTORS} ${origins.join(' ')}`
+export function buildWidgetFrameAncestors(configuredOrigins: readonly string[]): string {
+  if (!Array.isArray(configuredOrigins) || configuredOrigins.length > 20)
+    return SELF_ONLY_FRAME_ANCESTORS
+  const origins = new Set<string>()
+  for (const value of configuredOrigins) {
+    const origin = normalizeHttpsOrigin(value)
+    if (!origin) return SELF_ONLY_FRAME_ANCESTORS
+    origins.add(origin)
+  }
+  if (origins.size === 0) return SELF_ONLY_FRAME_ANCESTORS
+  const directive = `${SELF_ONLY_FRAME_ANCESTORS} ${[...origins].sort().join(' ')}`
   return new TextEncoder().encode(directive).byteLength <= MAX_FRAME_ANCESTORS_BYTES
     ? directive
     : SELF_ONLY_FRAME_ANCESTORS

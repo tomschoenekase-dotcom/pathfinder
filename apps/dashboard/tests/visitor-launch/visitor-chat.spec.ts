@@ -161,8 +161,11 @@ test('approved chat branding remains usable on a short mobile viewport', async (
   await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
   await expect(header.locator('img')).toHaveCount(2)
   await expect.poll(() => interceptedAssets.length).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(/text-white/u)
-  await expect(page.getByRole('button', { name: 'Clear chat' })).toHaveClass(/text-white/u)
+  await expect(header.locator('[data-on-banner]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveCSS(
+    'color',
+    'rgb(255, 255, 255)',
+  )
   await expectViewportIntegrity(page)
   await expectComposerReachable(page)
   await expectTouchTargets(page)
@@ -192,8 +195,11 @@ test('fresh chat branding delivery failure preserves short-mobile controls', asy
   await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
   await expect(header.locator('img')).toHaveCount(0)
   await expect.poll(() => interceptedAssets.length).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveClass(
-    /text-\[var\(--chat-text\)\]/u,
+  await expect(header.locator('[data-on-banner]')).toHaveCount(0)
+  const headerTextColor = await header.evaluate((node) => getComputedStyle(node).color)
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toHaveCSS(
+    'color',
+    headerTextColor,
   )
   await expectViewportIntegrity(page)
   await expectComposerReachable(page)
@@ -263,8 +269,9 @@ test('streaming response remains readable, quiet to assistive tech, and composer
   await expect(page.locator('[data-fixture-state="speaking"]')).toBeVisible()
   await expect(page.getByText(/lake ecology gallery is on the upper floor/)).toBeVisible()
   const liveStatus = page.getByRole('status').filter({ hasText: 'Museum Guide is responding' })
-  await expect(liveStatus).toHaveText('Museum Guide is responding')
-  await expect(liveStatus).toHaveClass(/sr-only/u)
+  // This fixture already contains the first response delta. The pending status
+  // must not linger once assistant text is available.
+  await expect(liveStatus).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Sending message' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Tell me more' })).toHaveCount(0)
 

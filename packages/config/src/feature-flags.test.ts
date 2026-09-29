@@ -4,6 +4,8 @@ import {
   BILLING_TENANT_FLAG_KEYS,
   FEATURE_FLAGS,
   isEmbedPreviewEnabled,
+  isWebsiteDistributionEnabled,
+  isAppDistributionEnabled,
   isFeatureEnabled,
 } from './feature-flags'
 
@@ -20,6 +22,25 @@ describe('embed preview feature boundary', () => {
     expect(isEmbedPreviewEnabled({ EMBED_PREVIEW_ENABLED: 'false' })).toBe(false)
     expect(isEmbedPreviewEnabled({ EMBED_PREVIEW_ENABLED: 'TRUE' })).toBe(false)
     expect(isEmbedPreviewEnabled({ EMBED_PREVIEW_ENABLED: 'true' })).toBe(true)
+  })
+})
+
+describe('distribution feature boundaries', () => {
+  it('keeps each surface default-off while preserving the legacy alias', () => {
+    expect(FEATURE_FLAGS.websiteDistribution).toEqual({
+      environmentVariable: 'WEBSITE_DISTRIBUTION_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(FEATURE_FLAGS.appDistribution).toEqual({
+      environmentVariable: 'APP_DISTRIBUTION_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isWebsiteDistributionEnabled({})).toBe(false)
+    expect(isAppDistributionEnabled({})).toBe(false)
+    expect(isWebsiteDistributionEnabled({ WEBSITE_DISTRIBUTION_ENABLED: 'true' })).toBe(true)
+    expect(isAppDistributionEnabled({ APP_DISTRIBUTION_ENABLED: 'true' })).toBe(true)
+    expect(isWebsiteDistributionEnabled({ EMBED_PREVIEW_ENABLED: 'true' })).toBe(true)
+    expect(isAppDistributionEnabled({ EMBED_PREVIEW_ENABLED: 'true' })).toBe(true)
   })
 })
 

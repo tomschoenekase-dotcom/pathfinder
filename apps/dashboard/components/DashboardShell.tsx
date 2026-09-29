@@ -6,18 +6,15 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
-  ChevronDown,
-  CreditCard,
-  Headphones,
+  CircleUserRound,
   Home,
   Library,
-  NotebookText,
   LogOut,
-  Menu,
   Megaphone,
-  Settings,
+  Menu,
+  MessageCircle,
+  Palette,
   ShieldCheck,
-  Sparkles,
   X,
 } from 'lucide-react'
 
@@ -31,37 +28,73 @@ import { ADMIN_IMPERSONATION_ERROR, setAdminImpersonation } from '../lib/admin-i
 type DashboardShellProps = {
   children: ReactNode
   impersonatedTenantName?: string
-  weeklyReportsAvailable?: boolean
-  paymentAvailable?: boolean
 }
 
-const navigationItems = [
-  { href: '/', label: 'Today', icon: Home },
-  { href: '/information', label: 'Information', icon: Library },
-  { href: '/operational-updates', label: 'Updates', icon: Megaphone },
-  { href: '/weekly-reports', label: 'Reports', icon: NotebookText, reportsOnly: true },
-  { href: '/ai-controls', label: 'Visitor experience', icon: Sparkles },
-  { href: '/support', label: 'Help & changes', icon: Headphones },
-  { href: '/payment', label: 'Payment', icon: CreditCard, paymentOnly: true },
-  { href: '/settings', label: 'Account', icon: Settings },
-] as const
+type ScopedPath = '/' | '/support' | '/look-and-feel'
+
+// Five destinations. Older client routes stay reachable as deep links and highlight the
+// destination that now owns them instead of adding navigation.
+const navigationItems: ReadonlyArray<{
+  href: string
+  label: string
+  icon: typeof Home
+  scoped?: ScopedPath
+  owns: readonly string[]
+}> = [
+  { href: '/', label: 'Home', icon: Home, scoped: '/', owns: ['/', '/information', '/venues'] },
+  {
+    href: '/look-and-feel',
+    label: 'Look & feel',
+    icon: Palette,
+    scoped: '/look-and-feel',
+    owns: ['/look-and-feel', '/ai-controls', '/chat-design'],
+  },
+  {
+    href: '/operational-updates',
+    label: 'Updates',
+    icon: Megaphone,
+    owns: ['/operational-updates'],
+  },
+  {
+    href: '/support',
+    label: 'Help',
+    icon: MessageCircle,
+    scoped: '/support',
+    owns: ['/support', '/help'],
+  },
+  {
+    href: '/settings',
+    label: 'Account',
+    icon: CircleUserRound,
+    owns: ['/settings', '/payment', '/weekly-reports'],
+  },
+]
 
 const onboardingNavigationItems = [
-  { href: '/', label: 'Today', icon: Home },
+  { href: '/', label: 'Home', icon: Home },
   { href: '#materials', label: 'Your information', icon: Library },
-  { href: '/support', label: 'Questions & help', icon: Headphones },
-  { href: '/settings', label: 'Account', icon: Settings },
-] as const
-
-const clientNavigationGroups = [
-  { label: 'Your guide', routes: ['Information', 'Updates', 'Visitor experience'] },
-  { label: 'Activity', routes: ['Reports'] },
-  { label: 'Account', routes: ['Payment', 'Account'] },
+  { href: '/support', label: 'Help', icon: MessageCircle },
+  { href: '/settings', label: 'Account', icon: CircleUserRound },
 ] as const
 
 function isActivePath(pathname: string, href: string) {
   const path = href.split(/[?#]/u, 1)[0] || '/'
   return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(path + '/')
+}
+
+function ownsPath(pathname: string, owned: readonly string[]) {
+  return owned.some((path) =>
+    path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(path + '/'),
+  )
+}
+
+function navLinkClass(active: boolean) {
+  return [
+    'relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-[0.95rem] transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus',
+    active
+      ? 'bg-tk-ink-wash font-semibold text-tk-ink before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-tk-ink'
+      : 'font-medium text-tk-ink/80 hover:bg-tk-ink/[0.04] hover:text-tk-ink',
+  ].join(' ')
 }
 
 function venueIdFromPath(pathname: string): string | null {
@@ -80,7 +113,7 @@ function venueIdFromQuery(value: string | null): string | null {
   return value?.trim() && value.length <= 191 ? value : null
 }
 
-function scopedHref(path: '/' | '/support', venueId: string, returnTo?: string) {
+function scopedHref(path: ScopedPath, venueId: string, returnTo?: string) {
   return (
     path +
     '?venue=' +
@@ -89,12 +122,7 @@ function scopedHref(path: '/' | '/support', venueId: string, returnTo?: string) 
   )
 }
 
-export function DashboardShell({
-  children,
-  impersonatedTenantName,
-  weeklyReportsAvailable = false,
-  paymentAvailable = false,
-}: DashboardShellProps) {
+export function DashboardShell({ children, impersonatedTenantName }: DashboardShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { organization } = useOrganization()
@@ -113,13 +141,11 @@ export function DashboardShell({
       routeKey={pathname + '?' + searchParams.toString()}
       orgName={orgName}
       isPlatformAdmin={isPlatformAdmin}
-      weeklyReportsAvailable={weeklyReportsAvailable}
-      paymentAvailable={paymentAvailable}
       signOutControl={
         <SignOutButton>
           <button
             type="button"
-            className="mt-6 flex min-h-11 w-full items-center gap-3 border-l-2 border-transparent px-3.5 text-sm font-medium text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+            className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-tk-soft hover:bg-tk-ink/[0.04] hover:text-tk-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
             Sign out
@@ -144,8 +170,6 @@ type DashboardShellViewProps = {
   routeKey?: string
   orgName: string
   isPlatformAdmin: boolean
-  weeklyReportsAvailable?: boolean
-  paymentAvailable?: boolean
   signOutControl?: ReactNode
   assistantControl?: ReactNode
 }
@@ -159,8 +183,6 @@ export function DashboardShellView({
   routeKey = pathname + '?venue=' + encodeURIComponent(selectedVenueId ?? ''),
   orgName,
   isPlatformAdmin,
-  weeklyReportsAvailable = false,
-  paymentAvailable = false,
   signOutControl,
   assistantControl,
 }: DashboardShellViewProps) {
@@ -175,36 +197,26 @@ export function DashboardShellView({
   const onboardingPath = pathname === '/onboarding/setup' || onboardingVenueId !== null
   const venueId =
     pathVenueId ?? (pathname === '/onboarding/setup' ? null : venueIdFromQuery(selectedVenueId))
-  const visibleNavigationItems = onboardingPath
-    ? onboardingNavigationItems.map((item) =>
-        item.href === '#materials'
-          ? onboardingVenueId
-            ? { ...item, href: pathname + '#materials' }
-            : { ...item, href: null }
-          : item.href === '/'
-            ? { ...item, href: venueId ? scopedHref('/', venueId) : item.href }
-            : item.href === '/support'
-              ? {
-                  ...item,
-                  href: venueId
-                    ? scopedHref('/support', venueId, onboardingVenueId ? pathname : undefined)
-                    : item.href,
-                }
-              : item,
-      )
-    : navigationItems
-        .filter(
-          (item) =>
-            (!('reportsOnly' in item) || weeklyReportsAvailable) &&
-            (!('paymentOnly' in item) || paymentAvailable),
-        )
-        .map((item) =>
-          item.href === '/' && venueId
-            ? { ...item, href: scopedHref('/', venueId) }
-            : item.href === '/support' && venueId
-              ? { ...item, href: scopedHref('/support', venueId) }
-              : item,
-        )
+  const onboardingItems = onboardingNavigationItems.map((item) =>
+    item.href === '#materials'
+      ? onboardingVenueId
+        ? { ...item, href: pathname + '#materials' }
+        : { ...item, href: null }
+      : item.href === '/'
+        ? { ...item, href: venueId ? scopedHref('/', venueId) : item.href }
+        : item.href === '/support'
+          ? {
+              ...item,
+              href: venueId
+                ? scopedHref('/support', venueId, onboardingVenueId ? pathname : undefined)
+                : item.href,
+            }
+          : item,
+  )
+  const clientItems = navigationItems.map((item) => ({
+    ...item,
+    href: item.scoped && venueId ? scopedHref(item.scoped, venueId) : item.href,
+  }))
   // Wait until the mobile drawer releases inert content before moving focus.
   useRouteChangeFocus(routeKey, mainRef, !menuOpen)
 
@@ -256,139 +268,89 @@ export function DashboardShellView({
 
   const navigation = (
     <>
-      <nav className="mt-6 flex-1" aria-label="Client portal navigation">
-        {onboardingPath ? (
-          visibleNavigationItems.map((item) => {
-            const Icon = item.icon
-            const active = item.href
-              ? item.href.includes('#')
-                ? item.href.startsWith(`${pathname}#`)
-                : isActivePath(pathname, item.href)
-              : true
-            const className = [
-              'relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
-              active
-                ? 'border-[#f2a65a] bg-white/8 text-white'
-                : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
-            ].join(' ')
-            const content = (
-              <>
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                <span>{item.label}</span>
-              </>
-            )
-            return item.href ? (
-              <Link
-                key={`${item.label}-${item.href}`}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={className}
-              >
-                {content}
-              </Link>
-            ) : (
-              <span key={item.label} aria-current="page" className={className}>
-                {content}
-              </span>
-            )
-          })
-        ) : (
-          <>
-            {visibleNavigationItems
-              .filter((item) => item.label === 'Today' || item.label === 'Help & changes')
-              .map((item) => {
+      <nav className="mt-7 flex-1" aria-label="Client portal navigation">
+        <ul className="space-y-1">
+          {onboardingPath
+            ? onboardingItems.map((item) => {
                 const Icon = item.icon
-                const active = isActivePath(pathname, item.href ?? '/')
-                return (
-                  <Link
-                    key={item.label}
-                    href={item.href ?? '/'}
-                    aria-current={active ? 'page' : undefined}
-                    className={`relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent ${active ? 'border-[#f2a65a] bg-white/8 text-white' : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white'}`}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
+                const active = item.href
+                  ? item.href.includes('#')
+                    ? item.href.startsWith(`${pathname}#`)
+                    : isActivePath(pathname, item.href)
+                  : true
+                const content = (
+                  <>
+                    <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                     <span>{item.label}</span>
-                  </Link>
+                  </>
+                )
+                return (
+                  <li key={item.label}>
+                    {item.href ? (
+                      <Link
+                        href={item.href}
+                        aria-current={active ? 'page' : undefined}
+                        className={navLinkClass(active)}
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <span aria-current="page" className={navLinkClass(true)}>
+                        {content}
+                      </span>
+                    )}
+                  </li>
+                )
+              })
+            : clientItems.map((item) => {
+                const Icon = item.icon
+                const active = ownsPath(pathname, item.owns)
+                return (
+                  <li key={item.label}>
+                    <Link
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className={navLinkClass(active)}
+                    >
+                      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </li>
                 )
               })}
-            {clientNavigationGroups.map((group) => {
-              const groupItems = visibleNavigationItems.filter((item) =>
-                (group.routes as readonly string[]).includes(item.label),
-              )
-              if (groupItems.length === 0) return null
-              const containsCurrentRoute = groupItems.some((item) =>
-                item.href ? isActivePath(pathname, item.href) : false,
-              )
-              return (
-                <details
-                  key={group.label}
-                  open={containsCurrentRoute}
-                  className="mt-1 border-t border-white/10 pt-1"
-                >
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-pf-light/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent [&::-webkit-details-marker]:hidden">
-                    {group.label}
-                    <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  </summary>
-                  <div className="ml-3 border-l border-white/15 pl-2">
-                    {groupItems.map((item) => {
-                      const Icon = item.icon
-                      const active = item.href ? isActivePath(pathname, item.href) : false
-                      const className = [
-                        'relative flex min-h-11 items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
-                        active
-                          ? 'border-[#f2a65a] bg-white/8 text-white'
-                          : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
-                      ].join(' ')
-                      return item.href ? (
-                        <Link
-                          key={`${item.label}-${item.href}`}
-                          href={item.href}
-                          aria-current={active ? 'page' : undefined}
-                          className={className}
-                        >
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          <span>{item.label}</span>
-                        </Link>
-                      ) : (
-                        <span key={item.label} aria-current="page" className={className}>
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          <span>{item.label}</span>
-                        </span>
-                      )
-                    })}
-                  </div>
-                </details>
-              )
-            })}
-          </>
-        )}
+        </ul>
         {isPlatformAdmin ? (
           <Link
             href="/admin"
-            className="mt-4 flex min-h-11 items-center gap-3 border-t border-white/10 px-3.5 pt-5 text-sm font-medium text-pf-light/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+            className="mt-5 flex min-h-11 items-center gap-3 border-t border-tk-rule px-3 pt-4 text-sm font-medium text-tk-soft hover:text-tk-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus"
           >
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
             Admin console
           </Link>
         ) : null}
       </nav>
-      {signOutControl}
+      <div className="border-t border-tk-rule pt-4">
+        <p className="truncate px-3 text-sm font-semibold text-tk-ink" title={orgName}>
+          {orgName}
+        </p>
+        <div className="mt-1">{signOutControl}</div>
+      </div>
     </>
   )
 
   return (
-    <div className="min-h-screen bg-pf-surface text-pf-deep">
+    <div className="min-h-screen bg-tk-paper text-tk-ink">
       <a
         href="#client-main-content"
-        className="sr-only fixed left-4 top-4 z-[60] rounded-lg bg-white px-4 py-3 font-semibold text-pf-deep shadow-xl focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-pf-accent"
+        className="sr-only fixed left-4 top-4 z-[60] rounded-lg bg-white px-4 py-3 font-semibold text-tk-ink shadow-xl focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-tk-focus"
       >
         Skip to main content
       </a>
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-pf-deep px-4 text-white lg:hidden">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-tk-rule bg-tk-paper px-4 text-tk-ink lg:hidden">
         <TorchikoBrand
           gapClassName="gap-2"
-          textClassName="text-white"
-          textSizeClassName="text-base"
+          textClassName="font-portal text-tk-ink"
+          textSizeClassName="text-[1.35rem]"
         />
         <button
           ref={menuButtonRef}
@@ -397,7 +359,7 @@ export function DashboardShellView({
           aria-expanded={menuOpen}
           aria-controls="client-portal-navigation"
           onClick={() => setMenuOpen((open) => !open)}
-          className="flex h-11 w-11 items-center justify-center hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          className="-mr-2 flex h-11 w-11 items-center justify-center rounded-lg hover:bg-tk-ink/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tk-focus"
         >
           {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -407,7 +369,7 @@ export function DashboardShellView({
           type="button"
           aria-label="Close navigation"
           onClick={() => setMenuOpen(false)}
-          className="fixed inset-0 z-30 bg-pf-deep/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-tk-ink/35 lg:hidden"
         />
       ) : null}
       <div
@@ -421,20 +383,16 @@ export function DashboardShellView({
             }
           : {})}
         className={[
-          'fixed inset-y-0 left-0 z-40 flex w-[min(86vw,252px)] flex-col bg-pf-deep p-5 text-slate-100 shadow-xl transition-transform motion-reduce:transition-none lg:visible lg:translate-x-0 lg:shadow-none',
+          'fixed inset-y-0 left-0 z-40 flex w-[min(84vw,248px)] flex-col border-r border-tk-rule bg-tk-paper px-4 pb-5 pt-6 text-tk-ink shadow-xl transition-transform motion-reduce:transition-none lg:visible lg:w-[232px] lg:translate-x-0 lg:shadow-none',
           menuOpen ? 'visible translate-x-0' : 'invisible -translate-x-full',
         ].join(' ')}
       >
-        <div className="border-b border-white/10 pb-6">
-          <div className="hidden lg:block">
-            <TorchikoBrand
-              gapClassName="gap-2"
-              textClassName="text-white"
-              textSizeClassName="text-base"
-            />
-          </div>
-          <p className="mt-5 truncate text-base font-semibold text-white">{orgName}</p>
-          <p className="mt-1 text-xs text-pf-light/80">Client portal</p>
+        <div className="px-3">
+          <TorchikoBrand
+            gapClassName="gap-2"
+            textClassName="font-portal text-tk-ink"
+            textSizeClassName="text-[1.6rem]"
+          />
         </div>
         {navigation}
       </div>
@@ -442,7 +400,7 @@ export function DashboardShellView({
         ref={mainRef}
         id="client-main-content"
         tabIndex={-1}
-        className="min-w-0 lg:pl-[252px]"
+        className="min-w-0 focus:outline-none lg:pl-[232px]"
         inert={menuOpen ? true : undefined}
         aria-hidden={menuOpen ? true : undefined}
       >

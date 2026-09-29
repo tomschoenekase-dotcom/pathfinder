@@ -10,8 +10,11 @@ import {
   TorchikoIcon,
 } from '@pathfinder/ui'
 
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
+
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { ChatAppearanceEditor } from '../ChatAppearanceEditor'
 
 const QUERY_TIMEOUT_MS = 15_000
 
@@ -30,6 +33,7 @@ type GuestDesign = {
   chatBannerDerivativeId?: string | null
   chatShowPhotos?: boolean
   chatShowLinks?: boolean
+  chatAppearance?: unknown
   updatedAt: Date
 }
 
@@ -92,6 +96,7 @@ export function GuestDesignWorkspace({
   const [brandingAssets, setBrandingAssets] = useState(initialBrandingAssets)
   const [showPhotos, setShowPhotos] = useState(initial.chatShowPhotos ?? false)
   const [showLinks, setShowLinks] = useState(initial.chatShowLinks ?? false)
+  const [appearance, setAppearance] = useState(() => parseChatAppearance(initial.chatAppearance))
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [revision, setRevision] = useState(initial.updatedAt)
   const [busy, setBusy] = useState(false)
@@ -123,6 +128,7 @@ export function GuestDesignWorkspace({
     setBrandingAssets(initialBrandingAssets)
     setShowPhotos(initial.chatShowPhotos ?? false)
     setShowLinks(initial.chatShowLinks ?? false)
+    setAppearance(parseChatAppearance(initial.chatAppearance))
     setRevision(initial.updatedAt)
     setBusy(false)
     setLoadingAssets(false)
@@ -216,6 +222,7 @@ export function GuestDesignWorkspace({
           chatFont,
           chatShowPhotos: showPhotos,
           chatShowLinks: showLinks,
+          chatAppearance: appearance,
           chatLogoUrl: keepLogo ? logoUrl : null,
           chatBannerUrl: keepBanner ? bannerUrl : null,
           ...(logoDerivativeId !== savedLogoDerivativeId
@@ -250,6 +257,7 @@ export function GuestDesignWorkspace({
       })
       if (current !== generation.current || submittedScope !== scopeRef.current) return
       setRevision(saved.updatedAt)
+      setAppearance(parseChatAppearance(saved.chatAppearance))
       setLogoUrl(saved.chatLogoUrl)
       setBannerUrl(saved.chatBannerUrl)
       setLogoDerivativeId(saved.chatLogoDerivativeId ?? logoDerivativeId)
@@ -374,6 +382,19 @@ export function GuestDesignWorkspace({
             </option>
           ))}
         </select>
+
+        <div className="mt-6">
+          <ChatAppearanceEditor
+            value={appearance}
+            onChange={setAppearance}
+            palette={palette}
+            fontFamily={fontFamily}
+            venueName={initial.name}
+            backgroundAvailable={Boolean(keepBanner && (bannerDerivativeId || bannerUrl))}
+            backgroundImageUrl={keepBanner ? (effectiveBannerUrl ?? null) : null}
+            disabled={busy}
+          />
+        </div>
 
         <div className="mt-6 rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
           <h3 className="text-sm font-semibold text-pf-deep">Reviewed branding assets</h3>

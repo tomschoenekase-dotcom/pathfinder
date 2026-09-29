@@ -1,0 +1,402 @@
+[
+  {
+    "venue": "Space Museum",
+    "id": "space-01",
+    "question": "I only have about 30 minutes. What should I see first?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized coverage prompt; Packet 2 cites a 30-minute visit as an example, not an observed visitor utterance."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-02",
+    "question": "What are the must-see exhibits here?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized coverage prompt; no observed visitor corpus available to this slice."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-03",
+    "question": "Can you tell me a little about the most important spacecraft on display?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized coverage prompt; no observed visitor corpus available to this slice."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-04",
+    "question": "Is there anything here about the Apollo missions?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized coverage prompt; topic is a question only, not an assertion about holdings."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-05",
+    "question": "Do you have exhibits about the Space Shuttle?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized coverage prompt; topic is a question only, not an assertion about holdings."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-06",
+    "question": "What can kids do here?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized family-visit coverage prompt; no observed visitor corpus available."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-07",
+    "question": "Is this a good visit for someone who loves airplanes?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interest-based coverage prompt; no factual exhibit expectation set."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-08",
+    "question": "How much time should I plan to spend here?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized visit-planning coverage prompt; no observed visitor corpus available."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-09",
+    "question": "Where do I find the current hours?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics coverage prompt; deliberately requests current source rather than encoding hours."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-10",
+    "question": "How much does admission cost?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics coverage prompt; no price expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-11",
+    "question": "Where should I park when I visit?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics coverage prompt; no parking expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-12",
+    "question": "Is the museum accessible for wheelchair users?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized accessibility coverage prompt; no accessibility expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-13",
+    "question": "Are there places to sit during the visit?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized accessibility coverage prompt; no seating expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-14",
+    "question": "Can I take photos inside?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized policy coverage prompt; no photography policy expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-15",
+    "question": "Is there a gift shop?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized amenity coverage prompt; no gift shop expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-16",
+    "question": "Are food or drinks available nearby?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized amenity coverage prompt; no food service expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-17",
+    "question": "Can I bring a school group?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized group-visit coverage prompt; no group policy expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-18",
+    "question": "What is the story behind the museum?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized orientation coverage prompt; no historical facts asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-19",
+    "question": "What's something surprising I might learn here?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interpretive coverage prompt; no fact expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Space Museum",
+    "id": "space-20",
+    "question": "What should I see next if I liked the rockets?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized follow-up coverage prompt; no holdings expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-01",
+    "question": "What should I make sure to see first?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized visit-planning coverage prompt; Tom's Miniature Museum note was not located in the bounded vault search."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-02",
+    "question": "How much time should I plan for a visit?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized visit-planning coverage prompt; Tom's Miniature Museum note was not located in the bounded vault search."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-03",
+    "question": "What kinds of miniatures will I see?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Question asks for guide-grounded collection details; no fact expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-04",
+    "question": "Are there rooms or scenes from different time periods?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized topic prompt; no collection contents asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-05",
+    "question": "How are the tiny objects made?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interpretive prompt; no making process asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-06",
+    "question": "What is the smallest detail people often miss?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interpretive prompt; no particular object or detail asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-07",
+    "question": "Is this a fun place to visit with children?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized family-visit prompt; no age suitability expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-08",
+    "question": "Can children see everything from their height?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized accessibility prompt; no display-height expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-09",
+    "question": "Are there things visitors can touch or interact with?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interaction-policy prompt; no interaction expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-10",
+    "question": "What are your current opening hours?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics prompt; requests current source rather than encoding hours."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-11",
+    "question": "How much are tickets?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics prompt; no price expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-12",
+    "question": "Do I need to book a time in advance?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized visit-planning prompt; no booking policy expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-13",
+    "question": "Where can I park?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized logistics prompt; no parking expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-14",
+    "question": "Can someone using a wheelchair visit comfortably?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized accessibility prompt; no accessibility expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-15",
+    "question": "Are photos allowed?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized policy prompt; no photography expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-16",
+    "question": "Is there a place to sit or take a break?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized accessibility prompt; no seating expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-17",
+    "question": "Is there a gift shop or anything to take home?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized amenity prompt; no shop expectation asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-18",
+    "question": "How did the museum get started?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized orientation prompt; no historical facts asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-19",
+    "question": "Which display has the most interesting story?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized interpretive prompt; no particular display asserted."
+    },
+    "factualExpectations": null
+  },
+  {
+    "venue": "Miniature Museum",
+    "id": "mini-20",
+    "question": "What should I look for if I only have a short visit?",
+    "sourceProvenance": {
+      "kind": "representative-intent",
+      "detail": "Synthesized visit-planning prompt; no observed visitor corpus available to this slice."
+    },
+    "factualExpectations": null
+  }
+]

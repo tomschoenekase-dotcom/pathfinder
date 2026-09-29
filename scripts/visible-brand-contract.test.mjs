@@ -132,7 +132,7 @@ const technicalAllowlist = new Map([
       "'Access-Control-Expose-Headers': 'X-PathFinder-Revision, X-PathFinder-Widget-Ready',",
       "'X-PathFinder-Revision':",
       "'X-PathFinder-Revision': resolveReleaseRevision(process.env),",
-      "'X-PathFinder-Widget-Ready': '1',",
+      "headers: { ...widgetReadyHeaders(), 'X-PathFinder-Widget-Ready': '1' },",
     ]),
   ],
   [
@@ -145,7 +145,9 @@ const technicalAllowlist = new Map([
   ],
   [
     'apps/web/public/widget.js',
-    new Set(["response.headers.get('X-PathFinder-Widget-Ready') !== '1'"]),
+    new Set([
+      "if (response.status === 204 && response.headers.get('X-PathFinder-Widget-Ready') === '1') {",
+    ]),
   ],
 ])
 

@@ -1,0 +1,112 @@
+name: Restore staging archive into a new database
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Actions run ID containing the encrypted staging archive
+        required: true
+        type: string
+      release_sha:
+        description: Full source commit SHA bound to the archive
+        required: true
+        type: string
+      mode:
+        description: Only synthetic disposable restoration is currently admitted
+        required: true
+        default: synthetic
+        type: choice
+        options: [synthetic]
+
+permissions:
+  contents: read
+
+jobs:
+  restore-to-new-disposable-database:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    timeout-minutes: 20
+    services:
+      restore:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-password
+          POSTGRES_DB: pathfinder_disposable_restore
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pathfinder_disposable_restore"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RESTORE_DATABASE_URL: postgresql://postgres:synthetic-password@127.0.0.1:5433/pathfinder_disposable_restore
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Validate immutable artifact inputs
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+      - name: Mask synthetic restore connection and passphrase
+        run: |
+          echo "::add-mask::$RESTORE_DATABASE_URL"
+          passphrase='synthetic-disposable-'
+          passphrase+='passphrase-for-ci-only'
+          echo "::add-mask::$passphrase"
+      - name: Bind the selected artifact run to an approved source branch and exact SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          metadata=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            --jq '[.head_branch, .head_sha] | @tsv')
+          IFS=$'\t' read -r source_branch source_sha <<< "$metadata"
+          [[ "$source_sha" == "$RELEASE_SHA" ]]
+          case "$source_branch" in
+            codex/torchiko-one-click-staging|codex/torchiko-r2-20260928|codex/torchiko-r2-1-20260928) ;;
+            *) echo 'Artifact run is outside the approved synthetic source branches' >&2; exit 1 ;;
+          esac
+          echo "SOURCE_REF=refs/heads/$source_branch" >> "$GITHUB_ENV"
+      - name: Download the encrypted archive from the named run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: staging-synthetic-${{ inputs.release_sha }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/staging-restore
+      - name: Verify GitHub attestation for evidence from the exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          gh attestation verify "$RUNNER_TEMP/staging-restore/evidence.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/staging-release.yml" \
+            --source-ref "$SOURCE_REF" \
+            --source-digest "$RELEASE_SHA"
+      - name: Verify evidence and restore only into new disposable service container
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          STAGING_BACKUP_PASSPHRASE: synthetic-disposable-passphrase-for-ci-only
+        run: |
+          node scripts/staging-release/evidence.mjs \
+            --verify "$RUNNER_TEMP/staging-restore/evidence.json" \
+            --release-sha "$RELEASE_SHA"
+          node scripts/staging-release/restore.mjs --input-dir "$RUNNER_TEMP/staging-restore" --require-evidence
+      - name: Upload new restore proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: staging-restore-proof-${{ inputs.release_sha }}
+          path: ${{ runner.temp }}/staging-restore/restore-proof.json
+          retention-days: 2
+          if-no-files-found: error

@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-250-20260918',
+  approval: 'torchiko-staging-lineage-to-252-20260927',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 250,
+  migrationCount: 252,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -162,10 +162,15 @@ const EXPECTED = Object.freeze({
   routinePredecessorFinalMigration: '20260912080000_add_guest_conversation_disposition',
   routinePredecessorManifestHash:
     '4eff7f0a42a6cce1e695f7bc9bcd5b90a8b7534b1e3f0b11f59bfc6e618f9736',
-  finalMigration: '20260918190000_add_agent_routines',
-  manifestHash: '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
-  // Exact additive 250 endpoint; preserves the frozen 249 source prefix.
-  finalPublicTableCount: 267,
+  distributionPredecessorCount: 250,
+  distributionPredecessorPublicTableCount: 267,
+  distributionPredecessorFinalMigration: '20260918190000_add_agent_routines',
+  distributionPredecessorManifestHash:
+    '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
+  finalMigration: '20260927090000_add_venue_chat_appearance',
+  manifestHash: '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e',
+  // Exact additive 252 endpoint; preserves the frozen 250 source prefix.
+  finalPublicTableCount: 269,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -560,7 +565,23 @@ export function assertFrozenManifest(manifest) {
     routinePredecessorHash !== EXPECTED.routinePredecessorManifestHash
   )
     fail('agent routine predecessor manifest changed')
-  if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
+  const distributionPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.distributionPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.distributionPredecessorCount - 1] !==
+      EXPECTED.distributionPredecessorFinalMigration ||
+    distributionPredecessorHash !== EXPECTED.distributionPredecessorManifestHash
+  )
+    fail('distribution predecessor manifest changed')
+  const fullHash = manifestHash(
+    manifest.names.map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (manifest.hash !== EXPECTED.manifestHash || fullHash !== EXPECTED.manifestHash) {
+    fail('migration manifest checksum changed')
+  }
 }
 
 function ledgerState(rows, manifest) {
@@ -606,6 +627,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.nativeBotEffectPredecessorCount &&
     rows.length !== EXPECTED.guestDispositionPredecessorCount &&
     rows.length !== EXPECTED.routinePredecessorCount &&
+    rows.length !== EXPECTED.distributionPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -692,6 +714,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.guestDispositionPredecessorCount)
     return 'guest-disposition-predecessor'
   if (rows.length === EXPECTED.routinePredecessorCount) return 'agent-routines-predecessor'
+  if (rows.length === EXPECTED.distributionPredecessorCount) return 'distribution-predecessor'
   return 'complete'
 }
 
@@ -786,6 +809,24 @@ async function assertPostMigrationIntegrity(database, manifest) {
     "SELECT count(*)::int AS count FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND NOT c.convalidated",
   )
   if (unvalidatedConstraints !== 0) fail('unvalidated public constraints remain')
+  const appPlans = await database.$queryRawUnsafe(
+    "SELECT plan_tier, enabled FROM public.product_plan_capabilities WHERE capability = 'app-webview' ORDER BY plan_tier",
+  )
+  if (
+    appPlans.length !== 2 ||
+    appPlans[0].plan_tier !== 'free' ||
+    appPlans[1].plan_tier !== 'pro' ||
+    appPlans.some((plan) => plan.enabled !== false)
+  ) {
+    fail('app-webview plan backfill is not exactly disabled free and pro')
+  }
+}
+
+export function preservedTableCountMatches(table, before, after, initialState) {
+  if (!/^\d+$/u.test(before ?? '') || !/^\d+$/u.test(after ?? '')) return false
+  const addedDisabledAppPlans =
+    initialState === 'distribution-predecessor' && table === 'product_plan_capabilities' ? 2n : 0n
+  return BigInt(after) === BigInt(before) + addedDisabledAppPlans
 }
 
 function withMigrationApplicationName(raw, marker) {
@@ -915,7 +956,7 @@ async function main() {
       const afterCounts = await publicTableCounts(database)
       for (const [table, count] of beforeCounts) {
         if (table === '_prisma_migrations') continue
-        if (afterCounts.get(table) !== count)
+        if (!preservedTableCountMatches(table, count, afterCounts.get(table), initialState))
           fail(`row count changed for pre-existing table ${table}`)
       }
       console.log(
@@ -971,6 +1012,7 @@ export function expectedPublicTableCount(state) {
     'native-bot-effect-predecessor': EXPECTED.nativeBotEffectPredecessorPublicTableCount,
     'guest-disposition-predecessor': EXPECTED.guestDispositionPredecessorPublicTableCount,
     'agent-routines-predecessor': EXPECTED.routinePredecessorPublicTableCount,
+    'distribution-predecessor': EXPECTED.distributionPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

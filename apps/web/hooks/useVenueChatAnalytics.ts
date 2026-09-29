@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import type { VenueSummary } from '../components/venue-chat-types'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
-import type { GuestEntrySource } from '../lib/entry-prompt'
+import type { VisitorEntrySurface } from '@pathfinder/api/schemas'
 import { useTRPCClient } from '../lib/trpc'
 
 type PlaceEvent = 'place_card.viewed' | 'place_card.clicked' | 'directions.opened'
+
+export const HOST_PLACE_ACTION_ANALYTICS_KEY = 'host.open-in-app'
 
 function runBestEffortAnalytics(action: () => Promise<unknown>) {
   try {
@@ -21,18 +23,17 @@ export function useVenueChatAnalytics({
   venue,
   anonymousToken,
   visitorId,
-  entrySource,
+  entrySurface,
 }: {
   venue: VenueSummary | null
   anonymousToken: string | null
   visitorId: string | null
-  entrySource?: GuestEntrySource
+  entrySurface?: VisitorEntrySurface
 }) {
   const client = useTRPCClient()
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
-  const entrySourceConsumedRef = useRef(false)
 
   useEffect(() => {
     if (!venue || !anonymousToken) return
@@ -40,18 +41,16 @@ export function useVenueChatAnalytics({
     if (startedSessionKeyRef.current === sessionKey) return
     startedSessionKeyRef.current = sessionKey
     sessionStartedAtRef.current = Date.now()
-    const sessionEntrySource = entrySourceConsumedRef.current ? undefined : entrySource
-    if (sessionEntrySource) entrySourceConsumedRef.current = true
     runBestEffortAnalytics(() =>
       client.analytics.trackEvent.mutate({
         venueId: venue.id,
         sessionId: anonymousToken,
         ...(visitorId ? { visitorId } : {}),
         eventType: 'session.started',
-        ...(sessionEntrySource ? { metadata: { entrySource: sessionEntrySource } } : {}),
+        ...(entrySurface ? { entrySurface } : {}),
       }),
     )
-  }, [anonymousToken, client, entrySource, venue, visitorId])
+  }, [anonymousToken, client, entrySurface, venue, visitorId])
 
   const endSession = useCallback(
     (venueId: string, token: string, startedAt: number | null) => {
@@ -129,9 +128,32 @@ export function useVenueChatAnalytics({
     [anonymousToken, client, venue, visitorId],
   )
 
+  // Reuses the public visitor-action event so "sent back to the host app" needs no new schema.
+  const trackHostPlaceAction = useCallback(
+    (placeId: string) => {
+      if (!venue || !anonymousToken) return
+      runBestEffortAnalytics(() =>
+        client.analytics.trackEvent.mutate({
+          venueId: venue.id,
+          sessionId: anonymousToken,
+          ...(visitorId ? { visitorId } : {}),
+          eventType: 'visitor.action.clicked',
+          metadata: {
+            actionType: 'OPEN_EXHIBIT',
+            analyticsKey: HOST_PLACE_ACTION_ANALYTICS_KEY,
+            targetKind: 'PLACE_ID',
+            targetId: placeId,
+          },
+        }),
+      )
+    },
+    [anonymousToken, client, venue, visitorId],
+  )
+
   return {
     endSession,
     resetAnalytics,
+    trackHostPlaceAction,
     sessionStartedAtRef,
     trackPlaceEvent,
     trackVisitorAction,

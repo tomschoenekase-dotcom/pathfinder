@@ -1,0 +1,22 @@
+{
+  "name": "torchiko-distribution-expo-shell",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "doctor": "expo-doctor"
+  },
+  "dependencies": {
+    "expo": "57.0.25",
+    "expo-build-properties": "57.0.22",
+    "expo-location": "57.0.20",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-webview": "13.16.1"
+  },
+  "devDependencies": {
+    "expo-doctor": "1.18.8"
+  }
+}

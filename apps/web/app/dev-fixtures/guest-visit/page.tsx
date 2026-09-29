@@ -61,6 +61,17 @@ export default function GuestVisitFixture() {
             {disabled ? 'Enable preference editing' : 'Pause preference editing'}
           </button>
         </div>
+        <GuestVisitPreferences
+          context={visit.context}
+          places={[
+            { id: 'north-gallery', name: 'North Gallery' },
+            { id: 'lake-room', name: 'Lake Room' },
+            { id: 'train-hall', name: 'Train Hall' },
+          ]}
+          onChange={visit.updateContext}
+          onFreshVisit={startFreshVisit}
+          disabled={disabled}
+        />
         <VenueChatShell
           venue={venue}
           venueSlug="guest-visit-fixture"
@@ -70,7 +81,6 @@ export default function GuestVisitFixture() {
           sendError={null}
           anonymousToken="guest-visit-fixture-token"
           language="English"
-          setLanguage={() => undefined}
           initialDraft=""
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
@@ -80,19 +90,6 @@ export default function GuestVisitFixture() {
           onDirections={() => undefined}
           voiceControl={null}
           visitContext={visit.context}
-          visitPreferences={
-            <GuestVisitPreferences
-              context={visit.context}
-              places={[
-                { id: 'north-gallery', name: 'North Gallery' },
-                { id: 'lake-room', name: 'Lake Room' },
-                { id: 'train-hall', name: 'Train Hall' },
-              ]}
-              onChange={visit.updateContext}
-              onFreshVisit={startFreshVisit}
-              disabled={disabled}
-            />
-          }
         />
       </div>
     </main>

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
@@ -11,6 +12,8 @@ export type VenueQrKitAvailabilityProps = {
   guestChatUrl: string | null
   generatedAt: string
   venueAsset?: VenueLaunchAsset | null
+  /** Secondary sharing details, shown only with an available kit. */
+  children?: ReactNode
 }
 
 export function isVenueQrKitAvailable(
@@ -33,6 +36,7 @@ export function VenueQrKitAvailability({
   guestChatUrl,
   generatedAt,
   venueAsset,
+  children,
 }: VenueQrKitAvailabilityProps) {
   const available = isVenueQrKitAvailable(lifecycleState, guestChatUrl, hasCurrentRelease)
   if (!available || guestChatUrl === null) {
@@ -52,7 +56,7 @@ export function VenueQrKitAvailability({
           href={`/?venue=${encodeURIComponent(venueId)}`}
           className="mt-6 inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
         >
-          Back to Today
+          Back to Home
         </Link>
       </section>
     )
@@ -64,7 +68,7 @@ export function VenueQrKitAvailability({
         href={`/?venue=${encodeURIComponent(venueId)}`}
         className="mb-7 inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent print:hidden"
       >
-        Back to Today
+        Back to Home
       </Link>
       <VenueQrKit
         audience="client"
@@ -73,6 +77,7 @@ export function VenueQrKitAvailability({
         generatedAt={generatedAt}
         venueAsset={venueAsset ?? null}
       />
+      {children}
     </div>
   )
 }

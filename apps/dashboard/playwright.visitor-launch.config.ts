@@ -71,6 +71,10 @@ export default defineConfig({
       use: { browserName: 'chromium', viewport: { width: 768, height: 1024 }, hasTouch: true },
     },
     {
+      name: 'tablet-820-chromium',
+      use: { browserName: 'chromium', viewport: { width: 820, height: 1180 }, hasTouch: true },
+    },
+    {
       name: 'desktop-1440-chromium',
       use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } },
     },

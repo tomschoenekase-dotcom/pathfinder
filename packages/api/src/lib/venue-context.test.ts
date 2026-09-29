@@ -377,6 +377,9 @@ describe('guest response-depth policy', () => {
       responseIntent: 'EXPAND',
     })
     expect(staticPart).toContain('visitor explicitly asked for more detail')
+    // The fixed "Tell me more" control must not switch an inferred (Auto) reply language.
+    expect(staticPart).toContain('its wording is not a language signal')
+    expect(staticPart).toContain('Infer the language from the conversation')
     expect(staticPart).toContain('Use fewer words whenever the answer is already complete')
     expect(staticPart).toContain('Normally keep this reply within 200 words')
     expect(staticPart).toContain('Preserve any restriction, exception, or uncertainty')

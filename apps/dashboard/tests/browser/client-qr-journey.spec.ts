@@ -28,21 +28,21 @@ for (const viewport of [
     })
     await page.goto('/dev-fixtures/portal-home?state=live')
 
-    const qrLink = page.getByRole('link', { name: 'Open QR code' })
+    const qrLink = page.getByRole('link', { name: /Download or print/u })
     await expect(qrLink).toHaveAttribute('href', '/venues/fixture-great-lakes-museum/qr-kit')
     await qrLink.focus()
     await expect(qrLink).toBeFocused()
-    const launchSection = page.locator('section', {
-      has: page.locator('#launch-materials-heading'),
+    const guideSection = page.locator('section', {
+      has: page.locator('#guide-heading'),
     })
-    await launchSection.scrollIntoViewIfNeeded()
+    await guideSection.scrollIntoViewIfNeeded()
     const homeDimensions = await page.evaluate(() => ({
       body: document.body.scrollWidth,
       viewport: innerWidth,
     }))
     expect(homeDimensions.body).toBeLessThanOrEqual(homeDimensions.viewport + 1)
     const homeAccessibility = await new AxeBuilder({ page })
-      .include('section:has(#launch-materials-heading)')
+      .include('section:has(#guide-heading)')
       .analyze()
     expect(homeAccessibility.violations).toEqual([])
     await page.screenshot({

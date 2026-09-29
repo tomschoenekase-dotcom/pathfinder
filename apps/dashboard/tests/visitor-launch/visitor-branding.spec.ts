@@ -1,7 +1,9 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
-test('saved arrival branding loads below the primary action', async ({ page }, testInfo) => {
+test('saved arrival branding frames the header above the primary action', async ({
+  page,
+}, testInfo) => {
   // Synthetic layout evidence; public receipt/revocation is proven separately against PostgreSQL.
   const requestedAssets: string[] = []
   await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
@@ -22,8 +24,11 @@ test('saved arrival branding loads below the primary action', async ({ page }, t
   }
   const action = page.getByRole('link', { name: /Open your guide/u })
   const actionBounds = await action.boundingBox()
+  const headerBounds = await page.locator('header').boundingBox()
   const bannerBounds = await page.locator('img[src*="visitor-brand-banner"]').boundingBox()
-  expect(bannerBounds!.y).toBeGreaterThan(actionBounds!.y + actionBounds!.height)
+  expect(bannerBounds!.y).toBe(headerBounds!.y)
+  expect(bannerBounds!.height).toBeGreaterThanOrEqual(headerBounds!.height - 1)
+  expect(actionBounds!.y).toBeGreaterThanOrEqual(headerBounds!.y + headerBounds!.height)
   expect(actionBounds!.height).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])

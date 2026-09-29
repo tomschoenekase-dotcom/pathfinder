@@ -59,7 +59,7 @@ import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
-import { buildGuestPlaceCards } from '../lib/guest-place-card'
+import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
@@ -357,11 +357,14 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
 const admittedChatSendProcedure = publicProcedure
   .input(ChatSendInput)
   .use(async ({ ctx, input, next }) => {
+    const chatIngressStartedAt = performance.now()
+    const globalRateLimitStartedAt = performance.now()
     const globallyAllowed = await checkRateLimit(
       'ratelimit:chat:ingress:global',
       CHAT_GLOBAL_INGRESS_LIMIT,
       60,
     )
+    const chatRateLimitMs = elapsedMilliseconds(globalRateLimitStartedAt)
     if (!globallyAllowed) {
       throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
@@ -426,9 +429,12 @@ const admittedChatSendProcedure = publicProcedure
 
     const experienceScope = authorizeChatExperience(chatVenue, ctx.session, input.secondLayerKey)
 
-    return next({ ctx: { ...ctx, chatVenue, experienceScope } })
+    return next({
+      ctx: { ...ctx, chatVenue, experienceScope, chatIngressStartedAt, chatRateLimitMs },
+    })
   })
   .use(async ({ ctx, input, next }) => {
+    const venueRateLimitStartedAt = performance.now()
     const ingressAllowed = await checkRateLimit(
       `ratelimit:chat:ingress:venue:${ctx.chatVenue.id}`,
       CHAT_INGRESS_VENUE_LIMIT,
@@ -464,7 +470,12 @@ const admittedChatSendProcedure = publicProcedure
       })
     }
 
-    return next()
+    return next({
+      ctx: {
+        ...ctx,
+        chatRateLimitMs: ctx.chatRateLimitMs + elapsedMilliseconds(venueRateLimitStartedAt),
+      },
+    })
   })
   .use(requireGlobalAi)
 
@@ -583,6 +594,11 @@ const chatSessionRouter = router({
         latestLng: isNonLocation ? null : (input.lng ?? null),
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
+        ...(experienceScope === 'PUBLIC' && input.entrySurface
+          ? {
+              entrySurface: input.entrySurface.toUpperCase() as 'DIRECT' | 'QR' | 'WEBSITE' | 'APP',
+            }
+          : {}),
       },
       update: updateData,
       select: { id: true, experienceScope: true },
@@ -601,7 +617,16 @@ const chatReadRouter = router({
    * Send a message and receive an AI response grounded in venue + location data.
    */
   send: admittedChatSendProcedure.mutation(async ({ ctx, input }) => {
-    const requestStartedAt = performance.now()
+    // Include public admission and rate gates in the first-text clock. Browser
+    // click-to-text also includes transport and paint beyond this server span.
+    const requestStartedAt = ctx.chatIngressStartedAt
+    const admissionMs = elapsedMilliseconds(requestStartedAt)
+    const rateLimitMs = ctx.chatRateLimitMs
+    let turnSetupMs = 0
+    let reservationMs = 0
+    let claimMs = 0
+    let configurationMs = 0
+    let preEmbeddingMs = 0
     let embeddingMs = 0
     let retrievalMs = 0
     let promptAssemblyMs = 0
@@ -655,13 +680,18 @@ const chatReadRouter = router({
       lng: input.lng ?? null,
       retainLocation: guideMode !== 'non_location',
       experienceScope: ctx.experienceScope,
+      ...(ctx.experienceScope === 'PUBLIC' && input.entrySurface
+        ? { entrySurface: input.entrySurface }
+        : {}),
     }
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
+    const reservationStartedAt = performance.now()
     try {
       reservation = await reserveGuestChatTurnAction({ client: ctx.db, request: turnRequest })
     } catch (error) {
       guestChatTurnError(error)
     }
+    reservationMs = elapsedMilliseconds(reservationStartedAt)
     if (reservation.state === 'COMPLETE') {
       return {
         response: reservation.response,
@@ -681,8 +711,16 @@ const chatReadRouter = router({
         publicCode: 'OUTCOME_AMBIGUOUS',
       })
     }
+    // This read is independent of the durable claim. Start it now so its
+    // latency overlaps the claim, while still requiring the result before
+    // deciding whether the embedding provider may be dispatched.
+    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
+      (providers) => ({ ok: true as const, providers }),
+      () => ({ ok: false as const }),
+    )
     const claimId = randomUUID()
     let claimed: Awaited<ReturnType<typeof claimGuestChatTurnAction>>
+    const claimStartedAt = performance.now()
     try {
       claimed = await claimGuestChatTurnAction({
         client: ctx.db,
@@ -698,6 +736,7 @@ const chatReadRouter = router({
     } catch (error) {
       guestChatTurnError(error)
     }
+    claimMs = elapsedMilliseconds(claimStartedAt)
     if (claimed.state === 'COMPLETE') {
       return {
         response: claimed.response,
@@ -726,6 +765,7 @@ const chatReadRouter = router({
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const embeddingStartedAt = performance.now()
+    turnSetupMs = elapsedMilliseconds(requestStartedAt)
     const embeddingAccounting = createApiAiUsageRecorder({
       db: ctx.db,
       tenantId: venue.tenantId,
@@ -752,15 +792,17 @@ const chatReadRouter = router({
       (snapshot) => ({ ok: true as const, snapshot }),
       (error: unknown) => ({ ok: false as const, error }),
     )
-    const providerHealthPromise = readActiveUnhealthyAiProviders(ctx.db).then(
-      (providers) => ({ ok: true as const, providers }),
-      () => ({ ok: false as const }),
-    )
-    const adjacentPending = await readAdjacentGuestPlaceIdentityPendingAction({
-      client: ctx.db,
-      claim: turnOperationBase,
-      experienceScope: ctx.experienceScope,
-    })
+    // The claim already read the immutable turn sequence under its transaction.
+    // Sequence one cannot have an adjacent predecessor, so avoid another
+    // serialized transaction and lock before the first embedding dispatch.
+    const adjacentPending =
+      claimed.turnSequence === 1
+        ? null
+        : await readAdjacentGuestPlaceIdentityPendingAction({
+            client: ctx.db,
+            claim: turnOperationBase,
+            experienceScope: ctx.experienceScope,
+          })
     let acceptedAdjacentIdentityName: string | null = null
     let effectiveIdentityQuery = trimmedInput
     if (adjacentPending) {
@@ -869,6 +911,7 @@ const chatReadRouter = router({
       })
     }
     const unhealthyProviders = providerHealthResult.providers
+    preEmbeddingMs = elapsedMilliseconds(embeddingStartedAt)
     let embeddingDispatched = false
     const queryEmbeddingPromise = unhealthyProviders.includes('openai')
       ? skipGuestChatProviderOperationAction({
@@ -1514,6 +1557,7 @@ const chatReadRouter = router({
     })
     let generationDispatched = false
     try {
+      const configurationStartedAt = performance.now()
       const configuration = await resolveRuntimeAiWorkloadConfiguration(
         {
           workloadId: 'guest-chat',
@@ -1522,6 +1566,7 @@ const chatReadRouter = router({
         },
         ctx.db,
       )
+      configurationMs = elapsedMilliseconds(configurationStartedAt)
       const route = routeAiCapability({
         capability: 'STANDARD',
         workloadId: 'guest-chat',
@@ -1779,6 +1824,7 @@ const chatReadRouter = router({
     const persistenceStartedAt = performance.now()
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
+      locationAware: guideMode === 'location_aware',
       hasLiveLocation,
       places: relevantPlaces,
     })
@@ -1802,6 +1848,10 @@ const chatReadRouter = router({
         logger.warn({ action: 'guest-place-media-unavailable', venueId: venue.id })
       }
     }
+    mentionedPlaces = selectDisplayableGuestPlaceCards(
+      mentionedPlaces,
+      guideMode === 'location_aware',
+    )
     const citations = buildGuestCitations({
       assistantResponse,
       candidates: [
@@ -1937,6 +1987,14 @@ const chatReadRouter = router({
 
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {
+      firstTurn: claimed.turnSequence === 1,
+      admissionMs,
+      rateLimitMs,
+      reservationMs,
+      claimMs,
+      configurationMs,
+      turnSetupMs,
+      preEmbeddingMs,
       embeddingMs,
       retrievalMs,
       promptAssemblyMs,

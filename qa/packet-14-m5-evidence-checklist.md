@@ -1,0 +1,52 @@
+# Packet 14 M5 evidence checklist
+
+R1.1 evidence was captured at `512df5d4329ac4842b1c5e3cb9ea6cd92710d324`. The current Packet 14 branch is based on published R2 `ef0c3760fcc3e97fe95c1ed9252c579097582a0b`; its pushed checkpoint is `e535582ebc3c88599da0795d04226747dc033ba8`. This note separates the historical R1.1 evidence from the R2 proof still required.
+
+## R2 checkpoint — 2026-09-28
+
+- **M4:** The R2 browser specs exist for visitor chat, owner Look & feel, tenant isolation, and admin Good fit plus the authenticated speed endpoint. No R2 browser invocation has passed. The admin spec verifies one invented M museum in Good fit and one XL stadium excluded; it does not exercise proposal conflict, audited apply, or a rendered speed panel. The two seeded speed samples (420 and 780 ms) were statically checked and typechecked, but the R2 disposable seed/readout and exact percentile output have not been observed at runtime.
+- **Packet 2 milestone B/C:** The 7-first/8-follow-up phase report and two-turn paint capture below belong to R1.1. There is no R2 exact-head phase report, fresh streamed-delta/first-visible-word capture, or three consecutive complete M4 passes. Do not carry the R1.1 numbers into an R2 acceptance claim.
+- **Portal:** The current R2 browser spec covers owner sign-in, Home, Look & feel save/preview, and a harmless text intake upload. It has not shown the image reserve → MinIO → ClamAV → verified upload path, pending branding Help/In review, rejection/retry, framed preview backed by the disposable DB, or persistent Help request readback. No live Clerk, hosted object store, hosted scanner or billing service was used.
+- **Packet 7:** The synthetic Good fit and excluded XL seed rows have a static readback check. Authenticated R2 review rendering, post-upload review state, row-version conflict, selected-row apply and audit readback have not run. Packet 7's research coverage gate is separate and remains below 80%; Packet 14 does not make those classes or authorize a live CRM apply.
+- **Runtime boundary:** Docker Desktop's Linux engine timed out on a bounded read-only inspection, and no Packet 14 ports 56340–56347 were listening. Prior R2 attempts reached migrations/seed/worker on a disposable nC stack but failed web health, Prisma P1001 through the host proxy, or an engine HTTP 500. Do not run M5 commands until the selected local engine and exact lane resources can be verified. Raw host-facing proxy container egress also lacks a hard network-level block; the in-process loopback guard is narrower.
+- **Static safety proof:** Credential-free guarded R2 web and dashboard production builds completed; flag-on production fixture auth refused at config load in both apps; the complete scanner found no fixture-auth markers in 10,747 retained production JavaScript/manifest files. This proves local production exclusion on the prior R2 candidate, not M4/M5 or exact-head CI. [Push CI for `e535582e`](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36433235547) failed its generic responsive browser gate: these opt-in full-stack specs ran without the disposable stack. The follow-up adds an explicit URL gate so generic visual CI skips them; its new exact-head CI is pending.
+
+## R1.1 historical summary
+
+| Owning proof                                  | R1.1 result                                                                                                                                                                                                               | R2 remaining gate                                                                                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Packet 2 milestone B, local full-stack phases | A disposable DB report captured 7 first and 8 follow-up Aurora turns with per-phase median/p90. Browser smoke passed two turns at both widths, 76 NDJSON deltas per turn and at least three distinct painted word counts. | Fresh R2 phase/paint capture and three consecutive complete M4 passes. Historical synthetic stub timings are not staging or live-provider speed.                                                            |
+| Client portal states                          | Tenant A Look & feel save, preview and guide persistence plus tenant B isolation passed locally at both widths.                                                                                                           | Authenticated R2 Home intake, image upload/storage/scanner, Help, framed preview and durable readback. No real Clerk or billing action is in scope.                                                         |
+| Packet 7 CRM Good fit and visitor speed       | R1.1 browser invocation explicitly skipped the absent admin case.                                                                                                                                                         | R2 is integrated, but its admin browser spec has not run; verify Good fit review and speed readout on the disposable stack with exact SHA/artifacts. Proposal upload/conflict/apply states remain unproven. |
+
+## Reproduction and evidence capture
+
+From the repository root, after the selected local Docker engine responds and lane-owned resources have been inspected, use only the Packet 14 disposable stack and no real service credentials. The first `local:reset` stops this lane's tracked processes and recreates its disposable DB, Redis and MinIO data; preserve any needed lane evidence before running it. On Windows PowerShell, set the two Playwright variables before running the tests so their visual config reuses the stack:
+
+```powershell
+pnpm local:reset
+pnpm local:up
+node --test scripts/local-provider-stub.test.mjs
+node --test scripts/local-fixture-auth-config.test.mjs
+pnpm --dir packages/auth exec vitest run src/local-fixture/guard.test.ts src/local-fixture/edge.test.ts
+node scripts/local-full-stack-network-proof.mjs
+$env:PLAYWRIGHT_DASHBOARD_BASE_URL='http://127.0.0.1:56346'
+$env:PLAYWRIGHT_VISITOR_BASE_URL='http://127.0.0.1:56345'
+pnpm --dir apps/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/local-full-stack.spec.ts tests/visual/local-full-stack-admin.spec.ts --project phone-390x844 --retries=0
+Get-Content qa/packet-14-local-phase-report.sql -Raw | docker exec -i nC-postgres psql -X -v ON_ERROR_STOP=1 -U pathfinder -d pathfinder_disposable_p14_local > C:/Users/tomsc/MachineWorkspaces/torchiko/20260928-local-full-stack/proof/phase-report.txt
+pnpm local:down
+```
+
+The Playwright project `phone-390x844` deliberately runs each journey at both 390×844 and 1440×900; the other configured projects skip these tests. Keep the Playwright JSON attachments, screenshots, run summary, disposable phase report and exact checkout SHA with the evidence. M6's opt-in workflow is intended to run the journey three consecutive times and execute `local:down` even after a prior failure.
+
+On the historical R1.1 checkout, the stack reached ready after all 252 migrations and its synthetic seed; provider/web/dashboard health returned 200. The host-process network proof found zero established non-loopback connections among five attributed PIDs at the audit point and denied a synthetic TEST-NET-3 request before socket creation. Provider tests passed **10/10**, fixture auth tests **8/8**, and one combined browser invocation passed the three non-admin journeys in about one minute (3 pass, 1 explicit R2 admin skip). The read-only R1.1 phase report is retained under the Packet 14 owner `proof/r1-phase-report-20260928.txt`; it includes first/follow-up medians and p90 for each phase. Three consecutive full M4 runs on exact R2 are still pending.
+
+## Owning packet acceptance wording
+
+- **Packet 2:** the local portion of acceptance 4 has a synthetic phase table and a real local browser paint capture. The Aurora report has 7 first turns (request-first-text median 1,371 ms, p90 2,546 ms) and 8 follow-up turns (median 608 ms, p90 1,434 ms). The browser smoke recorded over 40 words and at least three distinct rAF paint samples per turn at both widths. These results do not establish hosted first-message/follow-up performance or live-provider latency; those remain behind Packet 1 G2 and explicit live-turn authorization.
+- **Portal handoff:** its screens and prior visual/journey evidence were explicitly development fixtures with an in-memory client, no Clerk session, and sessionStorage persistence in the Look & feel flow. Those prior branch results do not become a Packet 14 exact-head run by reference. This packet's fixture auth verifies a local role/tenant path; it does not exercise real Clerk authentication, production preview access, uploads to real storage, malware scanning, billing, or real Help threads.
+- **Packet 7:** its handoff records that authenticated post-upload CRM states were unverified and that the Good fit review screen belongs to Packet 12 R2. The earlier R1.1 admin test was skipped because those surfaces did not exist. The current R2 admin spec has no passing runtime result, and its current assertions do not cover post-upload proposal conflict/apply states; neither checkout closes Packet 7's authenticated review proof.
+
+## Safety and scope
+
+The M4 browser specs block requests outside their explicit loopback origin allow-lists and assert no browser request to an external origin was attempted when those specs run. The host-side preloader blocks non-loopback calls; the historical R1.1 socket audit covered attributed host processes at one point in time. The Docker host-facing proxy's raw outbound route is not hard blocked by this Compose setup; this boundary remains partial and is recorded on the lane board. The auth identity is synthetic and local. Packet 14 acceptance does not authorize staging/production turns, hosted CRM reads, writes, deployments, or changes to the other packets' branches.

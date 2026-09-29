@@ -474,7 +474,9 @@ describe('IntakeV1SubmissionWorkspace', () => {
       replayed: true,
     })
     render(<IntakeV1SubmissionWorkspace ownerId="user-1" venueId="venue-1" proposals={[]} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Check this submission again' }))
+    const retry = await screen.findByRole('button', { name: 'Check this submission again' })
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(retry)
     await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(2))
     expect(mocks.submit.mock.calls[1]![0].selection.operationId).toBe(originalOperation)
   })

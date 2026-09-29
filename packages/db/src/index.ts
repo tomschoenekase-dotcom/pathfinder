@@ -1,6 +1,16 @@
 export { db } from './client'
 export { resolveVenueLaunchSource, type VenueLaunchSource } from './helpers/venue-launch-source'
 export {
+  createDefaultVenueDistributionResolverCache,
+  createVenueDistributionResolverCache,
+  resolveCachedVenueDistribution,
+  resolveVenueDistribution,
+  normalizeVenueWebsiteOrigin,
+  getVenueDistributionSessionCounts,
+  type DistributionDenyReason,
+  type VenueDistributionReadback,
+} from './helpers/venue-distribution'
+export {
   readProspectLaunchLinks,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
@@ -246,9 +256,13 @@ export type {
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export {
   expireAbandonedVoiceSessions,
+  findDueVoiceSessionHangups,
+  finalizeExpiredVoiceSessionHangup,
+  loadVoiceSessionForHangup,
   VOICE_AUTHORIZATION_LEASE_SECONDS,
   VOICE_SESSION_RECOVERY_BATCH_MAX,
   type ExpiredVoiceSession,
+  type VoiceSessionHangupRecord,
 } from './helpers/voice-session-recovery'
 export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
 export { inspectDeclaredOperationalUsage } from './helpers/declared-operational-usage'
@@ -332,6 +346,11 @@ export type {
   ProspectActor,
   ProspectImportNormalizedRow,
 } from './helpers/prospect-actions'
+export {
+  applyProspectSizeProposalAction,
+  type ProspectSizeProposal,
+  type ProspectSizeApplyResult,
+} from './helpers/prospect-size-proposal-actions'
 export {
   canonicalJson as canonicalProspectJson,
   normalizeProspectDomain,
@@ -879,6 +898,9 @@ export type {
   WeeklyDigestStatus,
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
+export type ProspectVenueWhereInput = import('@prisma/client').Prisma.ProspectVenueWhereInput
+export type ProspectOrganizationWhereInput =
+  import('@prisma/client').Prisma.ProspectOrganizationWhereInput
 export {
   AgentQuestionActionError,
   answerAgentQuestionAction,

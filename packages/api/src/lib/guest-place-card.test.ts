@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGuestPlaceCards } from './guest-place-card'
+import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from './guest-place-card'
 
 const elephantHouse = {
   id: 'place_1',
@@ -19,6 +19,7 @@ describe('buildGuestPlaceCards', () => {
   it('projects descriptive cards without location or third-party image data', () => {
     const cards = buildGuestPlaceCards({
       assistantResponse: 'The Elephant House is open today.',
+      locationAware: false,
       hasLiveLocation: false,
       places: [elephantHouse],
     })
@@ -42,6 +43,7 @@ describe('buildGuestPlaceCards', () => {
   it('preserves live-location data without treating a legacy URL as photo approval', () => {
     const [card] = buildGuestPlaceCards({
       assistantResponse: 'Try Elephant House next.',
+      locationAware: true,
       hasLiveLocation: true,
       places: [elephantHouse],
     })
@@ -55,6 +57,7 @@ describe('buildGuestPlaceCards', () => {
 
     const [invalid] = buildGuestPlaceCards({
       assistantResponse: 'Try Elephant House next.',
+      locationAware: true,
       hasLiveLocation: true,
       places: [{ ...elephantHouse, lat: 95, lng: null, distanceMeters: -1 }],
     })
@@ -64,6 +67,7 @@ describe('buildGuestPlaceCards', () => {
   it('keeps grounded text for a mentioned place and omits unrelated place media', () => {
     const cards = buildGuestPlaceCards({
       assistantResponse: 'Elephant House is open until 4 PM.',
+      locationAware: true,
       hasLiveLocation: true,
       places: [
         elephantHouse,
@@ -86,7 +90,7 @@ describe('buildGuestPlaceCards', () => {
     ])
   })
 
-  it('uses exact name boundaries, preserves retrieval order, and caps cards at three', () => {
+  it('uses exact name boundaries and preserves retrieval order for media review', () => {
     const places = [
       { ...elephantHouse, id: 'p1', name: 'Art' },
       { ...elephantHouse, id: 'p2', name: 'Cafe' },
@@ -98,16 +102,18 @@ describe('buildGuestPlaceCards', () => {
     const cards = buildGuestPlaceCards({
       assistantResponse:
         'The partial exhibit is separate. Visit Cafe, Gallery, Atrium, and Garden.',
+      locationAware: false,
       hasLiveLocation: false,
       places,
     })
 
-    expect(cards.map(({ id }) => id)).toEqual(['p2', 'p3', 'p4'])
+    expect(cards.map(({ id }) => id)).toEqual(['p2', 'p3', 'p4', 'p5'])
   })
 
   it('normalizes Unicode names and excludes combining-mark and longer-name collisions', () => {
     const cards = buildGuestPlaceCards({
       assistantResponse: 'Skip Á and Caféteria. Visit CAFÉ TERRACE, then 館.',
+      locationAware: false,
       hasLiveLocation: false,
       places: [
         { ...elephantHouse, id: 'p1', name: 'Cafe\u0301' },
@@ -123,6 +129,7 @@ describe('buildGuestPlaceCards', () => {
   it('bounds legacy text without splitting surrogate pairs and rejects unsafe image URLs', () => {
     const [card] = buildGuestPlaceCards({
       assistantResponse: `Visit ${'N'.repeat(199)}😀${'N'.repeat(20)} today.`,
+      locationAware: true,
       hasLiveLocation: true,
       places: [
         {
@@ -144,5 +151,55 @@ describe('buildGuestPlaceCards', () => {
     expect(card?.areaName).toHaveLength(200)
     expect(card?.hours).toHaveLength(200)
     expect(card?.photoUrl).toBeNull()
+  })
+
+  it('keeps place coordinates for directions without inventing visitor distance', () => {
+    const [card] = buildGuestPlaceCards({
+      assistantResponse: 'Visit Elephant House.',
+      locationAware: true,
+      hasLiveLocation: false,
+      places: [elephantHouse],
+    })
+    expect(card).toMatchObject({ lat: 40.7, lng: -74, distanceMeters: undefined })
+  })
+
+  it('selects only approved-image or actionable-location cards and caps after selection', () => {
+    const candidates = buildGuestPlaceCards({
+      assistantResponse: 'Visit Art, Cafe, Gallery, and Atrium.',
+      locationAware: false,
+      hasLiveLocation: false,
+      places: ['Art', 'Cafe', 'Gallery', 'Atrium'].map((name, index) => ({
+        ...elephantHouse,
+        id: `p${index}`,
+        name,
+      })),
+    })
+    const approved = candidates.map((card, index) =>
+      index === 0
+        ? card
+        : {
+            ...card,
+            photoUrl: `/api/venue-media/${index}?venue=museum`,
+            photoAttribution: {
+              altText: card.name,
+              caption: null,
+              sourceName: 'Museum',
+              sourceUrl: null,
+            },
+          },
+    )
+    expect(selectDisplayableGuestPlaceCards(approved, false).map(({ id }) => id)).toEqual([
+      'p1',
+      'p2',
+      'p3',
+    ])
+    expect(selectDisplayableGuestPlaceCards(candidates, false)).toEqual([])
+    expect(
+      selectDisplayableGuestPlaceCards(
+        candidates.map((card) => ({ ...card, lat: 40.7, lng: -74 })),
+        true,
+      ),
+    ).toHaveLength(3)
+    expect(selectDisplayableGuestPlaceCards([{ ...candidates[0]!, lat: 95 }], true)).toEqual([])
   })
 })

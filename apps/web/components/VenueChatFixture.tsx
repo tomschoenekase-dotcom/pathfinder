@@ -7,13 +7,15 @@ import type {
   PublicCharacterProjection,
 } from '@pathfinder/contracts/character-system'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+import type { ChatAppearance } from '@pathfinder/contracts/chat-appearance'
 
 import { TRPCProvider } from '../lib/trpc'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { DEFAULT_VISITOR_PREFERENCES, type VisitorPreferences } from '../lib/visitor-preferences'
 import { LocationRoutePlanner, type LocationRoutePlannerDataSource } from './LocationRoutePlanner'
 import { VenueChatShell } from './VenueChatShell'
 import { VoiceControlPanel } from './VoiceControl'
-import type { ChatMessage, VenueSummary } from './venue-chat-types'
+import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 
 export const VISITOR_FIXTURE_STATES = [
   'idle',
@@ -32,10 +34,14 @@ export type VisitorFixtureConversation =
   | 'multilingual'
   | 'streaming'
   | 'voice-history'
+  | 'reference'
+  | 'placeholder'
+  | 'pass'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
   | 'idle'
+  | 'server'
   | 'listening'
   | 'speaking'
   | 'interrupted'
@@ -173,6 +179,35 @@ const LONG_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+/**
+ * Neutral sample used by the client portal's appearance preview. Both speakers use the same
+ * placeholder language so the preview shows styling, never invented venue facts.
+ */
+const PLACEHOLDER_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'Lorem ipsum dolor sit amet?' },
+  {
+    role: 'assistant',
+    content:
+      'Consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.',
+  },
+  { role: 'user', content: 'Quis nostrud exercitation ullamco laboris?' },
+  {
+    role: 'assistant',
+    content:
+      'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+  },
+]
+
+/** The exchange from the approved visitor-guide reference screenshot. */
+const REFERENCE_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: "I'm a 10 year old boy. What will I like?" },
+  {
+    role: 'assistant',
+    content:
+      "If you mean what you might like at the museum, Max Q the robot is a popular choice—ask a staff member to show you what he can do, and don't touch his control tablet. You could also try lifting the gravity bricks to feel how the same brick would weigh on the Moon or Mars.",
+  },
+]
+
 const MULTILINGUAL_CONVERSATION: ChatMessage[] = [
   {
     role: 'user',
@@ -222,7 +257,70 @@ const VOICE_HISTORY_CONVERSATION: ChatMessage[] = [
   },
 ]
 
-function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
+/** A multi-attraction pass guide recommending places an app host can open natively. */
+const PASS_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'We have one afternoon and two kids. Where should we go first?' },
+  {
+    role: 'assistant',
+    content:
+      'Start at the Harbor Aquarium when it opens, since the shark tunnel gets busy after lunch. The Riverfront Science Center is a 10-minute walk away and good for a second stop. Save the Skyline Observation Deck for sunset.',
+    places: [
+      {
+        id: 'fixture-pass-aquarium',
+        name: 'Harbor Aquarium',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Shark tunnel, touch pools and a daily sea lion talk.',
+        areaName: 'Harbor district',
+        hours: '9 AM–6 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: 'fixture-pass-science',
+        name: 'Riverfront Science Center',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Hands-on physics floor and a toddler water lab.',
+        areaName: 'Riverfront',
+        hours: '10 AM–5 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: 'fixture-pass-skyline',
+        name: 'Skyline Observation Deck',
+        type: 'ATTRACTION',
+        photoUrl: null,
+        shortDescription: 'Glass-floor ledge 94 floors up.',
+        areaName: 'Downtown',
+        hours: '9 AM–10 PM',
+        distanceMeters: undefined,
+        lat: null,
+        lng: null,
+      },
+    ],
+  },
+]
+
+const FIXTURE_CONVERSATIONS: Record<VisitorFixtureConversation, ChatMessage[]> = {
+  empty: [],
+  long: LONG_CONVERSATION,
+  placeholder: PLACEHOLDER_CONVERSATION,
+  reference: REFERENCE_CONVERSATION,
+  multilingual: MULTILINGUAL_CONVERSATION,
+  streaming: STREAMING_CONVERSATION,
+  'voice-history': VOICE_HISTORY_CONVERSATION,
+  pass: PASS_CONVERSATION,
+}
+
+function fixtureVenue(
+  mode: VisitorFixtureMode,
+  asset: VisitorFixtureAsset,
+  guideMode: 'non_location' | 'location_aware',
+): VenueSummary {
   const projection =
     asset === 'ok'
       ? VISITOR_FIXTURE_PROJECTION
@@ -236,7 +334,7 @@ function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): Ven
     name: 'Great Lakes Discovery Museum',
     description: 'Explore lake ecology, shipping history, and hands-on family exhibits.',
     category: 'museum',
-    guideMode: 'non_location',
+    guideMode,
     defaultCenterLat: null,
     defaultCenterLng: null,
     aiGuideName: 'Museum Guide',
@@ -273,12 +371,21 @@ export function VenueChatFixture({
   voice = 'none',
   network = 'online',
   route = 'none',
+  guideMode = 'non_location',
   language = 'English',
   theme,
   font,
   accent,
   branding = 'none',
   readOnly = false,
+  presentation = 'standalone',
+  appHeader = 'full',
+  booting = false,
+  appearance,
+  backgroundUrl,
+  logoUrl,
+  venueName,
+  preferences = DEFAULT_VISITOR_PREFERENCES,
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -288,13 +395,25 @@ export function VenueChatFixture({
   voice?: VisitorFixtureVoice
   network?: NetworkConnectionState
   route?: VisitorFixtureRoute
+  guideMode?: 'non_location' | 'location_aware'
   language?: SupportedChatLanguage
   theme?: string | undefined
   font?: string | undefined
   accent?: string | undefined
   branding?: VisitorFixtureBranding
   readOnly?: boolean
+  presentation?: VenueChatPresentation
+  appHeader?: 'full' | 'compact' | 'none'
+  booting?: boolean
+  appearance?: ChatAppearance
+  /** Same-origin reviewed background image used with an `image` appearance. */
+  backgroundUrl?: string
+  /** Same-origin reviewed logo, or a local draft image in the portal's preview. */
+  logoUrl?: string
+  venueName?: string
+  preferences?: VisitorPreferences
 }) {
+  const [fixturePreferences, setFixturePreferences] = useState(preferences)
   const [clientMounted, setClientMounted] = useState(false)
 
   useEffect(() => {
@@ -312,12 +431,15 @@ export function VenueChatFixture({
         data-fixture-asset={asset}
         data-fixture-voice={voice}
         data-fixture-network={network}
+        data-fixture-presentation={presentation}
+        data-fixture-app-header={appHeader}
+        data-fixture-booting={booting}
         data-fixture-route={route}
         data-fixture-branding={branding}
       >
         <VenueChatShell
           venue={{
-            ...fixtureVenue(mode, asset),
+            ...fixtureVenue(mode, asset, guideMode),
             ...(theme ? { chatTheme: theme } : {}),
             ...(font ? { chatFont: font } : {}),
             ...(accent ? { chatAccentColor: accent } : {}),
@@ -327,26 +449,29 @@ export function VenueChatFixture({
                   chatBannerUrl: '/dev-fixtures/visitor-brand-banner.svg',
                 }
               : {}),
+            ...(backgroundUrl ? { chatBannerUrl: backgroundUrl } : {}),
+            ...(logoUrl ? { chatLogoUrl: logoUrl } : {}),
+            ...(appearance ? { chatAppearance: appearance } : {}),
+            ...(venueName ? { name: venueName } : {}),
           }}
+          preferences={fixturePreferences}
+          onPreferencesChange={(change) =>
+            setFixturePreferences((current) => ({ ...current, ...change }))
+          }
           venueSlug="fixture-great-lakes-museum"
-          presentation="standalone"
+          presentation={presentation}
+          appHeader={appHeader}
           messages={
-            conversation === 'long'
-              ? LONG_CONVERSATION
-              : conversation === 'multilingual'
-                ? MULTILINGUAL_CONVERSATION
-                : conversation === 'streaming'
-                  ? STREAMING_CONVERSATION
-                  : conversation === 'voice-history'
-                    ? VOICE_HISTORY_CONVERSATION
-                    : []
+            voice === 'interrupted'
+              ? VOICE_HISTORY_CONVERSATION
+              : FIXTURE_CONVERSATIONS[conversation]
           }
           isSending={state === 'thinking' || state === 'speaking'}
+          isRestoringHistory={booting}
           conversationLocked={readOnly}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
           language={language}
-          setLanguage={() => undefined}
           initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
           characterState={state}
           characterMotion={motion}
@@ -354,17 +479,18 @@ export function VenueChatFixture({
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
           onRequestMore={() => undefined}
-          requestMoreLabel="Tell me more"
+          requestMoreLabel="Tell me more about that"
           onDraftChange={() => undefined}
           onNewConversation={() => undefined}
           onPlaceView={() => undefined}
           onPlaceClick={() => undefined}
           onDirections={() => undefined}
           voiceControl={
-            voice === 'none' ? null : (
+            voice === 'server' ? undefined : voice === 'none' ? null : (
               <VoiceControlPanel
                 state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
+                compact
                 error={
                   voice === 'error'
                     ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'
@@ -390,19 +516,26 @@ export function VenueChatFixture({
                       ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
                       : []
                 }
-                {...(voice === 'speaking' || voice === 'interrupted'
-                  ? {
-                      liveAssistantCaption: {
-                        responseId: 'fixture-live-caption',
-                        text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift.',
-                        interrupted: voice === 'interrupted',
-                      },
-                    }
-                  : {})}
                 onStart={() => undefined}
                 onEnd={() => undefined}
               />
             )
+          }
+          fixtureLiveVoiceCaption={
+            voice === 'speaking' || voice === 'interrupted'
+              ? {
+                  responseId: 'fixture-live-caption',
+                  text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift. From there, follow the blue signs along the quieter east corridor. The next landmark is the glass reading room, just beyond the family displays. If the corridor feels busy, pause near the small seating area beside the lift; the route continues straight after the doorway and avoids the central stairs. You can also ask me to repeat any part of these directions while we walk together.',
+                  interrupted: voice === 'interrupted',
+                }
+              : null
+          }
+          fixtureLiveVoiceAnnouncement={
+            voice === 'interrupted'
+              ? 'Voice response interrupted. Finalizing caption.'
+              : voice === 'speaking'
+                ? 'Voice caption started.'
+                : null
           }
           routePlanner={
             route === 'ready' ? (

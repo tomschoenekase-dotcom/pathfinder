@@ -33,18 +33,22 @@ export default defineConfig({
     : {
         webServer: [
           {
-            command: 'pnpm --dir ../web dev',
+            command: 'pnpm --dir ../web dev --hostname 127.0.0.1',
             url: `${visitorBaseUrl}/dev-fixtures/visitor-chat`,
-            env: { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
+            env: {
+              NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '',
+              DASHBOARD_URL: dashboardBaseUrl,
+            },
             reuseExistingServer: !process.env.CI,
             timeout: 180_000,
           },
           {
-            command: 'pnpm dev',
+            command: 'pnpm dev --hostname 127.0.0.1',
             url: `${dashboardBaseUrl}/dev-fixtures/portal-home`,
             env: {
               NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '',
               TORCHIKO_VISUAL_FIXTURES_ENABLED: '1',
+              NEXT_PUBLIC_WEB_URL: visitorBaseUrl,
             },
             reuseExistingServer: !process.env.CI,
             timeout: 180_000,
