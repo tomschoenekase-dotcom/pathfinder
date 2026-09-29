@@ -50,6 +50,10 @@ const LazyVenueCharacterStage = dynamic(
   },
 )
 
+// The Space Museum's night sky is code-drawn so it never uses an unreviewed media URL.
+// Explicit background and high contrast choices take precedence over this presentation.
+const SPACE_MUSEUM_VENUE_ID = 'cmsg624n70003rx0190j8o941'
+
 function fontFamily(chatFont: string | null): string {
   const option = CHAT_FONT_OPTIONS.find((font) => font.value === chatFont) ?? CHAT_FONT_OPTIONS[0]!
   return `var(${option.cssVar})`
@@ -259,8 +263,13 @@ export function VenueChatShell(props: {
   const isOnline = connectionState !== 'offline'
   const compactAppHeader = presentation === 'webview' && appHeader === 'compact'
   const viewportHeight = useChatViewportHeight()
-  const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const appearance = parseChatAppearance(venue.chatAppearance)
+  const museumStarfield =
+    venue.id === SPACE_MUSEUM_VENUE_ID &&
+    venue.chatTheme === 'dark' &&
+    appearance.background.mode === 'none' &&
+    !preferences.highContrast
+  const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
   const shellCopy = getVisitorUiCopy(language).shell
   const backLabel = shellCopy[1]
@@ -312,6 +321,7 @@ export function VenueChatShell(props: {
       data-contrast={preferences.highContrast ? 'high' : 'standard'}
       data-speaker-labels={tokens.speakerLabels ? true : undefined}
       data-backdrop={tokens.backgroundImage ? 'image' : 'none'}
+      data-starry={museumStarfield ? true : undefined}
       style={
         {
           backgroundColor: tokens.pageBg,
