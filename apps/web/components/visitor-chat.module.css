@@ -113,6 +113,17 @@
   min-height: 0;
   isolation: isolate;
 }
+/* Space Museum's approved launch sky sits below every reading/control layer. */
+.shell[data-starry] .main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgb(5 10 18 / 30%), rgb(5 10 18 / 42%)),
+    url('/space-museum/starry-night-codex-20260929.png') center / cover no-repeat;
+}
 .backdrop {
   position: absolute;
   z-index: 0;

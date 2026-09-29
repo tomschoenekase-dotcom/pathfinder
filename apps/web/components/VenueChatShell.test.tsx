@@ -2,6 +2,8 @@
 import React, { useLayoutEffect } from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_CHAT_APPEARANCE } from '@pathfinder/contracts/chat-appearance'
+import { DEFAULT_VISITOR_PREFERENCES } from '../lib/visitor-preferences'
 
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -171,5 +173,48 @@ describe('VenueChatShell venue scoped voice captions', () => {
     expect(screen.getByText('Caption from new-venue')).toBeTruthy()
     expect(screen.getByText('Voice caption started.')).toBeTruthy()
     expect(screen.queryByText('Voice response interrupted. Finalizing caption.')).toBeNull()
+  })
+
+  it('draws the Space Museum sky only for its dark theme without a selected background', () => {
+    const museumId = 'cmsg624n70003rx0190j8o941'
+    const museum = { ...venue(museumId), chatTheme: 'dark' }
+    const { container, rerender } = render(
+      <VenueChatShell {...shellProps(museumId)} venue={museum} />,
+    )
+    const shell = () => container.querySelector('[data-starry]')
+    expect(shell()).not.toBeNull()
+
+    rerender(
+      <VenueChatShell {...shellProps(museumId)} venue={{ ...museum, id: 'another-venue' }} />,
+    )
+    expect(shell()).toBeNull()
+
+    rerender(
+      <VenueChatShell {...shellProps(museumId)} venue={{ ...museum, chatTheme: 'default' }} />,
+    )
+    expect(shell()).toBeNull()
+
+    rerender(
+      <VenueChatShell
+        {...shellProps(museumId)}
+        venue={museum}
+        preferences={{ ...DEFAULT_VISITOR_PREFERENCES, highContrast: true }}
+      />,
+    )
+    expect(shell()).toBeNull()
+
+    rerender(
+      <VenueChatShell
+        {...shellProps(museumId)}
+        venue={{
+          ...museum,
+          chatAppearance: {
+            ...DEFAULT_CHAT_APPEARANCE,
+            background: { ...DEFAULT_CHAT_APPEARANCE.background, mode: 'image' },
+          },
+        }}
+      />,
+    )
+    expect(shell()).toBeNull()
   })
 })
