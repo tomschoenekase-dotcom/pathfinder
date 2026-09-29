@@ -32,6 +32,8 @@ type Venue = {
 type ChatDesignFormProps = {
   venues: Venue[]
   brandingAssetsByVenue?: Record<string, BrandingAssetPage>
+  previewOrigin?: string
+  visitorUrlsByVenue?: Record<string, string | null>
   canEdit?: boolean
   initialVenueId?: string
   updateDesign?: (input: {
@@ -114,6 +116,25 @@ function presetAccent(theme: LightThemeValue): string {
   return CHAT_THEME_PRESETS.find((preset) => preset.value === theme)!.accent
 }
 
+function buildAppearancePreviewUrl(
+  origin: string | undefined,
+  theme: LightThemeValue | 'dark',
+  font: ChatFontValue,
+  accent: string | null,
+): string | null {
+  if (!origin) return null
+  try {
+    const url = new URL('/appearance-preview', origin)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    url.searchParams.set('theme', theme)
+    url.searchParams.set('font', font)
+    if (accent) url.searchParams.set('accent', accent)
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 function designStateForVenue(venue: Venue | undefined) {
   const darkMode = venue?.chatTheme === 'dark'
   const chatTheme: LightThemeValue =
@@ -139,6 +160,8 @@ function designStateForVenue(venue: Venue | undefined) {
 export function ChatDesignForm({
   venues,
   brandingAssetsByVenue = {},
+  previewOrigin,
+  visitorUrlsByVenue = {},
   canEdit = true,
   initialVenueId,
   updateDesign,
@@ -196,6 +219,12 @@ export function ChatDesignForm({
   const accentOverride = isHexColor(normalizedAccent) ? normalizedAccent : null
   const effectiveTheme: LightThemeValue | 'dark' = darkMode ? 'dark' : chatTheme
   const palettePreview = getChatPalette(effectiveTheme, accentOverride)
+  const appearancePreviewUrl = buildAppearancePreviewUrl(
+    previewOrigin,
+    effectiveTheme,
+    chatFont,
+    accentOverride,
+  )
   const isDirty =
     chatTheme !== savedDesign.chatTheme ||
     darkMode !== savedDesign.darkMode ||
@@ -426,6 +455,59 @@ export function ChatDesignForm({
           ))}
         </select>
       </div>
+
+      <section aria-label="Appearance preview" className="rounded-2xl border border-pf-light p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-sm font-semibold text-pf-deep">Appearance preview</h2>
+          <p className="text-xs text-pf-deep/70" aria-live="polite">
+            {isDirty
+              ? 'Unsaved changes · Save design to keep this appearance.'
+              : 'Showing the saved appearance.'}
+          </p>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
+          Opens a fixed sample conversation in the visitor renderer. The preview does not send a
+          message or change venue data.
+        </p>
+        {invalidAccent ? (
+          <p className="mt-2 text-xs font-medium text-amber-800" role="note">
+            Enter a valid six-digit hex colour to preview your custom accent. The preview currently
+            uses the selected theme colour.
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-3">
+          {appearancePreviewUrl ? (
+            <a
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-primary px-4 text-sm font-semibold text-pf-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+              href={appearancePreviewUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {isDirty ? 'Preview unsaved appearance' : 'Preview appearance'}
+            </a>
+          ) : (
+            <p className="text-sm text-pf-deep/70">
+              Appearance preview is unavailable from this client session.
+            </p>
+          )}
+          {saved && !isDirty && venue?.id && visitorUrlsByVenue[venue.id] ? (
+            <a
+              className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-4 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+              href={visitorUrlsByVenue[venue.id] ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open saved visitor guide
+            </a>
+          ) : null}
+        </div>
+        {saved && !isDirty && venue?.id && visitorUrlsByVenue[venue.id] ? (
+          <p className="mt-2 text-xs leading-5 text-pf-deep/70">
+            The saved visitor guide reads this venue&apos;s persisted appearance. Reload it to check
+            the update.
+          </p>
+        ) : null}
+      </section>
 
       <div className="rounded-2xl border border-pf-light bg-pf-white p-4">
         <p className="text-sm font-semibold text-pf-deep">Reviewed branding assets</p>
@@ -714,7 +796,7 @@ export function ChatDesignForm({
           role="status"
           className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
         >
-          Design saved. Changes will appear in the guest chat immediately.
+          Design saved for this venue. Reload the visitor guide to check the saved appearance.
         </p>
       ) : null}
 

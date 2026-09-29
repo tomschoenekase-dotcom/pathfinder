@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGuestChatUrl, buildQrEntryUrl } from './guest-chat-url'
+import { buildGuestChatUrl, buildQrEntryUrl, resolveGuestWebOrigin } from './guest-chat-url'
+
+describe('staging visitor origin', () => {
+  it('uses the approved staging web host only when the optional stage origin is absent', () => {
+    expect(resolveGuestWebOrigin(undefined, 'staging')).toBe(
+      'https://staging-web-staging-bbeb.up.railway.app',
+    )
+    expect(resolveGuestWebOrigin('https://custom.example.com', 'staging')).toBe(
+      'https://custom.example.com',
+    )
+    expect(resolveGuestWebOrigin('not a URL', 'staging')).toBe('not a URL')
+    expect(resolveGuestWebOrigin(undefined, 'production')).toBeUndefined()
+  })
+})
 
 describe('guest chat URL boundary', () => {
   it('builds an encoded chat URL from an exact HTTPS origin', () => {

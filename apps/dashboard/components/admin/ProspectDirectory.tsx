@@ -384,6 +384,14 @@ export function ProspectDirectory({
           >
             Import spreadsheet
           </Link>
+          <a
+            href="/api/admin/prospect-agent-snapshot"
+            download
+            title="Read-only copy for AI drafting. Save it to MachineWorkspaces\torchiko\crm-snapshots."
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm"
+          >
+            Download agent snapshot
+          </a>
         </div>
       </div>
 

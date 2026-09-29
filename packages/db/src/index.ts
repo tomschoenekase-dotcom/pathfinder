@@ -315,6 +315,7 @@ export {
   ProspectActionError,
   resolveProspectDuplicateAction,
   resolveProspectImportRowAction,
+  resumeIncompleteProspectImportDryRunAction,
   scanProspectDuplicatesAction,
   stageProspectImportRowsAction,
   updateProspectPipelineAction,

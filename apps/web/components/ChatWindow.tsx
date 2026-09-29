@@ -44,6 +44,7 @@ type ChatWindowProps = {
   accentContrastColor?: string
   placeholder?: string
   initialDraft?: string
+  draftStorageKey?: string | null
   emptyState?: ReactNode
   conversationTools?: ReactNode
   persistentVoiceControl?: ReactNode
@@ -76,6 +77,7 @@ export function ChatWindow({
   accentContrastColor,
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
+  draftStorageKey = null,
   emptyState,
   conversationTools,
   persistentVoiceControl,
@@ -103,6 +105,7 @@ export function ChatWindow({
     respondingLabel,
   ] = getVisitorUiCopy(language).shell
   const [draft, setDraft] = useState(initialDraft)
+  const draftScopeRef = useRef(draftStorageKey)
   const composerId = useId()
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
@@ -115,6 +118,33 @@ export function ChatWindow({
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
+
+  useEffect(() => {
+    const previousScope = draftScopeRef.current
+    draftScopeRef.current = draftStorageKey
+    if (!draftStorageKey) {
+      if (previousScope) setDraft('')
+      return
+    }
+    try {
+      const storedDraft = window.sessionStorage.getItem(draftStorageKey)
+      if (storedDraft !== null) setDraft(storedDraft)
+      else if (previousScope && previousScope !== draftStorageKey) setDraft('')
+      else if (!previousScope && draft) window.sessionStorage.setItem(draftStorageKey, draft)
+    } catch {
+      // Private browsing can make session storage unavailable; keep the in-memory draft.
+    }
+  }, [draftStorageKey, draft])
+
+  function rememberDraft(nextDraft: string) {
+    if (!draftStorageKey) return
+    try {
+      if (nextDraft) window.sessionStorage.setItem(draftStorageKey, nextDraft)
+      else window.sessionStorage.removeItem(draftStorageKey)
+    } catch {
+      // Typing stays available if browser storage is unavailable.
+    }
+  }
 
   useEffect(() => {
     const node = composerRef.current
@@ -202,6 +232,7 @@ export function ChatWindow({
     if (onSend(nextMessage) === false) return
 
     setDraft('')
+    rememberDraft('')
     followLatestRef.current = true
     shouldRestoreComposerFocusRef.current = true
   }
@@ -354,6 +385,7 @@ export function ChatWindow({
             onChange={(event) => {
               const nextDraft = event.target.value
               setDraft(nextDraft)
+              rememberDraft(nextDraft)
               onDraftChange?.(nextDraft)
             }}
             onKeyDown={(event) => {
@@ -383,7 +415,7 @@ export function ChatWindow({
                   ? accentContrastColor
                   : undefined,
             }}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
+            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
             disabled={
               !isOnline ||
               conversationLocked ||
@@ -403,9 +435,14 @@ export function ChatWindow({
             onClick={isLoading ? onStopResponse : submit}
           >
             {isLoading && onStopResponse ? (
-              <span className="text-base leading-none" aria-hidden="true">
-                ■
-              </span>
+              <>
+                <span className="text-base leading-none" aria-hidden="true">
+                  ■
+                </span>
+                <span className="ml-2" aria-hidden="true">
+                  {stopResponseLabel}
+                </span>
+              </>
             ) : isLoading ? (
               <svg
                 className="h-4 w-4 animate-spin motion-reduce:animate-none"

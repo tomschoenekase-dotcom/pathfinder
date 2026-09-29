@@ -111,6 +111,65 @@ describe('ChatDesignForm', () => {
     expect((await screen.findByRole('status')).textContent).toContain('Design saved')
   })
 
+  it('links to the real renderer with unsaved theme, accent, and font choices without mutating venue data', () => {
+    render(<ChatDesignForm venues={venues} previewOrigin="https://staging-web.example.test" />)
+
+    expect(screen.getByText(/Showing the saved appearance/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    fireEvent.change(screen.getByLabelText('Custom accent colour'), {
+      target: { value: '#ABCDEF' },
+    })
+
+    expect(screen.getByText(/Unsaved changes/)).toBeTruthy()
+    const previewLink = screen.getByRole('link', { name: 'Preview unsaved appearance' })
+    expect(previewLink.getAttribute('target')).toBe('_blank')
+    expect(previewLink.getAttribute('rel')).toContain('noreferrer')
+    const previewUrl = new URL(previewLink.getAttribute('href')!)
+    expect(previewUrl.pathname).toBe('/appearance-preview')
+    expect(previewUrl.searchParams.get('theme')).toBe('sunset')
+    expect(previewUrl.searchParams.get('font')).toBe('poppins')
+    expect(previewUrl.searchParams.get('accent')).toBe('#ABCDEF')
+    expect(Array.from(previewUrl.searchParams.keys())).toEqual(['theme', 'font', 'accent'])
+    expect(mocks.updateChatDesign).not.toHaveBeenCalled()
+  })
+
+  it('omits an invalid custom accent from the preview URL and explains the fallback', () => {
+    render(<ChatDesignForm venues={venues} previewOrigin="https://staging-web.example.test" />)
+
+    fireEvent.change(screen.getByLabelText('Custom accent colour'), { target: { value: 'blue' } })
+
+    expect(screen.getByRole('note').textContent).toContain('selected theme colour')
+    const previewUrl = new URL(
+      screen.getByRole('link', { name: 'Preview unsaved appearance' }).getAttribute('href')!,
+    )
+    expect(previewUrl.searchParams.has('accent')).toBe(false)
+    expect(mocks.updateChatDesign).not.toHaveBeenCalled()
+  })
+
+  it('offers the selected venue visitor guide only after a successful save', async () => {
+    render(
+      <ChatDesignForm
+        venues={venues}
+        previewOrigin="https://staging-web.example.test"
+        visitorUrlsByVenue={{
+          [venues[0]!.id]: 'https://staging-web.example.test/science-museum/chat?source=dashboard',
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: 'Open saved visitor guide' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+
+    const visitorLink = await screen.findByRole('link', { name: 'Open saved visitor guide' })
+    expect(visitorLink.getAttribute('href')).toBe(
+      'https://staging-web.example.test/science-museum/chat?source=dashboard',
+    )
+    expect(screen.getByText(/persisted appearance/)).toBeTruthy()
+  })
+
   it('rejects a non-empty invalid accent without clearing the stored override', async () => {
     render(<ChatDesignForm venues={venues} />)
 

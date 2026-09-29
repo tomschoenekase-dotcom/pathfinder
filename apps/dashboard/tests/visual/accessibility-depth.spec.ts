@@ -39,7 +39,7 @@ test('visitor chat preserves its text path at 200% root text size', async ({ pag
     document.documentElement.style.fontSize = '200%'
   })
 
-  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
   await expect(page.getByRole('log', { name: 'Conversation' })).toBeVisible()
   const composer = page.getByRole('textbox')
   await composer.scrollIntoViewIfNeeded()

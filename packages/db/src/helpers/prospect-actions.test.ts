@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   archiveProspectAction,
+  approveProspectImportAction,
   beginProspectImportAction,
   commitProspectImportBatchAction,
   convertPublicInterestToProspectAction,
   createProspectAction,
   resolveProspectDuplicateAction,
+  resumeIncompleteProspectImportDryRunAction,
   scanProspectDuplicatesAction,
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
@@ -17,6 +19,67 @@ import { prospectSha256 } from './prospect-normalization'
 const actor = { type: 'HUMAN' as const, id: 'operator', role: 'PLATFORM_ADMIN' as const }
 
 describe('prospect action safety boundaries', () => {
+  it('reclaims the same incomplete source dry run without losing staged rows', async () => {
+    const importRecord = {
+      id: 'import-1',
+      status: 'DRY_RUN_READY',
+      progressCursor: 'MAPPED',
+      sourceObjectKey: 'retained/source',
+      sourceObjectVersion: 'v1',
+      cancelRequestedAt: null,
+      approvedAt: null,
+      importedRows: 0,
+    }
+    const tx = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue(importRecord),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValue({ ...importRecord, status: 'DRAFT', progressCursor: 'MAPPED' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      resumeIncompleteProspectImportDryRunAction(
+        { importId: importRecord.id, actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ status: 'DRAFT', progressCursor: 'MAPPED' })
+    expect(tx.prospectImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: importRecord.id, importedRows: 0 }),
+        data: { status: 'DRAFT', progressCursor: 'MAPPED' },
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to resume an already approved source import', async () => {
+    const tx = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'import-1',
+          status: 'DRY_RUN_READY',
+          progressCursor: 'MAPPED',
+          sourceObjectKey: 'retained/source',
+          sourceObjectVersion: 'v1',
+          cancelRequestedAt: null,
+          approvedAt: new Date(),
+          importedRows: 0,
+        }),
+        updateMany: vi.fn(),
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    await expect(
+      resumeIncompleteProspectImportDryRunAction({ importId: 'import-1', actor }, client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.prospectImport.updateMany).not.toHaveBeenCalled()
+  })
+
   it('reconciles an exact committed conversion after the losing transaction detects its duplicate', async () => {
     const operationId = '11111111-1111-4111-8111-111111111111'
     const submissionId = 'submission-concurrent'
@@ -138,6 +201,50 @@ describe('prospect action safety boundaries', () => {
         actor,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('keeps a source-backed batch in draft and blocks approval before finalization', async () => {
+    const prospectImport = {
+      id: 'source-import',
+      status: 'DRAFT',
+      sourceObjectKey: 'immutable/workbook.xlsx',
+      progressCursor: 'MAPPED',
+    }
+    const update = vi.fn().mockResolvedValue(prospectImport)
+    const tx = {
+      prospectImport: { findUnique: vi.fn().mockResolvedValue(prospectImport), update },
+      prospectImportSheet: { findMany: vi.fn().mockResolvedValue([{ sheetName: 'Chicago' }]) },
+      prospectOrganization: { findMany: vi.fn().mockResolvedValue([]) },
+      prospectImportRow: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({}),
+        groupBy: vi.fn().mockResolvedValue([{ status: 'VALID', _count: { _all: 1 } }]),
+      },
+    }
+    const client = {
+      $transaction: async (operation: (value: typeof tx) => unknown) => operation(tx),
+    }
+    await stageProspectImportRowsAction(
+      {
+        importId: 'source-import',
+        rows: [
+          {
+            sheetName: 'Chicago',
+            originalRowNumber: 2,
+            sourceValues: { venue_name: 'Storage Hall' },
+            normalizedValues: { venueName: 'Storage Hall', city: 'Chicago' },
+          },
+        ],
+        actor,
+      },
+      client as never,
+    )
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'DRAFT' }) }),
+    )
+    await expect(
+      approveProspectImportAction({ importId: 'source-import', actor }, client as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('scans beyond the former 20,000-organization duplicate ceiling in bounded chunks', async () => {

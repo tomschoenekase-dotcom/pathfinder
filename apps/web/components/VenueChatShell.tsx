@@ -166,6 +166,8 @@ export function VenueChatShell(props: {
   const hasLocation =
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
+  const usesGenericGuideName = guideName === venue.name || guideName === `${venue.name} Guide`
+  const identitySubtitle = usesGenericGuideName ? aiGuidanceLabel : guideName
   const canSubmitMessage =
     isOnline && !isSending && Boolean(anonymousToken) && !conversationLocked && !isRestoringHistory
 
@@ -259,13 +261,22 @@ export function VenueChatShell(props: {
             {venue.chatLogoUrl ? (
               <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
             ) : null}
-            <h1
-              lang=""
-              dir="auto"
-              className={`text-2xl font-semibold tracking-tight ${banner ? 'text-white drop-shadow-sm' : 'text-[var(--chat-text)]'}`}
-            >
-              {guideName}
-            </h1>
+            <div className={styles.identityCopy}>
+              <h1
+                lang=""
+                dir="auto"
+                className={`font-semibold tracking-tight ${banner ? 'text-white drop-shadow-sm' : 'text-[var(--chat-text)]'}`}
+              >
+                {venue.name}
+              </h1>
+              <p
+                lang={usesGenericGuideName ? languagePresentation.code : ''}
+                dir="auto"
+                className={banner ? 'text-white/85' : 'text-[var(--chat-text-muted)]'}
+              >
+                {identitySubtitle}
+              </p>
+            </div>
             {venue.experienceLabel ? (
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${banner ? 'bg-white/20 text-white' : 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)]'}`}
@@ -308,6 +319,7 @@ export function VenueChatShell(props: {
         ) : null}
         <div className={`${styles.body} mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}>
           <ChatWindow
+            key={venue.id}
             conversationTools={
               <>
                 {routePlanner}
@@ -360,6 +372,9 @@ export function VenueChatShell(props: {
             accentContrastColor={palette.accentContrast}
             placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
             initialDraft={initialDraft}
+            draftStorageKey={
+              anonymousToken ? `torchiko:visitor-draft:${venue.id}:${anonymousToken}` : null
+            }
             emptyState={
               <div lang={languagePresentation.code} dir={languagePresentation.direction}>
                 <div className={styles.welcome}>

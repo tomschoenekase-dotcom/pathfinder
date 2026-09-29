@@ -8,10 +8,10 @@ for (const font of ['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'pl
     const response = await page.goto(
       `/dev-fixtures/visitor-chat?mode=classic&conversation=long&font=${font}`,
     )
-    await expect(page.getByRole('heading', { name: 'Museum Guide' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
     const evidence = await page
-      .getByRole('heading', { name: 'Museum Guide' })
+      .getByRole('heading', { name: 'Great Lakes Discovery Museum' })
       .evaluate((heading) => {
         const family = getComputedStyle(heading)
           .fontFamily.split(',')[0]!

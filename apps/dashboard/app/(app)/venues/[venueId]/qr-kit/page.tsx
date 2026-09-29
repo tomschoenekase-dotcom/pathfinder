@@ -4,7 +4,7 @@ import {
   isVenueQrKitAvailable,
   VenueQrKitAvailability,
 } from '../../../../../components/VenueQrKitAvailability'
-import { buildGuestChatUrl } from '../../../../../lib/guest-chat-url'
+import { buildGuestChatUrl, resolveGuestWebOrigin } from '../../../../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../../../../lib/server-caller'
 
 export default async function VenueQrKitPage({ params }: { params: Promise<{ venueId: string }> }) {
@@ -22,7 +22,10 @@ export default async function VenueQrKitPage({ params }: { params: Promise<{ ven
   const venueAsset = eligibleLifecycle ? await caller.portal.getVenueLaunchAsset({ venueId }) : null
 
   const candidateGuestChatUrl = venueAsset
-    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug)
+    ? buildGuestChatUrl(
+        resolveGuestWebOrigin(process.env.NEXT_PUBLIC_WEB_URL, process.env.RAILWAY_ENVIRONMENT),
+        venue.slug,
+      )
     : null
   const available = isVenueQrKitAvailable(
     lifecycle.lifecycle.state,

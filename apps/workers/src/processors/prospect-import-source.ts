@@ -393,6 +393,7 @@ export async function stageProspectImportSource(
   await db.prospectImport.update({
     where: { id: importId },
     data: {
+      status: 'DRY_RUN_READY',
       progressCursor: 'DRY_RUN_READY',
       reconciliation: { staged, quarantined, counts },
       reportHash: reportDigest,
