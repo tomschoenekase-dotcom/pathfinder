@@ -18,8 +18,7 @@ import path from 'node:path'
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3292'
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
 const QA_DIR =
-  process.env.THEME_QA_DIR ??
-  path.resolve(process.cwd(), '../../../qa', `theme-qa-${timestamp}`)
+  process.env.THEME_QA_DIR ?? path.resolve(process.cwd(), '../../../qa', `theme-qa-${timestamp}`)
 const SCREENSHOT_DIR = path.join(QA_DIR, 'screenshots')
 
 const LOOKS = ['plain', 'bubbles', 'labels', 'photo', 'photo-labels', 'no-more']
@@ -240,10 +239,7 @@ async function main() {
     viewports: VIEWPORTS.map((v) => v.name),
   }
 
-  await writeFile(
-    path.join(QA_DIR, 'results.json'),
-    JSON.stringify({ summary, results }, null, 2),
-  )
+  await writeFile(path.join(QA_DIR, 'results.json'), JSON.stringify({ summary, results }, null, 2))
 
   process.stdout.write(`\nDone. ${total} runs, ${failed} with issues.\n`)
   process.stdout.write(`Results: ${path.join(QA_DIR, 'results.json')}\n`)
