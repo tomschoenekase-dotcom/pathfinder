@@ -20,7 +20,7 @@ for (const state of states) {
       }),
     ).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Covered venues' })).toBeVisible()
-    await expect(page.getByText('$25.00')).toBeVisible()
+    await expect(page.getByText('$50.00').first()).toBeVisible()
     const accessibility = await new AxeBuilder({ page }).include('main').analyze()
     expect(accessibility.violations).toEqual([])
     expect(
@@ -28,6 +28,28 @@ for (const state of states) {
     ).toBe(true)
   })
 }
+
+test('a customer without a quote sees the next step, not an unavailable plan checkout', async ({
+  page,
+}) => {
+  await page.goto('/dev-fixtures/billing?surface=client&state=empty')
+  await expect(page.getByText(/agreed price and secure payment link/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Choose a plan' })).toHaveCount(0)
+  const support = page.getByRole('link', { name: 'Contact Torchiko' })
+  await support.focus()
+  await expect(support).toBeFocused()
+  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+})
+
+test('a past-due customer sees a payment-method action', async ({ page }) => {
+  await page.goto('/dev-fixtures/billing?surface=client&state=past_due')
+  const updatePayment = page.getByRole('button', { name: 'Update payment details' })
+  await expect(updatePayment).toBeEnabled()
+  await updatePayment.click()
+  await expect(page.getByRole('status')).toContainText('Stripe Customer Portal would open')
+})
 
 test('payment actions are keyboard reachable and add-on interest never implies a charge', async ({
   page,

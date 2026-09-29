@@ -100,7 +100,8 @@ function presentation(overview: Overview): {
         agreement.status === 'PENDING' &&
         Boolean(overview.currentCheckoutUrl),
       canRetryCheckout:
-        overview.capabilities.checkout &&
+        overview.capabilities.portal &&
+        overview.hasStripeCustomer &&
         (agreement.status === 'PAST_DUE' || agreement.status === 'UNPAID'),
       canManageBilling: overview.capabilities.portal && overview.hasStripeCustomer,
       canCancel:
@@ -131,10 +132,9 @@ export function ClientBillingPanel() {
   const client = useTRPCClient()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [hidden, setHidden] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedPlan, setSelectedPlan] = useState('')
-  const [selectedVenues, setSelectedVenues] = useState<string[]>([])
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
@@ -149,6 +149,7 @@ export function ClientBillingPanel() {
     loadAbort.current?.abort()
     const controller = new AbortController()
     loadAbort.current = controller
+    setLoadError(false)
     try {
       const next = await runBoundedClientRequest({
         parentSignal: controller.signal,
@@ -158,12 +159,8 @@ export function ClientBillingPanel() {
       if (loadGeneration.current !== generation) return
       if (!next.enabled) return setHidden(true)
       setOverview(next)
-      setSelectedPlan((current) => current || next.catalog[0]?.key || '')
-      setSelectedVenues((current) =>
-        current.length ? current : next.venues.map((venue) => venue.id),
-      )
     } catch {
-      if (loadGeneration.current === generation && !controller.signal.aborted) setHidden(true)
+      if (loadGeneration.current === generation && !controller.signal.aborted) setLoadError(true)
     } finally {
       if (loadAbort.current === controller) loadAbort.current = null
     }
@@ -211,29 +208,14 @@ export function ClientBillingPanel() {
   }, [cancelOpen])
   const view = useMemo(() => (overview ? presentation(overview) : null), [overview])
 
-  async function checkout() {
+  function checkout() {
     if (overview?.currentCheckoutUrl) {
       window.location.assign(overview.currentCheckoutUrl)
       return
     }
-    const plan = overview?.catalog.find((candidate) => candidate.key === selectedPlan)
-    if (!plan || !selectedVenues.length) return
-    setBusy(true)
-    setError(null)
-    try {
-      const session = await client.billing.createCheckout.mutate({
-        planKey: plan.key,
-        planVersion: plan.version,
-        venueIds: selectedVenues,
-        operationKey: crypto.randomUUID(),
-      })
-      if (!session.url)
-        throw new Error('Checkout session is already being created. Refresh billing status.')
-      window.location.assign(session.url)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Checkout could not be started.')
-      setBusy(false)
-    }
+    setError(
+      'The payment link is no longer available. Refresh Payment or contact Torchiko support.',
+    )
   }
 
   async function portal() {
@@ -290,59 +272,26 @@ export function ClientBillingPanel() {
   }
 
   if (hidden) return null
+  if (loadError) {
+    return (
+      <section className="rounded-3xl border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+        <h2 className="text-xl font-semibold text-pf-deep">Payment details are unavailable</h2>
+        <p role="alert" className="mt-2 text-sm leading-6 text-pf-deep/70">
+          We could not load your payment status. Please try again or contact Torchiko support.
+        </p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="mt-5 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+        >
+          Try again
+        </button>
+      </section>
+    )
+  }
   if (!overview || !view) return <ClientBillingView state="loading" billing={null} />
   return (
     <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm sm:p-8">
-      {!overview.account && overview.capabilities.checkout && overview.catalog.length > 0 ? (
-        <fieldset
-          className="mb-6 rounded-2xl border border-pf-light bg-pf-surface/50 p-4"
-          disabled={busy}
-        >
-          <legend className="px-2 text-sm font-semibold text-pf-deep">
-            Choose test subscription coverage
-          </legend>
-          <label
-            className="mt-2 block text-xs font-bold uppercase tracking-wider text-pf-deep/60"
-            htmlFor="billing-plan"
-          >
-            Plan
-          </label>
-          <select
-            id="billing-plan"
-            value={selectedPlan}
-            onChange={(event) => setSelectedPlan(event.target.value)}
-            className="mt-1 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 text-sm"
-          >
-            {overview.catalog.map((plan) => (
-              <option key={`${plan.key}:${plan.version}`} value={plan.key}>
-                {plan.displayName} — {moneyLabel(plan.unitAmount, plan.currency)} per{' '}
-                {plan.interval}
-              </option>
-            ))}
-          </select>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {overview.venues.map((venue) => (
-              <label
-                key={venue.id}
-                className="flex min-h-11 items-center gap-3 rounded-xl border border-pf-light bg-white px-3 text-sm text-pf-deep"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedVenues.includes(venue.id)}
-                  onChange={(event) =>
-                    setSelectedVenues((current) =>
-                      event.target.checked
-                        ? [...current, venue.id]
-                        : current.filter((id) => id !== venue.id),
-                    )
-                  }
-                />
-                {venue.name}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      ) : null}
       {error ? (
         <p
           role="alert"
@@ -368,9 +317,7 @@ export function ClientBillingPanel() {
             ? 'The local billing projection is being checked against Stripe. Access is not granted from the redirect alone.'
             : null
         }
-        {...(overview.capabilities.checkout && !busy
-          ? { onStartCheckout: () => void checkout() }
-          : {})}
+        {...(view.model?.canStartCheckout && !busy ? { onStartCheckout: checkout } : {})}
         {...(view.model?.canRetryCheckout && !busy ? { onRetryCheckout: () => void portal() } : {})}
         {...(view.model?.canManageBilling && !busy ? { onManageBilling: () => void portal() } : {})}
         {...(view.model?.canCancel && !busy
