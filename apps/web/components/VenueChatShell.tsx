@@ -50,7 +50,7 @@ const LazyVenueCharacterStage = dynamic(
   },
 )
 
-// The Space Museum's night sky is code-drawn so it never uses an unreviewed media URL.
+// The Space Museum's reviewed launch artwork is bundled locally, never loaded from media intake.
 // Explicit background and high contrast choices take precedence over this presentation.
 const SPACE_MUSEUM_VENUE_ID = 'cmsg624n70003rx0190j8o941'
 

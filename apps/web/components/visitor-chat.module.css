@@ -113,7 +113,7 @@
   min-height: 0;
   isolation: isolate;
 }
-/* A quiet, hand-placed night sky for Space Museum's dark visitor theme. */
+/* Space Museum's approved launch sky sits below every reading/control layer. */
 .shell[data-starry] .main::before {
   content: '';
   position: absolute;
@@ -121,22 +121,8 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 13% 12%, rgb(230 242 255 / 75%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 76% 8%, rgb(230 242 255 / 60%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 91% 35%, rgb(230 242 255 / 64%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 28% 43%, rgb(230 242 255 / 58%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 62% 56%, rgb(230 242 255 / 75%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 9% 79%, rgb(230 242 255 / 54%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 84% 88%, rgb(230 242 255 / 64%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 46% 25%, rgb(151 187 229 / 26%) 0 1.5px, transparent 2px),
-    radial-gradient(circle at 36% 7%, rgb(230 242 255 / 38%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 59% 16%, rgb(230 242 255 / 48%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 7% 31%, rgb(230 242 255 / 42%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 83% 47%, rgb(230 242 255 / 42%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 17% 61%, rgb(230 242 255 / 48%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 73% 72%, rgb(230 242 255 / 38%) 0 0.8px, transparent 1.4px),
-    radial-gradient(circle at 41% 86%, rgb(230 242 255 / 45%) 0 0.8px, transparent 1.4px),
-    radial-gradient(ellipse at 68% 18%, rgb(76 105 145 / 12%), transparent 48%);
+    linear-gradient(rgb(5 10 18 / 30%), rgb(5 10 18 / 42%)),
+    url('/space-museum/starry-night-codex-20260929.png') center / cover no-repeat;
 }
 .backdrop {
   position: absolute;
