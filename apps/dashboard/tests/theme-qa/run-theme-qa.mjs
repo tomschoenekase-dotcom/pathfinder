@@ -8,6 +8,7 @@
 //
 // from apps/dashboard, with the apps/web dev server already listening on
 // PLAYWRIGHT_BASE_URL (defaults to http://127.0.0.1:3292).
+// Set THEME_QA_CASE to one case ID for a focused rerun.
 
 import { chromium, webkit } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
@@ -18,7 +19,7 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3292'
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
 const QA_DIR =
   process.env.THEME_QA_DIR ??
-  `C:/Users/tomsc/MachineWorkspaces/torchiko/20260928-citypass-app-kit/qa/theme-qa-${timestamp}`
+  path.resolve(process.cwd(), '../../../qa', `theme-qa-${timestamp}`)
 const SCREENSHOT_DIR = path.join(QA_DIR, 'screenshots')
 
 const LOOKS = ['plain', 'bubbles', 'labels', 'photo', 'photo-labels', 'no-more']
@@ -94,7 +95,10 @@ const EXTRA_CASES = [
   },
 ]
 
-const CASES = [...buildMatrixCases(), ...EXTRA_CASES]
+const ALL_CASES = [...buildMatrixCases(), ...EXTRA_CASES]
+const CASES = process.env.THEME_QA_CASE
+  ? ALL_CASES.filter((testCase) => testCase.id === process.env.THEME_QA_CASE)
+  : ALL_CASES
 
 async function hideFrameworkDevChrome(page) {
   await page
@@ -125,7 +129,10 @@ async function runCase(page, testCase) {
   }
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    if (!response || !response.ok()) {
+      throw new Error(`Fixture returned HTTP ${response?.status() ?? 'no response'}`)
+    }
 
     if (testCase.waitFor === 'fixture') {
       await page.waitForSelector('[data-fixture-client-mounted="true"]', { timeout: 15_000 })
@@ -172,6 +179,9 @@ async function runCase(page, testCase) {
 }
 
 async function main() {
+  if (CASES.length === 0) {
+    throw new Error(`Unknown THEME_QA_CASE: ${process.env.THEME_QA_CASE}`)
+  }
   await mkdir(SCREENSHOT_DIR, { recursive: true })
 
   const results = []
@@ -198,7 +208,9 @@ async function main() {
         if (
           outcome.error ||
           !outcome.hydrationOk ||
+          outcome.consoleErrors.length > 0 ||
           outcome.pageErrors.length > 0 ||
+          outcome.axeError ||
           (outcome.overflow && !outcome.overflow.ok) ||
           (outcome.axeViolations && outcome.axeViolations.length > 0)
         ) {
@@ -222,8 +234,8 @@ async function main() {
     generatedAt: new Date().toISOString(),
     totalRuns: total,
     runsWithIssues: failed,
-    matrixCaseCount: buildMatrixCases().length,
-    extraCaseCount: EXTRA_CASES.length,
+    matrixCaseCount: CASES.filter((testCase) => testCase.id.startsWith('matrix-')).length,
+    extraCaseCount: CASES.filter((testCase) => !testCase.id.startsWith('matrix-')).length,
     browsers: BROWSERS.map((b) => b.name),
     viewports: VIEWPORTS.map((v) => v.name),
   }
@@ -235,6 +247,7 @@ async function main() {
 
   process.stdout.write(`\nDone. ${total} runs, ${failed} with issues.\n`)
   process.stdout.write(`Results: ${path.join(QA_DIR, 'results.json')}\n`)
+  if (failed > 0) process.exitCode = 1
 }
 
 main().catch((error) => {
