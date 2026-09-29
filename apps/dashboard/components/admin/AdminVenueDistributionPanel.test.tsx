@@ -26,7 +26,7 @@ vi.mock('../../lib/trpc', () => ({
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
 
-import { AdminVenueDistributionPanel } from './AdminVenueDistributionPanel'
+import { AdminVenueDistributionPanel, placeIdsCsv } from './AdminVenueDistributionPanel'
 
 const props = {
   tenantId: 'tenant-1',
@@ -71,5 +71,37 @@ describe('AdminVenueDistributionPanel', () => {
       }),
     )
     expect(mocks.refresh).toHaveBeenCalledOnce()
+  })
+
+  it('lists public place IDs for partner mapping and copies them as CSV', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const publicPlaces = [
+      { id: 'place-1', name: 'Harbor Aquarium', type: 'ATTRACTION' },
+      { id: 'place-2', name: 'Deck "94", Skyline', type: 'OBSERVATION_DECK' },
+    ]
+    render(
+      <AdminVenueDistributionPanel {...props} publicPlaces={publicPlaces} appHandBacks30d={12} />,
+    )
+    expect(screen.getByText(/Sent back to the partner app/).textContent).toContain('12')
+    expect(
+      screen.getByRole('heading', { name: 'Place IDs for app and website hosts' }),
+    ).toBeTruthy()
+    expect(screen.getByText('place-2')).toBeTruthy()
+    expect(screen.getByText('observation deck')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy place list (CSV)' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(placeIdsCsv(publicPlaces)))
+    expect(placeIdsCsv(publicPlaces).split('\n')).toEqual([
+      'place_id,name,type',
+      'place-1,Harbor Aquarium,ATTRACTION',
+      'place-2,"Deck ""94"", Skyline",OBSERVATION_DECK',
+    ])
+  })
+
+  it('says when a venue has no public places and omits the section without data', () => {
+    const { rerender } = render(<AdminVenueDistributionPanel {...props} publicPlaces={[]} />)
+    expect(screen.getByText('This venue has no active public places yet.')).toBeTruthy()
+    rerender(<AdminVenueDistributionPanel {...props} />)
+    expect(screen.queryByRole('heading', { name: /Place IDs/ })).toBeNull()
   })
 })

@@ -3,12 +3,17 @@ const MAX_MESSAGE_BYTES = 1_024
 const MAX_ASK_LENGTH = 200
 const MAX_PLACE_LENGTH = 191
 
+const MAX_PLACE_ACTION_LABEL_LENGTH = 32
+const MAX_PLACE_NAME_LENGTH = 191
+export const DEFAULT_PLACE_ACTION_LABEL = 'Open in app'
+
 export type HostPrefill = { ask?: string; place?: string }
+export type HostPlaceActionPayload = { placeId: string; name: string }
 export type HostBridgeMessage = {
   source: 'torchiko'
   v: 1
-  type: 'open' | 'close' | 'prefill' | 'ready' | 'close-requested' | 'height'
-  payload: HostPrefill | { height: number } | null
+  type: 'open' | 'close' | 'prefill' | 'ready' | 'close-requested' | 'height' | 'place-action'
+  payload: HostPrefill | { height: number } | HostPlaceActionPayload | null
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -42,6 +47,36 @@ export function parseHostStartParams(query: Record<string, string | string[] | u
     ask: parseHostAsk(query.ask),
     place: parseHostPlace(query.place),
   }
+}
+
+function containsBidiControl(value: string): boolean {
+  return /[‎‏‪-‮⁦-⁩]/u.test(value)
+}
+
+/**
+ * App hosts opt in to a place-card button that hands the visitor back to a native screen.
+ * `placeAction=1` uses the default label; any other value is a short partner-chosen label.
+ */
+export function parsePlaceActionLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  if (containsControl(value) || containsBidiControl(value)) return undefined
+  const label = value.trim().replace(/\s+/gu, ' ')
+  if (!label) return undefined
+  if (label === '1' || label === 'true') return DEFAULT_PLACE_ACTION_LABEL
+  if ([...label].length > MAX_PLACE_ACTION_LABEL_LENGTH) return undefined
+  return label
+}
+
+/** The only place data a host receives: the public place ID and its public name. */
+export function buildPlaceActionMessage(place: {
+  id: string
+  name: string
+}): HostBridgeMessage | null {
+  const placeId = parseHostPlace(place.id)
+  if (!placeId || typeof place.name !== 'string' || containsControl(place.name)) return null
+  const name = place.name.trim().replace(/\s+/gu, ' ')
+  if (!name || name.length > MAX_PLACE_NAME_LENGTH) return null
+  return { source: 'torchiko', v: 1, type: 'place-action', payload: { placeId, name } }
 }
 
 export function parseHostPrefill(value: unknown): HostPrefill | null {

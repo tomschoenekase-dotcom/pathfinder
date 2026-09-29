@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { VenueChatPresentation } from '../components/venue-chat-types'
 import {
+  buildPlaceActionMessage,
   normalizeBridgeOrigins,
   parseHostToGuideMessage,
   type HostBridgeMessage,
@@ -16,9 +17,24 @@ function nativePost(message: HostBridgeMessage) {
     webkit?: { messageHandlers?: { torchiko?: { postMessage: (message: string) => void } } }
   }
   const serialized = JSON.stringify(message)
-  if (nativeWindow.ReactNativeWebView?.postMessage)
+  if (nativeWindow.ReactNativeWebView?.postMessage) {
     nativeWindow.ReactNativeWebView.postMessage(serialized)
-  else nativeWindow.webkit?.messageHandlers?.torchiko?.postMessage(serialized)
+    return true
+  }
+  if (nativeWindow.webkit?.messageHandlers?.torchiko?.postMessage) {
+    nativeWindow.webkit.messageHandlers.torchiko.postMessage(serialized)
+    return true
+  }
+  return false
+}
+
+/**
+ * App doors only: after a visitor taps a place card's host button, hand the public place ID
+ * and name to the native screen. Returns false when no native message channel exists.
+ */
+export function postPlaceActionToNativeHost(place: { id: string; name: string }): boolean {
+  const message = buildPlaceActionMessage(place)
+  return message ? nativePost(message) : false
 }
 
 export function useHostBridge({
@@ -60,11 +76,22 @@ export function useHostBridge({
 
   useEffect(() => {
     if (!website || window.parent === window) {
-      if (app) {
-        emit('ready')
-        emit('open')
+      if (!app) return
+      // A native host injects `window.postMessage(envelope, location.origin)` into the guide
+      // document itself (injectJavaScript / evaluateJavaScript), so only a same-document
+      // prefill is accepted. It fills the composer without sending, as `ask` does.
+      const onAppMessage = (event: MessageEvent) => {
+        if (event.source !== window || event.origin !== window.location.origin) return
+        const message = parseHostToGuideMessage(event.data)
+        if (message?.type !== 'prefill') return
+        const input = message.payload as HostPrefill
+        if (input.ask) setPrefill({ sequence: ++sequence.current, ask: input.ask })
+        if (input.place) placeCallback.current?.(input.place)
       }
-      return
+      window.addEventListener('message', onAppMessage)
+      emit('ready')
+      emit('open')
+      return () => window.removeEventListener('message', onAppMessage)
     }
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window.parent || !origins.includes(event.origin)) return

@@ -18,6 +18,8 @@ import {
 } from '../../../components/VenueChatFixture'
 import { VenueChatError, VenueChatSkeleton } from '../../../components/VenueChatStates'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
+import { parsePlaceActionLabel } from '../../../lib/host-bridge'
+import { FixtureHostPlaceAction } from './FixtureHostPlaceAction'
 
 const VISITOR_FIXTURE_STATES = [
   'idle',
@@ -91,6 +93,7 @@ export default async function VisitorChatVisualFixture({
     venueName?: string | string[]
     textSize?: string | string[]
     contrast?: string | string[]
+    placeAction?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -100,7 +103,7 @@ export default async function VisitorChatVisualFixture({
   const state = oneOf(params.state, VISITOR_FIXTURE_STATES, 'idle')
   const conversation = oneOf(
     params.conversation,
-    ['empty', 'long', 'multilingual', 'streaming', 'voice-history', 'reference'] as const,
+    ['empty', 'long', 'multilingual', 'streaming', 'voice-history', 'reference', 'pass'] as const,
     'empty',
   )
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
@@ -140,6 +143,8 @@ export default async function VisitorChatVisualFixture({
     FIXTURE_LOOKS[first(params.look) ?? ''] ??
     undefined
   const venueName = first(params.venueName)?.slice(0, 160)
+  const placeActionLabel =
+    presentation === 'webview' ? parsePlaceActionLabel(first(params.placeAction)) : undefined
 
   if (surface === 'loading') return <VenueChatSkeleton language={language} />
   if (surface === 'error')
@@ -154,38 +159,40 @@ export default async function VisitorChatVisualFixture({
     return <VenueTemporarilyUnavailable language={language} />
 
   return (
-    <VenueChatFixture
-      mode={mode satisfies VisitorFixtureMode}
-      state={state}
-      conversation={conversation satisfies VisitorFixtureConversation}
-      asset={asset satisfies VisitorFixtureAsset}
-      motion={motion}
-      voice={voice satisfies VisitorFixtureVoice}
-      network={network}
-      route={route satisfies VisitorFixtureRoute}
-      guideMode={guideMode}
-      language={language}
-      theme={first(params.theme)}
-      font={oneOf(
-        params.font,
-        CHAT_FONT_OPTIONS.map((font) => font.value),
-        'jakarta',
-      )}
-      accent={first(params.accent)}
-      branding={branding satisfies VisitorFixtureBranding}
-      presentation={presentation}
-      appHeader={appHeader}
-      booting={first(params.booting) === 'true'}
-      {...(appearance ? { appearance } : {})}
-      {...(appearance?.background.mode === 'image'
-        ? { backgroundUrl: '/dev-fixtures/visitor-backdrop-space.svg' }
-        : {})}
-      {...(venueName ? { venueName } : {})}
-      preferences={{
-        textSize: oneOf(params.textSize, ['standard', 'large', 'larger'] as const, 'standard'),
-        language: 'auto',
-        highContrast: first(params.contrast) === 'high',
-      }}
-    />
+    <FixtureHostPlaceAction label={placeActionLabel}>
+      <VenueChatFixture
+        mode={mode satisfies VisitorFixtureMode}
+        state={state}
+        conversation={conversation satisfies VisitorFixtureConversation}
+        asset={asset satisfies VisitorFixtureAsset}
+        motion={motion}
+        voice={voice satisfies VisitorFixtureVoice}
+        network={network}
+        route={route satisfies VisitorFixtureRoute}
+        guideMode={guideMode}
+        language={language}
+        theme={first(params.theme)}
+        font={oneOf(
+          params.font,
+          CHAT_FONT_OPTIONS.map((font) => font.value),
+          'jakarta',
+        )}
+        accent={first(params.accent)}
+        branding={branding satisfies VisitorFixtureBranding}
+        presentation={presentation}
+        appHeader={appHeader}
+        booting={first(params.booting) === 'true'}
+        {...(appearance ? { appearance } : {})}
+        {...(appearance?.background.mode === 'image'
+          ? { backgroundUrl: '/dev-fixtures/visitor-backdrop-space.svg' }
+          : {})}
+        {...(venueName ? { venueName } : {})}
+        preferences={{
+          textSize: oneOf(params.textSize, ['standard', 'large', 'larger'] as const, 'standard'),
+          language: 'auto',
+          highContrast: first(params.contrast) === 'high',
+        }}
+      />
+    </FixtureHostPlaceAction>
   )
 }

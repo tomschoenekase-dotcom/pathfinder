@@ -34,7 +34,17 @@ const venueDistributionCoreRouter = router({
       },
     })
     if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-    const [resolved, distribution, origins, sessions30d, pendingProposals] = await Promise.all([
+    const since30d = new Date()
+    since30d.setUTCDate(since30d.getUTCDate() - 30)
+    const [
+      resolved,
+      distribution,
+      origins,
+      sessions30d,
+      pendingProposals,
+      publicPlaces,
+      appHandBacks30d,
+    ] = await Promise.all([
       resolveVenueDistribution({
         client: db,
         venueSlug: venue.slug,
@@ -72,6 +82,28 @@ const venueDistributionCoreRouter = router({
         take: 50,
         select: { id: true, scopeSnapshot: true, reason: true, createdAt: true },
       }),
+      // The same public places the guide's `place` parameter accepts, for partner ID mapping.
+      db.place.findMany({
+        where: {
+          tenantId: input.tenantId,
+          venueId: venue.id,
+          isActive: true,
+          visibility: 'PUBLIC',
+        },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        take: 500,
+        select: { id: true, name: true, type: true },
+      }),
+      // Visitor taps that an app host's native channel accepted (see useVenueChatAnalytics).
+      db.analyticsEvent.count({
+        where: {
+          tenantId: input.tenantId,
+          venueId: venue.id,
+          eventType: 'visitor.action.clicked',
+          occurredAt: { gte: since30d },
+          metadata: { path: ['analyticsKey'], equals: 'host.open-in-app' },
+        },
+      }),
     ])
     if (!resolved || resolved.venueId !== venue.id || resolved.tenantId !== input.tenantId) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
@@ -83,6 +115,8 @@ const venueDistributionCoreRouter = router({
       revision: distribution?.revision ?? 0,
       origins,
       sessions30d,
+      publicPlaces,
+      appHandBacks30d,
       proposals: pendingProposals.flatMap((proposal) => {
         const snapshot = proposalSnapshot.safeParse(proposal.scopeSnapshot)
         return snapshot.success &&

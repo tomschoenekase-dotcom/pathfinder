@@ -8,6 +8,40 @@ Ask Torchiko for your venue's **exact app URL** and **app background color**. To
 
 For a starting question, append `&ask=Where%20is%20the%20entrance%3F` to the supplied `header=none` URL. It fills the composer but **never sends** until the visitor taps Send. Limit the decoded question to 200 characters and URL-encode it. If Torchiko gives you a public place ID for this venue, you may append `&place=PUBLIC-PLACE-ID`; other IDs are ignored. Neither parameter changes access.
 
+## Send visitors back into your app (optional)
+
+If your app has its own screen for each attraction, exhibit or ticket, the guide can hand visitors back to it. Append `&placeAction=1` to the app URL. Every place the guide recommends then shows an **Open in app** button. Use your own wording instead with `&placeAction=See%20in%20your%20pass` (1–32 characters, URL-encoded).
+
+When a visitor taps it, your WebView receives:
+
+```json
+{
+  "source": "torchiko",
+  "v": 1,
+  "type": "place-action",
+  "payload": { "placeId": "PUBLIC-PLACE-ID", "name": "Harbor Aquarium" }
+}
+```
+
+Look up `placeId` in the place list Torchiko gives you and open your matching screen. Keep the guide's WebView mounted so the conversation is still there when the visitor comes back. Check the message origin exactly as you do for `close-requested`. The message contains no visitor questions or answers; treat it as navigation only, never as proof of a purchase or identity.
+
+## Ask the guide about one attraction (optional)
+
+The same place IDs work in the other direction. Put an **Ask the guide** button on your attraction screen. When the guide WebView is not loaded yet, load its URL with `&place=PUBLIC-PLACE-ID&ask=...`. When it is already open, keep the conversation and inject a prefill into the loaded guide instead of reloading:
+
+```js
+// React Native: webViewRef.current.injectJavaScript(script)
+// iOS: webView.evaluateJavaScript(script)   Android: webView.evaluateJavascript(script, null)
+const script = `window.postMessage(${JSON.stringify({
+  source: 'torchiko',
+  v: 1,
+  type: 'prefill',
+  payload: { place: 'PUBLIC-PLACE-ID', ask: 'What should we see first?' },
+})}, window.location.origin); true;`
+```
+
+Inject only after the guide has sent its `ready` message. The question fills the composer and is **not sent** until the visitor taps Send; `place` makes that attraction the context of the next answer. The guide ignores a prefill from any other origin or frame, and anything over 200 characters.
+
 ## Ten-minute WebView path
 
 Use your app's WebView to load the exact URL. Keep that WebView mounted when the visitor switches tabs; replacing it starts a new conversation. Put it inside the device safe area and above native tabs. Set the view and its container to Torchiko's supplied background color before the first load, and provide a native Close button. Allow JavaScript and first-party browser storage. Send off-site HTTPS links, phone, mail, and map actions to the operating system. Keep unknown URL schemes blocked. Show a Retry control if the top-level guide fails to load.
@@ -28,7 +62,6 @@ Place one `WebView` in your Ask tab and keep it mounted when another tab is sele
 
 ```jsx
 import { WebView } from 'react-native-webview'
-
 ;<WebView
   source={{ uri: 'https://YOUR-TORCHIKO-ORIGIN/app/YOUR-VENUE-SLUG?header=none' }}
   style={{ flex: 1, backgroundColor: '#YOUR-HEX-COLOR' }}
@@ -36,14 +69,14 @@ import { WebView } from 'react-native-webview'
   domStorageEnabled
   onMessage={({ nativeEvent }) => {
     try {
+      if (new URL(nativeEvent.url).origin !== 'https://YOUR-TORCHIKO-ORIGIN') return
       const message = JSON.parse(nativeEvent.data)
-      if (
-        new URL(nativeEvent.url).origin === 'https://YOUR-TORCHIKO-ORIGIN' &&
-        message.source === 'torchiko' &&
-        message.v === 1 &&
-        message.type === 'close-requested'
-      ) {
+      if (message.source !== 'torchiko' || message.v !== 1) return
+      if (message.type === 'close-requested') {
         // Select your app's prior tab or close the Ask screen here.
+      }
+      if (message.type === 'place-action' && typeof message.payload?.placeId === 'string') {
+        // Only with &placeAction in the URL: open your own screen for this place ID.
       }
     } catch {}
   }}

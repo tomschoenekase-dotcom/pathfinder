@@ -7,6 +7,8 @@ final class TorchikoGuideViewController: UIViewController, WKScriptMessageHandle
     private let guideURL: URL
     private let background: UIColor
     private var webView: WKWebView!
+    /// Set when the guide URL includes `placeAction`: open your own screen for this public place ID.
+    var onPlaceAction: ((String) -> Void)?
 
     init(guideURL: URL, background: UIColor) {
         precondition(guideURL.scheme == "https")
@@ -47,15 +49,28 @@ final class TorchikoGuideViewController: UIViewController, WKScriptMessageHandle
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         let origin = message.frameInfo.securityOrigin
+        // WKSecurityOrigin reports 0 for the scheme's default port.
+        let originPort = origin.port == 0 ? 443 : origin.port
         guard message.name == "torchiko", message.frameInfo.isMainFrame,
               origin.protocol == guideURL.scheme, origin.host == guideURL.host,
-              origin.port == (guideURL.port ?? 443) else { return }
+              originPort == (guideURL.port ?? 443) else { return }
         let body: [String: Any]?
         if let text = message.body as? String, let data = text.data(using: .utf8) {
             body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         } else { body = message.body as? [String: Any] }
-        if body?["source"] as? String == "torchiko" && body?["v"] as? Int == 1 &&
-           body?["type"] as? String == "close-requested" { closeGuide() }
+        guard body?["source"] as? String == "torchiko", body?["v"] as? Int == 1 else { return }
+        switch body?["type"] as? String {
+        case "close-requested":
+            closeGuide()
+        case "place-action":
+            // Navigation only: never treat a place ID as a purchase or identity signal.
+            if let payload = body?["payload"] as? [String: Any],
+               let placeId = payload["placeId"] as? String, !placeId.isEmpty {
+                onPlaceAction?(placeId)
+            }
+        default:
+            break
+        }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,

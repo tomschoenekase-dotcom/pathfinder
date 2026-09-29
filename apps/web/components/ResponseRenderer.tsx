@@ -10,6 +10,7 @@ import {
   type GuestVisitorAction,
 } from '@pathfinder/contracts/guest-response'
 
+import { useHostPlaceAction } from './HostPlaceAction'
 import { PlaceCard } from './PlaceCard'
 import { getConfirmationCancelLabel, useRequestInAppConfirmation } from './InAppConfirmation'
 
@@ -80,6 +81,8 @@ function PlaceGrid({
   | 'locationAware'
 >) {
   const [failedImages, setFailedImages] = useState<string[]>([])
+  // An opted-in app host can open any recommended place, so its card is useful without media.
+  const hostAction = useHostPlaceAction()
   const displayablePlaces = places?.flatMap((place) => {
     const imageKey = `${place.id}:${place.photoUrl}`
     const hasImage = Boolean(
@@ -95,7 +98,7 @@ function PlaceGrid({
       Number.isFinite(place.lng) &&
       place.lng >= -180 &&
       place.lng <= 180
-    if (!hasImage && !hasDirections) return []
+    if (!hasImage && !hasDirections && !hostAction) return []
     return [{ place, photoUrl: hasImage ? place.photoUrl : null, imageKey }]
   })
   if (!displayablePlaces?.length) return null

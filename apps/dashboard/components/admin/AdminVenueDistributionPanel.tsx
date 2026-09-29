@@ -28,6 +28,10 @@ type Props = {
   }>
   sessions30d: { direct: number; qr: number; website: number; app: number; unknown: number }
   artifacts: Array<{ label: string; value: string }>
+  /** Active public places; partners map these IDs to `place` and `place-action`. */
+  publicPlaces?: Array<{ id: string; name: string; type: string }>
+  /** Place-button taps an app host accepted in the last 30 days. */
+  appHandBacks30d?: number
   previewUrl: string | null
   proposals?: Array<{
     approvalRequestId: string
@@ -41,6 +45,17 @@ type Props = {
       enabled?: boolean
     }
   }>
+}
+
+function csvCell(value: string) {
+  return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+}
+
+export function placeIdsCsv(places: NonNullable<Props['publicPlaces']>) {
+  return [
+    'place_id,name,type',
+    ...places.map((place) => [place.id, place.name, place.type].map(csvCell).join(',')),
+  ].join('\n')
 }
 
 export function AdminVenueDistributionPanel(props: Props) {
@@ -349,6 +364,51 @@ export function AdminVenueDistributionPanel(props: Props) {
         </div>
       </section>
 
+      {props.publicPlaces ? (
+        <section className="space-y-4" aria-labelledby="distribution-places-title">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 id="distribution-places-title" className="text-lg font-semibold text-pf-deep">
+                Place IDs for app and website hosts
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-pf-deep/70">
+                Partners use these public IDs to open the guide on one place with{' '}
+                <code>place=</code>, and to map the guide&apos;s Open in app button back to their
+                own screens. Only active public places are listed.
+              </p>
+            </div>
+            {props.publicPlaces.length ? (
+              <CopyAccessValueButton
+                label="place list (CSV)"
+                value={placeIdsCsv(props.publicPlaces)}
+              />
+            ) : null}
+          </div>
+          {props.publicPlaces.length ? (
+            <ul className="max-h-96 divide-y divide-pf-light overflow-y-auto rounded-2xl border border-pf-light bg-pf-white px-4">
+              {props.publicPlaces.map((place) => (
+                <li
+                  key={place.id}
+                  className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                >
+                  <span className="min-w-0 text-sm font-medium text-pf-deep">
+                    {place.name}{' '}
+                    <span className="text-xs font-normal text-pf-deep/60">
+                      {place.type.toLowerCase().replaceAll('_', ' ')}
+                    </span>
+                  </span>
+                  <code className="break-all text-xs text-pf-deep/75">{place.id}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-2xl border border-pf-light bg-pf-white px-4 py-4 text-sm text-pf-deep/70">
+              This venue has no active public places yet.
+            </p>
+          )}
+        </section>
+      ) : null}
+
       {props.proposals?.length ? (
         <section className="space-y-4" aria-labelledby="distribution-proposals-title">
           <div>
@@ -415,6 +475,15 @@ export function AdminVenueDistributionPanel(props: Props) {
             </div>
           ))}
         </dl>
+        {props.appHandBacks30d !== undefined ? (
+          <p className="border-t border-pf-light pt-3 text-sm text-pf-deep/75">
+            Sent back to the partner app:{' '}
+            <strong className="font-semibold tabular-nums text-pf-deep">
+              {props.appHandBacks30d}
+            </strong>{' '}
+            taps on the app&apos;s place button
+          </p>
+        ) : null}
       </section>
 
       <label

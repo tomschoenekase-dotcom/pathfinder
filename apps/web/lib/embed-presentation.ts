@@ -6,9 +6,12 @@ export type EmbedPresentation = 'embed' | 'embed-inline' | 'webview'
 export type EmbedSearchParams = Record<string, string | string[] | undefined>
 export type AppHeader = 'full' | 'compact' | 'none'
 
+// Start input and host opt-ins never change which presentation a door renders.
+const NON_PRESENTATION_PARAMETERS = new Set(['ask', 'place', 'placeAction'])
+
 function presentationParameters(searchParams: EmbedSearchParams) {
   return Object.entries(searchParams).filter(
-    ([name, value]) => value !== undefined && name !== 'ask' && name !== 'place',
+    ([name, value]) => value !== undefined && !NON_PRESENTATION_PARAMETERS.has(name),
   )
 }
 

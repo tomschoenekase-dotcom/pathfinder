@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Navigation } from 'lucide-react'
+import { ArrowUpRight, Navigation } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
+import { useHostPlaceAction } from './HostPlaceAction'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
 
@@ -57,6 +58,7 @@ export function PlaceCard({
   const { place: copy } = getVisitorUiCopy(language)
   const [showDetails, hideDetails, areaLabel, hoursLabel, directionsLabel, directionsTo] = copy
   const presentation = getChatLanguagePresentation(language)
+  const hostAction = useHostPlaceAction()
   const [isExpanded, setIsExpanded] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
   const titleId = useId()
@@ -178,6 +180,21 @@ export function PlaceCard({
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {hostAction ? (
+          <button
+            type="button"
+            aria-label={`${hostAction.label}: ${name}`}
+            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--chat-accent)] px-4 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2"
+            onClick={(event) => {
+              event.stopPropagation()
+              hostAction.onAction({ id, name })
+            }}
+          >
+            <span className="truncate">{hostAction.label}</span>
+            <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+          </button>
         ) : null}
 
         {directionsUrl ? (
