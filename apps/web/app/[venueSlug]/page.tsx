@@ -11,7 +11,7 @@ type VenueLandingPageProps = {
  * The venue's public link opens the guide directly. Existence, availability and admission are
  * decided once by the chat route (not-found / temporarily-unavailable), so this page only
  * forwards the visitor and every entry parameter (prompt, source, entry, item, ask, place).
- * The former "Open your guide" arrival screen (components/VenueArrival) is intentionally unrouted.
+ * The former "Open your guide" arrival screen was removed.
  */
 export default async function VenueLandingPage({ params, searchParams }: VenueLandingPageProps) {
   const { venueSlug } = await params
