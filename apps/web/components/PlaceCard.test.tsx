@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PlaceCard } from './PlaceCard'
 
 describe('PlaceCard', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('reveals descriptive details through a keyboard-operable control', () => {
     const onCardClick = vi.fn()
@@ -86,6 +89,28 @@ describe('PlaceCard', () => {
       />,
     )
     expect(screen.queryByRole('link', { name: 'Get directions to Elephant House' })).toBeNull()
+  })
+
+  it('reports an image that already failed before hydration', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(0)
+    const onImageError = vi.fn()
+    render(
+      <PlaceCard
+        id="place_1"
+        name="East Gallery"
+        type="EXHIBIT"
+        photoUrl="/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum"
+        shortDescription={null}
+        areaName={null}
+        hours={null}
+        distanceMeters={undefined}
+        lat={null}
+        lng={null}
+        onImageError={onImageError}
+      />,
+    )
+    expect(onImageError).toHaveBeenCalledOnce()
   })
 
   it('localizes place controls and marks right-to-left content', () => {

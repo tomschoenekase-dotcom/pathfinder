@@ -320,6 +320,7 @@ export function VenueChatShell(props: {
         <div className={`${styles.body} mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}>
           <ChatWindow
             key={venue.id}
+            locationAware={venue.guideMode === 'location_aware'}
             conversationTools={
               <>
                 {routePlanner}

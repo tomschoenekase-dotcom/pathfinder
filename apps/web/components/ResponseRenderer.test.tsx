@@ -14,7 +14,7 @@ describe('ResponseRenderer', () => {
     vi.unstubAllGlobals()
   })
 
-  it('preserves the existing text and place-card response experience', () => {
+  it('keeps answer text while omitting an image-free card without directions', () => {
     render(
       <ResponseRenderer
         content="The East Gallery is upstairs."
@@ -36,7 +36,8 @@ describe('ResponseRenderer', () => {
     )
 
     expect(screen.getByText('The East Gallery is upstairs.')).toBeTruthy()
-    expect(screen.getByRole('article', { name: 'East Gallery' })).toBeTruthy()
+    expect(screen.queryByRole('article', { name: 'East Gallery' })).toBeNull()
+    expect(screen.queryByLabelText('Recommended places')).toBeNull()
     expect(
       screen
         .getByText('The East Gallery is upstairs.')
@@ -114,10 +115,113 @@ describe('ResponseRenderer', () => {
     )
 
     expect(screen.getByText('The Elephant House is open.')).toBeTruthy()
-    expect(screen.getByText(citedPlace.name)).toBeTruthy()
+    expect(screen.queryByText(citedPlace.name)).toBeNull()
     expect(screen.getByRole('link', { name: /Official visitor guide/ }).getAttribute('href')).toBe(
       'https://example.org/visit',
     )
+  })
+
+  it('shows an approved image and removes an image-only card if media fails', () => {
+    render(
+      <ResponseRenderer
+        content="Visit East Gallery."
+        locationAware
+        places={[
+          {
+            id: 'east',
+            name: 'East Gallery',
+            type: 'EXHIBIT',
+            photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum',
+            photoAttribution: {
+              altText: 'Gallery view',
+              caption: null,
+              sourceName: 'Museum',
+              sourceUrl: null,
+            },
+            shortDescription: null,
+            areaName: null,
+            hours: null,
+            lat: null,
+            lng: null,
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByRole('article', { name: 'East Gallery' })).toBeTruthy()
+    fireEvent.error(screen.getByRole('img', { name: 'Gallery view' }))
+    expect(screen.queryByRole('article', { name: 'East Gallery' })).toBeNull()
+    expect(screen.getByText('Visit East Gallery.')).toBeTruthy()
+  })
+
+  it('keeps a compact directions card when its image fails', () => {
+    render(
+      <ResponseRenderer
+        content="Visit East Gallery."
+        locationAware
+        places={[
+          {
+            id: 'east',
+            name: 'East Gallery',
+            type: 'EXHIBIT',
+            photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum',
+            photoAttribution: {
+              altText: 'Gallery view',
+              caption: null,
+              sourceName: 'Museum',
+              sourceUrl: null,
+            },
+            shortDescription: null,
+            areaName: null,
+            hours: null,
+            lat: 40.7,
+            lng: -74,
+          },
+        ]}
+      />,
+    )
+    fireEvent.error(screen.getByRole('img', { name: 'Gallery view' }))
+    expect(screen.getByRole('article', { name: 'East Gallery' })).toBeTruthy()
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Get directions to East Gallery' })).toBeTruthy()
+    expect(screen.queryByText('NO IMAGE')).toBeNull()
+  })
+
+  it('suppresses replayed location cards for a non-location venue', () => {
+    const replayed = {
+      id: 'east',
+      name: 'East Gallery',
+      type: 'EXHIBIT',
+      photoUrl: null,
+      shortDescription: null,
+      areaName: null,
+      hours: null,
+      lat: 40.7,
+      lng: -74,
+    }
+    const view = render(
+      <ResponseRenderer content="Visit East Gallery." places={[replayed]} locationAware={false} />,
+    )
+    expect(screen.queryByRole('article', { name: 'East Gallery' })).toBeNull()
+    view.rerender(
+      <ResponseRenderer
+        content="Visit East Gallery."
+        places={[
+          {
+            ...replayed,
+            photoUrl: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum',
+            photoAttribution: {
+              altText: 'Gallery view',
+              caption: null,
+              sourceName: 'Museum',
+              sourceUrl: null,
+            },
+          },
+        ]}
+        locationAware={false}
+      />,
+    )
+    expect(screen.getByRole('article', { name: 'East Gallery' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Get directions to East Gallery' })).toBeNull()
   })
 
   it('renders choices as keyboard-native labeled controls and returns only their bounded value', () => {
