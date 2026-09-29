@@ -58,7 +58,7 @@ export default async function LookAndFeelPage({ searchParams }: LookAndFeelPageP
       : null
   }
 
-  // The live preview frames the real visitor renderer, which is stage-only for now.
+  // The live preview frames the data-free sample of the real visitor renderer.
   const allowLocalGuide = process.env.NODE_ENV === 'development'
   const previewUrl = buildGuestChatUrl(
     resolveGuestWebOrigin(process.env.NEXT_PUBLIC_WEB_URL, process.env.RAILWAY_ENVIRONMENT),
@@ -67,8 +67,9 @@ export default async function LookAndFeelPage({ searchParams }: LookAndFeelPageP
   )
   const mediaOrigin = previewUrl ? new URL(previewUrl).origin : null
   const previewAllowed =
-    process.env.RAILWAY_ENVIRONMENT !== 'production' &&
-    (process.env.RAILWAY_ENVIRONMENT === 'staging' || allowLocalGuide)
+    process.env.RAILWAY_ENVIRONMENT === 'production' ||
+    process.env.RAILWAY_ENVIRONMENT === 'staging' ||
+    allowLocalGuide
   const previewOrigin = previewAllowed && previewUrl ? new URL(previewUrl).origin : null
 
   return (

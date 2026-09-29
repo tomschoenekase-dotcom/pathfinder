@@ -44,12 +44,15 @@ function previewName(value: unknown): string | undefined {
   return name && name.length <= 120 ? name : undefined
 }
 
-/** A stage-only, data-free preview of the actual visitor shell. */
+/** A data-free preview of the actual visitor shell for hosted client portals. */
 export function appearancePreviewAllowed(
   environment: Readonly<Record<string, string | undefined>>,
 ): boolean {
-  if (environment.RAILWAY_ENVIRONMENT === 'production') return false
-  return environment.RAILWAY_ENVIRONMENT === 'staging' || environment.NODE_ENV === 'development'
+  return (
+    environment.RAILWAY_ENVIRONMENT === 'production' ||
+    environment.RAILWAY_ENVIRONMENT === 'staging' ||
+    environment.NODE_ENV === 'development'
+  )
 }
 
 export type AppearancePreviewMedia =

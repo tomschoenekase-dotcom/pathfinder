@@ -8,18 +8,18 @@ import {
   parseAppearancePreviewParams,
 } from './preview-params'
 
-describe('stage-only appearance preview boundary', () => {
-  it('admits staging and local development, while refusing production and previews', () => {
+describe('hosted appearance preview boundary', () => {
+  it('admits production, staging and local development, while refusing preview environments', () => {
     expect(
       appearancePreviewAllowed({ RAILWAY_ENVIRONMENT: 'staging', NODE_ENV: 'production' }),
     ).toBe(true)
     expect(appearancePreviewAllowed({ NODE_ENV: 'development' })).toBe(true)
     expect(
       appearancePreviewAllowed({ RAILWAY_ENVIRONMENT: 'production', NODE_ENV: 'production' }),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       appearancePreviewAllowed({ RAILWAY_ENVIRONMENT: 'production', NODE_ENV: 'development' }),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       appearancePreviewAllowed({ RAILWAY_ENVIRONMENT: 'preview', NODE_ENV: 'production' }),
     ).toBe(false)
