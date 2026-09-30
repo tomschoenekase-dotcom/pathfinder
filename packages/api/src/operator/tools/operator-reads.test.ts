@@ -41,6 +41,7 @@ const blockedStates: [string, Partial<SnapshotContactInput>, string][] = [
   ['doNotContact', { doNotContact: true }, 'do_not_contact'],
   ['suppressed', { suppressedAt: new Date() }, 'suppressed'],
   ['opted out', { permissionState: 'OPTED_OUT' }, 'suppressed'],
+  ['hard bounced', { lastHardBounceAt: new Date() }, 'suppressed'],
   ['unsubscribed', { unsubscribedAt: new Date() }, 'unsubscribed'],
   ['complained', { complainedAt: new Date() }, 'complained'],
 ]

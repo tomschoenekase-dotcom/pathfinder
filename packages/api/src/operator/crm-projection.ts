@@ -275,8 +275,11 @@ export type OperatorContactReason =
 export function operatorContactFlags(contact: SnapshotContactInput): OperatorContactFlags {
   return {
     doNotContact: contact.doNotContact,
+    // A hard bounce is treated as suppressed: sending again would only damage deliverability.
     suppressed:
-      contact.suppressedAt !== null || SUPPRESSING_PERMISSION_STATES.has(contact.permissionState),
+      contact.suppressedAt !== null ||
+      contact.lastHardBounceAt !== null ||
+      SUPPRESSING_PERMISSION_STATES.has(contact.permissionState),
     unsubscribed: contact.unsubscribedAt !== null,
     complained: contact.complainedAt !== null,
   }
@@ -293,7 +296,8 @@ export function operatorContactReason(contact: SnapshotContactInput): OperatorCo
 }
 
 export function operatorContactView(contact: SnapshotContactInput) {
-  const contactable = !isSnapshotContactSuppressed(contact)
+  const contactable =
+    !isSnapshotContactSuppressed(contact) && operatorContactReason(contact) === 'ok'
   return {
     contactId: contact.id,
     displayName: truncate(contact.fullName, 200),
