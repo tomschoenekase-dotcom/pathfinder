@@ -384,6 +384,7 @@ model AuditLog {
   @@index([tenantId, agentRunId, createdAt])
   @@index([tenantId, workerId, createdAt])
   @@index([tenantId, approvalGrantId, createdAt])
+  @@index([tenantId, credentialId, idempotencyKey, action], map: "audit_logs_integration_idempotency_idx")
   @@map("audit_logs")
 }
 
@@ -7154,13 +7155,13 @@ model ExternalCredentialActivation {
   operationHash String                   @map("operation_hash") @db.Char(64)
   tenantId      String                   @map("tenant_id")
   clientId      String                   @map("client_id")
-  venueId       String                   @map("venue_id")
+  venueId       String?                  @map("venue_id")
   scopeKey      String                   @map("scope_key") @db.VarChar(191)
   credentialId  String                   @unique(map: "external_credential_activations_credential_key") @map("credential_id")
   activatedBy   String                   @map("activated_by") @db.VarChar(191)
   activatedAt   DateTime                 @default(now()) @map("activated_at")
   tenant        Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue         Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue?                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   credential    ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([credentialId, tenantId, clientId, scopeKey], map: "external_credential_activations_exact_scope_key")

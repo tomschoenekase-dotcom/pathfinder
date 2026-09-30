@@ -1,8 +1,18 @@
+import { createHash } from 'node:crypto'
+
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { setContentVersionContext } from './content-version-context'
 
 export type VenueHumanActor = { type: 'HUMAN'; id: string; role: 'OWNER' | 'MANAGER' }
+export type VenueIntegrationActor = {
+  type: 'INTEGRATION'
+  credentialId: string
+  capability: 'venues:create' | 'appearance:write'
+  scope: 'client' | 'venue'
+  idempotencyKey: string
+}
+export type VenueCreateActor = VenueHumanActor | VenueIntegrationActor
 export type VenueActionClient = Pick<typeof db, '$transaction'>
 
 export class VenueActionError extends Error {
@@ -103,7 +113,7 @@ type InitialKnowledge = {
 export type VenueInitialContent = InitialPlace | InitialKnowledge
 export type CreateVenueActionInput = {
   tenantId: string
-  actor: VenueHumanActor
+  actor: VenueCreateActor
   name: string
   baseSlug: string
   callerSuppliedSlug: boolean
@@ -136,10 +146,57 @@ export function normalizeVenueSlug(value: string): string {
   return normalized
 }
 
-function requireActor(actor: VenueHumanActor): void {
+function requireActor(actor: VenueCreateActor): void {
+  if (actor.type === 'INTEGRATION') {
+    if (!actor.credentialId || actor.capability !== 'venues:create' || !actor.idempotencyKey) {
+      throw new VenueActionError(
+        'INVALID_INPUT',
+        'A verified venue-creation credential is required',
+      )
+    }
+    return
+  }
   if (actor.type !== 'HUMAN' || !actor.id || !['OWNER', 'MANAGER'].includes(actor.role)) {
     throw new VenueActionError('INVALID_INPUT', 'A human venue manager is required')
   }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(',')}}`
+  return JSON.stringify(value) ?? 'null'
+}
+
+function operationHash(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
+async function assertCreateCredential(
+  tx: typeof db,
+  tenantId: string,
+  actor: VenueIntegrationActor,
+) {
+  const credential = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM external_access_credentials
+    WHERE id = ${actor.credentialId}
+      AND tenant_id = ${tenantId}
+      AND client_id = ${tenantId}
+      AND venue_id IS NULL
+      AND scope_key = '__CLIENT__'
+      AND kind = 'MCP'
+      AND enabled = TRUE
+      AND revoked_at IS NULL
+      AND 'venues:create' = ANY(capabilities)
+      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+    FOR SHARE
+  `
+  if (credential.length === 0)
+    throw new VenueActionError('INVALID_INPUT', 'Active client venue-creation credential required')
 }
 
 function createMatches(
@@ -238,11 +295,60 @@ export async function createVenueAction(
   client: VenueActionClient = db,
 ) {
   requireActor(input.actor)
+  const actorId = input.actor.type === 'INTEGRATION' ? input.actor.credentialId : input.actor.id
   const baseSlug = normalizeVenueSlug(input.baseSlug)
   const normalizedInput = { ...input, baseSlug }
+  const integrationActor = input.actor.type === 'INTEGRATION' ? input.actor : null
+  if (integrationActor && integrationActor.scope !== 'client') {
+    throw new VenueActionError('INVALID_INPUT', 'Venue creation requires client credential scope')
+  }
+  const requestHash = integrationActor
+    ? operationHash({
+        tenantId: input.tenantId,
+        name: input.name,
+        baseSlug,
+        callerSuppliedSlug: input.callerSuppliedSlug,
+        description: input.description ?? null,
+        guideNotes: input.guideNotes ?? null,
+        category: input.category ?? null,
+        guideMode: input.guideMode,
+        defaultCenterLat: input.defaultCenterLat ?? null,
+        defaultCenterLng: input.defaultCenterLng ?? null,
+        initialContent: input.initialContent ?? null,
+      })
+    : null
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await setContentVersionContext(tx, { actorId: input.actor.id })
+    if (integrationActor) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-create-operation:${input.tenantId}:${integrationActor.credentialId}:${integrationActor.idempotencyKey}`}, 0))`
+      await assertCreateCredential(tx, input.tenantId, integrationActor)
+      const prior = await tx.auditLog.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          credentialId: integrationActor.credentialId,
+          idempotencyKey: integrationActor.idempotencyKey,
+          action: { in: ['venue.created', 'venue.create.noop'] },
+        },
+        select: { targetId: true, structuredReason: true },
+      })
+      if (prior) {
+        const evidence = prior.structuredReason as { operationHash?: unknown } | null
+        if (evidence?.operationHash !== requestHash) {
+          throw new VenueActionError(
+            'CONFLICT',
+            'Operation ID was already used for different venue setup.',
+          )
+        }
+        const replay = await tx.venue.findFirst({
+          where: { id: prior.targetId, tenantId: input.tenantId },
+          select: venueCreateSelect,
+        })
+        if (!replay)
+          throw new VenueActionError('CONFLICT', 'The original venue operation is unavailable.')
+        return { record: replay, replayed: true }
+      }
+    }
+    await setContentVersionContext(tx, { actorId })
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-create:${input.tenantId}:${baseSlug}`}, 0))`
     if (input.callerSuppliedSlug) {
       const existing = await findReplay(tx, normalizedInput)
@@ -252,6 +358,25 @@ export async function createVenueAction(
             'CONFLICT',
             'This venue slug is already used for different setup content.',
           )
+        if (integrationActor) {
+          await writeAuditLogStrict(
+            {
+              tenantId: input.tenantId,
+              actorId,
+              actorRole: 'INTEGRATION',
+              actorType: 'INTEGRATION',
+              credentialId: integrationActor.credentialId,
+              capability: integrationActor.capability,
+              idempotencyKey: integrationActor.idempotencyKey,
+              action: 'venue.create.noop',
+              targetType: 'Venue',
+              targetId: existing.id,
+              afterState: safeVenueState(existing),
+              structuredReason: { operationHash: requestHash },
+            },
+            tx,
+          )
+        }
         return { record: existing, replayed: true }
       }
     }
@@ -281,8 +406,8 @@ export async function createVenueAction(
             personalityMode: 'PRESET',
             tonePreset: 'friendly',
             tonePresetVersion: 1,
-            createdBy: input.actor.id,
-            updatedBy: input.actor.id,
+            createdBy: actorId,
+            updatedBy: actorId,
           },
         },
         ...(initial?.kind === 'place'
@@ -340,8 +465,17 @@ export async function createVenueAction(
     await writeAuditLogStrict(
       {
         tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
+        actorId,
+        actorRole: input.actor.type === 'INTEGRATION' ? 'INTEGRATION' : input.actor.role,
+        ...(input.actor.type === 'INTEGRATION'
+          ? {
+              actorType: 'INTEGRATION' as const,
+              credentialId: input.actor.credentialId,
+              capability: input.actor.capability,
+              idempotencyKey: input.actor.idempotencyKey,
+              structuredReason: { operationHash: requestHash },
+            }
+          : {}),
         action: 'venue.created',
         targetType: 'Venue',
         targetId: record.id,

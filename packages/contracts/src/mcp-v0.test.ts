@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMcpScope,
   McpReadInput,
+  McpAppearanceGetInput,
+  McpAppearanceUpdateInput,
+  McpVenuesCreateInput,
+  McpVenuesListInput,
   McpResolveSourceClarificationInput,
   McpAskOperatorInput,
   McpEvaluationRequestInput,
@@ -40,6 +44,63 @@ const credential: VerifiedMcpCredentialScope = {
 }
 
 describe('Torchiko MCP v0 contracts', () => {
+  it('publishes strict tenant-scoped venue and bounded appearance contracts', () => {
+    expect(McpAppearanceGetInput.parse({ clientId: 'tenant-1', venueId: 'venue-1' })).toEqual({
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(() =>
+      McpAppearanceUpdateInput.parse({
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        expectedUpdatedAt: '2026-09-29T12:00:00.000Z',
+        chatLogoUrl: 'https://unreviewed.example/logo.png',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpAppearanceUpdateInput.parse({
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        expectedUpdatedAt: '2026-09-29T12:00:00.000Z',
+      }),
+    ).toThrow()
+    expect(McpVenuesListInput.parse({ clientId: 'tenant-1' })).toEqual({
+      clientId: 'tenant-1',
+      limit: 50,
+    })
+    expect(
+      McpVenuesCreateInput.parse({
+        clientId: 'tenant-1',
+        operationId: '22222222-2222-4222-8222-222222222222',
+        name: 'Space Museum',
+        slug: 'space-museum',
+        guideMode: 'non_location',
+      }),
+    ).toMatchObject({ slug: 'space-museum' })
+    expect(() =>
+      McpVenuesCreateInput.parse({
+        clientId: 'tenant-1',
+        operationId: '22222222-2222-4222-8222-222222222222',
+        name: 'Space Museum',
+        slug: 'space-museum',
+        guideMode: 'non_location',
+        chatLogoUrl: 'https://unreviewed.example/logo.png',
+      }),
+    ).toThrow()
+    for (const { name, capability } of [
+      { name: 'torchiko.appearance.get', capability: 'appearance:read' },
+      { name: 'torchiko.appearance.update', capability: 'appearance:write' },
+      { name: 'torchiko.venues.list', capability: 'venues:read' },
+      { name: 'torchiko.venues.create', capability: 'venues:create' },
+    ]) {
+      expect(
+        PATHFINDER_MCP_TOOLS.find((tool) => tool.name === name)?._meta['com.pathfinder/security'],
+      ).toMatchObject({ capability })
+    }
+  })
+
   it('retains bounded agent-improvement generalization in runtime and tool schemas', () => {
     const generalization = {
       rationale: 'A distinct counterexample bounds the proposed generalized rule.',

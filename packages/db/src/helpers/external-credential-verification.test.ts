@@ -41,19 +41,69 @@ describe('agent bridge machine credential verification', () => {
       venueIds: ['venue-1'],
       capabilities: ['agent-runs:execute', 'questions:ask'],
     })
-    expect(findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          tenantId: 'tenant-1',
-          clientId: 'tenant-1',
-          venueId: 'venue-1',
-          secretPrefix: plaintext.slice(0, 20),
-          enabled: true,
-          revokedAt: null,
-          capabilities: { has: 'agent-runs:execute' },
-        }),
-      }),
-    )
+    const query = findFirst.mock.calls[0]?.[0]
+    expect(query?.where).toMatchObject({
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      secretPrefix: plaintext.slice(0, 20),
+      enabled: true,
+      revokedAt: null,
+    })
+    expect(query?.where).not.toHaveProperty('capabilities')
+  })
+
+  it('verifies a client-level credential only when it is tenant-bound and has no venue scope', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'credential-client',
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: null,
+      capabilities: ['venues:read'],
+      secretHash: await verifier(),
+    })
+    const result = await verifyAgentBridgeCredential({ tenantId: 'tenant-1', plaintext }, {
+      externalAccessCredential: { findFirst },
+    } as never)
+    expect(result).toEqual({
+      credentialId: 'credential-client',
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueIds: [],
+      capabilities: ['venues:read'],
+    })
+    const query = findFirst.mock.calls[0]?.[0]
+    expect(query?.where).toMatchObject({
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: null,
+      kind: 'MCP',
+      secretPrefix: plaintext.slice(0, 20),
+      enabled: true,
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+    })
+    expect(query?.where).not.toHaveProperty('capabilities')
+  })
+
+  it('rejects a client-level row whose verified tenant, client, or venue binding differs', async () => {
+    for (const binding of [
+      { tenantId: 'tenant-2', clientId: 'tenant-1', venueId: null },
+      { tenantId: 'tenant-1', clientId: 'tenant-2', venueId: null },
+      { tenantId: 'tenant-1', clientId: 'tenant-1', venueId: 'venue-1' },
+    ]) {
+      const error = await verifyAgentBridgeCredential({ tenantId: 'tenant-1', plaintext }, {
+        externalAccessCredential: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'credential-client',
+            ...binding,
+            capabilities: ['venues:read'],
+            secretHash: await verifier(),
+          }),
+        },
+      } as never).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(ExternalCredentialVerificationError)
+    }
   })
 
   it('fails with one non-secret message for malformed, missing, and wrong secrets', async () => {

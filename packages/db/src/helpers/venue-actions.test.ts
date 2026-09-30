@@ -38,6 +38,7 @@ const core = {
 function fixture() {
   const tx = {
     $executeRaw: vi.fn(async () => 1),
+    $queryRaw: vi.fn(async () => [{ id: 'credential-1' }]),
     venue: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -54,6 +55,10 @@ function fixture() {
         void input
         return {}
       }),
+      findFirst: vi.fn(),
+    },
+    externalAccessCredential: {
+      findFirst: vi.fn(async () => ({ id: 'credential-1' })),
     },
   }
   return { tx, client: { $transaction: vi.fn(async (callback) => callback(tx)) } }
@@ -459,6 +464,290 @@ describe('canonical venue actions', () => {
     expect(reset.tx.auditLog.create).toHaveBeenCalledOnce()
   })
 
+  it('attributes integration appearance changes to the credential and operation, preserving appearance fields on title update', async () => {
+    const existingAppearance = {
+      version: 1 as const,
+      userBubble: true,
+      assistantBubble: false,
+      userTextColor: null,
+      assistantTextColor: null,
+      userBubbleColor: null,
+      assistantSurfaceColor: null,
+      title: null,
+      headerTitleColor: null,
+      headerColor: null,
+      footerColor: null,
+      background: { mode: 'none' as const, focalX: 50, focalY: 50, dim: 45 },
+      requestMore: true,
+    }
+    const fixtureResult = fixture()
+    const design = {
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      chatLogoDerivativeId: null,
+      chatBannerDerivativeId: null,
+      chatLogoDerivativeReceipt: null,
+      chatBannerDerivativeReceipt: null,
+      chatShowPhotos: true,
+      chatShowLinks: true,
+      chatAppearance: existingAppearance,
+      updatedAt: revision,
+    }
+    fixtureResult.tx.venue.findFirst.mockResolvedValueOnce(design).mockResolvedValueOnce({
+      ...design,
+      chatAppearance: { ...existingAppearance, title: 'Space Museum' },
+      updatedAt: new Date(revision.getTime() + 1),
+    })
+    await updateVenueChatDesignAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        expectedUpdatedAt: revision,
+        actor: {
+          type: 'INTEGRATION',
+          credentialId: 'credential-1',
+          capability: 'appearance:write',
+          scope: 'venue',
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        },
+        fields: { title: 'Space Museum' },
+      },
+      fixtureResult.client as never,
+    )
+    const [[update]] = fixtureResult.tx.venue.updateMany.mock.calls as unknown as [
+      [{ data: Record<string, unknown> }],
+    ]
+    expect(update.data.chatAppearance).toMatchObject({
+      title: 'Space Museum',
+      userBubble: true,
+      background: { mode: 'none' },
+    })
+    expect(fixtureResult.tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'INTEGRATION',
+          actorId: 'credential-1',
+          actorRole: 'INTEGRATION',
+          credentialId: 'credential-1',
+          capability: 'appearance:write',
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        }),
+      }),
+    )
+  })
+
+  it('fails closed when the in-transaction credential lock sees a revoked credential', async () => {
+    const { tx, client } = fixture()
+    tx.$queryRaw.mockResolvedValueOnce([])
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: {
+            type: 'INTEGRATION',
+            credentialId: 'credential-1',
+            capability: 'appearance:write',
+            scope: 'venue',
+            idempotencyKey: '66666666-6666-4666-8666-666666666666',
+          },
+          fields: { chatTheme: 'forest' },
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('replays an integration appearance operation exactly and rejects changed payload under the same key', async () => {
+    const operationId = '55555555-5555-4555-8555-555555555555'
+    const integrationActor = {
+      type: 'INTEGRATION' as const,
+      credentialId: 'credential-1',
+      capability: 'appearance:write' as const,
+      scope: 'venue' as const,
+      idempotencyKey: operationId,
+    }
+    const stored = {
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      chatLogoDerivativeId: null,
+      chatBannerDerivativeId: null,
+      chatLogoDerivativeReceipt: null,
+      chatBannerDerivativeReceipt: null,
+      chatShowPhotos: true,
+      chatShowLinks: true,
+      chatAppearance: null,
+      updatedAt: revision,
+    }
+    const first = fixture()
+    first.tx.venue.findFirst.mockResolvedValueOnce(stored).mockResolvedValueOnce({
+      ...stored,
+      chatTheme: 'forest',
+      updatedAt: new Date(revision.getTime() + 1),
+    })
+    await updateVenueChatDesignAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        expectedUpdatedAt: revision,
+        actor: integrationActor,
+        fields: { chatTheme: 'forest' },
+      },
+      first.client as never,
+    )
+    const auditCall = first.tx.auditLog.create.mock.calls[0]?.[0] as {
+      data: { targetId: string; structuredReason: unknown }
+    }
+
+    const retry = fixture()
+    retry.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: auditCall.data.targetId,
+      structuredReason: auditCall.data.structuredReason,
+    })
+    retry.tx.venue.findFirst.mockResolvedValueOnce({
+      ...stored,
+      chatTheme: 'forest',
+      updatedAt: new Date(revision.getTime() + 1),
+    })
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: integrationActor,
+          fields: { chatTheme: 'forest' },
+        },
+        retry.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(retry.tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(retry.tx.auditLog.create).not.toHaveBeenCalled()
+
+    const conflict = fixture()
+    conflict.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: auditCall.data.targetId,
+      structuredReason: auditCall.data.structuredReason,
+    })
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: integrationActor,
+          fields: { chatTheme: 'sunset' },
+        },
+        conflict.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(conflict.tx.venue.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('durably binds an integration appearance no-op to its operation ID and payload', async () => {
+    const operationId = '88888888-8888-4888-8888-888888888888'
+    const integrationActor = {
+      type: 'INTEGRATION' as const,
+      credentialId: 'credential-1',
+      capability: 'appearance:write' as const,
+      scope: 'venue' as const,
+      idempotencyKey: operationId,
+    }
+    const stored = {
+      chatTheme: 'forest',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      chatLogoDerivativeId: null,
+      chatBannerDerivativeId: null,
+      chatLogoDerivativeReceipt: null,
+      chatBannerDerivativeReceipt: null,
+      chatShowPhotos: true,
+      chatShowLinks: true,
+      chatAppearance: null,
+      updatedAt: revision,
+    }
+    const first = fixture()
+    first.tx.venue.findFirst.mockResolvedValueOnce(stored)
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: integrationActor,
+          fields: { chatTheme: 'forest' },
+        },
+        first.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(first.tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(first.tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'venue.chat-design.noop',
+          credentialId: 'credential-1',
+          idempotencyKey: operationId,
+          structuredReason: { operationHash: expect.any(String) },
+        }),
+      }),
+    )
+    const receipt = first.tx.auditLog.create.mock.calls[0]?.[0] as {
+      data: { targetId: string; structuredReason: unknown }
+    }
+
+    const retry = fixture()
+    retry.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: receipt.data.targetId,
+      structuredReason: receipt.data.structuredReason,
+    })
+    retry.tx.venue.findFirst.mockResolvedValueOnce(stored)
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: integrationActor,
+          fields: { chatTheme: 'forest' },
+        },
+        retry.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(retry.tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(retry.tx.auditLog.create).not.toHaveBeenCalled()
+
+    const changed = fixture()
+    changed.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: receipt.data.targetId,
+      structuredReason: receipt.data.structuredReason,
+    })
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: integrationActor,
+          fields: { chatTheme: 'sunset' },
+        },
+        changed.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(changed.tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(changed.tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
   it('enforces OWNER at the delete domain boundary before transaction or audit work', async () => {
     const { tx, client } = fixture()
     await expect(
@@ -523,6 +812,141 @@ describe('canonical venue actions', () => {
     expect(JSON.stringify(tx.$executeRaw.mock.calls)).toContain(
       'pathfinder:venue-create:tenant-1:museum',
     )
+  })
+
+  it('creates and audits a venue under an integration actor with credential lineage', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce(null)
+    tx.venue.create.mockResolvedValueOnce({ ...core, places: [], knowledgeEntries: [] })
+    const operationId = '22222222-2222-4222-8222-222222222222'
+    const result = await createVenueAction(
+      {
+        tenantId: 'tenant-1',
+        actor: {
+          type: 'INTEGRATION',
+          credentialId: 'credential-1',
+          capability: 'venues:create',
+          scope: 'client',
+          idempotencyKey: operationId,
+        },
+        name: 'Museum',
+        baseSlug: 'museum',
+        callerSuppliedSlug: true,
+        guideMode: 'non_location',
+      },
+      client as never,
+    )
+    expect(result.replayed).toBe(false)
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'INTEGRATION',
+          actorId: 'credential-1',
+          actorRole: 'INTEGRATION',
+          credentialId: 'credential-1',
+          capability: 'venues:create',
+          idempotencyKey: operationId,
+        }),
+      }),
+    )
+  })
+
+  it('does not create a venue when the in-transaction credential lock sees revocation', async () => {
+    const { tx, client } = fixture()
+    tx.$queryRaw.mockResolvedValueOnce([])
+    await expect(
+      createVenueAction(
+        {
+          tenantId: 'tenant-1',
+          actor: {
+            type: 'INTEGRATION',
+            credentialId: 'credential-1',
+            capability: 'venues:create',
+            scope: 'client',
+            idempotencyKey: '77777777-7777-4777-8777-777777777777',
+          },
+          name: 'Museum',
+          baseSlug: 'museum',
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.venue.create).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('replays an integration operation by credential and payload and conflicts on key reuse', async () => {
+    const operationId = '44444444-4444-4444-8444-444444444444'
+    const actor = {
+      type: 'INTEGRATION' as const,
+      credentialId: 'credential-1',
+      capability: 'venues:create' as const,
+      scope: 'client' as const,
+      idempotencyKey: operationId,
+    }
+    const first = fixture()
+    first.tx.venue.findFirst.mockResolvedValueOnce(null)
+    first.tx.venue.create.mockResolvedValueOnce({ ...core, places: [], knowledgeEntries: [] })
+    await createVenueAction(
+      {
+        tenantId: 'tenant-1',
+        actor,
+        name: 'Museum',
+        baseSlug: 'museum',
+        callerSuppliedSlug: true,
+        guideMode: 'non_location',
+      },
+      first.client as never,
+    )
+    const auditCall = first.tx.auditLog.create.mock.calls[0]?.[0] as {
+      data: { targetId: string; structuredReason: unknown }
+    }
+
+    const retry = fixture()
+    retry.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: auditCall.data.targetId,
+      structuredReason: auditCall.data.structuredReason,
+    })
+    retry.tx.venue.findFirst.mockResolvedValueOnce({ ...core, places: [], knowledgeEntries: [] })
+    await expect(
+      createVenueAction(
+        {
+          tenantId: 'tenant-1',
+          actor,
+          name: 'Museum',
+          baseSlug: 'museum',
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        },
+        retry.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(retry.tx.venue.create).not.toHaveBeenCalled()
+    expect(retry.tx.auditLog.create).not.toHaveBeenCalled()
+    expect(JSON.stringify(retry.tx.$executeRaw.mock.calls)).toContain(`:${operationId}`)
+
+    const conflict = fixture()
+    conflict.tx.auditLog.findFirst.mockResolvedValueOnce({
+      targetId: auditCall.data.targetId,
+      structuredReason: auditCall.data.structuredReason,
+    })
+    await expect(
+      createVenueAction(
+        {
+          tenantId: 'tenant-1',
+          actor,
+          name: 'Museum',
+          baseSlug: 'museum',
+          callerSuppliedSlug: true,
+          description: 'Changed setup',
+          guideMode: 'non_location',
+        },
+        conflict.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(conflict.tx.venue.create).not.toHaveBeenCalled()
   })
 
   it('rejects nonaddressable slugs before a transaction and bounds suffixed auto-slugs', async () => {

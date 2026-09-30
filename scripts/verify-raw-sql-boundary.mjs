@@ -69,6 +69,8 @@ const approvedPolicies = new Set([
   'tenant-venue-content-mutation-lock',
   'tenant-venue-report-mutation-lock',
   'tenant-venue-create-slug-lock',
+  'tenant-mcp-venue-create-operation-lock',
+  'tenant-mcp-venue-appearance-operation-lock',
   'platform-client-create-id-lock',
   'platform-client-create-request-lock',
   'tenant-offboarding-request-lock',
@@ -1208,6 +1210,36 @@ const approvedOperations = [
     hash: '19f67dc59cfb8f7262bda219dc7c9d2feb4c8fd354150f439951d87e57faeca6',
     policy: 'tenant-venue-create-slug-lock',
   },
+  // Serialize one client credential's create operation key before replay receipt lookup.
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$executeRaw',
+    hash: 'e0c0c1bd32308df31ad319d4085077291157fe29dd03502e6e8f54efb17f9840',
+    policy: 'tenant-mcp-venue-create-operation-lock',
+    effect: 'write',
+  },
+  // Serialize one credential's appearance operation key before replay receipt lookup.
+  {
+    file: 'packages/db/src/helpers/venue-actions.ts',
+    method: '$executeRaw',
+    hash: '3ec5468fe7be8f21b378be9af47cc868a69d1dd3b38bd4c75729418b13fbfc43',
+    policy: 'tenant-mcp-venue-appearance-operation-lock',
+    effect: 'write',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$queryRaw',
+    hash: '99bb439abd21063c1fe17f00084570686cc2c08b52c89dcd4509b8b0a6cae847',
+    policy: 'tenant-mcp-venue-create-operation-lock',
+    effect: 'write',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-actions.ts',
+    method: '$queryRaw',
+    hash: '3ed28fa5e1f8a564128699346d63e7e624d0aa47b5ac5f74c3dd8ed39b523606',
+    policy: 'tenant-mcp-venue-appearance-operation-lock',
+    effect: 'write',
+  },
   {
     file: 'packages/db/src/helpers/client-account-actions.ts',
     method: '$executeRaw',
@@ -1630,6 +1662,38 @@ const approvedEffectOverrides = new Map([
       'd25f2735654dbdd63ee62b92f7d5c89cd5f0baba888068b173e32779989b2006',
     ].join('\0'),
     'read',
+  ],
+  [
+    [
+      'packages/db/src/helpers/venue-create-action.ts',
+      '$executeRaw',
+      'e0c0c1bd32308df31ad319d4085077291157fe29dd03502e6e8f54efb17f9840',
+    ].join('\0'),
+    'write',
+  ],
+  [
+    [
+      'packages/db/src/helpers/venue-actions.ts',
+      '$executeRaw',
+      '3ec5468fe7be8f21b378be9af47cc868a69d1dd3b38bd4c75729418b13fbfc43',
+    ].join('\0'),
+    'write',
+  ],
+  [
+    [
+      'packages/db/src/helpers/venue-create-action.ts',
+      '$queryRaw',
+      '99bb439abd21063c1fe17f00084570686cc2c08b52c89dcd4509b8b0a6cae847',
+    ].join('\0'),
+    'write',
+  ],
+  [
+    [
+      'packages/db/src/helpers/venue-actions.ts',
+      '$queryRaw',
+      '3ed28fa5e1f8a564128699346d63e7e624d0aa47b5ac5f74c3dd8ed39b523606',
+    ].join('\0'),
+    'write',
   ],
 ])
 const rawSqlEffects = new Set(['read', 'write'])

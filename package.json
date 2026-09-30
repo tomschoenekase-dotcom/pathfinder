@@ -48,6 +48,7 @@
     "test:intake-website-research:disposable": "node scripts/run-disposable-intake-website-research.mjs",
     "test:agent-approval-policy:disposable": "node scripts/run-disposable-agent-approval-policy.mjs",
     "test:agent-bridge:disposable": "node scripts/run-disposable-agent-bridge.mjs",
+    "test:mcp-venue-appearance:disposable": "node scripts/run-disposable-mcp-venue-appearance.mjs",
     "test:voice-session-recovery:disposable": "node scripts/run-disposable-voice-session-recovery.mjs",
     "test:media-provider-operation:disposable": "node scripts/run-disposable-media-provider-operation.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",

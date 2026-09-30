@@ -1,5 +1,6 @@
 import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
+import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 import { z } from 'zod'
 import {
   SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION,
@@ -64,9 +65,21 @@ import {
   prepareIntakeV1PackageDraftProposalAction,
   readIntakeV1PackageDraftProposalReplay,
   assertIntakeV1PackageMachineAuthority,
+  createVenueAction,
+  updateVenueChatDesignAction,
+  venueChatDesignSelect,
 } from '@pathfinder/db'
 import { PATHFINDER_MCP_TOOLS } from '@pathfinder/contracts/mcp-v0'
-import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
+import type {
+  JsonValue,
+  McpAppearanceGetInput,
+  McpAppearanceUpdateInput,
+  McpVenuesCreateInput,
+  McpVenuesListInput,
+  McpToolResult,
+  PathfinderMcpToolName,
+} from '@pathfinder/contracts/mcp-v0'
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
@@ -100,6 +113,12 @@ import { createDistributionMcpActions } from './distribution-actions'
 /** Exact tools with a real safe-runtime domain binding. Contract-only tools are deliberately
  * omitted until their canonical action, attribution, approval, and replay behavior are bound. */
 export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
+  // New client-facing writes are bound here, but remain unavailable unless the
+  // dedicated venue-write rollout flag is enabled in the registry.
+  'torchiko.appearance.get',
+  'torchiko.appearance.update',
+  'torchiko.venues.list',
+  'torchiko.venues.create',
   'pathfinder.read',
   'torchiko.account.get_context',
   'torchiko.account.timeline',
@@ -260,6 +279,10 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeIntakeV1PackageDraft'
     | 'applyIntakeV1PackageDraft'
   > = {
+    appearanceGet: async () => unavailable('Venue appearance read'),
+    appearanceUpdate: async () => unavailable('Venue appearance update'),
+    venuesList: async () => unavailable('Venue listing'),
+    venuesCreate: async () => unavailable('Venue creation'),
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
     proposeBillingAction: async () => unavailable('Billing proposal'),
@@ -4996,9 +5019,160 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     },
   )
   const actions = createPathfinderMcpAgentActions(database, reads)
-  return createPathfinderMcpRegistry(actions, {
-    writeToolsEnabled: true,
-    beforeAction: (name, input, context) =>
-      assertMcpWorkflowToolSupported(database, name, input, context),
-  })
+  const venueActions = {
+    async appearanceGet(
+      input: McpAppearanceGetInput,
+      context: Parameters<(typeof actions)['read']>[1],
+    ): Promise<McpToolResult> {
+      const venue = await database.venue.findFirst({
+        where: { id: input.venueId, tenantId: context.credential.tenantId },
+        select: venueChatDesignSelect,
+      })
+      if (!venue)
+        throw new McpActionBindingError('Venue is unavailable in the authenticated client')
+      return {
+        kind: 'torchiko.venue-appearance',
+        summary: 'Current visitor chat appearance for one authorized venue.',
+        data: jsonData({
+          chatTheme: venue.chatTheme,
+          chatAccentColor: venue.chatAccentColor,
+          chatFont: venue.chatFont,
+          chatShowPhotos: venue.chatShowPhotos,
+          chatShowLinks: venue.chatShowLinks,
+          chatAppearance: parseChatAppearance(venue.chatAppearance),
+          hasLogo: venue.chatLogoUrl !== null || venue.chatLogoDerivativeId !== null,
+          hasBanner: venue.chatBannerUrl !== null || venue.chatBannerDerivativeId !== null,
+          updatedAt: venue.updatedAt.toISOString(),
+        }),
+      }
+    },
+    async appearanceUpdate(
+      input: McpAppearanceUpdateInput,
+      context: Parameters<(typeof actions)['read']>[1],
+    ): Promise<McpToolResult> {
+      const fields = {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.chatTheme !== undefined ? { chatTheme: input.chatTheme } : {}),
+        ...(input.chatAccentColor !== undefined ? { chatAccentColor: input.chatAccentColor } : {}),
+        ...(input.chatFont !== undefined ? { chatFont: input.chatFont } : {}),
+        ...(input.chatAppearance !== undefined ? { chatAppearance: input.chatAppearance } : {}),
+      }
+      const saved = await updateVenueChatDesignAction(
+        {
+          tenantId: context.credential.tenantId,
+          venueId: input.venueId,
+          expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+          actor: {
+            type: 'INTEGRATION',
+            credentialId: context.credential.credentialId,
+            capability: 'appearance:write',
+            scope: context.credential.venueIds.length === 0 ? 'client' : 'venue',
+            idempotencyKey: input.operationId,
+          },
+          fields,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.venue-appearance-updated',
+        summary: saved.replayed
+          ? 'The requested appearance is already current; no write was made.'
+          : 'Venue visitor chat appearance updated and audited.',
+        data: jsonData({
+          chatTheme: saved.chatTheme,
+          chatAccentColor: saved.chatAccentColor,
+          chatFont: saved.chatFont,
+          chatShowPhotos: saved.chatShowPhotos,
+          chatShowLinks: saved.chatShowLinks,
+          chatAppearance: parseChatAppearance(saved.chatAppearance),
+          hasLogo: saved.chatLogoUrl !== null || saved.chatLogoDerivativeId !== null,
+          hasBanner: saved.chatBannerUrl !== null || saved.chatBannerDerivativeId !== null,
+          updatedAt: saved.updatedAt.toISOString(),
+          replayed: saved.replayed,
+        }),
+      }
+    },
+    async venuesList(
+      input: McpVenuesListInput,
+      context: Parameters<(typeof actions)['read']>[1],
+    ): Promise<McpToolResult> {
+      const venues = await database.venue.findMany({
+        where: { tenantId: context.credential.tenantId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: input.limit,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          category: true,
+          guideMode: true,
+          isActive: true,
+          updatedAt: true,
+        },
+      })
+      return {
+        kind: 'torchiko.venues',
+        summary: 'Safe identity fields for venues in the authenticated client.',
+        data: jsonData({
+          venues: venues.map((venue) => ({ ...venue, updatedAt: venue.updatedAt.toISOString() })),
+        }),
+      }
+    },
+    async venuesCreate(
+      input: McpVenuesCreateInput,
+      context: Parameters<(typeof actions)['read']>[1],
+    ): Promise<McpToolResult> {
+      const created = await createVenueAction(
+        {
+          tenantId: context.credential.tenantId,
+          actor: {
+            type: 'INTEGRATION',
+            credentialId: context.credential.credentialId,
+            capability: 'venues:create',
+            scope: 'client',
+            idempotencyKey: input.operationId,
+          },
+          name: input.name,
+          baseSlug: input.slug,
+          callerSuppliedSlug: true,
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.category !== undefined ? { category: input.category } : {}),
+          guideMode: input.guideMode,
+          ...(input.defaultCenterLat !== undefined
+            ? { defaultCenterLat: input.defaultCenterLat }
+            : {}),
+          ...(input.defaultCenterLng !== undefined
+            ? { defaultCenterLng: input.defaultCenterLng }
+            : {}),
+        },
+        database,
+      )
+      const venue = created.record
+      return {
+        kind: 'torchiko.venue-created',
+        summary: created.replayed
+          ? 'The exact venue setup already exists; no duplicate was created.'
+          : 'Venue created and audited.',
+        data: jsonData({
+          id: venue.id,
+          name: venue.name,
+          slug: venue.slug,
+          category: venue.category,
+          guideMode: venue.guideMode,
+          isActive: venue.isActive,
+          updatedAt: venue.updatedAt.toISOString(),
+          replayed: created.replayed,
+        }),
+      }
+    },
+  }
+  return createPathfinderMcpRegistry(
+    { ...actions, ...venueActions },
+    {
+      writeToolsEnabled: true,
+      venueWriteToolsEnabled: isFeatureEnabled('mcpWriteTools'),
+      beforeAction: (name, input, context) =>
+        assertMcpWorkflowToolSupported(database, name, input, context),
+    },
+  )
 }

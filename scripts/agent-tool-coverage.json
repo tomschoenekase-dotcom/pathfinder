@@ -1,18 +1,34 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 560,
-    "sha256": "7a073efa2af69cee4a815420a5944929d6bd011fdb8cde853e87512a2d2857b9",
+    "count": 561,
+    "sha256": "c27b0d4d1d323b7769d6525708a9279e96b4f8e861eb5689c17d66f7ac55d908",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "7a073efa2af69cee4a815420a5944929d6bd011fdb8cde853e87512a2d2857b9",
-      "sha256": "ef088352b10e58a2baf08e5bcbb61d732d4d817a89640107ced956341069c679"
+      "operationInventorySha256": "c27b0d4d1d323b7769d6525708a9279e96b4f8e861eb5689c17d66f7ac55d908",
+      "sha256": "c4c22559dca7346536fe26cb72aa47a4b3414b5a9ae8cd8480f8814488ddcc0f"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
+      {
+        "id": "credential-scoped-venue-create",
+        "kind": "bounded-alternative",
+        "operations": ["venue.create"],
+        "surfaces": ["tool:torchiko.venues.create"],
+        "decision": "An active client MCP credential with venues:create may create bounded venue identity fields through the canonical tenant action. Writes require both HTTP and MCP write flags, durable operation binding, and integration audit attribution; billing and customer access remain unavailable.",
+        "evidence": "packages/api/src/mcp/mcp-venue-appearance-disposable.integration.test.ts"
+      },
+      {
+        "id": "credential-scoped-venue-appearance",
+        "kind": "bounded-alternative",
+        "operations": ["venue.updateChatDesign"],
+        "surfaces": ["tool:torchiko.appearance.get", "tool:torchiko.appearance.update"],
+        "decision": "An active capability-scoped MCP credential may inspect and change bounded chat design fields for an authorized venue. Exact revision, durable operation binding, write flags, and integration audit apply. URLs and media writes are excluded.",
+        "evidence": "packages/api/src/mcp/mcp-venue-appearance-disposable.integration.test.ts"
+      },
       {
         "id": "unified-agent-run-trace",
         "kind": "direct-tool",

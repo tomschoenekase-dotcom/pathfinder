@@ -38,6 +38,10 @@ function actions(): PathfinderMcpDomainActions {
   } as const
   return {
     verifyApprovalGrant: vi.fn().mockResolvedValue(undefined),
+    appearanceGet: vi.fn().mockResolvedValue(result),
+    appearanceUpdate: vi.fn().mockResolvedValue(result),
+    venuesList: vi.fn().mockResolvedValue(result),
+    venuesCreate: vi.fn().mockResolvedValue(result),
     proposeBillingAction: vi.fn().mockResolvedValue(result),
     read: vi.fn().mockResolvedValue(result),
     accountContext: vi.fn().mockResolvedValue(result),
@@ -96,6 +100,98 @@ function actions(): PathfinderMcpDomainActions {
     requestEvaluation: vi.fn().mockResolvedValue(result),
   }
 }
+
+describe('tenant-scoped venue and appearance tools', () => {
+  const clientCredential: VerifiedMcpCredentialScope = {
+    credentialId: 'client-credential-1',
+    tenantId: 'tenant-1',
+    clientId: 'tenant-1',
+    venueIds: [],
+    capabilities: ['appearance:read', 'appearance:write', 'venues:read', 'venues:create'],
+  }
+
+  it('allows an empty-venue client credential to request one same-tenant appearance', async () => {
+    const domain = actions()
+    await createPathfinderMcpRegistry(domain).callTool(
+      'torchiko.appearance.get',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+      },
+      { credential: clientCredential },
+    )
+    expect(domain.appearanceGet).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a sibling client and venue-scoped credentials from tenant-level list/create', async () => {
+    const domain = actions()
+    await expect(
+      createPathfinderMcpRegistry(domain).callTool(
+        'torchiko.appearance.get',
+        {
+          clientId: 'other-tenant',
+          venueId: 'venue-1',
+        },
+        { credential: clientCredential },
+      ),
+    ).rejects.toMatchObject({ code: 'MCP_SCOPE_DENIED' })
+    await expect(
+      createPathfinderMcpRegistry(domain).callTool(
+        'torchiko.venues.list',
+        {
+          clientId: 'client-1',
+        },
+        { credential },
+      ),
+    ).rejects.toMatchObject({ code: 'MCP_SCOPE_DENIED' })
+    await expect(
+      createPathfinderMcpRegistry(domain, { venueWriteToolsEnabled: true }).callTool(
+        'torchiko.venues.create',
+        {
+          clientId: 'client-1',
+          operationId: '22222222-2222-4222-8222-222222222222',
+          name: 'Museum',
+          slug: 'museum',
+          guideMode: 'non_location',
+        },
+        { credential },
+      ),
+    ).rejects.toMatchObject({ code: 'MCP_SCOPE_DENIED' })
+    expect(domain.venuesList).not.toHaveBeenCalled()
+    expect(domain.venuesCreate).not.toHaveBeenCalled()
+  })
+
+  it('keeps appearance writes behind the default-off write gate and strict input contract', async () => {
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '33333333-3333-4333-8333-333333333333',
+      expectedUpdatedAt: '2026-09-29T12:00:00.000Z',
+      chatTheme: 'forest',
+    }
+    const disabled = createPathfinderMcpRegistry(actions())
+    await expect(
+      disabled.callTool('torchiko.appearance.update', input, {
+        credential: clientCredential,
+      }),
+    ).rejects.toMatchObject({ code: 'WRITE_TOOLS_DISABLED' })
+    const domain = actions()
+    const enabled = createPathfinderMcpRegistry(domain, { venueWriteToolsEnabled: true })
+    await expect(
+      enabled.callTool(
+        'torchiko.appearance.update',
+        {
+          ...input,
+          chatLogoUrl: 'https://unreviewed.example/logo.png',
+        },
+        { credential: clientCredential },
+      ),
+    ).rejects.toThrow()
+    expect(domain.appearanceUpdate).not.toHaveBeenCalled()
+    await enabled.callTool('torchiko.appearance.update', input, { credential: clientCredential })
+    expect(domain.appearanceUpdate).toHaveBeenCalledOnce()
+  })
+})
 
 describe('scoped workflow inspection', () => {
   it('validates exact V1 preview scope and selection before the read action', async () => {
