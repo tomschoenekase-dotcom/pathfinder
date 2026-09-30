@@ -963,6 +963,7 @@ describe('VenueChatExperience presentation boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
     const firstId = mocks.client.chat.send.mutate.mock.calls[0]?.[0].operationId
+    expect(await screen.findByText('Messages: 2')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0].operationId).not.toBe(firstId)
