@@ -1,69 +1,40 @@
-import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
-  getBySlug: vi.fn(),
-  mediaBySlug: vi.fn(),
-  notFound: vi.fn(),
-}))
-
-vi.mock('@pathfinder/api', () => ({
-  createTRPCContext: vi.fn(async () => ({})),
-  appRouter: {
-    createCaller: () => ({
-      venue: {
-        getBySlug: mocks.getBySlug,
-        mediaBySlug: mocks.mediaBySlug,
-      },
-    }),
-  },
-}))
-vi.mock('next/navigation', () => ({ notFound: mocks.notFound }))
-vi.mock('../../components/VenueArrival', () => ({
-  VenueArrival: ({ media, mediaStatus }: { media: unknown[]; mediaStatus: string }) => (
-    <div>{`${mediaStatus}:${media.length}`}</div>
-  ),
-}))
-vi.mock('../../components/VenueTemporarilyUnavailable', () => ({
-  VenueTemporarilyUnavailable: () => <div>Temporarily unavailable</div>,
-}))
+const redirect = vi.hoisted(() =>
+  vi.fn((target: string) => {
+    throw new Error(`NEXT_REDIRECT:${target}`)
+  }),
+)
+vi.mock('next/navigation', () => ({ redirect }))
 
 import VenueLandingPage from './page'
 
-const venue = {
-  id: 'venue-1',
-  name: 'Museum',
-  description: null,
-  category: 'museum',
-  defaultCenterLat: null,
-  defaultCenterLng: null,
+async function visit(venueSlug: string, query: Record<string, string | string[] | undefined> = {}) {
+  await expect(
+    VenueLandingPage({
+      params: Promise.resolve({ venueSlug }),
+      searchParams: Promise.resolve(query),
+    }),
+  ).rejects.toThrow('NEXT_REDIRECT')
+  return redirect.mock.calls.at(-1)?.[0]
 }
 
-describe('venue landing media boundary', () => {
-  beforeEach(() => {
-    cleanup()
-    vi.stubGlobal('React', React)
-    mocks.getBySlug.mockResolvedValue(venue)
-    mocks.mediaBySlug.mockResolvedValue({ items: [] })
-  })
-
+describe('venue landing redirect', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('passes governed media through to the visitor arrival surface', async () => {
-    mocks.mediaBySlug.mockResolvedValueOnce({ items: [{ derivativeId: 'media-1' }] })
-
-    render(await VenueLandingPage({ params: Promise.resolve({ venueSlug: 'museum' }) }))
-
-    expect(screen.getByText('ready:1')).toBeTruthy()
-    expect(mocks.mediaBySlug).toHaveBeenCalledWith({ slug: 'museum' })
+  it('sends a plain venue link straight into the guide', async () => {
+    expect(await visit('sample-venue')).toBe('/sample-venue/chat')
   })
 
-  it('keeps the guide available when only the media listing fails', async () => {
-    mocks.mediaBySlug.mockRejectedValueOnce(new Error('media unavailable'))
+  it('keeps prompt, QR source and place entry parameters', async () => {
+    expect(
+      await visit('sample-venue', { prompt: 'Where is the café?', source: 'qr', entry: 'p1' }),
+    ).toBe('/sample-venue/chat?prompt=Where+is+the+caf%C3%A9%3F&source=qr&entry=p1')
+  })
 
-    render(await VenueLandingPage({ params: Promise.resolve({ venueSlug: 'museum' }) }))
-
-    expect(screen.getByText('unavailable:0')).toBeTruthy()
+  it('keeps repeated parameters and skips undefined ones', async () => {
+    expect(await visit('sample-venue', { item: ['a', 'b'], ask: undefined })).toBe(
+      '/sample-venue/chat?item=a&item=b',
+    )
   })
 })

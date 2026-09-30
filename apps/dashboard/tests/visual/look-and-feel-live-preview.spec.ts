@@ -39,7 +39,8 @@ test('shows the visitor guide in Look & feel at phone and desktop widths', async
     )
     await expect(visitorFrame.locator('[data-preview-embedded="true"]')).toBeVisible()
     const renderedGuide = visitorFrame.locator('[data-fixture="visitor-chat"]')
-    await expect(renderedGuide).toBeVisible()
+    await expect(renderedGuide).toBeAttached()
+    await expect(renderedGuide.locator('> div')).toBeVisible()
     await expect(renderedGuide).toHaveAttribute('data-fixture-mode', 'classic')
     await expect(renderedGuide).toHaveAttribute('data-fixture-conversation', 'placeholder')
     await expect(

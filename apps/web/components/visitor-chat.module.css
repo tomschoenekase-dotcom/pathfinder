@@ -5,15 +5,22 @@
  */
 .shell {
   --chat-text-scale: 1;
-  height: 100svh;
-  height: 100dvh;
+  /* Fixed to the layout viewport: the page never scrolls, so nothing can drift under the status
+   * bar. With the keyboard open the inline height and --chat-keyboard-offset-* follow the visual
+   * viewport instead (see useChatViewportHeight). */
+  position: fixed;
+  inset: 0;
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: none;
   color: var(--chat-text);
 }
 .shell[data-keyboard-open] {
-  transform: translate3d(var(--chat-keyboard-offset-x, 0px), var(--chat-keyboard-offset-y, 0px), 0);
+  bottom: auto;
+  top: var(--chat-keyboard-offset-y, 0px);
+  left: var(--chat-keyboard-offset-x, 0px);
+  right: auto;
+  width: 100%;
 }
 
 /* ---- Header ------------------------------------------------------------ */

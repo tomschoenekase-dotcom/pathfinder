@@ -107,23 +107,44 @@ test('keyboard-sized viewport gives footer space back to the conversation', asyn
   await expect(footer).toBeVisible()
   await composer.focus()
 
-  await page.evaluate(() => {
-    Object.defineProperty(window.visualViewport!, 'height', {
-      configurable: true,
-      value: 320,
-    })
-    window.visualViewport!.dispatchEvent(new Event('resize'))
-  })
+  // Emulate iOS: the keyboard shrinks the visual viewport and pans it 90px down the layout
+  // viewport to reveal the focused field. The shell must follow that pan, header included.
+  const setVisualViewport = (height: number, offsetTop: number) =>
+    page.evaluate(
+      ({ height, offsetTop }) => {
+        Object.defineProperty(window.visualViewport!, 'height', {
+          configurable: true,
+          value: height,
+        })
+        Object.defineProperty(window.visualViewport!, 'offsetTop', {
+          configurable: true,
+          value: offsetTop,
+        })
+        window.visualViewport!.dispatchEvent(new Event('resize'))
+      },
+      { height, offsetTop },
+    )
+  await setVisualViewport(320, 90)
 
   await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
   await expect(shell).toHaveCSS('height', '320px')
+  await expect(shell).toHaveCSS('position', 'fixed')
+  expect((await shell.boundingBox())!.y).toBe(90)
+  const header = page.locator('header')
+  const headerBox = (await header.boundingBox())!
+  expect(headerBox.y).toBeGreaterThanOrEqual(90)
+  const documentPinned = await page.evaluate(() => ({
+    scrollY: window.scrollY,
+    bodyPosition: getComputedStyle(document.body).position,
+  }))
+  expect(documentPinned).toEqual({ scrollY: 0, bodyPosition: 'fixed' })
   await expect(footer).toBeHidden()
   await expectComposerReachable(page)
   const keyboardConversationHeight = (await conversation.boundingBox())!.height
   expect(keyboardConversationHeight).toBeGreaterThanOrEqual(80)
   const composerBounds = await composer.boundingBox()
   expect(composerBounds).not.toBeNull()
-  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(320)
+  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(90 + 320)
   await expectViewportIntegrity(page)
   await expectAccessiblePage(page)
   const screenshot = await shell.screenshot({
@@ -132,6 +153,39 @@ test('keyboard-sized viewport gives footer space back to the conversation', asyn
     path: testInfo.outputPath('visitor-chat-keyboard-320.png'),
   })
   expect(screenshot.byteLength).toBeGreaterThan(2_000)
+
+  // Dismissing the keyboard returns the whole shell to the top of the screen at full height.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await setVisualViewport(568, 0)
+  await expect(shell).not.toHaveAttribute('data-keyboard-open', 'true')
+  await expect(footer).toBeVisible()
+  const restored = (await shell.boundingBox())!
+  expect(restored.y).toBe(0)
+  expect(restored.height).toBe(568)
+  await expectViewportIntegrity(page)
+})
+
+test('the page surface and browser chrome follow the venue theme', async ({ page }) => {
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English&theme=dark',
+  )
+  await hideFrameworkDevChrome(page)
+  await page.waitForSelector('html[data-visitor-chat]', { state: 'attached' })
+  const surfaces = await page.evaluate(() => {
+    const shell = document.querySelector('[data-fixture="visitor-chat"] > div') as HTMLElement
+    return {
+      shell: getComputedStyle(shell).backgroundColor,
+      html: getComputedStyle(document.documentElement).backgroundColor,
+      body: getComputedStyle(document.body).backgroundColor,
+      themeColors: Array.from(document.querySelectorAll('meta[name="theme-color"]')).map(
+        (meta) => (meta as HTMLMetaElement).content,
+      ),
+    }
+  })
+  expect(surfaces.html).toBe(surfaces.shell)
+  expect(surfaces.body).toBe(surfaces.shell)
+  expect(surfaces.themeColors.length).toBeGreaterThan(0)
+  expect(surfaces.themeColors).not.toContain('#1F4E8C')
 })
 
 test('approved chat branding remains usable on a short mobile viewport', async ({
@@ -237,7 +291,8 @@ test('delayed response remains bounded and motion-safe', async ({ page }, testIn
   )
   await hideFrameworkDevChrome(page)
 
-  await expect(page.locator('[data-fixture-state="thinking"]')).toBeVisible()
+  await expect(page.locator('[data-fixture-state="thinking"]')).toBeAttached()
+  await expect(page.locator('[data-fixture-state="thinking"] > div')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sending message' })).toBeDisabled()
   const activeAnimations = await page.locator('[class*="animate-"]').evaluateAll((elements) =>
     elements
@@ -266,7 +321,8 @@ test('streaming response remains readable, quiet to assistive tech, and composer
   )
   await hideFrameworkDevChrome(page)
 
-  await expect(page.locator('[data-fixture-state="speaking"]')).toBeVisible()
+  await expect(page.locator('[data-fixture-state="speaking"]')).toBeAttached()
+  await expect(page.locator('[data-fixture-state="speaking"] > div')).toBeVisible()
   await expect(page.getByText(/lake ecology gallery is on the upper floor/)).toBeVisible()
   const liveStatus = page.getByRole('status').filter({ hasText: 'Museum Guide is responding' })
   // This fixture already contains the first response delta. The pending status

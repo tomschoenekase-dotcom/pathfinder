@@ -44,54 +44,6 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
 })
 
-test('empty QR arrival keeps the guide CTA and prompt entry URLs intact', async ({
-  page,
-}, testInfo) => {
-  await page.goto('/dev-fixtures/venue-arrival?state=empty&theme=forest&accent=%23245A4A')
-  await hideFrameworkDevChrome(page)
-
-  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
-  const cta = page.getByRole('link', { name: /Open your guide/u })
-  await expect(cta).toHaveAttribute('href', '/great-lakes-museum/chat')
-  await expect(page.getByRole('link', { name: /What should I see first\?/u })).toHaveAttribute(
-    'href',
-    /\/great-lakes-museum\/chat\?prompt=What%20should%20I%20see%20first%3F/u,
-  )
-  await expect(page.getByRole('img')).toHaveCount(0)
-
-  await expectViewportIntegrity(page)
-  await expectAccessiblePage(page)
-  await saveEvidence(page, testInfo, 'arrival-empty-forest')
-})
-
-test('media outage preserves entry actions and scoped dark palette at a narrow viewport', async ({
-  page,
-}, testInfo) => {
-  await page.goto('/dev-fixtures/venue-arrival?state=unavailable&theme=dark&accent=%23ABCDEF')
-  await hideFrameworkDevChrome(page)
-
-  await expect(
-    page.getByText('Venue photos are temporarily unavailable. Your guide is ready.'),
-  ).toBeVisible()
-  const cta = page.getByRole('link', { name: /Open your guide/u })
-  await expect(cta).toBeVisible()
-  const palette = await page.locator('main').evaluate((element) => ({
-    accent: getComputedStyle(element).getPropertyValue('--arrival-accent').trim(),
-    text: getComputedStyle(element).getPropertyValue('--arrival-text').trim(),
-  }))
-  expect(palette.accent).toMatch(/^#[0-9a-f]{6}$/iu)
-  expect(palette.accent.toLowerCase()).not.toBe('#3a7bd5')
-  expect(palette.text).toBeTruthy()
-  const bounds = await cta.boundingBox()
-  expect(bounds).not.toBeNull()
-  expect(bounds!.width).toBeGreaterThanOrEqual(44)
-  expect(bounds!.height).toBeGreaterThanOrEqual(44)
-
-  await expectViewportIntegrity(page)
-  await expectAccessiblePage(page)
-  await saveEvidence(page, testInfo, 'arrival-unavailable-dark')
-})
-
 for (const viewport of [
   { width: 320, height: 360 },
   { width: 390, height: 360 },
@@ -179,11 +131,9 @@ test('chat theme and accent stay scoped to chat variables', async ({ page }) => 
       const styles = getComputedStyle(element)
       return {
         chatAccent: styles.getPropertyValue('--chat-accent').trim(),
-        arrivalAccent: styles.getPropertyValue('--arrival-accent').trim(),
       }
     })
     expect(vars.chatAccent).toMatch(/^#[0-9a-f]{6}$/iu)
-    expect(vars.arrivalAccent).toBe('')
     expect(
       await page.evaluate(() =>
         getComputedStyle(document.documentElement).getPropertyValue('--chat-accent'),

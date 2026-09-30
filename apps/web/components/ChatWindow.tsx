@@ -356,7 +356,7 @@ export function ChatWindow({
             statusLabel={
               presentation.code === 'en' ? (
                 <span lang="en" dir="ltr">
-                  This is taking a little longer…
+                  Thinking…
                 </span>
               ) : (
                 <span lang={presentation.code} dir={presentation.direction}>
@@ -364,6 +364,15 @@ export function ChatWindow({
                 </span>
               )
             }
+            {...(presentation.code === 'en'
+              ? {
+                  longWaitLabel: (
+                    <span lang="en" dir="ltr">
+                      Still working on it.
+                    </span>
+                  ),
+                }
+              : {})}
           />
         ) : null}
 
