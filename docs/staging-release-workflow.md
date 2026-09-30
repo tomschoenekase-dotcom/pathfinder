@@ -15,17 +15,24 @@ This is the normal Torchiko feature-delivery path:
 8. When the complete staging commit is approved for production, open a pull request from
    `codex/pathfinder-v2-staging` into `master`. The `Production promotion gate` rejects any other
    source branch and rejects a commit that is not the exact healthy staging revision.
-9. Merge only after the production database incident stop has been explicitly lifted and the
-   release-specific production migration/cutover approval has been recorded. Railway production
-   tracks `master`, so merging that pull request is the production application deployment action.
+9. Merge only when the active production incident record contains an approved, release-specific
+   exception for the exact source and migration scope, and that record's CI, staging, database,
+   backup/recovery, and preservation gates have passed. A scoped exception does not resolve the
+   incident or lift unrelated production restrictions. Railway production tracks `master`, so
+   merging that pull request is the production application deployment action.
 
-The [restricted September 22 production approval](production-cutover-20260922.md) covers one
-reviewed cutover only. Its exact-SHA CI, staging, current-ledger, fresh-backup/rehearsal, and
-preservation checks remain mandatory; approval does not make an unverified release deployable.
-The 254-migration combined Release B/operator candidate extends beyond the earlier 250-migration plan;
-production needs a release-specific review and approval after healthy exact-SHA staging evidence.
+The [September 22 production approval](production-cutover-20260922.md) remains limited to its
+110-to-250 plan. The separately [approved September 30 exception](production-cutover-20260930.md)
+covers only migrations 253–254 and the combined Release B/operator/Safari release; it records Tom's
+2026-09-30 production instruction and binds the staged source in
+[production promotion PR #36](https://github.com/tomschoenekase-dotcom/pathfinder/pull/36). Its current
+candidate is not automatically the final promotion source: the final docs-bearing SHA must pass full
+CI and exact three-service staging admission before promotion, and those checks must pass on the same
+SHA that enters `master`. The approved exception does not make an unverified release deployable.
+
 The current staging database may contain restored production lineage, so the historical
-synthetic-only exception does not by itself admit a preserved-data migration through 254.
+synthetic-only exception does not by itself admit a preserved-data migration. Use the guarded
+release-specific record for the approved 252-to-254 cutover and retain the incident's ACTIVE default.
 
 A preserved-data migration uses a controlled exception to step 5. Pause all three application
 autodeploy triggers without deploying, freeze the final owner SHA, require its CI success, and

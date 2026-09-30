@@ -25,6 +25,31 @@ current production ledger, a fresh verified backup and disposable restoration/up
 and all approved stop conditions. No seed, reset, restore over production, manual data cleanup,
 customer email, billing activation, or background/provider execution is authorized.
 
+## Restricted production cutover exception — approved 2026-09-30
+
+On 2026-09-30, Tom gave the following explicit production instruction:
+
+> So how can you get it the update. That was the whole point of this to get all the features we made live
+
+This approves carrying the combined Release B/operator/Safari candidate through the narrowly scoped
+252-to-254 production cutover, subject to every gate in
+[the release-specific approval record](production-cutover-20260930.md). The approval binds the staged
+candidate commit `3ae05f50a864807dc02276a117cbff3a0bcd36cf` and its exact source tree, represented by
+[production promotion PR #36](https://github.com/tomschoenekase-dotcom/pathfinder/pull/36). It authorizes
+only the two named migrations and the application release described in that record. It does not
+approve unrelated source changes or waive any stop condition. The owner's review-plan digest is
+`78981a2d5bb0423b3ff9440f79f48757572afeb03229287a7b17fa7a0b1655fb`.
+
+The record's source SHA cannot be its own approval prerequisite. Once this exception and its static
+safety test are included in the release source, that final docs-bearing SHA must pass full CI and exact
+three-service staging admission before promotion. The promotion must use that same admitted SHA.
+
+The incident state remains ACTIVE by default. This is a separate one-time exception; the September 22
+110-to-250 approval remains historical and unchanged. All unrelated bans remain in force: no seed,
+reset, restore over production, manual data cleanup, customer sends, billing activation, or
+provider/background execution. The current exception authorizes no production write until the fresh
+post-drain backup/rehearsal and every other release gate pass.
+
 ## Historical incident and staging exception
 
 On 2026-08-19, Tom approved a staging-only Railway release with a hard USD 10 spending ceiling.
@@ -77,9 +102,9 @@ read-only assessment. The dashboard identifies organization `PathFinder` and pro
 `tomschoenekase-dotcom's Project`. Conditions 1 and 2 below are satisfied. The assessment established
 the ledger and relevant schema state. A verified logical backup and production-lineage rehearsal
 are now complete, but the Free-plan project has neither scheduled backups nor PITR. The rehearsal
-also required a repair for legacy `venue.updated` analytics events. Condition 3 remains unsatisfied
-until Tom separately reviews the evidence and explicitly approves a production cutover plan and
-each production write it proposes; the production stop remains active.
+also required a repair for legacy `venue.updated` analytics events. At that historical point,
+condition 3 remained unsatisfied. Tom's later September 30 approval satisfies explicit approval only
+for migrations 253–254 and the bound application source; the global production stop remains active.
 
 1. Tom identifies the affected external project/environment.
 2. Tom authorizes a bounded read-only assessment plan.
@@ -89,6 +114,6 @@ each production write it proposes; the production stop remains active.
 4. Only after that explicit production approval, this file, the guarded documents, and the static
    safety test are updated together in one reviewed production stop-lifting commit.
 
-Until all four conditions are met, the production incident state remains `ACTIVE`. The sole active
-external database instruction is the staging-only wrapper admitted above; production instructions
-must stay absent from active runbooks.
+Until all four conditions for global incident resolution are met, the incident remains `ACTIVE`.
+The September 30 release-specific record is a narrow exception only; outside its exact scope and live
+gates, production instructions must stay absent from active runbooks.

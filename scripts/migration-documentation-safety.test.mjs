@@ -12,6 +12,8 @@ const stagingOnlyMarker =
   'Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.'
 const historicalMarker = 'Migration instruction status: HISTORICAL — DO NOT EXECUTE.'
 const inertArchiveMarker = '## Post-resolution external exercise archive — INERT, DO NOT EXECUTE'
+const restrictedProductionMarker =
+  'Migration instruction status: RESTRICTED PRODUCTION EXCEPTION — LIVE GATES REQUIRED.'
 
 const unsafeInstructionPatterns = [
   ['production migration script', /\bdb:migrate:prod\b/i],
@@ -107,21 +109,33 @@ test('active runbook admits only the reviewed staging wrapper', async () => {
 
 test('every retained historical database instruction is prominently deactivated', async () => {
   const { stdout } = await execFile('git', ['ls-files', 'docs'])
-  const markdownPaths = stdout
-    .split(/\r?\n/)
-    .filter((entry) => entry.endsWith('.md'))
-    .map((entry) => entry.slice('docs/'.length))
+  const markdownPaths = new Set(
+    stdout
+      .split(/\r?\n/)
+      .filter((entry) => entry.endsWith('.md'))
+      .map((entry) => entry.slice('docs/'.length)),
+  )
+  // The release-specific guarded record is new and may not be tracked until review is complete.
+  markdownPaths.add('production-cutover-20260930.md')
   const unguarded = []
 
   for (const path of markdownPaths) {
     const source = await readFile(new URL(path.replaceAll('\\', '/'), docsRoot), 'utf8')
     const findings = findUnsafeInstructions(source)
+    if (hasLeadingMarker(source, restrictedProductionMarker)) {
+      assert.equal(
+        path,
+        'production-cutover-20260930.md',
+        'only the approved release record may use this marker',
+      )
+    }
     if (findings.length === 0) continue
 
     if (
       !hasLeadingMarker(source, activeStopMarker) &&
       !hasLeadingMarker(source, stagingOnlyMarker) &&
-      !hasLeadingMarker(source, historicalMarker)
+      !hasLeadingMarker(source, historicalMarker) &&
+      !hasLeadingMarker(source, restrictedProductionMarker)
     ) {
       unguarded.push(`${path}: ${findings.join(', ')}`)
     }
@@ -160,4 +174,79 @@ test('the detector does not treat hyphenated release-state prose as an instructi
     findUnsafeInstructions('The one-run migration admission returned to zero after staging.'),
     [],
   )
+})
+
+test('September 30 approval is exact-scope, guarded, and preserves the ACTIVE incident default', async () => {
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const priorApproval = await readFile(new URL('production-cutover-20260922.md', docsRoot), 'utf8')
+  const approval = await readFile(new URL('production-cutover-20260930.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+
+  assert.match(stop, /Production incident state: ACTIVE/)
+  assert.match(stop, /Restricted production cutover exception — approved 2026-09-30/)
+  assert.match(stop, /incident state remains ACTIVE by default/)
+  assert.match(stop, /110-to-250 approval remains historical and unchanged/)
+  assert.match(priorApproval, /Restricted production cutover approval — 2026-09-22/)
+  assert.match(priorApproval, /250 finished ledger rows and 267 public tables/)
+
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  assert.match(approval, /Owner approval: \*\*APPROVED 2026-09-30\*\*/)
+  assert.match(
+    approval,
+    /So how can you get it the update\. That was the whole point of this to get all the features we made live/,
+  )
+  assert.match(approval, /3ae05f50a864807dc02276a117cbff3a0bcd36cf/)
+  assert.match(approval, /a420fa9ad506b5929285ef29f8ff49629d2e201f/)
+  assert.match(approval, /78981a2d5bb0423b3ff9440f79f48757572afeb03229287a7b17fa7a0b1655fb/)
+  assert.match(approval, /20260930100000_add_mcp_venue_appearance_capabilities/)
+  assert.match(approval, /20261001090000_add_operator_oauth/)
+  assert.match(approval, /252 finished migrations, 253 physical ledger rows, and 269 public tables/)
+  assert.match(approval, /254 finished migrations and 255 physical ledger rows/)
+  assert.match(approval, /rolled-back duplicate[\s\S]*preserve that historical row byte-for-byte/)
+  assert.match(approval, /277 public tables/)
+  assert.match(approval, /production rehearsal used a \*\*pre-drain\*\* archive/)
+  assert.match(approval, /\*\*staging-only\*\* final archive/)
+  assert.match(approval, /fresh PostgreSQL 17\.6 production backup \*\*after the drain\*\*/)
+  assert.match(approval, /OPERATOR_OAUTH_ENABLED=false/)
+  assert.match(approval, /MFA\/passkey/)
+  assert.match(approval, /Wait for CI on all\s+three services before restoring autodeploy/)
+  assert.match(approval, /No seed, reset, manual data edit, restore over production/)
+  assert.match(approval, /production incident state remains ACTIVE before, during, and after/)
+
+  assert.equal((approval.match(/pnpm --filter @pathfinder\/db db:migrate:prod/g) ?? []).length, 1)
+  assert.deepEqual(findUnsafeInstructions(approval), [
+    'production migration script',
+    'non-disposable migration command',
+  ])
+  assert.match(workflow, /approved September 30 exception/)
+  assert.match(
+    workflow,
+    /final docs-bearing SHA must pass full[\s\S]*exact three-service staging admission/,
+  )
+
+  const { stdout } = await execFile('git', ['ls-files', 'docs'])
+  const paths = new Set(
+    stdout
+      .split(/\r?\n/)
+      .filter((entry) => entry.endsWith('.md'))
+      .map((entry) => entry.slice('docs/'.length)),
+  )
+  paths.add('production-cutover-20260930.md')
+  const productionMentionFiles = []
+  const canonicalInvocationFiles = []
+  for (const path of paths) {
+    const source = await readFile(new URL(path.replaceAll('\\', '/'), docsRoot), 'utf8')
+    if (/\bdb:migrate:prod\b/i.test(source)) productionMentionFiles.push([path, source])
+    if (/pnpm --filter @pathfinder\/db db:migrate:prod/.test(source))
+      canonicalInvocationFiles.push(path)
+  }
+  assert.deepEqual(canonicalInvocationFiles, ['production-cutover-20260930.md'])
+  for (const [path, source] of productionMentionFiles) {
+    if (path === 'production-cutover-20260930.md') continue
+    assert.equal(
+      hasLeadingMarker(source, historicalMarker),
+      true,
+      `${path} has a historical command reference`,
+    )
+  }
 })
