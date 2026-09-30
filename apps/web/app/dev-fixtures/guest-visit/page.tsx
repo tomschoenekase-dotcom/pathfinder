@@ -48,50 +48,52 @@ export default function GuestVisitFixture() {
 
   return (
     <main data-fixture="guest-visit" className="min-h-screen bg-[var(--chat-bg)]">
-      <div className="mx-auto max-w-3xl px-3 py-3 sm:px-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-            Disposable visit context fixture
-          </p>
-          <button
-            type="button"
-            onClick={() => setDisabled((current) => !current)}
-            className="min-h-11 rounded-full border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700"
-          >
-            {disabled ? 'Enable preference editing' : 'Pause preference editing'}
-          </button>
-        </div>
-        <GuestVisitPreferences
-          context={visit.context}
-          places={[
-            { id: 'north-gallery', name: 'North Gallery' },
-            { id: 'lake-room', name: 'Lake Room' },
-            { id: 'train-hall', name: 'Train Hall' },
-          ]}
-          onChange={visit.updateContext}
-          onFreshVisit={startFreshVisit}
-          disabled={disabled}
-        />
-        <VenueChatShell
-          venue={venue}
-          venueSlug="guest-visit-fixture"
-          presentation="standalone"
-          messages={messages}
-          isSending={false}
-          sendError={null}
-          anonymousToken="guest-visit-fixture-token"
-          language="English"
-          initialDraft=""
-          location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
-          onSend={() => undefined}
-          onNewConversation={clearChat}
-          onPlaceView={() => undefined}
-          onPlaceClick={() => undefined}
-          onDirections={() => undefined}
-          voiceControl={null}
-          visitContext={visit.context}
-        />
-      </div>
+      <VenueChatShell
+        venue={venue}
+        venueSlug="guest-visit-fixture"
+        presentation="standalone"
+        messages={messages}
+        isSending={false}
+        sendError={null}
+        anonymousToken="guest-visit-fixture-token"
+        language="English"
+        initialDraft=""
+        location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
+        onSend={() => undefined}
+        onNewConversation={clearChat}
+        onPlaceView={() => undefined}
+        onPlaceClick={() => undefined}
+        onDirections={() => undefined}
+        voiceControl={null}
+        visitContext={visit.context}
+        routePlanner={
+          <div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+                Disposable visit context fixture
+              </p>
+              <button
+                type="button"
+                onClick={() => setDisabled((current) => !current)}
+                className="min-h-11 rounded-full border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700"
+              >
+                {disabled ? 'Enable preference editing' : 'Pause preference editing'}
+              </button>
+            </div>
+            <GuestVisitPreferences
+              context={visit.context}
+              places={[
+                { id: 'north-gallery', name: 'North Gallery' },
+                { id: 'lake-room', name: 'Lake Room' },
+                { id: 'train-hall', name: 'Train Hall' },
+              ]}
+              onChange={visit.updateContext}
+              onFreshVisit={startFreshVisit}
+              disabled={disabled}
+            />
+          </div>
+        }
+      />
     </main>
   )
 }
