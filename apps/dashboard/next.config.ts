@@ -87,7 +87,16 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
-    return [{ source: '/:path*', headers: transportSecurityHeaders }]
+    // Operator consent and one-tap approval must never render inside another site's frame.
+    const noFraming = [
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+    ]
+    return [
+      { source: '/:path*', headers: transportSecurityHeaders },
+      { source: '/oauth/:path*', headers: noFraming },
+      { source: '/approve/:path*', headers: noFraming },
+    ]
   },
 }
 

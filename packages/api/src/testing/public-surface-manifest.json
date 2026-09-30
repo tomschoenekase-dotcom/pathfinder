@@ -420,12 +420,121 @@
       "behavioralEvidence": [
         "apps/dashboard/app/(admin)/admin/clients/[tenantId]/support-export/route.test.ts"
       ]
+    },
+    {
+      "source": "apps/dashboard/app/.well-known/oauth-authorization-server/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/.well-known/oauth-protected-resource/api/operator/mcp/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/.well-known/oauth-protected-resource/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/approve/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/operator/operator-human-routes.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/consent/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["apps/dashboard/app/api/operator/operator-human-routes.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/mcp/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "packages/api/src/operator/policy.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/oauth/register/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/oauth/revoke/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/oauth/token/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-oauth-authorization-server",
+      "behavioralEvidence": [
+        "packages/api/src/operator/oauth.test.ts",
+        "packages/api/src/operator/operator-oauth.disposable.integration.test.ts",
+        "apps/dashboard/app/oauth/operator-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/arm/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["apps/dashboard/app/api/operator/operator-human-routes.test.ts"]
     }
   ],
   "dashboardPublicApiPaths": [
     "/api/agent-bridge",
     "/api/integrations/gmail/pubsub",
     "/api/mcp",
+    "/api/operator/mcp",
     "/api/platform-worker/founder-decisions",
     "/api/platform-worker/founder-operating-view",
     "/api/platform-worker/operations-readiness",

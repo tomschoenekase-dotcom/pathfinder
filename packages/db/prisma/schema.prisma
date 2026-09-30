@@ -9853,3 +9853,203 @@ enum GuestConversationDispositionState {
   FENCED
   APPLIED
 }
+
+// Dot operator OAuth and approval layer. Platform-owned: authority comes from OperatorGrant rows
+// that a platform admin consents to; target tenants are data, never isolation keys.
+enum OperatorProposalStatus {
+  PENDING
+  APPROVED
+  APPLIED
+  FAILED
+  STALE
+  REJECTED
+  EXPIRED
+}
+
+enum OperatorTokenKind {
+  ACCESS
+  REFRESH
+}
+
+enum OperatorAutonomyMode {
+  ASK
+  AUTO
+}
+
+model OperatorOAuthClient {
+  id                 String                      @id @db.VarChar(64)
+  clientName         String                      @map("client_name") @db.VarChar(120)
+  redirectUris       String[]                    @map("redirect_uris")
+  registrationIpHash String                      @map("registration_ip_hash") @db.Char(64)
+  consentedAt        DateTime?                   @map("consented_at")
+  expiresAt          DateTime?                   @map("expires_at")
+  revokedAt          DateTime?                   @map("revoked_at")
+  lastUsedAt         DateTime?                   @map("last_used_at")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  codes              OperatorAuthorizationCode[]
+  grants             OperatorGrant[]
+
+  @@index([registrationIpHash, createdAt], map: "operator_oauth_clients_ip_created_idx")
+  @@map("operator_oauth_clients")
+}
+
+model OperatorGrant {
+  id           String                      @id @default(cuid())
+  clientId     String                      @map("client_id") @db.VarChar(64)
+  userId       String                      @map("user_id") @db.VarChar(191)
+  allTenants   Boolean                     @map("all_tenants")
+  tenantIds    String[]                    @map("tenant_ids")
+  capabilities String[]
+  resource     String                      @db.VarChar(2048)
+  scope        String                      @db.VarChar(191)
+  expiresAt    DateTime                    @map("expires_at")
+  revokedAt    DateTime?                   @map("revoked_at")
+  revokeReason String?                     @map("revoke_reason") @db.VarChar(191)
+  lastUsedAt   DateTime?                   @map("last_used_at")
+  createdAt    DateTime                    @default(now()) @map("created_at")
+  client       OperatorOAuthClient         @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  codes        OperatorAuthorizationCode[]
+  tokens       OperatorToken[]
+  proposals    OperatorProposal[]
+  plans        OperatorPlan[]
+
+  @@index([clientId, createdAt], map: "operator_grants_client_created_idx")
+  @@map("operator_grants")
+}
+
+model OperatorAuthorizationCode {
+  id            String              @id @default(cuid())
+  codeHash      String              @unique(map: "operator_authorization_codes_hash_key") @map("code_hash") @db.Char(64)
+  kid           String              @db.VarChar(16)
+  clientId      String              @map("client_id") @db.VarChar(64)
+  grantId       String              @map("grant_id")
+  redirectUri   String              @map("redirect_uri") @db.VarChar(2048)
+  codeChallenge String              @map("code_challenge") @db.Char(43)
+  resource      String              @db.VarChar(2048)
+  expiresAt     DateTime            @map("expires_at")
+  consumedAt    DateTime?           @map("consumed_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  client        OperatorOAuthClient @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  grant         OperatorGrant       @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([grantId], map: "operator_authorization_codes_grant_idx")
+  @@map("operator_authorization_codes")
+}
+
+model OperatorToken {
+  id                String            @id @default(cuid())
+  grantId           String            @map("grant_id")
+  kind              OperatorTokenKind
+  tokenHash         String            @unique(map: "operator_tokens_hash_key") @map("token_hash") @db.Char(64)
+  kid               String            @db.VarChar(16)
+  familyId          String            @map("family_id") @db.VarChar(64)
+  parentId          String?           @map("parent_id")
+  audience          String            @db.VarChar(2048)
+  expiresAt         DateTime          @map("expires_at")
+  absoluteExpiresAt DateTime?         @map("absolute_expires_at")
+  rotatedAt         DateTime?         @map("rotated_at")
+  revokedAt         DateTime?         @map("revoked_at")
+  lastUsedAt        DateTime?         @map("last_used_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  grant             OperatorGrant     @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([grantId, kind], map: "operator_tokens_grant_kind_idx")
+  @@index([familyId], map: "operator_tokens_family_idx")
+  @@map("operator_tokens")
+}
+
+model OperatorPlan {
+  id              String                 @id @default(cuid())
+  grantId         String                 @map("grant_id")
+  clientId        String                 @map("client_id") @db.VarChar(64)
+  operationId     String                 @map("operation_id") @db.Uuid
+  title           String                 @db.VarChar(200)
+  argsHash        String                 @map("args_hash") @db.Char(64)
+  status          OperatorProposalStatus @default(PENDING)
+  decidedByUserId String?                @map("decided_by_user_id") @db.VarChar(191)
+  decidedAt       DateTime?              @map("decided_at")
+  applyClaimedAt  DateTime?              @map("apply_claimed_at")
+  failedStepIndex Int?                   @map("failed_step_index")
+  expiresAt       DateTime               @map("expires_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  grant           OperatorGrant          @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  steps           OperatorProposal[]
+
+  @@unique([grantId, operationId], map: "operator_plans_grant_operation_key")
+  @@index([status, createdAt], map: "operator_plans_status_created_idx")
+  @@map("operator_plans")
+}
+
+model OperatorProposal {
+  id              String                 @id @default(cuid())
+  grantId         String                 @map("grant_id")
+  clientId        String                 @map("client_id") @db.VarChar(64)
+  operationId     String                 @map("operation_id") @db.Uuid
+  kind            String                 @db.VarChar(120)
+  tool            String                 @db.VarChar(120)
+  capability      String                 @db.VarChar(120)
+  targetTenantId  String?                @map("target_tenant_id") @db.VarChar(191)
+  targetVenueId   String?                @map("target_venue_id") @db.VarChar(191)
+  targetRef       String?                @map("target_ref") @db.VarChar(191)
+  args            Json
+  argsHash        String                 @map("args_hash") @db.Char(64)
+  targetVersion   String?                @map("target_version") @db.VarChar(191)
+  status          OperatorProposalStatus @default(PENDING)
+  planId          String?                @map("plan_id")
+  planStepIndex   Int?                   @map("plan_step_index")
+  revertOfId      String?                @map("revert_of_id")
+  decidedByUserId String?                @map("decided_by_user_id") @db.VarChar(191)
+  decidedAt       DateTime?              @map("decided_at")
+  autoApproved    Boolean                @default(false) @map("auto_approved")
+  applyClaimedAt  DateTime?              @map("apply_claimed_at")
+  appliedAt       DateTime?              @map("applied_at")
+  beforeSnapshot  Json?                  @map("before_snapshot")
+  afterSnapshot   Json?                  @map("after_snapshot")
+  result          Json?
+  failureCode     String?                @map("failure_code") @db.VarChar(120)
+  expiresAt       DateTime               @map("expires_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  grant           OperatorGrant          @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  plan            OperatorPlan?          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([grantId, operationId], map: "operator_proposals_grant_operation_key")
+  @@unique([planId, planStepIndex], map: "operator_proposals_plan_step_key")
+  @@index([status, createdAt], map: "operator_proposals_status_created_idx")
+  @@index([grantId, createdAt], map: "operator_proposals_grant_created_idx")
+  @@map("operator_proposals")
+}
+
+model OperatorAutonomyPolicy {
+  capability      String               @id @db.VarChar(120)
+  mode            OperatorAutonomyMode @default(ASK)
+  updatedByUserId String               @map("updated_by_user_id") @db.VarChar(191)
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  @@map("operator_autonomy_policies")
+}
+
+model OperatorAuditEvent {
+  id             String   @id @default(cuid())
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+  requestId      String   @map("request_id") @db.VarChar(64)
+  eventType      String   @map("event_type") @db.VarChar(64)
+  outcome        String   @db.VarChar(64)
+  grantId        String?  @map("grant_id") @db.VarChar(191)
+  clientId       String?  @map("client_id") @db.VarChar(64)
+  tool           String?  @db.VarChar(120)
+  argsHash       String?  @map("args_hash") @db.Char(64)
+  redactedArgs   Json?    @map("redacted_args")
+  targetTenantId String?  @map("target_tenant_id") @db.VarChar(191)
+  targetVenueId  String?  @map("target_venue_id") @db.VarChar(191)
+  proposalId     String?  @map("proposal_id") @db.VarChar(191)
+  planId         String?  @map("plan_id") @db.VarChar(191)
+  actorUserId    String?  @map("actor_user_id") @db.VarChar(191)
+  latencyMs      Int?     @map("latency_ms")
+
+  @@index([occurredAt], map: "operator_audit_events_occurred_idx")
+  @@index([grantId, occurredAt], map: "operator_audit_events_grant_occurred_idx")
+  @@index([eventType, occurredAt], map: "operator_audit_events_type_occurred_idx")
+  @@map("operator_audit_events")
+}

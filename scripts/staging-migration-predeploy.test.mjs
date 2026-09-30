@@ -401,10 +401,16 @@ const REVIEWED_234_TO_250 = [
 ]
 const REVIEWED_234_TO_252 = [...REVIEWED_234_TO_250, ...REVIEWED_250_TO_252]
 
+// Reviewed forward migrations that are not yet admitted by the frozen 252 staging approval.
+const UNADMITTED_CANDIDATES = [
+  '20260930100000_add_mcp_venue_appearance_capabilities',
+  '20261001090000_add_operator_oauth',
+]
+
 async function readMigrationManifest(directory) {
   const current = await readCurrentMigrationManifest(directory)
-  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
-  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  assert.equal(current.names.length, EXPECTED.migrationCount + UNADMITTED_CANDIDATES.length)
+  assert.deepEqual(current.names.slice(EXPECTED.migrationCount), UNADMITTED_CANDIDATES)
   const names = current.names.slice(0, EXPECTED.migrationCount)
   const keep = (map) => new Map(names.map((name) => [name, map.get(name)]))
   const rows = names.map((name) => `${name} ${current.checksums.get(name)}`)
@@ -413,7 +419,9 @@ async function readMigrationManifest(directory) {
     checksums: keep(current.checksums),
     ledgerChecksums: keep(current.ledgerChecksums),
     crlfLedgerChecksums: keep(current.crlfLedgerChecksums),
-    hash: createHash('sha256').update(`${rows.join('\n')}\n`).digest('hex'),
+    hash: createHash('sha256')
+      .update(`${rows.join('\n')}\n`)
+      .digest('hex'),
   }
   assertFrozenManifest(historical)
   return historical
@@ -431,14 +439,14 @@ test('distribution and appearance migrations are the exact admitted 250-to-252 s
   )
 })
 
-test('the current 253rd MCP migration candidate remains outside the staging approval', async () => {
+test('the current 253rd MCP and 254th operator migration candidates remain outside the staging approval', async () => {
   const current = await readCurrentMigrationManifest('packages/db/prisma')
-  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
-  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  assert.equal(current.names.length, EXPECTED.migrationCount + UNADMITTED_CANDIDATES.length)
+  assert.deepEqual(current.names.slice(EXPECTED.migrationCount), UNADMITTED_CANDIDATES)
   assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
   assert.throws(
     () => ledgerState(completedRows(current), current),
-    /unexpected ledger row count 253/u,
+    /unexpected ledger row count 254/u,
   )
 })
 

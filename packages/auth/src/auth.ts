@@ -24,3 +24,30 @@ export async function auth(): Promise<ApplicationAuth> {
     sessionClaims: state.sessionClaims,
   }
 }
+
+/**
+ * True only when Clerk confirms a strict reverification (a fresh first- or second-factor check,
+ * e.g. Face ID or a passkey) for this session. Fails closed where the provider has no `has`.
+ */
+export async function hasStrictReverification(): Promise<boolean> {
+  const state = (await clerkAuth()) as unknown as {
+    userId: string | null
+    has?: (params: { reverification: 'strict' }) => boolean
+  }
+  return (
+    state.userId !== null &&
+    typeof state.has === 'function' &&
+    state.has({ reverification: 'strict' }) === true
+  )
+}
+
+/** Clerk's reverification hint body, understood by the `useReverification` client hook. */
+export function strictReverificationRequiredBody() {
+  return {
+    clerk_error: {
+      type: 'forbidden',
+      reason: 'reverification-error',
+      metadata: { reverification: 'strict' },
+    },
+  } as const
+}

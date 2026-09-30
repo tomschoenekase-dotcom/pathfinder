@@ -68,8 +68,11 @@ test('250 maintenance source verification accepts the reviewed ledger and refuse
 })
 test('maintenance source verification refuses a 252-row ledger before function body reads', async () => {
   const current = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  assert.equal(current.names.length, 253)
-  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  assert.equal(current.names.length, 254)
+  assert.deepEqual(current.names.slice(-2), [
+    '20260930100000_add_mcp_venue_appearance_capabilities',
+    '20261001090000_add_operator_oauth',
+  ])
   const names = current.names.slice(0, 252)
   const manifest = { ...current, names }
   assert.deepEqual(names.slice(-2), [
@@ -292,10 +295,7 @@ test('already-journaled APPLY still refuses before connecting while source 251 i
     raw = JSON.stringify({ ...prior, highWaterSha256: journal.headSha256 })
   await writeFile(path, raw, { flag: 'wx' })
   plan.evidence.journalCustody = { path, sha256: dispositionSha256(raw) }
-  await assert.rejects(
-    validateDispositionMaintenancePlan(plan, now),
-    /source migration endpoint/u,
-  )
+  await assert.rejects(validateDispositionMaintenancePlan(plan, now), /source migration endpoint/u)
   let closed = false
   await assert.rejects(
     runDispositionMaintenance({

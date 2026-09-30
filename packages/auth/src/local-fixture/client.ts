@@ -133,3 +133,8 @@ export function useOrganizationList(): never {
 export function useClerk(): never {
   throw new Error('Clerk client API is unavailable in local fixture auth')
 }
+
+/** Fixture sessions can never satisfy reverification; the server fails closed, so pass through. */
+export function useReverification<T extends (...args: never[]) => unknown>(fetcher: T): T {
+  return fetcher
+}

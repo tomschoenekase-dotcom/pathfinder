@@ -18,6 +18,7 @@ const CONTROL_PROFILES = new Set([
   'bounded-controlled-media-read',
   'bounded-signed-webhook',
   'bounded-machine-credential-ingress',
+  'bounded-oauth-authorization-server',
   'handler-platform-admin',
 ])
 const CANONICAL_PROCEDURE_BUILDERS = new Map([
@@ -46,6 +47,9 @@ const HTTP_PROFILE_POLICY = new Map([
   ['bounded-controlled-media-read', 'intentional-public'],
   ['bounded-signed-webhook', 'signature-authenticated-public-ingress'],
   ['bounded-machine-credential-ingress', 'machine-credential-authenticated-public-ingress'],
+  // Operator OAuth metadata, registration, token and revocation: dark unless enabled, bounded
+  // bodies, PKCE/rotation/DCR limits enforced by the handler, and no Clerk session involved.
+  ['bounded-oauth-authorization-server', 'intentional-public'],
   ['handler-platform-admin', 'handler-platform-admin'],
 ])
 const TRPC_ENTRY_KEYS = new Set([

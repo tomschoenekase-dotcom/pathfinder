@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
+    "./operator": "./src/operator/index.ts",
     "./mcp/registry": "./src/mcp/registry.ts",
     "./mcp/read-actions": "./src/mcp/read-actions.ts",
     "./mcp/agent-actions": "./src/mcp/agent-actions.ts",

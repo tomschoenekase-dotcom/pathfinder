@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isAdminPath,
   isInternalWorkspacePath,
+  isOperatorHumanPath,
   isPublicDashboardPath,
   resolveDashboardAccess,
 } from './middleware-access'
@@ -179,4 +180,61 @@ describe('dashboard middleware access policy', () => {
   it('keeps API admin authorization owned by the route', () => {
     expect(resolveDashboardAccess({ ...signedIn, pathname: '/api/admin/impersonate' })).toBe('next')
   })
+
+  it.each([
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/api/operator/mcp',
+    '/oauth/register',
+    '/oauth/token',
+    '/oauth/revoke',
+    '/api/operator/mcp',
+  ])('lets the self-authenticating operator OAuth path %s bypass Clerk', (pathname) => {
+    expect(isPublicDashboardPath(pathname)).toBe(true)
+  })
+
+  it.each([
+    '/oauth/authorize',
+    '/api/operator/consent',
+    '/api/operator/approve',
+    '/api/operator/mcpx',
+    '/oauth/tokens',
+  ])('keeps %s behind Clerk', (pathname) => {
+    expect(isPublicDashboardPath(pathname)).toBe(false)
+  })
+
+  it.each([
+    '/oauth/authorize',
+    '/approve/proposal_1',
+    '/api/operator/consent',
+    '/api/operator/approve',
+  ])('requires a signed-in platform admin, but no organization, for %s', (pathname) => {
+    expect(isOperatorHumanPath(pathname)).toBe(true)
+    expect(
+      resolveDashboardAccess({ pathname, userId: null, orgId: null, platformRole: undefined }),
+    ).toBe('sign-in')
+    expect(
+      resolveDashboardAccess({
+        pathname,
+        userId: 'user_1',
+        orgId: 'org_1',
+        platformRole: undefined,
+      }),
+    ).toBe('root')
+    expect(
+      resolveDashboardAccess({
+        pathname,
+        userId: 'user_1',
+        orgId: null,
+        platformRole: 'PLATFORM_ADMIN',
+      }),
+    ).toBe('next')
+  })
+
+  it.each(['/approve', '/approve/', '/approved'])(
+    'does not treat %s as an approval page',
+    (pathname) => {
+      expect(isOperatorHumanPath(pathname)).toBe(false)
+    },
+  )
 })

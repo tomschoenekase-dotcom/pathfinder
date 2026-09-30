@@ -266,6 +266,16 @@ export const PLATFORM_TABLES = [
   'PublicInterestSubmission',
   'PublicInterestSubmissionReview',
   'PublicInterestProspectConversion',
+  // The Dot operator's OAuth clients, consented grants, token digests, proposals and audit trail
+  // are platform-owned. Target tenants are data checked against the consented grant, never keys.
+  'OperatorOAuthClient',
+  'OperatorGrant',
+  'OperatorAuthorizationCode',
+  'OperatorToken',
+  'OperatorPlan',
+  'OperatorProposal',
+  'OperatorAutonomyPolicy',
+  'OperatorAuditEvent',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

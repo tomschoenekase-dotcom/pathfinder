@@ -21,9 +21,7 @@ test('operator failure writer emits only validated codes', () => {
 })
 
 test('operator failure writer rejects unsafe fields and exit semantics', () => {
-  assert.throws(() =>
-    reportOperatorCliFailure({ action: 'bad action', errorCode: 'safe-code' }),
-  )
+  assert.throws(() => reportOperatorCliFailure({ action: 'bad action', errorCode: 'safe-code' }))
   assert.throws(() =>
     reportOperatorCliFailure({ action: 'safe.action', errorCode: 'unsafe secret' }),
   )
