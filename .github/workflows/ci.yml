@@ -154,7 +154,7 @@ jobs:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
       - name: Verify operator OAuth, grants, proposals and approvals on disposable PostgreSQL
-        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts --pool=forks --maxWorkers=1
+        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_OPERATOR_DB_INTEGRATION: '1'
       - name: Verify client MCP credential and venue appearance lifecycle
