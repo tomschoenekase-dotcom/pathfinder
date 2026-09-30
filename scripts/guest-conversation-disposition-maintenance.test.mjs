@@ -67,13 +67,16 @@ test('250 maintenance source verification accepts the reviewed ledger and refuse
   }
 })
 test('maintenance source verification refuses a 252-row ledger before function body reads', async () => {
-  const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  assert.equal(manifest.names.length, 252)
-  assert.deepEqual(manifest.names.slice(-2), [
+  const current = await readMigrationManifest(join(root, 'packages/db/prisma'))
+  assert.equal(current.names.length, 253)
+  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  const names = current.names.slice(0, 252)
+  const manifest = { ...current, names }
+  assert.deepEqual(names.slice(-2), [
     '20260926120000_add_venue_distribution',
     '20260927090000_add_venue_chat_appearance',
   ])
-  const rows = manifest.names.map((migration_name) => ({
+  const rows = names.map((migration_name) => ({
     migration_name,
     checksum: manifest.ledgerChecksums.get(migration_name),
     finished_at: '2026-09-12T00:00:00Z',

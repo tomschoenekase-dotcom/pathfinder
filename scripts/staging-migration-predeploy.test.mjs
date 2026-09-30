@@ -402,13 +402,25 @@ const REVIEWED_234_TO_250 = [
 const REVIEWED_234_TO_252 = [...REVIEWED_234_TO_250, ...REVIEWED_250_TO_252]
 
 async function readMigrationManifest(directory) {
-  const source = await readCurrentMigrationManifest(directory)
-  assertFrozenManifest(source)
-  return source
+  const current = await readCurrentMigrationManifest(directory)
+  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
+  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  const names = current.names.slice(0, EXPECTED.migrationCount)
+  const keep = (map) => new Map(names.map((name) => [name, map.get(name)]))
+  const rows = names.map((name) => `${name} ${current.checksums.get(name)}`)
+  const historical = {
+    names,
+    checksums: keep(current.checksums),
+    ledgerChecksums: keep(current.ledgerChecksums),
+    crlfLedgerChecksums: keep(current.crlfLedgerChecksums),
+    hash: createHash('sha256').update(`${rows.join('\n')}\n`).digest('hex'),
+  }
+  assertFrozenManifest(historical)
+  return historical
 }
 
 test('distribution and appearance migrations are the exact admitted 250-to-252 suffix', async () => {
-  const source = await readCurrentMigrationManifest('packages/db/prisma')
+  const source = await readMigrationManifest('packages/db/prisma')
   assert.deepEqual(source.names.slice(-2), REVIEWED_250_TO_252)
   assertFrozenManifest(source)
   const changed = new Map(source.checksums)
@@ -416,6 +428,17 @@ test('distribution and appearance migrations are the exact admitted 250-to-252 s
   assert.throws(
     () => assertFrozenManifest({ ...source, checksums: changed }),
     /migration manifest checksum changed/u,
+  )
+})
+
+test('the current 253rd MCP migration candidate remains outside the staging approval', async () => {
+  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
+  assert.equal(current.names.at(-1), '20260930100000_add_mcp_venue_appearance_capabilities')
+  assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
+  assert.throws(
+    () => ledgerState(completedRows(current), current),
+    /unexpected ledger row count 253/u,
   )
 })
 

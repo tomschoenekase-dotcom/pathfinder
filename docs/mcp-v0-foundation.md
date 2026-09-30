@@ -151,8 +151,9 @@ autodeploy without deploying, drain writers, and retain the release-bound backup
    `PATHFINDER_ALLOW_STAGING_MIGRATIONS=1` plus
    `PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1` with `--skip-deploys`; leave dashboard and workers
    stopped. The token must match both the reviewed migration boundary and web image pin.
-2. Run `pnpm db:migrate:staging` from the exact approved web release. Retain the held migration
-   receipt and accept its exact database readback. The expected result is
+2. Follow the single migration invocation in the approved
+   [staging release workflow](staging-release-workflow.md) from the exact approved web release.
+   Retain the held migration receipt and accept its exact database readback. The expected result is
    `migration-verified-application-held`; it is not a healthy application deployment.
 3. After readback acceptance, set both migration values to `0` with `--skip-deploys`, deploy web
    again at the same frozen SHA, and run `pnpm verify:staging-health` plus the exact-SHA topology

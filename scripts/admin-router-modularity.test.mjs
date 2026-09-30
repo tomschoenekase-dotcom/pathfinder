@@ -10,6 +10,7 @@ const adminDirectory = path.join(repositoryRoot, 'packages/api/src/routers/admin
 const expectedAdminProcedures = [
   'acknowledgeOperationalEvent',
   'activateAgentBridgeCredential',
+  'activateClientMcpCredential',
   'activatePlatformWorkerPolicyCredential',
   'addChatlogNote',
   'addOrigin',

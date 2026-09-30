@@ -46,6 +46,5 @@ try {
     },
   })
 } catch (error) {
-  if (error instanceof Error) process.stderr.write(`${error.name}: ${error.message}\n`)
   process.exitCode = reportDisposableRunnerFailure(error, import.meta.url)
 }
