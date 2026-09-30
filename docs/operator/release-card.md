@@ -14,10 +14,12 @@ One combined release, one backup, staging first, then production. Nothing here i
 ## Gate before any deploy
 
 1. Exact-head CI green (`ci`, `visitor-launch`, `railway-iac`) on the final integration SHA.
-2. Migration admission: the staging predeploy still admits only the frozen 252-migration
-   manifest (253 and 254 are pinned as "unadmitted candidates" in
-   `scripts/staging-migration-predeploy.test.mjs`). A reviewed commit must advance the admitted
-   boundary to 254 (expected count, manifest hash, reviewed suffix) before staging can migrate.
+2. Migration admission: the staging predeploy admits the exact 254-migration manifest and
+   preserves the frozen 252 predecessor. Only the reviewed 253–254 suffix is accepted; partial
+   253-row ledgers and divergent or failed rows stop admission. Fresh disposable PostgreSQL proof:
+   254 finished migrations, 277 public tables, eight empty operator tables, no invalid indexes or
+   unvalidated constraints; guarded replay reports no pending migrations. See
+   `docs/evidence/migration-252-254-admission-2026-09-30.json`. Hosted preservation proof is separate.
 3. Preserved-data path from `docs/staging-release-workflow.md`: pause autodeploy, freeze the SHA,
    drain writers, release-bound backup plus restore proof, held migration
    (`PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1`), then code-only web, then dashboard and workers.

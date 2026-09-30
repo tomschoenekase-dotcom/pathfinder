@@ -15,7 +15,7 @@ const operationalHealthPath = path.join(
   'operational-health.ts',
 )
 
-test('operations readiness keeps 252 pinned while the 253rd and 254th candidates remain unadmitted', async () => {
+test('operations readiness pins the reviewed 254 migration endpoint', async () => {
   const migrations = (await readdir(migrationsPath, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -27,9 +27,10 @@ test('operations readiness keeps 252 pinned while the 253rd and 254th candidates
     /export const EXPECTED_LATEST_MIGRATION\s*=\s*'([0-9]{14}_[a-z0-9_]+)'/u,
   )
   assert.ok(match, 'operational readiness exports one literal reviewed migration identity')
-  assert.equal(match[1], '20260927090000_add_venue_chat_appearance')
+  assert.equal(match[1], '20261001090000_add_operator_oauth')
   assert.equal(migrations.length, 254)
-  assert.equal(migrations.at(-3), match[1])
+  assert.equal(migrations.at(-1), match[1])
+  assert.equal(migrations.at(-3), '20260927090000_add_venue_chat_appearance')
   assert.equal(migrations.at(-5), '20260918190000_add_agent_routines')
   assert.deepEqual(migrations.slice(-4), [
     '20260926120000_add_venue_distribution',

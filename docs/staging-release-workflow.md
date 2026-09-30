@@ -22,10 +22,10 @@ This is the normal Torchiko feature-delivery path:
 The [restricted September 22 production approval](production-cutover-20260922.md) covers one
 reviewed cutover only. Its exact-SHA CI, staging, current-ledger, fresh-backup/rehearsal, and
 preservation checks remain mandatory; approval does not make an unverified release deployable.
-The 252-migration distribution and appearance candidate extends beyond its 250-migration plan;
+The 254-migration combined Release B/operator candidate extends beyond the earlier 250-migration plan;
 production needs a release-specific review and approval after healthy exact-SHA staging evidence.
 The current staging database may contain restored production lineage, so the historical
-synthetic-only exception does not by itself admit a preserved-data 250-to-252 migration.
+synthetic-only exception does not by itself admit a preserved-data migration through 254.
 
 A preserved-data migration uses a controlled exception to step 5. Pause all three application
 autodeploy triggers without deploying, freeze the final owner SHA, require its CI success, and

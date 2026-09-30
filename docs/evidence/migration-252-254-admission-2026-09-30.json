@@ -1,0 +1,34 @@
+{
+  "schema": "pathfinder-local-migration-admission/v1",
+  "observedAt": "2026-09-30T14:05:15.461Z",
+  "boundary": "252-to-254",
+  "scope": "fresh-disposable-loopback-postgresql-only",
+  "postgresImage": "pgvector/pgvector:pg16",
+  "command": "pnpm db:migrate:disposable -- --database <disposable-name> --confirm-database <same-disposable-name>",
+  "finishedMigrations": 254,
+  "incompleteMigrations": 0,
+  "publicTables": 277,
+  "operatorTables": 8,
+  "invalidIndexes": 0,
+  "unvalidatedConstraints": 0,
+  "operatorRows": 0,
+  "ledgerState": "complete",
+  "ledgerNamesAndChecksumsVerified": true,
+  "manifestHash": "5cd8553c554dc8c728ac44fb3d5f5ace0644560025d7fe4b46e7b2c6af1f9cb0",
+  "frozenPredecessor": {
+    "count": 252,
+    "publicTables": 269,
+    "manifestHash": "93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e"
+  },
+  "reviewedSuffix": [
+    "20260930100000_add_mcp_venue_appearance_capabilities",
+    "20261001090000_add_operator_oauth"
+  ],
+  "replay": "No pending migrations to apply.",
+  "firstLogSha256": "342bb20675b52cfad3355b2e3322e52436d9e1d0efc78a5fb417c69865fcd078",
+  "replayLogSha256": "7263d934106c4a6941a81de816d542144bb48a7df9643d2f70347692ff943e1e",
+  "hostedPreservationProven": false,
+  "hostedDatabaseAccessed": false,
+  "deployed": false,
+  "productionAccessed": false
+}
