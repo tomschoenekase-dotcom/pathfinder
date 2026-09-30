@@ -295,13 +295,20 @@ export function operatorContactReason(contact: SnapshotContactInput): OperatorCo
   return 'ok'
 }
 
-export function operatorContactView(contact: SnapshotContactInput) {
+export function operatorContactView(
+  contact: SnapshotContactInput,
+  blockedAnywhere: ReadonlySet<string> = new Set(),
+) {
+  const blockedElsewhere =
+    contact.email !== null && blockedAnywhere.has(contact.email.trim().toLowerCase())
   const contactable =
-    !isSnapshotContactSuppressed(contact) && operatorContactReason(contact) === 'ok'
+    !blockedElsewhere &&
+    !isSnapshotContactSuppressed(contact) &&
+    operatorContactReason(contact) === 'ok'
   return {
     contactId: contact.id,
-    displayName: truncate(contact.fullName, 200),
-    role: truncate(contact.title, 200),
+    displayName: truncate(contact.fullName ? redactAddresses(contact.fullName) : null, 200),
+    role: truncate(contact.title ? redactAddresses(contact.title) : null, 200),
     contactable,
     flags: operatorContactFlags(contact),
     // The address exists in the output only for a contactable person.
@@ -321,18 +328,23 @@ export function operatorUntrustedText(
     : { untrusted: true, text: value, truncated: false }
 }
 
-/** Removes addresses of non-contactable people from free text before it leaves the server. */
-export function redactAddresses(value: string, blockedAddresses: ReadonlySet<string>): string {
-  if (blockedAddresses.size === 0) return value
-  return value.replaceAll(EMAIL_LIKE, (match) =>
-    blockedAddresses.has(match.toLowerCase()) ? '[address withheld]' : match,
-  )
+/**
+ * Withholds every email-shaped string in free text and names. Addresses reach the operator only
+ * through the structured contact field, and only for people who may be contacted, so a note or a
+ * duplicate row elsewhere in the CRM can never leak a blocked address.
+ */
+export function redactAddresses(value: string): string {
+  return value.replaceAll(EMAIL_LIKE, '[address withheld]')
 }
 
+/** Normalized addresses of contacts that must not be emailed, for any reason. */
 export function blockedAddressSet(contacts: readonly SnapshotContactInput[]): Set<string> {
   const blocked = new Set<string>()
   for (const contact of contacts) {
-    if (isSnapshotContactSuppressed(contact) && contact.email) {
+    if (
+      contact.email &&
+      (isSnapshotContactSuppressed(contact) || operatorContactReason(contact) !== 'ok')
+    ) {
       blocked.add(contact.email.trim().toLowerCase())
     }
   }
@@ -371,7 +383,7 @@ export function operatorOrganizationView(
   const firstVenue = organization.venues[0]
   return {
     organizationId: organization.id,
-    name: organization.name.slice(0, 200),
+    name: redactAddresses(organization.name).slice(0, 200),
     type: truncate(organization.type, 80),
     city: truncate(organization.headquarters.city ?? firstVenue?.city ?? null, 120),
     region: truncate(organization.headquarters.region ?? firstVenue?.region ?? null, 120),

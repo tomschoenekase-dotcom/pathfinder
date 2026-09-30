@@ -96,33 +96,40 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
       context.database,
     )
     const venueId = created.record.id
-    let drafted = false
-    if (!created.replayed) {
+    // The approval promised a draft, so the venue must end inactive. Retry once against the
+    // current version; if it still is not a draft, fail loudly instead of reporting success.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = await readVenue(context.database, args.tenantId, venueId)
+      if (!current || !current.isActive) break
       try {
         await setVenueAvailabilityAction(
           {
             tenantId: args.tenantId,
             venueId,
-            expectedUpdatedAt: created.record.updatedAt,
+            expectedUpdatedAt: new Date(current.updatedAt),
             enabled: false,
             reason: `Draft until published. ${operatorReason(context.proposalId)}`,
             actor: venueActor(context.actor, 'MANAGER'),
           },
           context.database,
         )
-        drafted = true
       } catch {
-        // The venue exists and is reported below with its real availability.
+        // Re-read and retry once below.
       }
     }
     const after = (await readVenue(context.database, args.tenantId, venueId))!
+    if (after.isActive) {
+      throw Object.assign(new Error('The new venue could not be set to draft.'), {
+        code: 'DRAFT_NOT_SET',
+      })
+    }
     return {
       result: {
         venueId,
         slug: after.slug,
         updatedAt: after.updatedAt,
         isActive: after.isActive,
-        draft: drafted,
+        draft: true,
         replayed: created.replayed,
       },
       after: after as unknown as JsonValue,

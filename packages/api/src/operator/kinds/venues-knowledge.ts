@@ -37,7 +37,10 @@ export const venuesKnowledgeKind: OperatorProposalKind<KnowledgeArgs> = {
   currentVersion: async (args, context) => String(await matchingTitles(context.database, args)),
   describe: (args) => ({
     title: `Add ${args.entries.length} knowledge ${args.entries.length === 1 ? 'entry' : 'entries'}`,
-    lines: args.entries.map((entry) => `${entry.category ?? DEFAULT_CATEGORY}: ${entry.title}`),
+    // Every body is shown in full: this text becomes live guest-facing content.
+    lines: args.entries.map(
+      (entry) => `${entry.category ?? DEFAULT_CATEGORY}: ${entry.title} — ${entry.body}`,
+    ),
   }),
   snapshot: async (args, context) =>
     ({

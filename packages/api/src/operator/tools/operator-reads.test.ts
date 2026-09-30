@@ -111,10 +111,20 @@ describe('operator CRM projection', () => {
     })
     const blocked = blockedAddressSet([
       contact({ email: 'Gone@Example.com', doNotContact: true }),
-      contact({ id: 'c2', email: 'fine@example.com' }),
+      contact({ id: 'c2', email: 'bounced@example.com', lastHardBounceAt: new Date() }),
+      contact({ id: 'c3', email: 'fine@example.com' }),
     ])
-    expect(redactAddresses('write to gone@example.com or fine@example.com', blocked)).toBe(
-      'write to [address withheld] or fine@example.com',
+    expect([...blocked].sort()).toEqual(['bounced@example.com', 'gone@example.com'])
+    // Free text never carries an address, blocked or not.
+    expect(redactAddresses('write to gone@example.com or fine@example.com')).toBe(
+      'write to [address withheld] or [address withheld]',
+    )
+    // A contactable row loses its address when the same address is blocked on another row.
+    expect(
+      operatorContactView(contact({ id: 'c4', email: 'Gone@example.com' }), blocked).email,
+    ).toBeNull()
+    expect(operatorContactView(contact({ fullName: 'Name <x@example.com>' })).displayName).toBe(
+      'Name <[address withheld]>',
     )
   })
 

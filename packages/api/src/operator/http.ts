@@ -137,12 +137,20 @@ function toolResult(structured: unknown, isError = false) {
   }
 }
 
+/** Refusals a kind raises at propose time that the Dot should see by name. */
+const KIND_REFUSAL_CODES = new Set(['DO_NOT_CONTACT_LOCKED', 'SENT_AT_IN_FUTURE', 'INVALID_URL'])
+
 function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
   if (error instanceof OperatorCapabilityError) return 'CAPABILITY_DENIED'
   if (error instanceof OperatorUnknownToolError) return 'UNKNOWN_TOOL'
   if (error instanceof OperatorProposalError) return error.code
   if (error instanceof z.ZodError) return 'INVALID_ARGUMENTS'
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : ''
+  if (KIND_REFUSAL_CODES.has(code)) return code
   return 'TOOL_FAILED'
 }
 

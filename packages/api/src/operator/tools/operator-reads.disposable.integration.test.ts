@@ -298,7 +298,8 @@ describe.skipIf(!enabled)(
       const text = JSON.stringify(result)
       expect(text).not.toContain(`gone-${suffix}@example.com`)
       expect(text).toContain('[address withheld]')
-      expect(text).toContain(`reachable-${suffix}@example.com`)
+      // Free text never carries an address; contactable ones come only from structured fields.
+      expect(text).not.toContain(`reachable-${suffix}@example.com`)
       for (const event of result.events) expect(event.summary.untrusted).toBe(true)
       await expect(
         call('crm.get_contact_history', { organizationId: 'missing' }),
@@ -388,6 +389,26 @@ describe.skipIf(!enabled)(
       await expect(
         call('support.list', { tenantId, venueId: otherVenueId }),
       ).rejects.toBeInstanceOf(OperatorNotFoundError)
+    })
+
+    it('withholds an address blocked on any row anywhere, including hard bounces and invalid ones', async () => {
+      const dup = await makeOrganization('Dup', { notes: `Also try dup-${suffix}@example.com` })
+      const elsewhere = await makeOrganization('Elsewhere')
+      await makeContact(dup, `dup-${suffix}@example.com`)
+      await makeContact(elsewhere, `dup-${suffix}@example.com`, { lastHardBounceAt: new Date() })
+      const organization = await call('crm.get_organization', { organizationId: dup })
+      expect(organization.contacts[0].email).toBeNull()
+      expect(organization.contacts[0].contactable).toBe(false)
+      expect(JSON.stringify(organization)).not.toContain(`dup-${suffix}@example.com`)
+      expect(
+        await call('crm.check_can_contact', { email: `dup-${suffix}@example.com` }),
+      ).toMatchObject({
+        allowed: false,
+      })
+      await makeContact(elsewhere, `invalid-${suffix}@example.com`, { emailReadiness: 'INVALID' })
+      expect(
+        await call('crm.check_can_contact', { email: `invalid-${suffix}@example.com` }),
+      ).toMatchObject({ allowed: false, reason: 'suppressed' })
     })
 
     it('operator.get_manual works through the registry', async () => {

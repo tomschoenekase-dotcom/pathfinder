@@ -11,7 +11,6 @@ import type { OperatorKindRegistry } from './proposals'
  */
 
 const MAX_VALUE_CHARS = 300
-const MAX_ARGS_CHARS = 20_000
 const LIST_LIMIT = 50
 
 // ---------------------------------------------------------------------------
@@ -91,9 +90,13 @@ function describeStep(kinds: OperatorKindRegistry, tool: string, args: unknown) 
   }
 }
 
+/**
+ * The exact arguments are shown in full, never truncated: the approval binds the stored argsHash,
+ * so the human must be able to read everything that will be applied. Inputs are bounded by the
+ * contract (at most 50 knowledge entries of 4,000 characters per step).
+ */
 function boundedArgs(args: unknown) {
-  const text = JSON.stringify(args, null, 2) ?? 'null'
-  return text.length > MAX_ARGS_CHARS ? `${text.slice(0, MAX_ARGS_CHARS)}\n…[truncated]` : text
+  return JSON.stringify(args, null, 2) ?? 'null'
 }
 
 type TargetRef = { tenantId: string | null; venueId: string | null }

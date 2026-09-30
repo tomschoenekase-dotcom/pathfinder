@@ -17,8 +17,14 @@ import { adminProcedure } from '../../trpc'
  * revoke) are deliberately not tRPC mutations: they go through the guarded route handlers under
  * /api/operator so the allowlist, same-origin check and strict reverification always apply.
  */
-function assertOperatorReady() {
-  if (resolveOperatorConfig().status !== 'ready') {
+function assertOperatorReady(ctx: { session: { userId: string | null } }) {
+  const resolution = resolveOperatorConfig()
+  // Platform admin alone is not enough: operator data is for allowlisted approvers only.
+  if (
+    resolution.status !== 'ready' ||
+    !ctx.session.userId ||
+    !resolution.config.allowedUserIds.has(ctx.session.userId)
+  ) {
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
   }
 }
@@ -50,30 +56,30 @@ export const adminOperatorRouter = router({
         })
         .strict(),
     )
-    .query(({ input }) => {
-      assertOperatorReady()
+    .query(({ input, ctx }) => {
+      assertOperatorReady(ctx)
       return listOperatorAudit(input, new Date())
     }),
 
-  operatorAutonomy: adminProcedure.query(() => {
-    assertOperatorReady()
+  operatorAutonomy: adminProcedure.query(({ ctx }) => {
+    assertOperatorReady(ctx)
     return readAutonomyPolicies()
   }),
 
-  operatorConnections: adminProcedure.query(() => {
-    assertOperatorReady()
+  operatorConnections: adminProcedure.query(({ ctx }) => {
+    assertOperatorReady(ctx)
     return listOperatorConnections(new Date())
   }),
 
-  operatorInbox: adminProcedure.query(() => {
-    assertOperatorReady()
+  operatorInbox: adminProcedure.query(({ ctx }) => {
+    assertOperatorReady(ctx)
     return listOperatorInbox(new Date())
   }),
 
   operatorReview: adminProcedure
     .input(z.object({ id: z.string().trim().min(1).max(191) }).strict())
-    .query(async ({ input }) => {
-      assertOperatorReady()
+    .query(async ({ input, ctx }) => {
+      assertOperatorReady(ctx)
       const review = await loadOperatorReview(input.id)
       if (!review) throw new TRPCError({ code: 'NOT_FOUND', message: 'Not found' })
       return review

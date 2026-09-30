@@ -317,6 +317,56 @@ describe.skipIf(!enabled)(
       })
     })
 
+    describe('crm safety locks', () => {
+      it('never lets the operator lift do-not-contact, even on auto', async () => {
+        const locked = await newOrganization()
+        await db.prospectOpportunity.update({
+          where: { organizationId: locked },
+          data: { stage: 'DO_NOT_CONTACT' },
+        })
+        const args = {
+          organizationId: locked,
+          expectedVersion: await opportunityVersion(locked),
+          stage: 'READY_FOR_OUTREACH',
+        }
+        await expect(propose('crm.propose_stage_change', args)).rejects.toMatchObject({
+          code: 'DO_NOT_CONTACT_LOCKED',
+        })
+        await expect(
+          withAuto('crm:propose', () => propose('crm.propose_stage_change', args)),
+        ).rejects.toMatchObject({ code: 'DO_NOT_CONTACT_LOCKED' })
+        expect(
+          (await db.prospectOpportunity.findUnique({ where: { organizationId: locked } }))?.stage,
+        ).toBe('DO_NOT_CONTACT')
+      })
+
+      it('treats an archived organization as NOT_FOUND for writes', async () => {
+        const archived = await newOrganization()
+        await db.prospectOrganization.update({
+          where: { id: archived },
+          data: { archivedAt: new Date() },
+        })
+        await expect(
+          propose('crm.propose_stage_change', {
+            organizationId: archived,
+            expectedVersion: await opportunityVersion(archived),
+            stage: 'RESEARCHED',
+          }),
+        ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      })
+
+      it('refuses to log a send dated in the future', async () => {
+        await expect(
+          propose('crm.log_outreach_sent', {
+            organizationId,
+            contactId,
+            gmailMessageId: `gmail-${randomUUID()}`,
+            sentAt: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+          }),
+        ).rejects.toMatchObject({ code: 'SENT_AT_IN_FUTURE' })
+      })
+    })
+
     describe('crm.log_outreach_sent', () => {
       it('ask path writes one activity, replays, applies once and stays unrevertable', async () => {
         const args = {

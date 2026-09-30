@@ -7,6 +7,7 @@ import { OperatorNotFoundError } from '../grants'
 import type { OperatorApplyContext, OperatorKindContext, OperatorProposalKind } from '../proposals'
 
 const input = OPERATOR_MCP_INPUTS['crm.log_outreach_sent']
+const SENT_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000
 type LogArgs = ReturnType<typeof input.parse>
 
 /**
@@ -34,10 +35,18 @@ export const crmOutreachLogKind: OperatorProposalKind<LogArgs> = {
   target: (args) => ({ ref: args.organizationId }),
   authorize: async (args, context: OperatorKindContext) => {
     const contact = await context.database.prospectContact.findFirst({
-      where: { id: args.contactId, organizationId: args.organizationId },
+      where: {
+        id: args.contactId,
+        organizationId: args.organizationId,
+        organization: { archivedAt: null },
+      },
       select: { id: true },
     })
     if (!contact) throw new OperatorNotFoundError()
+    // A send cannot be logged ahead of time; a future date would hide the org from follow-ups.
+    if (new Date(args.sentAt).getTime() > Date.now() + SENT_AT_FUTURE_TOLERANCE_MS) {
+      throw Object.assign(new Error('sentAt is in the future.'), { code: 'SENT_AT_IN_FUTURE' })
+    }
   },
   // Logging the same Gmail message twice is a no-op, so "already logged" is the version.
   targetVersion: async (args, context) =>

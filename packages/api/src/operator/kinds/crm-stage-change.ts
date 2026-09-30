@@ -48,8 +48,17 @@ export const crmStageChangeKind: OperatorProposalKind<StageArgs> = {
   parse: (raw) => input.parse(raw),
   target: (args) => ({ ref: args.organizationId }),
   authorize: async (args, context: OperatorKindContext) => {
-    if ((await prospectOrganizationVersion(context.database, args.organizationId)) === null) {
-      throw new OperatorNotFoundError()
+    const organization = await context.database.prospectOrganization.findFirst({
+      where: { id: args.organizationId, archivedAt: null },
+      select: { id: true, opportunity: { select: { stage: true } } },
+    })
+    if (!organization?.opportunity) throw new OperatorNotFoundError()
+    // Lifting do-not-contact is a human decision made in the dashboard, never by the operator,
+    // whatever the autonomy switch says: injected text must not be able to reopen outreach.
+    if (organization.opportunity.stage === 'DO_NOT_CONTACT' && args.stage !== 'DO_NOT_CONTACT') {
+      throw Object.assign(new Error('Do-not-contact can only be lifted by a human.'), {
+        code: 'DO_NOT_CONTACT_LOCKED',
+      })
     }
   },
   targetVersion: async (args) => String(args.expectedVersion),

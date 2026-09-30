@@ -13,7 +13,7 @@ import {
   type SnapshotContactInput,
 } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
-import type { OperatorReadTool } from '../registry'
+import type { OperatorCallContext, OperatorReadTool } from '../registry'
 import {
   loadActivityCounts,
   loadOutreach,
@@ -202,6 +202,42 @@ const listCandidates: OperatorReadTool = {
   },
 }
 
+const CONTACT_RULE_SELECT = {
+  id: true,
+  venueId: true,
+  fullName: true,
+  title: true,
+  email: true,
+  phone: true,
+  emailReadiness: true,
+  permissionState: true,
+  doNotContact: true,
+  suppressionReason: true,
+  suppressedAt: true,
+  unsubscribedAt: true,
+  complainedAt: true,
+  lastHardBounceAt: true,
+} as const
+
+/** Normalized addresses from `emails` that are blocked on at least one contact row anywhere. */
+async function blockedAddressesAnywhere(
+  database: OperatorCallContext['database'],
+  emails: readonly string[],
+): Promise<Set<string>> {
+  const normalized = [...new Set(emails.map((email) => email.trim().toLowerCase()))]
+  if (normalized.length === 0) return new Set()
+  const rows = await database.prospectContact.findMany({
+    where: {
+      OR: [
+        { normalizedEmail: { in: normalized } },
+        ...normalized.map((email) => ({ email: { equals: email, mode: 'insensitive' as const } })),
+      ],
+    },
+    select: CONTACT_RULE_SELECT,
+  })
+  return blockedAddressSet(rows as unknown as SnapshotContactInput[])
+}
+
 const getOrganization: OperatorReadTool = {
   name: 'crm.get_organization',
   capability: 'crm:read',
@@ -214,21 +250,27 @@ const getOrganization: OperatorReadTool = {
     if (!row) throw new OperatorNotFoundError()
     const { view } = (await viewsFor(context.database, [row]))[0]!
     const contacts = row.contacts.map(toContactInput)
-    const blocked = blockedAddressSet(contacts)
+    // An address blocked on any row anywhere in the CRM (archived rows included) is withheld here.
+    const blocked = await blockedAddressesAnywhere(
+      context.database,
+      contacts.map((contact) => contact.email).filter((email): email is string => Boolean(email)),
+    )
     const notes: ReturnType<typeof operatorUntrustedText>[] = []
     const addNote = (value: string | null) => {
       if (value && value.trim() && notes.length < MAX_NOTES) {
-        notes.push(operatorUntrustedText(redactAddresses(value, blocked)))
+        notes.push(operatorUntrustedText(redactAddresses(value)))
       }
     }
     addNote(row.notes)
     for (const contact of row.contacts) {
       // A suppressed contact's free text stays private along with its address.
-      if (operatorContactView(toContactInput(contact)).contactable) addNote(contact.notes)
+      if (operatorContactView(toContactInput(contact), blocked).contactable) addNote(contact.notes)
     }
     return {
       organization: view,
-      contacts: contacts.slice(0, MAX_CONTACTS).map(operatorContactView),
+      contacts: contacts
+        .slice(0, MAX_CONTACTS)
+        .map((contact) => operatorContactView(contact, blocked)),
       notes,
     }
   },
@@ -245,28 +287,7 @@ const getContactHistory: OperatorReadTool = {
       select: { id: true },
     })
     if (!organization) throw new OperatorNotFoundError()
-    const [contacts, activities, messages] = await Promise.all([
-      // Archived contacts still count: their suppressed addresses must stay withheld.
-      database.prospectContact.findMany({
-        where: { organizationId },
-        select: {
-          id: true,
-          venueId: true,
-          fullName: true,
-          title: true,
-          email: true,
-          phone: true,
-          emailReadiness: true,
-          permissionState: true,
-          doNotContact: true,
-          suppressionReason: true,
-          suppressedAt: true,
-          unsubscribedAt: true,
-          complainedAt: true,
-          lastHardBounceAt: true,
-        },
-        take: 500,
-      }),
+    const [activities, messages] = await Promise.all([
       database.prospectActivity.findMany({
         where: { organizationId },
         orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
@@ -281,17 +302,16 @@ const getContactHistory: OperatorReadTool = {
         select: { direction: true, status: true, subject: true, occurredAt: true },
       }),
     ])
-    const blocked = blockedAddressSet(contacts)
     const events = [
       ...activities.map((row) => ({
         type: row.type as string,
         occurredAt: row.occurredAt,
-        summary: operatorUntrustedText(redactAddresses(row.summary, blocked)),
+        summary: operatorUntrustedText(redactAddresses(row.summary)),
       })),
       ...messages.map((row) => ({
         type: row.direction === 'OUTBOUND' ? 'EMAIL_OUTBOUND' : 'EMAIL_INBOUND',
         occurredAt: row.occurredAt,
-        summary: operatorUntrustedText(redactAddresses(`${row.status}: ${row.subject}`, blocked)),
+        summary: operatorUntrustedText(redactAddresses(`${row.status}: ${row.subject}`)),
       })),
     ]
       .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
@@ -317,7 +337,8 @@ const checkCanContact: OperatorReadTool = {
         OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' } }],
       },
       orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
-      take: 50,
+      // Enough rows that a blocked duplicate can never be cut off by the page size.
+      take: 1000,
       select: {
         id: true,
         venueId: true,
@@ -349,6 +370,16 @@ const checkCanContact: OperatorReadTool = {
       }))
       .sort((a, b) => Number(b.active) - Number(a.active))
     const answer = evaluateCanContact(matches)
+    // An address already known to be undeliverable is never sent to.
+    const invalid = matches.find((match) => match.contact.emailReadiness === 'INVALID')
+    if (answer.allowed && invalid) {
+      return {
+        allowed: false,
+        reason: 'suppressed' as const,
+        organizationId: invalid.organizationId,
+        contactId: invalid.contact.id,
+      }
+    }
     // A blocked answer stands even for an archived row. An allow needs a live contact.
     if (answer.allowed && !matches.some((match) => match.active)) {
       return { allowed: false, reason: 'unknown_address', organizationId: null, contactId: null }
