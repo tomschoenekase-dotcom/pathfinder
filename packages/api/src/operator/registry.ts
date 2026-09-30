@@ -25,6 +25,7 @@ import {
   type OperatorKindRegistry,
   type AnyOperatorProposalKind,
 } from './proposals'
+import { OPERATOR_READ_TOOLS } from './tools'
 
 export type OperatorCallContext = Readonly<{
   config: OperatorServerConfig
@@ -171,7 +172,10 @@ export function createOperatorRegistry(
   }> = {},
 ): OperatorRegistry {
   const reads = new Map(
-    [...builtInReads, ...(options.reads ?? [])].map((tool) => [tool.name as string, tool]),
+    [...builtInReads, ...OPERATOR_READ_TOOLS, ...(options.reads ?? [])].map((tool) => [
+      tool.name as string,
+      tool,
+    ]),
   )
   const kinds = createKindRegistry(options.kinds ?? OPERATOR_PROPOSAL_KINDS)
   const writeNames = new Set<string>([
