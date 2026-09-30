@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import { auth, currentUser } from '@pathfinder/auth/server'
 import { redirect } from 'next/navigation'
 
+import { resolveOperatorConfig } from '@pathfinder/api/operator'
+
 import { AdminSectionShell } from '../../components/admin/AdminSectionShell'
 import { TRPCProvider } from '../../lib/trpc'
 
@@ -32,7 +34,9 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <TRPCProvider scopeKey={`admin:${userId}`}>
-      <AdminSectionShell>{children}</AdminSectionShell>
+      <AdminSectionShell showOperator={resolveOperatorConfig().status === 'ready'}>
+        {children}
+      </AdminSectionShell>
     </TRPCProvider>
   )
 }

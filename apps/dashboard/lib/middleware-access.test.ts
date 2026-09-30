@@ -197,6 +197,8 @@ describe('dashboard middleware access policy', () => {
     '/oauth/authorize',
     '/api/operator/consent',
     '/api/operator/approve',
+    '/api/operator/autonomy',
+    '/api/operator/revoke',
     '/api/operator/mcpx',
     '/oauth/tokens',
   ])('keeps %s behind Clerk', (pathname) => {
@@ -208,6 +210,8 @@ describe('dashboard middleware access policy', () => {
     '/approve/proposal_1',
     '/api/operator/consent',
     '/api/operator/approve',
+    '/api/operator/autonomy',
+    '/api/operator/revoke',
   ])('requires a signed-in platform admin, but no organization, for %s', (pathname) => {
     expect(isOperatorHumanPath(pathname)).toBe(true)
     expect(

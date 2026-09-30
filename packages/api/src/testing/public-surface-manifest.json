@@ -523,6 +523,26 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/operator/autonomy/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/operator/operator-admin-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/revoke/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/operator/operator-admin-routes.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/operator/arm/route.ts",
       "methods": ["POST"],
       "exposure": "handler-platform-admin",

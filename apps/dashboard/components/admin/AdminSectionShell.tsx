@@ -13,6 +13,7 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
+  Fingerprint,
   Home,
   Menu,
   Plus,
@@ -29,6 +30,8 @@ import { useRouteChangeFocus } from '../useRouteChangeFocus'
 type AdminSectionShellProps = {
   children: ReactNode
   routePathname?: string
+  /** Shown only while the Dot operator is enabled and fully configured. */
+  showOperator?: boolean
 }
 
 const navigationItems = [
@@ -42,15 +45,31 @@ const navigationItems = [
   { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
 ] as const
 
+const operatorNavigationItem = {
+  href: '/admin/operator',
+  label: 'Dot operator',
+  icon: Fingerprint,
+} as const
+
 function isActivePath(pathname: string, href: string, exact?: boolean) {
   if (exact) return pathname === href
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function AdminSectionShell({ children, routePathname }: AdminSectionShellProps) {
+export function AdminSectionShell({
+  children,
+  routePathname,
+  showOperator = false,
+}: AdminSectionShellProps) {
   const livePathname = usePathname()
   const pathname = routePathname ?? livePathname
   const [mobileOpen, setMobileOpen] = useState(false)
+  const visibleNavigationItems: ReadonlyArray<{
+    href: string
+    label: string
+    icon: typeof Home
+    exact?: boolean
+  }> = showOperator ? [...navigationItems, operatorNavigationItem] : navigationItems
   const mobileCloseRef = useRef<HTMLButtonElement>(null)
   const mobileTriggerRef = useRef<HTMLButtonElement>(null)
   const mobilePanelRef = useRef<HTMLElement>(null)
@@ -106,7 +125,7 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
       </div>
 
       <nav className="flex-1 space-y-1 px-3" aria-label="Torchiko OS navigation">
-        {navigationItems.map((item) => {
+        {visibleNavigationItems.map((item) => {
           const active = isActivePath(pathname, item.href, 'exact' in item ? item.exact : false)
           const Icon = item.icon
           return (

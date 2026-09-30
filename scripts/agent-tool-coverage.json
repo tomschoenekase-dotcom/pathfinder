@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 561,
-    "sha256": "c27b0d4d1d323b7769d6525708a9279e96b4f8e861eb5689c17d66f7ac55d908",
+    "count": 566,
+    "sha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "c27b0d4d1d323b7769d6525708a9279e96b4f8e861eb5689c17d66f7ac55d908",
-      "sha256": "c4c22559dca7346536fe26cb72aa47a4b3414b5a9ae8cd8480f8814488ddcc0f"
+      "operationInventorySha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
+      "sha256": "6498002252bb04870be19c24b3d59ea7d3a0c319602252c06c90d0e44e5f149b"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -760,6 +760,14 @@
       "developerCoverage": "full",
       "decision": "Agents may inspect a count-only, policy-unresolved retention preview; offboarding finalization, policy approval, revocation, deletion, anonymization, and provider-side actions remain restricted.",
       "evidence": "docs/retention-disposition-preview.md"
+    },
+    {
+      "id": "operator-approvals",
+      "pattern": "^adminOperatorRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Read-only platform-admin views of the Dot operator inbox, autonomy policy, connections and redacted audit. Approval, rejection, autonomy changes and revocation are not tRPC operations at all: they are guarded route handlers that need an allowlisted admin and a fresh strict reverification, so no agent can reach them.",
+      "evidence": "docs/operator/oauth.md"
     }
   ]
 }
