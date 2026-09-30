@@ -100,6 +100,19 @@ const rawEnvSchema = z
     // activation alone must never expose the HTTP surface.
     AGENT_BRIDGE_HTTP_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // The Dot operator's OAuth authorization server and /api/operator/mcp are dark until this
+    // flag is true. The companion values are shape-checked here; an enabled but incomplete
+    // configuration fails closed per request (503) instead of crashing the dashboard.
+    OPERATOR_OAUTH_ENABLED: z.enum(['true', 'false']).optional(),
+    // Exact dashboard origin, e.g. the production app origin. Never derived from Host headers.
+    OPERATOR_OAUTH_ISSUER: z.string().url().max(2_048).optional(),
+    // `kid:base64url,kid:base64url`; the first key signs new token digests.
+    OPERATOR_OAUTH_PEPPERS: z.string().min(1).max(4_096).optional(),
+    // Comma-separated exact HTTPS origins allowed in dynamically registered redirect URIs.
+    OPERATOR_OAUTH_REDIRECT_ORIGINS: z.string().max(4_096).optional(),
+    // Comma-separated user IDs allowed to consent and approve, in addition to PLATFORM_ADMIN.
+    OPERATOR_OAUTH_ALLOWED_USER_IDS: z.string().max(4_096).optional(),
+
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
@@ -328,6 +341,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   AGENT_RUNNER_ENABLED: values.AGENT_RUNNER_ENABLED === 'true',
   AGENT_ROUTINES_ENABLED: values.AGENT_ROUTINES_ENABLED === 'true',
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
+  OPERATOR_OAUTH_ENABLED: values.OPERATOR_OAUTH_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',

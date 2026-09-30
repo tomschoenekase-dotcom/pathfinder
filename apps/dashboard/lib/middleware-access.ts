@@ -5,6 +5,7 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 const PUBLIC_ROUTES = [
   '/api/agent-bridge',
   '/api/mcp',
+  '/api/operator/mcp',
   '/api/platform-worker/founder-decisions',
   '/api/platform-worker/founder-operating-view',
   '/api/platform-worker/operations-readiness',
@@ -13,8 +14,35 @@ const PUBLIC_ROUTES = [
   '/api/webhooks/clerk',
   '/api/webhooks/stripe',
   '/api/webhooks/resend',
+  // The Dot operator's OAuth authorization server. Each handler is dark unless
+  // OPERATOR_OAUTH_ENABLED and authenticates by PKCE, token or DCR limits itself.
+  '/.well-known/oauth-authorization-server',
+  '/.well-known/oauth-protected-resource',
+  // No OIDC here: answer the discovery probe with a plain 404, not a sign-in redirect.
+  '/.well-known/openid-configuration',
+  '/oauth/register',
+  '/oauth/token',
+  '/oauth/revoke',
 ]
-const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/', '/api/mcp/']
+const PUBLIC_ROUTE_PREFIXES = [
+  '/api/agent-bridge/',
+  '/api/mcp/',
+  '/.well-known/oauth-protected-resource/',
+]
+
+// Human operator consent and one-tap approval. They need a signed-in platform admin but no
+// organization, so a phone with only a Clerk session can approve. Handlers re-check the
+// operator allowlist and require a strict reverification before any state change.
+const OPERATOR_HUMAN_ROUTES = [
+  '/oauth/arm',
+  '/oauth/authorize',
+  '/api/operator/arm',
+  '/api/operator/consent',
+  '/api/operator/approve',
+  '/api/operator/autonomy',
+  '/api/operator/revoke',
+]
+const OPERATOR_HUMAN_PREFIXES = ['/approve/']
 
 const INTERNAL_WORKSPACE_ROUTES = ['/analytics', '/chat-design', '/engagement-questions'] as const
 
@@ -45,6 +73,15 @@ export function isPublicDashboardPath(
   )
 }
 
+export function isOperatorHumanPath(pathname: string): boolean {
+  return (
+    OPERATOR_HUMAN_ROUTES.includes(pathname) ||
+    OPERATOR_HUMAN_PREFIXES.some(
+      (prefix) => pathname.startsWith(prefix) && pathname.length > prefix.length,
+    )
+  )
+}
+
 export function isInternalWorkspacePath(pathname: string): boolean {
   return INTERNAL_WORKSPACE_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
@@ -62,7 +99,9 @@ export function resolveDashboardAccess({
   if (!userId) return 'sign-in'
 
   const isPlatformAdmin = platformRole === 'PLATFORM_ADMIN'
-  if (isAdminPath(pathname)) return isPlatformAdmin ? 'next' : 'root'
+  if (isAdminPath(pathname) || isOperatorHumanPath(pathname)) {
+    return isPlatformAdmin ? 'next' : 'root'
+  }
 
   const effectiveOrgId = orgId ?? (isPlatformAdmin ? adminTenantOverride : undefined)
   if (!effectiveOrgId && pathname !== '/onboarding') return 'onboarding'

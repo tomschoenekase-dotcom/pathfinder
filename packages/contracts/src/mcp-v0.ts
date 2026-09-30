@@ -16,6 +16,7 @@ import {
   AgentWorkflowPortableManifestSchema,
   AgentWorkflowProvenanceSchema,
 } from './agent-workflow-registry'
+import { ChatAppearanceSchema } from './chat-appearance'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -48,6 +49,9 @@ export const McpCapability = z.enum([
   'billing:read',
   'billing:propose',
   'venues:read',
+  'venues:create',
+  'appearance:read',
+  'appearance:write',
   'configuration:read',
   'content:read',
   'history:read',
@@ -108,6 +112,96 @@ export type McpCapability = z.infer<typeof McpCapability>
 
 export const McpScopeLevel = z.enum(['client', 'venue', 'client-or-venue'])
 export type McpScopeLevel = z.infer<typeof McpScopeLevel>
+
+export const McpAppearanceGetInput = z
+  .object({
+    clientId: Identifier,
+    venueId: Identifier,
+  })
+  .strict()
+export type McpAppearanceGetInput = z.infer<typeof McpAppearanceGetInput>
+
+export const McpAppearanceUpdateInput = z
+  .object({
+    clientId: Identifier,
+    venueId: Identifier,
+    operationId: z.string().uuid(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    title: z.string().trim().min(1).max(80).nullable().optional(),
+    chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark']).optional(),
+    chatAccentColor: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/u)
+      .nullable()
+      .optional(),
+    chatFont: z
+      .enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'])
+      .optional(),
+    chatAppearance: ChatAppearanceSchema.nullable().optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.chatTheme !== undefined ||
+      value.chatAccentColor !== undefined ||
+      value.chatFont !== undefined ||
+      value.chatAppearance !== undefined,
+    { message: 'At least one appearance field must be provided' },
+  )
+  .refine((value) => !(value.title !== undefined && value.chatAppearance === null), {
+    message: 'title cannot be combined with clearing chatAppearance',
+    path: ['chatAppearance'],
+  })
+export type McpAppearanceUpdateInput = z.infer<typeof McpAppearanceUpdateInput>
+
+export const McpVenuesListInput = z
+  .object({ clientId: Identifier, limit: z.number().int().min(1).max(100).default(50) })
+  .strict()
+export type McpVenuesListInput = z.infer<typeof McpVenuesListInput>
+
+export const McpVenuesCreateInput = z
+  .object({
+    clientId: Identifier,
+    operationId: z.string().uuid(),
+    name: z.string().trim().min(1).max(120),
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .regex(/^[a-z0-9][a-z0-9-]*$/u),
+    description: z.string().trim().max(2000).optional(),
+    category: z.string().trim().min(1).max(120).optional(),
+    guideMode: z.enum(['location_aware', 'non_location']),
+    defaultCenterLat: z.number().min(-90).max(90).optional(),
+    defaultCenterLng: z.number().min(-180).max(180).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.defaultCenterLat === undefined) !== (value.defaultCenterLng === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultCenterLng'],
+        message: 'Coordinates must be provided together',
+      })
+    }
+    if (value.guideMode === 'location_aware' && value.defaultCenterLat === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultCenterLat'],
+        message: 'Location-aware venues require coordinates',
+      })
+    }
+    if (value.guideMode === 'non_location' && value.defaultCenterLat !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultCenterLat'],
+        message: 'Non-location venues cannot include coordinates',
+      })
+    }
+  })
+export type McpVenuesCreateInput = z.infer<typeof McpVenuesCreateInput>
 
 /** Must be constructed from a server-verified credential, never tool arguments. */
 export const VerifiedMcpCredentialScope = z
@@ -506,6 +600,50 @@ const resultSchema = strictObject(
   },
   ['kind', 'summary', 'data'],
 )
+const chatAppearanceJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'version',
+    'userBubble',
+    'assistantBubble',
+    'userTextColor',
+    'assistantTextColor',
+    'userBubbleColor',
+    'assistantSurfaceColor',
+    'title',
+    'headerTitleColor',
+    'headerColor',
+    'footerColor',
+    'background',
+    'requestMore',
+  ],
+  properties: {
+    version: { const: 1 },
+    userBubble: { type: 'boolean' },
+    assistantBubble: { type: 'boolean' },
+    userTextColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    assistantTextColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    userBubbleColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    assistantSurfaceColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    title: { type: ['string', 'null'], minLength: 1, maxLength: 80 },
+    headerTitleColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    headerColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    footerColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+    background: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['mode', 'focalX', 'focalY', 'dim'],
+      properties: {
+        mode: { type: 'string', enum: ['none', 'image'] },
+        focalX: { type: 'integer', minimum: 0, maximum: 100 },
+        focalY: { type: 'integer', minimum: 0, maximum: 100 },
+        dim: { type: 'integer', minimum: 0, maximum: 85 },
+      },
+    },
+    requestMore: { type: 'boolean' },
+  },
+} as const
 
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
@@ -1575,6 +1713,10 @@ export const McpToolResult = z
 export type McpToolResult = z.infer<typeof McpToolResult>
 
 export type PathfinderMcpToolName =
+  | 'torchiko.appearance.get'
+  | 'torchiko.appearance.update'
+  | 'torchiko.venues.list'
+  | 'torchiko.venues.create'
   | 'pathfinder.read'
   | 'torchiko.account.get_context'
   | 'torchiko.account.timeline'
@@ -1634,6 +1776,105 @@ export type PathfinderMcpToolName =
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
+  {
+    name: 'torchiko.appearance.get',
+    title: 'Get venue appearance',
+    description:
+      'Read bounded visitor chat appearance settings for one venue in the authenticated client.',
+    inputSchema: strictObject({ ...scopeProperties }, ['clientId', 'venueId']),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'appearance:read', 'read') },
+  },
+  {
+    name: 'torchiko.appearance.update',
+    title: 'Update venue appearance',
+    description:
+      'Update bounded visitor chat title, theme, accent, font, or appearance settings. Reviewed media selection is not supported by this tool.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        title: { type: ['string', 'null'], minLength: 1, maxLength: 80 },
+        chatTheme: {
+          type: 'string',
+          enum: ['default', 'forest', 'sunset', 'midnight', 'rose', 'dark'],
+        },
+        chatAccentColor: { type: ['string', 'null'], pattern: '^#[0-9A-Fa-f]{6}$' },
+        chatFont: {
+          type: 'string',
+          enum: ['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'],
+        },
+        chatAppearance: { anyOf: [chatAppearanceJsonSchema, { type: 'null' }] },
+      },
+      ['clientId', 'venueId', 'operationId', 'expectedUpdatedAt'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('client-or-venue', 'appearance:write', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.venues.list',
+    title: 'List client venues',
+    description:
+      'List bounded safe identity fields for venues belonging to the authenticated client.',
+    inputSchema: strictObject(
+      {
+        clientId: scopeProperties.clientId,
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client', 'venues:read', 'read') },
+  },
+  {
+    name: 'torchiko.venues.create',
+    title: 'Create a venue',
+    description:
+      'Create a venue with bounded identity and location settings. Initial content and media are not accepted.',
+    inputSchema: strictObject(
+      {
+        clientId: scopeProperties.clientId,
+        operationId: { type: 'string', format: 'uuid' },
+        name: { type: 'string', minLength: 1, maxLength: 120 },
+        slug: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[a-z0-9][a-z0-9-]*$' },
+        description: { type: 'string', maxLength: 2000 },
+        category: { type: 'string', minLength: 1, maxLength: 120 },
+        guideMode: { type: 'string', enum: ['location_aware', 'non_location'] },
+        defaultCenterLat: { type: 'number', minimum: -90, maximum: 90 },
+        defaultCenterLng: { type: 'number', minimum: -180, maximum: 180 },
+      },
+      ['clientId', 'operationId', 'name', 'slug', 'guideMode'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client', 'venues:create', 'interaction') },
+  },
   {
     name: 'torchiko.account.get_context',
     title: 'Get compact account context',

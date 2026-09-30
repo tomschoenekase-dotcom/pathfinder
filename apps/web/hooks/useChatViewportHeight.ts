@@ -2,12 +2,23 @@
 
 import { useEffect, useState } from 'react'
 
+/** The keyboard counts as open once the visual viewport is this much shorter than the baseline. */
+export const KEYBOARD_MIN_SHRINK = 80
+/** After focus leaves the field, the pan is undone only once the viewport is this close to baseline. */
+export const KEYBOARD_RESTORE_TOLERANCE = 20
+
 /**
  * Mobile keyboards can shrink the visual viewport without changing CSS dvh. The shell is
- * `position: fixed` (layout-viewport coordinates), so `offsetTop`/`offsetLeft` are exactly how far
- * iOS has panned the visual viewport inside it; the shell follows with `top`/`left`, never with
- * document scroll. The page cannot scroll while the chat is open (see globals.css), and any scroll
- * iOS applies while revealing the field is undone once the keyboard closes.
+ * `position: fixed` (layout-viewport coordinates), so it is placed from the visual viewport's real
+ * edges: `top = offsetTop - scrollY` (clamped to 0) and `height = viewport.height`.
+ *
+ * Keyboard detection compares against a stable baseline (the largest visual viewport height seen
+ * while no text field is focused, reset on orientation change), not `window.innerHeight`, because
+ * recent iOS Safari can shrink `innerHeight` together with the visual viewport.
+ *
+ * While a textarea is focused this hook never scrolls the document, so it cannot undo the scroll
+ * Safari uses to reveal the field. Any leftover scroll is cleared only after focus leaves and the
+ * viewport is back near its baseline.
  */
 export function useChatViewportHeight() {
   const [viewportRect, setViewportRect] = useState<
@@ -18,20 +29,41 @@ export function useChatViewportHeight() {
     const viewport = window.visualViewport
     if (!viewport) return
     let active = true
-    const update = () => {
+    let baselineHeight = 0
+    let lastWidth = viewport.width ?? window.innerWidth
+    let frame: number | undefined
+
+    const update = (fromRetry = false) => {
       if (!active) return
-      const editing = document.activeElement instanceof HTMLTextAreaElement
+      const focused = document.activeElement
+      const editing = focused instanceof HTMLTextAreaElement
+      const width = viewport.width ?? window.innerWidth
+      if (width !== lastWidth && viewport.scale === 1) {
+        // Orientation (or window) change: the old baseline no longer describes this layout.
+        lastWidth = width
+        baselineHeight = 0
+      }
+      if (!editing && viewport.scale === 1 && viewport.height > baselineHeight) {
+        baselineHeight = viewport.height
+      }
+      const baseline = baselineHeight || window.innerHeight
       // Pinch zoom is a reading action; do not reflow the chat for it.
       const keyboardOpen =
-        editing && viewport.scale === 1 && viewport.height < window.innerHeight - 80
+        editing && viewport.scale === 1 && viewport.height < baseline - KEYBOARD_MIN_SHRINK
       const nextViewportRect = keyboardOpen
         ? {
             height: Math.round(viewport.height),
-            offsetTop: Math.round(viewport.offsetTop),
+            offsetTop: Math.max(0, Math.round(viewport.offsetTop - (window.scrollY || 0))),
             offsetLeft: Math.round(viewport.offsetLeft),
           }
         : undefined
-      if (!keyboardOpen && (window.scrollY !== 0 || window.scrollX !== 0)) window.scrollTo(0, 0)
+      if (
+        !editing &&
+        Math.abs(viewport.height - baseline) <= KEYBOARD_RESTORE_TOLERANCE &&
+        (window.scrollY !== 0 || window.scrollX !== 0)
+      ) {
+        window.scrollTo(0, 0)
+      }
       setViewportRect((current) => {
         if (!nextViewportRect) return current ? undefined : current
         if (
@@ -42,21 +74,34 @@ export function useChatViewportHeight() {
           return current
         return nextViewportRect
       })
+      if (keyboardOpen && !fromRetry && typeof requestAnimationFrame === 'function') {
+        // Keep the caret visible: if the field still ends below the visible area, measure once more.
+        if (frame !== undefined) cancelAnimationFrame(frame)
+        frame = requestAnimationFrame(() => {
+          frame = undefined
+          const field = document.activeElement
+          if (!active || !(field instanceof HTMLTextAreaElement)) return
+          if (field.getBoundingClientRect().bottom > viewport.offsetTop + viewport.height)
+            update(true)
+        })
+      }
     }
-    const afterFocus = () => queueMicrotask(update)
-    viewport.addEventListener('resize', update)
-    viewport.addEventListener('scroll', update)
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update)
+    const onChange = () => update()
+    const afterFocus = () => queueMicrotask(onChange)
+    viewport.addEventListener('resize', onChange)
+    viewport.addEventListener('scroll', onChange)
+    window.addEventListener('resize', onChange)
+    window.addEventListener('scroll', onChange)
     document.addEventListener('focusin', afterFocus)
     document.addEventListener('focusout', afterFocus)
     update()
     return () => {
       active = false
-      viewport.removeEventListener('resize', update)
-      viewport.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update)
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      viewport.removeEventListener('resize', onChange)
+      viewport.removeEventListener('scroll', onChange)
+      window.removeEventListener('resize', onChange)
+      window.removeEventListener('scroll', onChange)
       document.removeEventListener('focusin', afterFocus)
       document.removeEventListener('focusout', afterFocus)
     }

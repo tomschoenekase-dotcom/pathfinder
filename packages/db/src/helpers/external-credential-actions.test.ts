@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   activateAgentBridgeCredentialAction,
+  activateClientMcpCredentialAction,
   ExternalCredentialActionError,
   issueExternalCredentialAction,
   revokeExternalCredentialAction,
@@ -176,6 +177,146 @@ describe('disabled external credential actions', () => {
       expect.objectContaining({ data: { enabled: true, updatedAt: activatedAt } }),
     )
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toMatch(/secretHash|plaintext/u)
+  })
+
+  it('activates a client MCP credential only for the venue and appearance capability set, with replay binding', async () => {
+    const { tx, client } = harness()
+    const mcpCredential = {
+      ...credential,
+      kind: 'MCP',
+      capabilities: ['appearance:read', 'appearance:write', 'venues:create', 'venues:read'],
+    }
+    tx.externalAccessCredential.findFirst.mockResolvedValue(mcpCredential)
+    const activation = {
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: null,
+      operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      actor,
+      credentialId: mcpCredential.id,
+      expectedUpdatedAt: mcpCredential.updatedAt,
+      capabilities: mcpCredential.capabilities,
+    }
+    const result = await activateClientMcpCredentialAction(activation, client as never)
+    expect(result).toMatchObject({
+      credential: { enabled: true },
+      plaintextSecret: null,
+      replayed: false,
+    })
+    expect(tx.externalAccessCredential.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          venueId: null,
+          scopeKey: '__CLIENT__',
+          kind: 'MCP',
+          enabled: false,
+        }),
+      }),
+    )
+    expect(tx.externalCredentialActivation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          venueId: null,
+          scopeKey: '__CLIENT__',
+          credentialId: mcpCredential.id,
+        }),
+      }),
+    )
+
+    const hash = tx.externalCredentialActivation.create.mock.calls[0]?.[0]?.data.operationHash
+    const replay = harness()
+    replay.client.externalCredentialActivation.findFirst.mockResolvedValue({
+      operationHash: hash,
+      activatedBy: actor.id,
+      credential: { ...mcpCredential, enabled: true },
+    })
+    await expect(
+      activateClientMcpCredentialAction(activation, replay.client as never),
+    ).resolves.toMatchObject({
+      plaintextSecret: null,
+      replayed: true,
+    })
+    await expect(
+      activateClientMcpCredentialAction(
+        { ...activation, capabilities: ['appearance:read', 'venues:read'] },
+        replay.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      activateClientMcpCredentialAction(
+        { ...activation, clientId: 'other-tenant' },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('rejects client activation capabilities outside the exact appearance and venue allowlist', async () => {
+    const { tx, client } = harness()
+    tx.externalAccessCredential.findFirst.mockResolvedValue({
+      ...credential,
+      kind: 'MCP',
+      capabilities: ['agent-runs:execute'],
+    })
+    await expect(
+      activateClientMcpCredentialAction(
+        {
+          tenantId: 'tenant-1',
+          clientId: 'tenant-1',
+          venueId: null,
+          operationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          actor,
+          credentialId: credential.id,
+          expectedUpdatedAt: credential.updatedAt,
+          capabilities: ['agent-runs:execute'],
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.externalCredentialActivation.create).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for mismatched tenant, venue, scope, expiry, revocation, state, and CAS evidence', async () => {
+    const eligible = {
+      ...credential,
+      kind: 'MCP',
+      capabilities: ['appearance:read', 'venues:read'],
+    }
+    const activation = {
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: null,
+      operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      actor,
+      credentialId: eligible.id,
+      expectedUpdatedAt: eligible.updatedAt,
+      capabilities: eligible.capabilities,
+    }
+    const invalidEvidence = [
+      { tenantId: 'other-tenant' },
+      { clientId: 'other-tenant' },
+      { venueId: 'venue-1', scopeKey: 'venue-1' },
+      { scopeKey: 'other-scope' },
+      { expiresAt: new Date(Date.now() - 1_000) },
+      { revokedAt: new Date() },
+      { enabled: true },
+      { updatedAt: new Date(eligible.updatedAt.getTime() + 1) },
+    ]
+    for (const overrides of invalidEvidence) {
+      const { tx, client } = harness()
+      tx.externalAccessCredential.findFirst.mockResolvedValue({ ...eligible, ...overrides })
+      await expect(
+        activateClientMcpCredentialAction(activation, client as never),
+      ).rejects.toMatchObject({
+        code: 'CONFLICT',
+      })
+      expect(tx.externalCredentialActivation.create).not.toHaveBeenCalled()
+      expect(tx.externalAccessCredential.updateMany).not.toHaveBeenCalled()
+    }
+    const { client } = harness()
+    await expect(
+      activateClientMcpCredentialAction({ ...activation, venueId: 'venue-1' }, client as never),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
   })
 
   it('rejects wrong actor, scope mismatch, duplicates, and cross-kind capabilities before writes', async () => {

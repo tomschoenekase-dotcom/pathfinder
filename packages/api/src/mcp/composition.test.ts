@@ -162,6 +162,73 @@ const credential = {
 } satisfies VerifiedMcpCredentialScope
 
 describe('safe operational MCP composition', () => {
+  it('reads appearance through the same-tenant venue filter and omits branding URLs', async () => {
+    const database = {
+      venue: {
+        findFirst: vi.fn().mockResolvedValue({
+          chatTheme: 'forest',
+          chatAccentColor: '#123456',
+          chatFont: 'inter',
+          chatLogoUrl: 'https://private.example/logo?secret=1',
+          chatBannerUrl: null,
+          chatLogoDerivativeId: null,
+          chatBannerDerivativeId: null,
+          chatShowPhotos: true,
+          chatShowLinks: false,
+          chatAppearance: null,
+          updatedAt: new Date('2026-09-29T12:00:00.000Z'),
+        }),
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'torchiko.appearance.get',
+      { clientId: 'tenant-1', venueId: 'venue-1' },
+      { credential: { ...credential, venueIds: [], capabilities: ['appearance:read'] } },
+    )
+    expect(database.venue.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'venue-1', tenantId: 'tenant-1' },
+      }),
+    )
+    expect(JSON.stringify(result.structuredContent.data)).not.toContain('private.example')
+    expect(result.structuredContent.data).toMatchObject({ chatTheme: 'forest', hasLogo: true })
+  })
+
+  it('lists only bounded safe venue identity fields for the verified tenant', async () => {
+    const database = {
+      venue: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'venue-1',
+            name: 'Space Museum',
+            slug: 'space-museum',
+            category: 'museum',
+            guideMode: 'non_location',
+            isActive: true,
+            updatedAt: new Date('2026-09-29T12:00:00Z'),
+          },
+        ]),
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'torchiko.venues.list',
+      { clientId: 'tenant-1' },
+      { credential: { ...credential, venueIds: [], capabilities: ['venues:read'] } },
+    )
+    expect(database.venue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1' },
+        take: 50,
+        select: expect.not.objectContaining({
+          description: true,
+          guideNotes: true,
+          chatLogoUrl: true,
+        }),
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({ venues: [{ slug: 'space-museum' }] })
+  })
+
   it('returns a bounded exact V1 candidate without creating a package or publication', async () => {
     buildIntakeV1Candidate.mockResolvedValueOnce({
       submissionId: 'submission-1',
@@ -478,6 +545,7 @@ describe('safe operational MCP composition', () => {
   })
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.stubEnv('MCP_WRITE_TOOLS_ENABLED', 'true')
     readSupportFulfillment.mockResolvedValue({
       contractVersion: 1,
       linkedPackageCount: 0,

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import {
   activateAgentBridgeCredentialAction,
+  activateClientMcpCredentialAction,
   ExternalCredentialActionError,
   issueExternalCredentialAction,
   revokeExternalCredentialAction,
@@ -66,8 +67,42 @@ const actionScope = scope.extend({
   venueId: z.string().trim().min(1).max(191).nullable(),
   operationId: z.string().uuid(),
 })
+const clientMcpCapabilities = z.enum([
+  'appearance:read',
+  'appearance:write',
+  'venues:create',
+  'venues:read',
+])
 
 export const adminExternalCredentialsRouter = router({
+  activateClientMcpCredential: adminProcedure
+    .input(
+      scope
+        .extend({
+          venueId: z.null(),
+          operationId: z.string().uuid(),
+          credentialId: z.string().trim().min(1).max(191),
+          expectedUpdatedAt: z.string().datetime({ offset: true }),
+          capabilities: z.array(clientMcpCapabilities).min(1).max(4),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        assertClientScope(input)
+        return await activateClientMcpCredentialAction(
+          {
+            ...input,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   activateAgentBridgeCredential: adminProcedure
     .input(
       actionScope.extend({

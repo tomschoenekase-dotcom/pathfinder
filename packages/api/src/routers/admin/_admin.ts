@@ -35,6 +35,7 @@ import { adminEvaluationOperationsRouter } from './evaluation-operations'
 import { adminExternalCredentialsRouter } from './external-credentials'
 import { adminFreshnessAuditRouter } from './freshness-audit'
 import { adminGuestDesignRouter } from './guest-design'
+import { adminOperatorRouter } from './operator'
 import { adminOverviewRouter } from './overview'
 import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
@@ -174,4 +175,5 @@ export const adminRouter = mergeRouters(
   adminCustomerAccessExecutionRouter,
   adminCharacterFactoryRouter,
   adminVenueDistributionRouter,
+  adminOperatorRouter,
 )

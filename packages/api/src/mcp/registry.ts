@@ -2,6 +2,7 @@ import { McpExecutionClaim } from './execution-claim'
 
 import {
   assertMcpScope,
+  McpScopeError,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
   McpAgentImprovementProposalInput,
@@ -11,6 +12,8 @@ import {
   McpAccountContextInput,
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
+  McpAppearanceGetInput,
+  McpAppearanceUpdateInput,
   McpBillingProposalInput,
   McpCustomerAccessPreparationInput,
   McpDelegateSpecialistInput,
@@ -57,6 +60,8 @@ import {
   McpSupportTriageProposalInput,
   McpSupportTriageApplyInput,
   McpToolResult,
+  McpVenuesCreateInput,
+  McpVenuesListInput,
   McpUpdateDraftInput,
   McpWeeklyReportDraftInput,
   PATHFINDER_MCP_TOOLS,
@@ -82,6 +87,22 @@ export type VerifiedMcpInvocationContext = Readonly<{
  * the first-party UI/API; they must not reproduce authorization or business logic here.
  */
 export type PathfinderMcpDomainActions = Readonly<{
+  appearanceGet: (
+    input: McpAppearanceGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  appearanceUpdate: (
+    input: McpAppearanceUpdateInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  venuesList: (
+    input: McpVenuesListInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  venuesCreate: (
+    input: McpVenuesCreateInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   verifyApprovalGrant: (
     request: Readonly<{
       approvalGrantId: string
@@ -382,6 +403,7 @@ export function createPathfinderMcpRegistry(
   actions: PathfinderMcpDomainActions,
   options: Readonly<{
     writeToolsEnabled?: boolean
+    venueWriteToolsEnabled?: boolean
     beforeAction?: (
       name: string,
       input: unknown,
@@ -390,6 +412,7 @@ export function createPathfinderMcpRegistry(
   }> = {},
 ): PathfinderMcpRegistry {
   const writeToolsEnabled = options.writeToolsEnabled ?? false
+  const venueWriteToolsEnabled = options.venueWriteToolsEnabled ?? false
 
   return {
     listTools: () => PATHFINDER_MCP_TOOLS,
@@ -407,6 +430,15 @@ export function createPathfinderMcpRegistry(
           : {}),
       }
       const metadata = definition._meta['com.pathfinder/security']
+      if (
+        (name === 'torchiko.appearance.update' || name === 'torchiko.venues.create') &&
+        !venueWriteToolsEnabled
+      ) {
+        throw new PathfinderMcpRegistryError(
+          'WRITE_TOOLS_DISABLED',
+          'MCP venue write tools are disabled',
+        )
+      }
       if (metadata.approvalRequired) {
         if (!writeToolsEnabled) {
           throw new PathfinderMcpRegistryError(
@@ -424,6 +456,48 @@ export function createPathfinderMcpRegistry(
 
       let result: McpToolResult
       switch (name as PathfinderMcpToolName) {
+        case 'torchiko.appearance.get': {
+          const input = McpAppearanceGetInput.parse(arguments_)
+          assertMcpScope(
+            context.credential,
+            input,
+            metadata.capability,
+            context.credential.venueIds.length === 0 ? 'client' : 'venue',
+          )
+          await options.beforeAction?.(name, input, context)
+          result = await actions.appearanceGet(input, context)
+          break
+        }
+        case 'torchiko.appearance.update': {
+          const input = McpAppearanceUpdateInput.parse(arguments_)
+          assertMcpScope(
+            context.credential,
+            input,
+            metadata.capability,
+            context.credential.venueIds.length === 0 ? 'client' : 'venue',
+          )
+          await options.beforeAction?.(name, input, context)
+          result = await actions.appearanceUpdate(input, context)
+          break
+        }
+        case 'torchiko.venues.list': {
+          const input = McpVenuesListInput.parse(arguments_)
+          if (context.credential.venueIds.length !== 0)
+            throw new McpScopeError('Client scope is required')
+          assertMcpScope(context.credential, input, metadata.capability, 'client')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.venuesList(input, context)
+          break
+        }
+        case 'torchiko.venues.create': {
+          const input = McpVenuesCreateInput.parse(arguments_)
+          if (context.credential.venueIds.length !== 0)
+            throw new McpScopeError('Client scope is required')
+          assertMcpScope(context.credential, input, metadata.capability, 'client')
+          await options.beforeAction?.(name, input, context)
+          result = await actions.venuesCreate(input, context)
+          break
+        }
         case 'pathfinder.read': {
           const input = McpReadInput.parse(arguments_)
           const resourceSecurity = MCP_RESOURCE_SECURITY_BY_KIND[input.resource]!

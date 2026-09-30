@@ -20,9 +20,9 @@ import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../p
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
-test('250 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
+test('254 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  const rows = manifest.names.slice(0, 250).map((migration_name) => ({
+  const rows = manifest.names.slice(0, 254).map((migration_name) => ({
     migration_name,
     checksum: manifest.ledgerChecksums.get(migration_name),
     finished_at: '2026-09-12T00:00:00Z',
@@ -41,7 +41,7 @@ test('250 maintenance source verification accepts the reviewed ledger and refuse
   let calls = 0
   await verifyDispositionDatabaseSource({
     query: async () =>
-      [rows, functions, { tables: 267, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
+      [rows, functions, { tables: 277, invalidIndexes: 0, unvalidatedConstraints: 0 }][calls++],
   })
   assert.equal(calls, 3)
   for (const [index, patch] of [
@@ -66,14 +66,21 @@ test('250 maintenance source verification accepts the reviewed ledger and refuse
     assert.equal(calls, 1)
   }
 })
-test('maintenance source verification refuses a 252-row ledger before function body reads', async () => {
-  const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  assert.equal(manifest.names.length, 252)
-  assert.deepEqual(manifest.names.slice(-2), [
+test('maintenance source verification requires the admitted 254-row endpoint and refuses 252 before function reads', async () => {
+  const current = await readMigrationManifest(join(root, 'packages/db/prisma'))
+  assert.equal(current.names.length, 254)
+  assert.deepEqual(current.names.slice(-2), [
+    '20260930100000_add_mcp_venue_appearance_capabilities',
+    '20261001090000_add_operator_oauth',
+  ])
+  assert.equal(current.names[251], '20260927090000_add_venue_chat_appearance')
+  const names = current.names.slice(0, 252)
+  const manifest = { ...current, names }
+  assert.deepEqual(names.slice(-2), [
     '20260926120000_add_venue_distribution',
     '20260927090000_add_venue_chat_appearance',
   ])
-  const rows = manifest.names.map((migration_name) => ({
+  const rows = names.map((migration_name) => ({
     migration_name,
     checksum: manifest.ledgerChecksums.get(migration_name),
     finished_at: '2026-09-12T00:00:00Z',
@@ -174,7 +181,7 @@ async function fixture() {
   return { dir, plan, now }
 }
 
-test('actual default CLI refuses a bound plan while source migration 251 is unreviewed', async () => {
+test('actual default CLI refuses a bound plan while the database migration endpoint is stale', async () => {
   const { dir, plan } = await fixture()
   const raw = JSON.stringify(plan)
   const file = join(dir, 'plan.json')
@@ -233,7 +240,7 @@ for (const mode of ['stale', 'held', 'source-drift']) {
     assert.deepEqual({ closes, queries, connects }, { closes: 1, queries: 0, connects: 0 })
   })
 }
-test('already-journaled APPLY still refuses before connecting while source 251 is unreviewed', async () => {
+test('already-journaled APPLY still refuses before connecting while the database migration endpoint is stale', async () => {
   const { dir, plan, now } = await fixture()
   const request = {
     version: 'guest-conversation-disposition-v1',
@@ -289,10 +296,7 @@ test('already-journaled APPLY still refuses before connecting while source 251 i
     raw = JSON.stringify({ ...prior, highWaterSha256: journal.headSha256 })
   await writeFile(path, raw, { flag: 'wx' })
   plan.evidence.journalCustody = { path, sha256: dispositionSha256(raw) }
-  await assert.rejects(
-    validateDispositionMaintenancePlan(plan, now),
-    /source migration endpoint/u,
-  )
+  await assert.rejects(validateDispositionMaintenancePlan(plan, now), /source migration endpoint/u)
   let closed = false
   await assert.rejects(
     runDispositionMaintenance({

@@ -167,6 +167,7 @@ export type { AgentDelegationClient } from './helpers/agent-delegation-actions'
 export {
   ExternalCredentialActionError,
   issueExternalCredentialAction,
+  activateClientMcpCredentialAction,
   activateAgentBridgeCredentialAction,
   revokeExternalCredentialAction,
   rotateExternalCredentialAction,
@@ -1073,6 +1074,8 @@ export type {
   CreateVenueActionInput,
   VenueActionClient,
   VenueHumanActor,
+  VenueIntegrationActor,
+  VenueCreateActor,
   VenueInitialContent,
 } from './helpers/venue-create-action'
 export {
@@ -1088,6 +1091,7 @@ export type {
   UpdateVenueAiConfigFields,
   UpdateVenueChatDesignFields,
   UpdateVenueFields,
+  VenueChatDesignActor,
 } from './helpers/venue-actions'
 export {
   publishWeeklyReportAction,

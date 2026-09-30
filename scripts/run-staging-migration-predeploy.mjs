@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-252-20260927',
+  approval: 'torchiko-staging-lineage-to-254-20260930',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 252,
+  migrationCount: 254,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -167,10 +167,15 @@ const EXPECTED = Object.freeze({
   distributionPredecessorFinalMigration: '20260918190000_add_agent_routines',
   distributionPredecessorManifestHash:
     '9a8d7747ac94edeb3eb2b60aabbe661e23c3f360d5f48f657591dcff08e837be',
-  finalMigration: '20260927090000_add_venue_chat_appearance',
-  manifestHash: '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e',
-  // Exact additive 252 endpoint; preserves the frozen 250 source prefix.
-  finalPublicTableCount: 269,
+  operatorOAuthPredecessorCount: 252,
+  operatorOAuthPredecessorPublicTableCount: 269,
+  operatorOAuthPredecessorFinalMigration: '20260927090000_add_venue_chat_appearance',
+  operatorOAuthPredecessorManifestHash:
+    '93ae597834c432bd619af3b4ba53c3010e9d7cd38f6b27ff9c90b48d0537d91e',
+  finalMigration: '20261001090000_add_operator_oauth',
+  manifestHash: '5cd8553c554dc8c728ac44fb3d5f5ace0644560025d7fe4b46e7b2c6af1f9cb0',
+  // Exact additive 254 endpoint; preserves the frozen 252 source prefix.
+  finalPublicTableCount: 277,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -576,6 +581,17 @@ export function assertFrozenManifest(manifest) {
     distributionPredecessorHash !== EXPECTED.distributionPredecessorManifestHash
   )
     fail('distribution predecessor manifest changed')
+  const operatorOAuthPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.operatorOAuthPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.operatorOAuthPredecessorCount - 1] !==
+      EXPECTED.operatorOAuthPredecessorFinalMigration ||
+    operatorOAuthPredecessorHash !== EXPECTED.operatorOAuthPredecessorManifestHash
+  )
+    fail('operator OAuth predecessor manifest changed')
   const fullHash = manifestHash(
     manifest.names.map((name) => `${name} ${manifest.checksums.get(name)}`),
   )
@@ -628,6 +644,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.guestDispositionPredecessorCount &&
     rows.length !== EXPECTED.routinePredecessorCount &&
     rows.length !== EXPECTED.distributionPredecessorCount &&
+    rows.length !== EXPECTED.operatorOAuthPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -715,6 +732,7 @@ function ledgerState(rows, manifest) {
     return 'guest-disposition-predecessor'
   if (rows.length === EXPECTED.routinePredecessorCount) return 'agent-routines-predecessor'
   if (rows.length === EXPECTED.distributionPredecessorCount) return 'distribution-predecessor'
+  if (rows.length === EXPECTED.operatorOAuthPredecessorCount) return 'operator-oauth-predecessor'
   return 'complete'
 }
 
@@ -1013,6 +1031,7 @@ export function expectedPublicTableCount(state) {
     'guest-disposition-predecessor': EXPECTED.guestDispositionPredecessorPublicTableCount,
     'agent-routines-predecessor': EXPECTED.routinePredecessorPublicTableCount,
     'distribution-predecessor': EXPECTED.distributionPredecessorPublicTableCount,
+    'operator-oauth-predecessor': EXPECTED.operatorOAuthPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

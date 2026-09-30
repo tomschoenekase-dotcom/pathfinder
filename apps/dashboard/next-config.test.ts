@@ -28,6 +28,21 @@ describe('response security baseline', () => {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
+      ...['/oauth/:path*', '/approve/:path*'].map((source) => ({
+        source,
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+        ],
+      })),
     ])
+  })
+
+  it('never lets operator consent or approval pages be framed', async () => {
+    const rules = await nextConfig.headers!()
+    for (const source of ['/oauth/:path*', '/approve/:path*']) {
+      const rule = rules.find((candidate) => candidate.source === source)
+      expect(rule?.headers).toContainEqual({ key: 'X-Frame-Options', value: 'DENY' })
+    }
   })
 })

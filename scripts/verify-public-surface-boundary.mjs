@@ -34,7 +34,8 @@ async function collectFiles(directory, predicate, violations = []) {
       violations.push(`${relative(absolute)}: symbolic links are not allowed in scanned trees`)
     } else if (
       entry.isDirectory() &&
-      !entry.name.startsWith('.') &&
+      // `.well-known` holds public App Router routes (OAuth metadata); other dot folders are tooling.
+      (!entry.name.startsWith('.') || entry.name === '.well-known') &&
       entry.name !== 'node_modules'
     ) {
       files.push(...(await collectFiles(absolute, predicate, violations)).files)

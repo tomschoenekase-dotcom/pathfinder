@@ -1,10 +1,16 @@
+import { createHash } from 'node:crypto'
+
 import {
   LEGACY_AI_TONE_TO_PRESET,
   TONE_PRESET_BEHAVIOR_VERSION,
   TONE_PRESET_TO_LEGACY_AI_TONE,
   type TonePresetId,
 } from '@pathfinder/contracts/tone-presets'
-import { chatAppearanceEquals, type ChatAppearance } from '@pathfinder/contracts/chat-appearance'
+import {
+  chatAppearanceEquals,
+  parseChatAppearance,
+  type ChatAppearance,
+} from '@pathfinder/contracts/chat-appearance'
 import * as prismaClient from '@prisma/client'
 
 import { db } from '../client'
@@ -15,6 +21,7 @@ import {
   VenueActionError,
   type VenueActionClient,
   type VenueHumanActor,
+  type VenueIntegrationActor,
   venueListSelect,
 } from './venue-create-action'
 
@@ -53,6 +60,7 @@ type BaseAction = {
 
 export type VenueChatDesignActor =
   | VenueHumanActor
+  | VenueIntegrationActor
   | { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 
 function requireActor(actor: VenueHumanActor): void {
@@ -62,6 +70,12 @@ function requireActor(actor: VenueHumanActor): void {
 }
 
 function requireChatDesignActor(actor: VenueChatDesignActor): void {
+  if (actor.type === 'INTEGRATION') {
+    if (!actor.credentialId || actor.capability !== 'appearance:write' || !actor.idempotencyKey) {
+      throw new VenueActionError('INVALID_INPUT', 'A verified appearance credential is required')
+    }
+    return
+  }
   if (
     actor.type !== 'HUMAN' ||
     !actor.id ||
@@ -69,6 +83,49 @@ function requireChatDesignActor(actor: VenueChatDesignActor): void {
   ) {
     throw new VenueActionError('INVALID_INPUT', 'A human venue design operator is required')
   }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(',')}}`
+  return JSON.stringify(value) ?? 'null'
+}
+
+function operationHash(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
+async function assertChatDesignCredential(
+  tx: typeof db,
+  tenantId: string,
+  venueId: string,
+  actor: VenueIntegrationActor,
+): Promise<void> {
+  const clientScope = actor.scope === 'client'
+  const credential = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM external_access_credentials
+    WHERE id = ${actor.credentialId}
+      AND tenant_id = ${tenantId}
+      AND client_id = ${tenantId}
+      AND venue_id IS NOT DISTINCT FROM ${clientScope ? null : venueId}
+      AND scope_key = ${clientScope ? '__CLIENT__' : venueId}
+      AND kind = 'MCP'
+      AND enabled = TRUE
+      AND revoked_at IS NULL
+      AND 'appearance:write' = ANY(capabilities)
+      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+    FOR SHARE
+  `
+  if (credential.length === 0)
+    throw new VenueActionError(
+      'INVALID_INPUT',
+      'Active appearance credential for this venue is required',
+    )
 }
 
 async function prepare(tx: typeof db, input: BaseAction) {
@@ -341,6 +398,7 @@ export async function updateVenueAiConfigAction(
 }
 
 export type UpdateVenueChatDesignFields = {
+  title?: string | null | undefined
   chatTheme?: 'default' | 'forest' | 'sunset' | 'midnight' | 'rose' | 'dark' | undefined
   chatAccentColor?: string | null | undefined
   chatFont?: 'jakarta' | 'inter' | 'poppins' | 'spaceGrotesk' | 'dmSans' | 'playfair' | undefined
@@ -399,11 +457,55 @@ export async function updateVenueChatDesignAction(
   },
   client: VenueActionClient = db,
 ) {
+  const integrationActor = input.actor.type === 'INTEGRATION' ? input.actor : null
+  const requestHash = integrationActor
+    ? operationHash({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        expectedUpdatedAt: input.expectedUpdatedAt.toISOString(),
+        fields: input.fields,
+      })
+    : null
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     requireChatDesignActor(input.actor)
-    await setContentVersionContext(tx, { actorId: input.actor.id })
+    const actorId = input.actor.type === 'INTEGRATION' ? input.actor.credentialId : input.actor.id
+    if (integrationActor) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-appearance-operation:${input.tenantId}:${integrationActor.credentialId}:${integrationActor.idempotencyKey}`}, 0))`
+      await assertChatDesignCredential(tx, input.tenantId, input.venueId, integrationActor)
+    }
+    await setContentVersionContext(tx, { actorId })
     await lockVenueContentMutation(tx, { tenantId: input.tenantId, venueId: input.venueId })
+    if (integrationActor) {
+      const prior = await tx.auditLog.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          credentialId: integrationActor.credentialId,
+          idempotencyKey: integrationActor.idempotencyKey,
+          action: { in: ['venue.chat-design.updated', 'venue.chat-design.noop'] },
+        },
+        select: { targetId: true, structuredReason: true },
+      })
+      if (prior) {
+        const evidence = prior.structuredReason as { operationHash?: unknown } | null
+        if (prior.targetId !== input.venueId || evidence?.operationHash !== requestHash) {
+          throw new VenueActionError(
+            'CONFLICT',
+            'Operation ID was already used for different appearance changes.',
+          )
+        }
+        const replay = await tx.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: venueChatDesignSelect,
+        })
+        if (!replay)
+          throw new VenueActionError(
+            'CONFLICT',
+            'The original appearance operation is unavailable.',
+          )
+        return { ...replay, replayed: true as const }
+      }
+    }
     const before = await tx.venue.findFirst({
       where: { id: input.venueId, tenantId: input.tenantId },
       select: venueChatDesignSelect,
@@ -419,7 +521,21 @@ export async function updateVenueChatDesignAction(
         )
       }
     }
-    const requestedEntries: Array<[string, unknown]> = Object.entries(input.fields).filter(
+    const { title, ...designFields } = input.fields
+    const fields: UpdateVenueChatDesignFields = { ...designFields }
+    if (title !== undefined) {
+      if (fields.chatAppearance === null) {
+        throw new VenueActionError(
+          'INVALID_INPUT',
+          'A title cannot be combined with clearing chat appearance.',
+        )
+      }
+      fields.chatAppearance = {
+        ...(fields.chatAppearance ?? parseChatAppearance(before.chatAppearance)),
+        title,
+      }
+    }
+    const requestedEntries: Array<[string, unknown]> = Object.entries(fields).filter(
       ([key, value]) => value !== undefined && !key.endsWith('DerivativeReceipt'),
     )
     for (const key of ['chatLogo', 'chatBanner'] as const) {
@@ -536,7 +652,29 @@ export async function updateVenueChatDesignAction(
           JSON.stringify(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
       )
     })
-    if (exactReplay) return { ...before, replayed: true as const }
+    if (exactReplay) {
+      if (integrationActor) {
+        await writeAuditLogStrict(
+          {
+            tenantId: input.tenantId,
+            actorId: integrationActor.credentialId,
+            actorRole: 'INTEGRATION',
+            actorType: 'INTEGRATION',
+            credentialId: integrationActor.credentialId,
+            capability: integrationActor.capability,
+            idempotencyKey: integrationActor.idempotencyKey,
+            action: 'venue.chat-design.noop',
+            targetType: 'Venue',
+            targetId: input.venueId,
+            beforeState: safeChat(before),
+            afterState: safeChat(before),
+            structuredReason: { operationHash: requestHash },
+          },
+          tx,
+        )
+      }
+      return { ...before, replayed: true as const }
+    }
     if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
       conflict('Venue design changed; refresh and try again.')
     const data = {
@@ -563,8 +701,17 @@ export async function updateVenueChatDesignAction(
     await writeAuditLogStrict(
       {
         tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
+        actorId: input.actor.type === 'INTEGRATION' ? input.actor.credentialId : input.actor.id,
+        actorRole: input.actor.type === 'INTEGRATION' ? 'INTEGRATION' : input.actor.role,
+        ...(input.actor.type === 'INTEGRATION'
+          ? {
+              actorType: 'INTEGRATION' as const,
+              credentialId: input.actor.credentialId,
+              capability: input.actor.capability,
+              idempotencyKey: input.actor.idempotencyKey,
+              structuredReason: { operationHash: requestHash },
+            }
+          : {}),
         action: 'venue.chat-design.updated',
         targetType: 'Venue',
         targetId: input.venueId,

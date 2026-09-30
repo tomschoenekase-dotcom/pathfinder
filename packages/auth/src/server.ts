@@ -7,7 +7,7 @@ import {
   providerUserId,
 } from './identity-binding'
 
-export { auth } from './auth'
+export { auth, hasStrictReverification, strictReverificationRequiredBody } from './auth'
 
 type ApplicationUser = Pick<
   NonNullable<Awaited<ReturnType<typeof clerkCurrentUser>>>,

@@ -467,6 +467,41 @@ describe('AGENT_BRIDGE_HTTP_ENABLED', () => {
   })
 })
 
+describe('OPERATOR_OAUTH_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).OPERATOR_OAUTH_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('accepts only an exact explicit enable value and a URL issuer', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_OAUTH_ENABLED: 'true',
+      }).OPERATOR_OAUTH_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_OAUTH_ENABLED: 'yes',
+      }),
+    ).toThrow()
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_OAUTH_ISSUER: 'not a url',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('EVALUATION_RUNNER_ENABLED', () => {
   it.each(['production', 'staging', 'preview'] as const)(
     'defaults to disabled in %s',

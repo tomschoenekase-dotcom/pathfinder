@@ -330,6 +330,14 @@ describe('tenantIsolationMiddleware', () => {
       'PublicInterestSubmission',
       'PublicInterestSubmissionReview',
       'PublicInterestProspectConversion',
+      'OperatorOAuthClient',
+      'OperatorGrant',
+      'OperatorAuthorizationCode',
+      'OperatorToken',
+      'OperatorPlan',
+      'OperatorProposal',
+      'OperatorAutonomyPolicy',
+      'OperatorAuditEvent',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual([
       'AuditLog',

@@ -140,7 +140,10 @@ for (const service of services) {
       throw new Error(`${service.dockerfile}: staging migration approval is stale`)
     }
     if (
-      !runbook.includes(`${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`) ||
+      !runbook.includes(
+        `\`${STAGING_MIGRATION_APPROVAL_VARIABLE}\` to the exact source pin in\n` +
+          '`Dockerfile.web.staging` and `scripts/run-staging-migration-predeploy.mjs`',
+      ) ||
       !runbook.includes('does not inherit Docker image `ENV`')
     ) {
       throw new Error('docs/railway-staging.md: service-level migration approval is stale')

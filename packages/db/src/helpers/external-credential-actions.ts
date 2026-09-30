@@ -264,6 +264,163 @@ const bridgeActivationSchema = lifecycleSchema.extend({
   venueId: z.string().trim().min(1).max(191),
 })
 
+const clientMcpCapabilities = [
+  'appearance:read',
+  'appearance:write',
+  'venues:create',
+  'venues:read',
+] as const
+const clientMcpActivationSchema = lifecycleSchema.extend({
+  venueId: z.null(),
+  capabilities: z.array(z.enum(clientMcpCapabilities)).min(1).max(clientMcpCapabilities.length),
+})
+
+/** Activates a client-scoped MCP venue/appearance credential after a strict operator action. */
+export async function activateClientMcpCredentialAction(
+  raw: unknown,
+  client: ExternalCredentialActionClient = db,
+) {
+  const parsed = clientMcpActivationSchema.safeParse(raw)
+  if (!parsed.success)
+    throw new ExternalCredentialActionError(
+      'INVALID_INPUT',
+      'Invalid client MCP activation request',
+    )
+  const input = parsed.data
+  if (input.tenantId !== input.clientId)
+    throw new ExternalCredentialActionError('INVALID_INPUT', 'Client must match tenant scope')
+  const capabilities = parseCapabilities('MCP', input.capabilities)
+  if (
+    capabilities.some(
+      (capability) =>
+        !clientMcpCapabilities.includes(capability as (typeof clientMcpCapabilities)[number]),
+    )
+  )
+    throw new ExternalCredentialActionError('INVALID_INPUT', 'Unsupported client MCP capabilities')
+  const opHash = operationHash({
+    action: 'ACTIVATE_CLIENT_MCP',
+    operationId: input.operationId,
+    tenantId: input.tenantId,
+    clientId: input.clientId,
+    venueId: null,
+    credentialId: input.credentialId,
+    capabilities,
+    expectedUpdatedAt: input.expectedUpdatedAt.toISOString(),
+    actorId: input.actor.id,
+  })
+  const prior = await client.externalCredentialActivation.findFirst({
+    where: { operationId: input.operationId, tenantId: input.tenantId },
+    select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
+  })
+  if (prior) {
+    if (prior.operationHash !== opHash || prior.activatedBy !== input.actor.id)
+      throw new ExternalCredentialActionError(
+        'CONFLICT',
+        'Operation ID is bound to different activation evidence',
+      )
+    return { credential: prior.credential, plaintextSecret: null, replayed: true as const }
+  }
+  try {
+    return await client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const credential = await tx.externalAccessCredential.findFirst({
+        where: {
+          id: input.credentialId,
+          tenantId: input.tenantId,
+          clientId: input.clientId,
+          venueId: null,
+          scopeKey: '__CLIENT__',
+          kind: 'MCP',
+          enabled: false,
+          revokedAt: null,
+          updatedAt: input.expectedUpdatedAt,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        select: credentialSelect,
+      })
+      if (
+        !credential ||
+        credential.tenantId !== input.tenantId ||
+        credential.clientId !== input.clientId ||
+        credential.venueId !== null ||
+        credential.scopeKey !== '__CLIENT__' ||
+        credential.kind !== 'MCP' ||
+        credential.enabled ||
+        credential.revokedAt !== null ||
+        credential.updatedAt.getTime() !== input.expectedUpdatedAt.getTime() ||
+        (credential.expiresAt !== null && credential.expiresAt.getTime() <= Date.now()) ||
+        credential.capabilities.join('\u0000') !== capabilities.join('\u0000')
+      ) {
+        throw new ExternalCredentialActionError(
+          'CONFLICT',
+          'Credential is not eligible for client MCP activation',
+        )
+      }
+      const activatedAt = new Date()
+      await tx.externalCredentialActivation.create({
+        data: {
+          operationId: input.operationId,
+          operationHash: opHash,
+          tenantId: credential.tenantId,
+          clientId: credential.clientId,
+          venueId: null,
+          scopeKey: '__CLIENT__',
+          credentialId: credential.id,
+          activatedBy: input.actor.id,
+          activatedAt,
+        },
+      })
+      const changed = await tx.externalAccessCredential.updateMany({
+        where: {
+          id: credential.id,
+          tenantId: credential.tenantId,
+          clientId: credential.clientId,
+          venueId: null,
+          scopeKey: '__CLIENT__',
+          enabled: false,
+          revokedAt: null,
+          updatedAt: input.expectedUpdatedAt,
+        },
+        data: { enabled: true, updatedAt: activatedAt },
+      })
+      if (changed.count !== 1)
+        throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
+      await writeAuditLogStrict(
+        {
+          tenantId: credential.tenantId,
+          actorId: input.actor.id,
+          actorRole: 'PLATFORM_ADMIN',
+          action: 'external-credential.client-mcp-activated',
+          targetType: 'ExternalAccessCredential',
+          targetId: credential.id,
+          beforeState: { enabled: false },
+          afterState: {
+            venueId: null,
+            kind: 'MCP',
+            capabilities: credential.capabilities,
+            enabled: true,
+          },
+        },
+        tx,
+      )
+      return {
+        credential: { ...credential, enabled: true, updatedAt: activatedAt },
+        plaintextSecret: null,
+        replayed: false as const,
+      }
+    })
+  } catch (error) {
+    if (!isP2002(error) && !isP2034(error)) throw error
+    const converged = await client.externalCredentialActivation.findFirst({
+      where: { operationId: input.operationId, tenantId: input.tenantId },
+      select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
+    })
+    if (converged?.operationHash === opHash && converged.activatedBy === input.actor.id)
+      return { credential: converged.credential, plaintextSecret: null, replayed: true as const }
+    throw new ExternalCredentialActionError('CONFLICT', 'Credential activation did not converge')
+  }
+}
+
 /** Activates one exact venue-scoped MCP bridge credential. Activation is
  * idempotent, append-only evidenced, and never reads or returns plaintext. */
 export async function activateAgentBridgeCredentialAction(
@@ -657,7 +814,7 @@ export async function revokeExternalCredentialAction(
         tx,
       )
       return {
-        credential: { ...credential, revokedAt: now, updatedAt: now },
+        credential: { ...credential, enabled: false, revokedAt: now, updatedAt: now },
         plaintextSecret: null,
         replayed: false as const,
       }

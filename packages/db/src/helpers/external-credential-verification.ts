@@ -16,32 +16,34 @@ export class ExternalCredentialVerificationError extends Error {
   }
 }
 
-/** Verifies a plaintext machine credential against one exact tenant/venue.
- * The plaintext and hash never leave this server-only boundary. */
+/** Verifies a plaintext machine credential against one exact tenant and, when
+ * supplied, one exact venue. Omitting venueId is reserved for client-level
+ * credentials whose stored venueId is null. The plaintext and hash never
+ * leave this server-only boundary. */
 export async function verifyAgentBridgeCredential(
-  input: { tenantId: string; venueId: string; plaintext: string },
+  input: { tenantId: string; venueId?: string; plaintext: string },
   client: ExternalCredentialVerificationClient = db,
 ): Promise<z.infer<typeof VerifiedMcpCredentialScope>> {
   const scope = z
     .object({
       tenantId: z.string().trim().min(1).max(191),
-      venueId: z.string().trim().min(1).max(191),
+      venueId: z.string().trim().min(1).max(191).optional(),
       plaintext: plaintextSchema,
     })
     .safeParse(input)
   if (!scope.success) throw new ExternalCredentialVerificationError('INVALID')
+  const venueId = scope.data.venueId
   const prefix = scope.data.plaintext.slice(0, 20)
   const credential = await client.externalAccessCredential.findFirst({
     where: {
       tenantId: scope.data.tenantId,
       clientId: scope.data.tenantId,
-      venueId: scope.data.venueId,
+      venueId: venueId ?? null,
       kind: 'MCP',
       secretPrefix: prefix,
       enabled: true,
       revokedAt: null,
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      capabilities: { has: 'agent-runs:execute' },
     },
     select: {
       id: true,
@@ -52,7 +54,12 @@ export async function verifyAgentBridgeCredential(
       secretHash: true,
     },
   })
-  if (!credential || credential.venueId !== scope.data.venueId)
+  if (
+    !credential ||
+    credential.tenantId !== scope.data.tenantId ||
+    credential.clientId !== scope.data.tenantId ||
+    credential.venueId !== (venueId ?? null)
+  )
     throw new ExternalCredentialVerificationError('INACTIVE')
   let valid = false
   try {
@@ -66,7 +73,7 @@ export async function verifyAgentBridgeCredential(
     credentialId: credential.id,
     tenantId: credential.tenantId,
     clientId: credential.clientId,
-    venueIds: [scope.data.venueId],
+    venueIds: venueId === undefined ? [] : [venueId],
     capabilities,
   })
 }

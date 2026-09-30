@@ -55,6 +55,14 @@ describe('admin external credential metadata', () => {
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(
+      app.createCaller(context(false)).admin.activateClientMcpCredential({
+        ...actionScope,
+        credentialId: 'credential_1',
+        expectedUpdatedAt: new Date(0).toISOString(),
+        capabilities: ['appearance:read'],
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
       app.createCaller(context(false)).admin.issueExternalCredential({
         ...actionScope,
         kind: 'PARTNER_READ_API',

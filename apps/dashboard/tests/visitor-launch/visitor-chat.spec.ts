@@ -165,6 +165,46 @@ test('keyboard-sized viewport gives footer space back to the conversation', asyn
   await expectViewportIntegrity(page)
 })
 
+test('keyboard detection survives innerHeight shrinking with the visual viewport', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 700 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English&theme=dark',
+  )
+  await hideFrameworkDevChrome(page)
+  await page.waitForSelector('html[data-visitor-chat]', { state: 'attached' })
+
+  const shell = page.locator('[data-fixture="visitor-chat"] > div')
+  const composer = page.getByRole('textbox')
+  await expect(shell).not.toHaveAttribute('data-keyboard-open', 'true')
+  await composer.focus()
+
+  // Recent iOS Safari: the keyboard shrinks innerHeight and the visual viewport together, and
+  // Safari pans the visual viewport (offsetTop) to reveal the field.
+  await page.evaluate(() => {
+    const define = (target: object, key: string, value: number) =>
+      Object.defineProperty(target, key, { configurable: true, value })
+    define(window, 'innerHeight', 380)
+    define(window.visualViewport!, 'height', 380)
+    define(window.visualViewport!, 'offsetTop', 60)
+    window.dispatchEvent(new Event('resize'))
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+
+  await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
+  const headerBox = (await page.locator('header').boundingBox())!
+  expect(headerBox.y).toBeGreaterThanOrEqual(0)
+  const composerBox = (await composer.boundingBox())!
+  expect(composerBox.y + composerBox.height).toBeLessThanOrEqual(60 + 380)
+  const surfaces = await page.evaluate(() => ({
+    shell: getComputedStyle(document.querySelector('[data-fixture="visitor-chat"] > div')!)
+      .backgroundColor,
+    html: getComputedStyle(document.documentElement).backgroundColor,
+  }))
+  expect(surfaces.html).toBe(surfaces.shell)
+})
+
 test('the page surface and browser chrome follow the venue theme', async ({ page }) => {
   await page.goto(
     '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English&theme=dark',
