@@ -208,6 +208,10 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      // Leave no embedding work behind: later CI steps lease any pending dispatch in this database.
+      await withTenantIsolationBypass(() =>
+        db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } }),
+      )
       await db.$disconnect()
     })
 
