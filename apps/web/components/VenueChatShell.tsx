@@ -33,6 +33,7 @@ import { getVisitorStateCopy, getVisitorUiCopy, localizeVisitorShellError } from
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 import { useChatViewportHeight } from '../hooks/useChatViewportHeight'
+import { ViewportDebugOverlay } from './ViewportDebugOverlay'
 import {
   DEFAULT_VISITOR_PREFERENCES,
   VISITOR_TEXT_SCALE,
@@ -321,265 +322,273 @@ export function VenueChatShell(props: {
   const characterExpanded = messages.length === 0
 
   return (
-    <div
-      ref={bridge.shellRef}
-      inert={!bridge.hostOpen}
-      aria-hidden={!bridge.hostOpen || undefined}
-      lang={languagePresentation.code}
-      dir={languagePresentation.direction}
-      className={`${styles.shell} flex flex-col`}
-      data-keyboard-open={viewportHeight !== undefined ? true : undefined}
-      data-text-size={preferences.textSize}
-      data-contrast={preferences.highContrast ? 'high' : 'standard'}
-      data-speaker-labels={tokens.speakerLabels ? true : undefined}
-      data-backdrop={tokens.backgroundImage ? 'image' : 'none'}
-      data-starry={museumStarfield ? true : undefined}
-      style={
-        {
-          backgroundColor: tokens.pageBg,
-          height: viewportHeight?.height,
-          '--chat-keyboard-offset-x': `${viewportHeight?.offsetLeft ?? 0}px`,
-          '--chat-keyboard-offset-y': `${viewportHeight?.offsetTop ?? 0}px`,
-          '--chat-keyboard-composer-max':
-            viewportHeight !== undefined
-              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight.height * 0.2)))}px`
-              : undefined,
-          '--chat-text-scale': VISITOR_TEXT_SCALE[preferences.textSize],
-          fontFamily: fontFamily(venue.chatFont),
-          ...chatAppearanceStyle(palette, tokens, preferences.highContrast),
-        } as CSSProperties
-      }
-    >
-      {!(presentation === 'webview' && appHeader === 'none') ? (
-        <header
-          className={`${styles.header} relative overflow-hidden pt-[env(safe-area-inset-top,0px)]`}
-          data-branding-banner-state={headerBanner ? bannerLoad.status : 'none'}
-          data-app-header={presentation === 'webview' ? appHeader : undefined}
-        >
-          {headerBanner && bannerLoad.status !== 'failed' ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={bannerUrl}
-              ref={bannerLoad.inspect}
-              src={bannerUrl!}
-              alt=""
-              className={`absolute inset-0 h-full w-full object-cover ${headerBannerReady ? 'opacity-100' : 'opacity-0'}`}
-              onLoad={bannerLoad.onLoad}
-              onError={bannerLoad.onError}
-            />
-          ) : null}
-          {headerBannerReady ? (
-            <span aria-hidden="true" className="absolute inset-0 bg-black/65" />
-          ) : null}
-          <div
-            className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}
-            data-on-banner={headerBannerReady ? true : undefined}
+    <>
+      <div
+        ref={bridge.shellRef}
+        inert={!bridge.hostOpen}
+        aria-hidden={!bridge.hostOpen || undefined}
+        lang={languagePresentation.code}
+        dir={languagePresentation.direction}
+        className={`${styles.shell} flex flex-col`}
+        data-chat-shell
+        data-keyboard-open={viewportHeight !== undefined ? true : undefined}
+        data-text-size={preferences.textSize}
+        data-contrast={preferences.highContrast ? 'high' : 'standard'}
+        data-speaker-labels={tokens.speakerLabels ? true : undefined}
+        data-backdrop={tokens.backgroundImage ? 'image' : 'none'}
+        data-starry={museumStarfield ? true : undefined}
+        style={
+          {
+            backgroundColor: tokens.pageBg,
+            height: viewportHeight?.height,
+            '--chat-keyboard-offset-x': `${viewportHeight?.offsetLeft ?? 0}px`,
+            '--chat-keyboard-offset-y': `${viewportHeight?.offsetTop ?? 0}px`,
+            '--chat-keyboard-composer-max':
+              viewportHeight !== undefined
+                ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight.height * 0.2)))}px`
+                : undefined,
+            '--chat-text-scale': VISITOR_TEXT_SCALE[preferences.textSize],
+            fontFamily: fontFamily(venue.chatFont),
+            ...chatAppearanceStyle(palette, tokens, preferences.highContrast),
+          } as CSSProperties
+        }
+      >
+        {!(presentation === 'webview' && appHeader === 'none') ? (
+          <header
+            className={`${styles.header} relative overflow-hidden pt-[env(safe-area-inset-top,0px)]`}
+            data-branding-banner-state={headerBanner ? bannerLoad.status : 'none'}
+            data-app-header={presentation === 'webview' ? appHeader : undefined}
           >
-            {presentation === 'webview' ? (
-              <button
-                type="button"
-                aria-label="Close guide"
-                className={styles.back}
-                onClick={bridge.requestClose}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M5 5l14 14M19 5L5 19" />
-                </svg>
-              </button>
+            {headerBanner && bannerLoad.status !== 'failed' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={bannerUrl}
+                ref={bannerLoad.inspect}
+                src={bannerUrl!}
+                alt=""
+                className={`absolute inset-0 h-full w-full object-cover ${headerBannerReady ? 'opacity-100' : 'opacity-0'}`}
+                onLoad={bannerLoad.onLoad}
+                onError={bannerLoad.onError}
+              />
             ) : null}
-            <div className={styles.identity}>
-              {venue.chatLogoUrl ? (
-                <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
+            {headerBannerReady ? (
+              <span aria-hidden="true" className="absolute inset-0 bg-black/65" />
+            ) : null}
+            <div
+              className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}
+              data-on-banner={headerBannerReady ? true : undefined}
+            >
+              {presentation === 'webview' ? (
+                <button
+                  type="button"
+                  aria-label="Close guide"
+                  className={styles.back}
+                  onClick={bridge.requestClose}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 5l14 14M19 5L5 19" />
+                  </svg>
+                </button>
               ) : null}
-              <div className={styles.identityCopy}>
-                <h1 lang="" dir="auto" title={title}>
-                  {title}
-                </h1>
-                {venue.experienceLabel ? (
-                  <p className={styles.experience}>{venue.experienceLabel}</p>
+              <div className={styles.identity}>
+                {venue.chatLogoUrl ? (
+                  <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
                 ) : null}
+                <div className={styles.identityCopy}>
+                  <h1 lang="" dir="auto" title={title}>
+                    {title}
+                  </h1>
+                  {venue.experienceLabel ? (
+                    <p className={styles.experience}>{venue.experienceLabel}</p>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        </header>
-      ) : null}
-      <ConnectionStatusBanner state={connectionState} language={language} />
-      <main className={`${styles.main} relative flex flex-1 flex-col`}>
-        {wantsBackdrop && !preferences.highContrast && bannerLoad.status !== 'failed' ? (
-          <div className={styles.backdrop} aria-hidden="true" data-state={bannerLoad.status}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              key={bannerUrl}
-              ref={bannerLoad.inspect}
-              src={bannerUrl!}
-              alt=""
-              onLoad={bannerLoad.onLoad}
-              onError={bannerLoad.onError}
-            />
-            <span />
-          </div>
+          </header>
         ) : null}
-        {characterPresentation ? (
-          <div
-            className={`${styles.character} relative mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6`}
-          >
-            <VenueCharacterBoundary
-              resetKey={`${characterPresentation.character.characterId}:${characterPresentation.character.assetPackId}:${characterPresentation.character.assetPackVersion}`}
-              compact={!characterExpanded}
-            >
-              <LazyVenueCharacterStage
-                projection={characterPresentation.character}
-                state={characterState}
-                displayName={characterPresentation.displayName}
-                greeting={characterPresentation.greeting}
-                expanded={characterExpanded}
-                motion={characterMotion}
+        <ConnectionStatusBanner state={connectionState} language={language} />
+        <main className={`${styles.main} relative flex flex-1 flex-col`}>
+          {wantsBackdrop && !preferences.highContrast && bannerLoad.status !== 'failed' ? (
+            <div className={styles.backdrop} aria-hidden="true" data-state={bannerLoad.status}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={bannerUrl}
+                ref={bannerLoad.inspect}
+                src={bannerUrl!}
+                alt=""
+                onLoad={bannerLoad.onLoad}
+                onError={bannerLoad.onError}
               />
-            </VenueCharacterBoundary>
-          </div>
-        ) : null}
-        <div
-          className={`${styles.body} relative mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}
-        >
-          <ChatWindow
-            key={venue.id}
-            locationAware={venue.guideMode === 'location_aware'}
-            conversationTools={
-              <>
-                {routePlanner}
-                <LocationBanner
-                  permission={location.permission}
-                  onRefresh={location.refresh}
-                  show={venue.guideMode !== 'non_location'}
-                  language={language}
-                />
-              </>
-            }
-            composerVoiceControl={
-              voiceControl === undefined ? (
-                isOnline ? (
-                  <VoiceControl
-                    venueId={venue.id}
-                    anonymousToken={anonymousToken}
-                    language={language}
-                    disabled={isSending}
-                    enabled={voiceConversationEnabled}
-                    compact
-                    onAvailabilityChange={handleVoiceAvailabilityChange}
-                    onLiveCaptionChange={handleLiveVoiceCaptionChange}
-                    onCaptionAnnouncement={handleVoiceCaptionAnnouncement}
-                    {...(visitContext ? { visitContext } : {})}
-                    {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
-                    {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
-                  />
-                ) : null
-              ) : (
-                voiceControl
-              )
-            }
-            messages={messages}
-            voiceCaption={
-              fixtureLiveVoiceCaption === undefined
-                ? scopedLiveVoiceCaption
-                : fixtureLiveVoiceCaption
-            }
-            voiceCaptionAnnouncement={
-              fixtureLiveVoiceAnnouncement === undefined
-                ? (scopedLiveVoiceAnnouncement?.text ?? null)
-                : fixtureLiveVoiceAnnouncement
-            }
-            voiceCaptionAnnouncementKey={scopedLiveVoiceAnnouncement?.sequence ?? 0}
-            language={language}
-            assistantLabel={guideName}
-            {...(tokens.speakerLabels ? { speakerLabels: { guide: settingsCopy.guide } } : {})}
-            surfaces={{
-              user: tokens.userSurface ? 'bubble' : 'none',
-              assistant: tokens.assistantBubble
-                ? 'bubble'
-                : tokens.assistantProtected
-                  ? 'protected'
-                  : 'none',
-            }}
-            onSend={sendGuestMessage}
-            {...(onRequestMore && appearance.requestMore ? { onRequestMore } : {})}
-            {...(requestMoreLabel ? { requestMoreLabel } : {})}
-            {...(onDraftChange ? { onDraftChange } : {})}
-            {...(onRetry ? { onRetry } : {})}
-            {...(retryLabel ? { retryLabel } : {})}
-            {...(onStopResponse ? { onStopResponse } : {})}
-            {...(stopResponseLabel ? { stopResponseLabel } : {})}
-            conversationLocked={conversationLocked}
-            sendDisabled={isRestoringHistory || !anonymousToken}
-            {...(isRestoringHistory
-              ? { restoringStatusLabel: getVisitorStateCopy(language)[0] }
-              : {})}
-            isLoading={isSending}
-            isOnline={isOnline}
-            errorMessage={localizeVisitorShellError(sendError, language)}
-            accentColor={palette.accent}
-            accentContrastColor={palette.accentContrast}
-            placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
-            initialDraft={initialDraft}
-            prefill={bridge.prefill}
-            draftStorageKey={
-              anonymousToken ? `torchiko:visitor-draft:${venue.id}:${anonymousToken}` : null
-            }
-            emptyState={
-              <div
-                lang={languagePresentation.code}
-                dir={languagePresentation.direction}
-                className={styles.emptyState}
+              <span />
+            </div>
+          ) : null}
+          {characterPresentation ? (
+            <div
+              className={`${styles.character} relative mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6`}
+            >
+              <VenueCharacterBoundary
+                resetKey={`${characterPresentation.character.characterId}:${characterPresentation.character.assetPackId}:${characterPresentation.character.assetPackVersion}`}
+                compact={!characterExpanded}
               >
-                <div className={styles.welcome}>
-                  <h2 className="text-xl font-semibold text-[var(--chat-text)]">
-                    {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
-                  </h2>
-                  <p
-                    className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
-                    lang={venue.description ? '' : languagePresentation.code}
-                    dir={venue.description ? 'auto' : languagePresentation.direction}
-                  >
-                    {venue.description ??
-                      LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
-                      LANGUAGE_FALLBACK_DESCRIPTIONS.English}
-                  </p>
-                </div>
-                <QuickPromptChips
-                  language={language}
-                  venueName={venue.name}
-                  venueCategory={venue.category ?? undefined}
-                  guideMode={venue.guideMode}
-                  locationAvailable={hasLocation}
-                  disabled={!canSubmitMessage}
-                  onSend={sendGuestMessage}
+                <LazyVenueCharacterStage
+                  projection={characterPresentation.character}
+                  state={characterState}
+                  displayName={characterPresentation.displayName}
+                  greeting={characterPresentation.greeting}
+                  expanded={characterExpanded}
+                  motion={characterMotion}
                 />
-              </div>
+              </VenueCharacterBoundary>
+            </div>
+          ) : null}
+          <div
+            className={`${styles.body} relative mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}
+          >
+            <ChatWindow
+              key={venue.id}
+              locationAware={venue.guideMode === 'location_aware'}
+              conversationTools={
+                <>
+                  {routePlanner}
+                  <LocationBanner
+                    permission={location.permission}
+                    onRefresh={location.refresh}
+                    show={venue.guideMode !== 'non_location'}
+                    language={language}
+                  />
+                </>
+              }
+              composerVoiceControl={
+                voiceControl === undefined ? (
+                  isOnline ? (
+                    <VoiceControl
+                      venueId={venue.id}
+                      anonymousToken={anonymousToken}
+                      language={language}
+                      disabled={isSending}
+                      enabled={voiceConversationEnabled}
+                      compact
+                      onAvailabilityChange={handleVoiceAvailabilityChange}
+                      onLiveCaptionChange={handleLiveVoiceCaptionChange}
+                      onCaptionAnnouncement={handleVoiceCaptionAnnouncement}
+                      {...(visitContext ? { visitContext } : {})}
+                      {...(onVoiceCharacterState
+                        ? { onCharacterState: onVoiceCharacterState }
+                        : {})}
+                      {...(onVoiceTranscriptLine
+                        ? { onTranscriptLine: onVoiceTranscriptLine }
+                        : {})}
+                    />
+                  ) : null
+                ) : (
+                  voiceControl
+                )
+              }
+              messages={messages}
+              voiceCaption={
+                fixtureLiveVoiceCaption === undefined
+                  ? scopedLiveVoiceCaption
+                  : fixtureLiveVoiceCaption
+              }
+              voiceCaptionAnnouncement={
+                fixtureLiveVoiceAnnouncement === undefined
+                  ? (scopedLiveVoiceAnnouncement?.text ?? null)
+                  : fixtureLiveVoiceAnnouncement
+              }
+              voiceCaptionAnnouncementKey={scopedLiveVoiceAnnouncement?.sequence ?? 0}
+              language={language}
+              assistantLabel={guideName}
+              {...(tokens.speakerLabels ? { speakerLabels: { guide: settingsCopy.guide } } : {})}
+              surfaces={{
+                user: tokens.userSurface ? 'bubble' : 'none',
+                assistant: tokens.assistantBubble
+                  ? 'bubble'
+                  : tokens.assistantProtected
+                    ? 'protected'
+                    : 'none',
+              }}
+              onSend={sendGuestMessage}
+              {...(onRequestMore && appearance.requestMore ? { onRequestMore } : {})}
+              {...(requestMoreLabel ? { requestMoreLabel } : {})}
+              {...(onDraftChange ? { onDraftChange } : {})}
+              {...(onRetry ? { onRetry } : {})}
+              {...(retryLabel ? { retryLabel } : {})}
+              {...(onStopResponse ? { onStopResponse } : {})}
+              {...(stopResponseLabel ? { stopResponseLabel } : {})}
+              conversationLocked={conversationLocked}
+              sendDisabled={isRestoringHistory || !anonymousToken}
+              {...(isRestoringHistory
+                ? { restoringStatusLabel: getVisitorStateCopy(language)[0] }
+                : {})}
+              isLoading={isSending}
+              isOnline={isOnline}
+              errorMessage={localizeVisitorShellError(sendError, language)}
+              accentColor={palette.accent}
+              accentContrastColor={palette.accentContrast}
+              placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
+              initialDraft={initialDraft}
+              prefill={bridge.prefill}
+              draftStorageKey={
+                anonymousToken ? `torchiko:visitor-draft:${venue.id}:${anonymousToken}` : null
+              }
+              emptyState={
+                <div
+                  lang={languagePresentation.code}
+                  dir={languagePresentation.direction}
+                  className={styles.emptyState}
+                >
+                  <div className={styles.welcome}>
+                    <h2 className="text-xl font-semibold text-[var(--chat-text)]">
+                      {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
+                    </h2>
+                    <p
+                      className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
+                      lang={venue.description ? '' : languagePresentation.code}
+                      dir={venue.description ? 'auto' : languagePresentation.direction}
+                    >
+                      {venue.description ??
+                        LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
+                        LANGUAGE_FALLBACK_DESCRIPTIONS.English}
+                    </p>
+                  </div>
+                  <QuickPromptChips
+                    language={language}
+                    venueName={venue.name}
+                    venueCategory={venue.category ?? undefined}
+                    guideMode={venue.guideMode}
+                    locationAvailable={hasLocation}
+                    disabled={!canSubmitMessage}
+                    onSend={sendGuestMessage}
+                  />
+                </div>
+              }
+              onPlaceCardView={onPlaceView}
+              onPlaceCardClick={onPlaceClick}
+              onDirectionsClick={onDirections}
+              {...(onVisitorAction ? { onVisitorAction } : {})}
+            />
+          </div>
+        </main>
+        <footer className={styles.footer}>
+          <VisitorSettings
+            language={language}
+            preferences={preferences}
+            onPreferencesChange={onPreferencesChange}
+            onClearChat={onNewConversation}
+            clearChatDisabled={!isOnline || isSending || !anonymousToken || conversationLocked}
+            clearChatLabel={clearChatLabel}
+            aboutGuidance={aiGuidance}
+            poweredByLabel={poweredByLabel}
+            attribution={
+              presentation === 'webview' ? 'none' : presentation === 'standalone' ? 'link' : 'text'
             }
-            onPlaceCardView={onPlaceView}
-            onPlaceCardClick={onPlaceClick}
-            onDirectionsClick={onDirections}
-            {...(onVisitorAction ? { onVisitorAction } : {})}
+            voiceAvailable={isOnline && voiceEligible && voiceVenueScope === venue.id}
+            voiceConversationEnabled={voiceConversationEnabled}
+            onVoiceConversationChange={setVoiceConversationEnabled}
           />
-        </div>
-      </main>
-      <footer className={styles.footer}>
-        <VisitorSettings
-          language={language}
-          preferences={preferences}
-          onPreferencesChange={onPreferencesChange}
-          onClearChat={onNewConversation}
-          clearChatDisabled={!isOnline || isSending || !anonymousToken || conversationLocked}
-          clearChatLabel={clearChatLabel}
-          aboutGuidance={aiGuidance}
-          poweredByLabel={poweredByLabel}
-          attribution={
-            presentation === 'webview' ? 'none' : presentation === 'standalone' ? 'link' : 'text'
-          }
-          voiceAvailable={isOnline && voiceEligible && voiceVenueScope === venue.id}
-          voiceConversationEnabled={voiceConversationEnabled}
-          onVoiceConversationChange={setVoiceConversationEnabled}
-        />
-      </footer>
-    </div>
+        </footer>
+      </div>
+      <ViewportDebugOverlay />
+    </>
   )
 }
