@@ -1969,10 +1969,12 @@ test('exact 236, 247, 248, 249, 250, 252 and 207 ledgers advance to 254 while co
     currentRemainingMigrationNames(operatorOAuthPredecessor, manifest),
     REVIEWED_252_TO_254,
   )
-  assert.throws(
-    () => ledgerState(completedRows(manifest, 253), manifest),
-    /unexpected ledger row count/u,
-  )
+  for (const count of [251, 253]) {
+    assert.throws(
+      () => ledgerState(completedRows(manifest, count), manifest),
+      /unexpected ledger row count/u,
+    )
+  }
   const complete = completedRows(manifest)
   assert.equal(ledgerState(complete, manifest), 'complete')
   assert.equal(expectedPublicTableCount('complete'), 277)
