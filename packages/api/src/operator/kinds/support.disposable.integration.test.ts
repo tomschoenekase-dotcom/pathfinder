@@ -456,5 +456,80 @@ describe.skipIf(!enabled)(
         }),
       ).toBe(1)
     })
+
+    it('triages a request with a same-step internal note, once, and a stale version applies nothing', async () => {
+      const request = await newRequest()
+      const view = await propose('support.propose_triage', {
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version,
+        status: 'WAITING_FOR_CLIENT',
+        note: 'Waiting on the opening hours.',
+      })
+      expect(view.status).toBe('PENDING')
+      expect((await approve(view)).status).toBe('APPLIED')
+      expect((await approve(view)).status).toBe('APPLIED')
+      const after = await db.supportRequest.findFirstOrThrow({
+        where: { id: request.id, tenantId },
+      })
+      expect(after.status).toBe('WAITING_FOR_CLIENT')
+      expect(after.version).toBe(request.version + 2)
+      expect(
+        await db.supportMessage.count({
+          where: { tenantId, supportRequestId: request.id, visibility: 'INTERNAL_ONLY' },
+        }),
+      ).toBe(1)
+
+      const stale = await propose('support.propose_triage', {
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version,
+        status: 'OPEN',
+      })
+      expect((await approve(stale)).status).toBe('STALE')
+      expect(
+        (await db.supportRequest.findFirstOrThrow({ where: { id: request.id, tenantId } })).status,
+      ).toBe('WAITING_FOR_CLIENT')
+    })
+
+    it('refuses a move the canonical rules do not allow, and pipeline states and out-of-grant tenants', async () => {
+      const request = await newRequest({ status: 'COMPLETED' })
+      const view = await propose('support.propose_triage', {
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version,
+        status: 'OPEN',
+      })
+      expect(['STALE', 'FAILED']).toContain((await approve(view)).status)
+      expect(
+        (await db.supportRequest.findFirstOrThrow({ where: { id: request.id, tenantId } })).status,
+      ).toBe('COMPLETED')
+      await expect(
+        propose('support.propose_triage', {
+          tenantId,
+          venueId,
+          requestId: request.id,
+          expectedVersion: request.version,
+          status: 'APPLYING',
+        }),
+      ).rejects.toThrow()
+      await expect(
+        propose(
+          'support.propose_triage',
+          {
+            tenantId,
+            venueId,
+            requestId: request.id,
+            expectedVersion: request.version,
+            status: 'OPEN',
+          },
+          randomUUID(),
+          otherGrant,
+        ),
+      ).rejects.toBeInstanceOf(OperatorNotFoundError)
+    })
   },
 )

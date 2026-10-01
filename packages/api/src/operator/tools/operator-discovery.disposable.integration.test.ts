@@ -228,11 +228,7 @@ describe.skipIf(!enabled)(
       expect(limited.tools).toHaveLength(OPERATOR_MCP_TOOLS.length)
       const byName = new Map<string, any>(limited.tools.map((tool: any) => [tool.name, tool]))
       // Declared but unbuilt tools are shown as such rather than hidden.
-      for (const name of [
-        'venues.propose_source',
-        'customers.propose_invite',
-        'support.propose_triage',
-      ]) {
+      for (const name of ['venues.propose_source', 'customers.propose_invite']) {
         expect(byName.get(name)?.implemented, name).toBe(false)
         expect(byName.get(name)?.approvalMode, name).toBeNull()
       }

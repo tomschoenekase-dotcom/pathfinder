@@ -4,11 +4,18 @@ import {
   appendSupportMessageAction,
   completeSupportRequestAction,
   requestSupportInformationAction,
+  SupportStatusTransitionError,
+  transitionSupportRequestStatusAction,
 } from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
 import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
-import type { OperatorApplyContext, OperatorKindContext, OperatorProposalKind } from '../proposals'
+import {
+  OperatorStaleError,
+  type OperatorApplyContext,
+  type OperatorKindContext,
+  type OperatorProposalKind,
+} from '../proposals'
 
 /**
  * Support follow-up as reviewable proposals over the canonical support actions: each carries the
@@ -217,7 +224,108 @@ export const supportCompletionKind = baseKind({
   },
 })
 
+const triageInput = OPERATOR_MCP_INPUTS['support.propose_triage']
+
+/**
+ * The transition and the optional internal note commit together, so a request never records one
+ * without the other. A refusal by the canonical rules (the move is not allowed from here, or the
+ * request changed) is a stale proposal, not a failure.
+ */
+export const supportTriageKind: OperatorProposalKind<ReturnType<typeof triageInput.parse>> = {
+  ...baseKind({
+    kind: 'support.triage',
+    tool: 'support.propose_triage',
+    parse: (raw) => triageInput.parse(raw),
+    describe: (a) => ({
+      title: `Move this support request to ${a.status} (visible in the customer's portal, no email)`,
+      lines: [`request ${a.requestId}`, ...(a.note ? [`internal note: ${a.note}`] : [])],
+    }),
+    apply: async (a, context: OperatorApplyContext) => {
+      try {
+        const done = await context.database.$transaction(async (tx) => {
+          // Both canonical actions join this one transaction instead of opening their own.
+          const inTransaction = {
+            $transaction: (work: (transaction: never) => Promise<unknown>) => work(tx as never),
+          } as never
+          const transition = await transitionSupportRequestStatusAction(
+            {
+              tenantId: a.tenantId,
+              venueId: a.venueId,
+              requestId: a.requestId,
+              expectedVersion: a.expectedVersion,
+              toStatus: a.status,
+              actor: operatorActor(context),
+            },
+            inTransaction,
+          )
+          if (a.note === undefined) return { transition, messageId: null as string | null }
+          const note = await appendSupportMessageAction(
+            {
+              operationId: context.operationId,
+              tenantId: a.tenantId,
+              venueId: a.venueId,
+              requestId: a.requestId,
+              expectedVersion: a.expectedVersion + 1,
+              visibility: 'INTERNAL_ONLY',
+              body: a.note,
+              attachments: [],
+              actor: operatorActor(context),
+            },
+            inTransaction,
+          )
+          return { transition, messageId: note.message.id as string | null }
+        })
+        const request = await readRequest(context.database, a.tenantId, a.requestId)
+        return {
+          result: {
+            status: request?.status ?? a.status,
+            requestVersion: request?.version ?? null,
+            messageId: done.messageId,
+            portalOnly: true,
+          },
+          after: { status: request?.status ?? a.status, version: request?.version ?? null },
+        }
+      } catch (error) {
+        if (error instanceof SupportStatusTransitionError) {
+          throw new OperatorStaleError(error.message)
+        }
+        throw error
+      }
+    },
+  }),
+  // The transition writes an audit event naming the version it produced and who moved it, so that
+  // event proves an interrupted apply happened and its absence proves nothing was written.
+  reconcile: async (a, context) => {
+    const event = await context.database.supportRequestAuditEvent.findFirst({
+      where: {
+        tenantId: a.tenantId,
+        supportRequestId: a.requestId,
+        eventType: 'STATUS_CHANGED',
+        requestVersion: a.expectedVersion + 1,
+        toStatus: a.status,
+        actorId: context.actor.id,
+      },
+      select: { id: true },
+    })
+    if (!event) return { state: 'not_applied' }
+    const request = await readRequest(context.database, a.tenantId, a.requestId)
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          status: request?.status ?? a.status,
+          requestVersion: request?.version ?? null,
+          messageId: null,
+          portalOnly: true,
+        },
+        after: { status: request?.status ?? a.status, version: request?.version ?? null },
+      },
+    }
+  },
+}
+
 export const SUPPORT_KINDS = [
+  supportTriageKind,
   supportInternalNoteKind,
   supportInformationRequestKind,
   supportCompletionKind,

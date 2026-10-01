@@ -795,9 +795,15 @@ export const OPERATOR_MCP_INPUTS = {
   'support.propose_triage': writeInput({
     ...venueScope,
     requestId: Identifier,
-    expectedUpdatedAt: IsoDateTime,
-    status: SupportRequestStatus,
-    priority: OperatorSupportPriority,
+    /** The request's `version` from support.get_request. */
+    expectedVersion: z.number().int().positive(),
+    /**
+     * Where the request moves. The pipeline states (drafted, validating, awaiting approval,
+     * applying) belong to the workflow itself and closing needs support.propose_completion.
+     * The canonical transition rules still decide whether this move is allowed from where it is.
+     */
+    status: z.enum(['OPEN', 'IN_REVIEW', 'WAITING_FOR_CLIENT', 'CANCELLED']),
+    /** Optional internal-only note recorded in the same step. The customer never sees it. */
     note: z.string().trim().min(1).max(2_000).optional(),
   }),
   'operator.propose_plan': OperatorPlanInput,
@@ -2610,7 +2616,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_triage',
     'Propose support triage',
-    `Propose a status and priority change for one support request.${PROPOSE}`,
+    `Propose moving one support request to open, in review, waiting for the customer or cancelled, with an optional internal note. Closing needs support.propose_completion. A status change is visible in the customer's portal; nothing is emailed.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.triage',
