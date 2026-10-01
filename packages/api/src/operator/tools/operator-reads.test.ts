@@ -183,6 +183,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.get_contact_history',
         'crm.check_can_contact',
         'venues.list',
+        'venues.list_operational_updates',
         'venues.get_readiness',
         'support.list',
         'operator.get_manual',

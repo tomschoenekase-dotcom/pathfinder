@@ -165,6 +165,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_contact_history',
   'crm.check_can_contact',
   'venues.list',
+  'venues.list_operational_updates',
   'venues.get_readiness',
   'appearance.get',
   'support.list',
@@ -244,6 +245,9 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_source',
   'venues.propose_knowledge',
   'venues.propose_publish',
+  'venues.propose_operational_update',
+  'venues.propose_operational_update_schedule',
+  'venues.propose_operational_update_end',
   'appearance.propose_update',
   'customers.propose_invite',
   'customers.propose_create',
@@ -279,6 +283,18 @@ const writeInput = <T extends z.ZodRawShape>(shape: T) =>
 
 const tenantScope = { tenantId: Identifier } as const
 const venueScope = { tenantId: Identifier, venueId: Identifier } as const
+
+const OperationalUpdateType = z.enum([
+  'GENERAL_NOTICE',
+  'TEMPORARY_CLOSURE',
+  'UNAVAILABLE_EXHIBIT',
+  'CHANGED_HOURS',
+  'MAINTENANCE',
+  'SPECIAL_EVENT',
+  'SOLD_OUT_ACTIVITY',
+  'TEMPORARY_VENDOR_LOCATION',
+])
+const OperationalUpdateSeverity = z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT'])
 
 const OrganizationFilters = {
   city: z.string().trim().min(1).max(120).optional(),
@@ -538,6 +554,12 @@ export const OPERATOR_MCP_INPUTS = {
     purpose: z.enum(['draft', 'send']).default('send'),
   }),
   'venues.list': readInput({ ...tenantScope, cursor: Cursor.optional() }),
+  'venues.list_operational_updates': readInput({
+    ...venueScope,
+    status: z.enum(['DRAFT', 'PUBLISHED']).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'venues.get_readiness': readInput({ ...venueScope }),
   'appearance.get': readInput({ ...venueScope }),
   'support.list': readInput({
@@ -811,6 +833,31 @@ export const OPERATOR_MCP_INPUTS = {
     reason: z.string().trim().min(1).max(500),
   }),
   'venues.propose_publish': writeInput({ ...venueScope, expectedUpdatedAt: IsoDateTime }),
+  'venues.propose_operational_update': writeInput({
+    ...venueScope,
+    placeId: Identifier.optional(),
+    updateType: OperationalUpdateType,
+    severity: OperationalUpdateSeverity,
+    priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
+    title: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(2_000).optional(),
+    redirectTo: z.string().trim().min(1).max(500).optional(),
+    startsAt: IsoDateTime,
+    expiresAt: IsoDateTime,
+    /** False saves a draft nobody sees. True makes it visible to visitors for its window. */
+    goLive: z.boolean().default(false),
+  }),
+  'venues.propose_operational_update_schedule': writeInput({
+    ...venueScope,
+    updateId: Identifier,
+    /** The `updatedAt` from venues.list_operational_updates. Any change since makes this stale. */
+    expectedUpdatedAt: IsoDateTime,
+  }),
+  'venues.propose_operational_update_end': writeInput({
+    ...venueScope,
+    updateId: Identifier,
+    expectedUpdatedAt: IsoDateTime,
+  }),
   'appearance.propose_update': AppearanceProposeInput,
   'customers.propose_create': writeInput({
     organizationName: z.string().trim().min(1).max(120),
@@ -1470,6 +1517,28 @@ export const OPERATOR_MCP_OUTPUTS = {
       contactId: Identifier.nullable(),
     })
     .strict(),
+  'venues.list_operational_updates': Page(
+    z
+      .object({
+        updateId: Identifier,
+        placeId: Identifier.nullable(),
+        updateType: OperationalUpdateType,
+        severity: OperationalUpdateSeverity,
+        priority: z.string().max(16),
+        title: UntrustedText,
+        body: UntrustedText.nullable(),
+        redirectTo: UntrustedText.nullable(),
+        startsAt: IsoDateTime,
+        expiresAt: IsoDateTime,
+        status: z.string().max(16),
+        isActive: z.boolean(),
+        /** What visitors see now: draft, scheduled, live, expired or inactive. */
+        lifecycle: z.enum(['DRAFT', 'SCHEDULED', 'LIVE', 'EXPIRED', 'INACTIVE']),
+        /** The version writes expect (`expectedUpdatedAt`). */
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
   'venues.list': Page(
     z
       .object({
@@ -2012,6 +2081,9 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_source': OperatorWriteResult,
   'venues.propose_knowledge': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
+  'venues.propose_operational_update': OperatorWriteResult,
+  'venues.propose_operational_update_schedule': OperatorWriteResult,
+  'venues.propose_operational_update_end': OperatorWriteResult,
   'appearance.propose_update': OperatorWriteResult,
   'customers.propose_create': OperatorWriteResult,
   'customers.propose_invite': OperatorWriteResult,
@@ -2198,6 +2270,13 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   ['venues.list', 'List venues', `List venues in one tenant.${READ}`, 'venues:read', 'tenant'],
+  [
+    'venues.list_operational_updates',
+    'List operational updates',
+    `Page through a venue's visitor notices (closures, changed hours, maintenance, events), newest first, with whether each is live now and the updatedAt writes expect.${READ}`,
+    'venues:read',
+    'venue',
+  ],
   [
     'venues.get_readiness',
     'Get venue readiness',
@@ -2692,6 +2771,30 @@ const seeds: readonly Seed[] = [
     'venues:propose',
     'venue',
     'venues.knowledge',
+  ],
+  [
+    'venues.propose_operational_update',
+    'Propose operational update',
+    `Propose a visitor notice such as a closure, changed hours or maintenance, saved as a draft or made visible to visitors for its window. A visible notice appears in the guide's answers.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.operational-update',
+  ],
+  [
+    'venues.propose_operational_update_schedule',
+    'Propose operational update go-live',
+    `Propose making a saved draft notice visible to visitors, at the observed updatedAt.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.operational-update-schedule',
+  ],
+  [
+    'venues.propose_operational_update_end',
+    'Propose operational update end',
+    `Propose ending a visible notice now, at the observed updatedAt. The notice is kept, no longer shown to visitors.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.operational-update-end',
   ],
   [
     'venues.propose_publish',

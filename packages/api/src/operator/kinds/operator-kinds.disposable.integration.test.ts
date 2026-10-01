@@ -250,6 +250,9 @@ describe.skipIf(!enabled)(
           'venues.propose_create',
           'venues.propose_knowledge',
           'venues.propose_publish',
+          'venues.propose_operational_update',
+          'venues.propose_operational_update_schedule',
+          'venues.propose_operational_update_end',
         ].sort(),
       )
     })
