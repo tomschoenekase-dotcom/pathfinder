@@ -20,7 +20,12 @@ export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 export type ProspectActionClient = typeof db
 type ProspectTransactionClient = Parameters<Parameters<ProspectActionClient['$transaction']>[0]>[0]
-export type ProspectActionErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT' | 'UNSAFE_MERGE'
+export type ProspectActionErrorCode =
+  | 'NOT_FOUND'
+  | 'CONFLICT'
+  | 'INVALID_INPUT'
+  | 'UNSAFE_MERGE'
+  | 'SUPPRESSED'
 
 export class ProspectActionError extends Error {
   constructor(
@@ -649,14 +654,48 @@ export async function addProspectNoteAction(
 }
 
 export async function archiveProspectAction(
-  input: { organizationId: string; archived: boolean; reason: string; actor: ProspectActor },
+  input: {
+    organizationId: string
+    archived: boolean
+    reason: string
+    actor: ProspectActor
+    /** When set, applies only if the account is still at this version (1 + its activity rows). */
+    expectedVersion?: number | undefined
+    /** Unique receipt written on the activity; a repeat with the same key is a no-op replay. */
+    receiptKey?: string | undefined
+  },
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
   if (!input.reason.trim()) throw new ProspectActionError('INVALID_INPUT', 'Reason is required')
   return client.$transaction(async (tx) => {
+    if (input.receiptKey) {
+      const replay = await tx.prospectActivity.findUnique({
+        where: { externalReceiptKey: input.receiptKey },
+        select: { organizationId: true },
+      })
+      if (replay) {
+        return tx.prospectOrganization.findUniqueOrThrow({ where: { id: replay.organizationId } })
+      }
+    }
     const before = await tx.prospectOrganization.findUnique({ where: { id: input.organizationId } })
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
+    if (input.expectedVersion !== undefined) {
+      const activities = await tx.prospectActivity.count({
+        where: { organizationId: input.organizationId },
+      })
+      if (1 + activities !== input.expectedVersion) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+      // The row itself must still be the one that was read: a concurrent edit loses.
+      const swapped = await tx.prospectOrganization.updateMany({
+        where: { id: before.id, updatedAt: before.updatedAt },
+        data: { updatedBy: input.actor.id },
+      })
+      if (swapped.count !== 1) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const archivedAt = input.archived ? new Date() : null
     const organization = await tx.prospectOrganization.update({
       where: { id: input.organizationId },
@@ -677,6 +716,7 @@ export async function archiveProspectAction(
         summary: input.archived ? 'Prospect archived' : 'Prospect restored',
         detail: input.reason.trim(),
         actorId: input.actor.id,
+        ...(input.receiptKey ? { externalReceiptKey: input.receiptKey } : {}),
       },
     })
     await writeAuditLogStrict(

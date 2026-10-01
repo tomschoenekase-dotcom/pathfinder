@@ -150,6 +150,7 @@ const KIND_REFUSAL_CODES = new Set([
   'SENT_AT_IN_FUTURE',
   'INVALID_URL',
   'RECEIPT_CONFLICT',
+  'ADDRESS_SUPPRESSED',
 ])
 
 function errorCode(error: unknown): string {

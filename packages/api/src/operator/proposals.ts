@@ -486,6 +486,8 @@ export async function finish(
     failureCode?: string
     appliedAt?: Date
     args?: JsonValue
+    /** The domain action refused atomically, so no write began: clear the "may have started" mark. */
+    clearStarted?: boolean
   },
   requestId: string,
   actorUserId: string,
@@ -505,6 +507,7 @@ export async function finish(
       failureCode: data.failureCode ?? null,
       appliedAt: data.appliedAt ?? null,
       leaseExpiresAt: null,
+      ...(data.clearStarted ? { applyStartedAt: null } : {}),
     },
   })
   if (recorded.count === 1) {
@@ -526,6 +529,19 @@ function failureCode(error: unknown): string {
     if (/^[A-Z0-9_:-]{1,60}$/u.test(code)) return code
   }
   return 'APPLY_FAILED'
+}
+
+/**
+ * A canonical domain action that rejects its input does so inside its own transaction, which then
+ * rolls back: nothing was written. Those refusals are the only errors that prove "no effect".
+ */
+function isAtomicRefusal(error: unknown) {
+  if (!(error instanceof Error)) return false
+  const code = (error as Error & { code?: unknown }).code
+  return (
+    ['ProspectActionError', 'VenueActionError'].includes(error.name) &&
+    ['NOT_FOUND', 'INVALID_INPUT', 'CONFLICT', 'SUPPRESSED'].includes(String(code))
+  )
 }
 
 function isStale(error: unknown) {
@@ -653,7 +669,7 @@ export async function applyApprovedProposal(
         database,
         row,
         'STALE',
-        { failureCode: 'TARGET_CHANGED' },
+        { failureCode: 'TARGET_CHANGED', clearStarted: true },
         input.requestId,
         input.actorUserId,
       )
@@ -662,7 +678,10 @@ export async function applyApprovedProposal(
       database,
       row,
       'FAILED',
-      { failureCode: failureCode(error) },
+      {
+        failureCode: failureCode(error),
+        ...(isAtomicRefusal(error) ? { clearStarted: true } : {}),
+      },
       input.requestId,
       input.actorUserId,
     )

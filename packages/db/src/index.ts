@@ -336,6 +336,15 @@ export {
   updateProspectPipelineAction,
 } from './helpers/prospect-actions'
 export {
+  appendProspectNoteAction,
+  createProspectContactAction,
+  isAddressBlockedAnywhere,
+  maintenanceReceiptKey,
+  setProspectContactArchivedAction,
+  updateProspectContactAction,
+  updateProspectFollowupAction,
+} from './helpers/prospect-maintenance-actions'
+export {
   prepareProspectEmailAttachmentRetentionAction,
   reviewProspectEmailAttachmentRetentionAction,
 } from './helpers/prospect-email-attachment-retention-actions'

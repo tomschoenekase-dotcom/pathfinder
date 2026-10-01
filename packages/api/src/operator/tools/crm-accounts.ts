@@ -328,6 +328,9 @@ const resolveAccount: OperatorReadTool = {
 // crm.get_account_context
 // ---------------------------------------------------------------------------
 
+/** The summary the note actions write. Other NOTE_ADDED rows record field updates, not notes. */
+const NOTE_SUMMARY = 'Operator note added'
+
 const CONTEXT_VENUES = 25
 const CONTEXT_CAMPAIGNS = 10
 const CONTEXT_DUPLICATES = 10
@@ -415,7 +418,9 @@ const getAccountContext: OperatorReadTool = {
     ] = await Promise.all([
       database.prospectVenue.count({ where: { organizationId } }),
       database.prospectActivity.count({ where: { organizationId } }),
-      database.prospectActivity.count({ where: { organizationId, type: 'NOTE_ADDED' } }),
+      database.prospectActivity.count({
+        where: { organizationId, type: 'NOTE_ADDED', summary: NOTE_SUMMARY },
+      }),
       loadOutreach(database, [organizationId]),
       database.prospectContact.findMany({
         where: { organizationId, archivedAt: null },
@@ -677,7 +682,12 @@ const listNotes: OperatorReadTool = {
     if (after) {
       // The cursor must name a note of this account, or it is refused outright.
       const anchor = await database.prospectActivity.findFirst({
-        where: { id: after.id, organizationId: input.organizationId, type: 'NOTE_ADDED' },
+        where: {
+          id: after.id,
+          organizationId: input.organizationId,
+          type: 'NOTE_ADDED',
+          summary: NOTE_SUMMARY,
+        },
         select: { id: true },
       })
       if (!anchor) throw new OperatorInvalidCursorError()
@@ -686,6 +696,7 @@ const listNotes: OperatorReadTool = {
       where: {
         organizationId: input.organizationId,
         type: 'NOTE_ADDED',
+        summary: NOTE_SUMMARY,
         ...(after
           ? {
               OR: [

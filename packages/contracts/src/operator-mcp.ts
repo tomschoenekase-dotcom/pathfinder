@@ -131,6 +131,8 @@ export type OperatorToolScope = z.infer<typeof OperatorToolScope>
 export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'customers.propose_invite',
   'operator.propose_revert',
+  // Hides an account from every list, so a person decides each time.
+  'crm.propose_account_archive',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -175,6 +177,12 @@ export const OPERATOR_CONTROL_TOOL_NAMES = [
 
 export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_campaign_membership',
+  'crm.propose_contact_create',
+  'crm.propose_contact_update',
+  'crm.propose_contact_archive',
+  'crm.propose_followup_update',
+  'crm.propose_note',
+  'crm.propose_account_archive',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -422,6 +430,71 @@ export const OPERATOR_MCP_INPUTS = {
       )
       .min(1)
       .max(50),
+  }),
+  'crm.propose_contact_create': writeInput({
+    organizationId: Identifier,
+    venueId: Identifier.optional(),
+    fullName: z.string().trim().min(1).max(200).optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    email: Email.optional(),
+    phone: z.string().trim().min(1).max(40).optional(),
+    notes: z.string().trim().min(1).max(2_000).optional(),
+    /** Where this detail came from (a document, a call, an email). Kept on the record. */
+    source: z.string().trim().min(1).max(300),
+  }).refine((value) => value.fullName !== undefined || value.email !== undefined, {
+    message: 'Provide a name or an email address',
+  }),
+  'crm.propose_contact_update': writeInput({
+    contactId: Identifier,
+    /** The contact's updatedAt from crm.list_contacts. */
+    expectedUpdatedAt: IsoDateTime,
+    fullName: z.string().trim().min(1).max(200).optional(),
+    title: z.string().trim().min(1).max(200).nullable().optional(),
+    phone: z.string().trim().min(1).max(40).nullable().optional(),
+    notes: z.string().trim().min(1).max(2_000).nullable().optional(),
+    venueId: Identifier.nullable().optional(),
+  }).refine(
+    (value) =>
+      value.fullName !== undefined ||
+      value.title !== undefined ||
+      value.phone !== undefined ||
+      value.notes !== undefined ||
+      value.venueId !== undefined,
+    { message: 'Provide at least one field to change' },
+  ),
+  'crm.propose_contact_archive': writeInput({
+    contactId: Identifier,
+    expectedUpdatedAt: IsoDateTime,
+    archived: z.boolean(),
+    reason: z.string().trim().min(1).max(500),
+  }),
+  'crm.propose_followup_update': writeInput({
+    organizationId: Identifier,
+    /** The account version from crm.get_account_context. */
+    expectedVersion: z.number().int().positive(),
+    ownerId: z.string().trim().min(1).max(191).nullable().optional(),
+    nextAction: z.string().trim().min(1).max(500).nullable().optional(),
+    nextActionAt: IsoDateTime.nullable().optional(),
+    priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
+  }).refine(
+    (value) =>
+      value.ownerId !== undefined ||
+      value.nextAction !== undefined ||
+      value.nextActionAt !== undefined ||
+      value.priority !== undefined,
+    { message: 'Provide at least one field to change' },
+  ),
+  'crm.propose_note': writeInput({
+    organizationId: Identifier,
+    note: z.string().trim().min(1).max(4_000),
+    /** Optional pointer to what the note came from. */
+    source: z.string().trim().min(1).max(300).optional(),
+  }),
+  'crm.propose_account_archive': writeInput({
+    organizationId: Identifier,
+    expectedVersion: z.number().int().positive(),
+    archived: z.boolean(),
+    reason: z.string().trim().min(1).max(500),
   }),
   'venues.propose_publish': writeInput({ ...venueScope, expectedUpdatedAt: IsoDateTime }),
   'appearance.propose_update': AppearanceProposeInput,
@@ -939,6 +1012,12 @@ export const OPERATOR_MCP_OUTPUTS = {
   ),
 
   'crm.propose_campaign_membership': OperatorWriteResult,
+  'crm.propose_contact_create': OperatorWriteResult,
+  'crm.propose_contact_update': OperatorWriteResult,
+  'crm.propose_contact_archive': OperatorWriteResult,
+  'crm.propose_followup_update': OperatorWriteResult,
+  'crm.propose_note': OperatorWriteResult,
+  'crm.propose_account_archive': OperatorWriteResult,
   'crm.propose_outreach_draft': OperatorWriteResult,
   'crm.propose_stage_change': OperatorWriteResult,
   'crm.log_outreach_sent': OperatorWriteResult,
@@ -1274,6 +1353,54 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.campaign-membership',
+  ],
+  [
+    'crm.propose_contact_create',
+    'Propose contact create',
+    `Propose adding a contact to an account. Refuses an address that is blocked anywhere in the CRM. A changed address is a new contact, never an edit.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.contact-create',
+  ],
+  [
+    'crm.propose_contact_update',
+    'Propose contact update',
+    `Propose correcting a contact's name, title, phone, notes or venue. Cannot change the address or any suppression. Requires the contact's updatedAt.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.contact-update',
+  ],
+  [
+    'crm.propose_contact_archive',
+    'Propose contact archive',
+    `Propose archiving or restoring one contact (for example an old address). The contact keeps its history and any suppression.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.contact-archive',
+  ],
+  [
+    'crm.propose_followup_update',
+    'Propose follow-up update',
+    `Propose setting an account's owner, next action, due date or priority, without changing its stage. Requires the account version.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.followup-update',
+  ],
+  [
+    'crm.propose_note',
+    'Propose note',
+    `Propose appending a note to an account's history.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.note',
+  ],
+  [
+    'crm.propose_account_archive',
+    'Propose account archive',
+    `Propose archiving or restoring an account. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.account-archive',
   ],
   [
     'crm.propose_outreach_draft',

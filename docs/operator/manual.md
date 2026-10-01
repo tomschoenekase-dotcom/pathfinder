@@ -41,6 +41,11 @@ Follow it on every task. It describes what the tools do and the rules you work u
   earlier outputs written as `{{steps.N.result.<field>}}`. The run stops at the first failing step.
   Steps that already applied stay applied: a plan is not atomic and a failed plan can be partly done.
   Report the per-step statuses, not just the plan status.
+- Everyday CRM upkeep: `crm.propose_contact_create` / `_update` / `_archive`, `crm.propose_followup_update` (owner,
+  next action, due date, priority) and `crm.propose_note`. Pass the `updatedAt` from `crm.list_contacts` or the
+  `version` from `crm.get_account_context`; a change made meanwhile makes yours `STALE`, never a lost update. A
+  changed email address is a new contact: the old one keeps its history and any decline, and an address that is
+  blocked anywhere in the CRM cannot be added again. `crm.propose_account_archive` always needs a human.
 - To undo an applied change, use `operator.propose_revert`. It always needs a human.
 - `execution.state` on `operator.get_operation` says where approved work is: `awaiting_approval`, `queued`,
   `running`, `needs_recovery` (its worker stopped), `finished`, or `closed`.

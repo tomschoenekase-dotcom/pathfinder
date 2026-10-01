@@ -223,6 +223,12 @@ describe.skipIf(!enabled)(
         [
           'appearance.propose_update',
           'crm.log_outreach_sent',
+          'crm.propose_account_archive',
+          'crm.propose_contact_archive',
+          'crm.propose_contact_create',
+          'crm.propose_contact_update',
+          'crm.propose_followup_update',
+          'crm.propose_note',
           'crm.propose_outreach_draft',
           'crm.propose_stage_change',
           'venues.propose_create',

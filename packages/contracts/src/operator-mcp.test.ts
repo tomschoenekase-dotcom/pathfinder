@@ -44,6 +44,12 @@ const EXPECTED_TOOLS = [
   'operator.cancel_operation',
   'operator.recover_operation',
   'crm.propose_campaign_membership',
+  'crm.propose_contact_create',
+  'crm.propose_contact_update',
+  'crm.propose_contact_archive',
+  'crm.propose_followup_update',
+  'crm.propose_note',
+  'crm.propose_account_archive',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -220,6 +226,7 @@ describe('operator MCP catalog', () => {
     expect([...OPERATOR_ALWAYS_ASK_TOOLS]).toEqual([
       'customers.propose_invite',
       'operator.propose_revert',
+      'crm.propose_account_archive',
     ])
   })
 

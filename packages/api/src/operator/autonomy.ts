@@ -13,6 +13,8 @@ export type OperatorAutonomyMode = 'ask' | 'auto'
 export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'customers.invite',
   'operator.revert',
+  // Hides an account from every list and view; a person decides each time.
+  'crm.account-archive',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */
@@ -151,7 +153,9 @@ export async function setAutonomyPolicies(
       throw new OperatorAutonomyLockedError('This capability always asks')
     }
     const implemented = implementedByCapability.get(change.capability) ?? []
-    const requested = change.kinds ?? implemented
+    // Left unnamed, an AUTO switch covers every implemented kind that is allowed to be automatic.
+    // An always-ask kind is only ever refused when someone names it explicitly.
+    const requested = change.kinds ?? implemented.filter((kind) => !isAlwaysAskKind(kind))
     const unknown = requested.filter((kind) => !implemented.includes(kind))
     const alwaysAsk = requested.filter(isAlwaysAskKind)
     if (change.mode === 'auto' && (unknown.length > 0 || alwaysAsk.length > 0)) {
