@@ -305,7 +305,149 @@ const activityReceipts: OperatorReadTool = {
   },
 }
 
+/**
+ * Quarantine and webhook receipts have no tenant owner, so they are platform data: only a
+ * connection that reaches every customer may read them. Raw payloads and message snapshots are
+ * never returned; the sender's words are marked untrusted like any other retrieved text.
+ */
+function requirePlatformReach(context: Parameters<OperatorReadTool['handler']>[1]) {
+  if (!context.grant.allTenants) throw new OperatorNotFoundError()
+}
+
+const mailQuarantine: OperatorReadTool = {
+  name: 'crm.list_mail_quarantine',
+  capability: 'crm:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['crm.list_mail_quarantine'].parse(raw)
+    requirePlatformReach(context)
+    const base = input.status ? { status: input.status } : {}
+    const after = input.cursor === undefined ? null : decodeKeysetCursor(input.cursor)
+    await requireCursorInScope(after?.id, (id) =>
+      context.database.prospectInboundQuarantine.findFirst({
+        where: { ...base, id, occurredAt: after!.at },
+        select: { id: true },
+      }),
+    )
+    const rows = await context.database.prospectInboundQuarantine.findMany({
+      where: {
+        ...base,
+        ...(after
+          ? {
+              OR: [
+                { occurredAt: { lt: after.at } },
+                { occurredAt: after.at, id: { lt: after.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: input.limit + 1,
+      select: {
+        id: true,
+        reason: true,
+        detail: true,
+        status: true,
+        providerAccountId: true,
+        receiptId: true,
+        candidateThreadIds: true,
+        occurredAt: true,
+        resolvedAt: true,
+        resolvedBy: true,
+      },
+    })
+    const page = rows.slice(0, input.limit)
+    return pageResult(
+      page.map((row) => ({
+        quarantineId: row.id,
+        reason: row.reason,
+        detail: operatorUntrustedText(redactAddresses(row.detail)),
+        status: row.status,
+        mailboxId: row.providerAccountId,
+        receiptId: row.receiptId,
+        candidateThreadCount: row.candidateThreadIds.length,
+        occurredAt: row.occurredAt.toISOString(),
+        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+        resolvedBy: row.resolvedBy === null ? null : operatorUntrustedText(row.resolvedBy),
+      })),
+      rows.length > input.limit
+        ? encodeKeysetCursor(page.at(-1)!.occurredAt, page.at(-1)!.id)
+        : null,
+    )
+  },
+}
+
+const mailWebhookReceipts: OperatorReadTool = {
+  name: 'crm.list_mail_webhook_receipts',
+  capability: 'crm:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['crm.list_mail_webhook_receipts'].parse(raw)
+    requirePlatformReach(context)
+    const base = input.status ? { status: input.status } : {}
+    const after = input.cursor === undefined ? null : decodeKeysetCursor(input.cursor)
+    await requireCursorInScope(after?.id, (id) =>
+      context.database.prospectEmailWebhookReceipt.findFirst({
+        where: { ...base, id, createdAt: after!.at },
+        select: { id: true },
+      }),
+    )
+    const rows = await context.database.prospectEmailWebhookReceipt.findMany({
+      where: {
+        ...base,
+        ...(after
+          ? {
+              OR: [{ createdAt: { lt: after.at } }, { createdAt: after.at, id: { lt: after.id } }],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: input.limit + 1,
+      select: {
+        id: true,
+        provider: true,
+        providerAccountId: true,
+        providerEventId: true,
+        eventType: true,
+        status: true,
+        attemptCount: true,
+        nextAttemptAt: true,
+        quarantineReason: true,
+        processingError: true,
+        processedAt: true,
+        createdAt: true,
+      },
+    })
+    const page = rows.slice(0, input.limit)
+    return pageResult(
+      page.map((row) => ({
+        receiptId: row.id,
+        provider: row.provider,
+        mailboxId: row.providerAccountId,
+        providerEventId: operatorUntrustedText(row.providerEventId),
+        eventType: operatorUntrustedText(row.eventType),
+        status: row.status,
+        attemptCount: row.attemptCount,
+        nextAttemptAt: row.nextAttemptAt?.toISOString() ?? null,
+        quarantineReason:
+          row.quarantineReason === null
+            ? null
+            : operatorUntrustedText(redactAddresses(row.quarantineReason)),
+        processingError:
+          row.processingError === null
+            ? null
+            : operatorUntrustedText(redactAddresses(row.processingError)),
+        processedAt: row.processedAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      rows.length > input.limit
+        ? encodeKeysetCursor(page.at(-1)!.createdAt, page.at(-1)!.id)
+        : null,
+    )
+  },
+}
+
 export const mailReadTools: readonly OperatorReadTool[] = [
+  mailQuarantine,
+  mailWebhookReceipts,
   mailboxes,
   mailThreads,
   mailMessages,

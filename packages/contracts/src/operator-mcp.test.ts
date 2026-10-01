@@ -52,6 +52,8 @@ const EXPECTED_TOOLS = [
   'crm.list_mail_threads',
   'crm.list_mail_messages',
   'crm.list_mail_receipts',
+  'crm.list_mail_quarantine',
+  'crm.list_mail_webhook_receipts',
   'crm.list_activity_receipts',
   'company.list_context',
   'reports.list',

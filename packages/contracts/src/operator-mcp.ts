@@ -193,6 +193,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_mail_threads',
   'crm.list_mail_messages',
   'crm.list_mail_receipts',
+  'crm.list_mail_quarantine',
+  'crm.list_mail_webhook_receipts',
   'crm.list_activity_receipts',
   'company.list_context',
   'reports.list',
@@ -396,6 +398,25 @@ export const OPERATOR_MCP_INPUTS = {
   'crm.list_mail_messages': readInput({
     ...tenantScope,
     threadId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_mail_quarantine': readInput({
+    status: z.string().trim().min(1).max(32).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_mail_webhook_receipts': readInput({
+    status: z
+      .enum([
+        'RECEIVED',
+        'PROCESSING',
+        'PROCESSED',
+        'QUARANTINED',
+        'RETRYABLE',
+        'PERMANENTLY_FAILED',
+      ])
+      .optional(),
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -1688,6 +1709,40 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'crm.list_mail_quarantine': Page(
+    z
+      .object({
+        quarantineId: Identifier,
+        reason: z.string().max(100),
+        detail: UntrustedText,
+        status: z.string().max(32),
+        mailboxId: Identifier.nullable(),
+        receiptId: Identifier.nullable(),
+        candidateThreadCount: z.number().int().nonnegative(),
+        occurredAt: IsoDateTime,
+        resolvedAt: IsoDateTime.nullable(),
+        resolvedBy: UntrustedText.nullable(),
+      })
+      .strict(),
+  ),
+  'crm.list_mail_webhook_receipts': Page(
+    z
+      .object({
+        receiptId: Identifier,
+        provider: z.string().max(50),
+        mailboxId: Identifier.nullable(),
+        providerEventId: UntrustedText,
+        eventType: UntrustedText,
+        status: z.string().max(32),
+        attemptCount: z.number().int().nonnegative(),
+        nextAttemptAt: IsoDateTime.nullable(),
+        quarantineReason: UntrustedText.nullable(),
+        processingError: UntrustedText.nullable(),
+        processedAt: IsoDateTime.nullable(),
+        createdAt: IsoDateTime,
+      })
+      .strict(),
+  ),
   'crm.list_mail_receipts': Page(
     z
       .object({
@@ -2382,6 +2437,20 @@ const seeds: readonly Seed[] = [
     `Page through the messages in a tenant-linked thread. Retained text is marked as untrusted data and addresses in message text are withheld.${READ}`,
     'crm:read',
     'tenant',
+  ],
+  [
+    'crm.list_mail_quarantine',
+    'List quarantined inbound mail',
+    `Platform-wide: page through inbound mail the system could not safely attach to a thread, newest first, with the reason and how many candidate threads it found. Raw message snapshots are not exposed. Needs a connection that reaches every customer, because these rows belong to no single tenant.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_mail_webhook_receipts',
+    'List mail webhook receipts',
+    `Platform-wide: page through provider webhook receipts and their processing state (received, retryable, quarantined, failed), newest first. Raw payloads are not exposed. Needs a connection that reaches every customer.${READ}`,
+    'crm:read',
+    'platform',
   ],
   [
     'crm.list_mail_receipts',
