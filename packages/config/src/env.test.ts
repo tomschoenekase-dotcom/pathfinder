@@ -734,3 +734,15 @@ describe('WIDGET_PREVIEW_ORIGINS_JSON', () => {
     ).toThrow()
   })
 })
+
+describe.each(['OPERATOR_CUSTOMER_CREATE_ENABLED', 'OPERATOR_CUSTOMER_INVITE_ENABLED'] as const)(
+  '%s',
+  (flag) => {
+    it('defaults to disabled and turns on only for the exact value true', () => {
+      const base = { ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'staging' }
+      expect(envSchema.parse(base)[flag]).toBe(false)
+      expect(envSchema.parse({ ...base, [flag]: 'true' })[flag]).toBe(true)
+      expect(() => envSchema.parse({ ...base, [flag]: 'yes' })).toThrow()
+    })
+  },
+)

@@ -1,5 +1,6 @@
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
+import { CUSTOMER_KINDS } from './customers'
 import { CRM_CAMPAIGN_KINDS } from './crm-campaigns'
 import { CRM_MAINTENANCE_KINDS } from './crm-maintenance'
 import { SUPPORT_KINDS } from './support'
@@ -29,10 +30,12 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   ...CRM_MAINTENANCE_KINDS,
   ...CRM_CAMPAIGN_KINDS,
   ...SUPPORT_KINDS,
+  ...CUSTOMER_KINDS,
   onboardingQuestionsKind,
 ]
 
 export {
+  CUSTOMER_KINDS,
   SUPPORT_KINDS,
   CRM_CAMPAIGN_KINDS,
   CRM_MAINTENANCE_KINDS,

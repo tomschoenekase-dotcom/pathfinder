@@ -116,6 +116,11 @@ const rawEnvSchema = z
     // off, and even when on it can only call the canonical release, which has its own delivery
     // control, mailbox and 1-50 recipient canary gates.
     OPERATOR_CAMPAIGN_RELEASE_ENABLED: z.enum(['true', 'false']).optional(),
+    // The operator's customer provisioning adapters. Both default off and refuse at propose time
+    // while off. CREATE makes an organization at the identity provider (nobody is emailed); INVITE
+    // has the identity provider email a sign-up link, so it is a separate switch.
+    OPERATOR_CUSTOMER_CREATE_ENABLED: z.enum(['true', 'false']).optional(),
+    OPERATOR_CUSTOMER_INVITE_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
@@ -347,6 +352,8 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
   OPERATOR_OAUTH_ENABLED: values.OPERATOR_OAUTH_ENABLED === 'true',
   OPERATOR_CAMPAIGN_RELEASE_ENABLED: values.OPERATOR_CAMPAIGN_RELEASE_ENABLED === 'true',
+  OPERATOR_CUSTOMER_CREATE_ENABLED: values.OPERATOR_CUSTOMER_CREATE_ENABLED === 'true',
+  OPERATOR_CUSTOMER_INVITE_ENABLED: values.OPERATOR_CUSTOMER_INVITE_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',

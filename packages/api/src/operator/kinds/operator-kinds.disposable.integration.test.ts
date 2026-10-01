@@ -241,6 +241,8 @@ describe.skipIf(!enabled)(
           'support.propose_completion',
           'support.propose_triage',
           'customers.propose_onboarding_questions',
+          'customers.propose_create',
+          'customers.propose_invite',
           'support.propose_information_request',
           'support.propose_internal_note',
           'crm.propose_outreach_draft',

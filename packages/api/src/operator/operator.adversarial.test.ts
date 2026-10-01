@@ -676,11 +676,7 @@ describe.skipIf(!enabled)(
 
       it('an unknown tool name is UNKNOWN_TOOL and creates nothing', async () => {
         const connection = await connect()
-        for (const name of [
-          'crm.send_email',
-          'operator.set_autonomy',
-          'customers.propose_invite',
-        ]) {
+        for (const name of ['crm.send_email', 'operator.set_autonomy', 'venues.propose_source']) {
           const result = await callTool(connection.access, name, {
             tenantId,
             operationId: randomUUID(),
@@ -690,7 +686,6 @@ describe.skipIf(!enabled)(
         }
         const listed = await mcp(connection.access, 'tools/list')
         const names = new Set(listed.body.result.tools.map((tool: { name: string }) => tool.name))
-        expect(names.has('customers.propose_invite')).toBe(false)
         expect(names.has('venues.propose_source')).toBe(false)
         expect(await proposalRows(connection.grantId)).toBe(0)
       })

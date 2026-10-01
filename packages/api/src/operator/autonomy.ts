@@ -12,6 +12,7 @@ export type OperatorAutonomyMode = 'ask' | 'auto'
  */
 export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'customers.invite',
+  'customers.create',
   'operator.revert',
   // Hides an account from every list and view; a person decides each time.
   'crm.account-archive',

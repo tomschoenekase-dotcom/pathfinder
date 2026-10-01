@@ -72,7 +72,8 @@ export const ProspectCampaignMemberStatusValue = z.enum([
   'CANCELLED',
 ])
 export const OperatorSupportPriority = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
-export const OperatorInviteRole = z.enum(['MEMBER'])
+/** MEMBER joins the customer's portal; ADMIN can also manage that customer's own members. */
+export const OperatorInviteRole = z.enum(['MEMBER', 'ADMIN'])
 
 /** Retrieved free text (notes, messages, source excerpts). Always data, never instructions. */
 export const UntrustedText = z
@@ -135,6 +136,8 @@ export type OperatorToolScope = z.infer<typeof OperatorToolScope>
 /** Tools that always wait for a human, whatever the autonomy policy says. */
 export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'customers.propose_invite',
+  // Creates a real organization at the identity provider, so a person decides each time.
+  'customers.propose_create',
   'operator.propose_revert',
   // Hides an account from every list, so a person decides each time.
   'crm.propose_account_archive',
@@ -241,6 +244,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_publish',
   'appearance.propose_update',
   'customers.propose_invite',
+  'customers.propose_create',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -787,6 +791,36 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'venues.propose_publish': writeInput({ ...venueScope, expectedUpdatedAt: IsoDateTime }),
   'appearance.propose_update': AppearanceProposeInput,
+  'customers.propose_create': writeInput({
+    organizationName: z.string().trim().min(1).max(120),
+    /** Lowercase letters, digits and hyphens. Derived from the name when absent. */
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+      .optional(),
+    venueName: z.string().trim().min(1).max(120),
+    venueSlug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+      .optional(),
+    guideMode: z.enum(['location_aware', 'non_location']).default('non_location'),
+    city: z.string().trim().min(1).max(120).optional(),
+    region: z.string().trim().min(1).max(120).optional(),
+    /** Links the new account to the CRM account it came from (a conversion). */
+    prospectOrganizationId: Identifier.optional(),
+    prospectVenueId: Identifier.optional(),
+  }).refine(
+    (value) => value.prospectVenueId === undefined || value.prospectOrganizationId !== undefined,
+    {
+      message: 'A CRM venue link needs the CRM account too',
+    },
+  ),
   'customers.propose_invite': writeInput({
     ...tenantScope,
     email: Email,
@@ -1924,6 +1958,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_knowledge': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
   'appearance.propose_update': OperatorWriteResult,
+  'customers.propose_create': OperatorWriteResult,
   'customers.propose_invite': OperatorWriteResult,
   'support.propose_triage': OperatorWriteResult,
   'operator.propose_plan': OperatorWriteResult,
@@ -2606,9 +2641,17 @@ const seeds: readonly Seed[] = [
     'appearance.update',
   ],
   [
+    'customers.propose_create',
+    'Propose customer account',
+    `Propose creating a customer account: an organization at the identity provider, the customer record and one draft venue that visitors cannot see. Nobody is invited and nothing is emailed; invite the customer with customers.propose_invite. Needs a connection that reaches every customer. Always needs a human.${PROPOSE}`,
+    'customers:propose',
+    'platform',
+    'customers.create',
+  ],
+  [
     'customers.propose_invite',
     'Propose customer invite',
-    `Propose inviting a customer user to a tenant. Always needs a human.${PROPOSE}`,
+    `Propose inviting a person to a customer's organization by email. They get a sign-up link, create their own account and land only in that customer's dashboard. The email is sent by the identity provider when a person approves. Always needs a human.${PROPOSE}`,
     'customers:propose',
     'tenant',
     'customers.invite',

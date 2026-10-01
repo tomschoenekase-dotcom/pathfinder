@@ -92,6 +92,7 @@ const EXPECTED_TOOLS = [
   'venues.propose_publish',
   'appearance.propose_update',
   'customers.propose_invite',
+  'customers.propose_create',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -258,6 +259,7 @@ describe('operator MCP catalog', () => {
     }
     expect([...OPERATOR_ALWAYS_ASK_TOOLS]).toEqual([
       'customers.propose_invite',
+      'customers.propose_create',
       'operator.propose_revert',
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',

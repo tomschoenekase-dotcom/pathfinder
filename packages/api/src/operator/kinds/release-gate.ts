@@ -9,3 +9,17 @@ export function isCampaignReleaseEnabled(
 ): boolean {
   return source.OPERATOR_CAMPAIGN_RELEASE_ENABLED === 'true'
 }
+
+/** Creating a customer organization at the identity provider. Dark unless a deployment turns it on. */
+export function isCustomerCreateEnabled(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return source.OPERATOR_CUSTOMER_CREATE_ENABLED === 'true'
+}
+
+/** Having the identity provider email a sign-up link. A separate switch from creation. */
+export function isCustomerInviteEnabled(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return source.OPERATOR_CUSTOMER_INVITE_ENABLED === 'true'
+}
