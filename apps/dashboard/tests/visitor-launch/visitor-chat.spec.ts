@@ -165,6 +165,53 @@ test('keyboard-sized viewport gives footer space back to the conversation', asyn
   await expectViewportIntegrity(page)
 })
 
+test('repeated keyboard open and dismiss cycles land on the same layout every time', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 700 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+  const shell = page.locator('[data-fixture="visitor-chat"] > div')
+  const composer = page.getByRole('textbox')
+  const setVisualViewport = (height: number, offsetTop: number) =>
+    page.evaluate(
+      ({ height, offsetTop }) => {
+        const define = (key: string, value: number) =>
+          Object.defineProperty(window.visualViewport!, key, { configurable: true, value })
+        define('height', height)
+        define('offsetTop', offsetTop)
+        window.visualViewport!.dispatchEvent(new Event('resize'))
+      },
+      { height, offsetTop },
+    )
+  const opened: Array<{ y: number; height: number; gap: number }> = []
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    await composer.focus()
+    await setVisualViewport(340, 110)
+    await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
+    const box = (await shell.boundingBox())!
+    const composerBox = (await composer.boundingBox())!
+    // The shell is exactly the visible area, and the composer sits just above the keyboard.
+    opened.push({
+      y: box.y,
+      height: box.height,
+      gap: Math.round(110 + 340 - (composerBox.y + composerBox.height)),
+    })
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await setVisualViewport(700, 0)
+    await expect(shell).not.toHaveAttribute('data-keyboard-open', 'true')
+    const restored = (await shell.boundingBox())!
+    expect(restored.y).toBe(0)
+    expect(restored.height).toBe(700)
+  }
+  expect(opened.every((entry) => entry.y === 110 && entry.height === 340)).toBe(true)
+  // No cumulative drift, and no huge blank band between the composer and the keyboard.
+  expect(new Set(opened.map((entry) => entry.gap)).size).toBe(1)
+  expect(opened[0]!.gap).toBeLessThanOrEqual(24)
+})
+
 test('keyboard detection survives innerHeight shrinking with the visual viewport', async ({
   page,
 }) => {
