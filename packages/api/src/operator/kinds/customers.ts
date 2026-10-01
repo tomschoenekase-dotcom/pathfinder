@@ -81,10 +81,9 @@ const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const createInput = OPERATOR_MCP_INPUTS['customers.propose_create']
 type CreateArgs = ReturnType<typeof createInput.parse>
 
-const requestHash = (args: CreateArgs) => {
-  const { operationId: _operationId, ...rest } = args
-  return sha256(rest)
-}
+/** The request identity ignores the operation id itself: a retry carries the same operation. */
+const requestHash = (args: CreateArgs) =>
+  sha256(Object.entries(args).filter(([key]) => key !== 'operationId'))
 
 async function uniqueSlug(database: OperatorDatabase, base: string, fixed: boolean) {
   const root = base || 'customer'

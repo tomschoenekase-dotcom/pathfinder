@@ -84,6 +84,7 @@ Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `
 - PASS serial operator suite from packages/api: 26 files / 268 tests (`--no-file-parallelism`; parallel runs share one database and
   fail from contention, which is not a product defect). PASS contracts 636 tests (all contract files), tsc for api, contracts, db and config.
 - PASS `pnpm typecheck` across the repository: 27/27 tasks (run at `cddc3ed2`).
+- PASS `pnpm lint`: 15 tasks; one lint error in `customers.ts` was found and fixed, and the api package then linted clean. One existing warning in `apps/web` (a hook dependency) is not from this work.
 - PASS migration and release scripts: staging predeploy 31, handoff manifest 8, readiness 1, maintenance 7, documentation safety 7,
   current-truth 5, all `scripts/*.test.mjs` except two that were then fixed (574 run; the raw-SQL approval and the state document counts).
 - PASS verifiers: raw SQL (260 ops), tenant bypasses (461), tenant procedures (117), tenant registry (278 models), public surfaces, AI provider
