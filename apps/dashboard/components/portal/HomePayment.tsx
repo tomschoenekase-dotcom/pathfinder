@@ -229,10 +229,7 @@ export function HomePaymentView({
             </p>
           ) : null}
           <p className="mt-2 text-sm">
-            <Link
-              href="/settings#payment"
-              className={`${portalTextLink} inline-flex min-h-11 items-center`}
-            >
+            <Link href="/payment" className={`${portalTextLink} inline-flex min-h-11 items-center`}>
               Billing details
             </Link>
           </p>

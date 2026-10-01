@@ -551,15 +551,17 @@ export function VenueChatShell(props: {
                         LANGUAGE_FALLBACK_DESCRIPTIONS.English}
                     </p>
                   </div>
-                  <QuickPromptChips
-                    language={language}
-                    venueName={venue.name}
-                    venueCategory={venue.category ?? undefined}
-                    guideMode={venue.guideMode}
-                    locationAvailable={hasLocation}
-                    disabled={!canSubmitMessage}
-                    onSend={sendGuestMessage}
-                  />
+                  {!isSending ? (
+                    <QuickPromptChips
+                      language={language}
+                      venueName={venue.name}
+                      venueCategory={venue.category ?? undefined}
+                      guideMode={venue.guideMode}
+                      locationAvailable={hasLocation}
+                      disabled={!canSubmitMessage}
+                      onSend={sendGuestMessage}
+                    />
+                  ) : null}
                 </div>
               }
               onPlaceCardView={onPlaceView}

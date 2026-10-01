@@ -1,6 +1,11 @@
-import { redirect } from 'next/navigation'
+import { BillingWorkspace } from '../../../components/portal/BillingWorkspace'
+import { resolvePaymentAvailable } from '../../../lib/portal-capabilities'
+import { createDashboardCaller } from '../../../lib/server-caller'
 
-// Payment now lives in Account; Stripe return URLs and older links still land here.
-export default function PaymentPage() {
-  redirect('/settings#payment')
+export const dynamic = 'force-dynamic'
+
+export default async function PaymentPage() {
+  const caller = await createDashboardCaller('/payment')
+  const enabled = await resolvePaymentAvailable(caller)
+  return <BillingWorkspace enabled={enabled} />
 }

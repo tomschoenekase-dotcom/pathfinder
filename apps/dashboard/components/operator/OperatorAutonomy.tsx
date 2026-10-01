@@ -23,8 +23,8 @@ const COPY: Record<string, { label: string; detail: string }> = {
     detail: 'Changing the status of support requests.',
   },
   'customers:propose': {
-    label: 'Customer invites',
-    detail: 'Gives a person access, so it always asks.',
+    label: 'Customer setup',
+    detail: 'Onboarding question proposals always ask for review.',
   },
   'operator:revert': { label: 'Undo', detail: 'Undoing an applied change always asks.' },
   'operator:plan': {

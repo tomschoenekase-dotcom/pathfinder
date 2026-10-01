@@ -31,7 +31,7 @@ vi.mock('../billing/ClientBillingPanel', () => ({
 import { AccountWorkspace } from './AccountWorkspace'
 
 function SettingsPage() {
-  return <AccountWorkspace paymentAvailable={false} reportsAvailable={false} />
+  return <AccountWorkspace reportsAvailable={false} />
 }
 
 const settings = {
@@ -94,16 +94,13 @@ describe('SettingsPage request lifecycle', () => {
     expect(signal?.aborted).toBe(true)
   })
 
-  it('keeps billing and reports under Account, each shown only behind its own gate', async () => {
-    const { rerender } = render(
-      <AccountWorkspace paymentAvailable={false} reportsAvailable={false} />,
-    )
+  it('keeps account details and reports on the Account page', async () => {
+    const { rerender } = render(<AccountWorkspace reportsAvailable={false} />)
     expect(await screen.findByText('Harbor Museum')).toBeTruthy()
     expect(screen.queryByText('Billing panel')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Reports' })).toBeNull()
 
-    rerender(<AccountWorkspace paymentAvailable reportsAvailable />)
-    expect(screen.getByText('Billing panel').closest('#payment')).toBeTruthy()
+    rerender(<AccountWorkspace reportsAvailable />)
     expect(screen.getByRole('link', { name: 'Open reports' }).getAttribute('href')).toBe(
       '/weekly-reports',
     )
