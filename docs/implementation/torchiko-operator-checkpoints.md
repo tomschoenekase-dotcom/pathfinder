@@ -9,24 +9,38 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 - Work branch: `machine/torchiko/20260930-operator-program`, isolated worktree. Nothing else was touched.
 - Local proof environment: Windows, Node 24, `pnpm install --frozen-lockfile`, disposable Postgres (`pgvector/pgvector:pg16`,
   container `claude-operator-program-pg`, database `pathfinder_disposable_op`, all 255 migrations applied).
-- Never run: production, staging, live providers, real sends, real invitations, billing. Not touched.
+- Continuation baseline: `ca06dcec`; local-only tasks completed in order on 2026-10-01.
+- Never run: production/staging deployment, live migration/provider action, real customer communication, account creation,
+  new credentials, paid API use or money movement. H11, H13 and lossless merge remain excluded.
 
-| Lane                                                                                | State                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| H01 truthful contracts / discovery                                                  | DONE for context, tenant/campaign/member discovery, completeness, structured errors, output validation. Remaining: tool-level `deployed/provider/worker` health needs real provider reads (H06/H13).                                                                                                                                                                               |
-| H02 canonical transactions / replay                                                 | DONE: inactive venue create + operation-key replay, in-transaction CAS (stage, contact, follow-up, archive), unique namespaced send receipts, monotonic last activity. Remaining: content (knowledge/appearance) revision CAS beyond existing canonical actions.                                                                                                                   |
-| H03 durable execution / authority                                                   | DONE: leased fenced claims, phase markers, reconciliation, plan resume, cancel/recover, kind-scoped AUTO + policy revision + atomic batch, preview digest, client revocation, admission counters, atomic refresh rotation, one-use arming. Remaining: worker/cron driver for `recoverOperation` (today a tool), refresh-response replay design (needs security review, NOT built). |
-| H04 CRM identity / maintenance                                                      | Increment 1 (resolve, context, contacts, notes, history, upkeep writes) and increment 2 (duplicate review, historical reconciliation case) DONE. Increment 3 (lossless merge) NOT STARTED; duplicate review is explicitly not a merge. Remaining: imports/repair adapters, historical-mail quarantine review reads.                                                                |
-| H05 campaigns / drafts                                                              | Discovery reads done (H01). Creation, membership, draft read/update/review, batch preview/freeze NOT STARTED.                                                                                                                                                                                                                                                                      |
-| H06 mail threads / shared eligibility                                               | NOT STARTED. Known gap: operator `crm.check_can_contact` accepts UNKNOWN readiness that canonical sending rejects.                                                                                                                                                                                                                                                                 |
-| H07 support                                                                         | NOT STARTED.                                                                                                                                                                                                                                                                                                                                                                       |
-| H08-H10 customer/content/launch, reports/billing reads, routines/access/offboarding | NOT STARTED.                                                                                                                                                                                                                                                                                                                                                                       |
-| H12 mobile keyboard                                                                 | NOT STARTED. Cause, files and Safari/Chrome plan must be stated before editing (see handoff). Real-device proof is a user-supplied gate.                                                                                                                                                                                                                                           |
-| H13 CI / release prep                                                               | NOT STARTED. Pinned migration manifest and `EXPECTED_LATEST_MIGRATION` still name 254 (see Migration).                                                                                                                                                                                                                                                                             |
-| H14 portal / navigation / billing / admin-MCP polish                                | NOT STARTED.                                                                                                                                                                                                                                                                                                                                                                       |
-| H11                                                                                 | Decision needed; not built.                                                                                                                                                                                                                                                                                                                                                        |
+| Lane                                            | Current state and proof limits                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H01-H03 contracts, canonical actions, execution | Earlier local slices implemented and covered by the operator suite. Provider health, unattended recovery and refresh-response replay remain gaps. No activation or release claim.                                                                                                                                                                          |
+| H04 CRM                                         | Earlier identity/maintenance and duplicate review slices implemented. Lossless merge untouched and excluded.                                                                                                                                                                                                                                               |
+| H05 campaigns/drafts                            | PASS local canonical creation/membership, draft reads/review, batch staging/review and gated release tests. Shared purpose-aware contact eligibility is wired. Full content editing and live delivery NOT RUN.                                                                                                                                             |
+| H06 mail/receipts                               | PASS mailbox/thread/message, canonical mail-event receipts and activity receipt reads; scoped pagination, untrusted prose and rollback proof. FAIL complete receipt/quarantine coverage: raw webhook receipts and quarantine have no authoritative tenant ownership link (blocker below).                                                                  |
+| H07 support                                     | PASS local support detail/message reads and internal-note, portal information-request and completion proposals. Real customer communication NOT RUN.                                                                                                                                                                                                       |
+| H08 onboarding                                  | PASS earlier canonical dossier reads. NOT RUN question-group proposal: handler, catalog integration script and 9 disposable tests prepared outside worktree, not integrated/typechecked/executed. Customer creation and wider content/launch work excluded.                                                                                                |
+| H09 company/reports/billing                     | PASS promoted current tenant context, reports/status, billing status and paginated invoices. Separate read capabilities; no provider identifiers/raw payloads. Billing proposals and financial actions excluded.                                                                                                                                           |
+| H10 routines/access/offboarding                 | PASS routine, membership and offboarding metadata reads with scoped cursors; private evidence/artifact references withheld. No execution, membership changes, revocation or export creation.                                                                                                                                                               |
+| H12 mobile keyboard                             | PASS 12 viewport tests on this continuation; retained local browser log has 8 Chromium/WebKit tests using simulated visualViewport. Probable cause/files/protocol documented. Real iPhone Safari/Chrome NOT RUN; do not claim physical-device repair.                                                                                                      |
+| H13 CI/release prep                             | NOT RUN and untouched. Migration pins, approval/release packet and deployment excluded.                                                                                                                                                                                                                                                                    |
+| H14 portal/navigation                           | PASS clean thinking state, simpler portal, source-brand wordmark, immediate operator tabs and dedicated Stripe Billing tab; local UI tests/typechecks and rendered fixture proof. Real authentication, Stripe actions and physical-device testing NOT RUN. Separate public-rig asset fixture FAIL (blank local asset viewport; shared renderer unchanged). |
+| H11                                             | NOT RUN; not built.                                                                                                                                                                                                                                                                                                                                        |
 
-## Commits on the branch (oldest first)
+## Continuation commits (task order)
+
+1. `2141773c` H06 tenant-linked mailbox and receipt reads.
+2. `665e0ef4` H09 company, report and billing reads.
+3. `abb59801` H10 routine, access and offboarding reads.
+4. H08 question-group integration paused at the user's request; no commit.
+5. `3917966d` H14 thinking state, portal, wordmark, navigation and Billing, saved during wrap-up.
+6. This pause-point journal refresh.
+
+Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `55c3bb67` H12,
+`0c01e7c4` H07 and `ca06dcec` onboarding dossier reads.
+
+### Historical foundation commits
 
 `7c2eac83` wording and unrecorded support priority | `2a4162b3` H01 | `2fe307f9` H02.1 | `33dfc31a` H02 | `d1dfd5e3` H03.1 |
 `11195b4c` H03.2 | `5fcd2ac8` H03.3 | `a861acfe` H03.4 | `285248f4` H04.1 reads | `eeb05e70` H04.1 writes | (this commit) H04.2.
@@ -52,7 +66,35 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
   `customers.invite` and reverts are always-ask. Automatic application spends an hourly budget and degrades to ask.
 - No tool sends email, charges, deletes data, or changes policy. Controls (`cancel`, `recover`) cannot approve anything.
 
-## Evidence (local, this branch, commit above)
+## Continuation evidence (local disposable database and synthetic UI fixtures)
+
+- PASS API and contracts `npx tsc --noEmit` for H06, H09 and H10. No API/contracts edits in H14.
+  A new full UI/journal round of API/contracts checks was NOT RUN during the requested five-minute wrap-up.
+- PASS contracts `npx vitest run src/operator-mcp.test.ts`: 19 tests; catalog/schema, naming and always-ask checks.
+- PASS serial database command from packages/api: `source ../../../tmp/ci-env.sh && npx vitest run src/operator --no-file-parallelism`.
+  H06: 20 files/238 tests; H09: 21/242; final continuation: 22/244. No skipped operator suites in these runs.
+- PASS new disposable suites beside handlers: H06 mail, H09 company/reports/billing and H10 routines/access.
+  H08 prepared question-group tests NOT RUN.
+  Fixtures roll back; absence assertions prove cleanup without removing immutable evidence.
+- NOT RUN positive-row offboarding artifact proof: creating immutable artifact fixtures requires an operation reservation;
+  H10 tests exercise its empty scoped list only. No reservation or lifecycle implementation was added.
+- PASS H14 dashboard focused tests: 5 files/46 tests; web chat fixture: 11 tests; both app typechecks.
+- PASS H12 viewport unit tests: 12; retained `tmp/pw-keyboard.log`: 8 local Chromium/WebKit tests (emulated viewport only).
+- PASS rendered H14 Billing at 390x844, 820x1180, 1024x900, 1440x1000 and thinking at phone/desktop sizes.
+  Source-brand light/inverse wordmark hashes match the retained manifest. Delayed local tab fixture proves immediate selection,
+  loading replacement, browser back, rapid selection and Escape behavior.
+- Logs/screenshots: `C:/Users/tomsc/MachineWorkspaces/torchiko/20260930-operator-program/` (`h06-vitest.log`,
+  `h09-vitest.log`, final operator logs and `proofs/h14-proof.md`; rendered PNGs live under `proofs/`).
+- Resolved failed attempts: H06 fixture omitted bodyExpiresAt; H09 fixtures used invalid knowledge types and optional IDs;
+  H10 fixtures exceeded the routine attempt constraint, attached an error code to a successful evidence outcome, and tried
+  to create an immutable export artifact without its operation reservation (that fixture was removed);
+  H14 stale test expectation and browser-back pending selection. Corrected and rerun green.
+- FAIL separate public-family rig local asset fixture: requested thinking falls back to idle, but SVG viewport is blank due
+  unavailable local paths. No shared character renderer change. The actual visitor thinking fixture passes.
+- NOT RUN: physical iPhone Safari/Chrome, live authentication/Stripe/provider actions, full repository pnpm test,
+  verify:\* gates and migration-pin/release suites. No production-readiness claim.
+
+## Historical foundation evidence (retained; superseded by continuation results)
 
 - PASS `pnpm exec vitest run src/operator --pool=forks --maxWorkers=1` in packages/api with `RUN_OPERATOR_DB_INTEGRATION=1`
   against the disposable database: 16 files passing (unit + disposable-integration + adversarial).
@@ -68,7 +110,21 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 - `recoverOperation` is invoked by a tool; an unattended driver (worker or scheduled route) needs an owner decision on activation.
 - Raw-SQL inventory (`scripts/verify-raw-sql-boundary.mjs`): no raw SQL was added.
 
-## Next runnable step
+## Remaining bounded work
 
-H05: campaign creation/membership/draft lifecycle on the canonical campaign services, then H06 shared eligibility.
-In parallel and independent: H12 (state cause/files/verification plan first), H14 increments.
+H06 raw webhook/quarantine reads need an authoritative tenant ownership link before implementation; no table was added.
+H12 physical-device verification remains governed by `torchiko-keyboard-device-protocol.md`.
+H13, H11, customer creation and lossless merge are intentionally untouched by this continuation.
+
+## Exact pause point for Claude Code
+
+The user requested a pause/wrap-up so Claude Code can continue overnight. H08 question-group work is prepared only under
+`C:/Users/tomsc/MachineWorkspaces/torchiko/20260930-operator-program/tmp/`: `add_h08_questions.py`,
+`onboarding-questions.ts`, and `onboarding-questions.disposable.integration.test.ts`.
+Read these before running the script; it adds contracts, always-ask registration, the proposal kind and manual prose.
+Then run `python tmp/sync_manual.py` from the program root, typecheck API/contracts, run contracts tests,
+and run the disposable operator suite serially. Fix/verify and commit H08 separately.
+The staged design reuses canonical actions in one group transaction, hashes question revisions, derives child receipt IDs
+from globally unique proposal IDs, rechecks membership and records expiry through the canonical refusal path.
+These are code-review findings, not executed proof. Existing H14 copy describes this upcoming proposal category;
+the actual question-group tool is not in the catalog until H08 is integrated.
