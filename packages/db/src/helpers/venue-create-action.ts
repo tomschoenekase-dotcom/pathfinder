@@ -124,6 +124,18 @@ export type CreateVenueActionInput = {
   defaultCenterLat?: number | undefined
   defaultCenterLng?: number | undefined
   initialContent?: VenueInitialContent | undefined
+  /**
+   * Create the venue inactive inside the same transaction. Omitted means the long-standing default
+   * (active), so existing callers are unchanged.
+   */
+  initiallyActive?: boolean | undefined
+  /**
+   * A stable receipt key for a human-authorized caller that must be able to retry safely (the
+   * operator passes its operation id). With a key, a retry is recognized only by the venue-created
+   * audit row carrying that key; a venue that merely has the same slug and setup is never a replay,
+   * so it is rejected rather than adopted.
+   */
+  operationKey?: string | undefined
 }
 
 export function normalizeVenueSlug(value: string): string {
@@ -302,21 +314,25 @@ export async function createVenueAction(
   if (integrationActor && integrationActor.scope !== 'client') {
     throw new VenueActionError('INVALID_INPUT', 'Venue creation requires client credential scope')
   }
-  const requestHash = integrationActor
-    ? operationHash({
-        tenantId: input.tenantId,
-        name: input.name,
-        baseSlug,
-        callerSuppliedSlug: input.callerSuppliedSlug,
-        description: input.description ?? null,
-        guideNotes: input.guideNotes ?? null,
-        category: input.category ?? null,
-        guideMode: input.guideMode,
-        defaultCenterLat: input.defaultCenterLat ?? null,
-        defaultCenterLng: input.defaultCenterLng ?? null,
-        initialContent: input.initialContent ?? null,
-      })
-    : null
+  const humanOperationKey =
+    input.actor.type === 'HUMAN' && input.operationKey ? input.operationKey : null
+  const requestHash =
+    integrationActor || humanOperationKey
+      ? operationHash({
+          tenantId: input.tenantId,
+          name: input.name,
+          baseSlug,
+          callerSuppliedSlug: input.callerSuppliedSlug,
+          description: input.description ?? null,
+          guideNotes: input.guideNotes ?? null,
+          category: input.category ?? null,
+          guideMode: input.guideMode,
+          defaultCenterLat: input.defaultCenterLat ?? null,
+          defaultCenterLng: input.defaultCenterLng ?? null,
+          initialContent: input.initialContent ?? null,
+          initiallyActive: input.initiallyActive ?? true,
+        })
+      : null
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     if (integrationActor) {
@@ -348,9 +364,49 @@ export async function createVenueAction(
         return { record: replay, replayed: true }
       }
     }
+    if (humanOperationKey) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-create-operation:${input.tenantId}:human:${humanOperationKey}`}, 0))`
+      const prior = await tx.auditLog.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          actorType: 'HUMAN',
+          idempotencyKey: humanOperationKey,
+          action: 'venue.created',
+        },
+        select: { targetId: true, structuredReason: true },
+      })
+      if (prior) {
+        const evidence = prior.structuredReason as { operationHash?: unknown } | null
+        if (evidence?.operationHash !== requestHash) {
+          throw new VenueActionError(
+            'CONFLICT',
+            'Operation ID was already used for different venue setup.',
+          )
+        }
+        const replay = await tx.venue.findFirst({
+          where: { id: prior.targetId, tenantId: input.tenantId },
+          select: venueCreateSelect,
+        })
+        if (!replay)
+          throw new VenueActionError('CONFLICT', 'The original venue operation is unavailable.')
+        return { record: replay, replayed: true }
+      }
+    }
     await setContentVersionContext(tx, { actorId })
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-create:${input.tenantId}:${baseSlug}`}, 0))`
-    if (input.callerSuppliedSlug) {
+    if (input.callerSuppliedSlug && humanOperationKey) {
+      // No receipt exists for this key, so a venue already holding the slug was not created by it.
+      const occupied = await tx.venue.findFirst({
+        where: { tenantId: input.tenantId, slug: baseSlug },
+        select: { id: true },
+      })
+      if (occupied) {
+        throw new VenueActionError(
+          'CONFLICT',
+          'This venue slug is already used by an existing venue. Select that venue instead.',
+        )
+      }
+    } else if (input.callerSuppliedSlug) {
       const existing = await findReplay(tx, normalizedInput)
       if (existing) {
         if (!createMatches(existing, normalizedInput))
@@ -393,6 +449,7 @@ export async function createVenueAction(
         ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
         ...(input.category !== undefined ? { category: input.category } : {}),
         guideMode: input.guideMode,
+        ...(input.initiallyActive === false ? { isActive: false } : {}),
         ...(input.defaultCenterLat !== undefined
           ? { defaultCenterLat: input.defaultCenterLat }
           : {}),
@@ -475,7 +532,12 @@ export async function createVenueAction(
               idempotencyKey: input.actor.idempotencyKey,
               structuredReason: { operationHash: requestHash },
             }
-          : {}),
+          : humanOperationKey
+            ? {
+                idempotencyKey: humanOperationKey,
+                structuredReason: { operationHash: requestHash },
+              }
+            : {}),
         action: 'venue.created',
         targetType: 'Venue',
         targetId: record.id,

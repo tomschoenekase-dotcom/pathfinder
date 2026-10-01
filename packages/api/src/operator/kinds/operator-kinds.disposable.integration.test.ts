@@ -529,6 +529,84 @@ describe.skipIf(!enabled)(
           propose('venues.propose_create', { tenantId: 'other-tenant', name: 'Nope' }),
         ).rejects.toMatchObject({ code: 'NOT_FOUND' })
       })
+
+      it('never adopts or deactivates a live venue that already holds the slug', async () => {
+        const slug = `live-${randomUUID().slice(0, 8)}`
+        const human = { type: 'HUMAN', id: 'user_owner', role: 'OWNER' } as const
+        // A pre-existing, active, content-empty venue with exactly the name and slug the operator
+        // will ask for: the case the old name-and-slug "replay" match would deactivate.
+        const live = await createVenueAction({
+          tenantId,
+          actor: human,
+          name: 'Example Live',
+          baseSlug: slug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        })
+        const before = await venueRow(live.record.id)
+        const pending = await propose('venues.propose_create', {
+          tenantId,
+          name: 'Example Live',
+          slug,
+        })
+        const applied = await approve(pending)
+        // The slug conflict is the target having changed; nothing was created or altered.
+        expect(applied.status).toBe('STALE')
+        const after = await venueRow(live.record.id)
+        expect(after.isActive).toBe(true)
+        expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime())
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
+      })
+
+      it('creates inactive in one commit; the operation key proves a retry and legacy callers stay active', async () => {
+        const human = { type: 'HUMAN', id: 'user_owner', role: 'OWNER' } as const
+        const slug = `once-${randomUUID().slice(0, 8)}`
+        const operationKey = randomUUID()
+        const input = {
+          tenantId,
+          actor: human,
+          name: 'Example Once',
+          baseSlug: slug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+          initiallyActive: false,
+          operationKey,
+        } as const
+        const first = await createVenueAction(input)
+        expect(first.replayed).toBe(false)
+        expect(first.record.isActive).toBe(false)
+        // Someone publishes it; a retry must return it as it is now, not turn it back off.
+        await db.venue.update({
+          where: { id: first.record.id, tenantId },
+          data: { isActive: true },
+        })
+        const retry = await createVenueAction(input)
+        expect(retry.replayed).toBe(true)
+        expect(retry.record.id).toBe(first.record.id)
+        expect(retry.record.isActive).toBe(true)
+        // The same key with different setup is a conflict, never a second venue.
+        await expect(createVenueAction({ ...input, name: 'Different Name' })).rejects.toMatchObject(
+          { code: 'CONFLICT' },
+        )
+        // A different key cannot adopt the existing venue by slug.
+        await expect(
+          createVenueAction({ ...input, operationKey: randomUUID() }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
+        // Legacy behavior is unchanged: no flag means active, and the same-slug match still replays.
+        const legacySlug = `legacy-${randomUUID().slice(0, 8)}`
+        const legacy = {
+          tenantId,
+          actor: human,
+          name: 'Example Legacy',
+          baseSlug: legacySlug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        } as const
+        const created = await createVenueAction(legacy)
+        expect(created.record.isActive).toBe(true)
+        expect((await createVenueAction(legacy)).replayed).toBe(true)
+      })
     })
 
     describe('venues.propose_publish', () => {
