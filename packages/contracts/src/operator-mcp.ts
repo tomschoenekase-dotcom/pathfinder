@@ -116,6 +116,9 @@ export const OperatorCapability = z.enum([
   'appearance:read',
   'appearance:propose',
   'customers:propose',
+  'company:read',
+  'reports:read',
+  'billing:read',
   'support:read',
   'support:propose',
   'operator:read',
@@ -185,6 +188,11 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_mail_messages',
   'crm.list_mail_receipts',
   'crm.list_activity_receipts',
+  'company.list_context',
+  'reports.list',
+  'reports.get_status',
+  'billing.get_status',
+  'billing.list_invoices',
 ] as const
 
 /**
@@ -383,6 +391,24 @@ export const OPERATOR_MCP_INPUTS = {
     limit: PageLimit,
   }),
   'crm.list_activity_receipts': readInput({
+    ...tenantScope,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'company.list_context': readInput({
+    ...tenantScope,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'reports.list': readInput({
+    ...tenantScope,
+    venueId: Identifier.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'reports.get_status': readInput({ ...tenantScope, venueId: Identifier.optional() }),
+  'billing.get_status': readInput({ ...tenantScope }),
+  'billing.list_invoices': readInput({
     ...tenantScope,
     cursor: Cursor.optional(),
     limit: PageLimit,
@@ -1545,6 +1571,137 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'company.list_context': Page(
+    z
+      .object({
+        itemId: Identifier,
+        type: z.string().max(80),
+        title: UntrustedText,
+        summary: UntrustedText,
+        body: UntrustedText.nullable(),
+        authority: z.string().max(40),
+        revision: z.number().int().positive(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'reports.list': Page(
+    z
+      .object({
+        reportId: Identifier,
+        venueId: Identifier,
+        weekStart: IsoDateTime,
+        weekEnd: IsoDateTime,
+        status: z.string().max(40),
+        title: UntrustedText,
+        content: UntrustedText.nullable(),
+        answerCount: z.number().int().nonnegative(),
+        sessionCount: z.number().int().nonnegative(),
+        generatedAt: IsoDateTime.nullable(),
+        publishedAt: IsoDateTime.nullable(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'reports.get_status': z
+    .object({
+      tenantId: Identifier,
+      reportCounts: z
+        .object({
+          generating: z.number().int().nonnegative(),
+          draft: z.number().int().nonnegative(),
+          published: z.number().int().nonnegative(),
+          failed: z.number().int().nonnegative(),
+        })
+        .strict(),
+      latest: z
+        .object({
+          reportId: Identifier,
+          weekStart: IsoDateTime,
+          status: z.string().max(40),
+          updatedAt: IsoDateTime,
+        })
+        .strict()
+        .nullable(),
+      configurations: z
+        .object({
+          enabled: z.number().int().nonnegative(),
+          disabled: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  'billing.get_status': z
+    .object({
+      tenantId: Identifier,
+      account: z
+        .object({
+          billingAccountId: Identifier,
+          billingMode: z.string().max(40),
+          currency: z.string().length(3),
+          status: z.string().max(40),
+          gracePeriodEndsAt: IsoDateTime.nullable(),
+          paidThroughAt: IsoDateTime.nullable(),
+          reconciliationHealth: z.string().max(40),
+          lastReconciledAt: IsoDateTime.nullable(),
+          providerStateChangedAt: IsoDateTime.nullable(),
+          updatedAt: IsoDateTime,
+        })
+        .strict()
+        .nullable(),
+      agreementCounts: z.record(z.number().int().nonnegative()),
+      baseAgreement: z
+        .object({
+          agreementId: Identifier,
+          planKey: z.string().max(100),
+          status: z.string().max(40),
+          billingMode: z.string().max(40),
+          billingInterval: z.string().max(30),
+          quantity: z.number().int().positive(),
+          coveredVenueCount: z.number().int().positive(),
+          agreedAmountMinor: z
+            .string()
+            .regex(/^-?\d+$/u)
+            .nullable(),
+          currency: z.string().length(3),
+          startsAt: IsoDateTime,
+          accessStartsAt: IsoDateTime.nullable(),
+          serviceThroughAt: IsoDateTime.nullable(),
+          currentPeriodEndsAt: IsoDateTime.nullable(),
+          trialEndsAt: IsoDateTime.nullable(),
+          cancelAtPeriodEnd: z.boolean(),
+          cancellationEffectiveAt: IsoDateTime.nullable(),
+          endedAt: IsoDateTime.nullable(),
+          updatedAt: IsoDateTime,
+        })
+        .strict()
+        .nullable(),
+      invoiceCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+  'billing.list_invoices': Page(
+    z
+      .object({
+        invoiceId: Identifier,
+        agreementId: Identifier,
+        source: z.string().max(40),
+        status: z.string().max(40),
+        amountDueMinor: z.string().regex(/^-?\d+$/u),
+        amountPaidMinor: z.string().regex(/^-?\d+$/u),
+        amountRemainingMinor: z.string().regex(/^-?\d+$/u),
+        currency: z.string().length(3),
+        dueAt: IsoDateTime.nullable(),
+        paidAt: IsoDateTime.nullable(),
+        failedAt: IsoDateTime.nullable(),
+        voidedAt: IsoDateTime.nullable(),
+        nextRetryAt: IsoDateTime.nullable(),
+        failureCode: z.string().max(100).nullable(),
+        failureSummary: UntrustedText.nullable(),
+        createdAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
   'crm.get_campaign': OperatorCampaignDetail,
   'crm.list_drafts': Page(OperatorDraftView),
   'crm.get_outreach_batch': OperatorSendBatchView,
@@ -1840,6 +1997,41 @@ const seeds: readonly Seed[] = [
     'Get customer onboarding status',
     `Read one customer's onboarding state in a single call: source CRM account, members, venues (live or draft), intake, packages, blocked questions, support, and the gaps that follow. Reads only.${READ}`,
     'venues:read',
+    'tenant',
+  ],
+  [
+    'company.list_context',
+    'List company context',
+    `Page through current tenant-scoped company context. Platform, restricted and other-scope records are omitted.${READ}`,
+    'company:read',
+    'tenant',
+  ],
+  [
+    'reports.list',
+    'List reports',
+    `Page through one tenant's weekly report records. Report text is marked as untrusted.${READ}`,
+    'reports:read',
+    'tenant',
+  ],
+  [
+    'reports.get_status',
+    'Get report status',
+    `Read report counts, latest report status and opt-in configuration counts for one tenant or venue.${READ}`,
+    'reports:read',
+    'tenant',
+  ],
+  [
+    'billing.get_status',
+    'Get billing status',
+    `Read canonical billing and base agreement status for one tenant. Does not include provider identifiers or invoice links.${READ}`,
+    'billing:read',
+    'tenant',
+  ],
+  [
+    'billing.list_invoices',
+    'List billing invoices',
+    `Page through recorded invoice status and balance projections for one tenant. Provider URLs and identifiers are omitted.${READ}`,
+    'billing:read',
     'tenant',
   ],
   [
