@@ -9,7 +9,7 @@ import type {
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
-import { resolveAutonomy } from './autonomy'
+import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
 import type { VerifiedOperatorGrant } from './oauth'
@@ -175,6 +175,31 @@ export function proposalView(row: ProposalRow, config: OperatorServerConfig): Op
   }
 }
 
+/**
+ * Bumped whenever a kind's behaviour changes in a way an approver would care about. It is part of
+ * the preview digest, so an approval given under older semantics cannot apply under newer ones.
+ */
+export const OPERATOR_KIND_SEMANTICS_VERSION = 1
+
+/**
+ * What the approver actually saw: the kind, its semantics version, the human-readable diff and the
+ * version of the target it was computed against. Approval is only valid while this still holds.
+ */
+export function previewDigestOf(
+  kind: AnyOperatorProposalKind,
+  args: unknown,
+  targetVersion: string | null,
+): string {
+  return hashArgs({
+    tool: kind.tool,
+    args: {
+      semantics: OPERATOR_KIND_SEMANTICS_VERSION,
+      preview: kind.describe(args),
+      targetVersion,
+    },
+  })
+}
+
 /** Arguments minus the idempotency key: the same change always has the same hash. */
 export function proposalArgsHash(tool: string, args: Record<string, unknown>): string {
   const rest = { ...args }
@@ -238,6 +263,8 @@ export async function createProposal(
     },
   })
   if (existing) return replayView(existing, argsHash, service.config)
+  const targetVersion = await kind.targetVersion(args, context)
+  const policyRevision = await readPolicyRevision(database)
   let row: ProposalRow
   try {
     row = await database.operatorProposal.create({
@@ -253,7 +280,9 @@ export async function createProposal(
         targetRef: target.ref ?? null,
         args: args as object,
         argsHash,
-        targetVersion: await kind.targetVersion(args, context),
+        targetVersion,
+        previewDigest: previewDigestOf(kind, args, targetVersion),
+        policyRevision,
         expiresAt: new Date(
           service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
         ),
@@ -361,8 +390,13 @@ export async function loadGrant(
   now: Date,
   allowedUserIds: ReadonlySet<string>,
 ) {
-  const grant = await database.operatorGrant.findUnique({ where: { id: grantId } })
+  const grant = await database.operatorGrant.findUnique({
+    where: { id: grantId },
+    include: { client: { select: { revokedAt: true } } },
+  })
   if (!grant || grant.revokedAt !== null || grant.expiresAt <= now) return null
+  // Revoking the connection (client) ends every grant under it, including work already queued.
+  if (grant.client.revokedAt !== null) return null
   if (!allowedUserIds.has(grant.userId)) return null
   return {
     grantId: grant.id,
@@ -554,6 +588,22 @@ export async function applyApprovedProposal(
       )
     const args = kind.parse(input.resolvedArgs ?? row.args)
     await assertKindScope(kind, args, context)
+    // The approval covered a specific preview. If what this code would show for the stored
+    // arguments is no longer what was approved (a new release changed the semantics, or the
+    // target moved), the approval does not carry over: a fresh preview is required.
+    if (row.previewDigest !== null && input.resolvedArgs === undefined) {
+      const current = previewDigestOf(kind, kind.parse(row.args), row.targetVersion)
+      if (current !== row.previewDigest) {
+        return finish(
+          database,
+          row,
+          'STALE',
+          { failureCode: 'PREVIEW_CHANGED' },
+          input.requestId,
+          input.actorUserId,
+        )
+      }
+    }
     const expected =
       row.targetVersion ?? (input.resolvedArgs ? await kind.targetVersion(args, context) : null)
     if (expected !== null && (await kind.currentVersion(args, context)) !== expected) {

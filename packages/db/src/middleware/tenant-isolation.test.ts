@@ -337,6 +337,7 @@ describe('tenantIsolationMiddleware', () => {
       'OperatorPlan',
       'OperatorProposal',
       'OperatorAutonomyPolicy',
+      'OperatorPolicyState',
       'OperatorAuditEvent',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual([

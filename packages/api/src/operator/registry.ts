@@ -12,7 +12,7 @@ import {
 import { db } from '@pathfinder/db'
 
 import type { OperatorDatabase } from './audit'
-import { readAutonomyPolicies } from './autonomy'
+import { readAutonomyPolicies, readPolicyRevision } from './autonomy'
 import type { OperatorServerConfig } from './config'
 import { assertGrantCapability, buildOperatorReadScope, OperatorNotFoundError } from './grants'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
@@ -98,7 +98,11 @@ const builtInReads: readonly OperatorReadTool[] = [
     capability: 'operator:read',
     async handler(raw, context) {
       OPERATOR_MCP_INPUTS['operator.get_autonomy'].parse(raw)
-      return { policies: await readAutonomyPolicies(context.database) }
+      const [policies, revision] = await Promise.all([
+        readAutonomyPolicies(context.database),
+        readPolicyRevision(context.database),
+      ])
+      return { revision, policies }
     },
   },
   {

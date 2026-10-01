@@ -8,7 +8,7 @@ import {
   OPERATOR_LOCKED_CAPABILITIES,
   OPERATOR_POLICY_CAPABILITIES,
   OperatorAutonomyLockedError,
-  setAutonomyPolicy,
+  setAutonomyPolicies,
 } from '@pathfinder/api/operator'
 
 import { readBoundedJsonRequest } from '../../../../lib/bounded-json-request'
@@ -54,14 +54,13 @@ export async function POST(request: Request) {
   }
   const requestId = randomUUID()
   try {
-    for (const change of changes) {
-      await setAutonomyPolicy({ ...change, userId: guard.userId, requestId })
-    }
+    // One transaction and one policy revision for the whole batch: never half-changed.
+    const { revision } = await setAutonomyPolicies({ changes, userId: guard.userId, requestId })
+    return operatorJson(200, { saved: changes.length, revision })
   } catch (error) {
     if (error instanceof OperatorAutonomyLockedError) {
       return operatorJson(409, { error: 'AUTONOMY_LOCKED' })
     }
     throw error
   }
-  return operatorJson(200, { saved: changes.length })
 }

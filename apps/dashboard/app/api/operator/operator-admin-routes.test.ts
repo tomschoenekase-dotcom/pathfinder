@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   hasStrictReverification: vi.fn(),
   resolveOperatorConfig: vi.fn(),
-  setAutonomyPolicy: vi.fn(),
+  setAutonomyPolicies: vi.fn(async () => ({ revision: 7 })),
   revokeOperatorGrant: vi.fn(),
   findGrant: vi.fn(),
 }))
@@ -36,7 +36,7 @@ vi.mock('@pathfinder/api/operator', () => {
     OPERATOR_POLICY_CAPABILITIES: ['crm:propose', 'appearance:propose', ...locked],
     OPERATOR_LOCKED_CAPABILITIES: locked,
     OperatorAutonomyLockedError,
-    setAutonomyPolicy: mocks.setAutonomyPolicy,
+    setAutonomyPolicies: mocks.setAutonomyPolicies,
     revokeOperatorGrant: mocks.revokeOperatorGrant,
   }
 })
@@ -78,7 +78,7 @@ const cases = [
     path: '/api/operator/autonomy',
     post: autonomy,
     body: { changes: [{ capability: 'crm:propose', mode: 'auto' }] },
-    effect: () => mocks.setAutonomyPolicy,
+    effect: () => mocks.setAutonomyPolicies,
   },
   {
     name: 'revoke handler',
@@ -132,11 +132,15 @@ describe('autonomy handler', () => {
       }),
     )
     expect(response.status).toBe(200)
-    expect(mocks.setAutonomyPolicy).toHaveBeenCalledTimes(2)
-    expect(mocks.setAutonomyPolicy).toHaveBeenCalledWith(
+    // One atomic call for the whole batch, citing the resulting policy revision.
+    expect(await response.json()).toMatchObject({ saved: 2, revision: 7 })
+    expect(mocks.setAutonomyPolicies).toHaveBeenCalledTimes(1)
+    expect(mocks.setAutonomyPolicies).toHaveBeenCalledWith(
       expect.objectContaining({
-        capability: 'crm:propose',
-        mode: 'auto',
+        changes: [
+          { capability: 'crm:propose', mode: 'auto' },
+          { capability: 'appearance:propose', mode: 'ask' },
+        ],
         userId: 'user_owner',
       }),
     )
@@ -155,7 +159,7 @@ describe('autonomy handler', () => {
       )
       expect(response.status).toBe(409)
       expect(await response.json()).toMatchObject({ error: 'AUTONOMY_LOCKED' })
-      expect(mocks.setAutonomyPolicy).not.toHaveBeenCalled()
+      expect(mocks.setAutonomyPolicies).not.toHaveBeenCalled()
     },
   )
 
@@ -175,7 +179,7 @@ describe('autonomy handler', () => {
     for (const body of bad) {
       expect((await autonomy(request('/api/operator/autonomy', body))).status).toBe(400)
     }
-    expect(mocks.setAutonomyPolicy).not.toHaveBeenCalled()
+    expect(mocks.setAutonomyPolicies).not.toHaveBeenCalled()
   })
 })
 

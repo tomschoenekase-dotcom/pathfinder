@@ -10014,6 +10014,9 @@ model OperatorProposal {
   leaseExpiresAt  DateTime?              @map("lease_expires_at")
   fenceToken      Int                    @default(0) @map("fence_token")
   attempt         Int                    @default(0)
+  /// Hash of the exact preview (and semantics version) the approver saw; a mismatch forces a fresh preview.
+  previewDigest   String?                @map("preview_digest") @db.Char(64)
+  policyRevision  Int?                   @map("policy_revision")
   appliedAt       DateTime?              @map("applied_at")
   beforeSnapshot  Json?                  @map("before_snapshot")
   afterSnapshot   Json?                  @map("after_snapshot")
@@ -10036,10 +10039,21 @@ model OperatorProposal {
 model OperatorAutonomyPolicy {
   capability      String               @id @db.VarChar(120)
   mode            OperatorAutonomyMode @default(ASK)
+  /// Kinds this AUTO switch covers. Empty keeps the legacy meaning for pre-existing kinds only.
+  allowedKinds    String[]             @default([]) @map("allowed_kinds")
   updatedByUserId String               @map("updated_by_user_id") @db.VarChar(191)
   updatedAt       DateTime             @updatedAt @map("updated_at")
 
   @@map("operator_autonomy_policies")
+}
+
+/// One row. Every owner policy change increments `revision` in the same transaction as the change.
+model OperatorPolicyState {
+  id        String   @id @db.VarChar(32)
+  revision  Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("operator_policy_state")
 }
 
 model OperatorAuditEvent {

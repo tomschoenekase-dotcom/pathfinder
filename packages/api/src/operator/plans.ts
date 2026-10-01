@@ -2,13 +2,14 @@ import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
-import { resolveAutonomy } from './autonomy'
+import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
 import {
   applyApprovedProposal,
   derivedOperationId,
   OPERATOR_APPLY_LEASE_MS,
+  previewDigestOf,
   OperatorProposalError,
   type OperatorDecisionDependencies,
   type AnyOperatorProposalKind,
@@ -103,6 +104,7 @@ export async function createPlan(
     raw: Record<string, unknown> & { operationId: string }
     operationId: string
     targetVersion: string | null
+    previewDigest: string | null
     tenantId: unknown
   }> = []
   for (const [index, step] of input.steps.entries()) {
@@ -124,6 +126,7 @@ export async function createPlan(
       )
     }
     let targetVersion: string | null = null
+    let previewDigest: string | null = null
     if (refs.length === 0) {
       const args = kind.parse(raw)
       const target = kind.target(args)
@@ -131,14 +134,17 @@ export async function createPlan(
         await assertTenantInGrant(service.grant, target.tenantId, database)
       await kind.authorize?.(args, context)
       targetVersion = await kind.targetVersion(args, context)
+      // Steps that reference earlier results cannot be previewed now, so they carry no digest.
+      previewDigest = previewDigestOf(kind, args, targetVersion)
     } else if (typeof tenantId === 'string') {
       await assertTenantInGrant(service.grant, tenantId, database)
     }
-    prepared.push({ index, kind, raw, operationId, targetVersion, tenantId })
+    prepared.push({ index, kind, raw, operationId, targetVersion, previewDigest, tenantId })
   }
   const expiresAt = new Date(
     service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
   )
+  const policyRevision = await readPolicyRevision(database)
   const plan = await database.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as OperatorDatabase
     const created = await tx.operatorPlan.create({
@@ -169,6 +175,8 @@ export async function createPlan(
           args: step.raw as object,
           argsHash: hashArgs({ tool: step.kind.tool, args: step.raw }),
           targetVersion: step.targetVersion,
+          previewDigest: step.previewDigest,
+          policyRevision,
           planId: created.id,
           planStepIndex: step.index,
           expiresAt,

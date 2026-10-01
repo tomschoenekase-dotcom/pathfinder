@@ -609,6 +609,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'operator.list_proposals': Page(OperatorProposalView),
   'operator.get_autonomy': z
     .object({
+      /** Increments on every owner policy change, so a change can be cited and detected. */
+      revision: z.number().int().nonnegative(),
       policies: z
         .array(
           z
@@ -616,6 +618,8 @@ export const OPERATOR_MCP_OUTPUTS = {
               capability: OperatorCapability,
               mode: z.enum(['ask', 'auto']),
               locked: z.boolean(),
+              /** The actions an automatic switch actually covers; empty while it asks. */
+              autoKinds: z.array(z.string().max(80)).max(30),
             })
             .strict(),
         )

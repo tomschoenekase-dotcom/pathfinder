@@ -50,4 +50,23 @@ CREATE INDEX "operator_proposals_status_lease_idx"
 CREATE INDEX "operator_plans_status_lease_idx"
   ON "operator_plans"("status", "lease_expires_at");
 
+-- Authority: an AUTO switch applies only to the kinds it names (an empty list keeps the old
+-- meaning for the kinds that existed before this migration and nothing newer), every policy change
+-- bumps one revision, and a proposal remembers the exact preview and policy revision it was
+-- created under so a later change forces a fresh preview instead of riding an old approval.
+ALTER TABLE "operator_autonomy_policies"
+  ADD COLUMN "allowed_kinds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+CREATE TABLE "operator_policy_state" (
+  "id" VARCHAR(32) NOT NULL,
+  "revision" INTEGER NOT NULL DEFAULT 0,
+  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "operator_policy_state_pkey" PRIMARY KEY ("id")
+);
+INSERT INTO "operator_policy_state" ("id", "revision") VALUES ('singleton', 0);
+
+ALTER TABLE "operator_proposals"
+  ADD COLUMN "preview_digest" CHAR(64),
+  ADD COLUMN "policy_revision" INTEGER;
+
 COMMIT;
