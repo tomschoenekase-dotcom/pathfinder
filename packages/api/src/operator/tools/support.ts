@@ -43,8 +43,8 @@ const supportList: OperatorReadTool = {
         requestId: row.id,
         venueId: row.venueId,
         status: row.status,
-        // Support requests store no priority; every request reads as NORMAL until one exists.
-        priority: 'NORMAL' as const,
+        // Support requests store no priority. Report that honestly rather than a defaulted NORMAL.
+        priority: null,
         updatedAt: row.updatedAt.toISOString(),
         subject: operatorUntrustedText(row.subject),
       })),

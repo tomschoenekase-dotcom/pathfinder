@@ -481,7 +481,8 @@ export const OPERATOR_MCP_OUTPUTS = {
         requestId: Identifier,
         venueId: Identifier,
         status: SupportRequestStatus,
-        priority: OperatorSupportPriority,
+        /** `null` means no priority has been recorded; it is never a defaulted value. */
+        priority: OperatorSupportPriority.nullable(),
         updatedAt: IsoDateTime,
         subject: UntrustedText,
       })
@@ -808,7 +809,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_publish',
     'Propose venue publish',
-    `Propose publishing a venue at the observed updatedAt.${PROPOSE}`,
+    `Propose making a venue available to visitors (sets it active) at the observed updatedAt. This is availability only; it does not publish content or enable a website or app surface.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.publish',
@@ -840,7 +841,7 @@ const seeds: readonly Seed[] = [
   [
     'operator.propose_plan',
     'Propose plan',
-    `Propose an ordered plan of write steps approved once. Stops at the first failing step.${PROPOSE}`,
+    `Propose an ordered plan of write steps approved once. Stops at the first failing step; earlier applied steps stay applied (not atomic, no automatic rollback).${PROPOSE}`,
     'operator:plan',
     'platform',
     'operator.plan',

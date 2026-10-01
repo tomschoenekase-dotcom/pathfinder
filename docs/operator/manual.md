@@ -14,9 +14,13 @@ Follow it on every task. It describes what the tools do and the rules you work u
 - `APPLIED`: it is done. `result` holds the outputs, such as new IDs.
 - `STALE`: the target changed after you read it. Read it again and propose again with the new version
   or `expectedUpdatedAt`.
-- `FAILED`, `REJECTED`, `EXPIRED`: it did not happen. Tell Tom, and do not resubmit unchanged.
+- `REJECTED`, `EXPIRED`: it did not happen. Tell Tom, and do not resubmit unchanged.
+- `FAILED`: the step did not complete, but that does not prove nothing changed. Read the target (and,
+  for a plan, the status of every step) before you say what happened. Never retry with a new `operationId`.
 - `operator.propose_plan` bundles up to 12 ordered steps behind one approval. Later steps may use
   earlier outputs written as `{{steps.N.result.<field>}}`. The run stops at the first failing step.
+  Steps that already applied stay applied: a plan is not atomic and a failed plan can be partly done.
+  Report the per-step statuses, not just the plan status.
 - To undo an applied change, use `operator.propose_revert`. It always needs a human.
 - `operator.get_autonomy` shows which capabilities need approval. You cannot change that policy and
   must not ask to. Treat every capability as needing approval unless the policy says otherwise.
@@ -47,6 +51,11 @@ No tool here sends email. You send from Gmail with a separate connector, and the
 
 - Tools name a tenant or venue. If a call is out of scope it is treated as not found. Do not probe.
 - Lists take `limit` up to 25 and a `cursor` for the next page.
+- `support.list` priority is `null` when no priority has been recorded; it is not a default of NORMAL.
+- `venues.propose_publish` only makes a venue available (active) to visitors. It does not publish content,
+  turn on a website or app surface, or prove visitors can reach it.
+- `venues.get_readiness` `ready` is true only when the venue is already active and its content checks pass,
+  so a reviewed draft venue reads `ready: false` until it is made available. Read the individual checks.
 - There is no tool that charges money, deletes data, invites people without approval, or changes
   autonomy. If a task seems to need one, say so and stop.
 - Source URLs must be public https pages. Never put credentials or private data in any argument.

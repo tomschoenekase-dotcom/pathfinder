@@ -353,3 +353,26 @@ describe('operator MCP inputs', () => {
     expect(schema.safeParse({ email: 'nope' }).success).toBe(false)
   })
 })
+
+describe('operator MCP truthful outcome semantics', () => {
+  it('describes availability-only publish and non-atomic plans honestly', () => {
+    const publish = getOperatorToolDefinition('venues.propose_publish')!
+    expect(publish.description).toMatch(/availability only/i)
+    expect(publish.description).not.toMatch(/Propose publishing a venue/)
+    const plan = getOperatorToolDefinition('operator.propose_plan')!
+    expect(plan.description).toMatch(/earlier applied steps stay applied/i)
+  })
+
+  it('lets support.list report an unrecorded priority as null, not a default', () => {
+    const page = OPERATOR_MCP_OUTPUTS['support.list']
+    const item = {
+      requestId: 'req_1',
+      venueId: 'venue_1',
+      status: 'OPEN',
+      priority: null,
+      updatedAt: '2026-09-30T12:00:00.000Z',
+      subject: { untrusted: true, text: 'x', truncated: false },
+    }
+    expect(page.safeParse({ items: [item], nextCursor: null }).success).toBe(true)
+  })
+})
