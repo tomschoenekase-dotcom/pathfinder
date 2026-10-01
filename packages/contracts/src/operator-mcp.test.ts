@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import {
   OPERATOR_ALWAYS_ASK_TOOLS,
+  OPERATOR_CONTROL_TOOL_NAMES,
   OPERATOR_MCP_INPUTS,
   OPERATOR_MCP_OUTPUTS,
   OPERATOR_MCP_TOOLS,
@@ -36,6 +37,8 @@ const EXPECTED_TOOLS = [
   'customers.list',
   'crm.list_campaigns',
   'crm.list_campaign_members',
+  'operator.cancel_operation',
+  'operator.recover_operation',
   'crm.propose_campaign_membership',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
@@ -86,9 +89,13 @@ describe('operator MCP catalog', () => {
     const names = OPERATOR_MCP_TOOLS.map((tool) => tool.name)
     expect([...names].sort()).toEqual([...EXPECTED_TOOLS].sort())
     expect(new Set(names).size).toBe(names.length)
-    expect([...OPERATOR_READ_TOOL_NAMES, ...OPERATOR_WRITE_TOOL_NAMES].sort()).toEqual(
-      [...EXPECTED_TOOLS].sort(),
-    )
+    expect(
+      [
+        ...OPERATOR_READ_TOOL_NAMES,
+        ...OPERATOR_WRITE_TOOL_NAMES,
+        ...OPERATOR_CONTROL_TOOL_NAMES,
+      ].sort(),
+    ).toEqual([...EXPECTED_TOOLS].sort())
     expect(Object.keys(OPERATOR_MCP_INPUTS).sort()).toEqual([...EXPECTED_TOOLS].sort())
     expect(Object.keys(OPERATOR_MCP_OUTPUTS).sort()).toEqual([...EXPECTED_TOOLS].sort())
   })
@@ -111,13 +118,14 @@ describe('operator MCP catalog', () => {
   it('classifies effects, annotations, capabilities and scopes', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const isRead = (OPERATOR_READ_TOOL_NAMES as readonly string[]).includes(tool.name)
-      expect(tool.effect).toBe(isRead ? 'read' : 'proposal')
+      const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
+      expect(tool.effect).toBe(isRead ? 'read' : isControl ? 'control' : 'proposal')
       expect(tool.annotations.readOnlyHint).toBe(isRead)
       expect(tool.annotations.destructiveHint).toBe(false)
       expect(tool.annotations.openWorldHint).toBe(false)
       expect(OperatorCapability.safeParse(tool.capability).success).toBe(true)
       expect(['platform', 'tenant', 'venue']).toContain(tool.scope)
-      expect(Boolean(tool.proposalKind)).toBe(!isRead)
+      expect(Boolean(tool.proposalKind)).toBe(!isRead && !isControl)
       if (isRead) expect(tool.capability).toMatch(/:read$/u)
     }
     const kinds = OPERATOR_MCP_TOOLS.flatMap((tool) =>
@@ -160,6 +168,8 @@ describe('operator MCP catalog', () => {
   it('requires an operationId uuid on every write and on no read', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[] }
+      // Only proposals carry an operationId. Controls name the earlier operation by
+      // originalOperationId and are naturally idempotent.
       expect(json.required.includes('operationId')).toBe(tool.effect === 'proposal')
     }
     expect(

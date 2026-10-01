@@ -121,6 +121,38 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
       after: after as unknown as JsonValue,
     }
   },
+  /**
+   * The create is one transaction that also writes an audit row carrying this operation's key, so
+   * the presence of that row proves the venue exists and its absence proves nothing was created.
+   */
+  reconcile: async (args, context) => {
+    const receipt = await context.database.auditLog.findFirst({
+      where: {
+        tenantId: args.tenantId,
+        actorType: 'HUMAN',
+        idempotencyKey: context.operationId,
+        action: 'venue.created',
+      },
+      select: { targetId: true },
+    })
+    if (!receipt) return { state: 'not_applied' }
+    const after = await readVenue(context.database, args.tenantId, receipt.targetId)
+    if (!after) return { state: 'unknown' }
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          venueId: after.venueId,
+          slug: after.slug,
+          updatedAt: after.updatedAt,
+          isActive: after.isActive,
+          draft: !after.isActive,
+          replayed: false,
+        },
+        after: after as unknown as JsonValue,
+      },
+    }
+  },
   /** Archives the created venue by switching its availability off (nothing is deleted). */
   revert: async (original: StoredOperatorProposal, context: OperatorApplyContext) => {
     const after = original.afterSnapshot as VenueState | null

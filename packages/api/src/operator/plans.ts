@@ -8,6 +8,7 @@ import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } fro
 import {
   applyApprovedProposal,
   derivedOperationId,
+  OPERATOR_APPLY_LEASE_MS,
   OperatorProposalError,
   type OperatorDecisionDependencies,
   type AnyOperatorProposalKind,
@@ -312,6 +313,9 @@ export async function approveAndApplyPlan(
       decidedByUserId: input.actorUserId,
       decidedAt: input.now,
       applyClaimedAt: input.now,
+      leaseExpiresAt: new Date(input.now.getTime() + OPERATOR_APPLY_LEASE_MS),
+      fenceToken: { increment: 1 },
+      attempt: { increment: 1 },
     },
   })
   if (approved.count !== 1)
@@ -332,13 +336,43 @@ export async function approveAndApplyPlan(
       autoApproved: input.auto === true,
     },
   })
+  const claimed = (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
+  return drivePlan(claimed, input, dependencies)
+}
+
+/**
+ * Applies the remaining steps of an approved plan in order, under the plan's current fence. It is
+ * safe to call again after an interruption: steps that already applied are skipped and their results
+ * feed later references, a step that may have committed stops the plan, and only the holder of the
+ * newest fence may close the plan.
+ */
+export async function drivePlan(
+  plan: PlanRow,
+  input: Pick<PlanDecision, 'actorUserId' | 'requestId' | 'now'>,
+  dependencies: OperatorDecisionDependencies,
+): Promise<PlanRow> {
+  const database = dependencies.database ?? db
   const steps = await database.operatorProposal.findMany({
     where: { planId: plan.id },
     orderBy: { planStepIndex: 'asc' },
   })
   const results = new Map<number, Record<string, unknown>>()
   let failedStepIndex: number | null = null
+  let inFlight = false
   for (const step of steps) {
+    if (step.status === 'APPLIED') {
+      results.set(step.planStepIndex!, (step.result ?? {}) as Record<string, unknown>)
+      continue
+    }
+    if (step.status !== 'APPROVED') {
+      failedStepIndex = step.planStepIndex!
+      break
+    }
+    if (step.applyClaimedAt !== null) {
+      // Another claim holds this step; whoever owns it will finish or be reconciled.
+      inFlight = true
+      break
+    }
     let resolvedArgs: unknown
     try {
       resolvedArgs = resolveStepReferences(step.args, results)
@@ -361,6 +395,7 @@ export async function approveAndApplyPlan(
     }
     results.set(step.planStepIndex!, (applied.result ?? {}) as Record<string, unknown>)
   }
+  if (inFlight) return (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
   if (failedStepIndex !== null) {
     // Later steps never run. They are closed so they cannot be approved on their own later.
     await database.operatorProposal.updateMany({
@@ -368,17 +403,23 @@ export async function approveAndApplyPlan(
       data: { status: 'REJECTED', failureCode: 'PLAN_STOPPED' },
     })
   }
-  await database.operatorPlan.update({
-    where: { id: plan.id },
-    data: failedStepIndex === null ? { status: 'APPLIED' } : { status: 'FAILED', failedStepIndex },
+  // Fenced: a driver whose lease was taken over cannot close a plan someone else now owns.
+  const closed = await database.operatorPlan.updateMany({
+    where: { id: plan.id, status: 'APPROVED', fenceToken: plan.fenceToken },
+    data:
+      failedStepIndex === null
+        ? { status: 'APPLIED', leaseExpiresAt: null }
+        : { status: 'FAILED', failedStepIndex, leaseExpiresAt: null },
   })
-  await auditPlan(
-    database,
-    plan,
-    input.requestId,
-    failedStepIndex === null ? 'APPLIED' : `FAILED:${failedStepIndex}`,
-    input.actorUserId,
-  )
+  if (closed.count === 1) {
+    await auditPlan(
+      database,
+      plan,
+      input.requestId,
+      failedStepIndex === null ? 'APPLIED' : `FAILED:${failedStepIndex}`,
+      input.actorUserId,
+    )
+  }
   return (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
 }
 

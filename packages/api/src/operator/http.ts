@@ -205,6 +205,11 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
     nextAction:
       'The server built an invalid response. Report it; nothing in the data was changed by a read.',
   },
+  NOT_CANCELLABLE: {
+    retryable: false,
+    nextAction:
+      'Read operator.get_operation. Work that already started cannot be cancelled; recover it or wait for it to finish.',
+  },
   RATE_LIMITED: {
     retryable: true,
     retryAfterSeconds: 60,

@@ -1,6 +1,7 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { OperatorNotFoundError } from '../grants'
+import { claimIsStale } from '../execution'
 import { planEffect, proposalEffect } from '../outcome'
 import { planView } from '../plans'
 import { proposalView, type OperatorWriteView } from '../proposals'
@@ -18,6 +19,34 @@ type PlanRow = NonNullable<
 
 const iso = (value: Date | null) => (value ? value.toISOString() : null)
 
+type ExecutionState =
+  | 'awaiting_approval'
+  | 'queued'
+  | 'running'
+  | 'needs_recovery'
+  | 'finished'
+  | 'closed'
+
+/** Where the work is, from recorded state only. */
+function executionOf(
+  row: Readonly<{
+    status: string
+    applyClaimedAt: Date | null
+    leaseExpiresAt: Date | null
+    attempt: number
+  }>,
+  now: Date,
+) {
+  let state: ExecutionState
+  if (row.status === 'PENDING') state = 'awaiting_approval'
+  else if (row.status === 'APPROVED') {
+    state =
+      row.applyClaimedAt === null ? 'queued' : claimIsStale(row, now) ? 'needs_recovery' : 'running'
+  } else if (row.status === 'APPLIED' || row.status === 'FAILED') state = 'finished'
+  else state = 'closed'
+  return { state, attempt: row.attempt, leaseExpiresAt: iso(row.leaseExpiresAt) }
+}
+
 /** One proposal as the operator reads it back: status plus what is known about its effect. */
 export function proposalOperationView(row: ProposalRow, context: OperatorCallContext) {
   return {
@@ -26,6 +55,7 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
     tool: row.tool,
     kind: row.kind,
     effect: proposalEffect(row),
+    execution: executionOf(row, context.now),
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
     decidedAt: iso(row.decidedAt),
@@ -43,7 +73,14 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
 export async function planOperationView(plan: PlanRow, context: OperatorCallContext) {
   const steps = await context.database.operatorProposal.findMany({
     where: { planId: plan.id },
-    select: { status: true, applyClaimedAt: true, failureCode: true, autoApproved: true },
+    select: {
+      status: true,
+      applyClaimedAt: true,
+      applyStartedAt: true,
+      attempt: true,
+      failureCode: true,
+      autoApproved: true,
+    },
   })
   const base: OperatorWriteView = await planView(plan, context)
   return {
@@ -52,6 +89,7 @@ export async function planOperationView(plan: PlanRow, context: OperatorCallCont
     tool: 'operator.propose_plan',
     kind: 'operator.plan',
     effect: planEffect(steps),
+    execution: executionOf(plan, context.now),
     createdAt: plan.createdAt.toISOString(),
     expiresAt: plan.expiresAt.toISOString(),
     decidedAt: iso(plan.decidedAt),

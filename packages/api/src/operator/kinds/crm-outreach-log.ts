@@ -95,6 +95,24 @@ export const crmOutreachLogKind: OperatorProposalKind<LogArgs> = {
       organizationId: args.organizationId,
       logged: (await findLogged(context.database, args)) !== null,
     }) as JsonValue,
+  /** The receipt key is database-unique and written in the same transaction as the activity. */
+  reconcile: async (args, context) => {
+    const existing = await findLogged(context.database, args)
+    if (!existing) return { state: 'not_applied' }
+    if (existing.organizationId !== args.organizationId) return { state: 'unknown' }
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          activityId: existing.id,
+          organizationId: args.organizationId,
+          replayed: false,
+          receipt: { key: outreachReceiptKey(args), verification: 'unverified' },
+        },
+        after: { activityId: existing.id, replayed: false },
+      },
+    }
+  },
   apply: async (args, context: OperatorApplyContext) => {
     const replayed = (existing: { id: string; organizationId: string }) => {
       // The same provider message is already recorded: never a second row, and never under a

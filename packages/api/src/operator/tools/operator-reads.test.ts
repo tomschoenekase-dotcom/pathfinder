@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { OPERATOR_MCP_OUTPUTS, OPERATOR_READ_TOOL_NAMES } from '@pathfinder/contracts/operator-mcp'
+import {
+  OPERATOR_CONTROL_TOOL_NAMES,
+  OPERATOR_MCP_OUTPUTS,
+  OPERATOR_READ_TOOL_NAMES,
+} from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
@@ -187,11 +191,19 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_campaign_members',
         'operator.get_operation',
         'operator.list_plans',
+        // Orchestration controls ride the same registry path; they need operator:plan, not a read.
+        'operator.cancel_operation',
+        'operator.recover_operation',
       ].sort(),
     )
     for (const tool of OPERATOR_READ_TOOLS) {
-      expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
-      expect(tool.capability.endsWith(':read')).toBe(true)
+      const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
+      if (isControl) {
+        expect(tool.capability).toBe('operator:plan')
+      } else {
+        expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
+        expect(tool.capability.endsWith(':read')).toBe(true)
+      }
     }
   })
 })

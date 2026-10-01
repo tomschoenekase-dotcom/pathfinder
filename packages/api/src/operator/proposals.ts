@@ -59,6 +59,14 @@ export type OperatorApplyOutcome = Readonly<{
   after: JsonValue
 }>
 
+export type OperatorReconcileOutcome =
+  | Readonly<{ state: 'applied'; outcome: OperatorApplyOutcome }>
+  | Readonly<{ state: 'not_applied' }>
+  | Readonly<{ state: 'unknown' }>
+
+/** How long one apply claim holds a proposal before it may be reconciled. */
+export const OPERATOR_APPLY_LEASE_MS = 5 * 60 * 1000
+
 /** Thrown by a kind when its target moved since the proposal; the proposal becomes STALE. */
 export class OperatorStaleError extends Error {
   readonly code = 'STALE'
@@ -82,6 +90,12 @@ export type OperatorProposalKind<Args = unknown> = Readonly<{
   snapshot: (args: Args, context: OperatorKindContext) => Promise<JsonValue>
   /** Calls the canonical domain action with the human actor. */
   apply: (args: Args, context: OperatorApplyContext) => Promise<OperatorApplyOutcome>
+  /**
+   * Decides from canonical state whether an interrupted apply took effect. Only a kind whose
+   * domain write is atomic and leaves a findable receipt can answer `applied` or `not_applied`;
+   * anything else must answer `unknown` (or omit this), and the operation is held for a human.
+   */
+  reconcile?: (args: Args, context: OperatorApplyContext) => Promise<OperatorReconcileOutcome>
   /** Undo for an APPLIED proposal of this kind; absent means the kind cannot be reverted. */
   revert?: (
     original: StoredOperatorProposal,
@@ -97,6 +111,7 @@ export class OperatorProposalError extends Error {
       | 'ARGS_HASH_MISMATCH'
       | 'NOT_PENDING'
       | 'PLAN_STEP'
+      | 'NOT_CANCELLABLE'
       | 'NOT_REVERTIBLE',
     message: string,
   ) {
@@ -121,7 +136,7 @@ export function createKindRegistry(
   return byTool
 }
 
-function kindByName(registry: OperatorKindRegistry, name: string) {
+export function kindByName(registry: OperatorKindRegistry, name: string) {
   for (const kind of registry.values()) if (kind.kind === name) return kind
   return undefined
 }
@@ -340,7 +355,7 @@ type DecisionInput = Readonly<{
   auto?: boolean
 }>
 
-async function loadGrant(
+export async function loadGrant(
   database: OperatorDatabase,
   grantId: string,
   now: Date,
@@ -420,7 +435,7 @@ export async function approveAndApplyProposal(
   return applyApprovedProposal(row.id, input, dependencies)
 }
 
-async function finish(
+export async function finish(
   database: OperatorDatabase,
   row: ProposalRow,
   status: 'APPLIED' | 'FAILED' | 'STALE',
@@ -435,8 +450,10 @@ async function finish(
   requestId: string,
   actorUserId: string,
 ) {
-  await database.operatorProposal.updateMany({
-    where: { id: row.id, status: 'APPROVED' },
+  // Fenced: only the claim that still holds the lease may record the result. A stale worker whose
+  // lease was taken over finds the token changed and records nothing.
+  const recorded = await database.operatorProposal.updateMany({
+    where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
     data: {
       status,
       ...(data.beforeSnapshot !== undefined
@@ -447,15 +464,18 @@ async function finish(
       ...(data.args !== undefined ? { args: data.args as object } : {}),
       failureCode: data.failureCode ?? null,
       appliedAt: data.appliedAt ?? null,
+      leaseExpiresAt: null,
     },
   })
-  await auditTransition(
-    database,
-    requestId,
-    row,
-    status === 'FAILED' ? `FAILED:${data.failureCode ?? ''}` : status,
-    actorUserId,
-  )
+  if (recorded.count === 1) {
+    await auditTransition(
+      database,
+      requestId,
+      row,
+      status === 'FAILED' ? `FAILED:${data.failureCode ?? ''}` : status,
+      actorUserId,
+    )
+  }
   return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
 }
 
@@ -490,7 +510,13 @@ export async function applyApprovedProposal(
   const database = dependencies.database ?? db
   const claimed = await database.operatorProposal.updateMany({
     where: { id: proposalId, status: 'APPROVED', applyClaimedAt: null },
-    data: { applyClaimedAt: input.now },
+    data: {
+      applyClaimedAt: input.now,
+      leaseExpiresAt: new Date(input.now.getTime() + OPERATOR_APPLY_LEASE_MS),
+      applyStartedAt: null,
+      fenceToken: { increment: 1 },
+      attempt: { increment: 1 },
+    },
   })
   const row = (await database.operatorProposal.findUnique({ where: { id: proposalId } }))!
   if (claimed.count !== 1) return row
@@ -541,6 +567,15 @@ export async function applyApprovedProposal(
       )
     }
     const before = await kind.snapshot(args, context)
+    // From here a domain write may begin. Recording that first, under the fence, is what lets a
+    // later reconciler say "never started" or "may have committed" instead of guessing.
+    const started = await database.operatorProposal.updateMany({
+      where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
+      data: { applyStartedAt: input.now },
+    })
+    if (started.count !== 1) {
+      return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
+    }
     const outcome = await kind.apply(args, context)
     return finish(
       database,
@@ -603,6 +638,13 @@ async function applyRevert(
   }
   if (original.targetTenantId) {
     await assertTenantInGrant(context.grant, original.targetTenantId, database)
+  }
+  const started = await database.operatorProposal.updateMany({
+    where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
+    data: { applyStartedAt: input.now },
+  })
+  if (started.count !== 1) {
+    return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
   }
   const outcome = await kind.revert(original, context)
   return finish(

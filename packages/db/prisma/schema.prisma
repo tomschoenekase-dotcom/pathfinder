@@ -9971,6 +9971,9 @@ model OperatorPlan {
   decidedByUserId String?                @map("decided_by_user_id") @db.VarChar(191)
   decidedAt       DateTime?              @map("decided_at")
   applyClaimedAt  DateTime?              @map("apply_claimed_at")
+  leaseExpiresAt  DateTime?              @map("lease_expires_at")
+  fenceToken      Int                    @default(0) @map("fence_token")
+  attempt         Int                    @default(0)
   failedStepIndex Int?                   @map("failed_step_index")
   expiresAt       DateTime               @map("expires_at")
   createdAt       DateTime               @default(now()) @map("created_at")
@@ -9980,6 +9983,7 @@ model OperatorPlan {
 
   @@unique([grantId, operationId], map: "operator_plans_grant_operation_key")
   @@index([status, createdAt], map: "operator_plans_status_created_idx")
+  @@index([status, leaseExpiresAt], map: "operator_plans_status_lease_idx")
   @@map("operator_plans")
 }
 
@@ -10005,6 +10009,11 @@ model OperatorProposal {
   decidedAt       DateTime?              @map("decided_at")
   autoApproved    Boolean                @default(false) @map("auto_approved")
   applyClaimedAt  DateTime?              @map("apply_claimed_at")
+  /// Set immediately before the domain write may begin; null means no effect can have started.
+  applyStartedAt  DateTime?              @map("apply_started_at")
+  leaseExpiresAt  DateTime?              @map("lease_expires_at")
+  fenceToken      Int                    @default(0) @map("fence_token")
+  attempt         Int                    @default(0)
   appliedAt       DateTime?              @map("applied_at")
   beforeSnapshot  Json?                  @map("before_snapshot")
   afterSnapshot   Json?                  @map("after_snapshot")
@@ -10019,6 +10028,7 @@ model OperatorProposal {
   @@unique([grantId, operationId], map: "operator_proposals_grant_operation_key")
   @@unique([planId, planStepIndex], map: "operator_proposals_plan_step_key")
   @@index([status, createdAt], map: "operator_proposals_status_created_idx")
+  @@index([status, leaseExpiresAt], map: "operator_proposals_status_lease_idx")
   @@index([grantId, createdAt], map: "operator_proposals_grant_created_idx")
   @@map("operator_proposals")
 }

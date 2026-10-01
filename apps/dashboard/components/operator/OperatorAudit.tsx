@@ -15,6 +15,7 @@ export const AUDIT_EVENT_TYPES = [
   'oauth.revoke',
   'proposal.transition',
   'plan.transition',
+  'proposal.recovery',
   'autonomy.change',
 ] as const
 

@@ -1,4 +1,5 @@
 import type { OperatorReadTool } from '../registry'
+import { controlTools } from './controls'
 import { crmReadTools } from './crm'
 import { discoveryReadTools } from './discovery'
 import { manualReadTools } from './manual'
@@ -14,4 +15,5 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...manualReadTools,
   ...discoveryReadTools,
   ...operationReadTools,
+  ...controlTools,
 ]

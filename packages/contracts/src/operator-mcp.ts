@@ -159,6 +159,16 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_campaign_members',
 ] as const
 
+/**
+ * Controls act on the connection's own queued work (cancel it, resume it after an interruption).
+ * They create no new proposal and widen no authority: a resume only continues what a human or
+ * policy already approved, under a fresh authority check.
+ */
+export const OPERATOR_CONTROL_TOOL_NAMES = [
+  'operator.cancel_operation',
+  'operator.recover_operation',
+] as const
+
 export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_campaign_membership',
   'crm.propose_outreach_draft',
@@ -177,7 +187,11 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
 
 export type OperatorReadToolName = (typeof OPERATOR_READ_TOOL_NAMES)[number]
 export type OperatorWriteToolName = (typeof OPERATOR_WRITE_TOOL_NAMES)[number]
-export type OperatorToolName = OperatorReadToolName | OperatorWriteToolName
+export type OperatorControlToolName = (typeof OPERATOR_CONTROL_TOOL_NAMES)[number]
+export type OperatorToolName =
+  | OperatorReadToolName
+  | OperatorWriteToolName
+  | OperatorControlToolName
 export type OperatorPlanStepToolName = Exclude<
   OperatorWriteToolName,
   'operator.propose_plan' | 'operator.propose_revert'
@@ -316,6 +330,8 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
+  'operator.cancel_operation': readInput({ originalOperationId: OperationId }),
+  'operator.recover_operation': readInput({ originalOperationId: OperationId }),
   'crm.list_campaign_members': readInput({
     campaignId: Identifier,
     organizationId: Identifier.optional(),
@@ -472,6 +488,22 @@ const OperatorProposalView = z
     authorizedBy: z.enum(['human', 'policy']).nullable().optional(),
     /** The connection (client) that proposed it, which is not the approver. */
     initiatedByClientId: z.string().max(64).optional(),
+    /** Where the work is: waiting, queued, running, needing recovery, or finished/closed. */
+    execution: z
+      .object({
+        state: z.enum([
+          'awaiting_approval',
+          'queued',
+          'running',
+          'needs_recovery',
+          'finished',
+          'closed',
+        ]),
+        attempt: z.number().int().nonnegative(),
+        leaseExpiresAt: IsoDateTime.nullable(),
+      })
+      .strict()
+      .optional(),
     planId: Identifier.nullable().optional(),
     planStepIndex: z.number().int().nonnegative().nullable().optional(),
     failureCode: z.string().max(120).nullable().optional(),
@@ -615,7 +647,7 @@ export const OPERATOR_MCP_OUTPUTS = {
           z
             .object({
               name: z.string().max(80),
-              effect: z.enum(['read', 'proposal']),
+              effect: z.enum(['read', 'proposal', 'control']),
               scope: OperatorToolScope,
               capability: OperatorCapability,
               /** A handler is registered in this build. */
@@ -636,6 +668,8 @@ export const OPERATOR_MCP_OUTPUTS = {
     })
     .strict(),
   'operator.get_operation': OperatorProposalView,
+  'operator.cancel_operation': OperatorProposalView,
+  'operator.recover_operation': OperatorProposalView,
   'operator.list_plans': Page(OperatorProposalView),
   'customers.list': Page(
     z
@@ -801,7 +835,7 @@ const rootSchema = (schema: z.ZodTypeAny): JsonSchema => ({
 // Definitions
 // ---------------------------------------------------------------------------
 
-export type OperatorToolEffect = 'read' | 'proposal'
+export type OperatorToolEffect = 'read' | 'proposal' | 'control'
 
 export type OperatorToolDefinition = Readonly<{
   name: OperatorToolName
@@ -966,6 +1000,21 @@ const seeds: readonly Seed[] = [
   ],
 
   [
+    'operator.cancel_operation',
+    'Cancel operation',
+    `Withdraw one of this connection's own proposals or plans that has not started running (pass the operationId you originally sent as originalOperationId). Stops future steps only: it does not undo anything already applied, and refuses work that is running.`,
+    'operator:plan',
+    'platform',
+  ],
+  [
+    'operator.recover_operation',
+    'Recover operation',
+    `Continue an already-approved operation whose worker was interrupted (pass the original operationId). It re-checks the connection and scope first, never repeats an effect that may have happened, and holds an undecidable outcome for a human. It cannot approve anything.`,
+    'operator:plan',
+    'platform',
+  ],
+
+  [
     'crm.propose_campaign_membership',
     'Propose campaign membership',
     `Propose adding an organization to a campaign.${PROPOSE}`,
@@ -1074,6 +1123,7 @@ const seeds: readonly Seed[] = [
 export const OPERATOR_MCP_TOOLS: readonly OperatorToolDefinition[] = seeds.map(
   ([name, title, description, capability, scope, proposalKind]) => {
     const isRead = (OPERATOR_READ_TOOL_NAMES as readonly string[]).includes(name)
+    const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(name)
     return {
       name,
       title,
@@ -1087,7 +1137,7 @@ export const OPERATOR_MCP_TOOLS: readonly OperatorToolDefinition[] = seeds.map(
         openWorldHint: false,
       },
       capability,
-      effect: isRead ? 'read' : 'proposal',
+      effect: isRead ? 'read' : isControl ? 'control' : 'proposal',
       ...(proposalKind ? { proposalKind } : {}),
       scope,
     } satisfies OperatorToolDefinition

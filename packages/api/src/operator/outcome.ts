@@ -20,6 +20,9 @@ type EffectInput = Readonly<{
   status: string
   applyClaimedAt: Date | null
   failureCode: string | null
+  /** Absent on rows written before execution phases were recorded. */
+  applyStartedAt?: Date | null
+  attempt?: number
 }>
 
 /** What recorded state proves about whether one proposal's change reached the system. */
@@ -28,6 +31,11 @@ export function proposalEffect(row: EffectInput): OperatorEffect {
     case 'APPLIED':
       return 'applied'
     case 'FAILED':
+      // Rows written with execution phases say exactly whether a domain write could have begun.
+      // Older rows (attempt 0) fall back to the failure codes only pre-write checks produce.
+      if (row.attempt !== undefined && row.attempt > 0) {
+        return row.applyStartedAt ? 'unknown' : 'none'
+      }
       return row.failureCode !== null && PRE_EFFECT_FAILURE_CODES.has(row.failureCode)
         ? 'none'
         : 'unknown'
@@ -38,7 +46,10 @@ export function proposalEffect(row: EffectInput): OperatorEffect {
       return 'none'
     default:
       // APPROVED: a claimed apply that has not recorded a result is in flight or was interrupted.
-      return row.applyClaimedAt === null ? 'none' : 'unknown'
+      // With phases recorded, an apply that never reached its domain write has had no effect.
+      if (row.applyClaimedAt === null) return 'none'
+      if (row.attempt !== undefined && row.attempt > 0 && !row.applyStartedAt) return 'none'
+      return 'unknown'
   }
 }
 

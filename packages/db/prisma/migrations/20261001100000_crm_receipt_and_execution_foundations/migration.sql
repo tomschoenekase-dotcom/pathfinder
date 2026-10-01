@@ -30,4 +30,24 @@ WHERE activity."id" = first_row."id";
 CREATE UNIQUE INDEX "prospect_activities_external_receipt_key_key"
   ON "prospect_activities"("external_receipt_key");
 
+-- Durable execution: an apply claim is a lease with a fencing token, and the moment a domain write
+-- may begin is recorded. Together they let a reconciler tell "never started, safe to retry" from
+-- "may have committed, outcome unknown", and stop a stale worker from recording a result after a
+-- newer claim. Existing rows keep attempt 0 and are interpreted by the legacy rules.
+ALTER TABLE "operator_proposals"
+  ADD COLUMN "apply_started_at" TIMESTAMP(3),
+  ADD COLUMN "lease_expires_at" TIMESTAMP(3),
+  ADD COLUMN "fence_token" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE "operator_plans"
+  ADD COLUMN "lease_expires_at" TIMESTAMP(3),
+  ADD COLUMN "fence_token" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX "operator_proposals_status_lease_idx"
+  ON "operator_proposals"("status", "lease_expires_at");
+CREATE INDEX "operator_plans_status_lease_idx"
+  ON "operator_plans"("status", "lease_expires_at");
+
 COMMIT;
