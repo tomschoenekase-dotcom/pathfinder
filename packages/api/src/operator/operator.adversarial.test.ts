@@ -661,16 +661,16 @@ describe.skipIf(!enabled)(
           venueId: otherVenueId,
         })
         expect(read.isError).toBe(true)
-        expect(read.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(read.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         const list = await callTool(connection.access, 'venues.list', { tenantId: otherTenantId })
-        expect(list.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(list.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         const write = await callTool(connection.access, 'venues.propose_publish', {
           tenantId: otherTenantId,
           venueId: otherVenueId,
           operationId: randomUUID(),
           expectedUpdatedAt: new Date().toISOString(),
         })
-        expect(write.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(write.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
 
@@ -686,7 +686,7 @@ describe.skipIf(!enabled)(
             operationId: randomUUID(),
           })
           expect(result.isError, name).toBe(true)
-          expect(result.structuredContent, name).toEqual({ error: 'UNKNOWN_TOOL' })
+          expect(result.structuredContent, name).toMatchObject({ error: 'UNKNOWN_TOOL' })
         }
         const listed = await mcp(connection.access, 'tools/list')
         const names = new Set(listed.body.result.tools.map((tool: { name: string }) => tool.name))
@@ -925,7 +925,7 @@ describe.skipIf(!enabled)(
           note: INJECTION,
         })
         expect(result.isError).toBe(true)
-        expect(result.structuredContent).toEqual({ error: 'UNKNOWN_TOOL' })
+        expect(result.structuredContent).toMatchObject({ error: 'UNKNOWN_TOOL' })
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
 

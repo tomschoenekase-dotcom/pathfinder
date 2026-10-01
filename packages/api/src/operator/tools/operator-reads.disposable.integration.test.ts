@@ -350,9 +350,11 @@ describe.skipIf(!enabled)(
       await expect(call('venues.list', { tenantId: otherTenantId })).rejects.toBeInstanceOf(
         OperatorNotFoundError,
       )
+      expect(page.complete).toBe(true)
+      expect(page.nextCursor).toBeNull()
+      // A cursor that names no venue of this tenant, or a venue of another tenant, is refused.
       await expect(call('venues.list', { tenantId, cursor: 'bad' })).rejects.toThrow()
-      const beyond = await call('venues.list', { tenantId, cursor: 'o:25' })
-      expect(beyond.items).toEqual([])
+      await expect(call('venues.list', { tenantId, cursor: 'o:25' })).rejects.toThrow()
     })
 
     it('venues.get_readiness is tenant and venue scoped', async () => {

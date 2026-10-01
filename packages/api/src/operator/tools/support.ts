@@ -3,6 +3,7 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import { operatorUntrustedText } from '../crm-projection'
 import { buildOperatorReadScope, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
+import { decodeKeysetCursor, encodeKeysetCursor, pageResult } from './page'
 
 const PAGE_SIZE = 25
 
@@ -25,21 +26,30 @@ const supportList: OperatorReadTool = {
     if (input.venueId !== undefined && !scope.venueIds.includes(input.venueId)) {
       throw new OperatorNotFoundError()
     }
+    const base = {
+      tenantId: input.tenantId,
+      ...(input.venueId !== undefined ? { venueId: input.venueId } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+    }
+    // Newest first with a (updatedAt, id) keyset, so equal timestamps neither repeat nor skip.
+    const after = input.cursor === undefined ? null : decodeKeysetCursor(input.cursor)
     const rows = await context.database.supportRequest.findMany({
       where: {
-        tenantId: input.tenantId,
-        ...(input.venueId !== undefined ? { venueId: input.venueId } : {}),
-        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...base,
+        ...(after
+          ? {
+              OR: [{ updatedAt: { lt: after.at } }, { updatedAt: after.at, id: { lt: after.id } }],
+            }
+          : {}),
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: PAGE_SIZE + 1,
-      ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
       // Message bodies, participants and artifacts are never selected.
       select: { id: true, venueId: true, status: true, subject: true, updatedAt: true },
     })
     const page = rows.slice(0, PAGE_SIZE)
-    return {
-      items: page.map((row) => ({
+    return pageResult(
+      page.map((row) => ({
         requestId: row.id,
         venueId: row.venueId,
         status: row.status,
@@ -48,8 +58,8 @@ const supportList: OperatorReadTool = {
         updatedAt: row.updatedAt.toISOString(),
         subject: operatorUntrustedText(row.subject),
       })),
-      nextCursor: rows.length > PAGE_SIZE ? page.at(-1)!.id : null,
-    }
+      rows.length > PAGE_SIZE ? encodeKeysetCursor(page.at(-1)!.updatedAt, page.at(-1)!.id) : null,
+    )
   },
 }
 

@@ -51,6 +51,26 @@ export const ProspectStageValue = z.enum([
   'PARKED',
   'DO_NOT_CONTACT',
 ])
+export const ProspectCampaignStatusValue = z.enum([
+  'DRAFT',
+  'ACTIVE',
+  'PAUSED',
+  'COMPLETE',
+  'CANCELLED',
+])
+export const ProspectCampaignMemberStatusValue = z.enum([
+  'SELECTED',
+  'DRAFTED',
+  'NEEDS_REVIEW',
+  'APPROVED',
+  'QUEUED',
+  'SENT',
+  'REPLIED',
+  'BOUNCED',
+  'SUPPRESSED',
+  'FAILED',
+  'CANCELLED',
+])
 export const OperatorSupportPriority = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
 export const OperatorInviteRole = z.enum(['MEMBER'])
 
@@ -131,6 +151,12 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'operator.get_proposal',
   'operator.list_proposals',
   'operator.get_autonomy',
+  'operator.get_context',
+  'operator.get_operation',
+  'operator.list_plans',
+  'customers.list',
+  'crm.list_campaigns',
+  'crm.list_campaign_members',
 ] as const
 
 export const OPERATOR_WRITE_TOOL_NAMES = [
@@ -273,6 +299,30 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
   }),
   'operator.get_autonomy': readInput({}),
+  'operator.get_context': readInput({}),
+  'operator.get_operation': readInput({ originalOperationId: OperationId }),
+  'operator.list_plans': readInput({
+    status: OperatorProposalStatus.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'customers.list': readInput({
+    query: z.string().trim().min(1).max(200).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_campaigns': readInput({
+    status: ProspectCampaignStatusValue.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_campaign_members': readInput({
+    campaignId: Identifier,
+    organizationId: Identifier.optional(),
+    status: ProspectCampaignMemberStatusValue.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
 
   'crm.propose_campaign_membership': writeInput({
     organizationId: Identifier,
@@ -346,8 +396,18 @@ export type OperatorToolInput<T extends OperatorToolName> = z.input<(typeof OPER
 // Output schemas
 // ---------------------------------------------------------------------------
 
+/**
+ * Every list says whether it is complete. `complete` is true only when `nextCursor` is null, so a
+ * capped first page can never be mistaken for the whole set.
+ */
 const Page = <T extends z.ZodTypeAny>(item: T) =>
-  z.object({ items: z.array(item).max(25), nextCursor: z.string().max(500).nullable() }).strict()
+  z
+    .object({
+      items: z.array(item).max(25),
+      nextCursor: z.string().max(500).nullable(),
+      complete: z.boolean(),
+    })
+    .strict()
 
 const ContactFlags = z
   .object({
@@ -384,15 +444,31 @@ const OperatorOrganization = z
   })
   .strict()
 
+/**
+ * What is known about whether the change reached the system, derived from recorded state:
+ * `none` is proven no effect, `applied` is a recorded success, `partial` means some plan steps
+ * applied and others did not, and `unknown` means an apply began and its outcome was not recorded
+ * as a success. Read the target before telling anyone nothing changed when this is `unknown`.
+ */
+export const OperatorEffect = z.enum(['none', 'applied', 'partial', 'unknown'])
+export type OperatorEffect = z.infer<typeof OperatorEffect>
+
 const OperatorProposalView = z
   .object({
     proposalId: Identifier,
+    operationId: z.string().max(64).optional(),
     tool: z.string().max(80),
     kind: z.string().max(80),
     status: OperatorProposalStatus,
+    effect: OperatorEffect.optional(),
     argsHash: Sha256Hex,
     createdAt: IsoDateTime,
     expiresAt: IsoDateTime,
+    decidedAt: IsoDateTime.nullable().optional(),
+    appliedAt: IsoDateTime.nullable().optional(),
+    planId: Identifier.nullable().optional(),
+    planStepIndex: z.number().int().nonnegative().nullable().optional(),
+    failureCode: z.string().max(120).nullable().optional(),
     approveUrl: z.string().url().max(2000).optional(),
     result: z.record(z.unknown()).optional(),
   })
@@ -509,6 +585,94 @@ export const OPERATOR_MCP_OUTPUTS = {
     })
     .strict(),
 
+  'operator.get_context': z
+    .object({
+      serverTime: IsoDateTime,
+      catalogVersion: z.string().max(80),
+      manualVersion: z.string().max(80),
+      releaseRevision: z.string().max(64),
+      grant: z
+        .object({
+          grantId: Identifier,
+          allTenants: z.boolean(),
+          tenantCount: z.number().int().nonnegative(),
+          /** Capped at 100; `tenantCount` is the true size. Use customers.list to page them all. */
+          tenantIds: z.array(Identifier).max(100),
+          capabilities: z.array(OperatorCapability).max(50),
+        })
+        .strict(),
+      /** Plain-language scope facts the grant does not make obvious. */
+      scopeNotes: z.array(z.string().max(300)).max(20),
+      /** Every declared tool, including declared tools that have no handler yet. */
+      tools: z
+        .array(
+          z
+            .object({
+              name: z.string().max(80),
+              effect: z.enum(['read', 'proposal']),
+              scope: OperatorToolScope,
+              capability: OperatorCapability,
+              /** A handler is registered in this build. */
+              implemented: z.boolean(),
+              /** This grant carries the capability the tool needs. */
+              authorized: z.boolean(),
+              /** `auto` or `ask` for proposal tools; null for reads and for unavailable tools. */
+              approvalMode: z.enum(['ask', 'auto']).nullable(),
+              /** Last time this grant called the tool successfully; null if never recorded. */
+              lastSuccessAt: IsoDateTime.nullable(),
+              /** Not measured by this server. A provider or worker needs its own health read. */
+              providerConnected: z.null(),
+              workerAvailable: z.null(),
+            })
+            .strict(),
+        )
+        .max(120),
+    })
+    .strict(),
+  'operator.get_operation': OperatorProposalView,
+  'operator.list_plans': Page(OperatorProposalView),
+  'customers.list': Page(
+    z
+      .object({
+        tenantId: Identifier,
+        name: z.string().max(200),
+        slug: z.string().max(200),
+        status: z.string().max(40),
+        planTier: z.string().max(80),
+        venueCount: z.number().int().nonnegative(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'crm.list_campaigns': Page(
+    z
+      .object({
+        campaignId: Identifier,
+        name: z.string().max(191),
+        status: ProspectCampaignStatusValue,
+        memberCount: z.number().int().nonnegative(),
+        dailyLimit: z.number().int().nonnegative(),
+        pausedAt: IsoDateTime.nullable(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'crm.list_campaign_members': Page(
+    z
+      .object({
+        campaignMemberId: Identifier,
+        campaignId: Identifier,
+        organizationId: Identifier,
+        organizationName: z.string().max(200),
+        venueId: Identifier.nullable(),
+        contactId: Identifier.nullable(),
+        status: ProspectCampaignMemberStatusValue,
+        draftCount: z.number().int().nonnegative(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+
   'crm.propose_campaign_membership': OperatorWriteResult,
   'crm.propose_outreach_draft': OperatorWriteResult,
   'crm.propose_stage_change': OperatorWriteResult,
@@ -577,6 +741,8 @@ function toJsonSchema(input: z.ZodTypeAny): Record<string, unknown> {
     }
     case 'ZodBoolean':
       return { type: 'boolean' }
+    case 'ZodNull':
+      return { type: 'null' }
     case 'ZodLiteral':
       return { const: def.value }
     case 'ZodEnum':
@@ -747,6 +913,49 @@ const seeds: readonly Seed[] = [
     'Get autonomy policy',
     `View which capabilities need human approval. Cannot change the policy.${READ}`,
     'operator:read',
+    'platform',
+  ],
+
+  [
+    'operator.get_context',
+    'Get operator context',
+    `Read what this connection can reach: grant scope, per-tool implemented/authorized/autonomy state, last success, and scope caveats. Call first.${READ}`,
+    'operator:read',
+    'platform',
+  ],
+  [
+    'operator.get_operation',
+    'Get operation',
+    `Recover a past write from the operationId you originally sent (pass it as originalOperationId) (a proposal or a plan), with its status and what is known about whether it took effect.${READ}`,
+    'operator:read',
+    'platform',
+  ],
+  [
+    'operator.list_plans',
+    'List plans',
+    `List this connection's plans with per-status filtering. Use get_proposal with a planId for step detail.${READ}`,
+    'operator:read',
+    'platform',
+  ],
+  [
+    'customers.list',
+    'List customers',
+    `List customer tenants this connection may reach, with the tenantId that venue, support and customer tools require.${READ}`,
+    'venues:read',
+    'platform',
+  ],
+  [
+    'crm.list_campaigns',
+    'List campaigns',
+    `List outreach campaigns with member counts.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_campaign_members',
+    'List campaign members',
+    `List the members of one campaign (optionally one organization) with the campaignMemberId that draft proposals need.${READ}`,
+    'crm:read',
     'platform',
   ],
 

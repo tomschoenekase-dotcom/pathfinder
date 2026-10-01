@@ -30,6 +30,12 @@ const EXPECTED_TOOLS = [
   'operator.get_proposal',
   'operator.list_proposals',
   'operator.get_autonomy',
+  'operator.get_context',
+  'operator.get_operation',
+  'operator.list_plans',
+  'customers.list',
+  'crm.list_campaigns',
+  'crm.list_campaign_members',
   'crm.propose_campaign_membership',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
@@ -373,6 +379,6 @@ describe('operator MCP truthful outcome semantics', () => {
       updatedAt: '2026-09-30T12:00:00.000Z',
       subject: { untrusted: true, text: 'x', truncated: false },
     }
-    expect(page.safeParse({ items: [item], nextCursor: null }).success).toBe(true)
+    expect(page.safeParse({ items: [item], nextCursor: null, complete: true }).success).toBe(true)
   })
 })

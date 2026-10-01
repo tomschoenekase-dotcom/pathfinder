@@ -589,7 +589,7 @@ describe.skipIf(!enabled)(
       })
       for (const denied of [outside, missing, wrongVenue]) {
         expect(denied.isError).toBe(true)
-        expect(denied.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(denied.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
       }
       const audit = await db.operatorAuditEvent.findMany({
         where: { grantId: connection.grantId, eventType: 'mcp.denied', outcome: 'NOT_FOUND' },
@@ -602,7 +602,7 @@ describe.skipIf(!enabled)(
         expectedUpdatedAt: new Date().toISOString(),
         chatTheme: 'forest',
       })
-      expect(writeOutside.structuredContent).toEqual({ error: 'NOT_FOUND' })
+      expect(writeOutside.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
     })
 
     it('creates pending proposals, ignores forged approval claims, and binds approval to the argsHash', async () => {
@@ -634,7 +634,7 @@ describe.skipIf(!enabled)(
         ...args,
         chatTheme: 'sunset',
       })
-      expect(reused.structuredContent).toEqual({ error: 'OPERATION_ID_REUSED' })
+      expect(reused.structuredContent).toMatchObject({ error: 'OPERATION_ID_REUSED' })
 
       const context = { actorUserId: 'user_owner', requestId: randomUUID(), now: clock }
       await expect(
@@ -988,7 +988,7 @@ describe.skipIf(!enabled)(
       expect(
         (await callTool(intruder.access, 'operator.get_proposal', { proposalId: view.proposalId }))
           .structuredContent,
-      ).toEqual({ error: 'NOT_FOUND' })
+      ).toMatchObject({ error: 'NOT_FOUND' })
       const listed = await callTool(intruder.access, 'operator.list_proposals', {})
       expect(JSON.stringify(listed.structuredContent)).not.toContain(view.proposalId)
       expect(
@@ -998,7 +998,7 @@ describe.skipIf(!enabled)(
             operationId: randomUUID(),
           })
         ).structuredContent,
-      ).toEqual({ error: 'NOT_FOUND' })
+      ).toMatchObject({ error: 'NOT_FOUND' })
     })
 
     it('does not write audit rows for guessed tokens', async () => {

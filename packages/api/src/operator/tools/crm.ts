@@ -6,6 +6,7 @@ import {
   blockedAddressSet,
   evaluateCanContact,
   isUncontactedOrganization,
+  operatorContactReason,
   operatorContactView,
   operatorOrganizationView,
   operatorUntrustedText,
@@ -14,6 +15,7 @@ import {
 } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
+import { pageResult } from './page'
 import {
   loadActivityCounts,
   loadOutreach,
@@ -26,6 +28,7 @@ const MAX_CONTACTS = 50
 const MAX_NOTES = 20
 const MAX_HISTORY_EVENTS = 200
 const UNCONTACTED_BATCH = 100
+const CAN_CONTACT_BATCH = 500
 /** Bounds the work of one uncontacted scan; the caller continues from `nextCursor`. */
 const UNCONTACTED_SCAN_CAP = 1_000
 
@@ -118,7 +121,7 @@ async function pageOrganizations(
   })
   const page = rows.slice(0, input.limit)
   const items = (await viewsFor(database, page)).map((entry) => entry.view)
-  return { items, nextCursor: rows.length > input.limit ? page.at(-1)!.id : null }
+  return pageResult(items, rows.length > input.limit ? page.at(-1)!.id : null)
 }
 
 /** Follows the P17 CLI rules (see `isUncontactedOrganization`) over bounded scan windows. */
@@ -163,7 +166,7 @@ async function pageUncontacted(
     }
     cursor = rows.at(-1)!.id
   }
-  return { items, nextCursor: exhausted ? null : lastScannedId }
+  return pageResult(items, exhausted ? null : lastScannedId)
 }
 
 function toContactInput(contact: LoadedOrganization['contacts'][number]): SnapshotContactInput {
@@ -327,40 +330,67 @@ const getContactHistory: OperatorReadTool = {
   },
 }
 
+type ContactMatchRow = SnapshotContactInput & {
+  archivedAt: Date | null
+  organizationId: string
+  organization: { archivedAt: Date | null; opportunity: { stage: string } | null }
+}
+
+/** A row that refuses the address on its own, so no later page can change the answer. */
+function blocksAddress(row: ContactMatchRow): boolean {
+  return (
+    row.organization.opportunity?.stage === 'DO_NOT_CONTACT' ||
+    operatorContactReason(row) !== 'ok' ||
+    row.emailReadiness === 'INVALID'
+  )
+}
+
 const checkCanContact: OperatorReadTool = {
   name: 'crm.check_can_contact',
   capability: 'crm:read',
   async handler(raw, context) {
     const { email } = OPERATOR_MCP_INPUTS['crm.check_can_contact'].parse(raw)
-    const rows = await context.database.prospectContact.findMany({
-      where: {
-        OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' } }],
-      },
-      orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
-      // Enough rows that a blocked duplicate can never be cut off by the page size.
-      take: 1000,
-      select: {
-        id: true,
-        venueId: true,
-        fullName: true,
-        title: true,
-        email: true,
-        phone: true,
-        emailReadiness: true,
-        permissionState: true,
-        doNotContact: true,
-        suppressionReason: true,
-        suppressedAt: true,
-        unsubscribedAt: true,
-        complainedAt: true,
-        lastHardBounceAt: true,
-        archivedAt: true,
-        organizationId: true,
-        organization: {
-          select: { archivedAt: true, opportunity: { select: { stage: true } } },
+    const where = {
+      OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' as const } }],
+    }
+    // Every row carrying the address is examined, a page at a time. A blocked row anywhere
+    // (an archived alias past any fixed cap included) refuses the address, so the scan stops early
+    // only on a refusal and otherwise runs to the end.
+    const rows: ContactMatchRow[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await context.database.prospectContact.findMany({
+        where,
+        orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        take: CAN_CONTACT_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          venueId: true,
+          fullName: true,
+          title: true,
+          email: true,
+          phone: true,
+          emailReadiness: true,
+          permissionState: true,
+          doNotContact: true,
+          suppressionReason: true,
+          suppressedAt: true,
+          unsubscribedAt: true,
+          complainedAt: true,
+          lastHardBounceAt: true,
+          archivedAt: true,
+          organizationId: true,
+          organization: {
+            select: { archivedAt: true, opportunity: { select: { stage: true } } },
+          },
         },
-      },
-    })
+      })
+      rows.push(...batch)
+      if (batch.length < CAN_CONTACT_BATCH) break
+      if (rows.some(blocksAddress)) break
+      cursor = batch.at(-1)!.id
+    }
     const matches = rows
       .map((row) => ({
         contact: row as SnapshotContactInput,

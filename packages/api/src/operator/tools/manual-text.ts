@@ -3,13 +3,28 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v1'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v2'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
   '',
   'This is the operating manual for the operator tool surface (the `operator.get_manual` tool returns it).',
   'Follow it on every task. It describes what the tools do and the rules you work under.',
+  '',
+  '## Start here',
+  '',
+  '- Call `operator.get_context` first. It lists what this connection can reach (tenants, capabilities) and, for every',
+  '  declared tool, whether it is implemented, authorized, and needs approval. A tool being listed proves nothing about',
+  '  provider or worker health; those read as `null` (not measured).',
+  '- Use `customers.list` for `tenantId`, then `venues.list` and `support.list`. Use `crm.list_campaigns` and',
+  '  `crm.list_campaign_members` for the `campaignMemberId` that `crm.propose_outreach_draft` needs. Never guess an id.',
+  '- Every list returns `complete`. If it is false, there is more: pass `nextCursor`. Never describe a page as the',
+  '  whole set unless `complete` is true. A cursor from another query is refused (`INVALID_CURSOR`).',
+  '- To find out what happened to a past write, call `operator.get_operation` with the `operationId` you sent, or',
+  '  `operator.list_plans`. `effect` says what is known: `none`, `applied`, `partial`, or `unknown`.',
+  '- Errors carry `retryable`, `requestId` and `nextAction`. If a write call errors with `outcome: unknown`, call',
+  '  `operator.get_operation` with the same `operationId` before anything else. Never send a new `operationId` for the',
+  '  same change.',
   '',
   '## How writes work',
   '',

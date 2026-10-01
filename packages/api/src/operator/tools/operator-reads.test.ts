@@ -169,7 +169,7 @@ describe('operator.get_manual', () => {
 })
 
 describe('OPERATOR_READ_TOOLS', () => {
-  it('covers exactly the nine P4 tools, each with a read capability', () => {
+  it('covers exactly the P4 reads plus the discovery and operation reads, each with a read capability', () => {
     const names = OPERATOR_READ_TOOLS.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
@@ -182,6 +182,11 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.get_readiness',
         'support.list',
         'operator.get_manual',
+        'customers.list',
+        'crm.list_campaigns',
+        'crm.list_campaign_members',
+        'operator.get_operation',
+        'operator.list_plans',
       ].sort(),
     )
     for (const tool of OPERATOR_READ_TOOLS) {
