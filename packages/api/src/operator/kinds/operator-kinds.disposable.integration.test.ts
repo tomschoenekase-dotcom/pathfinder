@@ -2,7 +2,12 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  createVenueAction,
+  db,
+  updateProspectPipelineAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { resolveAutonomy, setAutonomyPolicy } from '../autonomy'
 import { resolveOperatorConfig } from '../config'
@@ -340,6 +345,59 @@ describe.skipIf(!enabled)(
         ).toBe('DO_NOT_CONTACT')
       })
 
+      it('lets exactly one of two writers holding the same version win, and never lifts a suppression set meanwhile', async () => {
+        const admin = { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' } as const
+        const organization = await newOrganization('RESEARCHED')
+        const version = await opportunityVersion(organization)
+        const attempt = (stage: 'QUALIFIED' | 'PARKED') =>
+          updateProspectPipelineAction({
+            organizationId: organization,
+            stage,
+            reason: 'race',
+            actor: admin,
+            expectedVersion: version,
+            refuseLiftingDoNotContact: true,
+          })
+        const outcomes = await Promise.allSettled([attempt('QUALIFIED'), attempt('PARKED')])
+        expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+        const lost = outcomes.find(
+          (outcome) => outcome.status === 'rejected',
+        ) as PromiseRejectedResult
+        expect(lost.reason).toMatchObject({ code: 'CONFLICT' })
+
+        // A human sets do-not-contact after the operator read the record: the stale write loses.
+        const guarded = await newOrganization('RESEARCHED')
+        const guardedVersion = await opportunityVersion(guarded)
+        await updateProspectPipelineAction({
+          organizationId: guarded,
+          stage: 'DO_NOT_CONTACT',
+          reason: 'asked to stop',
+          actor: admin,
+        })
+        await expect(
+          updateProspectPipelineAction({
+            organizationId: guarded,
+            stage: 'READY_FOR_OUTREACH',
+            actor: admin,
+            expectedVersion: guardedVersion,
+            refuseLiftingDoNotContact: true,
+          }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        // Even with the right version the lock holds.
+        await expect(
+          updateProspectPipelineAction({
+            organizationId: guarded,
+            stage: 'READY_FOR_OUTREACH',
+            actor: admin,
+            expectedVersion: await opportunityVersion(guarded),
+            refuseLiftingDoNotContact: true,
+          }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        expect(
+          (await db.prospectOpportunity.findUnique({ where: { organizationId: guarded } }))?.stage,
+        ).toBe('DO_NOT_CONTACT')
+      })
+
       it('treats an archived organization as NOT_FOUND for writes', async () => {
         const archived = await newOrganization()
         await db.prospectOrganization.update({
@@ -398,6 +456,82 @@ describe.skipIf(!enabled)(
           { config, database: db, grant, kinds, now: now(), requestId: randomUUID() },
         ).catch((error: { code?: string }) => error)
         expect(reverted).toMatchObject({ code: 'NOT_REVERTIBLE' })
+      })
+
+      it('records one namespaced receipt under concurrency and never rewinds last activity', async () => {
+        const gmailMessageId = `gmail-${randomUUID()}`
+        const base = { organizationId, contactId, gmailMessageId, mailbox: 'sender@example.com' }
+        // Two different proposals for the same provider message, approved at the same moment.
+        const first = await propose('crm.log_outreach_sent', {
+          ...base,
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        const second = await propose('crm.log_outreach_sent', {
+          ...base,
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        await Promise.all([approve(first), approve(second)])
+        const key = `gmail:sender@example.com:${gmailMessageId}`
+        expect(await db.prospectActivity.count({ where: { externalReceiptKey: key } })).toBe(1)
+        const receipt = await db.prospectActivity.findUniqueOrThrow({
+          where: { externalReceiptKey: key },
+        })
+        expect(receipt.evidence).toMatchObject({ verification: 'unverified' })
+        // The same provider id from another mailbox is a different message.
+        const otherMailbox = await propose('crm.log_outreach_sent', {
+          ...base,
+          mailbox: 'someone-else@example.com',
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        expect((await approve(otherMailbox)).status).toBe('APPLIED')
+
+        // An older historical send must not move the account's last activity backwards.
+        const target = await newOrganization('RESEARCHED')
+        const targetContact = await db.prospectContact.create({
+          data: {
+            organizationId: target,
+            fullName: 'Example Person',
+            email: `hist-${randomUUID().slice(0, 8)}@example.com`,
+            normalizedEmail: `hist-${randomUUID().slice(0, 8)}@example.com`,
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        const log = (messageId: string, sentAt: string) =>
+          propose('crm.log_outreach_sent', {
+            organizationId: target,
+            contactId: targetContact.id,
+            gmailMessageId: messageId,
+            sentAt,
+          }).then(approve)
+        await log(`recent-${randomUUID()}`, '2026-09-20T10:00:00.000Z')
+        await log(`older-${randomUUID()}`, '2026-07-01T10:00:00.000Z')
+        const opportunity = await db.prospectOpportunity.findUniqueOrThrow({
+          where: { organizationId: target },
+        })
+        expect(opportunity.lastActivityAt?.toISOString()).toBe('2026-09-20T10:00:00.000Z')
+
+        // Another organization cannot claim a message already logged for this one.
+        const outsider = await newOrganization('RESEARCHED')
+        const outsiderContact = await db.prospectContact.create({
+          data: {
+            organizationId: outsider,
+            fullName: 'Other Person',
+            email: `other-${randomUUID().slice(0, 8)}@example.com`,
+            normalizedEmail: `other-${randomUUID().slice(0, 8)}@example.com`,
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        await expect(
+          propose('crm.log_outreach_sent', {
+            organizationId: outsider,
+            contactId: outsiderContact.id,
+            gmailMessageId,
+            mailbox: 'sender@example.com',
+            sentAt: '2026-08-01T10:00:00.000Z',
+          }),
+        ).rejects.toMatchObject({ code: 'RECEIPT_CONFLICT' })
       })
 
       it('auto path applies; a message logged meanwhile makes the proposal STALE', async () => {

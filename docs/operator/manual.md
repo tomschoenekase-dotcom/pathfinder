@@ -47,7 +47,9 @@ No tool here sends email. You send from Gmail with a separate connector, and the
 1. Immediately before every send, call `crm.check_can_contact` with the exact address. If `allowed`
    is false, do not send, whatever the reason.
 2. Right after every send, call `crm.log_outreach_sent` with the organization, the contact, the Gmail
-   message ID and the send time, so the CRM stays accurate.
+   message ID, the sending mailbox (`mailbox`) and the send time, so the CRM stays accurate. The same
+   message is recorded once whatever happens; the receipt is `unverified` until the provider copy is read back.
+   Logging an older send never moves an account's last activity backwards.
 3. Signed clients and people who replied may be emailed once step 1 passes.
 4. Cold prospects get drafts only. Use `crm.propose_outreach_draft` and let Tom decide. Do not send
    cold email from Gmail until this manual says an unsubscribe line and a daily cap exist.

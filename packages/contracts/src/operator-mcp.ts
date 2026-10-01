@@ -342,6 +342,8 @@ export const OPERATOR_MCP_INPUTS = {
     organizationId: Identifier,
     contactId: Identifier,
     gmailMessageId: z.string().trim().min(1).max(200),
+    /** The sending mailbox. With it, the receipt key is namespaced to that mailbox. */
+    mailbox: Email.optional(),
     sentAt: IsoDateTime,
   }),
   'venues.propose_create': writeInput({
@@ -466,6 +468,10 @@ const OperatorProposalView = z
     expiresAt: IsoDateTime,
     decidedAt: IsoDateTime.nullable().optional(),
     appliedAt: IsoDateTime.nullable().optional(),
+    /** Who authorized it: a person, or the owner's standing policy. Null while undecided. */
+    authorizedBy: z.enum(['human', 'policy']).nullable().optional(),
+    /** The connection (client) that proposed it, which is not the approver. */
+    initiatedByClientId: z.string().max(64).optional(),
     planId: Identifier.nullable().optional(),
     planStepIndex: z.number().int().nonnegative().nullable().optional(),
     failureCode: z.string().max(120).nullable().optional(),

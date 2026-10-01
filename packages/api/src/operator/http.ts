@@ -145,7 +145,12 @@ function toolResult(structured: unknown, isError = false) {
 }
 
 /** Refusals a kind raises at propose time that the Dot should see by name. */
-const KIND_REFUSAL_CODES = new Set(['DO_NOT_CONTACT_LOCKED', 'SENT_AT_IN_FUTURE', 'INVALID_URL'])
+const KIND_REFUSAL_CODES = new Set([
+  'DO_NOT_CONTACT_LOCKED',
+  'SENT_AT_IN_FUTURE',
+  'INVALID_URL',
+  'RECEIPT_CONFLICT',
+])
 
 function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'

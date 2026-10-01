@@ -79,6 +79,10 @@ export const crmStageChangeKind: OperatorProposalKind<StageArgs> = {
         stage: args.stage,
         reason: operatorReason(context.proposalId),
         actor: context.actor,
+        // Re-checked inside the write transaction: a stage, note or send recorded since the
+        // proposer read the organization, or a do-not-contact set meanwhile, is a conflict.
+        expectedVersion: args.expectedVersion,
+        refuseLiftingDoNotContact: true,
       },
       context.database,
     )

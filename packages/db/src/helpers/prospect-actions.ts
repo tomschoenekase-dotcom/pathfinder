@@ -493,6 +493,14 @@ export async function updateProspectPipelineAction(
     nextAction?: string | null | undefined
     nextActionAt?: Date | null | undefined
     reason?: string | undefined
+    /**
+     * When set, the change applies only if the organization's version (1 plus its activity rows) is
+     * still this value, checked inside the transaction and enforced by a compare-and-swap on the
+     * opportunity row, so a concurrent writer yields a conflict instead of a lost update.
+     */
+    expectedVersion?: number | undefined
+    /** Refuse to move an organization out of DO_NOT_CONTACT, evaluated on the locked row. */
+    refuseLiftingDoNotContact?: boolean | undefined
     actor: ProspectActor
   },
   client: ProspectActionClient = db,
@@ -509,7 +517,40 @@ export async function updateProspectPipelineAction(
       where: { organizationId: input.organizationId },
     })
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Prospect opportunity not found')
+    if (
+      input.refuseLiftingDoNotContact &&
+      before.stage === 'DO_NOT_CONTACT' &&
+      input.stage !== 'DO_NOT_CONTACT'
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Do-not-contact can only be lifted by a human.')
+    }
+    if (input.expectedVersion !== undefined) {
+      const activities = await tx.prospectActivity.count({
+        where: { organizationId: input.organizationId },
+      })
+      if (1 + activities !== input.expectedVersion) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const now = new Date()
+    const guarded = input.expectedVersion !== undefined || input.refuseLiftingDoNotContact === true
+    if (guarded) {
+      // Compare-and-swap: the row must still be exactly the one that was read. Two writers holding
+      // one version cannot both succeed, and a suppression set meanwhile is never overwritten.
+      const swapped = await tx.prospectOpportunity.updateMany({
+        where: {
+          id: before.id,
+          updatedAt: before.updatedAt,
+          ...(input.refuseLiftingDoNotContact && input.stage !== 'DO_NOT_CONTACT'
+            ? { stage: { not: 'DO_NOT_CONTACT' } }
+            : {}),
+        },
+        data: { updatedBy: input.actor.id },
+      })
+      if (swapped.count !== 1) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const saved = await tx.prospectOpportunity.update({
       where: { id: before.id },
       data: {

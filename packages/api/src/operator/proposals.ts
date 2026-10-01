@@ -473,7 +473,7 @@ function isStale(error: unknown) {
   // Canonical domain actions report optimistic-concurrency loss as CONFLICT.
   return (
     error instanceof Error &&
-    error.name === 'VenueActionError' &&
+    (error.name === 'VenueActionError' || error.name === 'ProspectActionError') &&
     (error as Error & { code?: unknown }).code === 'CONFLICT'
   )
 }

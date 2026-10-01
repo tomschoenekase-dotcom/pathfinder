@@ -30,6 +30,9 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
     expiresAt: row.expiresAt.toISOString(),
     decidedAt: iso(row.decidedAt),
     appliedAt: iso(row.appliedAt),
+    authorizedBy:
+      row.decidedAt === null ? null : row.autoApproved ? ('policy' as const) : ('human' as const),
+    initiatedByClientId: row.clientId,
     planId: row.planId,
     planStepIndex: row.planStepIndex,
     failureCode: row.failureCode,
@@ -40,7 +43,7 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
 export async function planOperationView(plan: PlanRow, context: OperatorCallContext) {
   const steps = await context.database.operatorProposal.findMany({
     where: { planId: plan.id },
-    select: { status: true, applyClaimedAt: true, failureCode: true },
+    select: { status: true, applyClaimedAt: true, failureCode: true, autoApproved: true },
   })
   const base: OperatorWriteView = await planView(plan, context)
   return {
@@ -53,6 +56,13 @@ export async function planOperationView(plan: PlanRow, context: OperatorCallCont
     expiresAt: plan.expiresAt.toISOString(),
     decidedAt: iso(plan.decidedAt),
     appliedAt: null,
+    authorizedBy:
+      plan.decidedAt === null
+        ? null
+        : steps.some((step) => step.autoApproved)
+          ? ('policy' as const)
+          : ('human' as const),
+    initiatedByClientId: plan.clientId,
     planId: null,
     planStepIndex: null,
     failureCode: null,
