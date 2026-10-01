@@ -348,7 +348,14 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
-  'crm.check_can_contact': readInput({ email: Email }),
+  'crm.check_can_contact': readInput({
+    email: Email,
+    /**
+     * `send` (default) is the strict gate required immediately before an email goes out: the
+     * address must be verified. `draft` only asks whether writing to it is acceptable at all.
+     */
+    purpose: z.enum(['draft', 'send']).default('send'),
+  }),
   'venues.list': readInput({ ...tenantScope, cursor: Cursor.optional() }),
   'venues.get_readiness': readInput({ ...venueScope }),
   'appearance.get': readInput({ ...venueScope }),
@@ -883,6 +890,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.check_can_contact': z
     .object({
       allowed: z.boolean(),
+      /** The first reason that applies. `reasons` lists every one. */
       reason: z.enum([
         'ok',
         'unknown_address',
@@ -890,7 +898,16 @@ export const OPERATOR_MCP_OUTPUTS = {
         'suppressed',
         'unsubscribed',
         'complained',
+        'bounced',
+        'opted_out',
+        'prohibited',
+        'invalid_address',
+        'not_verified',
+        'archived',
+        'address_blocked_elsewhere',
       ]),
+      reasons: z.array(z.string().max(60)).max(15),
+      purpose: z.enum(['draft', 'send']),
       organizationId: Identifier.nullable(),
       contactId: Identifier.nullable(),
     })

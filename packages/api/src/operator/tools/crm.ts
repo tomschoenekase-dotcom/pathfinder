@@ -4,9 +4,7 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
-  evaluateCanContact,
   isUncontactedOrganization,
-  operatorContactReason,
   operatorContactView,
   operatorOrganizationView,
   operatorUntrustedText,
@@ -15,6 +13,7 @@ import {
 } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
+import { evaluateAddress } from './crm-eligibility'
 import { OperatorInvalidCursorError, pageResult } from './page'
 import {
   loadActivityCounts,
@@ -396,32 +395,18 @@ const getContactHistory: OperatorReadTool = {
   },
 }
 
-type ContactMatchRow = SnapshotContactInput & {
-  archivedAt: Date | null
-  organizationId: string
-  organization: { archivedAt: Date | null; opportunity: { stage: string } | null }
-}
-
-/** A row that refuses the address on its own, so no later page can change the answer. */
-function blocksAddress(row: ContactMatchRow): boolean {
-  return (
-    row.organization.opportunity?.stage === 'DO_NOT_CONTACT' ||
-    operatorContactReason(row) !== 'ok' ||
-    row.emailReadiness === 'INVALID'
-  )
-}
+type ContactMatchRow = Parameters<typeof evaluateAddress>[0][number]
 
 const checkCanContact: OperatorReadTool = {
   name: 'crm.check_can_contact',
   capability: 'crm:read',
   async handler(raw, context) {
-    const { email } = OPERATOR_MCP_INPUTS['crm.check_can_contact'].parse(raw)
+    const { email, purpose } = OPERATOR_MCP_INPUTS['crm.check_can_contact'].parse(raw)
     const where = {
       OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' as const } }],
     }
-    // Every row carrying the address is examined, a page at a time. A blocked row anywhere
-    // (an archived alias past any fixed cap included) refuses the address, so the scan stops early
-    // only on a refusal and otherwise runs to the end.
+    // Every row carrying the address is read, a page at a time and never capped, so a block on an
+    // old archived alias cannot be missed because many other rows came first.
     const rows: ContactMatchRow[] = []
     let cursor: string | undefined
     for (;;) {
@@ -432,15 +417,10 @@ const checkCanContact: OperatorReadTool = {
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         select: {
           id: true,
-          venueId: true,
-          fullName: true,
-          title: true,
-          email: true,
-          phone: true,
+          normalizedEmail: true,
+          doNotContact: true,
           emailReadiness: true,
           permissionState: true,
-          doNotContact: true,
-          suppressionReason: true,
           suppressedAt: true,
           unsubscribedAt: true,
           complainedAt: true,
@@ -452,35 +432,19 @@ const checkCanContact: OperatorReadTool = {
           },
         },
       })
-      rows.push(...batch)
+      rows.push(...(batch as unknown as ContactMatchRow[]))
       if (batch.length < CAN_CONTACT_BATCH) break
-      if (rows.some(blocksAddress)) break
       cursor = batch.at(-1)!.id
     }
-    const matches = rows
-      .map((row) => ({
-        contact: row as SnapshotContactInput,
-        organizationId: row.organizationId,
-        organizationStage: row.organization.opportunity?.stage ?? null,
-        active: row.archivedAt === null && row.organization.archivedAt === null,
-      }))
-      .sort((a, b) => Number(b.active) - Number(a.active))
-    const answer = evaluateCanContact(matches)
-    // An address already known to be undeliverable is never sent to.
-    const invalid = matches.find((match) => match.contact.emailReadiness === 'INVALID')
-    if (answer.allowed && invalid) {
-      return {
-        allowed: false,
-        reason: 'suppressed' as const,
-        organizationId: invalid.organizationId,
-        contactId: invalid.contact.id,
-      }
+    const answer = evaluateAddress(rows, purpose)
+    return {
+      allowed: answer.allowed,
+      reason: answer.reason,
+      reasons: [...answer.reasons],
+      purpose: answer.purpose,
+      organizationId: answer.organizationId,
+      contactId: answer.contactId,
     }
-    // A blocked answer stands even for an archived row. An allow needs a live contact.
-    if (answer.allowed && !matches.some((match) => match.active)) {
-      return { allowed: false, reason: 'unknown_address', organizationId: null, contactId: null }
-    }
-    return answer
   },
 }
 

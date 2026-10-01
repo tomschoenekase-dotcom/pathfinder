@@ -336,6 +336,16 @@ export {
   updateProspectPipelineAction,
 } from './helpers/prospect-actions'
 export {
+  evaluateProspectContactEligibility,
+  isAddressBlockedOnAnotherRow,
+  PROSPECT_ELIGIBILITY_REASON_TEXT,
+} from './helpers/prospect-eligibility'
+export type {
+  ProspectEligibility,
+  ProspectEligibilityPurpose,
+  ProspectEligibilityReason,
+} from './helpers/prospect-eligibility'
+export {
   appendProspectNoteAction,
   createProspectContactAction,
   isAddressBlockedAnywhere,

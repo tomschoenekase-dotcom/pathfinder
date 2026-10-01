@@ -9,6 +9,10 @@ import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import {
+  evaluateProspectContactEligibility,
+  isAddressBlockedOnAnotherRow,
+} from './prospect-eligibility'
+import {
   prospectOperationalContentHash,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
@@ -251,7 +255,9 @@ export async function saveProspectOutreachDraftAction(
       where: { id: input.memberId },
       include: {
         contact: true,
-        organization: { select: { relationshipTier: true } },
+        organization: {
+          select: { relationshipTier: true, opportunity: { select: { stage: true } } },
+        },
         drafts: {
           orderBy: { version: 'desc' },
           take: 1,
@@ -260,15 +266,20 @@ export async function saveProspectOutreachDraftAction(
       },
     })
     if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
-    if (
-      !member.contact?.normalizedEmail ||
-      member.contact.doNotContact ||
-      member.contact.emailReadiness === 'INVALID' ||
-      member.contact.permissionState === 'OPTED_OUT' ||
-      member.contact.permissionState === 'PROHIBITED' ||
-      member.contact.suppressedAt ||
-      member.contact.unsubscribedAt
-    ) {
+    // The one shared rule: no address, any suppression, a complaint or hard bounce, an invalid
+    // address, a do-not-contact account, or the same address blocked on another record all stop
+    // a draft. Drafting may begin before an address is verified; sending may not.
+    const draftEligibility = member.contact?.normalizedEmail
+      ? evaluateProspectContactEligibility(member.contact, 'draft', {
+          organizationStage: member.organization.opportunity?.stage ?? null,
+          blockedElsewhere: await isAddressBlockedOnAnotherRow(
+            tx,
+            member.contact.normalizedEmail,
+            member.contact.id,
+          ),
+        })
+      : null
+    if (!member.contact?.normalizedEmail || !draftEligibility?.eligible) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
     const launchAttachments = await currentDraftLaunchAttachments(
@@ -446,30 +457,37 @@ export async function stageProspectSendBatchAction(
       include: {
         contact: {
           select: {
+            id: true,
             doNotContact: true,
             normalizedEmail: true,
             emailReadiness: true,
             permissionState: true,
             suppressedAt: true,
             unsubscribedAt: true,
+            complainedAt: true,
+            lastHardBounceAt: true,
+            archivedAt: true,
           },
         },
+        organization: { select: { opportunity: { select: { stage: true } } } },
       },
       orderBy: { id: 'asc' },
     })
-    if (
-      drafts.length !== ids.length ||
-      drafts.some(
-        (draft) =>
-          draft.contact?.doNotContact ||
-          !draft.contact?.normalizedEmail ||
-          draft.contact.emailReadiness !== 'VALID' ||
-          draft.contact.permissionState === 'OPTED_OUT' ||
-          draft.contact.permissionState === 'PROHIBITED' ||
-          Boolean(draft.contact.suppressedAt) ||
-          Boolean(draft.contact.unsubscribedAt),
-      )
-    ) {
+    const stagedEligibility = await Promise.all(
+      drafts.map(async (draft) =>
+        draft.contact?.normalizedEmail
+          ? evaluateProspectContactEligibility(draft.contact, 'send', {
+              organizationStage: draft.organization.opportunity?.stage ?? null,
+              blockedElsewhere: await isAddressBlockedOnAnotherRow(
+                tx,
+                draft.contact.normalizedEmail,
+                draft.contact.id,
+              ),
+            })
+          : null,
+      ),
+    )
+    if (drafts.length !== ids.length || stagedEligibility.some((result) => !result?.eligible)) {
       throw new ProspectOutreachError(
         'SUPPRESSED',
         'Every staged draft must still be approved and email-ready',
@@ -686,6 +704,7 @@ export async function releaseProspectSendBatchAction(
                 include: {
                   contact: {
                     select: {
+                      id: true,
                       normalizedEmail: true,
                       doNotContact: true,
                       archivedAt: true,
@@ -693,8 +712,11 @@ export async function releaseProspectSendBatchAction(
                       permissionState: true,
                       suppressedAt: true,
                       unsubscribedAt: true,
+                      complainedAt: true,
+                      lastHardBounceAt: true,
                     },
                   },
+                  organization: { select: { opportunity: { select: { stage: true } } } },
                 },
               },
             },
@@ -788,16 +810,19 @@ export async function releaseProspectSendBatchAction(
       const identityHash = contact?.normalizedEmail
         ? hash(contact.normalizedEmail.toLowerCase())
         : null
+      // Re-evaluated at the moment of release under the same shared rule, including blocks on
+      // another row for the same address and a complaint or hard bounce recorded since staging.
       const eligible =
-        contact &&
-        !contact.archivedAt &&
-        !contact.doNotContact &&
-        contact.emailReadiness === 'VALID' &&
-        contact.permissionState !== 'OPTED_OUT' &&
-        contact.permissionState !== 'PROHIBITED' &&
-        !contact.suppressedAt &&
-        !contact.unsubscribedAt &&
-        identityHash === item.recipientIdentityHash
+        contact?.normalizedEmail &&
+        identityHash === item.recipientIdentityHash &&
+        evaluateProspectContactEligibility(contact, 'send', {
+          organizationStage: item.draft.organization.opportunity?.stage ?? null,
+          blockedElsewhere: await isAddressBlockedOnAnotherRow(
+            tx,
+            contact.normalizedEmail,
+            contact.id,
+          ),
+        }).eligible
       if (!eligible) {
         throw new ProspectOutreachError(
           'SUPPRESSED',

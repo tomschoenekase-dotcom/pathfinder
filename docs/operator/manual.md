@@ -66,8 +66,11 @@ Follow it on every task. It describes what the tools do and the rules you work u
 
 No tool here sends email. You send from Gmail with a separate connector, and these rules apply:
 
-1. Immediately before every send, call `crm.check_can_contact` with the exact address. If `allowed`
-   is false, do not send, whatever the reason.
+1. Immediately before every send, call `crm.check_can_contact` with the exact address (purpose `send`, the
+   default). If `allowed` is false, do not send, whatever the reason; `reasons` lists every cause. `not_verified`
+   means the address has not been human-verified for sending. Use purpose `draft` only to ask whether writing
+   to an address is acceptable at all. One block anywhere in the CRM, archived records and old addresses included,
+   refuses the address everywhere.
 2. Right after every send, call `crm.log_outreach_sent` with the organization, the contact, the Gmail
    message ID, the sending mailbox (`mailbox`) and the send time, so the CRM stays accurate. The same
    message is recorded once whatever happens; the receipt is `unverified` until the provider copy is read back.
