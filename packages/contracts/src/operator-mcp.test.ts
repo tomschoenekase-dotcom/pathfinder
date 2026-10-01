@@ -46,6 +46,7 @@ const EXPECTED_TOOLS = [
   'crm.list_drafts',
   'crm.get_outreach_batch',
   'support.get_request',
+  'customers.get_onboarding',
   'support.list_messages',
   'operator.cancel_operation',
   'operator.recover_operation',

@@ -167,6 +167,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'operator.get_operation',
   'operator.list_plans',
   'customers.list',
+  'customers.get_onboarding',
   'crm.list_campaigns',
   'crm.list_campaign_members',
   'crm.resolve_account',
@@ -425,6 +426,7 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
+  'customers.get_onboarding': readInput({ ...tenantScope }),
   'customers.list': readInput({
     query: z.string().trim().min(1).max(200).optional(),
     cursor: Cursor.optional(),
@@ -725,6 +727,75 @@ const OperatorContactDetail = OperatorContact.extend({
   addressBlockedElsewhere: z.boolean(),
   notes: UntrustedText.nullable(),
 }).strict()
+
+const OperatorOnboardingDossier = z
+  .object({
+    tenantId: Identifier,
+    name: UntrustedText,
+    slug: z.string().max(200),
+    status: z.string().max(40),
+    planTier: z.string().max(80),
+    createdAt: IsoDateTime,
+    /** Where the account came from; null when it was not created from a CRM account. */
+    prospectConversion: z
+      .object({
+        organizationId: Identifier,
+        prospectVenueId: Identifier.nullable(),
+        venueId: Identifier.nullable(),
+        convertedAt: IsoDateTime,
+      })
+      .strict()
+      .nullable(),
+    members: z
+      .object({ active: z.number().int().nonnegative(), other: z.number().int().nonnegative() })
+      .strict(),
+    venues: z
+      .array(
+        z
+          .object({
+            venueId: Identifier,
+            name: UntrustedText,
+            slug: z.string().max(200),
+            /** A draft venue is not offered to visitors. Publishing is its own proposal. */
+            live: z.boolean(),
+            places: z.number().int().nonnegative(),
+            knowledgeEntries: z.number().int().nonnegative(),
+            updatedAt: IsoDateTime,
+          })
+          .strict(),
+      )
+      .max(50),
+    venuesComplete: z.boolean(),
+    intake: z
+      .object({
+        submissions: z.number().int().nonnegative(),
+        awaitingReview: z.number().int().nonnegative(),
+      })
+      .strict(),
+    packages: z
+      .object({
+        draft: z.number().int().nonnegative(),
+        reviewed: z.number().int().nonnegative(),
+        applied: z.number().int().nonnegative(),
+        reverted: z.number().int().nonnegative(),
+      })
+      .strict(),
+    questions: z
+      .object({
+        pendingBlocking: z.number().int().nonnegative(),
+        routedToCustomerUnanswered: z.number().int().nonnegative(),
+      })
+      .strict(),
+    support: z
+      .object({
+        open: z.number().int().nonnegative(),
+        waitingForCustomer: z.number().int().nonnegative(),
+      })
+      .strict(),
+    /** Plain-language next gaps, derived only from the counts above. Never an instruction to act. */
+    gaps: z.array(z.string().max(200)).max(12),
+  })
+  .strict()
 
 const OperatorSupportDetail = z
   .object({
@@ -1319,6 +1390,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'operator.cancel_operation': OperatorProposalView,
   'operator.recover_operation': OperatorProposalView,
   'operator.list_plans': Page(OperatorProposalView),
+  'customers.get_onboarding': OperatorOnboardingDossier,
   'customers.list': Page(
     z
       .object({
@@ -1669,6 +1741,13 @@ const seeds: readonly Seed[] = [
     `List customer tenants this connection may reach, with the tenantId that venue, support and customer tools require.${READ}`,
     'venues:read',
     'platform',
+  ],
+  [
+    'customers.get_onboarding',
+    'Get customer onboarding status',
+    `Read one customer's onboarding state in a single call: source CRM account, members, venues (live or draft), intake, packages, blocked questions, support, and the gaps that follow. Reads only.${READ}`,
+    'venues:read',
+    'tenant',
   ],
   [
     'crm.list_campaigns',
