@@ -69,7 +69,7 @@ Create and invite are separate steps so a customer can exist, be prepared and be
 
 ## Evidence so far, and what is NOT RUN
 
-- PASS locally on a disposable database: operator suite 26 files / 267 tests (serial), contracts 636, repository typecheck 27/27, the
+- PASS locally on a disposable database: operator suite 26 files / 268 tests (serial), contracts 636, repository typecheck 27/27, the
   migration and release script suites, and the raw-SQL, tenant and public-surface verifiers. See the journal.
 - NOT RUN: any staging or production deployment or migration; any real identity-provider call (proof uses a fake provider); real mailbox
   delivery; real iPhone keyboard proof (`torchiko-keyboard-device-protocol.md`); full `pnpm test`; browser and visual suites;

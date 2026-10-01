@@ -43,6 +43,7 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 10. `fdc860de` H13 admission pins and raw-SQL inventory; `cddc3ed2` repository index.
 11. `0d07b33d` H06 platform mail quarantine and webhook receipt reads.
 12. `93a72b24` visitor notices (`venues.list_operational_updates` plus create, go-live and end proposals).
+13. `b9190e59` release and rollback proposal and journal refresh; `67d59342` `venues.get_visitor_summary` and lazy identity-provider loading.
 
 Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `55c3bb67` H12,
 `0c01e7c4` H07 and `ca06dcec` onboarding dossier reads.
@@ -78,9 +79,9 @@ Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `
 
 ## Continuation evidence (local disposable database and synthetic UI fixtures)
 
-### Latest run (Claude, 2026-10-01, HEAD `93a72b24`)
+### Latest run (Claude, 2026-10-01, HEAD `67d59342`)
 
-- PASS serial operator suite from packages/api: 26 files / 267 tests (`--no-file-parallelism`; parallel runs share one database and
+- PASS serial operator suite from packages/api: 26 files / 268 tests (`--no-file-parallelism`; parallel runs share one database and
   fail from contention, which is not a product defect). PASS contracts 636 tests (all contract files), tsc for api, contracts, db and config.
 - PASS `pnpm typecheck` across the repository: 27/27 tasks (run at `cddc3ed2`).
 - PASS migration and release scripts: staging predeploy 31, handoff manifest 8, readiness 1, maintenance 7, documentation safety 7,
