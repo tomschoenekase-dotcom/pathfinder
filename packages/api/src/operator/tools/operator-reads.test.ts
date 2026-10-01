@@ -17,7 +17,7 @@ import {
   redactAddresses,
   type SnapshotContactInput,
 } from '../crm-projection'
-import type { OperatorCallContext } from '../registry'
+import { createOperatorRegistry, type OperatorCallContext } from '../registry'
 import { OPERATOR_READ_TOOLS } from './index'
 import { OPERATOR_MANUAL_TEXT } from './manual-text'
 
@@ -231,6 +231,17 @@ describe('OPERATOR_READ_TOOLS', () => {
         expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
         expect(tool.capability.endsWith(':read')).toBe(true)
       }
+    }
+  })
+})
+
+describe('separately registered onboarding proposal tools', () => {
+  it('has a proposal binding beside the reads without treating it as a read', () => {
+    const proposalTools = ['customers.propose_onboarding_questions']
+    const registered = createOperatorRegistry().listTools()
+    for (const name of proposalTools) {
+      expect(registered.find((tool) => tool.name === name)?.effect).toBe('proposal')
+      expect(OPERATOR_READ_TOOL_NAMES).not.toContain(name)
     }
   })
 })

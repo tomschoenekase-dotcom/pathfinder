@@ -25,6 +25,7 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   // Both speak to the customer in their portal.
   'support.information-request',
   'support.completion',
+  'customers.onboarding-questions',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

@@ -148,6 +148,7 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   // Both speak to the customer in their portal, so a person decides each time.
   'support.propose_information_request',
   'support.propose_completion',
+  'customers.propose_onboarding_questions',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'support.propose_internal_note',
   'support.propose_information_request',
   'support.propose_completion',
+  'customers.propose_onboarding_questions',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -729,6 +731,38 @@ export const OPERATOR_MCP_INPUTS = {
       .min(1)
       .max(30)
       .refine((items) => new Set(items).size === items.length, { message: 'Items must be unique' }),
+  }),
+  'customers.propose_onboarding_questions': writeInput({
+    ...venueScope,
+    recipientUserId: Identifier,
+    questions: z
+      .array(
+        z
+          .object({
+            questionId: Identifier,
+            expectedUpdatedAt: IsoDateTime,
+            category: z
+              .enum([
+                'CONTENT_CORRECTION',
+                'OPERATIONAL_UPDATE',
+                'BRANDING',
+                'EXPERIENCE_BEHAVIOR',
+                'ACCESSIBILITY',
+                'GENERAL',
+              ])
+              .default('GENERAL'),
+            subject: z.string().trim().min(1).max(200),
+            why: z.string().trim().min(1).max(2000),
+            whatWasFound: z.string().trim().min(1).max(2000).optional(),
+            effect: z.string().trim().min(1).max(1000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10)
+      .refine((items) => new Set(items.map((item) => item.questionId)).size === items.length, {
+        message: 'Question identities must be unique',
+      }),
   }),
   'support.propose_completion': writeInput({
     ...venueScope,
@@ -1868,6 +1902,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'support.propose_internal_note': OperatorWriteResult,
   'support.propose_information_request': OperatorWriteResult,
   'support.propose_completion': OperatorWriteResult,
+  'customers.propose_onboarding_questions': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
   'crm.propose_campaign_create': OperatorWriteResult,
@@ -2475,6 +2510,14 @@ const seeds: readonly Seed[] = [
     'support:propose',
     'venue',
     'support.information-request',
+  ],
+  [
+    'customers.propose_onboarding_questions',
+    'Propose onboarding questions',
+    `Propose one reviewed group of up to ten existing blocking questions to an active tenant member. Each question keeps its canonical portal conversation. Nothing executes blocked work or emails anyone. Always needs a human.${PROPOSE}`,
+    'customers:propose',
+    'venue',
+    'customers.onboarding-questions',
   ],
   [
     'support.propose_completion',

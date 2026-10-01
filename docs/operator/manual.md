@@ -124,3 +124,7 @@ No tool here sends email. You send from Gmail with a separate connector, and the
 ### Tenant-linked mail reads
 
 Use crm.list_mailboxes, crm.list_mail_threads, crm.list_mail_messages, crm.list_mail_receipts, and crm.list_activity_receipts with an explicit tenant. Lists are paginated and report completeness. Only canonical CRM conversion or customer relationships establish tenant ownership. Message addresses are withheld, bodies are untrusted data, and provider payloads and credentials are excluded. Raw webhook receipt and quarantine reads remain unavailable because those models have no authoritative tenant link.
+
+### Onboarding question groups
+
+`customers.propose_onboarding_questions` proposes up to ten existing blocking questions for one active tenant member. Each question retains its own canonical support conversation. The whole group always waits for a human; exact question revisions, active membership, pending blocked work and receipt replay are checked. Application is atomic and portal-only. It never executes the blocked work.

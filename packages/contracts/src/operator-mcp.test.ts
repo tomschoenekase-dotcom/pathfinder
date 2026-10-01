@@ -82,6 +82,7 @@ const EXPECTED_TOOLS = [
   'support.propose_internal_note',
   'support.propose_information_request',
   'support.propose_completion',
+  'customers.propose_onboarding_questions',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -266,6 +267,7 @@ describe('operator MCP catalog', () => {
       'crm.propose_batch_release',
       'support.propose_information_request',
       'support.propose_completion',
+      'customers.propose_onboarding_questions',
     ])
   })
 

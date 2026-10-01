@@ -239,6 +239,7 @@ describe.skipIf(!enabled)(
           'crm.propose_followup_update',
           'crm.propose_note',
           'support.propose_completion',
+          'customers.propose_onboarding_questions',
           'support.propose_information_request',
           'support.propose_internal_note',
           'crm.propose_outreach_draft',
