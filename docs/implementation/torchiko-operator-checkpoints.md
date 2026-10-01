@@ -5,6 +5,8 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 
 ## Where things stand (update this block first)
 
+- 2026-10-01 release-prep CI: all three checks green on `6e79b6d451ff052d7db3829dde2e288f549f3017`,
+  confirmed by Tom after attempt 2; see the dated entry below. PR #38 remains draft and unmerged.
 - Baseline audited: `06e5745473762a18db07c5d30d0f6677c62c6103` (= `origin/master`, staging, release-b-operator at the start).
 - Work branch: `machine/torchiko/20260930-operator-program`, isolated worktree. Nothing else was touched.
 - Local proof environment: Windows, Node 24, `pnpm install --frozen-lockfile`, disposable Postgres (`pgvector/pgvector:pg16`,
@@ -144,3 +146,22 @@ Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `
 
 Lossless merge (design first), real-device keyboard proof (`torchiko-keyboard-device-protocol.md`), H11 decision, an unattended
 `recoverOperation` driver, refresh-response replay review, and the human steps in the release proposal.
+
+## 2026-10-01 — PR #38 exact-head CI rerun
+
+- Checked head: `6e79b6d451ff052d7db3829dde2e288f549f3017`.
+- [Run 36877213043](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36877213043), attempt 2:
+  re-ran all jobs through GitHub's browser UI after attempt 1 hit the 60-minute limit in `pnpm test:scripts`.
+- PASS [railway-iac](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36877213043/job/110491003332),
+  19s, directly observed in GitHub.
+- PASS [visitor-launch](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36877213043/job/110491003652),
+  19m 22s, directly observed in GitHub.
+- PASS [ci](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36877213043/job/110491003859),
+  reported by Tom: "railway iac visitor launch and ci are all green". Browser monitoring became unavailable
+  before CI finished; the agent did not independently observe its final result.
+- [PR #38](https://github.com/tomschoenekase-dotcom/pathfinder/pull/38): its own checks initially showed the same
+  two passes and cancelled CI on this head; Tom confirmed all three green after the rerun.
+- No source or workflow fix was needed. This continuation changes only this journal; no local test rerun was needed.
+- No merge, deployment, live migration, setting/flag change, external communication, or financial action.
+- This journal-only commit creates a new head and triggers CI again; the results above apply only to the checked SHA.
+  No green-check claim is made for the journal commit. Next: review that head's checks before any separately authorized release.
