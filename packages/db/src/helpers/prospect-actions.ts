@@ -2282,14 +2282,21 @@ export async function resolveProspectDuplicateAction(
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Duplicate candidate not found')
     if (before.status !== 'OPEN')
       throw new ProspectActionError('CONFLICT', 'Duplicate candidate is already resolved')
-    const saved = await tx.prospectDuplicateCandidate.update({
-      where: { id: before.id },
+    // Guarded by the status it was read at: of two reviewers, only the first resolves it.
+    const swapped = await tx.prospectDuplicateCandidate.updateMany({
+      where: { id: before.id, status: 'OPEN' },
       data: {
         status: input.resolution,
         resolutionNote: input.note.trim(),
         reviewedBy: input.actor.id,
         reviewedAt: new Date(),
       },
+    })
+    if (swapped.count !== 1) {
+      throw new ProspectActionError('CONFLICT', 'Duplicate candidate is already resolved')
+    }
+    const saved = await tx.prospectDuplicateCandidate.findUniqueOrThrow({
+      where: { id: before.id },
     })
     await writeAuditLogStrict(
       {

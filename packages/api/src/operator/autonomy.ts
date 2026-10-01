@@ -15,6 +15,8 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'operator.revert',
   // Hides an account from every list and view; a person decides each time.
   'crm.account-archive',
+  // Changes how history is read across two accounts; an exact reviewed decision each time.
+  'crm.duplicate-resolution',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

@@ -724,7 +724,130 @@ const listNotes: OperatorReadTool = {
   },
 }
 
+/** Activity kinds that come from an import or research, not from anything a person did. */
+const MACHINE_ACTIVITY_TYPES = [
+  'IMPORTED',
+  'DISCOVERED',
+  'RESEARCH_ADDED',
+  'AI_RESEARCH_COMPLETED',
+] as const
+
+const listDuplicates: OperatorReadTool = {
+  name: 'crm.list_duplicates',
+  capability: 'crm:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['crm.list_duplicates'].parse(raw)
+    const database = context.database
+    const where: Prisma.ProspectDuplicateCandidateWhereInput = {
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.organizationId
+        ? {
+            OR: [
+              { organizationAId: input.organizationId },
+              { organizationBId: input.organizationId },
+            ],
+          }
+        : {}),
+    }
+    await requireCursorInScope(input.cursor, (id) =>
+      database.prospectDuplicateCandidate.findFirst({
+        where: { AND: [where, { id }] },
+        select: { id: true },
+      }),
+    )
+    const rows = await database.prospectDuplicateCandidate.findMany({
+      where,
+      orderBy: [{ confidence: 'desc' }, { id: 'asc' }],
+      take: input.limit + 1,
+      ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+    })
+    const page = rows.slice(0, input.limit)
+    const ids = [...new Set(page.flatMap((row) => [row.organizationAId, row.organizationBId]))]
+    const [orgs, outreach, activityCounts, humanActivity, contactCounts] = await Promise.all([
+      database.prospectOrganization.findMany({
+        where: { id: { in: ids } },
+        select: organizationSelect,
+      }),
+      loadOutreach(database, ids),
+      database.prospectActivity.groupBy({
+        by: ['organizationId'],
+        where: { organizationId: { in: ids } },
+        _count: { _all: true },
+      }),
+      database.prospectActivity.groupBy({
+        by: ['organizationId'],
+        where: { organizationId: { in: ids }, type: { notIn: [...MACHINE_ACTIVITY_TYPES] } },
+        _count: { _all: true },
+      }),
+      database.prospectContact.groupBy({
+        by: ['organizationId'],
+        where: { organizationId: { in: ids }, archivedAt: null },
+        _count: { _all: true },
+      }),
+    ])
+    const archivedRows = await database.prospectOrganization.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, archivedAt: true },
+    })
+    const archived = new Map(archivedRows.map((row) => [row.id, row.archivedAt !== null]))
+    const total = new Map(activityCounts.map((row) => [row.organizationId, row._count._all]))
+    const human = new Map(humanActivity.map((row) => [row.organizationId, row._count._all]))
+    const contacts = new Map(contactCounts.map((row) => [row.organizationId, row._count._all]))
+    const byId = new Map(orgs.map((org) => [org.id, org]))
+    const side = (id: string) => {
+      const org = byId.get(id)
+      if (!org) return null
+      const activityCount = total.get(id) ?? 0
+      const { record } = projectOrganization(org, outreach.get(id), activityCount)
+      return {
+        organizationId: id,
+        name: cut(redactAddresses(org.canonicalName), 200)!,
+        archived: archived.get(id) ?? false,
+        stage: (org.opportunity?.stage ?? null) as never,
+        contacted: record.outreach.everContacted,
+        contactCount: contacts.get(id) ?? 0,
+        activityCount,
+        importOnly: (human.get(id) ?? 0) === 0,
+        version: operatorOrganizationVersion(activityCount),
+      }
+    }
+    return pageResult(
+      page.flatMap((row) => {
+        const a = side(row.organizationAId)
+        const b = side(row.organizationBId)
+        if (!a || !b) return []
+        const reasons = (Array.isArray(row.reasons) ? row.reasons : [])
+          .map((reason) =>
+            typeof reason === 'string'
+              ? reason
+              : reason && typeof reason === 'object' && 'type' in reason
+                ? String((reason as { type: unknown }).type)
+                : '',
+          )
+          .filter(Boolean)
+          .slice(0, 10)
+          .map((reason) => reason.slice(0, 120))
+        return [
+          {
+            candidateId: row.id,
+            status: row.status,
+            confidence: row.confidence,
+            reasons,
+            resolutionNote: row.resolutionNote
+              ? operatorUntrustedText(redactAddresses(row.resolutionNote))
+              : null,
+            reviewedAt: iso(row.reviewedAt),
+            accounts: [a, b],
+          },
+        ]
+      }),
+      rows.length > input.limit ? page.at(-1)!.id : null,
+    )
+  },
+}
+
 export const crmAccountReadTools: readonly OperatorReadTool[] = [
+  listDuplicates,
   resolveAccount,
   getAccountContext,
   listContacts,

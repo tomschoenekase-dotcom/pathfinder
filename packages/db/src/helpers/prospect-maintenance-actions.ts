@@ -627,3 +627,102 @@ export async function appendProspectNoteAction(
     return { activity: winner, replayed: true }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Duplicate review
+// ---------------------------------------------------------------------------
+
+/**
+ * Records a reviewed decision about a pair of accounts. The pair is stored once in canonical order,
+ * so declaring (A, B) and (B, A) is the same record. A pair the duplicate scan never flagged is
+ * created already resolved, marked as declared by a person. Nothing is merged, moved or deleted:
+ * both accounts keep every contact, activity, message and receipt they had.
+ */
+export async function resolveProspectDuplicatePairAction(
+  input: {
+    organizationId: string
+    otherOrganizationId: string
+    resolution: 'CONFIRMED_DUPLICATE' | 'CONFIRMED_DISTINCT' | 'DISMISSED'
+    note: string
+    actor: ProspectActor
+  },
+  client: Client = db,
+) {
+  requireActor(input.actor)
+  if (!input.note.trim()) throw new ProspectActionError('INVALID_INPUT', 'Review note is required')
+  if (input.organizationId === input.otherOrganizationId) {
+    throw new ProspectActionError('INVALID_INPUT', 'A duplicate pair needs two different accounts')
+  }
+  const [organizationAId, organizationBId] =
+    input.organizationId < input.otherOrganizationId
+      ? [input.organizationId, input.otherOrganizationId]
+      : [input.otherOrganizationId, input.organizationId]
+  const run = () =>
+    client.$transaction(async (tx) => {
+      const found = await tx.prospectOrganization.findMany({
+        where: { id: { in: [organizationAId, organizationBId] } },
+        select: { id: true },
+      })
+      if (found.length !== 2) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
+      const note = input.note.trim()
+      const existing = await tx.prospectDuplicateCandidate.findUnique({
+        where: { organizationAId_organizationBId: { organizationAId, organizationBId } },
+      })
+      let saved
+      if (!existing) {
+        saved = await tx.prospectDuplicateCandidate.create({
+          data: {
+            organizationAId,
+            organizationBId,
+            status: input.resolution,
+            confidence: 1,
+            reasons: [{ type: 'declared_by_reviewer' }],
+            resolutionNote: note,
+            reviewedBy: input.actor.id,
+            reviewedAt: new Date(),
+          },
+        })
+      } else if (existing.status === input.resolution) {
+        // The same decision again: nothing changes, and the caller is told it was a replay.
+        return { candidate: existing, replayed: true }
+      } else if (existing.status !== 'OPEN') {
+        throw new ProspectActionError('CONFLICT', 'This pair was already resolved differently')
+      } else {
+        const swapped = await tx.prospectDuplicateCandidate.updateMany({
+          where: { id: existing.id, status: 'OPEN' },
+          data: {
+            status: input.resolution,
+            resolutionNote: note,
+            reviewedBy: input.actor.id,
+            reviewedAt: new Date(),
+          },
+        })
+        if (swapped.count !== 1) {
+          throw new ProspectActionError('CONFLICT', 'Duplicate candidate is already resolved')
+        }
+        saved = await tx.prospectDuplicateCandidate.findUniqueOrThrow({
+          where: { id: existing.id },
+        })
+      }
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'admin.prospect_duplicate.reviewed',
+          targetType: 'ProspectDuplicateCandidate',
+          targetId: saved.id,
+          beforeState: { status: existing?.status ?? 'NONE' },
+          afterState: { status: saved.status, note },
+        },
+        tx,
+      )
+      return { candidate: saved, replayed: false }
+    })
+  try {
+    return await run()
+  } catch (error) {
+    // Two writers creating the same new pair: the loser re-reads and applies the same rules.
+    if (!isUniqueViolation(error)) throw error
+    return run()
+  }
+}

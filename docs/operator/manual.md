@@ -46,6 +46,11 @@ Follow it on every task. It describes what the tools do and the rules you work u
   `version` from `crm.get_account_context`; a change made meanwhile makes yours `STALE`, never a lost update. A
   changed email address is a new contact: the old one keeps its history and any decline, and an address that is
   blocked anywhere in the CRM cannot be added again. `crm.propose_account_archive` always needs a human.
+- Duplicates and old records: `crm.list_duplicates` shows each pair with which side has real history (`importOnly`,
+  `contacted`, contact count). `crm.propose_duplicate_resolution` records a reviewed decision (duplicate, distinct,
+  dismissed) and always needs a human. It never merges or moves anything. To reconcile a verified historical send
+  without emailing anyone, use one plan: add the recipient contact, `crm.log_outreach_sent` with the provider
+  message ID and `mailbox`, then resolve the duplicates. Reconciliation creates no draft, batch or message.
 - To undo an applied change, use `operator.propose_revert`. It always needs a human.
 - `execution.state` on `operator.get_operation` says where approved work is: `awaiting_approval`, `queued`,
   `running`, `needs_recovery` (its worker stopped), `finished`, or `closed`.

@@ -340,6 +340,7 @@ export {
   createProspectContactAction,
   isAddressBlockedAnywhere,
   maintenanceReceiptKey,
+  resolveProspectDuplicatePairAction,
   setProspectContactArchivedAction,
   updateProspectContactAction,
   updateProspectFollowupAction,

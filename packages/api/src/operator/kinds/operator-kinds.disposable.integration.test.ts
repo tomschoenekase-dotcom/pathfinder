@@ -227,6 +227,7 @@ describe.skipIf(!enabled)(
           'crm.propose_contact_archive',
           'crm.propose_contact_create',
           'crm.propose_contact_update',
+          'crm.propose_duplicate_resolution',
           'crm.propose_followup_update',
           'crm.propose_note',
           'crm.propose_outreach_draft',

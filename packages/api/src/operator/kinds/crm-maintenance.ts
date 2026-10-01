@@ -6,6 +6,7 @@ import {
   createProspectContactAction,
   isAddressBlockedAnywhere,
   maintenanceReceiptKey,
+  resolveProspectDuplicatePairAction,
   setProspectContactArchivedAction,
   updateProspectContactAction,
   updateProspectFollowupAction,
@@ -730,7 +731,103 @@ export const crmAccountArchiveKind: OperatorProposalKind<AccountArchiveArgs> = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Duplicate review
+// ---------------------------------------------------------------------------
+
+const duplicateInput = OPERATOR_MCP_INPUTS['crm.propose_duplicate_resolution']
+type DuplicateArgs = ReturnType<typeof duplicateInput.parse>
+
+const orderedPair = (args: DuplicateArgs) =>
+  args.organizationId < args.otherOrganizationId
+    ? ([args.organizationId, args.otherOrganizationId] as const)
+    : ([args.otherOrganizationId, args.organizationId] as const)
+
+async function readPair(database: OperatorDatabase, args: DuplicateArgs) {
+  const [organizationAId, organizationBId] = orderedPair(args)
+  const candidate = await database.prospectDuplicateCandidate.findUnique({
+    where: { organizationAId_organizationBId: { organizationAId, organizationBId } },
+    select: { id: true, status: true },
+  })
+  return {
+    organizationAId,
+    organizationBId,
+    candidateId: candidate?.id ?? null,
+    status: candidate?.status ?? 'NONE',
+  }
+}
+
+/**
+ * A reviewed decision about two accounts. It changes how history is read across them, so it is
+ * always a human decision, and it never merges, moves or deletes anything.
+ */
+export const crmDuplicateResolutionKind: OperatorProposalKind<DuplicateArgs> = {
+  kind: 'crm.duplicate-resolution',
+  tool: 'crm.propose_duplicate_resolution',
+  capability: 'crm:propose',
+  parse: (raw) => duplicateInput.parse(raw),
+  target: (args) => ({ ref: args.organizationId }),
+  authorize: async (args, context: OperatorKindContext) => {
+    const found = await context.database.prospectOrganization.count({
+      where: { id: { in: [args.organizationId, args.otherOrganizationId] } },
+    })
+    if (found !== 2) throw new OperatorNotFoundError()
+  },
+  // The pair's review state is the version: anyone resolving it first makes this stale.
+  targetVersion: async (args, context) => (await readPair(context.database, args)).status,
+  currentVersion: async (args, context) => (await readPair(context.database, args)).status,
+  describe: (args) => ({
+    title: 'Record a duplicate review (nothing is merged or moved)',
+    lines: [
+      `accounts ${args.organizationId} and ${args.otherOrganizationId}`,
+      `decision: ${args.resolution}`,
+      `reason: ${args.note}`,
+    ],
+  }),
+  snapshot: async (args, context) =>
+    (await readPair(context.database, args)) as unknown as JsonValue,
+  apply: async (args, context: OperatorApplyContext) => {
+    const saved = await resolveProspectDuplicatePairAction(
+      {
+        organizationId: args.organizationId,
+        otherOrganizationId: args.otherOrganizationId,
+        resolution: args.resolution,
+        note: `${args.note} (${operatorReason(context.proposalId)})`,
+        actor: context.actor,
+      },
+      context.database,
+    )
+    return {
+      result: {
+        candidateId: saved.candidate.id,
+        status: saved.candidate.status,
+        replayed: saved.replayed,
+      },
+      after: { candidateId: saved.candidate.id, status: saved.candidate.status },
+    }
+  },
+  /** The decision's note names this proposal, so a resolved pair carrying it is the receipt. */
+  reconcile: async (args, context) => {
+    const [organizationAId, organizationBId] = orderedPair(args)
+    const candidate = await context.database.prospectDuplicateCandidate.findUnique({
+      where: { organizationAId_organizationBId: { organizationAId, organizationBId } },
+      select: { id: true, status: true, resolutionNote: true },
+    })
+    if (!candidate || !candidate.resolutionNote?.includes(context.proposalId)) {
+      return { state: 'not_applied' }
+    }
+    return {
+      state: 'applied',
+      outcome: {
+        result: { candidateId: candidate.id, status: candidate.status, replayed: false },
+        after: { candidateId: candidate.id, status: candidate.status },
+      },
+    }
+  },
+}
+
 export const CRM_MAINTENANCE_KINDS = [
+  crmDuplicateResolutionKind,
   crmContactCreateKind,
   crmContactUpdateKind,
   crmContactArchiveKind,

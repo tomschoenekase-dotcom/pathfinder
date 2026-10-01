@@ -41,6 +41,7 @@ const EXPECTED_TOOLS = [
   'crm.get_account_context',
   'crm.list_contacts',
   'crm.list_notes',
+  'crm.list_duplicates',
   'operator.cancel_operation',
   'operator.recover_operation',
   'crm.propose_campaign_membership',
@@ -50,6 +51,7 @@ const EXPECTED_TOOLS = [
   'crm.propose_followup_update',
   'crm.propose_note',
   'crm.propose_account_archive',
+  'crm.propose_duplicate_resolution',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -227,6 +229,7 @@ describe('operator MCP catalog', () => {
       'customers.propose_invite',
       'operator.propose_revert',
       'crm.propose_account_archive',
+      'crm.propose_duplicate_resolution',
     ])
   })
 

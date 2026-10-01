@@ -133,6 +133,8 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'operator.propose_revert',
   // Hides an account from every list, so a person decides each time.
   'crm.propose_account_archive',
+  // Rewrites how history is read across accounts: an exact reviewed decision, never a policy.
+  'crm.propose_duplicate_resolution',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -163,6 +165,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_account_context',
   'crm.list_contacts',
   'crm.list_notes',
+  'crm.list_duplicates',
 ] as const
 
 /**
@@ -183,6 +186,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_followup_update',
   'crm.propose_note',
   'crm.propose_account_archive',
+  'crm.propose_duplicate_resolution',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -327,6 +331,12 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.list_duplicates': readInput({
+    organizationId: Identifier.optional(),
+    status: z.enum(['OPEN', 'CONFIRMED_DUPLICATE', 'CONFIRMED_DISTINCT', 'DISMISSED']).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'crm.list_contacts': readInput({
     organizationId: Identifier,
     includeArchived: z.boolean().optional(),
@@ -490,6 +500,15 @@ export const OPERATOR_MCP_INPUTS = {
     /** Optional pointer to what the note came from. */
     source: z.string().trim().min(1).max(300).optional(),
   }),
+  'crm.propose_duplicate_resolution': writeInput({
+    organizationId: Identifier,
+    otherOrganizationId: Identifier,
+    resolution: z.enum(['CONFIRMED_DUPLICATE', 'CONFIRMED_DISTINCT', 'DISMISSED']),
+    /** Why, in the reviewer's words: the evidence the decision rests on. */
+    note: z.string().trim().min(1).max(1_000),
+  }).refine((value) => value.organizationId !== value.otherOrganizationId, {
+    message: 'A duplicate pair needs two different accounts',
+  }),
   'crm.propose_account_archive': writeInput({
     organizationId: Identifier,
     expectedVersion: z.number().int().positive(),
@@ -579,6 +598,22 @@ const OperatorContactDetail = OperatorContact.extend({
   addressBlockedElsewhere: z.boolean(),
   notes: UntrustedText.nullable(),
 }).strict()
+
+/** One side of a duplicate pair, with what a reviewer needs to tell which history belongs where. */
+const OperatorDuplicateAccount = z
+  .object({
+    organizationId: Identifier,
+    name: z.string().max(200),
+    archived: z.boolean(),
+    stage: ProspectStageValue.nullable(),
+    contacted: z.boolean(),
+    contactCount: z.number().int().nonnegative(),
+    activityCount: z.number().int().nonnegative(),
+    /** Every recorded activity came from an import or research; nothing a person did. */
+    importOnly: z.boolean(),
+    version: z.number().int().nonnegative(),
+  })
+  .strict()
 
 const OperatorAccountCandidate = z
   .object({
@@ -823,6 +858,19 @@ export const OPERATOR_MCP_OUTPUTS = {
     .strict(),
   'crm.get_account_context': OperatorAccountContext,
   'crm.list_contacts': Page(OperatorContactDetail),
+  'crm.list_duplicates': Page(
+    z
+      .object({
+        candidateId: Identifier,
+        status: z.enum(['OPEN', 'CONFIRMED_DUPLICATE', 'CONFIRMED_DISTINCT', 'DISMISSED']),
+        confidence: z.number(),
+        reasons: z.array(z.string().max(120)).max(10),
+        resolutionNote: UntrustedText.nullable(),
+        reviewedAt: IsoDateTime.nullable(),
+        accounts: z.array(OperatorDuplicateAccount).min(2).max(2),
+      })
+      .strict(),
+  ),
   'crm.list_notes': Page(
     z
       .object({
@@ -1018,6 +1066,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_followup_update': OperatorWriteResult,
   'crm.propose_note': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
+  'crm.propose_duplicate_resolution': OperatorWriteResult,
   'crm.propose_outreach_draft': OperatorWriteResult,
   'crm.propose_stage_change': OperatorWriteResult,
   'crm.log_outreach_sent': OperatorWriteResult,
@@ -1332,6 +1381,13 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   [
+    'crm.list_duplicates',
+    'List duplicate candidates',
+    `Page through possible duplicate account pairs (optionally for one account or one status), each side with its contact, activity and contacted state so a reviewer can tell which history belongs where.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
     'operator.cancel_operation',
     'Cancel operation',
     `Withdraw one of this connection's own proposals or plans that has not started running (pass the operationId you originally sent as originalOperationId). Stops future steps only: it does not undo anything already applied, and refuses work that is running.`,
@@ -1393,6 +1449,14 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.note',
+  ],
+  [
+    'crm.propose_duplicate_resolution',
+    'Propose duplicate resolution',
+    `Propose a reviewed decision about two accounts: confirmed duplicate, distinct, or dismissed. Nothing is merged or moved; every contact, activity and receipt stays where it is. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.duplicate-resolution',
   ],
   [
     'crm.propose_account_archive',
