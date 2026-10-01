@@ -51,6 +51,14 @@ Follow it on every task. It describes what the tools do and the rules you work u
   dismissed) and always needs a human. It never merges or moves anything. To reconcile a verified historical send
   without emailing anyone, use one plan: add the recipient contact, `crm.log_outreach_sent` with the provider
   message ID and `mailbox`, then resolve the duplicates. Reconciliation creates no draft, batch or message.
+- Campaigns: `crm.propose_campaign_create` and `crm.propose_campaign_membership` (a named `contactId` stays the
+  recipient), then `crm.propose_outreach_draft`. `crm.list_drafts` shows the full body, `contentHash`, escalation
+  flags and whether the recipient is still emailable (`eligibleToEmail`). `crm.propose_draft_review`,
+  `crm.propose_batch_stage`, `crm.propose_batch_approve` and `crm.propose_batch_release` are bound to the exact
+  hashes you read and always need a person. Approving a draft or batch sends nothing. `crm.get_outreach_batch`
+  previews a frozen batch with live eligibility. Release is off unless the deployment turns the adapter on, and
+  then only queues through the canonical gates (delivery control, mailbox, 1 to 50 recipients). Cold outreach stays
+  draft-first and no tool here sends email.
 - To undo an applied change, use `operator.propose_revert`. It always needs a human.
 - `execution.state` on `operator.get_operation` says where approved work is: `awaiting_approval`, `queued`,
   `running`, `needs_recovery` (its worker stopped), `finished`, or `closed`.

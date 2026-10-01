@@ -135,6 +135,11 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'crm.propose_account_archive',
   // Rewrites how history is read across accounts: an exact reviewed decision, never a policy.
   'crm.propose_duplicate_resolution',
+  // Each of these is a human gate on outbound mail. Policy never stands in for the person.
+  'crm.propose_draft_review',
+  'crm.propose_batch_stage',
+  'crm.propose_batch_approve',
+  'crm.propose_batch_release',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -166,6 +171,9 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_contacts',
   'crm.list_notes',
   'crm.list_duplicates',
+  'crm.get_campaign',
+  'crm.list_drafts',
+  'crm.get_outreach_batch',
 ] as const
 
 /**
@@ -187,6 +195,11 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_note',
   'crm.propose_account_archive',
   'crm.propose_duplicate_resolution',
+  'crm.propose_campaign_create',
+  'crm.propose_draft_review',
+  'crm.propose_batch_stage',
+  'crm.propose_batch_approve',
+  'crm.propose_batch_release',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -331,6 +344,24 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.get_campaign': readInput({ campaignId: Identifier }),
+  'crm.list_drafts': readInput({
+    campaignId: Identifier.optional(),
+    organizationId: Identifier.optional(),
+    memberId: Identifier.optional(),
+    status: z
+      .enum(['NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED', 'QUEUED', 'SENT'])
+      .optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }).refine(
+    (value) =>
+      value.campaignId !== undefined ||
+      value.organizationId !== undefined ||
+      value.memberId !== undefined,
+    { message: 'Name a campaign, an organization or a campaign member' },
+  ),
+  'crm.get_outreach_batch': readInput({ batchId: Identifier }),
   'crm.list_duplicates': readInput({
     organizationId: Identifier.optional(),
     status: z.enum(['OPEN', 'CONFIRMED_DUPLICATE', 'CONFIRMED_DISTINCT', 'DISMISSED']).optional(),
@@ -402,6 +433,45 @@ export const OPERATOR_MCP_INPUTS = {
   'crm.propose_campaign_membership': writeInput({
     organizationId: Identifier,
     campaignId: Identifier,
+    /** A named contact stays the selected recipient. Without one, the first draftable contact is chosen. */
+    contactId: Identifier.optional(),
+    venueId: Identifier.optional(),
+  }),
+  'crm.propose_campaign_create': writeInput({
+    name: z.string().trim().min(1).max(191),
+    description: z.string().trim().min(1).max(2_000).optional(),
+    organizationIds: z.array(Identifier).min(1).max(200),
+  }),
+  'crm.propose_draft_review': writeInput({
+    draftId: Identifier,
+    /** The content hash from crm.list_drafts: approval binds exactly this subject, body and recipient. */
+    expectedContentHash: Sha256Hex,
+    approve: z.boolean(),
+    reason: z.string().trim().min(1).max(1_000).optional(),
+    /** Every escalation flag the draft carries must be acknowledged here, by name, to approve it. */
+    acknowledgedEscalations: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
+  }).refine((value) => value.approve || value.reason !== undefined, {
+    message: 'A rejection needs a reason',
+    path: ['reason'],
+  }),
+  'crm.propose_batch_stage': writeInput({
+    campaignId: Identifier,
+    /** The exact approved drafts to freeze, each bound to its content hash. At most 50. */
+    drafts: z
+      .array(z.object({ draftId: Identifier, expectedContentHash: Sha256Hex }).strict())
+      .min(1)
+      .max(50),
+  }),
+  'crm.propose_batch_approve': writeInput({
+    batchId: Identifier,
+    expectedRecipientCount: z.number().int().min(1).max(50),
+    expectedSnapshotHash: Sha256Hex,
+  }),
+  'crm.propose_batch_release': writeInput({
+    batchId: Identifier,
+    providerAccountId: Identifier,
+    expectedRecipientCount: z.number().int().min(1).max(50),
+    expectedSnapshotHash: Sha256Hex,
   }),
   'crm.propose_outreach_draft': writeInput({
     campaignMemberId: Identifier,
@@ -605,6 +675,127 @@ const OperatorContactDetail = OperatorContact.extend({
   addressBlockedElsewhere: z.boolean(),
   notes: UntrustedText.nullable(),
 }).strict()
+
+const OperatorDraftView = z
+  .object({
+    draftId: Identifier,
+    memberId: Identifier,
+    campaignId: Identifier,
+    organizationId: Identifier,
+    contactId: Identifier.nullable(),
+    version: z.number().int().positive(),
+    status: z.enum(['NEEDS_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED', 'QUEUED', 'SENT']),
+    subject: UntrustedText,
+    /** The full body a reviewer approves, capped at 8,000 characters (`truncated` says if it was cut). */
+    body: UntrustedText,
+    /** Bind approval to this: it covers the recipient, subject, body and any attachments. */
+    contentHash: Sha256Hex,
+    escalationFlags: z.array(z.string().max(60)).max(10),
+    /** The recipient address, only while the contact may still be written to. */
+    recipient: z.string().max(320).nullable(),
+    eligibleToEmail: z.boolean(),
+    eligibilityReasons: z.array(z.string().max(60)).max(15),
+    hasAttachments: z.boolean(),
+    reviewedAt: IsoDateTime.nullable(),
+    createdAt: IsoDateTime,
+  })
+  .strict()
+
+const OperatorCampaignDetail = z
+  .object({
+    campaign: z
+      .object({
+        campaignId: Identifier,
+        name: z.string().max(191),
+        description: UntrustedText.nullable(),
+        status: ProspectCampaignStatusValue,
+        dailyLimit: z.number().int().nonnegative(),
+        pausedAt: IsoDateTime.nullable(),
+        createdAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+    members: z
+      .object({
+        total: z.number().int().nonnegative(),
+        byStatus: z.record(z.number().int().nonnegative()),
+      })
+      .strict(),
+    drafts: z
+      .object({
+        total: z.number().int().nonnegative(),
+        byStatus: z.record(z.number().int().nonnegative()),
+      })
+      .strict(),
+    batches: z
+      .array(
+        z
+          .object({
+            batchId: Identifier,
+            status: z.string().max(30),
+            recipientCount: z.number().int().nonnegative(),
+            snapshotHash: Sha256Hex,
+            createdAt: IsoDateTime,
+            reviewedAt: IsoDateTime.nullable(),
+            releasedAt: IsoDateTime.nullable(),
+          })
+          .strict(),
+      )
+      .max(10),
+    batchCount: z.number().int().nonnegative(),
+    /** The standing release limits: the initial canary is 1 to 50 recipients and cannot be raised here. */
+    releasePolicy: z
+      .object({
+        phase: z.string().max(40),
+        maxRecipients: z.number().int().positive(),
+        promotion: z.string().max(40),
+      })
+      .strict(),
+    /** Whether the operator's release adapter is switched on in this deployment (off by default). */
+    releaseAdapterEnabled: z.boolean(),
+    /** Whether delivery is globally enabled for prospect mail. Informational: never changed here. */
+    deliveryEnabled: z.boolean(),
+  })
+  .strict()
+
+const OperatorSendBatchView = z
+  .object({
+    batch: z
+      .object({
+        batchId: Identifier,
+        campaignId: Identifier,
+        status: z.string().max(30),
+        recipientCount: z.number().int().nonnegative(),
+        snapshotHash: Sha256Hex,
+        createdAt: IsoDateTime,
+        reviewedAt: IsoDateTime.nullable(),
+        queuedAt: IsoDateTime.nullable(),
+        releasedAt: IsoDateTime.nullable(),
+        cancelledReason: z.string().max(2_000).nullable(),
+      })
+      .strict(),
+    items: z
+      .array(
+        z
+          .object({
+            itemId: Identifier,
+            draftId: Identifier,
+            memberId: Identifier,
+            recipient: z.string().max(320).nullable(),
+            subject: UntrustedText,
+            contentHash: Sha256Hex,
+            attachmentsSha256: z.string().max(64).nullable(),
+            status: z.string().max(30),
+            /** Still eligible to send right now under the shared rule, not as of staging. */
+            eligibleNow: z.boolean(),
+            reasons: z.array(z.string().max(60)).max(15),
+          })
+          .strict(),
+      )
+      .max(50),
+    withinReleasePolicy: z.boolean(),
+  })
+  .strict()
 
 /** One side of a duplicate pair, with what a reviewer needs to tell which history belongs where. */
 const OperatorDuplicateAccount = z
@@ -1071,10 +1262,18 @@ export const OPERATOR_MCP_OUTPUTS = {
         contactId: Identifier.nullable(),
         status: ProspectCampaignMemberStatusValue,
         draftCount: z.number().int().nonnegative(),
+        /** The selected contact may be drafted to under the shared eligibility rule. */
+        eligibleToDraft: z.boolean(),
+        /** ...and may be sent to (verified, unblocked everywhere). Drafting never implies this. */
+        eligibleToEmail: z.boolean(),
+        eligibilityReasons: z.array(z.string().max(60)).max(15),
         updatedAt: IsoDateTime,
       })
       .strict(),
   ),
+  'crm.get_campaign': OperatorCampaignDetail,
+  'crm.list_drafts': Page(OperatorDraftView),
+  'crm.get_outreach_batch': OperatorSendBatchView,
 
   'crm.propose_campaign_membership': OperatorWriteResult,
   'crm.propose_contact_create': OperatorWriteResult,
@@ -1084,6 +1283,11 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_note': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
+  'crm.propose_campaign_create': OperatorWriteResult,
+  'crm.propose_draft_review': OperatorWriteResult,
+  'crm.propose_batch_stage': OperatorWriteResult,
+  'crm.propose_batch_approve': OperatorWriteResult,
+  'crm.propose_batch_release': OperatorWriteResult,
   'crm.propose_outreach_draft': OperatorWriteResult,
   'crm.propose_stage_change': OperatorWriteResult,
   'crm.log_outreach_sent': OperatorWriteResult,
@@ -1398,6 +1602,27 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   [
+    'crm.get_campaign',
+    'Get campaign',
+    `Read one campaign: status, member and draft counts by state, its send batches, and the standing release limits.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_drafts',
+    'List drafts',
+    `Page through drafts for a campaign, account or campaign member, with the full body, content hash, escalation flags and whether the recipient may still be sent to.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.get_outreach_batch',
+    'Get send batch',
+    `Preview one send batch exactly as frozen: recipients, subjects, hashes, and whether each recipient is still eligible right now.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
     'crm.list_duplicates',
     'List duplicate candidates',
     `Page through possible duplicate account pairs (optionally for one account or one status), each side with its contact, activity and contacted state so a reviewer can tell which history belongs where.${READ}`,
@@ -1466,6 +1691,46 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.note',
+  ],
+  [
+    'crm.propose_campaign_create',
+    'Propose campaign create',
+    `Propose creating an outreach campaign from a set of accounts (up to 200). Creates internal records only; nothing is drafted or sent.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.campaign-create',
+  ],
+  [
+    'crm.propose_draft_review',
+    'Propose draft review',
+    `Propose approving or rejecting one draft, bound to its content hash. Approval needs every escalation flag acknowledged by name. Approving a draft sends nothing. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.draft-review',
+  ],
+  [
+    'crm.propose_batch_stage',
+    'Propose batch stage',
+    `Propose freezing up to 50 approved drafts into a send batch: exact recipients, subject, body and attachments, each bound to its content hash. Stages nothing for delivery. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.batch-stage',
+  ],
+  [
+    'crm.propose_batch_approve',
+    'Propose batch approve',
+    `Propose approving one staged batch, bound to its recipient count and snapshot hash. Approval alone sends nothing. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.batch-approve',
+  ],
+  [
+    'crm.propose_batch_release',
+    'Propose batch release',
+    `Propose queueing one approved batch for delivery through the canonical release. Disabled unless the deployment turns the release adapter on, and even then bound by delivery control, a connected mailbox and the 1 to 50 recipient canary. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.batch-release',
   ],
   [
     'crm.propose_duplicate_resolution',

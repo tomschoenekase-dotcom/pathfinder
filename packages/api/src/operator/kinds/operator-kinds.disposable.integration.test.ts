@@ -53,6 +53,7 @@ let organizationId = ''
 let otherOrganizationId = ''
 let contactId = ''
 let memberId = ''
+let sendBatchesAtStart = 0
 
 const now = () => new Date()
 const ids = { organizations: [] as string[] }
@@ -146,6 +147,7 @@ describe.skipIf(!enabled)(
   { timeout: 90_000 },
   () => {
     beforeAll(async () => {
+      sendBatchesAtStart = await db.prospectSendBatch.count()
       await withTenantIsolationBypass(async () => {
         await db.tenant.create({
           data: { id: tenantId, name: `Example ${tenantId}`, slug: tenantId },
@@ -224,6 +226,12 @@ describe.skipIf(!enabled)(
           'appearance.propose_update',
           'crm.log_outreach_sent',
           'crm.propose_account_archive',
+          'crm.propose_batch_approve',
+          'crm.propose_batch_release',
+          'crm.propose_batch_stage',
+          'crm.propose_campaign_create',
+          'crm.propose_campaign_membership',
+          'crm.propose_draft_review',
           'crm.propose_contact_archive',
           'crm.propose_contact_create',
           'crm.propose_contact_update',
@@ -456,7 +464,8 @@ describe.skipIf(!enabled)(
         })
         expect(activities).toHaveLength(1)
         expect(activities[0]?.occurredAt.toISOString()).toBe(args.sentAt)
-        expect(await db.prospectSendBatch.count()).toBe(0)
+        // Logging a send never stages a batch: the count is whatever other suites left, unchanged.
+        expect(await db.prospectSendBatch.count()).toBe(sendBatchesAtStart)
         const reverted = await createRevertProposal(
           { proposalId: view.proposalId, operationId: randomUUID() },
           (raw) => raw as { proposalId: string; operationId: string },
@@ -587,7 +596,8 @@ describe.skipIf(!enabled)(
         const drafts = await db.prospectOutreachDraft.findMany({ where: { memberId } })
         expect(drafts).toHaveLength(1)
         expect(drafts[0]).toMatchObject({ status: 'NEEDS_REVIEW', generatedById: 'user_owner' })
-        expect(await db.prospectSendBatch.count()).toBe(0)
+        // Logging a send never stages a batch: the count is whatever other suites left, unchanged.
+        expect(await db.prospectSendBatch.count()).toBe(sendBatchesAtStart)
         const reverted = await revert(view.proposalId)
         expect(reverted.status).toBe('APPLIED')
         expect(

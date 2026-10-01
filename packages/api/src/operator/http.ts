@@ -151,6 +151,10 @@ const KIND_REFUSAL_CODES = new Set([
   'INVALID_URL',
   'RECEIPT_CONFLICT',
   'ADDRESS_SUPPRESSED',
+  'CONTENT_CHANGED',
+  'ESCALATION_UNACKNOWLEDGED',
+  'RELEASE_LIMIT',
+  'RELEASE_DISABLED',
 ])
 
 function errorCode(error: unknown): string {

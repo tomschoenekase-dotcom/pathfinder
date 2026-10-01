@@ -1,8 +1,12 @@
 import {
   evaluateProspectContactEligibility,
+  isAddressBlockedOnAnotherRow,
+  type ProspectEligibility,
   type ProspectEligibilityPurpose,
   type ProspectEligibilityReason,
 } from '@pathfinder/db'
+
+import type { OperatorDatabase } from '../audit'
 
 type AddressRow = Parameters<typeof evaluateProspectContactEligibility>[0] & {
   id: string
@@ -107,4 +111,65 @@ export function evaluateAddress(
     organizationId: first.row.organizationId,
     contactId: first.row.id,
   }
+}
+
+export type ContactEligibility = Readonly<{ draft: ProspectEligibility; send: ProspectEligibility }>
+
+/**
+ * Eligibility of specific contact records, evaluated now under the shared rule for both purposes.
+ * A contact that no longer exists reads as not eligible with `no_address`, never as eligible.
+ */
+export async function eligibilityForContacts(
+  database: OperatorDatabase,
+  contactIds: readonly (string | null)[],
+): Promise<Map<string, ContactEligibility>> {
+  const ids = [...new Set(contactIds.filter((id): id is string => id !== null))]
+  const out = new Map<string, ContactEligibility>()
+  if (ids.length === 0) return out
+  const rows = await database.prospectContact.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      normalizedEmail: true,
+      doNotContact: true,
+      emailReadiness: true,
+      permissionState: true,
+      suppressedAt: true,
+      unsubscribedAt: true,
+      complainedAt: true,
+      lastHardBounceAt: true,
+      archivedAt: true,
+      organization: { select: { archivedAt: true, opportunity: { select: { stage: true } } } },
+    },
+  })
+  for (const row of rows) {
+    const blockedElsewhere = row.normalizedEmail
+      ? await isAddressBlockedOnAnotherRow(database, row.normalizedEmail, row.id)
+      : false
+    const context = {
+      organizationStage: row.organization.opportunity?.stage ?? null,
+      blockedElsewhere,
+    }
+    out.set(row.id, {
+      draft: evaluateProspectContactEligibility(row, 'draft', context),
+      send: evaluateProspectContactEligibility(row, 'send', context),
+    })
+  }
+  const missing = evaluateProspectContactEligibility(
+    {
+      normalizedEmail: null,
+      doNotContact: false,
+      emailReadiness: 'UNKNOWN',
+      permissionState: 'UNKNOWN',
+      suppressedAt: null,
+      unsubscribedAt: null,
+      complainedAt: null,
+      lastHardBounceAt: null,
+    },
+    'send',
+  )
+  for (const id of ids) {
+    if (!out.has(id)) out.set(id, { draft: { ...missing, purpose: 'draft' }, send: missing })
+  }
+  return out
 }

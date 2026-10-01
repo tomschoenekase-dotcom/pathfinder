@@ -196,6 +196,9 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_contacts',
         'crm.list_notes',
         'crm.list_duplicates',
+        'crm.get_campaign',
+        'crm.list_drafts',
+        'crm.get_outreach_batch',
         // Orchestration controls ride the same registry path; they need operator:plan, not a read.
         'operator.cancel_operation',
         'operator.recover_operation',

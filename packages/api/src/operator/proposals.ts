@@ -539,8 +539,15 @@ function isAtomicRefusal(error: unknown) {
   if (!(error instanceof Error)) return false
   const code = (error as Error & { code?: unknown }).code
   return (
-    ['ProspectActionError', 'VenueActionError'].includes(error.name) &&
-    ['NOT_FOUND', 'INVALID_INPUT', 'CONFLICT', 'SUPPRESSED'].includes(String(code))
+    ['ProspectActionError', 'VenueActionError', 'ProspectOutreachError'].includes(error.name) &&
+    [
+      'NOT_FOUND',
+      'INVALID_INPUT',
+      'CONFLICT',
+      'SUPPRESSED',
+      'APPROVAL_REQUIRED',
+      'RELEASE_DISABLED',
+    ].includes(String(code))
   )
 }
 
@@ -549,7 +556,9 @@ function isStale(error: unknown) {
   // Canonical domain actions report optimistic-concurrency loss as CONFLICT.
   return (
     error instanceof Error &&
-    (error.name === 'VenueActionError' || error.name === 'ProspectActionError') &&
+    (error.name === 'VenueActionError' ||
+      error.name === 'ProspectActionError' ||
+      error.name === 'ProspectOutreachError') &&
     (error as Error & { code?: unknown }).code === 'CONFLICT'
   )
 }

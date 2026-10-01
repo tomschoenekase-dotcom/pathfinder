@@ -112,6 +112,10 @@ const rawEnvSchema = z
     OPERATOR_OAUTH_REDIRECT_ORIGINS: z.string().max(4_096).optional(),
     // Comma-separated user IDs allowed to consent and approve, in addition to PLATFORM_ADMIN.
     OPERATOR_OAUTH_ALLOWED_USER_IDS: z.string().max(4_096).optional(),
+    // The operator's campaign batch-release adapter. Default off; it refuses at propose time while
+    // off, and even when on it can only call the canonical release, which has its own delivery
+    // control, mailbox and 1-50 recipient canary gates.
+    OPERATOR_CAMPAIGN_RELEASE_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
@@ -342,6 +346,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   AGENT_ROUTINES_ENABLED: values.AGENT_ROUTINES_ENABLED === 'true',
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
   OPERATOR_OAUTH_ENABLED: values.OPERATOR_OAUTH_ENABLED === 'true',
+  OPERATOR_CAMPAIGN_RELEASE_ENABLED: values.OPERATOR_CAMPAIGN_RELEASE_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',

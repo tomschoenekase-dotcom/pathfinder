@@ -3,6 +3,10 @@ import type { Prisma } from '@prisma/client'
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { ProspectActionError, type ProspectActor } from './prospect-actions'
+import {
+  evaluateProspectContactEligibility,
+  isAddressBlockedOnAnotherRow,
+} from './prospect-eligibility'
 import { normalizeProspectEmail } from './prospect-normalization'
 
 /**
@@ -725,4 +729,148 @@ export async function resolveProspectDuplicatePairAction(
     if (!isUniqueViolation(error)) throw error
     return run()
   }
+}
+
+// ---------------------------------------------------------------------------
+// Campaign membership
+// ---------------------------------------------------------------------------
+
+/**
+ * Adds one account to an existing campaign. The campaign creator could only select members when it
+ * created the campaign, so a prepared campaign had no way to grow. A named contact stays selected;
+ * with none named, the first contact that may be drafted to is chosen. An account with nobody to
+ * write to is added as SUPPRESSED so the gap is visible instead of silently dropped. Adding the same
+ * account and contact again returns the existing member.
+ */
+export async function addProspectCampaignMemberAction(
+  input: {
+    campaignId: string
+    organizationId: string
+    contactId?: string | undefined
+    venueId?: string | undefined
+    /** Stored on the member so an interrupted add can be found again by this exact key. */
+    receipt?: string | undefined
+    actor: ProspectActor
+  },
+  client: Client = db,
+) {
+  requireActor(input.actor)
+  return client.$transaction(async (tx) => {
+    const campaign = await tx.prospectOutreachCampaign.findUnique({
+      where: { id: input.campaignId },
+      select: { id: true, status: true },
+    })
+    if (!campaign) throw new ProspectActionError('NOT_FOUND', 'Campaign not found')
+    if (campaign.status === 'COMPLETE' || campaign.status === 'CANCELLED') {
+      throw new ProspectActionError('CONFLICT', 'This campaign is closed to new members')
+    }
+    const organization = await tx.prospectOrganization.findFirst({
+      where: { id: input.organizationId, archivedAt: null },
+      select: {
+        id: true,
+        opportunity: { select: { stage: true } },
+        venues: {
+          where: { archivedAt: null },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    })
+    if (!organization) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
+    if (input.venueId) {
+      const venue = await tx.prospectVenue.findFirst({
+        where: { id: input.venueId, organizationId: input.organizationId, archivedAt: null },
+        select: { id: true },
+      })
+      if (!venue) throw new ProspectActionError('NOT_FOUND', 'Venue not found for this prospect')
+    }
+    const contactSelect = {
+      id: true,
+      venueId: true,
+      normalizedEmail: true,
+      doNotContact: true,
+      emailReadiness: true,
+      permissionState: true,
+      suppressedAt: true,
+      unsubscribedAt: true,
+      complainedAt: true,
+      lastHardBounceAt: true,
+      archivedAt: true,
+    } as const
+    const draftable = async (
+      contact: {
+        id: string
+        normalizedEmail: string | null
+      } & Parameters<typeof evaluateProspectContactEligibility>[0],
+    ) =>
+      contact.normalizedEmail !== null &&
+      evaluateProspectContactEligibility(contact, 'draft', {
+        organizationStage: organization.opportunity?.stage ?? null,
+        blockedElsewhere: await isAddressBlockedOnAnotherRow(
+          tx,
+          contact.normalizedEmail,
+          contact.id,
+        ),
+      }).eligible
+    let chosen: { id: string; venueId: string | null } | null = null
+    let eligible = false
+    if (input.contactId) {
+      const named = await tx.prospectContact.findFirst({
+        where: { id: input.contactId, organizationId: input.organizationId },
+        select: contactSelect,
+      })
+      if (!named) throw new ProspectActionError('NOT_FOUND', 'Contact not found for this prospect')
+      chosen = named
+      eligible = await draftable(named)
+    } else {
+      const candidates = await tx.prospectContact.findMany({
+        where: { organizationId: input.organizationId, archivedAt: null },
+        orderBy: [{ venueId: 'asc' }, { createdAt: 'asc' }],
+        select: contactSelect,
+      })
+      for (const candidate of candidates) {
+        if (await draftable(candidate)) {
+          chosen = candidate
+          eligible = true
+          break
+        }
+      }
+    }
+    const existing = await tx.prospectCampaignMember.findFirst({
+      where: {
+        campaignId: input.campaignId,
+        organizationId: input.organizationId,
+        contactId: chosen?.id ?? null,
+      },
+    })
+    if (existing) return { member: existing, replayed: true }
+    const member = await tx.prospectCampaignMember.create({
+      data: {
+        campaignId: input.campaignId,
+        organizationId: input.organizationId,
+        venueId: input.venueId ?? chosen?.venueId ?? organization.venues[0]?.id ?? null,
+        contactId: chosen?.id ?? null,
+        status: eligible ? 'SELECTED' : 'SUPPRESSED',
+        selection: {
+          selectedBy: input.actor.id,
+          selectedAt: new Date().toISOString(),
+          basis: input.contactId ? 'named_contact' : 'first_eligible_contact',
+          ...(input.receipt ? { receipt: input.receipt } : {}),
+        },
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_campaign.member_added',
+        targetType: 'ProspectCampaignMember',
+        targetId: member.id,
+        afterState: { campaignId: input.campaignId, status: member.status },
+      },
+      tx,
+    )
+    return { member, replayed: false }
+  })
 }

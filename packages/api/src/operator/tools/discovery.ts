@@ -4,6 +4,7 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
+import { eligibilityForContacts } from './crm-eligibility'
 import { pageResult, requireCursorInScope } from './page'
 
 /**
@@ -147,18 +148,28 @@ const crmListCampaignMembers: OperatorReadTool = {
       },
     })
     const page = rows.slice(0, input.limit)
+    const eligibility = await eligibilityForContacts(
+      context.database,
+      page.map((row) => row.contactId),
+    )
     return pageResult(
-      page.map((row) => ({
-        campaignMemberId: row.id,
-        campaignId: row.campaignId,
-        organizationId: row.organizationId,
-        organizationName: row.organization.canonicalName.slice(0, 200),
-        venueId: row.venueId,
-        contactId: row.contactId,
-        status: row.status,
-        draftCount: row._count.drafts,
-        updatedAt: row.updatedAt.toISOString(),
-      })),
+      page.map((row) => {
+        const eligible = row.contactId ? eligibility.get(row.contactId) : undefined
+        return {
+          eligibleToDraft: eligible?.draft.eligible ?? false,
+          eligibleToEmail: eligible?.send.eligible ?? false,
+          eligibilityReasons: [...(eligible?.send.reasons ?? ['no_contact_selected'])],
+          campaignMemberId: row.id,
+          campaignId: row.campaignId,
+          organizationId: row.organizationId,
+          organizationName: row.organization.canonicalName.slice(0, 200),
+          venueId: row.venueId,
+          contactId: row.contactId,
+          status: row.status,
+          draftCount: row._count.drafts,
+          updatedAt: row.updatedAt.toISOString(),
+        }
+      }),
       rows.length > input.limit ? page.at(-1)!.id : null,
     )
   },

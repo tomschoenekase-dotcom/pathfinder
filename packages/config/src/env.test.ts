@@ -467,6 +467,35 @@ describe('AGENT_BRIDGE_HTTP_ENABLED', () => {
   })
 })
 
+describe('OPERATOR_CAMPAIGN_RELEASE_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT })
+          .OPERATOR_CAMPAIGN_RELEASE_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('turns on only for the exact value true', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_CAMPAIGN_RELEASE_ENABLED: 'true',
+      }).OPERATOR_CAMPAIGN_RELEASE_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_CAMPAIGN_RELEASE_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('OPERATOR_OAUTH_ENABLED', () => {
   it.each(['production', 'staging', 'preview'] as const)(
     'defaults to disabled in %s',

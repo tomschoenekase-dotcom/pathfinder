@@ -346,6 +346,7 @@ export type {
   ProspectEligibilityReason,
 } from './helpers/prospect-eligibility'
 export {
+  addProspectCampaignMemberAction,
   appendProspectNoteAction,
   createProspectContactAction,
   isAddressBlockedAnywhere,

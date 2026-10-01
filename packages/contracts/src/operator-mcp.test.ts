@@ -42,6 +42,9 @@ const EXPECTED_TOOLS = [
   'crm.list_contacts',
   'crm.list_notes',
   'crm.list_duplicates',
+  'crm.get_campaign',
+  'crm.list_drafts',
+  'crm.get_outreach_batch',
   'operator.cancel_operation',
   'operator.recover_operation',
   'crm.propose_campaign_membership',
@@ -52,6 +55,11 @@ const EXPECTED_TOOLS = [
   'crm.propose_note',
   'crm.propose_account_archive',
   'crm.propose_duplicate_resolution',
+  'crm.propose_campaign_create',
+  'crm.propose_draft_review',
+  'crm.propose_batch_stage',
+  'crm.propose_batch_approve',
+  'crm.propose_batch_release',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -230,6 +238,10 @@ describe('operator MCP catalog', () => {
       'operator.propose_revert',
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',
+      'crm.propose_draft_review',
+      'crm.propose_batch_stage',
+      'crm.propose_batch_approve',
+      'crm.propose_batch_release',
     ])
   })
 
@@ -379,7 +391,12 @@ describe('operator MCP inputs', () => {
 
   it('normalizes emails for the contact check', () => {
     const schema = OPERATOR_MCP_INPUTS['crm.check_can_contact']
-    expect(schema.parse({ email: ' Person@Example.com ' })).toEqual({ email: 'person@example.com' })
+    // The default purpose is the strict one: sending needs a verified address.
+    expect(schema.parse({ email: ' Person@Example.com ' })).toEqual({
+      email: 'person@example.com',
+      purpose: 'send',
+    })
+    expect(schema.parse({ email: 'a@example.com', purpose: 'draft' }).purpose).toBe('draft')
     expect(schema.safeParse({ email: 'nope' }).success).toBe(false)
   })
 })
