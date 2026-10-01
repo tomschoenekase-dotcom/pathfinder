@@ -63,6 +63,7 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 
 ## Known gaps and decisions needed
 
+- H06 receipt/quarantine reads: `ProspectEmailWebhookReceipt` and `ProspectInboundQuarantine` have no tenant-owned relation; receipt payloads are raw JSON and quarantine candidate thread IDs are an array. Tenant-scoping them through a mailbox could expose another tenant's messages. No migration or raw SQL was added. Current H06 reads use canonical message events and tenant-linked `ProspectActivity.externalReceiptKey`; webhook receipts and quarantine reads remain blocked pending an authoritative tenant ownership link.
 - Refresh-token response replay (lost response) still revokes the grant; a bounded replay window needs a security review.
 - `recoverOperation` is invoked by a tool; an unattended driver (worker or scheduled route) needs an owner decision on activation.
 - Raw-SQL inventory (`scripts/verify-raw-sql-boundary.mjs`): no raw SQL was added.

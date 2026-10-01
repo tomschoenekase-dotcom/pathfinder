@@ -180,6 +180,11 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_outreach_batch',
   'support.get_request',
   'support.list_messages',
+  'crm.list_mailboxes',
+  'crm.list_mail_threads',
+  'crm.list_mail_messages',
+  'crm.list_mail_receipts',
+  'crm.list_activity_receipts',
 ] as const
 
 /**
@@ -357,6 +362,28 @@ export const OPERATOR_MCP_INPUTS = {
   'support.list_messages': readInput({
     ...tenantScope,
     requestId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_mailboxes': readInput({ ...tenantScope, cursor: Cursor.optional(), limit: PageLimit }),
+  'crm.list_mail_threads': readInput({
+    ...tenantScope,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_mail_messages': readInput({
+    ...tenantScope,
+    threadId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_mail_receipts': readInput({
+    ...tenantScope,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_activity_receipts': readInput({
+    ...tenantScope,
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -1452,6 +1479,72 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'crm.list_mailboxes': Page(
+    z
+      .object({
+        mailboxId: Identifier,
+        provider: z.enum(['GMAIL', 'RESEND', 'FAKE']),
+        mailboxAddress: z.string().max(320),
+        displayName: UntrustedText.nullable(),
+        connectionStatus: z.string().max(40),
+        capabilities: z.array(z.string().max(40)).max(10),
+        lastSuccessfulSyncAt: IsoDateTime.nullable(),
+        lastHealthCheckAt: IsoDateTime.nullable(),
+        healthErrorCode: z.string().max(100).nullable(),
+        healthErrorSummary: UntrustedText.nullable(),
+      })
+      .strict(),
+  ),
+  'crm.list_mail_threads': Page(
+    z
+      .object({
+        threadId: Identifier,
+        organizationId: Identifier,
+        venueId: Identifier.nullable(),
+        contactId: Identifier.nullable(),
+        subject: UntrustedText.nullable(),
+        messageCount: z.number().int().nonnegative(),
+        lastMessageAt: IsoDateTime.nullable(),
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'crm.list_mail_messages': Page(
+    z
+      .object({
+        messageId: Identifier,
+        direction: z.enum(['INBOUND', 'OUTBOUND']),
+        status: z.string().max(40),
+        participantCount: z.number().int().nonnegative(),
+        subject: UntrustedText,
+        body: UntrustedText.nullable(),
+        bodyRetentionState: z.string().max(40),
+        occurredAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'crm.list_activity_receipts': Page(
+    z
+      .object({
+        activityId: Identifier,
+        organizationId: Identifier,
+        activityType: z.string().max(40),
+        externalReceiptKey: UntrustedText,
+        occurredAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'crm.list_mail_receipts': Page(
+    z
+      .object({
+        receiptId: Identifier,
+        messageId: Identifier,
+        providerEventId: UntrustedText,
+        eventType: UntrustedText,
+        occurredAt: IsoDateTime,
+      })
+      .strict(),
+  ),
   'crm.get_campaign': OperatorCampaignDetail,
   'crm.list_drafts': Page(OperatorDraftView),
   'crm.get_outreach_batch': OperatorSendBatchView,
@@ -1804,6 +1897,41 @@ const seeds: readonly Seed[] = [
     'List support messages',
     `Page through a request's messages newest first, internal notes included (they are marked).${READ}`,
     'support:read',
+    'tenant',
+  ],
+  [
+    'crm.list_mailboxes',
+    'List mailboxes',
+    `List provider mailboxes linked to this tenant's canonical mail threads, with connection and health metadata.${READ}`,
+    'crm:read',
+    'tenant',
+  ],
+  [
+    'crm.list_mail_threads',
+    'List mail threads',
+    `Page through canonical mail threads linked to this tenant. Subjects are marked as untrusted data.${READ}`,
+    'crm:read',
+    'tenant',
+  ],
+  [
+    'crm.list_mail_messages',
+    'List mail messages',
+    `Page through the messages in a tenant-linked thread. Retained text is marked as untrusted data and addresses in message text are withheld.${READ}`,
+    'crm:read',
+    'tenant',
+  ],
+  [
+    'crm.list_mail_receipts',
+    'List mail receipts',
+    `Page through provider events attached to canonical messages linked to this tenant; raw provider payloads are not exposed.${READ}`,
+    'crm:read',
+    'tenant',
+  ],
+  [
+    'crm.list_activity_receipts',
+    'List linked activity receipts',
+    `Page through provider receipt keys recorded on canonical CRM activities linked to this tenant.${READ}`,
+    'crm:read',
     'tenant',
   ],
   [
