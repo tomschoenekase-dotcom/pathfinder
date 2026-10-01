@@ -157,6 +157,10 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'customers.list',
   'crm.list_campaigns',
   'crm.list_campaign_members',
+  'crm.resolve_account',
+  'crm.get_account_context',
+  'crm.list_contacts',
+  'crm.list_notes',
 ] as const
 
 /**
@@ -295,7 +299,37 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
-  'crm.get_contact_history': readInput({ organizationId: Identifier }),
+  'crm.get_contact_history': readInput({
+    organizationId: Identifier,
+    cursor: Cursor.optional(),
+    limit: z.number().int().min(1).max(200).default(50),
+  }),
+  'crm.resolve_account': readInput({
+    name: z.string().trim().min(1).max(200).optional(),
+    domain: z.string().trim().min(1).max(253).optional(),
+    email: Email.optional(),
+    city: z.string().trim().min(1).max(120).optional(),
+    region: z.string().trim().min(1).max(120).optional(),
+    includeArchived: z.boolean().optional(),
+    limit: PageLimit,
+  }).refine(
+    (value) => value.name !== undefined || value.domain !== undefined || value.email !== undefined,
+    {
+      message: 'Provide at least one of name, domain or email',
+    },
+  ),
+  'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.list_contacts': readInput({
+    organizationId: Identifier,
+    includeArchived: z.boolean().optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.list_notes': readInput({
+    organizationId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'crm.check_can_contact': readInput({ email: Email }),
   'venues.list': readInput({ ...tenantScope, cursor: Cursor.optional() }),
   'venues.get_readiness': readInput({ ...venueScope }),
@@ -462,6 +496,169 @@ const OperatorOrganization = z
   })
   .strict()
 
+/** A contact as the operator reads it for maintenance: the safe view plus its edit token. */
+const OperatorContactDetail = OperatorContact.extend({
+  venueId: Identifier.nullable(),
+  archived: z.boolean(),
+  /** Pass as `expectedUpdatedAt` when proposing a change to this contact. */
+  updatedAt: IsoDateTime,
+  /** The same address is blocked on another contact row somewhere in the CRM. */
+  addressBlockedElsewhere: z.boolean(),
+  notes: UntrustedText.nullable(),
+}).strict()
+
+const OperatorAccountCandidate = z
+  .object({
+    organizationId: Identifier,
+    name: z.string().max(200),
+    matchedOn: z
+      .array(z.enum(['name', 'alias', 'domain', 'email', 'venue_name', 'venue_domain']))
+      .max(6),
+    strength: z.enum(['exact', 'contains', 'partial']),
+    matchedAlias: z.string().max(200).nullable(),
+    archived: z.boolean(),
+    type: z.string().max(80).nullable(),
+    city: z.string().max(120).nullable(),
+    region: z.string().max(120).nullable(),
+    stage: ProspectStageValue.nullable(),
+    contacted: z.boolean(),
+    /** Present when the prospect already became a customer. The tenantId is null outside the grant. */
+    customer: z
+      .object({
+        tenantId: Identifier.nullable(),
+        venueId: Identifier.nullable(),
+        convertedAt: IsoDateTime,
+      })
+      .strict()
+      .nullable(),
+    duplicateReview: z.enum(['OPEN', 'CONFIRMED_DUPLICATE']).nullable(),
+    venues: z
+      .array(
+        z
+          .object({
+            venueId: Identifier,
+            name: z.string().max(200),
+            city: z.string().max(120).nullable(),
+            region: z.string().max(120).nullable(),
+          })
+          .strict(),
+      )
+      .max(3),
+  })
+  .strict()
+
+const OperatorAccountContext = z
+  .object({
+    organization: z
+      .object({
+        organizationId: Identifier,
+        name: z.string().max(200),
+        aliases: z.array(z.string().max(200)).max(25),
+        website: z.string().max(500).nullable(),
+        domain: z.string().max(253).nullable(),
+        type: z.string().max(80).nullable(),
+        city: z.string().max(120).nullable(),
+        region: z.string().max(120).nullable(),
+        relationshipTier: z.string().max(40),
+        archived: z.boolean(),
+        /** The version `crm.propose_stage_change` and the other account writes expect. */
+        version: z.number().int().nonnegative(),
+        note: UntrustedText.nullable(),
+      })
+      .strict(),
+    opportunity: z
+      .object({
+        stage: ProspectStageValue.nullable(),
+        priority: z.string().max(20).nullable(),
+        ownerId: z.string().max(191).nullable(),
+        nextAction: UntrustedText.nullable(),
+        nextActionAt: IsoDateTime.nullable(),
+        lastActivityAt: IsoDateTime.nullable(),
+      })
+      .strict(),
+    customer: z
+      .object({
+        tenantId: Identifier.nullable(),
+        venueId: Identifier.nullable(),
+        convertedAt: IsoDateTime,
+      })
+      .strict()
+      .nullable(),
+    venues: z
+      .array(
+        z
+          .object({
+            venueId: Identifier,
+            name: z.string().max(200),
+            type: z.string().max(80).nullable(),
+            city: z.string().max(120).nullable(),
+            region: z.string().max(120).nullable(),
+            country: z.string().max(80).nullable(),
+            estimatedSize: z.string().max(10).nullable(),
+            archived: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(25),
+    venueCount: z.number().int().nonnegative(),
+    contacts: z
+      .object({
+        total: z.number().int().nonnegative(),
+        contactable: z.number().int().nonnegative(),
+        suppressed: z.number().int().nonnegative(),
+        archived: z.number().int().nonnegative(),
+      })
+      .strict(),
+    campaigns: z
+      .array(
+        z
+          .object({
+            campaignId: Identifier,
+            campaignMemberId: Identifier,
+            name: z.string().max(191),
+            campaignStatus: z.string().max(20),
+            memberStatus: z.string().max(20),
+          })
+          .strict(),
+      )
+      .max(10),
+    campaignCount: z.number().int().nonnegative(),
+    duplicates: z
+      .array(
+        z
+          .object({
+            organizationId: Identifier,
+            name: z.string().max(200),
+            status: z.string().max(30),
+            confidence: z.number(),
+          })
+          .strict(),
+      )
+      .max(10),
+    history: z
+      .object({
+        activityCount: z.number().int().nonnegative(),
+        noteCount: z.number().int().nonnegative(),
+        inboundMessages: z.number().int().nonnegative(),
+        outboundMessages: z.number().int().nonnegative(),
+        threads: z.number().int().nonnegative(),
+        lastOutboundAt: IsoDateTime.nullable(),
+        lastInboundAt: IsoDateTime.nullable(),
+      })
+      .strict(),
+    /** Which lists above were cut to fit; page the dedicated tools for the rest. */
+    truncated: z
+      .object({
+        venues: z.boolean(),
+        campaigns: z.boolean(),
+        duplicates: z.boolean(),
+      })
+      .strict(),
+    /** When the underlying records last changed, so freshness is never guessed. */
+    observedAt: IsoDateTime,
+  })
+  .strict()
+
 /**
  * What is known about whether the change reached the system, derived from recorded state:
  * `none` is proven no effect, `applied` is a recorded success, `partial` means some plan steps
@@ -536,8 +733,32 @@ export const OPERATOR_MCP_OUTPUTS = {
             .strict(),
         )
         .max(200),
+      /** Pass back to read the next (older) events. Ties on the same instant are never skipped. */
+      nextCursor: z.string().max(500).nullable(),
+      complete: z.boolean(),
     })
     .strict(),
+  'crm.resolve_account': z
+    .object({
+      /** `unique`: one exact match. `ambiguous`: ask the user. `none`: nothing matched. */
+      resolution: z.enum(['unique', 'ambiguous', 'none']),
+      candidates: z.array(OperatorAccountCandidate).max(25),
+      /** False when more candidates exist than were returned. */
+      complete: z.boolean(),
+      nextAction: z.string().max(300),
+    })
+    .strict(),
+  'crm.get_account_context': OperatorAccountContext,
+  'crm.list_contacts': Page(OperatorContactDetail),
+  'crm.list_notes': Page(
+    z
+      .object({
+        noteId: Identifier,
+        occurredAt: IsoDateTime,
+        text: UntrustedText,
+      })
+      .strict(),
+  ),
   'crm.check_can_contact': z
     .object({
       allowed: z.boolean(),
@@ -1003,6 +1224,34 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
 
+  [
+    'crm.resolve_account',
+    'Resolve account',
+    `Find the CRM organization for a name, alias, domain or email, with location filters. A name match is a candidate, not proof: when more than one is exact the result is ambiguous and you must ask which one. Reports an existing customer link.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.get_account_context',
+    'Get account context',
+    `Read one account in a single call: aliases, venues, opportunity (owner, next action, due date), customer link, contact counts, campaign memberships, duplicates and history counts, plus the version writes expect.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_contacts',
+    'List contacts',
+    `Page through every contact of one account (addresses only for contactable people), with the updatedAt needed to propose an edit.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_notes',
+    'List notes',
+    `Page through every recorded note for one account, newest first.${READ}`,
+    'crm:read',
+    'platform',
+  ],
   [
     'operator.cancel_operation',
     'Cancel operation',

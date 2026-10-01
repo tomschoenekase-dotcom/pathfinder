@@ -1,6 +1,7 @@
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
 import { crmReadTools } from './crm'
+import { crmAccountReadTools } from './crm-accounts'
 import { discoveryReadTools } from './discovery'
 import { manualReadTools } from './manual'
 import { operationReadTools } from './operations'
@@ -10,6 +11,7 @@ import { venueReadTools } from './venues'
 /** Every read tool the operator adds beside the built-in proposal, autonomy and appearance reads. */
 export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...crmReadTools,
+  ...crmAccountReadTools,
   ...venueReadTools,
   ...supportReadTools,
   ...manualReadTools,
