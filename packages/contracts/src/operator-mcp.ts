@@ -140,6 +140,9 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'crm.propose_batch_stage',
   'crm.propose_batch_approve',
   'crm.propose_batch_release',
+  // Both speak to the customer in their portal, so a person decides each time.
+  'support.propose_information_request',
+  'support.propose_completion',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -174,6 +177,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
+  'support.get_request',
+  'support.list_messages',
 ] as const
 
 /**
@@ -200,6 +205,9 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_batch_stage',
   'crm.propose_batch_approve',
   'crm.propose_batch_release',
+  'support.propose_internal_note',
+  'support.propose_information_request',
+  'support.propose_completion',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -344,6 +352,13 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'support.get_request': readInput({ ...tenantScope, requestId: Identifier }),
+  'support.list_messages': readInput({
+    ...tenantScope,
+    requestId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'crm.get_campaign': readInput({ campaignId: Identifier }),
   'crm.list_drafts': readInput({
     campaignId: Identifier.optional(),
@@ -586,6 +601,41 @@ export const OPERATOR_MCP_INPUTS = {
   }).refine((value) => value.organizationId !== value.otherOrganizationId, {
     message: 'A duplicate pair needs two different accounts',
   }),
+  'support.propose_internal_note': writeInput({
+    ...venueScope,
+    requestId: Identifier,
+    /** The request's `version` from support.get_request. */
+    expectedVersion: z.number().int().positive(),
+    body: z.string().trim().min(1).max(20_000),
+  }),
+  'support.propose_information_request': writeInput({
+    ...venueScope,
+    requestId: Identifier,
+    expectedVersion: z.number().int().positive(),
+    /** What the customer reads in their portal. This is a portal message, never an email. */
+    body: z.string().trim().min(1).max(20_000),
+    /** The exact facts needed, as a checklist the customer sees. */
+    missingInformation: z
+      .array(z.string().trim().min(1).max(500))
+      .min(1)
+      .max(30)
+      .refine((items) => new Set(items).size === items.length, { message: 'Items must be unique' }),
+  }),
+  'support.propose_completion': writeInput({
+    ...venueScope,
+    requestId: Identifier,
+    expectedVersion: z.number().int().positive(),
+    /** The closing message the customer reads in their portal. */
+    body: z.string().trim().min(1).max(20_000),
+    /** Evidence a content fix actually landed; both together or neither. The canonical check decides. */
+    expectedCompletionOutcome: z.string().trim().min(1).max(24).optional(),
+    expectedFulfillmentDigest: Sha256Hex.optional(),
+  }).refine(
+    (value) =>
+      (value.expectedCompletionOutcome === undefined) ===
+      (value.expectedFulfillmentDigest === undefined),
+    { message: 'Provide the completion outcome and the fulfillment digest together' },
+  ),
   'crm.propose_account_archive': writeInput({
     organizationId: Identifier,
     expectedVersion: z.number().int().positive(),
@@ -675,6 +725,50 @@ const OperatorContactDetail = OperatorContact.extend({
   addressBlockedElsewhere: z.boolean(),
   notes: UntrustedText.nullable(),
 }).strict()
+
+const OperatorSupportDetail = z
+  .object({
+    requestId: Identifier,
+    tenantId: Identifier,
+    venueId: Identifier,
+    category: z.string().max(40),
+    status: SupportRequestStatus,
+    subject: UntrustedText,
+    /** The checklist the customer was last asked for. */
+    missingInformation: z.array(UntrustedText).max(30),
+    /** The version writes expect (`expectedVersion`). Any change since makes a proposal stale. */
+    version: z.number().int().positive(),
+    clientVersion: z.number().int().positive(),
+    createdAt: IsoDateTime,
+    updatedAt: IsoDateTime,
+    statusChangedAt: IsoDateTime,
+    clientActivityAt: IsoDateTime,
+    createdByKind: z.string().max(20),
+    messages: z
+      .object({
+        total: z.number().int().nonnegative(),
+        internalNotes: z.number().int().nonnegative(),
+        clientVisible: z.number().int().nonnegative(),
+      })
+      .strict(),
+    /** The newest message, so a stale reply can be spotted without paging the whole thread. */
+    latestMessage: z
+      .object({
+        authorKind: z.string().max(20),
+        visibility: z.enum(['CLIENT_VISIBLE', 'INTERNAL_ONLY']),
+        createdAt: IsoDateTime,
+      })
+      .strict()
+      .nullable(),
+    linked: z
+      .object({
+        packageHandoffs: z.number().int().nonnegative(),
+        previewFeedback: z.number().int().nonnegative(),
+        knowledgeProposals: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict()
 
 const OperatorDraftView = z
   .object({
@@ -1271,6 +1365,21 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'support.get_request': OperatorSupportDetail,
+  'support.list_messages': Page(
+    z
+      .object({
+        messageId: Identifier,
+        authorKind: z.string().max(20),
+        /** Internal notes are visible to operators only; customer-visible text is what the customer reads. */
+        visibility: z.enum(['CLIENT_VISIBLE', 'INTERNAL_ONLY']),
+        createdAt: IsoDateTime,
+        requestVersion: z.number().int().nullable(),
+        completionOutcome: z.string().max(24).nullable(),
+        body: UntrustedText,
+      })
+      .strict(),
+  ),
   'crm.get_campaign': OperatorCampaignDetail,
   'crm.list_drafts': Page(OperatorDraftView),
   'crm.get_outreach_batch': OperatorSendBatchView,
@@ -1281,6 +1390,9 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_contact_archive': OperatorWriteResult,
   'crm.propose_followup_update': OperatorWriteResult,
   'crm.propose_note': OperatorWriteResult,
+  'support.propose_internal_note': OperatorWriteResult,
+  'support.propose_information_request': OperatorWriteResult,
+  'support.propose_completion': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
   'crm.propose_campaign_create': OperatorWriteResult,
@@ -1602,6 +1714,20 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   [
+    'support.get_request',
+    'Get support request',
+    `Read one support request: status, the version writes expect, message counts, the newest message and linked work.${READ}`,
+    'support:read',
+    'tenant',
+  ],
+  [
+    'support.list_messages',
+    'List support messages',
+    `Page through a request's messages newest first, internal notes included (they are marked).${READ}`,
+    'support:read',
+    'tenant',
+  ],
+  [
     'crm.get_campaign',
     'Get campaign',
     `Read one campaign: status, member and draft counts by state, its send batches, and the standing release limits.${READ}`,
@@ -1739,6 +1865,30 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.duplicate-resolution',
+  ],
+  [
+    'support.propose_internal_note',
+    'Propose internal note',
+    `Propose an internal-only note on a support request. The customer never sees it.${PROPOSE}`,
+    'support:propose',
+    'venue',
+    'support.internal-note',
+  ],
+  [
+    'support.propose_information_request',
+    'Propose information request',
+    `Propose asking the customer for specific missing facts, shown in their portal as a checklist. Portal only: it sends no email. Always needs a human.${PROPOSE}`,
+    'support:propose',
+    'venue',
+    'support.information-request',
+  ],
+  [
+    'support.propose_completion',
+    'Propose completion',
+    `Propose closing a support request with a message the customer reads in their portal. The canonical check refuses a content fix that has no landed evidence. Always needs a human.${PROPOSE}`,
+    'support:propose',
+    'venue',
+    'support.completion',
   ],
   [
     'crm.propose_account_archive',

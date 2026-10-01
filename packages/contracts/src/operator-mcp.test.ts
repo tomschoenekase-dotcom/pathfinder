@@ -45,6 +45,8 @@ const EXPECTED_TOOLS = [
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
+  'support.get_request',
+  'support.list_messages',
   'operator.cancel_operation',
   'operator.recover_operation',
   'crm.propose_campaign_membership',
@@ -60,6 +62,9 @@ const EXPECTED_TOOLS = [
   'crm.propose_batch_stage',
   'crm.propose_batch_approve',
   'crm.propose_batch_release',
+  'support.propose_internal_note',
+  'support.propose_information_request',
+  'support.propose_completion',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -242,6 +247,8 @@ describe('operator MCP catalog', () => {
       'crm.propose_batch_stage',
       'crm.propose_batch_approve',
       'crm.propose_batch_release',
+      'support.propose_information_request',
+      'support.propose_completion',
     ])
   })
 

@@ -22,6 +22,9 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'crm.batch-stage',
   'crm.batch-approve',
   'crm.batch-release',
+  // Both speak to the customer in their portal.
+  'support.information-request',
+  'support.completion',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

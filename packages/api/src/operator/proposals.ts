@@ -539,7 +539,12 @@ function isAtomicRefusal(error: unknown) {
   if (!(error instanceof Error)) return false
   const code = (error as Error & { code?: unknown }).code
   return (
-    ['ProspectActionError', 'VenueActionError', 'ProspectOutreachError'].includes(error.name) &&
+    [
+      'ProspectActionError',
+      'VenueActionError',
+      'ProspectOutreachError',
+      'SupportActionError',
+    ].includes(error.name) &&
     [
       'NOT_FOUND',
       'INVALID_INPUT',
@@ -558,7 +563,8 @@ function isStale(error: unknown) {
     error instanceof Error &&
     (error.name === 'VenueActionError' ||
       error.name === 'ProspectActionError' ||
-      error.name === 'ProspectOutreachError') &&
+      error.name === 'ProspectOutreachError' ||
+      error.name === 'SupportActionError') &&
     (error as Error & { code?: unknown }).code === 'CONFLICT'
   )
 }
