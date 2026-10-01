@@ -30,9 +30,17 @@ candidate is not automatically the final promotion source: the final docs-bearin
 CI and exact three-service staging admission before promotion, and those checks must pass on the same
 SHA that enters `master`. The approved exception does not make an unverified release deployable.
 
+The separately [approved October 1 exception](production-cutover-20261001.md) covers PR #38's
+operator CRM/business tools and only migration 255, from the verified 254/277 predecessor to the
+255/280 endpoint. Its final docs-bearing SHA must pass full exact-head CI and exact three-service
+staging admission before production promotion. It preserves existing production operator OAuth
+configuration and admits no new feature-flag activation. The earlier exceptions remain unchanged.
+
 The current staging database may contain restored production lineage, so the historical
-synthetic-only exception does not by itself admit a preserved-data migration. Use the guarded
-release-specific record for the approved 252-to-254 cutover and retain the incident's ACTIVE default.
+synthetic-only exception does not by itself admit a preserved-data migration. Use the current guarded
+release-specific record and retain the incident's ACTIVE default. Preserve each environment's
+observed autodeploy state when reopening: the October 1 baseline has staging disabled and production
+enabled on all three application services.
 
 A preserved-data migration uses a controlled exception to step 5. Pause all three application
 autodeploy triggers without deploying, freeze the final owner SHA, require its CI success, and

@@ -14,6 +14,10 @@ const historicalMarker = 'Migration instruction status: HISTORICAL — DO NOT EX
 const inertArchiveMarker = '## Post-resolution external exercise archive — INERT, DO NOT EXECUTE'
 const restrictedProductionMarker =
   'Migration instruction status: RESTRICTED PRODUCTION EXCEPTION — LIVE GATES REQUIRED.'
+const restrictedProductionRecords = new Set([
+  'production-cutover-20260930.md',
+  'production-cutover-20261001.md',
+])
 
 const unsafeInstructionPatterns = [
   ['production migration script', /\bdb:migrate:prod\b/i],
@@ -117,6 +121,7 @@ test('every retained historical database instruction is prominently deactivated'
   )
   // The release-specific guarded record is new and may not be tracked until review is complete.
   markdownPaths.add('production-cutover-20260930.md')
+  markdownPaths.add('production-cutover-20261001.md')
   const unguarded = []
 
   for (const path of markdownPaths) {
@@ -124,9 +129,9 @@ test('every retained historical database instruction is prominently deactivated'
     const findings = findUnsafeInstructions(source)
     if (hasLeadingMarker(source, restrictedProductionMarker)) {
       assert.equal(
-        path,
-        'production-cutover-20260930.md',
-        'only the approved release record may use this marker',
+        restrictedProductionRecords.has(path),
+        true,
+        'only a named release-specific record may use this marker',
       )
     }
     if (findings.length === 0) continue
@@ -232,6 +237,7 @@ test('September 30 approval is exact-scope, guarded, and preserves the ACTIVE in
       .map((entry) => entry.slice('docs/'.length)),
   )
   paths.add('production-cutover-20260930.md')
+  paths.add('production-cutover-20261001.md')
   const productionMentionFiles = []
   const canonicalInvocationFiles = []
   for (const path of paths) {
@@ -243,10 +249,56 @@ test('September 30 approval is exact-scope, guarded, and preserves the ACTIVE in
   assert.deepEqual(canonicalInvocationFiles, ['production-cutover-20260930.md'])
   for (const [path, source] of productionMentionFiles) {
     if (path === 'production-cutover-20260930.md') continue
+    if (path === 'production-cutover-20261001.md') {
+      assert.equal(hasLeadingMarker(source, restrictedProductionMarker), true)
+      continue
+    }
     assert.equal(
       hasLeadingMarker(source, historicalMarker),
       true,
       `${path} has a historical command reference`,
     )
   }
+})
+
+test('October 1 operator exception admits only migration 255 with fresh preservation gates', async () => {
+  const approval = await readFile(new URL('production-cutover-20261001.md', docsRoot), 'utf8')
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  for (const text of [approval, stop]) {
+    assert.match(text, /39557745827a2e86a3a76c1f389e05f65d78900c/)
+    assert.match(text, /20261001100000_crm_receipt_and_execution_foundations/)
+    assert.match(text, /7bd81064-588f-48a5-b138-1fc86691a09b/)
+    assert.match(text, /zpacmfkomonxeqdiadtz/)
+    assert.match(text, /incident (?:state )?remains ACTIVE by default/)
+    assert.match(text, /fresh[\s\S]*post-drain[\s\S]*backup[\s\S]*rehearsal/)
+    assert.match(text, /The whole goal is to just get it into production/)
+    assert.match(text, /No seed, reset, restore over production/)
+  }
+  assert.match(approval, /254 finished migrations, 277 public tables/)
+  assert.match(approval, /255 finished migrations, 280 public tables/)
+  assert.match(approval, /rolled-back duplicate/)
+  assert.match(approval, /weekly-digest historical[\s\S]*canonical schema fingerprint/)
+  assert.match(approval, /original-column hashes and counts/)
+  assert.match(approval, /policy-state row[\s\S]*empty admission-counter and arming tables/)
+  assert.match(
+    approval,
+    /final docs-bearing SHA must pass full[\s\S]*exact three-service staging admission/,
+  )
+  assert.match(approval, /OPERATOR_OAUTH_ENABLED=false[\s\S]*OPERATOR_OAUTH_ENABLED=true/)
+  assert.match(approval, /does not create a credential[\s\S]*enable a previously off flag/)
+  assert.match(
+    approval,
+    /public-schema[\s\S]*does not claim a complete provider-platform restoration/,
+  )
+  assert.doesNotMatch(approval, /pnpm --filter @pathfinder\/db db:migrate:prod/)
+  assert.deepEqual(findUnsafeInstructions(approval), [
+    'production migration script',
+    'non-disposable migration command',
+  ])
+  assert.match(workflow, /production-cutover-20261001\.md/)
+  assert.match(workflow, /staging disabled and production[\s\S]*enabled/)
+  assert.match(stop, /Production incident state: ACTIVE/)
+  assert.doesNotMatch(stop, /Production incident state: RESOLVED/)
 })

@@ -165,3 +165,33 @@ Lossless merge (design first), real-device keyboard proof (`torchiko-keyboard-de
 - No merge, deployment, live migration, setting/flag change, external communication, or financial action.
 - This journal-only commit creates a new head and triggers CI again; the results above apply only to the checked SHA.
   No green-check claim is made for the journal commit. Next: review that head's checks before any separately authorized release.
+
+## 2026-10-01 — verified release candidate and scoped publication authority
+
+- Verified head: `39557745827a2e86a3a76c1f389e05f65d78900c`; PR #38 is ready for review, open and unmerged.
+- [Run 36910581005, attempt 2](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36910581005):
+  PASS [ci](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36910581005/job/110576985850),
+  PASS [visitor-launch](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36910581005/job/110576987166),
+  PASS [railway-iac](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36910581005/job/110576987753).
+  Independently verified exact-head check readback and the PR's three green checks. Attempt 1 timed out;
+  attempt 2 completed. No workflow, timeout, application source or migration fix was needed.
+- PASS serial disposable operator DB tests: 26 files, 268 tests. PASS full workspace test graph with
+  package/file execution serialized; PASS scripts: 573 passed, one skipped, zero failures.
+- PASS all 27 candidate verification gates from the clean exact head: build, client bundle secrets,
+  visual browser (185 passed, 37 skipped), visitor launch browser (174 passed, 18 skipped), browser
+  foundation and local axe accessibility. These browser results are local emulation, not physical-device proof.
+- Candidate report: `artifacts/release-verification/39557745827a2e86a3a76c1f389e05f65d78900c-candidate-session-recovered.json`.
+  The desktop session interrupted the earlier run during build after its full test gate had passed.
+  Recovery reused only that completed exact-source test proof, bound to its preserved log SHA-256
+  `10962ccd716b9effee2e014ae9fa6904061d5c3fca048d65c6a94441f34070db`;
+  every other gate actually executed again. The companion execution report records this reuse.
+- Tom explicitly requested production publication. Added the scoped October 1 release record and its
+  documentation guard; retained the ACTIVE incident default and protected September 30 record unchanged.
+- Read-only ledger checks found both environments at 254 finished migrations / 277 public tables.
+  Existing production operator OAuth is enabled; staging OAuth is off. New campaign/customer switches
+  remain unset/default off. No secret values were read or copied.
+- Staging and production remain at application baseline `06e5745473762a18db07c5d30d0f6677c62c6103`.
+  No hosted migration, deployment, provider setting or feature-flag mutation has occurred during preparation.
+- This documentation/safety commit creates a new head. The results above bind only the stated head;
+  next require the new head's CI and candidate/handoff proof, then staged backup/rehearsal and admission
+  before production promotion under `docs/production-cutover-20261001.md`.
