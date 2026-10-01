@@ -9,6 +9,7 @@ import type {
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
+import { admitAutoApply } from './admission'
 import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
@@ -300,7 +301,12 @@ export async function createProposal(
     return replayView(raced, argsHash, service.config)
   }
   await auditTransition(database, service.requestId, row, 'CREATED', null)
-  if ((await resolveAutonomy(kind, database)) === 'auto') {
+  // Automatic application spends a per-connection hourly budget. When it is spent the proposal
+  // stays PENDING for a human; it never fails and never bypasses the limit.
+  if (
+    (await resolveAutonomy(kind, database)) === 'auto' &&
+    (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+  ) {
     await approveAndApplyProposal(
       {
         proposalId: row.id,

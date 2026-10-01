@@ -11,6 +11,7 @@ import {
   readPolicyRevision,
   setAutonomyPolicies,
 } from './autonomy'
+import { admit, OPERATOR_AUTO_APPLIES_PER_HOUR } from './admission'
 import { resolveOperatorConfig } from './config'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
 import type { VerifiedOperatorGrant } from './oauth'
@@ -239,6 +240,53 @@ describe.skipIf(!enabled)(
       const applied = await approve(view)
       expect(applied).toMatchObject({ status: 'FAILED', failureCode: 'GRANT_REVOKED' })
       expect(await db.venue.count({ where: { tenantId, slug } })).toBe(0)
+    })
+
+    it('admits a concurrent burst exactly up to the limit and records one denial per window', async () => {
+      const key = `test:${suffix}`
+      const now = new Date('2026-09-30T12:00:20.000Z')
+      const results = await Promise.all(
+        Array.from({ length: 40 }, () => admit(db, key, 10, 60_000, now)),
+      )
+      expect(results.filter((result) => result.allowed)).toHaveLength(10)
+      // Exactly one request sees itself as the first denial, however many were turned away.
+      expect(results.filter((result) => result.firstDenial)).toHaveLength(1)
+      expect(Math.max(...results.map((result) => result.count))).toBe(40)
+      // Retries after denial do not move the window: it still ends at the same instant.
+      expect(results.every((result) => result.retryAfterSeconds === 40)).toBe(true)
+      // The next window starts clean.
+      const later = await admit(db, key, 10, 60_000, new Date('2026-09-30T12:01:05.000Z'))
+      expect(later).toMatchObject({ allowed: true, count: 1 })
+    })
+
+    it('when the automatic-apply budget is spent, work waits for a human instead of applying', async () => {
+      await change([{ capability: 'venues:propose', mode: 'auto' }])
+      const slug = `budget-${suffix}`
+      try {
+        const spent = new Date()
+        const windowStart = new Date(Math.floor(spent.getTime() / 3_600_000) * 3_600_000)
+        await db.operatorAdmissionCounter.upsert({
+          where: { key_windowStart: { key: `auto:${grant.grantId}`, windowStart } },
+          create: {
+            key: `auto:${grant.grantId}`,
+            windowStart,
+            count: OPERATOR_AUTO_APPLIES_PER_HOUR,
+          },
+          update: { count: OPERATOR_AUTO_APPLIES_PER_HOUR },
+        })
+        const view = await propose('venues.propose_create', {
+          tenantId,
+          name: 'Example Budget',
+          slug,
+        })
+        // Policy says auto, but the budget is gone: it is left for a human, and nothing changed.
+        expect(view.status).toBe('PENDING')
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(0)
+        // A human can still approve it.
+        expect((await approve(view)).status).toBe('APPLIED')
+      } finally {
+        await change([{ capability: 'venues:propose', mode: 'ask' }])
+      }
     })
 
     it('reports who initiated and who authorized, separately', async () => {

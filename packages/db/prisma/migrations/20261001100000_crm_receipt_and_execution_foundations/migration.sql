@@ -69,4 +69,15 @@ ALTER TABLE "operator_proposals"
   ADD COLUMN "preview_digest" CHAR(64),
   ADD COLUMN "policy_revision" INTEGER;
 
+-- Admission control: one atomic counter per (key, fixed window). A call is admitted by the same
+-- statement that counts it, so concurrent callers cannot all pass a check-then-execute gap and a
+-- denied retry only increments a number instead of writing another audit row.
+CREATE TABLE "operator_admission_counters" (
+  "key" VARCHAR(191) NOT NULL,
+  "window_start" TIMESTAMP(3) NOT NULL,
+  "count" INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT "operator_admission_counters_pkey" PRIMARY KEY ("key", "window_start")
+);
+CREATE INDEX "operator_admission_counters_window_idx" ON "operator_admission_counters"("window_start");
+
 COMMIT;

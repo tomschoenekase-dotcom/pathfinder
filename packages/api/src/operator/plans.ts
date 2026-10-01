@@ -2,6 +2,7 @@ import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
+import { admitAutoApply } from './admission'
 import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
@@ -201,7 +202,11 @@ export async function createPlan(
     return created
   })
   const modes = await Promise.all(prepared.map((step) => resolveAutonomy(step.kind, database)))
-  if (modes.every((mode) => mode === 'auto')) {
+  // A plan spends one unit of the automatic-apply budget; with none left it waits for a human.
+  const planBudget =
+    modes.every((mode) => mode === 'auto') &&
+    (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+  if (planBudget) {
     await approveAndApplyPlan(
       {
         planId: plan.id,

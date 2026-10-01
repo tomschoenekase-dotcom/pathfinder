@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getOperatorToolDefinition } from '@pathfinder/contracts/operator-mcp'
 import { db } from '@pathfinder/db'
 
+import { admitCall } from './admission'
 import { writeOperatorAudit, writeOperatorAuditBestEffort, type OperatorDatabase } from './audit'
 import {
   protectedResourceMetadataUrl,
@@ -31,7 +32,6 @@ import { argsHash } from './tokens'
 import { OperatorInvalidCursorError } from './tools/page'
 
 const MAX_BODY_BYTES = 128 * 1024
-const CALLS_PER_MINUTE_PER_GRANT = 120
 const PROTOCOL_VERSIONS = new Set(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'])
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18'
 
@@ -443,22 +443,25 @@ async function callTool(
     args,
     ...targetOf(args),
   }
-  const recent = await context.database.operatorAuditEvent.count({
-    where: {
-      grantId: grant.grantId,
-      eventType: { in: ['mcp.call', 'mcp.denied'] },
-      occurredAt: { gt: new Date(context.now.getTime() - 60_000) },
-    },
-  })
-  if (recent >= CALLS_PER_MINUTE_PER_GRANT) {
-    await writeOperatorAuditBestEffort(
-      { ...base, eventType: 'mcp.denied', outcome: 'RATE_LIMITED' },
-      context.database,
-    )
+  // Counted by the statement that admits the call, so a burst cannot all pass a read-then-act gap.
+  const admission = await admitCall(context.database, grant.grantId, context.now)
+  if (!admission.allowed) {
+    // One denial row per window; further retries only raise the counter.
+    if (admission.firstDenial) {
+      await writeOperatorAuditBestEffort(
+        { ...base, eventType: 'mcp.denied', outcome: 'RATE_LIMITED' },
+        context.database,
+      )
+    }
     return {
       jsonrpc: '2.0' as const,
       id,
-      result: toolResult(errorBody('RATE_LIMITED', name, context.requestId), true),
+      result: toolResult(
+        errorBody('RATE_LIMITED', name, context.requestId, {
+          retryAfterSeconds: admission.retryAfterSeconds,
+        }),
+        true,
+      ),
     }
   }
   try {

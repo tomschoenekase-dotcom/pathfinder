@@ -10056,6 +10056,17 @@ model OperatorPolicyState {
   @@map("operator_policy_state")
 }
 
+/// Fixed-window admission counters. Incremented by the statement that decides admission.
+model OperatorAdmissionCounter {
+  key         String   @db.VarChar(191)
+  windowStart DateTime @map("window_start")
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart], map: "operator_admission_counters_window_idx")
+  @@map("operator_admission_counters")
+}
+
 model OperatorAuditEvent {
   id             String   @id @default(cuid())
   occurredAt     DateTime @default(now()) @map("occurred_at")
