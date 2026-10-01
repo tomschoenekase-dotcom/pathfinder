@@ -80,4 +80,19 @@ CREATE TABLE "operator_admission_counters" (
 );
 CREATE INDEX "operator_admission_counters_window_idx" ON "operator_admission_counters"("window_start");
 
+-- Connection arming: a one-use, expiring record the consent step claims in the same transaction
+-- that creates the grant, replacing a check-then-act over the audit trail. Only a digest-free,
+-- non-secret record: it names the person who armed, never a token.
+CREATE TABLE "operator_armings" (
+  "id" TEXT NOT NULL,
+  "user_id" VARCHAR(191) NOT NULL,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "expires_at" TIMESTAMP(3) NOT NULL,
+  "consumed_at" TIMESTAMP(3),
+  "consumed_client_id" VARCHAR(64),
+  "consumed_grant_id" TEXT,
+  CONSTRAINT "operator_armings_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "operator_armings_user_created_idx" ON "operator_armings"("user_id", "created_at");
+
 COMMIT;

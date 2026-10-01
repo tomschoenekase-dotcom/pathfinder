@@ -277,6 +277,7 @@ export const PLATFORM_TABLES = [
   'OperatorAutonomyPolicy',
   'OperatorPolicyState',
   'OperatorAdmissionCounter',
+  'OperatorArming',
   'OperatorAuditEvent',
 ] as const
 

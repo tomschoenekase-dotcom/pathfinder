@@ -10056,6 +10056,20 @@ model OperatorPolicyState {
   @@map("operator_policy_state")
 }
 
+/// One arming of the connection step: one use, expires, claimed atomically with the grant it creates.
+model OperatorArming {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id") @db.VarChar(191)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  expiresAt        DateTime  @map("expires_at")
+  consumedAt       DateTime? @map("consumed_at")
+  consumedClientId String?   @map("consumed_client_id") @db.VarChar(64)
+  consumedGrantId  String?   @map("consumed_grant_id")
+
+  @@index([userId, createdAt], map: "operator_armings_user_created_idx")
+  @@map("operator_armings")
+}
+
 /// Fixed-window admission counters. Incremented by the statement that decides admission.
 model OperatorAdmissionCounter {
   key         String   @db.VarChar(191)
