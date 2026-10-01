@@ -45,11 +45,13 @@ export type CustomerProvider = {
   listPendingInvitations: typeof listPendingOrganizationInvitations
 }
 
+// Each import is read at call time, so a module that only partly provides the identity package
+// (a test double, for example) is not touched until a customer step actually runs.
 const realProvider: CustomerProvider = {
-  createOrganization,
-  validateOwner: validateExistingOrganizationOwner,
-  ensureInvitation: ensureOrganizationInvitation,
-  listPendingInvitations: listPendingOrganizationInvitations,
+  createOrganization: (input) => createOrganization(input),
+  validateOwner: (input) => validateExistingOrganizationOwner(input),
+  ensureInvitation: (input) => ensureOrganizationInvitation(input),
+  listPendingInvitations: (organizationId) => listPendingOrganizationInvitations(organizationId),
 }
 let provider: CustomerProvider = realProvider
 

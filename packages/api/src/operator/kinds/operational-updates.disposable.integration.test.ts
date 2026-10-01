@@ -266,5 +266,67 @@ describe.skipIf(!enabled)(
       expect(seen.length).toBeGreaterThanOrEqual(9)
       await expect(list({ cursor: 'nope' })).rejects.toBeInstanceOf(OperatorInvalidCursorError)
     })
+
+    it('summarizes visitor activity as counts only, inside the window and the grant', async () => {
+      await withTenantIsolationBypass(async () => {
+        for (const [index, visitorId] of ['v-a', 'v-a', 'v-b'].entries()) {
+          const session = await db.visitorSession.create({
+            data: {
+              tenantId,
+              venueId,
+              anonymousToken: `ou-token-${suffix}-${index}`,
+              visitorId,
+              startedAt: new Date(Date.now() - index * 1000),
+            },
+          })
+          await db.message.create({
+            data: {
+              tenantId,
+              venueId,
+              sessionId: session.id,
+              sessionSequence: 0,
+              role: 'user',
+              content: 'Secret visitor words that must not be returned',
+              topic: index === 2 ? null : 'hours',
+            },
+          })
+        }
+      })
+      const output = await registry.callTool(
+        'venues.get_visitor_summary',
+        { tenantId, venueId, days: 7 },
+        {
+          config,
+          database: db,
+          grant,
+          now: new Date(),
+          requestId: randomUUID(),
+          venueRead: defaultVenueRead(db),
+        },
+      )
+      const summary = OPERATOR_MCP_OUTPUTS['venues.get_visitor_summary'].parse(output) as any
+      expect(summary).toMatchObject({
+        sessions: 3,
+        visitorMessages: 3,
+        uniqueVisitors: 2,
+        topTopics: [{ topic: 'hours', messages: 2 }],
+        unclassifiedMessages: 1,
+      })
+      expect(JSON.stringify(summary)).not.toContain('Secret visitor words')
+      await expect(
+        registry.callTool(
+          'venues.get_visitor_summary',
+          { tenantId, venueId },
+          {
+            config,
+            database: db,
+            grant: otherGrant,
+            now: new Date(),
+            requestId: randomUUID(),
+            venueRead: defaultVenueRead(db),
+          },
+        ),
+      ).rejects.toBeInstanceOf(OperatorNotFoundError)
+    })
   },
 )

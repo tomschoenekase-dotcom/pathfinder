@@ -25,6 +25,7 @@ const EXPECTED_TOOLS = [
   'crm.check_can_contact',
   'venues.list',
   'venues.list_operational_updates',
+  'venues.get_visitor_summary',
   'venues.get_readiness',
   'appearance.get',
   'support.list',

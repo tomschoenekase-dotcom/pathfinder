@@ -166,6 +166,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.check_can_contact',
   'venues.list',
   'venues.list_operational_updates',
+  'venues.get_visitor_summary',
   'venues.get_readiness',
   'appearance.get',
   'support.list',
@@ -554,6 +555,11 @@ export const OPERATOR_MCP_INPUTS = {
     purpose: z.enum(['draft', 'send']).default('send'),
   }),
   'venues.list': readInput({ ...tenantScope, cursor: Cursor.optional() }),
+  'venues.get_visitor_summary': readInput({
+    ...venueScope,
+    /** Whole days ending now, 1 to 90. */
+    days: z.number().int().min(1).max(90).default(30),
+  }),
   'venues.list_operational_updates': readInput({
     ...venueScope,
     status: z.enum(['DRAFT', 'PUBLISHED']).optional(),
@@ -1517,6 +1523,30 @@ export const OPERATOR_MCP_OUTPUTS = {
       contactId: Identifier.nullable(),
     })
     .strict(),
+  'venues.get_visitor_summary': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      days: z.number().int(),
+      windowStart: IsoDateTime,
+      /** Public visitor conversations that started in the window. */
+      sessions: z.number().int().nonnegative(),
+      /** Messages visitors wrote in the window (the guide's replies are not counted). */
+      visitorMessages: z.number().int().nonnegative(),
+      /** Distinct browsers that started a conversation; older clients without an id are not counted. */
+      uniqueVisitors: z.number().int().nonnegative(),
+      lastVisitorMessageAt: IsoDateTime.nullable(),
+      /** The most common classified topics, at most ten. Classification runs nightly, so recent messages may be unclassified. */
+      topTopics: z
+        .array(
+          z
+            .object({ topic: z.string().max(100), messages: z.number().int().nonnegative() })
+            .strict(),
+        )
+        .max(10),
+      unclassifiedMessages: z.number().int().nonnegative(),
+    })
+    .strict(),
   'venues.list_operational_updates': Page(
     z
       .object({
@@ -2270,6 +2300,13 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   ['venues.list', 'List venues', `List venues in one tenant.${READ}`, 'venues:read', 'tenant'],
+  [
+    'venues.get_visitor_summary',
+    'Get visitor summary',
+    `Summarize a venue's public guide activity over the last 1 to 90 days: conversations, visitor messages, distinct visitors and the most common topics. Counts only; no visitor messages are returned.${READ}`,
+    'venues:read',
+    'venue',
+  ],
   [
     'venues.list_operational_updates',
     'List operational updates',

@@ -87,4 +87,76 @@ const listOperationalUpdates: OperatorReadTool = {
   },
 }
 
-export const updateReadTools: readonly OperatorReadTool[] = [listOperationalUpdates]
+const DAY_MS = 86_400_000
+
+/** Counts only, from the same tables the admin analytics page reads. No visitor text leaves. */
+const getVisitorSummary: OperatorReadTool = {
+  name: 'venues.get_visitor_summary',
+  capability: 'venues:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['venues.get_visitor_summary'].parse(raw)
+    await assertVenueInGrant(context.grant, input.tenantId, input.venueId, context.database)
+    const database = context.database
+    const windowStart = new Date(context.now.getTime() - input.days * DAY_MS)
+    const sessionWhere = {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      experienceScope: 'PUBLIC',
+      startedAt: { gte: windowStart },
+    }
+    const messageWhere = {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      role: 'user' as const,
+      createdAt: { gte: windowStart },
+      session: { experienceScope: 'PUBLIC' },
+    }
+    const [venue, sessions, visitorMessages, visitors, last, topics, unclassified] =
+      await Promise.all([
+        database.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+        database.visitorSession.count({ where: sessionWhere }),
+        database.message.count({ where: messageWhere }),
+        database.visitorSession.findMany({
+          where: { ...sessionWhere, visitorId: { not: null } },
+          select: { visitorId: true },
+          distinct: ['visitorId'],
+        }),
+        database.message.findFirst({
+          where: messageWhere,
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        database.message.groupBy({
+          by: ['topic'],
+          where: { ...messageWhere, topic: { not: null } },
+          _count: { _all: true },
+          orderBy: { _count: { topic: 'desc' } },
+          take: 10,
+        }),
+        database.message.count({ where: { ...messageWhere, topic: null } }),
+      ])
+    if (!venue) throw new OperatorNotFoundError()
+    return {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      days: input.days,
+      windowStart: windowStart.toISOString(),
+      sessions,
+      visitorMessages,
+      uniqueVisitors: visitors.length,
+      lastVisitorMessageAt: last?.createdAt.toISOString() ?? null,
+      topTopics: topics.flatMap((row) =>
+        row.topic === null ? [] : [{ topic: row.topic, messages: row._count._all }],
+      ),
+      unclassifiedMessages: unclassified,
+    }
+  },
+}
+
+export const updateReadTools: readonly OperatorReadTool[] = [
+  listOperationalUpdates,
+  getVisitorSummary,
+]
