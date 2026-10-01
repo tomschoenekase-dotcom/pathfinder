@@ -47,8 +47,8 @@ With the flag off, every operator path answers 404 and the migration's tables st
 
 ## Known limits
 
-- Parked kinds (no canonical action yet): campaign membership, venue source, customer invite,
-  support triage. The tools are not listed to the Dot.
+- Parked: `venues.propose_source` (no source model exists, so the tool is not listed). Campaign membership, customer invite and
+  support triage now exist; see `release-proposal-operator-crm-20261001.md` for the migration 255 candidate, which is a separate release.
 - Clerk `strict` reverification accepts a password if the account has no second factor; Tom's
   account should have a passkey or MFA.
 - Refresh reuse revokes the whole connection (no grace window), per the plan.

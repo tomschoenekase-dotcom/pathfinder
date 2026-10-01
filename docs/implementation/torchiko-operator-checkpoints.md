@@ -9,24 +9,25 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 - Work branch: `machine/torchiko/20260930-operator-program`, isolated worktree. Nothing else was touched.
 - Local proof environment: Windows, Node 24, `pnpm install --frozen-lockfile`, disposable Postgres (`pgvector/pgvector:pg16`,
   container `claude-operator-program-pg`, database `pathfinder_disposable_op`, all 255 migrations applied).
-- Continuation baseline: `ca06dcec`; local-only tasks completed in order on 2026-10-01.
+- Continuation baseline: `ca06dcec`; a second continuation (Sol, then Claude) on 2026-10-01 added H06 to H10 reads, H08 proposals,
+  support triage, visitor notices, platform mail reads and H13 pins. The latest commit is named in the commit list below.
 - Never run: production/staging deployment, live migration/provider action, real customer communication, account creation,
-  new credentials, paid API use or money movement. H11, H13 and lossless merge remain excluded.
+  new credentials, paid API use or money movement. H11 and lossless merge remain excluded; H13 is code and proposal only.
 
-| Lane                                            | Current state and proof limits                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| H01-H03 contracts, canonical actions, execution | Earlier local slices implemented and covered by the operator suite. Provider health, unattended recovery and refresh-response replay remain gaps. No activation or release claim.                                                                                                                                                                          |
-| H04 CRM                                         | Earlier identity/maintenance and duplicate review slices implemented. Lossless merge untouched and excluded.                                                                                                                                                                                                                                               |
-| H05 campaigns/drafts                            | PASS local canonical creation/membership, draft reads/review, batch staging/review and gated release tests. Shared purpose-aware contact eligibility is wired. Full content editing and live delivery NOT RUN.                                                                                                                                             |
-| H06 mail/receipts                               | PASS mailbox/thread/message, canonical mail-event receipts and activity receipt reads; scoped pagination, untrusted prose and rollback proof. FAIL complete receipt/quarantine coverage: raw webhook receipts and quarantine have no authoritative tenant ownership link (blocker below).                                                                  |
-| H07 support                                     | PASS local support detail/message reads and internal-note, portal information-request and completion proposals. Real customer communication NOT RUN.                                                                                                                                                                                                       |
-| H08 onboarding                                  | PASS earlier canonical dossier reads. NOT RUN question-group proposal: handler, catalog integration script and 9 disposable tests prepared outside worktree, not integrated/typechecked/executed. Customer creation and wider content/launch work excluded.                                                                                                |
-| H09 company/reports/billing                     | PASS promoted current tenant context, reports/status, billing status and paginated invoices. Separate read capabilities; no provider identifiers/raw payloads. Billing proposals and financial actions excluded.                                                                                                                                           |
-| H10 routines/access/offboarding                 | PASS routine, membership and offboarding metadata reads with scoped cursors; private evidence/artifact references withheld. No execution, membership changes, revocation or export creation.                                                                                                                                                               |
-| H12 mobile keyboard                             | PASS 12 viewport tests on this continuation; retained local browser log has 8 Chromium/WebKit tests using simulated visualViewport. Probable cause/files/protocol documented. Real iPhone Safari/Chrome NOT RUN; do not claim physical-device repair.                                                                                                      |
-| H13 CI/release prep                             | NOT RUN and untouched. Migration pins, approval/release packet and deployment excluded.                                                                                                                                                                                                                                                                    |
-| H14 portal/navigation                           | PASS clean thinking state, simpler portal, source-brand wordmark, immediate operator tabs and dedicated Stripe Billing tab; local UI tests/typechecks and rendered fixture proof. Real authentication, Stripe actions and physical-device testing NOT RUN. Separate public-rig asset fixture FAIL (blank local asset viewport; shared renderer unchanged). |
-| H11                                             | NOT RUN; not built.                                                                                                                                                                                                                                                                                                                                        |
+| Lane                                            | Current state and proof limits                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H01-H03 contracts, canonical actions, execution | Earlier local slices implemented and covered by the operator suite. Provider health, unattended recovery and refresh-response replay remain gaps. No activation or release claim.                                                                                                                                                                                                               |
+| H04 CRM                                         | Earlier identity/maintenance and duplicate review slices implemented. Lossless merge untouched and excluded.                                                                                                                                                                                                                                                                                    |
+| H05 campaigns/drafts                            | PASS local canonical creation/membership, draft reads/review, batch staging/review and gated release tests. Shared purpose-aware contact eligibility is wired. Full content editing and live delivery NOT RUN.                                                                                                                                                                                  |
+| H06 mail/receipts                               | PASS mailbox/thread/message, canonical mail-event and activity receipt reads, plus platform-wide quarantine and webhook-receipt reads that only an all-customer connection may call (raw payloads and snapshots never returned). Reply/send workflow is excluded by design: no tool sends mail.                                                                                                 |
+| H07 support                                     | PASS local support detail/message reads and internal-note, portal information-request and completion proposals. Real customer communication NOT RUN.                                                                                                                                                                                                                                            |
+| H08 onboarding                                  | PASS onboarding dossier read; PASS `customers.propose_onboarding_questions` (grouped, always-ask, atomic, 9 tests); PASS `customers.propose_create` and `customers.propose_invite` against a fake identity provider, each behind its own off-by-default switch and always-ask. NOT RUN: any call to the real identity provider. `venues.propose_source` stays unbuilt (no source model exists). |
+| H09 company/reports/billing                     | PASS promoted current tenant context, reports/status, billing status and paginated invoices. Separate read capabilities; no provider identifiers/raw payloads. Billing proposals and financial actions excluded.                                                                                                                                                                                |
+| H10 routines/access/offboarding                 | PASS routine, membership and offboarding metadata reads with scoped cursors; private evidence/artifact references withheld. No execution, membership changes, revocation or export creation.                                                                                                                                                                                                    |
+| H12 mobile keyboard                             | PASS 12 viewport tests on this continuation; retained local browser log has 8 Chromium/WebKit tests using simulated visualViewport. Probable cause/files/protocol documented. Real iPhone Safari/Chrome NOT RUN; do not claim physical-device repair.                                                                                                                                           |
+| H13 CI/release prep                             | PASS staging admission pins advanced to the 255/280 endpoint with the 254/277 predecessor admitted; readiness, maintenance and image approval pins updated; raw-SQL inventory entry added; repository index regenerated; repo-wide `pnpm typecheck` 27/27. A release and rollback proposal exists in `docs/operator/release-proposal-operator-crm-20261001.md` and is NOT approved or executed. |
+| H14 portal/navigation                           | PASS clean thinking state, simpler portal, source-brand wordmark, immediate operator tabs and dedicated Stripe Billing tab; local UI tests/typechecks and rendered fixture proof. Real authentication, Stripe actions and physical-device testing NOT RUN. Separate public-rig asset fixture FAIL (blank local asset viewport; shared renderer unchanged).                                      |
+| H11                                             | NOT RUN; not built.                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Continuation commits (task order)
 
@@ -35,7 +36,13 @@ No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recor
 3. `abb59801` H10 routine, access and offboarding reads.
 4. H08 question-group integration paused at the user's request; no commit.
 5. `3917966d` H14 thinking state, portal, wordmark, navigation and Billing, saved during wrap-up.
-6. This pause-point journal refresh.
+6. `d23eba91` pause-point journal.
+7. `6a6dddb4` H08 grouped onboarding questions.
+8. `e5f07fcf` `support.propose_triage`.
+9. `15700d87` `customers.propose_create` and `customers.propose_invite`.
+10. `fdc860de` H13 admission pins and raw-SQL inventory; `cddc3ed2` repository index.
+11. `0d07b33d` H06 platform mail quarantine and webhook receipt reads.
+12. `93a72b24` visitor notices (`venues.list_operational_updates` plus create, go-live and end proposals).
 
 Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `55c3bb67` H12,
 `0c01e7c4` H07 and `ca06dcec` onboarding dossier reads.
@@ -54,19 +61,33 @@ Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `
 - `operator_plans`: `lease_expires_at`, `fence_token`, `attempt`.
 - `operator_autonomy_policies.allowed_kinds`; new `operator_policy_state` (singleton revision), `operator_admission_counters`, `operator_armings`.
 - Backfill verified on a disposable database seeded with duplicate rows (earliest takes the key; others and non-operator rows untouched).
-- NOT applied anywhere except the disposable database. Release work (H13) must: update `scripts/run-staging-migration-predeploy.mjs`
-  (`finalMigration`, counts), `packages/db/src/helpers/operational-health.ts` `EXPECTED_LATEST_MIGRATION`, the
-  admission evidence/approval docs, and obtain a fresh migration approval. The existing admission approval names 254 migrations.
-  Until then `scripts/*migration*` tests that pin 254 are expected to fail on this branch (NOT RUN, not claimed green).
+- NOT applied anywhere except the disposable database (255 migrations, 280 public tables there).
+- H13 pins are updated: `scripts/run-staging-migration-predeploy.mjs` (255 / 280, the 254 / 277 `crm-receipt-predecessor`),
+  `operational-health.ts`, `Dockerfile.web.staging` approval name, the readiness and maintenance guards and their tests.
+  The approval identifier names a target and grants nothing. The approved production cutover record
+  (`docs/production-cutover-20260930.md`) covers migrations 253 and 254 only and was left untouched; migration 255 needs a new approval.
 
 ## Flag and authority defaults (all unchanged or tighter)
 
-- No new feature flag was added; the operator endpoint stays dark unless `OPERATOR_OAUTH_ENABLED` (existing).
+- New switches, all default off and refused at propose time while off: `OPERATOR_CAMPAIGN_RELEASE_ENABLED`,
+  `OPERATOR_CUSTOMER_CREATE_ENABLED` (creates an identity-provider organization, emails nobody) and
+  `OPERATOR_CUSTOMER_INVITE_ENABLED` (the provider emails a sign-up link). The endpoint stays dark unless `OPERATOR_OAUTH_ENABLED`.
 - New proposal kinds are never covered by an old broad AUTO switch. `crm.account-archive`, `crm.duplicate-resolution`,
-  `customers.invite` and reverts are always-ask. Automatic application spends an hourly budget and degrades to ask.
+  `customers.create`, `customers.invite`, `customers.onboarding-questions` and reverts are always-ask. Automatic application spends an hourly budget and degrades to ask.
 - No tool sends email, charges, deletes data, or changes policy. Controls (`cancel`, `recover`) cannot approve anything.
 
 ## Continuation evidence (local disposable database and synthetic UI fixtures)
+
+### Latest run (Claude, 2026-10-01, HEAD `93a72b24`)
+
+- PASS serial operator suite from packages/api: 26 files / 267 tests (`--no-file-parallelism`; parallel runs share one database and
+  fail from contention, which is not a product defect). PASS contracts 636 tests (all contract files), tsc for api, contracts, db and config.
+- PASS `pnpm typecheck` across the repository: 27/27 tasks (run at `cddc3ed2`).
+- PASS migration and release scripts: staging predeploy 31, handoff manifest 8, readiness 1, maintenance 7, documentation safety 7,
+  current-truth 5, all `scripts/*.test.mjs` except two that were then fixed (574 run; the raw-SQL approval and the state document counts).
+- PASS verifiers: raw SQL (260 ops), tenant bypasses (461), tenant procedures (117), tenant registry (278 models), public surfaces, AI provider
+  and AI budget boundaries, repository index. NOT RUN: client-bundle-secrets (needs pnpm and a build), full `pnpm test`, browser suites.
+- Fake-identity-provider proof only for customer creation and invitation; no real provider call was made.
 
 - PASS API and contracts `npx tsc --noEmit` for H06, H09 and H10. No API/contracts edits in H14.
   A new full UI/journal round of API/contracts checks was NOT RUN during the requested five-minute wrap-up.
@@ -105,26 +126,15 @@ Earlier baseline slices include `c082ef02` shared eligibility, `497310c9` H05, `
 
 ## Known gaps and decisions needed
 
-- H06 receipt/quarantine reads: `ProspectEmailWebhookReceipt` and `ProspectInboundQuarantine` have no tenant-owned relation; receipt payloads are raw JSON and quarantine candidate thread IDs are an array. Tenant-scoping them through a mailbox could expose another tenant's messages. No migration or raw SQL was added. Current H06 reads use canonical message events and tenant-linked `ProspectActivity.externalReceiptKey`; webhook receipts and quarantine reads remain blocked pending an authoritative tenant ownership link.
+- H06 webhook receipts and quarantine have no tenant owner, so they are exposed only as platform-wide reads to a connection that reaches every customer. Tenant-scoped views of them remain impossible without an ownership link.
 - Refresh-token response replay (lost response) still revokes the grant; a bounded replay window needs a security review.
 - `recoverOperation` is invoked by a tool; an unattended driver (worker or scheduled route) needs an owner decision on activation.
-- Raw-SQL inventory (`scripts/verify-raw-sql-boundary.mjs`): no raw SQL was added.
+- Raw-SQL inventory: the earlier claim that no raw SQL was added was wrong. H02.1 added one advisory lock (human create-operation key) in `venue-create-action.ts`; H13 approved it in the inventory (260 operations: 152 reads, 108 writes).
+- Lossless CRM merge is not built: the canonical rule refuses destructive merges and a reversible merge needs a ledger design.
+- Customer account creation calls the real identity provider only when `OPERATOR_CUSTOMER_CREATE_ENABLED=true`; proof used a fake provider. An interrupted provider call leaves the create intent unconfirmed and a person must reconcile it.
+- `client-bundle-secrets` verifier needs a built bundle through pnpm: NOT RUN.
 
 ## Remaining bounded work
 
-H06 raw webhook/quarantine reads need an authoritative tenant ownership link before implementation; no table was added.
-H12 physical-device verification remains governed by `torchiko-keyboard-device-protocol.md`.
-H13, H11, customer creation and lossless merge are intentionally untouched by this continuation.
-
-## Exact pause point for Claude Code
-
-The user requested a pause/wrap-up so Claude Code can continue overnight. H08 question-group work is prepared only under
-`C:/Users/tomsc/MachineWorkspaces/torchiko/20260930-operator-program/tmp/`: `add_h08_questions.py`,
-`onboarding-questions.ts`, and `onboarding-questions.disposable.integration.test.ts`.
-Read these before running the script; it adds contracts, always-ask registration, the proposal kind and manual prose.
-Then run `python tmp/sync_manual.py` from the program root, typecheck API/contracts, run contracts tests,
-and run the disposable operator suite serially. Fix/verify and commit H08 separately.
-The staged design reuses canonical actions in one group transaction, hashes question revisions, derives child receipt IDs
-from globally unique proposal IDs, rechecks membership and records expiry through the canonical refusal path.
-These are code-review findings, not executed proof. Existing H14 copy describes this upcoming proposal category;
-the actual question-group tool is not in the catalog until H08 is integrated.
+Lossless merge (design first), real-device keyboard proof (`torchiko-keyboard-device-protocol.md`), H11 decision, an unattended
+`recoverOperation` driver, refresh-response replay review, and the human steps in the release proposal.
