@@ -119,6 +119,8 @@ export const OperatorCapability = z.enum([
   'company:read',
   'reports:read',
   'billing:read',
+  'routines:read',
+  'access:read',
   'support:read',
   'support:propose',
   'operator:read',
@@ -193,6 +195,12 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'reports.get_status',
   'billing.get_status',
   'billing.list_invoices',
+  'routines.list',
+  'access.list_memberships',
+  'offboarding.list_plans',
+  'offboarding.list_targets',
+  'offboarding.list_evidence',
+  'offboarding.list_artifacts',
 ] as const
 
 /**
@@ -410,6 +418,52 @@ export const OPERATOR_MCP_INPUTS = {
   'billing.get_status': readInput({ ...tenantScope }),
   'billing.list_invoices': readInput({
     ...tenantScope,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'routines.list': readInput({
+    ...tenantScope,
+    venueId: Identifier.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'access.list_memberships': readInput({
+    ...tenantScope,
+    status: z.enum(['ACTIVE', 'INVITED', 'REMOVED']).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'offboarding.list_plans': readInput({
+    ...tenantScope,
+    status: z
+      .enum([
+        'REQUESTED',
+        'REVIEWED',
+        'REVOCATION_SCHEDULED',
+        'REVOKING',
+        'EXPORT_READY',
+        'COMPLETED',
+        'CANCELLED',
+      ])
+      .optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'offboarding.list_targets': readInput({
+    ...tenantScope,
+    planId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'offboarding.list_evidence': readInput({
+    ...tenantScope,
+    planId: Identifier,
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'offboarding.list_artifacts': readInput({
+    ...tenantScope,
+    planId: Identifier,
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -1679,6 +1733,105 @@ export const OPERATOR_MCP_OUTPUTS = {
       invoiceCount: z.number().int().nonnegative(),
     })
     .strict(),
+  'routines.list': Page(
+    z
+      .object({
+        routineId: Identifier,
+        venueId: Identifier,
+        routineKey: UntrustedText,
+        requestedOperation: UntrustedText,
+        intervalSeconds: z.number().int().positive(),
+        maxAttempts: z.number().int().positive(),
+        maxRunsPerDay: z.number().int().positive(),
+        requiredWorkerRoles: z.array(UntrustedText).max(50),
+        requiredWorkerCapabilities: z.array(UntrustedText).max(50),
+        enabled: z.boolean(),
+        nextRunAt: IsoDateTime.nullable(),
+        lastRunAt: IsoDateTime.nullable(),
+        lastSkipReason: UntrustedText.nullable(),
+        createdAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+        agentIdentity: z
+          .object({ identityId: Identifier, name: UntrustedText, enabled: z.boolean() })
+          .strict(),
+        latestDispatch: z
+          .object({ runId: Identifier, scheduledFor: IsoDateTime, runStatus: z.string().max(40) })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+  ),
+  'access.list_memberships': Page(
+    z
+      .object({
+        membershipId: Identifier,
+        userId: Identifier,
+        role: z.string().max(40),
+        status: z.enum(['ACTIVE', 'INVITED', 'REMOVED']),
+        joinedAt: IsoDateTime.nullable(),
+        createdAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'offboarding.list_plans': Page(
+    z
+      .object({
+        planId: Identifier,
+        status: z.enum([
+          'REQUESTED',
+          'REVIEWED',
+          'REVOCATION_SCHEDULED',
+          'REVOKING',
+          'EXPORT_READY',
+          'COMPLETED',
+          'CANCELLED',
+        ]),
+        revocationTargets: z.array(z.string().max(40)).max(20),
+        exportKinds: z.array(z.string().max(40)).max(20),
+        effectiveAt: IsoDateTime.nullable(),
+        requestedBy: UntrustedText,
+        requestedAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+        venueTargetCount: z.number().int().nonnegative(),
+      })
+      .strict(),
+  ),
+  'offboarding.list_targets': Page(
+    z
+      .object({
+        targetId: Identifier,
+        venueId: Identifier,
+        createdAt: IsoDateTime,
+        revocationEvidenceCount: z.number().int().nonnegative(),
+        exportArtifactCount: z.number().int().nonnegative(),
+      })
+      .strict(),
+  ),
+  'offboarding.list_evidence': Page(
+    z
+      .object({
+        evidenceId: Identifier,
+        venueId: Identifier,
+        target: z.string().max(40),
+        outcome: z.string().max(40),
+        errorCode: UntrustedText.nullable(),
+        recordedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'offboarding.list_artifacts': Page(
+    z
+      .object({
+        artifactId: Identifier,
+        venueId: Identifier,
+        kind: z.string().max(40),
+        contentHash: Sha256Hex,
+        createdBy: UntrustedText,
+        createdAt: IsoDateTime,
+      })
+      .strict(),
+  ),
   'billing.list_invoices': Page(
     z
       .object({
@@ -2032,6 +2185,48 @@ const seeds: readonly Seed[] = [
     'List billing invoices',
     `Page through recorded invoice status and balance projections for one tenant. Provider URLs and identifiers are omitted.${READ}`,
     'billing:read',
+    'tenant',
+  ],
+  [
+    'routines.list',
+    'List routines',
+    `Page tenant routines with scheduling state and latest run status. Prompts and budget values are omitted.${READ}`,
+    'routines:read',
+    'tenant',
+  ],
+  [
+    'access.list_memberships',
+    'List access status',
+    `Page tenant membership roles and status; user contact details are omitted.${READ}`,
+    'access:read',
+    'tenant',
+  ],
+  [
+    'offboarding.list_plans',
+    'List offboarding plans',
+    `Page tenant offboarding plan status and counts. Request hashes and provider references are omitted.${READ}`,
+    'access:read',
+    'tenant',
+  ],
+  [
+    'offboarding.list_targets',
+    'List offboarding targets',
+    `Page venue scopes for one tenant plan with evidence counts.${READ}`,
+    'access:read',
+    'tenant',
+  ],
+  [
+    'offboarding.list_evidence',
+    'List offboarding evidence',
+    `Page outcome metadata for one tenant plan; evidence references are withheld.${READ}`,
+    'access:read',
+    'tenant',
+  ],
+  [
+    'offboarding.list_artifacts',
+    'List offboarding artifacts',
+    `Page export artifact metadata for one tenant plan; artifact locations and bytes are withheld.${READ}`,
+    'access:read',
     'tenant',
   ],
   [

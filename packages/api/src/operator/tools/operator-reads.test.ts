@@ -212,6 +212,12 @@ describe('OPERATOR_READ_TOOLS', () => {
         'reports.get_status',
         'billing.get_status',
         'billing.list_invoices',
+        'routines.list',
+        'access.list_memberships',
+        'offboarding.list_plans',
+        'offboarding.list_targets',
+        'offboarding.list_evidence',
+        'offboarding.list_artifacts',
         // Orchestration controls ride the same registry path; they need operator:plan, not a read.
         'operator.cancel_operation',
         'operator.recover_operation',

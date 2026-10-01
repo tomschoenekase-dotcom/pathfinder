@@ -4,6 +4,8 @@ import { crmReadTools } from './crm'
 import { crmAccountReadTools } from './crm-accounts'
 import { crmCampaignReadTools } from './crm-campaigns'
 import { billingReadTools } from './billing'
+import { routineReadTools } from './routines'
+import { accessReadTools } from './access'
 import { companyReadTools } from './company'
 import { discoveryReadTools } from './discovery'
 import { manualReadTools } from './manual'
@@ -23,6 +25,8 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...companyReadTools,
   ...reportReadTools,
   ...billingReadTools,
+  ...routineReadTools,
+  ...accessReadTools,
   ...venueReadTools,
   ...supportReadTools,
   ...manualReadTools,
