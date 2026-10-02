@@ -169,6 +169,106 @@ export async function createAgentRoutineAction(
   })
 }
 
+/**
+ * Edits a saved routine's prompt, interval or daily run limit. Only a disabled routine can change,
+ * so an enabled routine can never be altered without first being stopped, and the next enable is a
+ * separate decision. `expectedUpdatedAt` makes an edit over a moved definition a conflict.
+ */
+export async function updateAgentRoutineDefinitionAction(
+  rawInput: {
+    operationId: string
+    tenantId: string
+    venueId: string
+    routineId: string
+    expectedUpdatedAt: Date
+    prompt?: string
+    intervalSeconds?: number
+    maxRunsPerDay?: number
+  },
+  actorId: string,
+  client: AgentRoutineActionClient = db,
+) {
+  const input = z
+    .object({
+      operationId: z.string().uuid(),
+      tenantId: z.string().trim().min(1).max(191),
+      venueId: z.string().trim().min(1).max(191),
+      routineId: z.string().trim().min(1).max(191),
+      expectedUpdatedAt: z.date(),
+      prompt: z.string().trim().min(1).max(10_000).optional(),
+      intervalSeconds: z
+        .number()
+        .int()
+        .min(60)
+        .max(7 * 24 * 60 * 60)
+        .optional(),
+      maxRunsPerDay: z.number().int().min(1).max(1_440).optional(),
+    })
+    .strict()
+    .parse(rawInput)
+  return client.$transaction(async (tx) => {
+    // No advisory lock: the write below is a compare-and-set on `enabled: false` and the observed
+    // `updatedAt`, so a concurrent enable or edit changes the row and this update affects 0 rows.
+    const routine = await tx.agentRoutine.findFirst({
+      where: { id: input.routineId, tenantId: input.tenantId, venueId: input.venueId },
+    })
+    if (!routine) throw new AgentRoutineActionError('NOT_FOUND', 'Routine not found')
+    if (routine.enabled) {
+      throw new AgentRoutineActionError('CONFLICT', 'Disable the routine before editing it')
+    }
+    if (routine.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+      throw new AgentRoutineActionError('CONFLICT', 'The routine changed after it was read')
+    }
+    const data = {
+      ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+      ...(input.intervalSeconds !== undefined ? { intervalSeconds: input.intervalSeconds } : {}),
+      ...(input.maxRunsPerDay !== undefined ? { maxRunsPerDay: input.maxRunsPerDay } : {}),
+    }
+    const changed = await tx.agentRoutine.updateMany({
+      where: {
+        id: routine.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        enabled: false,
+        updatedAt: input.expectedUpdatedAt,
+      },
+      data,
+    })
+    if (changed.count !== 1) {
+      throw new AgentRoutineActionError('CONFLICT', 'The routine changed while it was updated')
+    }
+    const updated = await tx.agentRoutine.findFirst({
+      where: { id: routine.id, tenantId: input.tenantId, venueId: input.venueId },
+    })
+    if (!updated) throw new AgentRoutineActionError('NOT_FOUND', 'Routine not found after update')
+    await writeAuditLogStrict(
+      {
+        tenantId: input.tenantId,
+        actorType: 'HUMAN',
+        actorId,
+        actorRole: 'PLATFORM_ADMIN',
+        idempotencyKey: input.operationId,
+        action: 'agent-routine.updated',
+        targetType: 'AgentRoutine',
+        targetId: updated.id,
+        // The prompt itself is not copied into the audit trail.
+        beforeState: {
+          intervalSeconds: routine.intervalSeconds,
+          maxRunsPerDay: routine.maxRunsPerDay,
+        },
+        afterState: {
+          enabled: false,
+          changedPrompt: input.prompt !== undefined,
+          intervalSeconds: updated.intervalSeconds,
+          maxRunsPerDay: updated.maxRunsPerDay,
+        },
+      },
+      tx,
+    )
+    return { routine: updated }
+  })
+}
+
 /** Enables or disables a saved routine. Enabling only makes it due; it does
  * not bypass the independently default-dark worker runtime gate. */
 export async function setAgentRoutineEnabledAction(

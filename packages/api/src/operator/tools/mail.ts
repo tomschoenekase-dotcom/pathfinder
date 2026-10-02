@@ -5,7 +5,7 @@ import { assertTenantInGrant, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
 import { decodeKeysetCursor, encodeKeysetCursor, pageResult, requireCursorInScope } from './page'
 
-const tenantOrganizationWhere = (tenantId: string) => ({
+export const tenantOrganizationWhere = (tenantId: string) => ({
   // Prospect CRM rows have no tenantId column. Their canonical tenant ownership comes from
   // a conversion or a customer relationship; keep this predicate on every platform row read.
   OR: [{ conversion: { is: { tenantId } } }, { customerRelationships: { some: { tenantId } } }],

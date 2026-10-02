@@ -1,7 +1,7 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { operatorUntrustedText } from '../crm-projection'
-import { assertTenantInGrant, assertVenueInGrant } from '../grants'
+import { assertTenantInGrant, assertVenueInGrant, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
 import { decodeKeysetCursor, encodeKeysetCursor, pageResult, requireCursorInScope } from './page'
 
@@ -95,4 +95,201 @@ const routinesList: OperatorReadTool = {
   },
 }
 
-export const routineReadTools: readonly OperatorReadTool[] = [routinesList]
+const DAY_MS = 24 * 60 * 60 * 1000
+const ACTIVE_RUN_STATUSES = ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL']
+/** Skip reasons the dispatcher writes when it refuses to run a routine that is due. */
+const BLOCKING_SKIP_REASONS = new Set([
+  'IDENTITY_UNAVAILABLE',
+  'UNSUPPORTED_MAX_ATTEMPTS',
+  'UNSUPPORTED_BUDGET_ENFORCEMENT',
+  'DAILY_RUN_LIMIT_REACHED',
+])
+
+function describeCadence(seconds: number): string {
+  if (seconds % 86_400 === 0) return `every ${seconds / 86_400} day(s)`
+  if (seconds % 3_600 === 0) return `every ${seconds / 3_600} hour(s)`
+  if (seconds % 60 === 0) return `every ${seconds / 60} minute(s)`
+  return `every ${seconds} seconds`
+}
+
+type RunSummary = { status: string }
+
+/**
+ * Health from evidence only. A routine that is disabled, or has never produced a run, has not been
+ * measured: that is `unknown`, never `ok`.
+ */
+export function routineHealth(input: {
+  enabled: boolean
+  intervalSeconds: number
+  nextRunAt: Date | null
+  lastSkipReason: string | null
+  latestRun: RunSummary | null
+  now: Date
+}): { health: 'ok' | 'attention' | 'unknown'; reason: string } {
+  if (!input.enabled) {
+    return { health: 'unknown', reason: 'The routine is disabled, so nothing is being measured.' }
+  }
+  if (input.lastSkipReason && BLOCKING_SKIP_REASONS.has(input.lastSkipReason)) {
+    return {
+      health: 'attention',
+      reason: `The scheduler last skipped it: ${input.lastSkipReason}.`,
+    }
+  }
+  const overdueMs = 2 * input.intervalSeconds * 1000 + 5 * 60_000
+  if (input.nextRunAt && input.now.getTime() - input.nextRunAt.getTime() > overdueMs) {
+    return {
+      health: 'attention',
+      reason: 'It is well past its next run, so the scheduler may not be dispatching it.',
+    }
+  }
+  if (!input.latestRun) {
+    return { health: 'unknown', reason: 'It is enabled but has not produced a run yet.' }
+  }
+  if (input.latestRun.status === 'FAILED') {
+    return { health: 'attention', reason: 'The latest run failed.' }
+  }
+  if (input.latestRun.status === 'COMPLETED') {
+    return { health: 'ok', reason: 'The latest run completed and the schedule is on time.' }
+  }
+  return { health: 'unknown', reason: `The latest run is ${input.latestRun.status}, not finished.` }
+}
+
+const routinesGetRunStatus: OperatorReadTool = {
+  name: 'routines.get_run_status',
+  capability: 'routines:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['routines.get_run_status'].parse(raw)
+    await assertTenantInGrant(context.grant, input.tenantId, context.database)
+    const routine = await context.database.agentRoutine.findFirst({
+      where: { id: input.routineId, tenantId: input.tenantId },
+      select: {
+        id: true,
+        venueId: true,
+        routineKey: true,
+        intervalSeconds: true,
+        maxAttempts: true,
+        maxRunsPerDay: true,
+        perRunBudgetE8Usd: true,
+        dailyBudgetE8Usd: true,
+        enabled: true,
+        nextRunAt: true,
+        lastRunAt: true,
+        lastSkipReason: true,
+        createdBy: true,
+        updatedAt: true,
+        agentIdentity: { select: { id: true, name: true, enabled: true } },
+      },
+    })
+    if (!routine) throw new OperatorNotFoundError()
+    const dayStart = new Date(Math.floor(context.now.getTime() / DAY_MS) * DAY_MS)
+    const [dispatches, runsToday] = await Promise.all([
+      context.database.agentRoutineDispatch.findMany({
+        where: { tenantId: input.tenantId, routineId: routine.id },
+        orderBy: [{ scheduledFor: 'desc' }, { id: 'desc' }],
+        take: 10,
+        select: {
+          agentRunId: true,
+          scheduledFor: true,
+          agentRun: {
+            select: { status: true, errorCode: true, startedAt: true, completedAt: true },
+          },
+        },
+      }),
+      context.database.agentRoutineDispatch.count({
+        where: {
+          tenantId: input.tenantId,
+          routineId: routine.id,
+          scheduledFor: { gte: dayStart },
+        },
+      }),
+    ])
+    const recentRuns = dispatches.map((dispatch) => ({
+      runId: dispatch.agentRunId,
+      scheduledFor: dispatch.scheduledFor.toISOString(),
+      runStatus: dispatch.agentRun.status,
+      errorCode: dispatch.agentRun.errorCode,
+      startedAt: dispatch.agentRun.startedAt?.toISOString() ?? null,
+      completedAt: dispatch.agentRun.completedAt?.toISOString() ?? null,
+    }))
+    const latest = recentRuns[0] ?? null
+    const verdict = routineHealth({
+      enabled: routine.enabled,
+      intervalSeconds: routine.intervalSeconds,
+      nextRunAt: routine.nextRunAt,
+      lastSkipReason: routine.lastSkipReason,
+      latestRun: latest ? { status: latest.runStatus } : null,
+      now: context.now,
+    })
+    const budgetsPresent = routine.perRunBudgetE8Usd !== null || routine.dailyBudgetE8Usd !== null
+    return {
+      tenantId: input.tenantId,
+      venueId: routine.venueId,
+      routineId: routine.id,
+      routineKey: operatorUntrustedText(routine.routineKey),
+      owner: {
+        createdBy: routine.createdBy.slice(0, 191),
+        agentIdentityId: routine.agentIdentity.id,
+        agentName: operatorUntrustedText(routine.agentIdentity.name),
+        agentEnabled: routine.agentIdentity.enabled,
+      },
+      version: routine.updatedAt.toISOString(),
+      state: routine.enabled ? ('enabled' as const) : ('disabled' as const),
+      schedule: {
+        kind: 'interval' as const,
+        intervalSeconds: routine.intervalSeconds,
+        cadence: describeCadence(routine.intervalSeconds),
+        timeZone: null,
+        nextRunAt: routine.nextRunAt?.toISOString() ?? null,
+        lastRunAt: routine.lastRunAt?.toISOString() ?? null,
+      },
+      lastResult: latest,
+      lastSkipReason: routine.lastSkipReason ? operatorUntrustedText(routine.lastSkipReason) : null,
+      limits: {
+        maxRunsPerDay: routine.maxRunsPerDay,
+        runsTodayUtc: runsToday,
+        maxAttempts: routine.maxAttempts,
+        cost: {
+          enforced: false,
+          perRunBudgetE8Usd: routine.perRunBudgetE8Usd?.toString() ?? null,
+          dailyBudgetE8Usd: routine.dailyBudgetE8Usd?.toString() ?? null,
+          note: budgetsPresent
+            ? 'Budget values are stored but not enforced; the scheduler skips a routine that carries one.'
+            : 'No dollar budget is enforced. The run count per day is the only cost limit.',
+        },
+      },
+      stopConditions: [
+        {
+          key: 'disabled',
+          active: !routine.enabled,
+          detail: 'A disabled routine is never dispatched and has no next run.',
+        },
+        {
+          key: 'agent_identity_disabled',
+          active: !routine.agentIdentity.enabled,
+          detail: 'The scheduler skips a routine whose agent identity is disabled.',
+        },
+        {
+          key: 'daily_run_limit',
+          active: runsToday >= routine.maxRunsPerDay,
+          detail: `At most ${routine.maxRunsPerDay} runs per UTC day.`,
+        },
+        {
+          key: 'serial_run_fence',
+          active: latest ? ACTIVE_RUN_STATUSES.includes(latest.runStatus) : false,
+          detail: 'A routine does not start a run while its previous run is unfinished.',
+        },
+        {
+          key: 'reminder_stops',
+          active: null,
+          detail:
+            'Stopping reminders on opt-out, pause or a closed request is not implemented. No routine type sends reminders, so there is nothing to stop.',
+        },
+      ],
+      recentRuns,
+      health: verdict.health,
+      healthReason: verdict.reason,
+    }
+  },
+}
+
+export const routineReadTools: readonly OperatorReadTool[] = [routinesList, routinesGetRunStatus]

@@ -26,6 +26,14 @@ const COPY: Record<string, { label: string; detail: string }> = {
     label: 'Customer setup',
     detail: 'Onboarding question proposals always ask for review.',
   },
+  'reports:propose': {
+    label: 'Weekly reports',
+    detail: 'Generating and publishing reports always ask for review.',
+  },
+  'routines:propose': {
+    label: 'Routines',
+    detail: 'Saving, editing and stopping routines. Starting one always asks.',
+  },
   'operator:revert': { label: 'Undo', detail: 'Undoing an applied change always asks.' },
   'operator:plan': {
     label: 'Plans',
