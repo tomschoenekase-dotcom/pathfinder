@@ -11,6 +11,8 @@ import { OperatorAudit, AUDIT_EVENT_TYPES } from '../../../../components/operato
 import { OperatorAutonomy } from '../../../../components/operator/OperatorAutonomy'
 import { OperatorConnections } from '../../../../components/operator/OperatorConnections'
 import { OperatorInbox } from '../../../../components/operator/OperatorInbox'
+import { OperatorPanelError } from '../../../../components/operator/OperatorPanelError'
+import { loadOperatorPanel } from '../../../../lib/operator-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,8 +49,21 @@ export default async function OperatorAdminPage({
   const caller = await createAdminCaller()
   const now = new Date()
 
+  // Each tab reads exactly one source. A failed read becomes an honest error panel inside the
+  // page frame (tabs stay usable), never an empty list; the global error boundary is reserved for
+  // failures outside these reads (session, caller construction, rendering).
+  const retryHref = `/admin/operator?tab=${tab}`
+
   if (tab === 'autonomy') {
-    const rows = await caller.admin.operatorAutonomy()
+    const result = await loadOperatorPanel('autonomy', () => caller.admin.operatorAutonomy())
+    if (!result.ok) {
+      return (
+        <OperatorAdminView tab={tab} inboxCount={null}>
+          <OperatorPanelError section="Autonomy" category={result.category} retryHref={retryHref} />
+        </OperatorAdminView>
+      )
+    }
+    const rows = result.data
     return (
       <OperatorAdminView tab={tab} inboxCount={null}>
         <OperatorAutonomy rows={rows} />
@@ -56,7 +71,19 @@ export default async function OperatorAdminPage({
     )
   }
   if (tab === 'connections') {
-    const rows = await caller.admin.operatorConnections()
+    const result = await loadOperatorPanel('connections', () => caller.admin.operatorConnections())
+    if (!result.ok) {
+      return (
+        <OperatorAdminView tab={tab} inboxCount={null}>
+          <OperatorPanelError
+            section="Connections"
+            category={result.category}
+            retryHref={retryHref}
+          />
+        </OperatorAdminView>
+      )
+    }
+    const rows = result.data
     return (
       <OperatorAdminView tab={tab} inboxCount={null}>
         <OperatorConnections rows={rows} now={now} />
@@ -68,12 +95,22 @@ export default async function OperatorAdminPage({
     const outcome = first(query.outcome).slice(0, 64)
     const tool = first(query.tool).slice(0, 120)
     const days = [1, 7, 30, 90].find((value) => String(value) === first(query.days))
-    const rows = await caller.admin.operatorAudit({
-      ...(eventType ? { eventType } : {}),
-      ...(outcome ? { outcome } : {}),
-      ...(tool ? { tool } : {}),
-      ...(days ? { days: days as 1 | 7 | 30 | 90 } : {}),
-    })
+    const result = await loadOperatorPanel('audit', () =>
+      caller.admin.operatorAudit({
+        ...(eventType ? { eventType } : {}),
+        ...(outcome ? { outcome } : {}),
+        ...(tool ? { tool } : {}),
+        ...(days ? { days: days as 1 | 7 | 30 | 90 } : {}),
+      }),
+    )
+    if (!result.ok) {
+      return (
+        <OperatorAdminView tab={tab} inboxCount={null}>
+          <OperatorPanelError section="Audit" category={result.category} retryHref={retryHref} />
+        </OperatorAdminView>
+      )
+    }
+    const rows = result.data
     return (
       <OperatorAdminView tab={tab} inboxCount={null}>
         <OperatorAudit
@@ -88,7 +125,19 @@ export default async function OperatorAdminPage({
       </OperatorAdminView>
     )
   }
-  const items = await caller.admin.operatorInbox()
+  const inbox = await loadOperatorPanel('inbox', () => caller.admin.operatorInbox())
+  if (!inbox.ok) {
+    return (
+      <OperatorAdminView tab="inbox" inboxCount={null}>
+        <OperatorPanelError
+          section="Inbox"
+          category={inbox.category}
+          retryHref="/admin/operator?tab=inbox"
+        />
+      </OperatorAdminView>
+    )
+  }
+  const items = inbox.data
   return (
     <OperatorAdminView tab="inbox" inboxCount={items.length}>
       <OperatorInbox items={items} now={now} />

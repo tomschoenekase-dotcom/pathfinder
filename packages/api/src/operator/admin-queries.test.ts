@@ -88,6 +88,29 @@ describe('diffSnapshots', () => {
 })
 
 describe('loadOperatorReview', () => {
+  it('reads only displayed columns so a database missing newer lease/fence columns still renders', async () => {
+    const { database } = fakeDatabase([proposal()])
+    await loadOperatorReview('p1', database, kinds)
+    const newer = [
+      'applyStartedAt',
+      'leaseExpiresAt',
+      'fenceToken',
+      'attempt',
+      'previewDigest',
+      'policyRevision',
+    ]
+    const proposalCall = (database.operatorProposal.findUnique as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, boolean> }
+    const planCall = (database.operatorPlan.findUnique as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, boolean> }
+    expect(proposalCall.select).toBeDefined()
+    expect(planCall.select).toBeDefined()
+    for (const column of newer) {
+      expect(proposalCall.select).not.toHaveProperty(column)
+      expect(planCall.select).not.toHaveProperty(column)
+    }
+  })
+
   it('names the client and venue and looks venues up under their tenant', async () => {
     const { database, venueFind } = fakeDatabase([proposal()])
     const review = await loadOperatorReview('p1', database, kinds)
