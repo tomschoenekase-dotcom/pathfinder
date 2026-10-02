@@ -38,7 +38,9 @@ An enabled but incomplete configuration answers 503; it never stops the dashboar
 3. Approve the consent page ChatGPT opens. It shows the app name, redirect host and how long ago
    the app registered.
 
-Consent without a fresh arming is refused, and each arming covers one consent. This stops a
+Consent without a fresh arming is refused, and each arming covers one consent. An arming is a one-use, expiring
+server record (`operator_armings`) claimed in the same transaction that creates the grant, so two consents racing on
+one arming cannot both succeed. This stops a
 consent link produced by someone else's connector (same callback host) from connecting their app.
 
 ## Tokens
@@ -51,6 +53,10 @@ Opaque 256-bit values; only `HMAC-SHA-256(pepper[kid], token)` and the kid are s
   unverified), audience = the exact resource URL. The other environment's prefix never verifies.
 - Refresh `pf_ort_<stg|prd>_…`: rotates on every use; 7-day idle and 30-day absolute limits, never
   beyond the grant. Reusing a rotated refresh token revokes the grant and all its tokens.
+  Rotation is one transaction: retiring the old token and issuing the new pair commit together or not at all, so a
+  crash or error mid-rotation leaves the old token usable. A genuine replay of an already-spent token (including a
+  lost response that the client retries) still revokes the grant: no replay grace window exists, and adding one
+  needs a separate security review.
 - Every MCP call re-reads token, grant and client rows, so revocation is immediate. Removing the
   consenting user from `OPERATOR_OAUTH_ALLOWED_USER_IDS` stops their grants at once.
 

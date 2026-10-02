@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { OPERATOR_MCP_OUTPUTS, OPERATOR_READ_TOOL_NAMES } from '@pathfinder/contracts/operator-mcp'
+import {
+  OPERATOR_CONTROL_TOOL_NAMES,
+  OPERATOR_MCP_OUTPUTS,
+  OPERATOR_READ_TOOL_NAMES,
+} from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
@@ -13,7 +17,7 @@ import {
   redactAddresses,
   type SnapshotContactInput,
 } from '../crm-projection'
-import type { OperatorCallContext } from '../registry'
+import { createOperatorRegistry, type OperatorCallContext } from '../registry'
 import { OPERATOR_READ_TOOLS } from './index'
 import { OPERATOR_MANUAL_TEXT } from './manual-text'
 
@@ -169,7 +173,7 @@ describe('operator.get_manual', () => {
 })
 
 describe('OPERATOR_READ_TOOLS', () => {
-  it('covers exactly the nine P4 tools, each with a read capability', () => {
+  it('covers exactly the P4 reads plus the discovery and operation reads, each with a read capability', () => {
     const names = OPERATOR_READ_TOOLS.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
@@ -179,14 +183,69 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.get_contact_history',
         'crm.check_can_contact',
         'venues.list',
+        'venues.list_operational_updates',
+        'venues.get_visitor_summary',
         'venues.get_readiness',
         'support.list',
         'operator.get_manual',
+        'customers.list',
+        'crm.list_campaigns',
+        'crm.list_campaign_members',
+        'operator.get_operation',
+        'operator.list_plans',
+        'crm.resolve_account',
+        'crm.get_account_context',
+        'crm.list_contacts',
+        'crm.list_notes',
+        'crm.list_duplicates',
+        'crm.get_campaign',
+        'crm.list_drafts',
+        'crm.get_outreach_batch',
+        'support.get_request',
+        'customers.get_onboarding',
+        'support.list_messages',
+        'crm.list_mailboxes',
+        'crm.list_mail_threads',
+        'crm.list_mail_messages',
+        'crm.list_mail_receipts',
+        'crm.list_mail_quarantine',
+        'crm.list_mail_webhook_receipts',
+        'crm.list_activity_receipts',
+        'company.list_context',
+        'reports.list',
+        'reports.get_status',
+        'billing.get_status',
+        'billing.list_invoices',
+        'routines.list',
+        'access.list_memberships',
+        'offboarding.list_plans',
+        'offboarding.list_targets',
+        'offboarding.list_evidence',
+        'offboarding.list_artifacts',
+        // Orchestration controls ride the same registry path; they need operator:plan, not a read.
+        'operator.cancel_operation',
+        'operator.recover_operation',
       ].sort(),
     )
     for (const tool of OPERATOR_READ_TOOLS) {
-      expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
-      expect(tool.capability.endsWith(':read')).toBe(true)
+      const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
+      if (isControl) {
+        expect(tool.capability).toBe('operator:plan')
+      } else {
+        expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
+        expect(tool.capability.endsWith(':read')).toBe(true)
+      }
+    }
+  })
+})
+
+describe('separately registered onboarding proposal tools', () => {
+  it('has a proposal binding beside the reads without treating it as a read', () => {
+    const proposalTools = ['customers.propose_onboarding_questions']
+    const registered = createOperatorRegistry().listTools()
+    for (const name of proposalTools) {
+      expect(registered.find((tool) => tool.name === name)?.effect).toBe('proposal')
+      expect(OPERATOR_READ_TOOL_NAMES).not.toContain(name)
     }
   })
 })

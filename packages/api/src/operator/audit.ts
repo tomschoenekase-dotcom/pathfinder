@@ -15,6 +15,7 @@ export type OperatorAuditEventType =
   | 'oauth.revoke'
   | 'proposal.transition'
   | 'plan.transition'
+  | 'proposal.recovery'
   | 'autonomy.change'
 
 export type OperatorAuditInput = Readonly<{

@@ -2,12 +2,15 @@ import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
-import { resolveAutonomy } from './autonomy'
+import { admitAutoApply } from './admission'
+import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
 import {
   applyApprovedProposal,
   derivedOperationId,
+  OPERATOR_APPLY_LEASE_MS,
+  previewDigestOf,
   OperatorProposalError,
   type OperatorDecisionDependencies,
   type AnyOperatorProposalKind,
@@ -102,6 +105,7 @@ export async function createPlan(
     raw: Record<string, unknown> & { operationId: string }
     operationId: string
     targetVersion: string | null
+    previewDigest: string | null
     tenantId: unknown
   }> = []
   for (const [index, step] of input.steps.entries()) {
@@ -123,6 +127,7 @@ export async function createPlan(
       )
     }
     let targetVersion: string | null = null
+    let previewDigest: string | null = null
     if (refs.length === 0) {
       const args = kind.parse(raw)
       const target = kind.target(args)
@@ -130,14 +135,17 @@ export async function createPlan(
         await assertTenantInGrant(service.grant, target.tenantId, database)
       await kind.authorize?.(args, context)
       targetVersion = await kind.targetVersion(args, context)
+      // Steps that reference earlier results cannot be previewed now, so they carry no digest.
+      previewDigest = previewDigestOf(kind, args, targetVersion)
     } else if (typeof tenantId === 'string') {
       await assertTenantInGrant(service.grant, tenantId, database)
     }
-    prepared.push({ index, kind, raw, operationId, targetVersion, tenantId })
+    prepared.push({ index, kind, raw, operationId, targetVersion, previewDigest, tenantId })
   }
   const expiresAt = new Date(
     service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
   )
+  const policyRevision = await readPolicyRevision(database)
   const plan = await database.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as OperatorDatabase
     const created = await tx.operatorPlan.create({
@@ -168,6 +176,8 @@ export async function createPlan(
           args: step.raw as object,
           argsHash: hashArgs({ tool: step.kind.tool, args: step.raw }),
           targetVersion: step.targetVersion,
+          previewDigest: step.previewDigest,
+          policyRevision,
           planId: created.id,
           planStepIndex: step.index,
           expiresAt,
@@ -192,7 +202,11 @@ export async function createPlan(
     return created
   })
   const modes = await Promise.all(prepared.map((step) => resolveAutonomy(step.kind, database)))
-  if (modes.every((mode) => mode === 'auto')) {
+  // A plan spends one unit of the automatic-apply budget; with none left it waits for a human.
+  const planBudget =
+    modes.every((mode) => mode === 'auto') &&
+    (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+  if (planBudget) {
     await approveAndApplyPlan(
       {
         planId: plan.id,
@@ -312,6 +326,9 @@ export async function approveAndApplyPlan(
       decidedByUserId: input.actorUserId,
       decidedAt: input.now,
       applyClaimedAt: input.now,
+      leaseExpiresAt: new Date(input.now.getTime() + OPERATOR_APPLY_LEASE_MS),
+      fenceToken: { increment: 1 },
+      attempt: { increment: 1 },
     },
   })
   if (approved.count !== 1)
@@ -332,13 +349,43 @@ export async function approveAndApplyPlan(
       autoApproved: input.auto === true,
     },
   })
+  const claimed = (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
+  return drivePlan(claimed, input, dependencies)
+}
+
+/**
+ * Applies the remaining steps of an approved plan in order, under the plan's current fence. It is
+ * safe to call again after an interruption: steps that already applied are skipped and their results
+ * feed later references, a step that may have committed stops the plan, and only the holder of the
+ * newest fence may close the plan.
+ */
+export async function drivePlan(
+  plan: PlanRow,
+  input: Pick<PlanDecision, 'actorUserId' | 'requestId' | 'now'>,
+  dependencies: OperatorDecisionDependencies,
+): Promise<PlanRow> {
+  const database = dependencies.database ?? db
   const steps = await database.operatorProposal.findMany({
     where: { planId: plan.id },
     orderBy: { planStepIndex: 'asc' },
   })
   const results = new Map<number, Record<string, unknown>>()
   let failedStepIndex: number | null = null
+  let inFlight = false
   for (const step of steps) {
+    if (step.status === 'APPLIED') {
+      results.set(step.planStepIndex!, (step.result ?? {}) as Record<string, unknown>)
+      continue
+    }
+    if (step.status !== 'APPROVED') {
+      failedStepIndex = step.planStepIndex!
+      break
+    }
+    if (step.applyClaimedAt !== null) {
+      // Another claim holds this step; whoever owns it will finish or be reconciled.
+      inFlight = true
+      break
+    }
     let resolvedArgs: unknown
     try {
       resolvedArgs = resolveStepReferences(step.args, results)
@@ -361,6 +408,7 @@ export async function approveAndApplyPlan(
     }
     results.set(step.planStepIndex!, (applied.result ?? {}) as Record<string, unknown>)
   }
+  if (inFlight) return (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
   if (failedStepIndex !== null) {
     // Later steps never run. They are closed so they cannot be approved on their own later.
     await database.operatorProposal.updateMany({
@@ -368,17 +416,23 @@ export async function approveAndApplyPlan(
       data: { status: 'REJECTED', failureCode: 'PLAN_STOPPED' },
     })
   }
-  await database.operatorPlan.update({
-    where: { id: plan.id },
-    data: failedStepIndex === null ? { status: 'APPLIED' } : { status: 'FAILED', failedStepIndex },
+  // Fenced: a driver whose lease was taken over cannot close a plan someone else now owns.
+  const closed = await database.operatorPlan.updateMany({
+    where: { id: plan.id, status: 'APPROVED', fenceToken: plan.fenceToken },
+    data:
+      failedStepIndex === null
+        ? { status: 'APPLIED', leaseExpiresAt: null }
+        : { status: 'FAILED', failedStepIndex, leaseExpiresAt: null },
   })
-  await auditPlan(
-    database,
-    plan,
-    input.requestId,
-    failedStepIndex === null ? 'APPLIED' : `FAILED:${failedStepIndex}`,
-    input.actorUserId,
-  )
+  if (closed.count === 1) {
+    await auditPlan(
+      database,
+      plan,
+      input.requestId,
+      failedStepIndex === null ? 'APPLIED' : `FAILED:${failedStepIndex}`,
+      input.actorUserId,
+    )
+  }
   return (await database.operatorPlan.findUnique({ where: { id: plan.id } }))!
 }
 

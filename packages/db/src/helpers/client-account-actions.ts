@@ -35,6 +35,8 @@ type InitialVenue = {
   description?: string | undefined
   guideNotes?: string | undefined
   category?: string | undefined
+  /** False creates the venue as a draft that visitors cannot see. Defaults to live. */
+  isActive?: boolean | undefined
   defaultCenterLat?: number | undefined
   defaultCenterLng?: number | undefined
 }
@@ -228,6 +230,9 @@ export async function createClientAccountAction(
               : {}),
             ...(input.initialVenue.category !== undefined
               ? { category: input.initialVenue.category }
+              : {}),
+            ...(input.initialVenue.isActive !== undefined
+              ? { isActive: input.initialVenue.isActive }
               : {}),
             ...(input.initialVenue.defaultCenterLat !== undefined
               ? { defaultCenterLat: input.initialVenue.defaultCenterLat }

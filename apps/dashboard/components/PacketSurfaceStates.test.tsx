@@ -60,6 +60,10 @@ describe('Packet 2 authenticated surface route states', () => {
     expect(
       screen.getByRole('heading', { name: 'Bringing your Torchiko workspace into focus.' }),
     ).toBeTruthy()
+    expect(document.querySelector('[class*="lines"]')).toBeNull()
+    expect(screen.getByAltText('Torchiko').getAttribute('src')).toBe(
+      '/brand/torchiko-wordmark-inverse-480w.png',
+    )
     expect(document.body.textContent).not.toMatch(/analytics|queue|worker|agent|package/iu)
   })
 })

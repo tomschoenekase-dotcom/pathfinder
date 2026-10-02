@@ -1,59 +1,44 @@
-import { z } from 'zod'
-
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
-import { buildOperatorReadScope, OperatorNotFoundError } from '../grants'
+import { assertTenantInGrant, buildOperatorReadScope, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
+import { pageResult, requireCursorInScope } from './page'
 
 const PAGE_SIZE = 25
-/** The existing venue list service returns at most this many venues per call and has no cursor. */
-const SERVICE_LIMIT = 100
-
-// The service has no cursor, so a page position is an offset into its (creation-ordered) list.
-const OffsetCursor = z
-  .string()
-  .regex(/^o:\d{1,3}$/u, 'Invalid cursor')
-  .transform((value) => Number(value.slice(2)))
-
-type ServiceVenue = {
-  id: string
-  name: string
-  slug: string
-  isActive: boolean
-  updatedAt: string
-}
 
 const venuesList: OperatorReadTool = {
   name: 'venues.list',
   capability: 'venues:read',
   async handler(raw, context) {
     const input = OPERATOR_MCP_INPUTS['venues.list'].parse(raw)
-    const offset = input.cursor === undefined ? 0 : OffsetCursor.parse(input.cursor)
-    const scope = await buildOperatorReadScope(
-      context.grant,
-      input.tenantId,
-      ['venues:read'],
-      context.database,
+    // Tenant membership in the grant is checked first; the query then carries an explicit tenant
+    // predicate and an id cursor, so no venue is hidden behind a fixed service cap.
+    await assertTenantInGrant(context.grant, input.tenantId, context.database)
+    await requireCursorInScope(input.cursor, (id) =>
+      context.database.venue.findFirst({
+        where: { id, tenantId: input.tenantId },
+        select: { id: true },
+      }),
     )
-    // The existing service is client-scoped: it refuses a credential that names venues.
-    const read = await context.venueRead(
-      'torchiko.venues.list',
-      { clientId: input.tenantId, limit: SERVICE_LIMIT },
-      { ...scope, venueIds: [] },
-    )
-    const venues = (read.data as { venues?: ServiceVenue[] }).venues ?? []
-    const page = venues.slice(offset, offset + PAGE_SIZE)
-    return {
-      items: page.map((venue) => ({
+    const rows = await context.database.venue.findMany({
+      where: { tenantId: input.tenantId },
+      orderBy: { id: 'asc' },
+      take: PAGE_SIZE + 1,
+      ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+      select: { id: true, name: true, slug: true, isActive: true, updatedAt: true },
+    })
+    const page = rows.slice(0, PAGE_SIZE)
+    return pageResult(
+      page.map((venue) => ({
         venueId: venue.id,
         tenantId: input.tenantId,
         name: venue.name.slice(0, 120),
         slug: venue.slug.slice(0, 200),
         status: venue.isActive ? 'active' : 'inactive',
-        updatedAt: venue.updatedAt,
+        updatedAt: venue.updatedAt.toISOString(),
       })),
-      nextCursor: offset + PAGE_SIZE < venues.length ? `o:${offset + PAGE_SIZE}` : null,
-    }
+      rows.length > PAGE_SIZE ? page.at(-1)!.id : null,
+    )
   },
 }
 

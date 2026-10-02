@@ -50,6 +50,25 @@ reset, restore over production, manual data cleanup, customer sends, billing act
 provider/background execution. The current exception authorizes no production write until the fresh
 post-drain backup/rehearsal and every other release gate pass.
 
+## Restricted operator production cutover exception — approved 2026-10-01
+
+On 2026-10-01, Tom requested publication of PR #38 and reaffirmed:
+
+> The whole goal is to just get it into production, so that way the CRM can actually be, or the AI integration can all be useful. And then we made other changes too, but I just want you to get it into production. You have all the permissions possible.
+
+The [October 1 release record](production-cutover-20261001.md) limits that instruction to the reviewed
+PR #38 application tree at `39557745827a2e86a3a76c1f389e05f65d78900c`, its release documentation and
+the single additive migration `20261001100000_crm_receipt_and_execution_foundations`. It identifies
+staging database `7bd81064-588f-48a5-b138-1fc86691a09b` and production project `zpacmfkomonxeqdiadtz`.
+The September 30 record remains unchanged and does not admit this new 254-to-255 suffix.
+
+The incident state remains ACTIVE by default. The final docs-bearing SHA requires green exact-head
+CI, clean candidate verification and exact three-service staging admission. Each live write remains
+held until its fresh post-drain backup, disposable restore/rehearsal, ledger and original-data
+preservation gates pass. Existing production operator OAuth may remain enabled; no new feature-flag
+activation, account, credential, customer email, invite, money movement or provider/background
+execution is admitted. No seed, reset, restore over production or staging, or manual data cleanup.
+
 ## Historical incident and staging exception
 
 On 2026-08-19, Tom approved a staging-only Railway release with a hard USD 10 spending ceiling.

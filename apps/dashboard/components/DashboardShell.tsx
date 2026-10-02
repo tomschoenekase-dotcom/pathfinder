@@ -7,6 +7,7 @@ import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
   CircleUserRound,
+  CreditCard,
   Home,
   Library,
   LogOut,
@@ -18,8 +19,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { TorchikoBrand } from '@pathfinder/ui'
-
+import { TorchikoWordmark } from './TorchikoWordmark'
 import { ClientTochiWorkspace } from './ClientTochiWorkspace'
 import { ClientTochiBoundary } from './ClientTochiBoundary'
 import { useRouteChangeFocus } from './useRouteChangeFocus'
@@ -66,8 +66,9 @@ const navigationItems: ReadonlyArray<{
     href: '/settings',
     label: 'Account',
     icon: CircleUserRound,
-    owns: ['/settings', '/payment', '/weekly-reports'],
+    owns: ['/settings', '/weekly-reports'],
   },
+  { href: '/payment', label: 'Billing', icon: CreditCard, owns: ['/payment'] },
 ]
 
 const onboardingNavigationItems = [
@@ -347,11 +348,7 @@ export function DashboardShellView({
         Skip to main content
       </a>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-tk-rule bg-tk-paper px-4 text-tk-ink lg:hidden">
-        <TorchikoBrand
-          gapClassName="gap-2"
-          textClassName="font-portal text-tk-ink"
-          textSizeClassName="text-[1.35rem]"
-        />
+        <TorchikoWordmark height={31} />
         <button
           ref={menuButtonRef}
           type="button"
@@ -388,11 +385,7 @@ export function DashboardShellView({
         ].join(' ')}
       >
         <div className="px-3">
-          <TorchikoBrand
-            gapClassName="gap-2"
-            textClassName="font-portal text-tk-ink"
-            textSizeClassName="text-[1.6rem]"
-          />
+          <TorchikoWordmark height={38} />
         </div>
         {navigation}
       </div>

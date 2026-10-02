@@ -41,6 +41,7 @@ const auditEventTypes = [
   'oauth.revoke',
   'proposal.transition',
   'plan.transition',
+  'proposal.recovery',
   'autonomy.change',
 ] as const
 

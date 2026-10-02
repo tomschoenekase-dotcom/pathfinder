@@ -472,9 +472,17 @@ export const OPERATOR_ARM_WINDOW_MS = 10 * 60 * 1000
  * recent arming and is refused. Each arming covers one consent.
  */
 export async function armOperatorConnection(
-  input: Readonly<{ userId: string; requestId: string }>,
+  input: Readonly<{ userId: string; requestId: string; now?: Date }>,
   database: OperatorDatabase = db,
 ): Promise<void> {
+  const now = input.now ?? new Date()
+  await database.operatorArming.create({
+    data: {
+      userId: input.userId,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + OPERATOR_ARM_WINDOW_MS),
+    },
+  })
   await writeOperatorAudit(
     {
       requestId: input.requestId,
@@ -490,26 +498,14 @@ export async function armOperatorConnection(
 export async function activeOperatorArming(
   userId: string,
   database: OperatorDatabase = db,
+  now: Date = new Date(),
 ): Promise<Date | null> {
-  const armed = await database.operatorAuditEvent.findFirst({
-    where: {
-      eventType: 'oauth.arm',
-      actorUserId: userId,
-      occurredAt: { gt: new Date(Date.now() - OPERATOR_ARM_WINDOW_MS) },
-    },
-    orderBy: { occurredAt: 'desc' },
-    select: { occurredAt: true },
+  const armed = await database.operatorArming.findFirst({
+    where: { userId, consumedAt: null, expiresAt: { gt: now } },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
   })
-  if (!armed) return null
-  const consentedSince = await database.operatorAuditEvent.count({
-    where: {
-      eventType: 'oauth.authorize',
-      outcome: 'CONSENTED',
-      actorUserId: userId,
-      occurredAt: { gte: armed.occurredAt },
-    },
-  })
-  return consentedSince === 0 ? armed.occurredAt : null
+  return armed?.createdAt ?? null
 }
 
 /**
@@ -539,6 +535,9 @@ export async function completeAuthorization(
   if (validation.kind === 'show-error') return { error: validation.error }
   if (validation.kind === 'redirect-error') return { redirectTo: validation.redirectTo }
   const request = validation.request
+  // An arming is a real-time window set by a person, so it is judged by the real clock, not the
+  // injected one that governs token lifetimes.
+  const armingNow = new Date()
   if (input.decision.decision === 'deny') {
     await writeOperatorAudit(
       {
@@ -558,7 +557,9 @@ export async function completeAuthorization(
       }),
     }
   }
-  if (!(await activeOperatorArming(input.userId, database))) return { error: 'not_armed' }
+  if (!(await activeOperatorArming(input.userId, database, armingNow))) {
+    return { error: 'not_armed' }
+  }
   const tenantIds = input.decision.allTenants ? [] : [...new Set(input.decision.tenantIds)].sort()
   if (tenantIds.length > 0) {
     const found = await database.tenant.count({ where: { id: { in: tenantIds } } })
@@ -566,8 +567,22 @@ export async function completeAuthorization(
   }
   const code = generateOperatorToken('code', input.config.environment)
   const kid = input.config.keyring.currentKid
-  const grantId = await database.$transaction(async (rawTx) => {
+  const consented = await database.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as OperatorDatabase
+    // Claim one arming, atomically. Two consents racing on a single arming cannot both pass: the
+    // loser finds nothing left to claim and creates no grant.
+    const arming = await tx.operatorArming.findFirst({
+      where: { userId: input.userId, consumedAt: null, expiresAt: { gt: armingNow } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+    const claim = arming
+      ? await tx.operatorArming.updateMany({
+          where: { id: arming.id, consumedAt: null, expiresAt: { gt: armingNow } },
+          data: { consumedAt: armingNow, consumedClientId: request.clientId },
+        })
+      : { count: 0 }
+    if (!arming || claim.count !== 1) return null
     const grant = await tx.operatorGrant.create({
       data: {
         clientId: request.clientId,
@@ -616,9 +631,13 @@ export async function completeAuthorization(
       },
       tx,
     )
+    await tx.operatorArming.update({
+      where: { id: arming.id },
+      data: { consumedGrantId: grant.id },
+    })
     return grant.id
   })
-  void grantId
+  if (consented === null) return { error: 'not_armed' }
   return {
     redirectTo: withQuery(request.redirectUri, {
       code,
@@ -891,39 +910,48 @@ async function rotateRefreshToken(
   }
   const client = await database.operatorOAuthClient.findUnique({ where: { id: grant.clientId } })
   if (!client || client.revokedAt !== null) return fail('CLIENT_REVOKED')
-  const rotated = await database.operatorToken.updateMany({
-    where: { id: row.id, rotatedAt: null, revokedAt: null },
-    data: { rotatedAt: now, lastUsedAt: now },
+  // Retire the old refresh token and issue the new pair in ONE transaction. A crash, timeout or
+  // error part-way rolls the whole rotation back and leaves the old token usable, so an
+  // interrupted rotation can never strand the client behind a token that is already spent.
+  const rotated = await database.$transaction(async (rawTx) => {
+    const tx = rawTx as unknown as OperatorDatabase
+    const claimed = await tx.operatorToken.updateMany({
+      where: { id: row.id, rotatedAt: null, revokedAt: null },
+      data: { rotatedAt: now, lastUsedAt: now },
+    })
+    if (claimed.count !== 1) return null
+    const pair = await issueTokenPair(
+      {
+        config,
+        grantId: grant.id,
+        familyId: row.familyId,
+        parentId: row.id,
+        absoluteExpiresAt: row.absoluteExpiresAt ?? grant.expiresAt,
+        now,
+      },
+      tx,
+    )
+    await writeOperatorAudit(
+      {
+        requestId,
+        eventType: 'oauth.refresh',
+        outcome: 'ROTATED',
+        grantId: grant.id,
+        clientId: client.id,
+      },
+      tx,
+    )
+    return pair
   })
-  if (rotated.count !== 1) {
+  if (rotated === null) {
+    // Another request spent this exact token first: a genuine replay, so the family is revoked.
     await revokeOperatorGrant(
       { grantId: row.grantId, reason: 'refresh_reuse', now, requestId },
       database,
     )
     return oauthError(400, 'invalid_grant')
   }
-  const body = await issueTokenPair(
-    {
-      config,
-      grantId: grant.id,
-      familyId: row.familyId,
-      parentId: row.id,
-      absoluteExpiresAt: row.absoluteExpiresAt ?? grant.expiresAt,
-      now,
-    },
-    database,
-  )
-  await writeOperatorAudit(
-    {
-      requestId,
-      eventType: 'oauth.refresh',
-      outcome: 'ROTATED',
-      grantId: grant.id,
-      clientId: client.id,
-    },
-    database,
-  )
-  return json(200, body)
+  return json(200, rotated)
 }
 
 export async function handleTokenRequest(

@@ -7,6 +7,7 @@ import { DashboardShellView } from '../../../components/DashboardShell'
 import { OperationalUpdatesList } from '../../../components/OperationalUpdatesList'
 import { SupportWorkspace } from '../../../components/SupportWorkspace'
 import { AccountWorkspace } from '../../../components/portal/AccountWorkspace'
+import { BillingWorkspace } from '../../../components/portal/BillingWorkspace'
 import { HomePayment } from '../../../components/portal/HomePayment'
 import { LookAndFeelEditor } from '../../../components/portal/LookAndFeelEditor'
 import { SendInformation } from '../../../components/portal/SendInformation'
@@ -21,7 +22,7 @@ import {
   type FixtureOptions,
 } from './fixture-client'
 
-export type FixturePage = 'home' | 'look' | 'help' | 'updates' | 'account'
+export type FixturePage = 'home' | 'look' | 'help' | 'updates' | 'account' | 'billing'
 
 export type ClientPortalFixtureProps = {
   page: FixturePage
@@ -37,6 +38,7 @@ const PATHS: Record<FixturePage, string> = {
   help: '/support',
   updates: '/operational-updates',
   account: '/settings',
+  billing: '/payment',
 }
 
 const LONG_NAME = 'The Greater Maple Hollow Regional Nature Center and Wetland Education Preserve'
@@ -268,11 +270,10 @@ export function ClientPortalFixture(props: ClientPortalFixtureProps) {
             <HelpFixture {...props} />
           ) : props.page === 'updates' ? (
             <UpdatesFixture />
+          ) : props.page === 'billing' ? (
+            <BillingWorkspace enabled={props.options.payment !== 'none'} />
           ) : (
-            <AccountWorkspace
-              paymentAvailable={props.options.payment !== 'none'}
-              reportsAvailable
-            />
+            <AccountWorkspace reportsAvailable />
           )}
         </DashboardShellView>
       </div>

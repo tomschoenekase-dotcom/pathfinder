@@ -25,6 +25,15 @@ export function ViewportDebugOverlay() {
     const read = () => {
       const vv = window.visualViewport
       const shell = document.querySelector('[data-chat-shell]')
+      const composer = document.querySelector('[data-chat-shell] textarea')
+      const shellRect = shell?.getBoundingClientRect()
+      const composerRect = composer?.getBoundingClientRect()
+      // The two numbers that decide whether the keyboard layout is right. Residual is how far the
+      // shell's top is from the visual viewport's top (0 when aligned). Gap is the empty space
+      // between the composer and the keyboard (small, roughly its padding, when correct).
+      const residual = vv && shellRect ? Math.round(vv.offsetTop - shellRect.top) : 'n/a'
+      const gap =
+        vv && composerRect ? Math.round(vv.offsetTop + vv.height - composerRect.bottom) : 'n/a'
       // Follow the visible area so the readout is never behind the keyboard or off-screen.
       setTop(Math.round((vv?.offsetTop ?? 0) + 4))
       setText(
@@ -37,6 +46,9 @@ export function ViewportDebugOverlay() {
           `shell ${rect(shell)}`,
           `composer ${rect(document.querySelector('[data-chat-shell] textarea'))}`,
           `keyboard-open ${shell?.getAttribute('data-keyboard-open') ?? 'unset'}`,
+          `offset-var ${(shell as HTMLElement | null)?.style.getPropertyValue('--chat-keyboard-offset-y') || 'unset'}`,
+          `residual ${residual}`,
+          `gap-above-keyboard ${gap}`,
         ].join('\n'),
       )
     }

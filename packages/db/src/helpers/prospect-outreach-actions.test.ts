@@ -153,6 +153,8 @@ describe('prospect outreach policy', () => {
 describe('prospect frozen-intent invalidation', () => {
   it('retains an unsendable draft for a contact awaiting human readiness review', async () => {
     const tx = {
+      // The shared eligibility rule also asks whether another row blocks the same address.
+      prospectContact: { findFirst: vi.fn().mockResolvedValue(null) },
       prospectCampaignMember: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'member-1',
@@ -201,12 +203,14 @@ describe('prospect frozen-intent invalidation', () => {
     const stageClient = {
       $transaction: vi.fn((work) =>
         work({
+          prospectContact: { findFirst: vi.fn().mockResolvedValue(null) },
           prospectOutreachDraft: {
             findMany: vi.fn().mockResolvedValue([
               {
                 id: 'draft-1',
                 campaignId: 'campaign-1',
                 status: 'APPROVED',
+                organization: { opportunity: { stage: 'RESEARCHED' } },
                 contact: {
                   normalizedEmail: 'hello@example.org',
                   emailReadiness: 'REVIEW_REQUIRED',
@@ -235,6 +239,8 @@ describe('prospect frozen-intent invalidation', () => {
 
   it('cancels staged and approved send intent when a newer draft supersedes it', async () => {
     const tx = {
+      // The shared eligibility rule also asks whether another row blocks the same address.
+      prospectContact: { findFirst: vi.fn().mockResolvedValue(null) },
       prospectCampaignMember: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'member-1',
