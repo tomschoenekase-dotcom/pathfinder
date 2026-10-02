@@ -105,8 +105,11 @@ export const OPERATOR_ROUTINE_AUTO_KINDS: ReadonlySet<string> = new Set([
 function routineKindsForCapability(capability: OperatorCapability): string[] {
   if (capability === 'appearance:propose') return ['appearance.update']
   if (capability === 'crm:propose') {
-    return [...OPERATOR_ROUTINE_AUTO_KINDS].filter((kind) => kind.startsWith('crm.'))
+    return [...OPERATOR_ROUTINE_AUTO_KINDS].filter(
+      (kind) => kind.startsWith('crm.') && kind !== 'crm.outreach-log',
+    )
   }
+  if (capability === 'crm:log') return ['crm.outreach-log']
   if (capability === 'venues:propose') return ['venues.create']
   if (capability === 'support:propose') return ['support.internal-note']
   return []

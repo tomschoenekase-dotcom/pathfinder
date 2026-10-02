@@ -558,6 +558,26 @@
       "exposure": "handler-platform-admin",
       "controlProfile": "handler-platform-admin",
       "behavioralEvidence": ["apps/dashboard/app/api/operator/operator-human-routes.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/decide/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/operator/operator-decision-grant-routes.test.ts",
+        "packages/api/src/operator/operator-decisions-grants.disposable.integration.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/operator/job-grants/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/operator/operator-decision-grant-routes.test.ts",
+        "packages/api/src/operator/operator-decisions-grants.disposable.integration.test.ts"
+      ]
     }
   ],
   "dashboardPublicApiPaths": [

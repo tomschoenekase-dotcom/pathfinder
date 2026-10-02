@@ -4,10 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   getOperatorToolDefinition,
   OPERATOR_ALWAYS_ASK_TOOLS,
+  OPERATOR_MCP_OUTPUTS,
   OPERATOR_MCP_TOOLS,
 } from '@pathfinder/contracts/operator-mcp'
 
 import { redactOperatorArgs } from './audit'
+import { OPERATOR_PROPOSAL_KINDS } from './kinds'
 import {
   OPERATOR_ALWAYS_ASK_KINDS,
   OPERATOR_LEGACY_AUTO_KINDS,
@@ -34,14 +36,19 @@ function policyDatabase(mode: 'AUTO' | 'ASK' | null, allowedKinds: string[] = []
 describe('autonomy dial', () => {
   it('defaults only explicitly listed, correctly scoped routine writes to auto', async () => {
     for (const kind of OPERATOR_ROUTINE_AUTO_KINDS) {
+      const definition = OPERATOR_PROPOSAL_KINDS.find((entry) => entry.kind === kind)
+      expect(definition, kind).toBeDefined()
       const capability = kind.startsWith('crm.')
-        ? 'crm:propose'
+        ? kind === 'crm.outreach-log'
+          ? 'crm:log'
+          : 'crm:propose'
         : kind === 'appearance.update'
           ? 'appearance:propose'
           : kind.startsWith('venues.')
             ? 'venues:propose'
             : 'support:propose'
       expect(await resolveAutonomy({ kind, capability }, policyDatabase(null)), kind).toBe('auto')
+      expect(definition?.capability, kind).toBe(capability)
       expect(
         await resolveAutonomy({ kind, capability: 'customers:propose' }, policyDatabase(null)),
         kind,
@@ -182,7 +189,7 @@ describe('autonomy dial', () => {
       autoKinds: [],
     })
     const tool = createContextReadTool(new Set(OPERATOR_MCP_TOOLS.map((row) => row.name)))
-    const context = await tool.handler({}, {
+    const rawContext = await tool.handler({}, {
       database,
       grant: {
         grantId: 'grant',
@@ -192,6 +199,7 @@ describe('autonomy dial', () => {
       },
       now: new Date('2026-10-02T00:00:00.000Z'),
     } as never)
+    const context = OPERATOR_MCP_OUTPUTS['operator.get_context'].parse(rawContext)
     const byName = new Map(context.tools.map((row) => [row.name, row]))
     expect(byName.get('crm.propose_note')?.approvalMode).toBe('auto')
     expect(byName.get('crm.propose_draft_review')?.approvalMode).toBe('ask')
