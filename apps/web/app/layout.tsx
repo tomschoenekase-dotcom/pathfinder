@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import { ClerkProvider } from '@clerk/nextjs'
 import {
@@ -71,6 +71,14 @@ type RootLayoutProps = {
 
 const publicWebUrl = new URL(process.env.NEXT_PUBLIC_WEB_URL ?? 'https://torchiko.com')
 
+// Next.js always emits a viewport meta tag; declaring it here (instead of a hand-written tag)
+// keeps exactly one per page, so viewport-fit and safe-area insets cannot depend on tag order.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+}
+
 export const metadata: Metadata = {
   metadataBase: publicWebUrl,
   title: 'Torchiko — A custom guide for your venue',
@@ -97,7 +105,6 @@ export default function RootLayout({ children }: RootLayoutProps) {
     <html lang="en" className={chatFontVariables}>
       <head>
         <meta name="theme-color" content="#1F4E8C" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>

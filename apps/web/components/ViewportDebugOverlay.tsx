@@ -28,12 +28,24 @@ export function ViewportDebugOverlay() {
       const composer = document.querySelector('[data-chat-shell] textarea')
       const shellRect = shell?.getBoundingClientRect()
       const composerRect = composer?.getBoundingClientRect()
-      // The two numbers that decide whether the keyboard layout is right. Residual is how far the
-      // shell's top is from the visual viewport's top (0 when aligned). Gap is the empty space
-      // between the composer and the keyboard (small, roughly its padding, when correct).
-      const residual = vv && shellRect ? Math.round(vv.offsetTop - shellRect.top) : 'n/a'
+      // Browsers disagree on the coordinate frame of a fixed element's client rect: Chrome uses
+      // the layout viewport, iOS WebKit the visual viewport. Report which one this browser used
+      // (a pinned shell measures 0 in the visual frame, offsetTop in the layout frame) and compute
+      // the two decisive numbers in that frame. Residual: shell top vs visible top (0 = aligned).
+      // Gap: empty space between composer and keyboard (small when correct).
+      const offsetTop = vv?.offsetTop ?? 0
+      const frame =
+        vv && shellRect && offsetTop > 2
+          ? Math.abs(shellRect.top) < 2
+            ? 'visual'
+            : Math.abs(shellRect.top - offsetTop) < 2
+              ? 'layout'
+              : 'unknown'
+          : 'n/a'
+      const visibleTop = frame === 'visual' ? 0 : offsetTop
+      const residual = vv && shellRect ? Math.round(shellRect.top - visibleTop) : 'n/a'
       const gap =
-        vv && composerRect ? Math.round(vv.offsetTop + vv.height - composerRect.bottom) : 'n/a'
+        vv && composerRect ? Math.round(visibleTop + vv.height - composerRect.bottom) : 'n/a'
       // Follow the visible area so the readout is never behind the keyboard or off-screen.
       setTop(Math.round((vv?.offsetTop ?? 0) + 4))
       setText(
@@ -46,7 +58,9 @@ export function ViewportDebugOverlay() {
           `shell ${rect(shell)}`,
           `composer ${rect(document.querySelector('[data-chat-shell] textarea'))}`,
           `keyboard-open ${shell?.getAttribute('data-keyboard-open') ?? 'unset'}`,
-          `offset-var ${(shell as HTMLElement | null)?.style.getPropertyValue('--chat-keyboard-offset-y') || 'unset'}`,
+          `pinned ${shell?.getAttribute('data-viewport-pinned') ?? 'unset'}`,
+          `offset-var ${(shell as HTMLElement | null)?.style.getPropertyValue('--chat-viewport-offset-y') || 'unset'}`,
+          `rect-frame ${frame}`,
           `residual ${residual}`,
           `gap-above-keyboard ${gap}`,
         ].join('\n'),
@@ -65,7 +79,10 @@ export function ViewportDebugOverlay() {
     const observer = new MutationObserver(read)
     const shell = document.querySelector('[data-chat-shell]')
     if (shell)
-      observer.observe(shell, { attributes: true, attributeFilter: ['data-keyboard-open'] })
+      observer.observe(shell, {
+        attributes: true,
+        attributeFilter: ['data-keyboard-open', 'data-viewport-pinned', 'style'],
+      })
     return () => {
       for (const [target, name] of events) target.removeEventListener(name, read)
       observer.disconnect()

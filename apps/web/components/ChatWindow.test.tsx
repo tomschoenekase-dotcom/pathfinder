@@ -921,3 +921,130 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('أنت:')).toBeTruthy()
   })
 })
+
+describe('ChatWindow mobile send and composer hint', () => {
+  beforeEach(() => {
+    cleanup()
+    vi.stubGlobal('React', React)
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function phone() {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({ matches: query === '(hover: none) and (pointer: coarse)' })),
+    )
+  }
+
+  function desktop() {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
+  }
+
+  it('dismisses the phone keyboard on a valid send and never refocuses while or after answering', () => {
+    phone()
+    const onSend = vi.fn()
+    const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    composer.focus()
+    fireEvent.change(composer, { target: { value: 'Where is the gallery?' } })
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus')
+    fireEvent.keyDown(composer, { key: 'Enter' })
+
+    // Dismissed in the submit interaction itself, before any response exists.
+    expect(onSend).toHaveBeenCalledWith('Where is the gallery?')
+    expect(document.activeElement).not.toBe(composer)
+
+    view.rerender(<ChatWindow messages={[]} onSend={onSend} isLoading />)
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the gallery?' },
+          { role: 'assistant', content: 'Upstairs.' },
+        ]}
+        onSend={onSend}
+        isLoading={false}
+      />,
+    )
+    expect(focus).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(screen.getByRole('textbox', { name: 'Ask a question' }))
+  })
+
+  it('also dismisses when the send button is tapped', () => {
+    phone()
+    const onSend = vi.fn()
+    render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    composer.focus()
+    fireEvent.change(composer, { target: { value: 'Is there parking?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).not.toBe(composer)
+  })
+
+  it('keeps the keyboard for whitespace, an IME confirmation and a rejected send', () => {
+    phone()
+    const onSend = vi.fn().mockReturnValue(false)
+    render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    composer.focus()
+
+    fireEvent.change(composer, { target: { value: '   ' } })
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(composer)
+
+    fireEvent.change(composer, { target: { value: 'にほんご' } })
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(composer, { key: 'Enter', keyCode: 229 })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(composer)
+
+    // The parent refuses (e.g. history still restoring): the text and the keyboard stay.
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(composer)
+    expect((composer as HTMLTextAreaElement).value).toBe('にほんご')
+  })
+
+  it('keeps focus in the composer on desktop', () => {
+    desktop()
+    const onSend = vi.fn()
+    render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    composer.focus()
+    fireEvent.change(composer, { target: { value: 'Opening hours?' } })
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(composer)
+  })
+
+  it('draws a single-line hint instead of the browser placeholder and hides it while typing', () => {
+    desktop()
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        isLoading={false}
+        placeholder="Ask anything about this place..."
+      />,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect(composer.getAttribute('placeholder')).toBeNull()
+    expect(composer.getAttribute('aria-placeholder')).toBe('Ask anything about this place...')
+    const hint = screen.getByText('Ask anything about this place...')
+    expect(hint.getAttribute('aria-hidden')).toBe('true')
+    fireEvent.change(composer, { target: { value: 'A' } })
+    expect(screen.queryByText('Ask anything about this place...')).toBeNull()
+    fireEvent.change(composer, { target: { value: '' } })
+    expect(screen.getByText('Ask anything about this place...')).toBeTruthy()
+  })
+})

@@ -6,8 +6,10 @@
 .shell {
   --chat-text-scale: 1;
   /* Fixed to the layout viewport: the page never scrolls, so nothing can drift under the status
-   * bar. With the keyboard open the inline height and --chat-keyboard-offset-* follow the visual
-   * viewport instead (see useChatViewportHeight). */
+   * bar. Whenever the visual viewport differs from the layout viewport (software keyboard, a pan
+   * iOS left behind), the inline height and --chat-viewport-offset-* make the shell exactly the
+   * visible rectangle instead. That is the only keyboard compensation (see useChatViewportHeight):
+   * no padding, transform or document scroll compensates for the same space. */
   position: fixed;
   inset: 0;
   min-height: 0;
@@ -15,10 +17,10 @@
   overscroll-behavior: none;
   color: var(--chat-text);
 }
-.shell[data-keyboard-open] {
+.shell[data-viewport-pinned] {
   bottom: auto;
-  top: var(--chat-keyboard-offset-y, 0px);
-  left: var(--chat-keyboard-offset-x, 0px);
+  top: var(--chat-viewport-offset-y, 0px);
+  left: var(--chat-viewport-offset-x, 0px);
   right: auto;
   width: 100%;
 }
@@ -325,8 +327,31 @@
   font-size: 16px;
   line-height: 24px;
 }
-.composerField textarea::placeholder {
+/* The empty-field hint is drawn by the composer, not the browser's ::placeholder: WebKit wraps a
+ * textarea placeholder onto a second line that the one-line field then clips (evidence IMG_0342).
+ * This hint always occupies exactly the textarea's first line box and truncates cleanly. */
+.composerInput {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.composerInput textarea {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.composerHint {
+  position: absolute;
+  inset-inline: 10px;
+  top: 10px;
+  overflow: hidden;
   color: var(--chat-field-muted);
+  font-size: 16px;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  user-select: none;
 }
 .composerField button {
   flex-shrink: 0;

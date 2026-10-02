@@ -13,6 +13,7 @@ import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
+import { shouldDismissKeyboardOnSubmit } from '../hooks/useChatViewportHeight'
 
 type Message = {
   id?: string
@@ -257,7 +258,16 @@ export function ChatWindow({
     setDraft('')
     rememberDraft('')
     followLatestRef.current = true
-    shouldRestoreComposerFocusRef.current = true
+    // On a phone the send itself dismisses the software keyboard, in this same interaction, so
+    // the composer settles back down while the answer loads; nothing refocuses it afterwards.
+    // A desktop or hardware keyboard keeps focus in the composer for the next question.
+    const field = composerRef.current
+    if (shouldDismissKeyboardOnSubmit(field)) {
+      field?.blur()
+      shouldRestoreComposerFocusRef.current = false
+    } else {
+      shouldRestoreComposerFocusRef.current = true
+    }
   }
 
   return (
@@ -441,29 +451,43 @@ export function ChatWindow({
           >
             {askQuestionLabel}
           </label>
-          <textarea
-            ref={composerRef}
-            id={composerId}
-            lang=""
-            dir="auto"
-            className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
-            enterKeyHint="send"
-            placeholder={placeholder}
-            rows={1}
-            value={draft}
-            onChange={(event) => {
-              const nextDraft = event.target.value
-              setDraft(nextDraft)
-              rememberDraft(nextDraft)
-              onDraftChange?.(nextDraft)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-          />
+          <div className={styles.composerInput}>
+            {draft.length === 0 ? (
+              <span className={styles.composerHint} aria-hidden="true" dir="auto">
+                {placeholder}
+              </span>
+            ) : null}
+            <textarea
+              ref={composerRef}
+              id={composerId}
+              lang=""
+              dir="auto"
+              className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
+              enterKeyHint="send"
+              aria-placeholder={placeholder}
+              rows={1}
+              value={draft}
+              onChange={(event) => {
+                const nextDraft = event.target.value
+                setDraft(nextDraft)
+                rememberDraft(nextDraft)
+                onDraftChange?.(nextDraft)
+              }}
+              onKeyDown={(event) => {
+                // Safari reports the Enter that confirms an IME conversion as keyCode 229 with
+                // isComposing already false; that Enter belongs to the IME, not to sending.
+                if (
+                  event.key === 'Enter' &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.nativeEvent.keyCode !== 229
+                ) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+            />
+          </div>
           {composerVoiceControl}
           <button
             ref={sendButtonRef}
