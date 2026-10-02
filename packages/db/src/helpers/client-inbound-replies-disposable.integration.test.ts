@@ -216,6 +216,24 @@ describe.skipIf(!enabled)('client inbound reply linking (disposable database)', 
     expect(JSON.stringify(row)).not.toContain(a.recipient)
   })
 
+  it('quarantines an overfull provider thread instead of trusting truncated anchors', async () => {
+    const providerThreadId = `thread-${suffix}-overflow`
+    for (let index = 0; index < 21; index++) {
+      expect(
+        await linkInboundClientReply(
+          email({ fromAddress: a.recipient, inReplyTo: a.anchor, providerThreadId }),
+        ),
+      ).toMatchObject({ state: 'LINKED', supportRequestId: a.requestId })
+    }
+
+    const before = await state(a)
+    const result = await linkInboundClientReply(
+      email({ fromAddress: a.recipient, providerThreadId }),
+    )
+    expect(result).toMatchObject({ state: 'QUARANTINED', reason: 'AMBIGUOUS_THREAD' })
+    expect(await state(a)).toEqual(before)
+  })
+
   it('refuses a cross-tenant spoof and an anchor set that spans tenants', async () => {
     const beforeA = await state(a)
     const beforeB = await state(b)

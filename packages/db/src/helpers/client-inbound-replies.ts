@@ -164,7 +164,10 @@ type Candidate = {
 
 type Resolution =
   | { kind: 'DUPLICATE'; disposition: 'LINKED' | 'QUARANTINED' }
+  | { kind: 'OVERFLOW' }
   | { kind: 'CANDIDATES'; candidates: Candidate[] }
+
+const MAX_ANCHOR_ROWS = 20
 
 /**
  * The single deliberate cross-tenant read: the owning tenant of an outbound anchor is not known
@@ -205,7 +208,7 @@ async function resolveAnchors(input: ClientInboundEmailInput): Promise<Resolutio
         ? Promise.resolve([])
         : db.clientNotificationIntent.findMany({
             where: { emailRfcMessageId: { in: ids } },
-            take: 20,
+            take: MAX_ANCHOR_ROWS + 1,
             select: {
               id: true,
               tenantId: true,
@@ -218,7 +221,7 @@ async function resolveAnchors(input: ClientInboundEmailInput): Promise<Resolutio
         ? Promise.resolve([])
         : db.clientInboundReply.findMany({
             where: { rfcMessageId: { in: ids } },
-            take: 20,
+            take: MAX_ANCHOR_ROWS + 1,
             select: replySelect,
           }),
       input.providerThreadId === null
@@ -229,10 +232,18 @@ async function resolveAnchors(input: ClientInboundEmailInput): Promise<Resolutio
               mailboxId: input.mailboxId,
               providerThreadId: input.providerThreadId,
             },
-            take: 20,
+            take: MAX_ANCHOR_ROWS + 1,
             select: replySelect,
           }),
     ])
+
+    // A truncated source could hide a different request or tenant. Refuse to infer ownership.
+    if (
+      intents.length > MAX_ANCHOR_ROWS ||
+      chained.length > MAX_ANCHOR_ROWS ||
+      threaded.length > MAX_ANCHOR_ROWS
+    )
+      return { kind: 'OVERFLOW' }
 
     const byKey = new Map<string, Candidate>()
     const add = (
@@ -332,6 +343,11 @@ export async function linkInboundClientReply(
   const resolution = await resolveAnchors(input)
   if (resolution.kind === 'DUPLICATE')
     return { state: 'DUPLICATE', disposition: resolution.disposition }
+  if (resolution.kind === 'OVERFLOW')
+    return quarantine(client, input, {
+      reason: 'AMBIGUOUS_THREAD',
+      candidateCount: MAX_ANCHOR_ROWS + 1,
+    })
 
   const requests = new Set(
     resolution.candidates.map(
