@@ -5,10 +5,12 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
+  applyPendingWithJobGrant,
   createJobGrant,
   createOperatorRegistry,
   OperatorJobGrantError,
   OperatorNotFoundError,
+  OperatorProposalError,
   revokeJobGrant,
 } from '@pathfinder/api/operator'
 import { db } from '@pathfinder/db'
@@ -38,6 +40,13 @@ const Body = z.discriminatedUnion('action', [
     })
     .strict(),
   z.object({ action: z.literal('revoke'), id: Id }).strict(),
+  z
+    .object({
+      action: z.literal('apply'),
+      proposalId: Id,
+      argsHash: z.string().regex(/^[0-9a-f]{64}$/u),
+    })
+    .strict(),
 ])
 
 /**
@@ -65,6 +74,13 @@ export async function POST(request: Request) {
       const row = await revokeJobGrant({ id: body.id, ...common }, dependencies)
       return operatorJson(200, { id: row.id, revoked: row.revokedAt !== null })
     }
+    if (body.action === 'apply') {
+      const row = await applyPendingWithJobGrant(
+        { proposalId: body.proposalId, argsHash: body.argsHash, ...common },
+        dependencies,
+      )
+      return operatorJson(200, { id: row.id, status: row.status, failureCode: row.failureCode })
+    }
     const row = await createJobGrant(
       {
         name: body.name,
@@ -85,6 +101,7 @@ export async function POST(request: Request) {
     if (error instanceof OperatorJobGrantError) {
       return operatorJson(error.code === 'FORBIDDEN_ACTOR' ? 403 : 409, { error: error.code })
     }
+    if (error instanceof OperatorProposalError) return operatorJson(409, { error: error.code })
     throw error
   }
 }

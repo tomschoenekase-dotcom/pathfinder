@@ -20,7 +20,6 @@ import {
   OperatorCapabilityError,
   OperatorNotFoundError,
 } from './grants'
-import { claimJobGrantUse } from './job-grants'
 import type { VerifiedOperatorGrant } from './oauth'
 import { argsHash as hashArgs, sameHash } from './tokens'
 
@@ -470,34 +469,6 @@ export async function createProposal(
         },
         dependencies,
       )
-    } else if (autonomy === 'ask') {
-      // A bounded job grant an owner created in advance. It is looked up and spent entirely on the
-      // server from what the proposal is (kind, tenant, venue, amount); the caller names nothing.
-      // No match, or an exhausted, expired, revoked or out-of-scope grant, leaves the proposal
-      // pending for a person.
-      const use = await claimJobGrantUse(database, {
-        kind,
-        args,
-        clientId: service.grant.clientId,
-        tenantId: row.targetTenantId,
-        venueId: row.targetVenueId,
-        now: service.now,
-        allowedUserIds: service.config.allowedUserIds,
-      })
-      if (use) {
-        await approveAndApplyProposal(
-          {
-            proposalId: row.id,
-            argsHash,
-            actorUserId: use.createdByUserId,
-            auto: true,
-            jobGrantId: use.id,
-            requestId: service.requestId,
-            now: service.now,
-          },
-          dependencies,
-        )
-      }
     }
   } catch (error) {
     logger.error({
@@ -805,7 +776,7 @@ export async function applyApprovedProposal(
       input.actorUserId,
     )
   // A job grant revoked after it approved this proposal but before the write began stops it here.
-  if (row.jobGrantId !== null) {
+  if (row.jobGrantId) {
     const jobGrant = await database.operatorJobGrant.findUnique({
       where: { id: row.jobGrantId },
       select: { revokedAt: true },

@@ -73,6 +73,9 @@ export default async function OperatorApprovePage({
             argsHash={item.argsHash}
             label={item.title}
             decisionRequestId={decisionRequestId}
+            grantable={
+              item.type === 'proposal' && item.steps[0]?.tool === 'appearance.propose_update'
+            }
           />
         ) : null
       }

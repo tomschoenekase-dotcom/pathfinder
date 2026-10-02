@@ -7,6 +7,7 @@ import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db
 import { resolveOperatorConfig } from './config'
 import { decideRequest, requestDecision } from './decisions'
 import {
+  applyPendingWithJobGrant,
   claimJobGrantUse,
   createJobGrant,
   listJobGrants,
@@ -148,6 +149,18 @@ const venueTitle = async (forVenue = venueId) => {
 }
 
 const proposalRow = (id: string) => db.operatorProposal.findUniqueOrThrow({ where: { id } })
+
+const applyJob = (view: { proposalId: string; argsHash: string }, forKinds = kinds) =>
+  applyPendingWithJobGrant(
+    {
+      proposalId: view.proposalId,
+      argsHash: view.argsHash,
+      actorUserId: 'user_owner',
+      requestId: randomUUID(),
+      now: new Date(),
+    },
+    { ...dependencies, kinds: forKinds },
+  )
 
 const owner = (
   extra: Partial<Parameters<typeof createJobGrant>[0]> = {},
@@ -560,18 +573,47 @@ describe.skipIf(!enabled)(
         expect(await db.operatorJobGrant.count({ where: { clientId } })).toBe(0)
       })
 
-      it('applies up to its execution limit with the grant recorded, then falls back to a person', async () => {
+      it('MCP proposal creation never spends or applies a matching grant; a human may spend it within bounds', async () => {
         const job = await createJobGrant(owner({ venueId }), dependencies)
         // The short default expiry is applied when none is given.
         expect(job.expiresAt.getTime() - job.createdAt.getTime()).toBe(24 * 3_600_000)
         const before = await venueTitle()
 
-        const first = await proposeAppearance()
-        expect(first.status).toBe('APPLIED')
+        const version = await db.venue.findFirstOrThrow({
+          where: { id: venueId, tenantId },
+          select: { updatedAt: true },
+        })
+        const first = (await registry.callTool(
+          'appearance.propose_update',
+          {
+            tenantId,
+            venueId,
+            operationId: randomUUID(),
+            expectedUpdatedAt: version.updatedAt.toISOString(),
+            title: `Example ${suffix} registry grant boundary`,
+          },
+          {
+            config,
+            database: db,
+            grant,
+            now: new Date(),
+            requestId: randomUUID(),
+            venueRead: async () => {
+              throw new Error('unused')
+            },
+          },
+        )) as Awaited<ReturnType<typeof proposeAppearance>>
+        expect(first.status).toBe('PENDING')
+        expect(await venueTitle()).toEqual(before)
+        expect(
+          (await db.operatorJobGrant.findUniqueOrThrow({ where: { id: job.id } }))
+            .remainingExecutions,
+        ).toBe(2)
+        expect((await applyJob(first)).status).toBe('APPLIED')
         const row = await proposalRow(first.proposalId)
         expect(row).toMatchObject({
           jobGrantId: job.id,
-          autoApproved: true,
+          autoApproved: false,
           decidedByUserId: 'user_owner',
         })
         expect(await venueTitle()).not.toEqual(before)
@@ -581,7 +623,9 @@ describe.skipIf(!enabled)(
         expect(used).toHaveLength(1)
         expect(used[0]!.redactedArgs).toMatchObject({ jobGrantId: job.id })
 
-        expect((await proposeAppearance()).status).toBe('APPLIED')
+        const second = await proposeAppearance()
+        expect(second.status).toBe('PENDING')
+        expect((await applyJob(second)).status).toBe('APPLIED')
         expect(
           (await db.operatorJobGrant.findUniqueOrThrow({ where: { id: job.id } }))
             .remainingExecutions,
@@ -591,6 +635,7 @@ describe.skipIf(!enabled)(
         const afterTwo = await venueTitle()
         const third = await proposeAppearance()
         expect(third.status).toBe('PENDING')
+        await expect(applyJob(third)).rejects.toMatchObject({ code: 'NO_MATCHING_GRANT' })
         expect(await venueTitle()).toEqual(afterTwo)
         expect((await proposalRow(third.proposalId)).jobGrantId).toBeNull()
         const approved = await approveAndApplyProposal(
@@ -616,19 +661,25 @@ describe.skipIf(!enabled)(
       it('scope mismatch falls back: another venue, another tenant, another connection', async () => {
         const job = await createJobGrant(owner({ venueId, maxExecutions: 5 }), dependencies)
         // Another venue of the same tenant.
-        expect((await proposeAppearance(secondVenueId)).status).toBe('PENDING')
+        await expect(applyJob(await proposeAppearance(secondVenueId))).rejects.toMatchObject({
+          code: 'NO_MATCHING_GRANT',
+        })
         // Another tenant.
-        expect((await proposeAppearance(foreignVenueId, { tenant: otherTenantId })).status).toBe(
-          'PENDING',
-        )
+        await expect(
+          applyJob(await proposeAppearance(foreignVenueId, { tenant: otherTenantId })),
+        ).rejects.toMatchObject({ code: 'NO_MATCHING_GRANT' })
         // Another connection (same tenant and venue).
-        expect((await proposeAppearance(venueId, { grant: otherGrant })).status).toBe('PENDING')
+        await expect(
+          applyJob(await proposeAppearance(venueId, { grant: otherGrant })),
+        ).rejects.toMatchObject({ code: 'NO_MATCHING_GRANT' })
         expect(
           (await db.operatorJobGrant.findUniqueOrThrow({ where: { id: job.id } }))
             .remainingExecutions,
         ).toBe(5)
         // The matching one still works.
-        expect((await proposeAppearance(venueId)).status).toBe('APPLIED')
+        const matching = await proposeAppearance(venueId)
+        expect(matching.status).toBe('PENDING')
+        expect((await applyJob(matching)).status).toBe('APPLIED')
         await revokeJobGrant(
           { id: job.id, actorUserId: 'user_owner', requestId: randomUUID(), now: new Date() },
           dependencies,
@@ -637,11 +688,13 @@ describe.skipIf(!enabled)(
 
       it('a tenant-wide grant covers every venue of that tenant only', async () => {
         const job = await createJobGrant(owner({ maxExecutions: 5 }), dependencies)
-        expect((await proposeAppearance(secondVenueId)).status).toBe('APPLIED')
-        expect((await proposeAppearance(venueId)).status).toBe('APPLIED')
-        expect((await proposeAppearance(foreignVenueId, { tenant: otherTenantId })).status).toBe(
-          'PENDING',
-        )
+        const second = await proposeAppearance(secondVenueId)
+        expect((await applyJob(second)).status).toBe('APPLIED')
+        const first = await proposeAppearance(venueId)
+        expect((await applyJob(first)).status).toBe('APPLIED')
+        await expect(
+          applyJob(await proposeAppearance(foreignVenueId, { tenant: otherTenantId })),
+        ).rejects.toMatchObject({ code: 'NO_MATCHING_GRANT' })
         await revokeJobGrant(
           { id: job.id, actorUserId: 'user_owner', requestId: randomUUID(), now: new Date() },
           dependencies,
@@ -770,6 +823,8 @@ describe.skipIf(!enabled)(
         const job = await createJobGrant(owner({ maxExecutions: 3 }), dependencies)
         const views = await Promise.all(Array.from({ length: 8 }, () => proposeAppearance(venueId)))
         expect(views).toHaveLength(8)
+        expect(await db.operatorProposal.count({ where: { jobGrantId: job.id } })).toBe(0)
+        await Promise.allSettled(views.map((view) => applyJob(view)))
         const used = await db.operatorProposal.count({ where: { jobGrantId: job.id } })
         expect(used).toBe(3)
         const stored = await db.operatorJobGrant.findUniqueOrThrow({ where: { id: job.id } })
@@ -797,11 +852,14 @@ describe.skipIf(!enabled)(
           amountDeps,
         )
         const run = () => proposeAppearance(venueId, { kinds: amountKinds })
-        expect((await run()).status).toBe('APPLIED')
-        expect((await run()).status).toBe('APPLIED')
+        expect((await applyJob(await run(), amountKinds)).status).toBe('APPLIED')
+        expect((await applyJob(await run(), amountKinds)).status).toBe('APPLIED')
         // 80 of 100 spent: a third use of 40 does not fit.
         const third = await run()
         expect(third.status).toBe('PENDING')
+        await expect(applyJob(third, amountKinds)).rejects.toMatchObject({
+          code: 'NO_MATCHING_GRANT',
+        })
         const stored = await db.operatorJobGrant.findUniqueOrThrow({ where: { id: job.id } })
         expect(stored).toMatchObject({ remainingExecutions: 3, remainingAmountCents: 20 })
         // A kind that returns nonsense never matches.

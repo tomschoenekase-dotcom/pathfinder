@@ -92,8 +92,8 @@ function RevokeJobGrantButton({ id, name }: { id: string; name: string }) {
 
 /**
  * Bounded job grants. A grant lets one named job from one connected app have specific, opted-in
- * actions applied without asking each time, within a client, a number of uses and a time limit.
- * Everything here is a signed-in person's decision: the Dot cannot create, widen or revoke one, and
+ * actions applied from the approval page, within a client, a number of uses and a time limit.
+ * Everything here is a signed-in person's decision: the Dot cannot create, widen, spend or revoke one, and
  * anything outside the bounds goes back to ask-first.
  */
 export function OperatorJobGrants({ panel, now }: { panel: OperatorJobGrantPanel; now: Date }) {
@@ -167,11 +167,10 @@ export function OperatorJobGrants({ panel, now }: { panel: OperatorJobGrantPanel
           Job grants
         </h2>
         <p className="mt-1 max-w-prose text-sm text-slate-700">
-          Let one named job from a connected app make specific changes without asking each time. It
-          stops when the uses run out, the time ends, you revoke it, or a change falls outside the
-          client you chose; those changes wait for you as usual. Only actions that opted in appear
-          here, and anything that emails, invites or bills never does. The Dot cannot create or
-          change a grant.
+          Set limits for a named job from a connected app, then apply a matching pending change from
+          its approval page. Each use requires your sign-in and spends one grant use. The grant
+          stops when the uses run out, the time ends, or you revoke it. Only actions that opted in
+          appear here; anything that emails, invites or bills stays outside grants.
         </p>
         {panel.kinds.length === 0 ? (
           <p className="mt-3 text-sm font-medium text-slate-900">

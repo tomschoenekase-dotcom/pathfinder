@@ -89,13 +89,31 @@ A26 bounded job grants (new `job-grants.ts`, table `operator_job_grants`, column
 - Grant = name, operator connection (OAuth client), one tenant (+ optional venue), exact kinds, maxExecutions (1..100),
   optional maxAmountCents (only for kinds that declare `jobGrant.amountCents`), required expiry (default 24 h, 5 min..7 d),
   revocable. Counters are stored as REMAINING budget so a use is one conditional UPDATE (no overspend under races).
-- Created/revoked only by `POST /api/operator/job-grants` behind the same human guard; no operator tool reaches it and
-  the connection cannot name a grant: `createProposal` matches one server-side from kind/tenant/venue/connection.
+- Created/revoked only by `POST /api/operator/job-grants` behind the same human guard; no operator tool reaches it.
+  An audit of the first implementation found that `createProposal` also _spent_ matching grants during MCP calls.
+  That path was removed. The grant creator must use **Apply with my job grant** on the pending proposal's approval
+  page; the guarded `apply` action matches kind/tenant/venue/connection server-side and binds the shown args hash.
 - Default deny: a kind must set `jobGrant` itself; always-ask kinds and locked capabilities are refused. Only
   `appearance.update` opts in this lane; mail, invites, billing and all always-ask kinds stay non-grantable.
-- Use: only when autonomy resolves to `ask`; on a match the proposal is approved by the grant creator as actor with
+- Use: an authenticated creator explicitly spends one use to approve and apply the pending proposal, with
   `job_grant_id` recorded and audit outcome `JOB_GRANT_APPROVED` (args: jobGrantId). Revoked before apply = FAILED
-  `JOB_GRANT_REVOKED`. Exhausted/expired/revoked/other scope/other kind = no match = stays PENDING (normal approval).
+  `JOB_GRANT_REVOKED`. Exhausted/expired/revoked/other scope/other kind = refusal; proposal stays PENDING.
+- This lane does not provide scheduled autonomous use. The job grant is a bounded human-triggered option; MCP
+  connections cannot mint, spend, or consume one.
 - A claimed use is spent even if the change later goes stale or fails (conservative).
 - Migration `20261002110000_add_operator_decisions_and_job_grants` (additive; both tables PLATFORM*TABLES; CHECK
   constraints on bounds). Disposable DB must be named `pathfinder_disposable*_`for the suites to run (not`pathfinder*einstein*_`), so this lane used `pathfinder_disposable_einstein_w12`.
+
+### W12 verification (local disposable services, Redis DB 2)
+
+- PASS — `pnpm install` (lockfile unchanged).
+- PASS — `pnpm typecheck --concurrency=2` after the security refactor (27/27 tasks). An earlier uncapped run was interrupted during the database package build because concurrent lane Turbo runs exhausted host memory.
+- PASS — from `packages/api`, with `RUN_OPERATOR_DB_INTEGRATION=1`, `DATABASE_URL` and `DIRECT_DATABASE_URL` set to local `pathfinder_disposable_einstein_w12`, and `REDIS_URL=redis://127.0.0.1:36379/2`: `npx vitest run src/operator/operator-authority.disposable.integration.test.ts src/operator/operator-execution.disposable.integration.test.ts src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` (4 files, 60 tests).
+- PASS — from `packages/api`, `pnpm exec vitest run src/operator/operator-decisions-grants.test.ts --pool=forks --maxWorkers=1` (45 tests). An earlier combined command with `operator.adversarial.test.ts` skipped that file's 26 DB cases because the DB flag was absent.
+- PASS — from `packages/api`, `pnpm exec vitest run src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` with the local DB env and `RUN_OPERATOR_DB_INTEGRATION=1` after the security refactor (21 tests). The matching-grant case goes through `registry.callTool('appearance.propose_update', ...)` and proves the grant remains unspent until the signed-in route uses it.
+- PASS — from `apps/dashboard`, `pnpm exec vitest run 'app/api/operator/operator-decision-grant-routes.test.ts' 'app/(admin)/admin/operator/page.test.tsx' --pool=forks --maxWorkers=1` (51 tests) and `pnpm exec vitest run components/operator/OperatorScreens.accessibility.test.tsx --pool=forks --maxWorkers=1` (24 tests; jsdom navigation diagnostics on an unrelated anchor).
+- FAIL — `pnpm lint --concurrency=2` due to one pre-existing unused import in `operator-company-reports-billing.disposable.integration.test.ts`; focused ESLint on all changed TS/TSX files PASS. The parallel outreach lane fixes that import for integration.
+- FAIL then PASS — `pnpm test` stopped in `packages/db` at two stale expectations for the new platform tables and new migration; both expectations were updated. `pnpm --dir packages/db test` then PASS (320 files, 2,293 tests; 62 files/137 DB cases skipped by design).
+- FAIL — `pnpm test:scripts`: 14 expected staging migration-admission pin failures plus one tool-coverage count/digest mismatch caused by the new admin procedures. The integrator must refresh the tool-coverage inventory after all lanes merge; staging pins remain untouched.
+- FAIL (invocation only) — root `npx vitest run packages/api/src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` read the workspace file as a Vite config; repeating with `--config packages/api/vitest.config.ts` from root missed `packages/api/vitest.setup.ts`. The package-directory invocation above is the working command.
+- NOT RUN — rendered browser check of the grant approval page (no provider-dark fixture for the guarded component); this is a release candidate verification item.

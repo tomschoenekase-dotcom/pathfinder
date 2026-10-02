@@ -53,7 +53,13 @@ describe('the operator connection can never decide, mint or grant', () => {
 
   it.each(surface)('%s does not reference the human-only services', (file) => {
     const source = readFileSync(path.join(root, file), 'utf8')
-    for (const name of ['decideRequest', 'createJobGrant', 'revokeJobGrant']) {
+    for (const name of [
+      'decideRequest',
+      'createJobGrant',
+      'revokeJobGrant',
+      'applyPendingWithJobGrant',
+      'claimJobGrantUse',
+    ]) {
       expect(source, `${file} must not use ${name}`).not.toContain(name)
     }
   })

@@ -41,6 +41,7 @@ const ERROR_TEXT: Record<string, string> = {
   KIND_NOT_GRANTABLE: 'That action cannot be granted.',
   CLIENT_NOT_FOUND: 'That connected app is not active.',
   SCOPE_NOT_FOUND: 'That client or venue was not found.',
+  NO_MATCHING_GRANT: 'No active job grant you created covers this change. It remains pending.',
   INVALID: 'One of the limits is out of range.',
 }
 

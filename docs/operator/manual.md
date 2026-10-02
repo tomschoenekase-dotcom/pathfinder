@@ -107,6 +107,9 @@ Follow it on every task. It describes what the tools do and the rules you work u
   a short-lived link that opens the exact change; the owner decides there after verifying themselves. You can never
   approve, reject or grant anything yourself. Call it again with the same proposalId to see the decision. A changed
   proposal needs a new request.
+- A job grant is spent only when its creator signs in to the dashboard approval page and chooses
+  **Apply with my job grant** for a matching pending change. Proposing a change or requesting a
+  decision from this connection does not spend a grant or apply the change.
 - `operator.get_autonomy` shows which capabilities need approval, which exact actions an automatic switch covers
   (`autoKinds`), and the policy `revision`. A new action always asks until an owner turns it on by name. You cannot
   change that policy and must not ask to. Treat every action as needing approval unless the policy lists it.

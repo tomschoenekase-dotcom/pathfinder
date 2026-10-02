@@ -3,23 +3,29 @@ import { db } from '@pathfinder/db'
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { isAlwaysAskKind, OPERATOR_LOCKED_CAPABILITIES } from './autonomy'
 import { OperatorNotFoundError } from './grants'
-import type { AnyOperatorProposalKind, OperatorKindRegistry } from './proposals'
+import {
+  approveAndApplyProposal,
+  OperatorProposalError,
+  type AnyOperatorProposalKind,
+  type OperatorKindRegistry,
+} from './proposals'
+import { sameHash } from './tokens'
 
 /**
  * Bounded job grants: an owner's advance, narrow permission for one named job to have specific
- * proposal kinds applied without per-item approval.
+ * proposal kinds applied from a signed-in review page within the job's bounds.
  *
  * Authority rules, all enforced here and not in any caller:
  * - Created and revoked only through `createJobGrant` / `revokeJobGrant`, which the dashboard route
  *   calls behind a signed-in, allowlisted platform admin, same-origin check and strict
  *   reverification. No operator tool reaches them, so the operator connection can never mint,
- *   widen or revoke a grant. It cannot even name one: a grant is matched on the server from the
- *   proposal's own kind, tenant, venue and amount.
+ *   widen, spend or revoke a grant. The authenticated review route matches the grant on the server
+ *   from the proposal's own kind, tenant, venue and amount.
  * - A kind is grantable only if it opts in (`jobGrant` on the kind). Default deny. Always-ask kinds
  *   and locked capabilities are never grantable, so mail, invites and billing stay behind a person.
  * - Every bound is part of one conditional UPDATE (`claimJobGrantUse`), so concurrent proposals
  *   cannot overspend a count or an amount, and a revoked or expired grant cannot be used.
- * - Anything that does not match falls back to the normal approval path: the proposal stays PENDING.
+ * - Anything that does not match is refused and the proposal stays PENDING for normal approval.
  */
 export const OPERATOR_JOB_GRANT_LIMITS = {
   defaultHours: 24,
@@ -36,6 +42,7 @@ export type OperatorJobGrantErrorCode =
   | 'FORBIDDEN_ACTOR'
   | 'CLIENT_NOT_FOUND'
   | 'SCOPE_NOT_FOUND'
+  | 'NO_MATCHING_GRANT'
 
 export class OperatorJobGrantError extends Error {
   constructor(
@@ -314,6 +321,71 @@ export async function claimJobGrantUse(
     }
   }
   return null
+}
+
+/**
+ * A signed-in owner explicitly spends one grant use on an existing pending proposal. The MCP
+ * proposal path never calls this service: possession of a connection token does not spend a job
+ * grant or turn a pending proposal into an approval. The route supplies an authenticated actor.
+ */
+export async function applyPendingWithJobGrant(
+  input: Readonly<{
+    proposalId: string
+    argsHash: string
+    actorUserId: string
+    requestId: string
+    now: Date
+  }>,
+  dependencies: Dependencies,
+) {
+  const database = dependencies.database ?? db
+  assertActor(input.actorUserId, dependencies.allowedUserIds)
+  const proposal = await database.operatorProposal.findUnique({ where: { id: input.proposalId } })
+  if (!proposal) throw new OperatorNotFoundError()
+  if (
+    proposal.planId !== null ||
+    proposal.status !== 'PENDING' ||
+    proposal.expiresAt <= input.now
+  ) {
+    throw new OperatorProposalError('NOT_PENDING', 'This proposal is no longer pending.')
+  }
+  if (!sameHash(proposal.argsHash, input.argsHash)) {
+    throw new OperatorProposalError(
+      'ARGS_HASH_MISMATCH',
+      'The proposal changed since it was shown.',
+    )
+  }
+  const kind = [...dependencies.kinds.values()].find((entry) => entry.kind === proposal.kind)
+  if (!kind || !isJobGrantableKind(kind)) {
+    throw new OperatorJobGrantError('KIND_NOT_GRANTABLE', 'That kind cannot be granted.')
+  }
+  const use = await claimJobGrantUse(database, {
+    kind,
+    args: proposal.args,
+    clientId: proposal.clientId,
+    tenantId: proposal.targetTenantId,
+    venueId: proposal.targetVenueId,
+    now: input.now,
+    // The person pressing Apply may spend only a grant they personally created.
+    allowedUserIds: new Set([input.actorUserId]),
+  })
+  if (!use) {
+    throw new OperatorJobGrantError(
+      'NO_MATCHING_GRANT',
+      'No active job grant covers this proposal.',
+    )
+  }
+  return approveAndApplyProposal(
+    {
+      proposalId: proposal.id,
+      argsHash: input.argsHash,
+      actorUserId: input.actorUserId,
+      jobGrantId: use.id,
+      requestId: input.requestId,
+      now: input.now,
+    },
+    dependencies,
+  )
 }
 
 export type OperatorJobGrantView = {

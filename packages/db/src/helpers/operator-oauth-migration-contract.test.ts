@@ -21,12 +21,12 @@ const operatorModels = [
 ] as const
 
 describe('operator OAuth migration contract', () => {
-  it('is the single operator migration and sorts after the Release B candidate', () => {
+  it('contains the original operator OAuth migration after the Release B candidate', () => {
     const names = readdirSync(migrationsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
-    expect(names.filter((name) => /operator/u.test(name))).toEqual([operatorMigration])
+    expect(names).toContain(operatorMigration)
     expect(names.indexOf(operatorMigration)).toBeGreaterThan(
       names.indexOf('20260930100000_add_mcp_venue_appearance_capabilities'),
     )

@@ -287,7 +287,12 @@ function shell(tab: OperatorTabId | null, inboxCount: number | null, content: Re
 }
 
 const approvePanel = (item: OperatorReviewItemView) => (
-  <ApproveInvoker id={item.id} argsHash={item.argsHash} label={item.title} />
+  <ApproveInvoker
+    id={item.id}
+    argsHash={item.argsHash}
+    label={item.title}
+    grantable={item.type === 'proposal' && item.steps[0]?.tool === 'appearance.propose_update'}
+  />
 )
 
 const screens: Record<string, React.ReactElement> = {
@@ -330,6 +335,7 @@ const screens: Record<string, React.ReactElement> = {
           argsHash={appearance.argsHash}
           label={appearance.title}
           decisionRequestId="req_1"
+          grantable
         />
       }
     />

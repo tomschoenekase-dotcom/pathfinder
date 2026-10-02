@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   decideRequest: vi.fn(),
   createJobGrant: vi.fn(),
   revokeJobGrant: vi.fn(),
+  applyPendingWithJobGrant: vi.fn(),
 }))
 
 vi.mock('@pathfinder/auth/server', () => ({
@@ -46,6 +47,7 @@ vi.mock('@pathfinder/api/operator', () => {
     decideRequest: mocks.decideRequest,
     createJobGrant: mocks.createJobGrant,
     revokeJobGrant: mocks.revokeJobGrant,
+    applyPendingWithJobGrant: mocks.applyPendingWithJobGrant,
     OperatorNotFoundError,
     OperatorProposalError,
     OperatorJobGrantError,
@@ -83,6 +85,11 @@ beforeEach(() => {
   mocks.decideRequest.mockResolvedValue({ id: 'proposal_1', status: 'APPLIED', failureCode: null })
   mocks.createJobGrant.mockResolvedValue({ id: 'jg_1' })
   mocks.revokeJobGrant.mockResolvedValue({ id: 'jg_1', revokedAt: new Date() })
+  mocks.applyPendingWithJobGrant.mockResolvedValue({
+    id: 'proposal_1',
+    status: 'APPLIED',
+    failureCode: null,
+  })
   signIn('user_owner')
 })
 
@@ -116,6 +123,13 @@ const cases = [
     post: jobGrants,
     body: { action: 'revoke', id: 'jg_1' },
     effect: () => mocks.revokeJobGrant,
+  },
+  {
+    name: 'job-grants apply',
+    path: '/api/operator/job-grants',
+    post: jobGrants,
+    body: { action: 'apply', proposalId: 'proposal_1', argsHash: hash },
+    effect: () => mocks.applyPendingWithJobGrant,
   },
 ]
 
@@ -229,6 +243,25 @@ describe('decide handler', () => {
 })
 
 describe('job-grants handler', () => {
+  it('spends a grant only for the verified human, with the hash shown on the page', async () => {
+    const response = await jobGrants(
+      request('/api/operator/job-grants', {
+        action: 'apply',
+        proposalId: 'proposal_1',
+        argsHash: hash,
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.applyPendingWithJobGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: 'proposal_1',
+        argsHash: hash,
+        actorUserId: 'user_owner',
+      }),
+      expect.objectContaining({ allowedUserIds: new Set(['user_owner']) }),
+    )
+  })
+
   it('creates a grant with the verified human as the actor', async () => {
     const response = await jobGrants(request('/api/operator/job-grants', createBody))
     expect(response.status).toBe(200)
@@ -269,11 +302,14 @@ describe('job-grants handler', () => {
       { ...createBody, createdByUserId: 'someone' },
       { action: 'delete', id: 'jg_1' },
       { action: 'revoke', id: '' },
+      { action: 'apply', proposalId: 'proposal_1', argsHash: 'bad' },
+      { action: 'apply', proposalId: 'proposal_1', argsHash: hash, actorUserId: 'someone' },
     ]) {
       expect((await jobGrants(request('/api/operator/job-grants', body))).status).toBe(400)
     }
     expect(mocks.createJobGrant).not.toHaveBeenCalled()
     expect(mocks.revokeJobGrant).not.toHaveBeenCalled()
+    expect(mocks.applyPendingWithJobGrant).not.toHaveBeenCalled()
   })
 
   it('answers 409 for a kind that cannot be granted', async () => {
