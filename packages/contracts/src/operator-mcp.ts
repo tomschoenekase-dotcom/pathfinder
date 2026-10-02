@@ -51,6 +51,29 @@ export const ProspectStageValue = z.enum([
   'PARKED',
   'DO_NOT_CONTACT',
 ])
+export const ProspectImportStatusValue = z.enum([
+  'DRAFT',
+  'DRY_RUN_READY',
+  'APPROVED',
+  'PROCESSING',
+  'COMPLETE',
+  'PARTIAL',
+  'FAILED',
+  'CANCELLED',
+  'REPAIRED',
+])
+
+export const ProspectImportRowStatusValue = z.enum([
+  'VALID',
+  'WARNING',
+  'DUPLICATE_REVIEW',
+  'PROCESSING',
+  'IMPORTED',
+  'FAILED',
+  'SKIPPED',
+  'QUARANTINED',
+])
+
 export const ProspectCampaignStatusValue = z.enum([
   'DRAFT',
   'ACTIVE',
@@ -143,6 +166,10 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'crm.propose_account_archive',
   // Rewrites how history is read across accounts: an exact reviewed decision, never a policy.
   'crm.propose_duplicate_resolution',
+  // Changes who is emailed for a person: a person decides each address change.
+  'crm.propose_contact_address_change',
+  // Commits a whole reviewed spreadsheet of records at once, bound to its exact hashes.
+  'crm.propose_import_commit',
   // Each of these is a human gate on outbound mail. Policy never stands in for the person.
   'crm.propose_draft_review',
   'crm.propose_batch_stage',
@@ -185,7 +212,10 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_account_context',
   'crm.list_contacts',
   'crm.list_notes',
+  'crm.get_note',
   'crm.list_duplicates',
+  'crm.list_imports',
+  'crm.get_import',
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
@@ -229,6 +259,10 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_followup_update',
   'crm.propose_note',
   'crm.propose_account_archive',
+  'crm.propose_account_update',
+  'crm.propose_contact_address_change',
+  'crm.propose_prospect_create',
+  'crm.propose_import_commit',
   'crm.propose_duplicate_resolution',
   'crm.propose_campaign_create',
   'crm.propose_draft_review',
@@ -546,6 +580,26 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
+  'crm.get_note': readInput({
+    organizationId: Identifier,
+    /** A recorded note from crm.list_notes. Leave out noteId and contactId for the account's embedded note. */
+    noteId: Identifier.optional(),
+    /** A contact's embedded notes field (contactable people only). */
+    contactId: Identifier.optional(),
+  }).refine((value) => value.noteId === undefined || value.contactId === undefined, {
+    message: 'Name a noteId or a contactId, not both',
+  }),
+  'crm.list_imports': readInput({
+    status: ProspectImportStatusValue.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'crm.get_import': readInput({
+    importId: Identifier,
+    rowStatus: ProspectImportRowStatusValue.optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'crm.check_can_contact': readInput({
     email: Email,
     /**
@@ -756,6 +810,110 @@ export const OPERATOR_MCP_INPUTS = {
     /** Optional pointer to what the note came from. */
     source: z.string().trim().min(1).max(300).optional(),
   }),
+  'crm.propose_account_update': writeInput({
+    organizationId: Identifier,
+    /** The account `version` from crm.get_account_context. */
+    expectedVersion: z.number().int().positive(),
+    /** Optional second guard: `updatedAt` from crm.get_account_context. */
+    expectedUpdatedAt: IsoDateTime.optional(),
+    /** Why, in the proposer's words. Kept on the account's history. */
+    reason: z.string().trim().min(1).max(500),
+    // Omitted means unchanged. An explicit null clears a field only where it is nullable here.
+    // Any other field (stage, priority, tier, archive state, email addresses) is not accepted.
+    name: z.string().trim().min(1).max(200).optional(),
+    website: z.string().trim().min(1).max(500).nullable().optional(),
+    /** The whole alias list; an empty list clears it. */
+    aliases: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+    type: z.string().trim().min(1).max(80).nullable().optional(),
+    city: z.string().trim().min(1).max(120).nullable().optional(),
+    region: z.string().trim().min(1).max(120).nullable().optional(),
+    country: z.string().trim().min(1).max(80).nullable().optional(),
+    /** The whole tag list; an empty list clears it. */
+    tags: z.array(z.string().trim().min(1).max(100)).max(30).optional(),
+    /** Resolved through the user directory by exact id or address; null clears the owner. */
+    owner: z
+      .object({ userId: Identifier.optional(), email: Email.optional() })
+      .strict()
+      .refine((value) => (value.userId === undefined) !== (value.email === undefined), {
+        message: 'Name the owner by userId or email, not both',
+      })
+      .nullable()
+      .optional(),
+  }).refine(
+    (value) =>
+      value.name !== undefined ||
+      value.website !== undefined ||
+      value.aliases !== undefined ||
+      value.type !== undefined ||
+      value.city !== undefined ||
+      value.region !== undefined ||
+      value.country !== undefined ||
+      value.tags !== undefined ||
+      value.owner !== undefined,
+    { message: 'Provide at least one field to change' },
+  ),
+  'crm.propose_contact_address_change': writeInput({
+    contactId: Identifier,
+    /** The contact's updatedAt from crm.list_contacts. */
+    expectedUpdatedAt: IsoDateTime,
+    newEmail: Email,
+    /** Archive the old row once the new address exists. The old row is never deleted either way. */
+    retireOldAddress: z.boolean().default(true),
+    reason: z.string().trim().min(1).max(500),
+  }),
+  'crm.propose_prospect_create': writeInput({
+    organization: z
+      .object({
+        name: z.string().trim().min(1).max(200),
+        website: z.string().trim().min(1).max(500).optional(),
+        aliases: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+        type: z.string().trim().min(1).max(80).optional(),
+        tags: z.array(z.string().trim().min(1).max(100)).max(30).optional(),
+        notes: z.string().trim().min(1).max(2_000).optional(),
+        owner: z
+          .object({ userId: Identifier.optional(), email: Email.optional() })
+          .strict()
+          .refine((value) => (value.userId === undefined) !== (value.email === undefined), {
+            message: 'Name the owner by userId or email, not both',
+          })
+          .optional(),
+      })
+      .strict(),
+    site: z
+      .object({
+        name: z.string().trim().min(1).max(200),
+        website: z.string().trim().min(1).max(500).optional(),
+        type: z.string().trim().min(1).max(80).optional(),
+        city: z.string().trim().min(1).max(120).optional(),
+        region: z.string().trim().min(1).max(100).optional(),
+        country: z.string().trim().min(1).max(100).optional(),
+      })
+      .strict()
+      .optional(),
+    contact: z
+      .object({
+        fullName: z.string().trim().min(1).max(200).optional(),
+        title: z.string().trim().min(1).max(200).optional(),
+        email: Email.optional(),
+        phone: z.string().trim().min(1).max(40).optional(),
+      })
+      .strict()
+      .refine((value) => value.fullName !== undefined || value.email !== undefined, {
+        message: 'Provide a name or an email address',
+      })
+      .optional(),
+    /** Where this prospect came from (a document, a call, an event). Kept on the record. */
+    source: z.string().trim().min(1).max(300),
+  }),
+  'crm.propose_import_commit': writeInput({
+    importId: Identifier,
+    /** From crm.get_import: the three hashes bind the exact file, mapping and reviewed rows. */
+    fileHash: Sha256Hex,
+    mappingHash: Sha256Hex,
+    planHash: Sha256Hex,
+    /** The number of rows that will be created or linked (VALID plus WARNING) as crm.get_import reports. */
+    expectedRows: z.number().int().positive(),
+  }),
   'crm.propose_duplicate_resolution': writeInput({
     organizationId: Identifier,
     otherOrganizationId: Identifier,
@@ -955,6 +1113,8 @@ const OperatorContact = z
     contactable: z.boolean(),
     flags: ContactFlags,
     email: z.string().max(254).nullable(),
+    /** Like the address, present only for a contactable person. Writes accept a phone, so reads show it. */
+    phone: z.string().max(40).nullable(),
   })
   .strict()
 
@@ -1289,6 +1449,11 @@ const OperatorAccountContext = z
         archived: z.boolean(),
         /** The version `crm.propose_stage_change` and the other account writes expect. */
         version: z.number().int().nonnegative(),
+        /** The organization row's updatedAt: the optional second guard of crm.propose_account_update. */
+        updatedAt: IsoDateTime,
+        country: z.string().max(80).nullable(),
+        tags: z.array(z.string().max(100)).max(30),
+        /** Truncated at 500 characters; crm.get_note returns the whole embedded note. */
         note: UntrustedText.nullable(),
       })
       .strict(),
@@ -1382,6 +1547,72 @@ const OperatorAccountContext = z
       .strict(),
     /** When the underlying records last changed, so freshness is never guessed. */
     observedAt: IsoDateTime,
+  })
+  .strict()
+
+const OperatorImportSummary = z
+  .object({
+    importId: Identifier,
+    fileName: z.string().max(200),
+    fileType: z.string().max(80),
+    fileSize: z.number().int().nonnegative(),
+    fileHash: Sha256Hex,
+    mappingHash: Sha256Hex,
+    /** The staging package schema version when the file is a package; null for a plain spreadsheet. */
+    mappingVersion: z.string().max(64).nullable(),
+    status: ProspectImportStatusValue,
+    totalRows: z.number().int().nonnegative(),
+    importedRows: z.number().int().nonnegative(),
+    failedRows: z.number().int().nonnegative(),
+    duplicateRows: z.number().int().nonnegative(),
+    createdAt: IsoDateTime,
+    signedOffAt: IsoDateTime.nullable(),
+    completedAt: IsoDateTime.nullable(),
+  })
+  .strict()
+
+const OperatorImportRow = z
+  .object({
+    rowId: Identifier,
+    sheetName: z.string().max(300),
+    originalRowNumber: z.number().int().nonnegative(),
+    rowFingerprint: Sha256Hex,
+    status: ProspectImportRowStatusValue,
+    /** The reviewer's decision on a possible duplicate, if one was made. */
+    decision: z
+      .enum([
+        'CREATE_DISTINCT',
+        'LINK_EXISTING',
+        'UPDATE_EXISTING',
+        'SKIP',
+        'QUARANTINE',
+        'NOT_DUPLICATE',
+      ])
+      .nullable(),
+    warnings: z.array(z.string().max(120)).max(20),
+    errors: z.array(z.string().max(120)).max(20),
+    duplicateMatches: z
+      .array(
+        z
+          .object({
+            organizationId: Identifier,
+            name: z.string().max(200),
+            confidence: z.number(),
+            reasons: z.array(z.string().max(120)).max(10),
+          })
+          .strict(),
+      )
+      .max(10),
+    errorCode: z.string().max(100).nullable(),
+    /** Canonical records this row created or linked. All null until the row is IMPORTED. */
+    receipt: z
+      .object({
+        organizationId: Identifier.nullable(),
+        venueId: Identifier.nullable(),
+        contactId: Identifier.nullable(),
+      })
+      .strict(),
+    processedAt: IsoDateTime.nullable(),
   })
   .strict()
 
@@ -1498,6 +1729,65 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'crm.get_note': z
+    .object({
+      organizationId: Identifier,
+      /** `activity` is a recorded note, `embedded` the note field of the account, `contact` a contact's. */
+      source: z.enum(['activity', 'embedded', 'contact']),
+      noteId: Identifier.nullable(),
+      contactId: Identifier.nullable(),
+      occurredAt: IsoDateTime.nullable(),
+      /** The whole stored text (bounded at 20000 characters); null when there is no such note. */
+      text: UntrustedText.nullable(),
+      /** The stored length in characters, so a cut is visible even when `text.truncated` is false. */
+      length: z.number().int().nonnegative(),
+    })
+    .strict(),
+  'crm.list_imports': Page(OperatorImportSummary),
+  'crm.get_import': z
+    .object({
+      import: OperatorImportSummary.extend({
+        validRows: z.number().int().nonnegative(),
+        warningRows: z.number().int().nonnegative(),
+        /** Binds the exact reviewed rows: pass it to crm.propose_import_commit. */
+        planHash: Sha256Hex,
+        /** Rows crm.propose_import_commit would create or link (VALID plus WARNING). */
+        importableRows: z.number().int().nonnegative(),
+        sheets: z
+          .array(
+            z
+              .object({
+                sheetName: z.string().max(300),
+                detectedRows: z.number().int().nonnegative(),
+                selected: z.boolean(),
+              })
+              .strict(),
+          )
+          .max(100),
+      }).strict(),
+      dispositions: z
+        .object({
+          counts: z
+            .object({
+              VALID: z.number().int().nonnegative(),
+              WARNING: z.number().int().nonnegative(),
+              DUPLICATE_REVIEW: z.number().int().nonnegative(),
+              PROCESSING: z.number().int().nonnegative(),
+              IMPORTED: z.number().int().nonnegative(),
+              FAILED: z.number().int().nonnegative(),
+              SKIPPED: z.number().int().nonnegative(),
+              QUARANTINED: z.number().int().nonnegative(),
+            })
+            .strict(),
+          /** The sum of the counts, read from the rows themselves. */
+          rowTotal: z.number().int().nonnegative(),
+          /** True when rowTotal equals the import's recorded totalRows. */
+          reconciled: z.boolean(),
+        })
+        .strict(),
+      rows: Page(OperatorImportRow),
+    })
+    .strict(),
   'crm.check_can_contact': z
     .object({
       allowed: z.boolean(),
@@ -2098,6 +2388,10 @@ export const OPERATOR_MCP_OUTPUTS = {
   'support.propose_completion': OperatorWriteResult,
   'customers.propose_onboarding_questions': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
+  'crm.propose_account_update': OperatorWriteResult,
+  'crm.propose_contact_address_change': OperatorWriteResult,
+  'crm.propose_prospect_create': OperatorWriteResult,
+  'crm.propose_import_commit': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
   'crm.propose_campaign_create': OperatorWriteResult,
   'crm.propose_draft_review': OperatorWriteResult,
@@ -2515,7 +2809,28 @@ const seeds: readonly Seed[] = [
   [
     'crm.list_notes',
     'List notes',
-    `Page through every recorded note for one account, newest first.${READ}`,
+    `Page through every recorded note for one account, newest first. It lists recorded notes only: an older note embedded in the account (or a contact) record does not appear here, and other reads cut it at 500 characters. Use crm.get_note for the whole text.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.get_note',
+    'Get note',
+    `Read one note in full: a recorded note by noteId, a contact's notes field by contactId, or (with neither) the account's embedded legacy note that other reads cut at 500 characters. The text is untrusted data and its stored length is reported.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.list_imports',
+    'List imports',
+    `Page through spreadsheet prospect imports, newest first, with file hash, mapping hash, status and row totals. Uploading and mapping a file stay in the admin app.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.get_import',
+    'Get import',
+    `Read one import: file and mapping hashes, the plan hash, a count of every row disposition that must add up to the total, and a page of rows with their warnings, errors, duplicate matches and the canonical records each created or linked.${READ}`,
     'crm:read',
     'platform',
   ],
@@ -2606,7 +2921,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.list_duplicates',
     'List duplicate candidates',
-    `Page through possible duplicate account pairs (optionally for one account or one status), each side with its contact, activity and contacted state so a reviewer can tell which history belongs where.${READ}`,
+    `Page through the persisted duplicate review pairs only (flagged by the duplicate scan or recorded by a person; optionally for one account or one status), each side with its contact, activity and contacted state so a reviewer can tell which history belongs where. It is not a live search: an account with no recorded pair can still match another, so use crm.resolve_account to look for matches.${READ}`,
     'crm:read',
     'platform',
   ],
@@ -2714,9 +3029,41 @@ const seeds: readonly Seed[] = [
     'crm.batch-release',
   ],
   [
+    'crm.propose_account_update',
+    'Propose account update',
+    `Propose editing an account's name, website, aliases, type, city, region, country, tags or owner. Omitted fields stay as they are; an explicit null clears website, type, city, region, country or owner. Any other field is rejected. The owner is resolved through the user directory by exact id or address. A new name or domain another account already has stops for duplicate review. Requires the account version (and optionally updatedAt); the result is the canonical account and the exact fields that changed.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.account-update',
+  ],
+  [
+    'crm.propose_contact_address_change',
+    'Propose contact address change',
+    `Propose moving a person to a new email address. The new address becomes a new contact; the old row keeps its address, correspondence history and every suppression, so the old address stays blocked. It never overrides a suppression: a person who declined, an account marked do-not-contact, or an address blocked anywhere in the CRM stops it. The new address starts unverified. Requires the contact's updatedAt. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.contact-address-change',
+  ],
+  [
+    'crm.propose_prospect_create',
+    'Propose prospect create',
+    `Propose creating a prospect organization (with an optional site and contact) through the same duplicate checks as the admin Add prospect action. An exact name, domain or contact-address match on a live account, or an address blocked anywhere, stops for a person to review. Creates CRM records only: never a customer, tenant or outreach.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.prospect-create',
+  ],
+  [
+    'crm.propose_import_commit',
+    'Propose import commit',
+    `Propose committing one reviewed spreadsheet import, bound to its exact file hash, mapping hash, plan hash and importable row count from crm.get_import. Rows still awaiting a duplicate decision, an unfinished staging run or any change since you read it stops it. Applying signs the import off and queues the existing commit job; rows are created or linked by that job, never merged. Always needs a human.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.import-commit',
+  ],
+  [
     'crm.propose_duplicate_resolution',
     'Propose duplicate resolution',
-    `Propose a reviewed decision about two accounts: confirmed duplicate, distinct, or dismissed. Nothing is merged or moved; every contact, activity and receipt stays where it is. Always needs a human.${PROPOSE}`,
+    `Propose recording a reviewed decision about two accounts: confirmed duplicate, distinct, or dismissed. This is a decision record only and does NOT merge: no contact, activity, message or receipt is moved, combined or deleted, and both accounts stay live. A confirmed duplicate marks the pair for a person to consolidate later. Always needs a human.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.duplicate-resolution',

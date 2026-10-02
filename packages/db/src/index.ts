@@ -360,6 +360,27 @@ export {
   prepareProspectEmailAttachmentRetentionAction,
   reviewProspectEmailAttachmentRetentionAction,
 } from './helpers/prospect-email-attachment-retention-actions'
+export {
+  assertProspectImportMappingSafe,
+  findProspectDuplicateMatches,
+  parseProspectImportDate,
+  ProspectDuplicateReviewError,
+} from './helpers/prospect-actions'
+export type { ProspectDuplicateMatch } from './helpers/prospect-actions'
+export {
+  changeProspectContactAddressAction,
+  createProspectForOperatorAction,
+  findProspectCreateReceipt,
+  isProspectContactPersonBlocked,
+  readProspectAccountView,
+  resolveProspectOwner,
+  updateProspectAccountAction,
+} from './helpers/prospect-operator-actions'
+export type {
+  ProspectAccountFieldChange,
+  ProspectAccountView,
+  ProspectOwnerRef,
+} from './helpers/prospect-operator-actions'
 export type {
   CreateProspectInput,
   ConvertPublicInterestToProspectInput,

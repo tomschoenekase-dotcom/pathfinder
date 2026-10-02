@@ -18,6 +18,9 @@ const PRE_EFFECT_FAILURE_CODES: ReadonlySet<string> = new Set([
   'SUPPRESSED',
   'INVALID_INPUT',
   'RELEASE_DISABLED',
+  'DUPLICATE_REVIEW',
+  'IMPORT_NOT_READY',
+  'OWNER_NOT_FOUND',
 ])
 
 type EffectInput = Readonly<{

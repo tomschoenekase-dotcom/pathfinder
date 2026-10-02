@@ -4,6 +4,7 @@ import { CUSTOMER_KINDS } from './customers'
 import { OPERATIONAL_UPDATE_KINDS } from './operational-updates'
 import { CRM_CAMPAIGN_KINDS } from './crm-campaigns'
 import { CRM_MAINTENANCE_KINDS } from './crm-maintenance'
+import { CRM_PROSPECT_ADMIN_KINDS } from './crm-prospect-admin'
 import { SUPPORT_KINDS } from './support'
 import { onboardingQuestionsKind } from './onboarding-questions'
 import { crmOutreachDraftKind } from './crm-outreach-draft'
@@ -29,6 +30,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesKnowledgeKind,
   venuesPublishKind,
   ...CRM_MAINTENANCE_KINDS,
+  ...CRM_PROSPECT_ADMIN_KINDS,
   ...CRM_CAMPAIGN_KINDS,
   ...SUPPORT_KINDS,
   ...CUSTOMER_KINDS,
@@ -42,6 +44,7 @@ export {
   SUPPORT_KINDS,
   CRM_CAMPAIGN_KINDS,
   CRM_MAINTENANCE_KINDS,
+  CRM_PROSPECT_ADMIN_KINDS,
   appearanceUpdateKind,
   crmOutreachDraftKind,
   crmOutreachLogKind,

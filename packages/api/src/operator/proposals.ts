@@ -71,6 +71,19 @@ export const OPERATOR_APPLY_LEASE_MS = 5 * 60 * 1000
 /** Thrown by a kind when its target moved since the proposal; the proposal becomes STALE. */
 export class OperatorStaleError extends Error {
   readonly code = 'STALE'
+  /** What the target looks like now, so the proposer can re-read nothing and re-propose at once. */
+  constructor(
+    message?: string,
+    readonly details?: JsonValue,
+  ) {
+    super(message)
+  }
+}
+
+/** The current state a stale refusal carries, if it carries any. */
+function staleDetails(error: unknown): JsonValue | undefined {
+  if (error instanceof OperatorStaleError) return error.details
+  return undefined
 }
 
 export type OperatorProposalKind<Args = unknown> = Readonly<{
@@ -171,7 +184,15 @@ export function proposalView(row: ProposalRow, config: OperatorServerConfig): Op
     ...(row.status === 'APPLIED' && row.result && typeof row.result === 'object'
       ? { result: row.result as Record<string, unknown> }
       : row.failureCode
-        ? { result: { failureCode: row.failureCode } }
+        ? {
+            result: {
+              failureCode: row.failureCode,
+              // A stale refusal can carry the target's current state.
+              ...(row.status === 'STALE' && row.result && typeof row.result === 'object'
+                ? (row.result as Record<string, unknown>)
+                : {}),
+            },
+          }
         : {}),
   }
 }
@@ -552,6 +573,7 @@ function isAtomicRefusal(error: unknown) {
       'SUPPRESSED',
       'APPROVAL_REQUIRED',
       'RELEASE_DISABLED',
+      'DUPLICATE_REVIEW',
     ].includes(String(code))
   )
 }
@@ -680,11 +702,16 @@ export async function applyApprovedProposal(
     )
   } catch (error) {
     if (isStale(error)) {
+      const current = staleDetails(error)
       return finish(
         database,
         row,
         'STALE',
-        { failureCode: 'TARGET_CHANGED', clearStarted: true },
+        {
+          failureCode: 'TARGET_CHANGED',
+          clearStarted: true,
+          ...(current !== undefined ? { result: { current } } : {}),
+        },
         input.requestId,
         input.actorUserId,
       )

@@ -155,7 +155,22 @@ const KIND_REFUSAL_CODES = new Set([
   'ESCALATION_UNACKNOWLEDGED',
   'RELEASE_LIMIT',
   'RELEASE_DISABLED',
+  // The target moved since it was read (the current state rides along as `details`).
+  'STALE',
+  // An exact name, domain or address match needs a person's decision (matches ride as `details`).
+  'DUPLICATE_REVIEW',
+  'IMPORT_NOT_READY',
+  'OWNER_NOT_FOUND',
 ])
+
+/** Structured, non-sensitive detail a kind attaches to its refusal (current state, matches). */
+function refusalDetails(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== 'object' || !('details' in error)) return {}
+  const details = (error as { details: unknown }).details
+  if (!details || typeof details !== 'object') return {}
+  const code = errorCode(error)
+  return KIND_REFUSAL_CODES.has(code) ? { details } : {}
+}
 
 function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
@@ -227,6 +242,21 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
   TARGET_CHANGED: {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
+  },
+  DUPLICATE_REVIEW: {
+    retryable: false,
+    nextAction:
+      'A matching account already exists (see details.matches). Do not create another: use the existing account, or ask a person to review the duplicate. Never retry with a new operationId.',
+  },
+  IMPORT_NOT_READY: {
+    retryable: false,
+    nextAction:
+      'Read crm.get_import. The import must be staged, free of rows awaiting a duplicate decision, and unchanged since you read it. Reviewing rows happens in the admin app.',
+  },
+  OWNER_NOT_FOUND: {
+    retryable: false,
+    nextAction:
+      'No user in the directory has that id or address. Ask which person is meant; never guess an owner.',
   },
 }
 
@@ -509,7 +539,7 @@ async function callTool(
           ? errorBody(code, name, context.requestId, {
               issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
             })
-          : errorBody(code, name, context.requestId),
+          : errorBody(code, name, context.requestId, refusalDetails(error)),
         true,
       ),
     }

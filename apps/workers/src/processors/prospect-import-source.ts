@@ -123,7 +123,7 @@ function sheetShape(sheet: XLSX.WorkSheet) {
   return { rows, columns }
 }
 
-function inertCell(value: unknown): string | number | boolean | null {
+export function inertCell(value: unknown): string | number | boolean | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'boolean' || typeof value === 'number') return value
   const text = String(value)
@@ -165,7 +165,7 @@ export function quarantinedSourceRowFailure(sheetName: string, originalRowNumber
   }
 }
 
-function normalizedRow(
+export function normalizedRow(
   source: Record<string, string | number | boolean | null>,
   mappingValue: unknown,
   sheetName: string,
@@ -178,7 +178,8 @@ function normalizedRow(
   for (const [field, column] of Object.entries(mapping)) {
     if (!FIELD_KEYS.has(field) || typeof column !== 'string') continue
     const value = source[column]
-    if (value === null || value === undefined || value === '') continue
+    // A blank (or whitespace-only) cell is "no value", never a value that could erase a stored one.
+    if (value === null || value === undefined || String(value).trim() === '') continue
     if (field === 'sourceUrls') {
       output[field] = String(value)
         .split('|')

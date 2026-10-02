@@ -364,10 +364,12 @@ const getAccountContext: OperatorReadTool = {
         organizationType: true,
         headquartersCity: true,
         headquartersRegion: true,
+        headquartersCountry: true,
         relationshipTier: true,
         notes: true,
         archivedAt: true,
         updatedAt: true,
+        tagAssignments: { select: { tag: { select: { label: true, archivedAt: true } } } },
         opportunity: {
           select: {
             stage: true,
@@ -512,9 +514,16 @@ const getAccountContext: OperatorReadTool = {
         type: cut(row.organizationType, 80),
         city: cut(row.headquartersCity, 120),
         region: cut(row.headquartersRegion, 120),
+        country: cut(row.headquartersCountry, 80),
         relationshipTier: row.relationshipTier,
         archived: row.archivedAt !== null,
         version: operatorOrganizationVersion(activityCount),
+        updatedAt: row.updatedAt.toISOString(),
+        tags: row.tagAssignments
+          .filter((assignment) => assignment.tag.archivedAt === null)
+          .map((assignment) => cut(assignment.tag.label, 100)!)
+          .sort((a, b) => a.localeCompare(b))
+          .slice(0, 30),
         note: row.notes ? operatorUntrustedText(redactAddresses(row.notes)) : null,
       },
       opportunity: {
@@ -724,6 +733,94 @@ const listNotes: OperatorReadTool = {
   },
 }
 
+/** The longest note text one `crm.get_note` call returns, matching the output contract. */
+const FULL_NOTE_MAX_CHARS = 20_000
+
+const getNote: OperatorReadTool = {
+  name: 'crm.get_note',
+  capability: 'crm:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['crm.get_note'].parse(raw)
+    const database = context.database
+    const org = await database.prospectOrganization.findUnique({
+      where: { id: input.organizationId },
+      select: { id: true, notes: true },
+    })
+    if (!org) throw new OperatorNotFoundError()
+    const full = (value: string) => ({
+      // Address-shaped strings are withheld exactly as in every other note read.
+      text: operatorUntrustedText(redactAddresses(value), FULL_NOTE_MAX_CHARS),
+      length: value.length,
+    })
+    if (input.noteId !== undefined) {
+      const note = await database.prospectActivity.findFirst({
+        where: {
+          id: input.noteId,
+          organizationId: input.organizationId,
+          type: 'NOTE_ADDED',
+          summary: NOTE_SUMMARY,
+        },
+        select: { id: true, occurredAt: true, detail: true, summary: true },
+      })
+      if (!note) throw new OperatorNotFoundError()
+      const body = full(note.detail ?? note.summary)
+      return {
+        organizationId: input.organizationId,
+        source: 'activity' as const,
+        noteId: note.id,
+        contactId: null,
+        occurredAt: note.occurredAt.toISOString(),
+        ...body,
+      }
+    }
+    if (input.contactId !== undefined) {
+      const contact = await database.prospectContact.findFirst({
+        where: { id: input.contactId, organizationId: input.organizationId },
+        select: { notes: true, email: true, ...CONTACT_NOTE_FLAGS },
+      })
+      if (!contact) throw new OperatorNotFoundError()
+      const blocked = await blockedAddressesAnywhere(database, contact.email ? [contact.email] : [])
+      // A suppressed contact's free text stays private along with its address.
+      const readable =
+        operatorContactView(contact as unknown as SnapshotContactInput, blocked).contactable &&
+        Boolean(contact.notes)
+      return {
+        organizationId: input.organizationId,
+        source: 'contact' as const,
+        noteId: null,
+        contactId: contact.id,
+        occurredAt: null,
+        ...(readable ? full(contact.notes!) : { text: null, length: 0 }),
+      }
+    }
+    return {
+      organizationId: input.organizationId,
+      source: 'embedded' as const,
+      noteId: null,
+      contactId: null,
+      occurredAt: null,
+      ...(org.notes && org.notes.trim() ? full(org.notes) : { text: null, length: 0 }),
+    }
+  },
+}
+
+/** Contact fields the contactable rule reads. */
+const CONTACT_NOTE_FLAGS = {
+  id: true,
+  venueId: true,
+  fullName: true,
+  title: true,
+  phone: true,
+  emailReadiness: true,
+  permissionState: true,
+  doNotContact: true,
+  suppressionReason: true,
+  suppressedAt: true,
+  unsubscribedAt: true,
+  complainedAt: true,
+  lastHardBounceAt: true,
+} as const
+
 /** Activity kinds that come from an import or research, not from anything a person did. */
 const MACHINE_ACTIVITY_TYPES = [
   'IMPORTED',
@@ -852,4 +949,5 @@ export const crmAccountReadTools: readonly OperatorReadTool[] = [
   getAccountContext,
   listContacts,
   listNotes,
+  getNote,
 ]
