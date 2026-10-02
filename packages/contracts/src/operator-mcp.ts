@@ -3038,7 +3038,11 @@ export const OPERATOR_MCP_OUTPUTS = {
             })
             .strict(),
         )
-        .max(120),
+        .max(
+          OPERATOR_READ_TOOL_NAMES.length +
+            OPERATOR_WRITE_TOOL_NAMES.length +
+            OPERATOR_CONTROL_TOOL_NAMES.length,
+        ),
     })
     .strict(),
   'operator.get_operation': OperatorProposalView,

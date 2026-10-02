@@ -17,6 +17,40 @@ import {
   type OperatorToolName,
 } from './operator-mcp'
 
+it('fits the full declared tool catalog in context while rejecting an oversized result', () => {
+  const context = {
+    serverTime: '2026-10-02T12:00:00.000Z',
+    catalogVersion: 'test',
+    manualVersion: 'test',
+    releaseRevision: 'test',
+    grant: {
+      grantId: 'grant-test',
+      allTenants: false,
+      tenantCount: 0,
+      tenantIds: [],
+      capabilities: ['operator:read'],
+    },
+    scopeNotes: [],
+    tools: OPERATOR_MCP_TOOLS.map((tool) => ({
+      name: tool.name,
+      effect: tool.effect,
+      scope: tool.scope,
+      capability: tool.capability,
+      implemented: true,
+      authorized: false,
+      approvalMode: null,
+      lastSuccessAt: null,
+      providerConnected: null,
+      workerAvailable: null,
+    })),
+  }
+  const schema = OPERATOR_MCP_OUTPUTS['operator.get_context']
+  expect(schema.safeParse(context).success).toBe(true)
+  expect(
+    schema.safeParse({ ...context, tools: [...context.tools, context.tools[0]] }).success,
+  ).toBe(false)
+})
+
 const EXPECTED_TOOLS = [
   'crm.search_organizations',
   'crm.get_organization',

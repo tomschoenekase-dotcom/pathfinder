@@ -11,7 +11,7 @@ const sql = readFileSync(
     ),
   ),
   'utf8',
-)
+).replaceAll('\r\n', '\n')
 
 describe('offboarding execution migration contract', () => {
   it('is additive: two tenant-scoped tables, no change to an existing table or row', () => {
