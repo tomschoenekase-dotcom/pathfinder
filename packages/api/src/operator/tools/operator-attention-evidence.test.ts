@@ -371,7 +371,9 @@ describe('reports.reconcile_generating', () => {
     )
     expect(page.items).toHaveLength(25)
     expect(page.complete).toBe(false)
-    expect(page.nextCursor).toContain('|r-24')
+    // Cursors are opaque and bound to the issuing query; the handler position is inside.
+    const position = JSON.parse(Buffer.from(page.nextCursor, 'base64url').toString('utf8')).p
+    expect(position).toContain('|r-24')
     const foreign = fakeDb({ ...tenantAndVenue, weeklyReport: { findFirst: () => null } })
     await expect(
       call(
