@@ -72,7 +72,7 @@ describe('spreadsheet import safety', () => {
       },
       client as never,
     )
-    const stored = created[0] as Record<string, any>
+    const stored = created[0] as Record<string, unknown>
     // The cell survives byte for byte as a string in both the raw and normalized copies.
     expect((stored.sourceValues as Record<string, unknown>).Venue).toBe(
       '=HYPERLINK("https://evil.example","x")',
@@ -132,7 +132,7 @@ describe('spreadsheet import safety', () => {
       },
       client as never,
     )
-    const [mojibake, nul] = created as Array<Record<string, any>>
+    const [mojibake, nul] = created as Array<Record<string, unknown>>
     expect(mojibake!.warnings).toContain('encoding-suspect')
     expect(mojibake!.status).toBe('WARNING')
     expect(nul!.errors).toContain('invalid-character')

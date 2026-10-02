@@ -237,7 +237,7 @@ test('a valid send on a phone dismisses the keyboard and the composer returns to
   // Report the moment focus leaves the composer, relative to the submit keystroke.
   await page.evaluate(() => {
     const field = document.querySelector('[data-chat-shell] textarea')!
-    ;(window as unknown as { __blurAt?: number }).__blurAt = undefined
+    delete (window as unknown as { __blurAt?: number }).__blurAt
     field.addEventListener('blur', () => {
       ;(window as unknown as { __blurAt?: number }).__blurAt = performance.now()
     })

@@ -1238,6 +1238,7 @@ const FORMULA_LEADING = /^[=+\-@]/u
 const PHONE_FORMULA_LEADING = /^[=@]/u
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u
+// eslint-disable-next-line no-control-regex
 const NUL_CHARACTER = /\u0000/u
 
 /** A valid calendar date written as YYYY-MM-DD or a full ISO timestamp, else null. */
