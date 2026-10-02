@@ -142,3 +142,22 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 6. Rollback: migrations are additive; roll the application back to `9f726af` after draining writers; keep the new
    tables (no destructive down migration). The visitor viewport change is self-contained in `apps/web` and reverts
    with the application.
+
+## 9. Pause point (end of cloud session)
+
+PR CI on the pushed branch (head `8e8c284`) reported: visitor-launch and railway-iac PASS; CI plan FAIL
+("Unable to locate executable file: pnpm"); operator kinds integration test FAIL (36 expected, 44 registered);
+promotion gate FAIL (head branch is not `codex/pathfinder-v2-staging`). Fixed in `da9ee1d`:
+
+- CI plan job: `package-manager-cache: false` on setup-node (v5 auto-enables pnpm caching from `packageManager`).
+- Kinds integration test expects all 44 kinds.
+- Real defect: `operator.get_context` scope note could exceed its 300-char schema limit for limited connections.
+- Real defect: support create-request with a recipient who left the tenant is now STALE, not NOT_FOUND.
+- Billing cross-tenant cursor assertion expects INVALID_CURSOR (bound cursors refuse earlier).
+
+Verified locally on PostgreSQL 16 + pgvector with all 259 migrations applied through the disposable guard:
+all 41 operator test files, 510 tests PASS (RUN_OPERATOR_DB_INTEGRATION=1). The remaining integration suites
+(db, jobs, billing, api non-operator, workers, dashboard) were started but NOT finished — rerun locally.
+
+Process: the promotion gate only admits PRs into `master` from `codex/pathfinder-v2-staging` whose exact head is
+healthy on staging. Retarget this PR to `codex/pathfinder-v2-staging` (or open a new one there).
