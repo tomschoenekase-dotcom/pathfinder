@@ -699,6 +699,15 @@ describe('crm.import-commit kind', () => {
         ctx(unfinished.database),
       ),
     ).rejects.toMatchObject({ code: 'IMPORT_NOT_READY' })
+    const partialCsv = importDatabase(rows, {
+      packageManifest: { mcpCsv: true, sourceRows: 20, stagingComplete: false },
+    })
+    await expect(
+      crmImportCommitKind.authorize!(
+        await boundArgs(partialCsv.database),
+        ctx(partialCsv.database),
+      ),
+    ).rejects.toMatchObject({ code: 'IMPORT_NOT_READY' })
   })
 
   it('treats an unknown import as not found', async () => {
@@ -762,11 +771,10 @@ describe('crm.import-commit kind', () => {
     ).resolves.toEqual({ state: 'unknown' })
   })
 
-  it('is always-ask: it appears in the contract list', async () => {
+  it('keeps address changes always-ask while import commit can use owner-authorized routine auto', async () => {
     const { OPERATOR_ALWAYS_ASK_TOOLS } = await import('@pathfinder/contracts/operator-mcp')
-    expect(OPERATOR_ALWAYS_ASK_TOOLS).toEqual(
-      expect.arrayContaining(['crm.propose_import_commit', 'crm.propose_contact_address_change']),
-    )
+    expect(OPERATOR_ALWAYS_ASK_TOOLS).toContain('crm.propose_contact_address_change')
+    expect(OPERATOR_ALWAYS_ASK_TOOLS).not.toContain('crm.propose_import_commit')
   })
 })
 

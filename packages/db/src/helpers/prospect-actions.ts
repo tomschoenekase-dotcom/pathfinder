@@ -1742,6 +1742,17 @@ export async function approveProspectImportAction(
     if (prospectImport.sourceObjectKey && prospectImport.progressCursor !== 'DRY_RUN_READY') {
       throw new ProspectActionError('CONFLICT', 'Workbook staging has not finished')
     }
+    const csvManifest = prospectImport.packageManifest as {
+      mcpCsv?: boolean
+      stagingComplete?: boolean
+      sourceRows?: number
+    } | null
+    if (csvManifest?.mcpCsv) {
+      const stagedRows = await tx.prospectImportRow.count({ where: { importId: input.importId } })
+      if (!csvManifest.stagingComplete || stagedRows !== csvManifest.sourceRows) {
+        throw new ProspectActionError('CONFLICT', 'CSV staging has not finished')
+      }
+    }
     const unresolvedDuplicates = await tx.prospectImportRow.count({
       where: { importId: input.importId, status: 'DUPLICATE_REVIEW' },
     })
