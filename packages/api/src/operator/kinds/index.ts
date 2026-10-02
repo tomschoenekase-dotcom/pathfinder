@@ -7,6 +7,7 @@ import { CRM_MAINTENANCE_KINDS } from './crm-maintenance'
 import { CRM_PROSPECT_ADMIN_KINDS } from './crm-prospect-admin'
 import { SUPPORT_KINDS } from './support'
 import { onboardingQuestionsKind } from './onboarding-questions'
+import { OFFBOARDING_KINDS } from './offboarding-execution'
 import { REPORT_KINDS } from './reports'
 import { ROUTINE_KINDS } from './routines'
 import { crmOutreachDraftKind } from './crm-outreach-draft'
@@ -40,6 +41,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   ...CRM_CAMPAIGN_KINDS,
   ...SUPPORT_KINDS,
   ...CUSTOMER_KINDS,
+  ...OFFBOARDING_KINDS,
   ...OPERATIONAL_UPDATE_KINDS,
   ...REPORT_KINDS,
   ...ROUTINE_KINDS,
@@ -48,6 +50,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
 
 export {
   CUSTOMER_KINDS,
+  OFFBOARDING_KINDS,
   OPERATIONAL_UPDATE_KINDS,
   REPORT_KINDS,
   ROUTINE_KINDS,

@@ -1618,3 +1618,45 @@ export type {
   VenueSourceInputRecord,
   VenueSourceTerminalStatus,
 } from './helpers/venue-source-actions'
+export {
+  assertOffboardingGate,
+  beginOffboardingExecutionAction,
+  completeOffboardingExecutionAction,
+  failOffboardingExecutionStepAction,
+  markOffboardingExecutionReinstatedAction,
+  OffboardingExecutionError,
+  plannedOffboardingSteps,
+  readOffboardingExecutionAction,
+  readOffboardingExecutionFacts,
+  settleOffboardingExecutionStepAction,
+} from './helpers/offboarding-execution-actions'
+export type {
+  BeginOffboardingExecutionInput,
+  OffboardingExecutionActor,
+  OffboardingExecutionClient,
+  OffboardingExecutionErrorCode,
+  OffboardingExecutionFacts,
+  OffboardingExecutionView,
+  OffboardingStepSettlement,
+  SettleOffboardingStepInput,
+} from './helpers/offboarding-execution-actions'
+export {
+  billingBlocksOffboarding,
+  evaluateOffboardingGate,
+  isEffectStep,
+  isStepPlanned,
+  OFFBOARDING_EXECUTION_STEP_KEYS,
+  OFFBOARDING_FUTURE_DECISIONS,
+  offboardingDerivedUuid,
+  offboardingManifestHash,
+  plannedTargetsForStep,
+  STEP_REVOCATION_TARGETS,
+} from './helpers/offboarding-execution-policy'
+export type {
+  OffboardingBillingFacts,
+  OffboardingEffectStepKey,
+  OffboardingExecutionRefusalCode,
+  OffboardingExecutionStepKeyName,
+  OffboardingGateInput,
+  OffboardingGateResult,
+} from './helpers/offboarding-execution-policy'

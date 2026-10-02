@@ -134,6 +134,7 @@ const EXPECTED_TOOLS = [
   'appearance.propose_update',
   'customers.propose_invite',
   'customers.propose_create',
+  'offboarding.propose_execution',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -301,6 +302,7 @@ describe('operator MCP catalog', () => {
     expect([...OPERATOR_ALWAYS_ASK_TOOLS]).toEqual([
       'customers.propose_invite',
       'customers.propose_create',
+      'offboarding.propose_execution',
       'operator.propose_revert',
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',

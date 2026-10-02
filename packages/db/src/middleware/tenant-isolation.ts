@@ -133,6 +133,8 @@ const AUDIT_LIFECYCLE_MODELS = [
   'ClientNotificationReceipt',
   'OffboardingPlan',
   'OffboardingExportOperation',
+  'OffboardingExecution',
+  'OffboardingExecutionStep',
   'IntakeUpload',
   'GuestChatTurn',
   'GuestChatProviderOperation',

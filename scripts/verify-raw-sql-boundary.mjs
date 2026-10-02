@@ -75,6 +75,7 @@ const approvedPolicies = new Set([
   'platform-client-create-id-lock',
   'platform-client-create-request-lock',
   'tenant-offboarding-request-lock',
+  'tenant-offboarding-execution-lock',
   'tenant-onboarding-request-lock',
   'tenant-onboarding-venue-slug-lock',
   'tenant-onboarding-question-lock',
@@ -1321,6 +1322,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '211bb4b0b718d6cecab4a4c0a7268098075d7fa68cb01b3d19b5207dfa5a915d',
     policy: 'tenant-offboarding-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/offboarding-execution-actions.ts',
+    method: '$executeRaw',
+    hash: '211bb4b0b718d6cecab4a4c0a7268098075d7fa68cb01b3d19b5207dfa5a915d',
+    policy: 'tenant-offboarding-execution-lock',
   },
   {
     file: 'packages/db/src/helpers/native-venue-deployment-actions.ts',

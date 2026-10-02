@@ -276,6 +276,8 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectLocationConversion',
       'VenueSource',
       'VenueSourceInput',
+      'OffboardingExecution',
+      'OffboardingExecutionStep',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual([
       'User',
@@ -477,6 +479,8 @@ describe('tenantIsolationMiddleware', () => {
       'SupportRequestParticipant',
       'OffboardingPlan',
       'OffboardingExportOperation',
+      'OffboardingExecution',
+      'OffboardingExecutionStep',
       'IntakeUpload',
       'VenueBotConfiguration',
       'PersonalityProfile',

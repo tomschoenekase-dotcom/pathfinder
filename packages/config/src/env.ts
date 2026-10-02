@@ -121,6 +121,9 @@ const rawEnvSchema = z
     // has the identity provider email a sign-up link, so it is a separate switch.
     OPERATOR_CUSTOMER_CREATE_ENABLED: z.enum(['true', 'false']).optional(),
     OPERATOR_CUSTOMER_INVITE_ENABLED: z.enum(['true', 'false']).optional(),
+    // Executing a reviewed offboarding plan (closes venues, stops schedules, revokes access).
+    // Local effects only; default off and refused at propose time while off.
+    OPERATOR_OFFBOARDING_EXECUTION_ENABLED: z.enum(['true', 'false']).optional(),
     // Email copies of approved information requests (onboarding questions and support requests)
     // sent to a member's verified address. Default off: the portal post still happens, the email
     // is recorded as not sent, and nothing leaves the deployment until this is exactly "true".
@@ -377,6 +380,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   OPERATOR_CAMPAIGN_RELEASE_ENABLED: values.OPERATOR_CAMPAIGN_RELEASE_ENABLED === 'true',
   OPERATOR_CUSTOMER_CREATE_ENABLED: values.OPERATOR_CUSTOMER_CREATE_ENABLED === 'true',
   OPERATOR_CUSTOMER_INVITE_ENABLED: values.OPERATOR_CUSTOMER_INVITE_ENABLED === 'true',
+  OPERATOR_OFFBOARDING_EXECUTION_ENABLED: values.OPERATOR_OFFBOARDING_EXECUTION_ENABLED === 'true',
   CLIENT_NOTIFICATION_EMAIL_ENABLED: values.CLIENT_NOTIFICATION_EMAIL_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
