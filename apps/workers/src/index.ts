@@ -511,7 +511,7 @@ async function handleAgentRoutineMaintenanceQueueJob(job: Job<Record<string, nev
   if (job.name !== AGENT_ROUTINE_DISPATCH_SCHEDULER_JOB) {
     throw new Error(`Unsupported agent routine maintenance job: ${job.name}`)
   }
-  await processAgentRoutineDispatch()
+  await processAgentRoutineDispatch(getJobExecutionMetadata(job))
 }
 
 async function handleAnalyticsEnrichmentQueueJob(

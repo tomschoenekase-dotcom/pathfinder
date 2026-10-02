@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
   CreateAgentRoutineInput as CreateAgentRoutineInputSchema,
+  ROUTINE_BUDGET_EXCEEDED,
+  RoutineBudget as RoutineBudgetSchema,
+  RoutineStopRules as RoutineStopRulesSchema,
   SetAgentRoutineEnabledInput as SetAgentRoutineEnabledInputSchema,
 } from '@pathfinder/contracts'
 
@@ -9,6 +12,12 @@ import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { writeAuditLogStrict } from './audit'
 import { bindEligibleAgentWorkflows } from './agent-workflow-run-binding'
+import {
+  evaluateRoutineStopRules,
+  recordRoutineStop,
+  reserveAgentRoutineBudget,
+  routineBudgetOf,
+} from './agent-routine-guards'
 
 export type AgentRoutineActionClient = Pick<typeof db, '$transaction' | 'agentRoutine'>
 
@@ -19,6 +28,15 @@ export class AgentRoutineActionError extends Error {
   ) {
     super(message)
     this.name = 'AgentRoutineActionError'
+  }
+}
+
+function assertScopedStopRules(rules: z.output<typeof RoutineStopRulesSchema> | undefined) {
+  if (rules?.subject?.kind === 'PROSPECT_CONTACT') {
+    throw new AgentRoutineActionError(
+      'FORBIDDEN',
+      'A tenant routine cannot bind a platform prospect contact without a proven tenant scope',
+    )
   }
 }
 
@@ -61,6 +79,55 @@ function sameRoutine(
     dailyBudgetE8Usd: bigint | null
     requiredWorkerRoles: string[]
     requiredWorkerCapabilities: string[]
+    stopRules: unknown
+    budgetCents: number | null
+    budgetCurrency: string | null
+    budgetPeriod: 'DAY' | 'WEEK' | 'MONTH' | null
+    estimatedRunCostCents: number | null
+  },
+  input: z.output<typeof CreateAgentRoutineInputSchema>,
+) {
+  return (
+    JSON.stringify(canonicalStopRules(existing.stopRules)) ===
+      JSON.stringify(canonicalStopRules(input.stopRules)) &&
+    JSON.stringify(routineBudgetOf(existing)) ===
+      JSON.stringify(
+        input.budget
+          ? {
+              budgetCents: input.budget.amountCents,
+              budgetCurrency: input.budget.currency,
+              budgetPeriod: input.budget.period,
+              estimatedRunCostCents: input.budget.estimatedRunCostCents,
+            }
+          : null,
+      ) &&
+    sameCoreDefinition(existing, input)
+  )
+}
+
+/** Key order must not decide whether two stop-rule documents are the same. */
+function canonicalStopRules(raw: unknown) {
+  const parsed = RoutineStopRulesSchema.safeParse(raw ?? {})
+  const rules = parsed.success ? parsed.data : {}
+  return {
+    subject: rules.subject ? { kind: rules.subject.kind, id: rules.subject.id } : null,
+    maxReminders: rules.maxReminders ?? null,
+    endsAt: rules.endsAt ? new Date(rules.endsAt).toISOString() : null,
+  }
+}
+
+function sameCoreDefinition(
+  existing: {
+    agentIdentityId: string
+    prompt: string
+    requestedOperation: string
+    intervalSeconds: number
+    maxAttempts: number
+    maxRunsPerDay: number
+    perRunBudgetE8Usd: bigint | null
+    dailyBudgetE8Usd: bigint | null
+    requiredWorkerRoles: string[]
+    requiredWorkerCapabilities: string[]
   },
   input: z.output<typeof CreateAgentRoutineInputSchema>,
 ) {
@@ -86,6 +153,7 @@ export async function createAgentRoutineAction(
   client: AgentRoutineActionClient = db,
 ) {
   const input = CreateAgentRoutineInputSchema.parse(rawInput)
+  assertScopedStopRules(input.stopRules)
   return client.$transaction(async (tx) => {
     // Serialize the unique-definition decision so concurrent identical creates
     // replay cleanly and differing definitions return the domain conflict.
@@ -139,6 +207,15 @@ export async function createAgentRoutineAction(
         dailyBudgetE8Usd: null,
         requiredWorkerRoles: input.requiredWorkerRoles,
         requiredWorkerCapabilities: input.requiredWorkerCapabilities,
+        stopRules: input.stopRules,
+        ...(input.budget
+          ? {
+              budgetCents: input.budget.amountCents,
+              budgetCurrency: input.budget.currency,
+              budgetPeriod: input.budget.period,
+              estimatedRunCostCents: input.budget.estimatedRunCostCents,
+            }
+          : {}),
         // Definitions begin inert. A separate human action and server flag are
         // both required before the scheduler can create an AgentRun.
         enabled: false,
@@ -184,6 +261,9 @@ export async function updateAgentRoutineDefinitionAction(
     prompt?: string
     intervalSeconds?: number
     maxRunsPerDay?: number
+    stopRules?: z.input<typeof RoutineStopRulesSchema>
+    /** null removes the budget; omitted leaves it as it is. */
+    budget?: z.input<typeof RoutineBudgetSchema> | null
   },
   actorId: string,
   client: AgentRoutineActionClient = db,
@@ -203,9 +283,12 @@ export async function updateAgentRoutineDefinitionAction(
         .max(7 * 24 * 60 * 60)
         .optional(),
       maxRunsPerDay: z.number().int().min(1).max(1_440).optional(),
+      stopRules: RoutineStopRulesSchema.optional(),
+      budget: RoutineBudgetSchema.nullable().optional(),
     })
     .strict()
     .parse(rawInput)
+  assertScopedStopRules(input.stopRules)
   return client.$transaction(async (tx) => {
     // No advisory lock: the write below is a compare-and-set on `enabled: false` and the observed
     // `updatedAt`, so a concurrent enable or edit changes the row and this update affects 0 rows.
@@ -223,6 +306,22 @@ export async function updateAgentRoutineDefinitionAction(
       ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
       ...(input.intervalSeconds !== undefined ? { intervalSeconds: input.intervalSeconds } : {}),
       ...(input.maxRunsPerDay !== undefined ? { maxRunsPerDay: input.maxRunsPerDay } : {}),
+      ...(input.stopRules !== undefined ? { stopRules: input.stopRules } : {}),
+      ...(input.budget === null
+        ? {
+            budgetCents: null,
+            budgetCurrency: null,
+            budgetPeriod: null,
+            estimatedRunCostCents: null,
+          }
+        : input.budget !== undefined
+          ? {
+              budgetCents: input.budget.amountCents,
+              budgetCurrency: input.budget.currency,
+              budgetPeriod: input.budget.period,
+              estimatedRunCostCents: input.budget.estimatedRunCostCents,
+            }
+          : {}),
     }
     const changed = await tx.agentRoutine.updateMany({
       where: {
@@ -255,12 +354,15 @@ export async function updateAgentRoutineDefinitionAction(
         beforeState: {
           intervalSeconds: routine.intervalSeconds,
           maxRunsPerDay: routine.maxRunsPerDay,
+          budget: routineBudgetOf(routine),
         },
         afterState: {
           enabled: false,
           changedPrompt: input.prompt !== undefined,
           intervalSeconds: updated.intervalSeconds,
           maxRunsPerDay: updated.maxRunsPerDay,
+          changedStopRules: input.stopRules !== undefined,
+          budget: routineBudgetOf(updated),
         },
       },
       tx,
@@ -297,7 +399,7 @@ export async function setAgentRoutineEnabledAction(
         enabled: routine.enabled,
       },
       data: input.enabled
-        ? { enabled: true, nextRunAt: now, lastSkipReason: null }
+        ? { enabled: true, nextRunAt: now, lastSkipReason: null, stoppedAt: null, stopReason: null }
         : { enabled: false, nextRunAt: null, lastSkipReason: 'DISABLED' },
     })
     if (changed.count !== 1)
@@ -333,6 +435,8 @@ export async function setAgentRoutineEnabledAction(
 type DispatchOutcome =
   | { routineId: string; status: 'DISPATCHED'; agentRunId: string; tenantId: string }
   | { routineId: string; status: 'SKIPPED'; reason: string }
+  /** A stop rule was met: the routine is now disabled with the reason recorded, and nothing ran. */
+  | { routineId: string; status: 'STOPPED'; reason: string }
 
 /**
  * Claims one due definition under a transaction-scoped advisory lock and
@@ -371,6 +475,31 @@ export async function dispatchDueAgentRoutineAction(
     const scheduledFor = routine.nextRunAt
     const nextDue = nextRunAt(input.now, routine.intervalSeconds)
     const identity = routine.agentIdentity
+
+    // Stop rules are evaluated before any other decision or effect, so a reminder whose purpose is
+    // met (or no longer valid) never produces a stale run. Recording is a compare-and-set.
+    const stopReason = await evaluateRoutineStopRules(tx, routine, input.now)
+    if (stopReason) {
+      const { recorded } = await recordRoutineStop(tx, routine, stopReason, input.now)
+      if (recorded) {
+        await writeAuditLogStrict(
+          {
+            tenantId: routine.tenantId,
+            actorType: 'SYSTEM',
+            actorId: `agent-routine:${routine.id}`,
+            actorRole: 'SYSTEM',
+            systemJobId: routine.id,
+            idempotencyKey: randomUUID(),
+            action: 'agent-routine.stopped',
+            targetType: 'AgentRoutine',
+            targetId: routine.id,
+            afterState: { reason: stopReason, stoppedAt: input.now.toISOString() },
+          },
+          tx,
+        )
+      }
+      return { routineId: routine.id, status: 'STOPPED', reason: stopReason }
+    }
     if (routine.maxAttempts !== 1) {
       await tx.agentRoutine.update({
         where: { id: routine.id },
@@ -429,6 +558,45 @@ export async function dispatchDueAgentRoutineAction(
       return { routineId: routine.id, status: 'SKIPPED', reason }
     }
 
+    // Budget: reserve a conservative estimate atomically before the run exists. A refusal records
+    // BUDGET_EXCEEDED and returns without creating anything.
+    const budget = routineBudgetOf(routine)
+    let reservedCostCents: number | null = null
+    if (budget) {
+      const reservation = await reserveAgentRoutineBudget(tx, { ...routine, ...budget }, input.now)
+      if (!reservation.ok) {
+        const firstRefusal = routine.lastSkipReason !== ROUTINE_BUDGET_EXCEEDED
+        await tx.agentRoutine.update({
+          where: { id: routine.id },
+          data: { nextRunAt: nextDue, lastSkipReason: ROUTINE_BUDGET_EXCEEDED },
+        })
+        if (firstRefusal) {
+          await writeAuditLogStrict(
+            {
+              tenantId: routine.tenantId,
+              actorType: 'SYSTEM',
+              actorId: `agent-routine:${routine.id}`,
+              actorRole: 'SYSTEM',
+              systemJobId: routine.id,
+              idempotencyKey: randomUUID(),
+              action: 'agent-routine.budget-exceeded',
+              targetType: 'AgentRoutine',
+              targetId: routine.id,
+              afterState: {
+                estimatedRunCostCents: budget.estimatedRunCostCents,
+                remainingCents: reservation.remainingCents,
+                currency: budget.budgetCurrency,
+                period: budget.budgetPeriod,
+              },
+            },
+            tx,
+          )
+        }
+        return { routineId: routine.id, status: 'SKIPPED', reason: ROUTINE_BUDGET_EXCEEDED }
+      }
+      reservedCostCents = reservation.reservedCents
+    }
+
     const operationId = randomUUID()
     const run = await tx.agentRun.create({
       data: {
@@ -448,7 +616,8 @@ export async function dispatchDueAgentRoutineAction(
             routineId: routine.id,
             routineKey: routine.routineKey,
             scheduledFor: scheduledFor.toISOString(),
-            budgetEnforcement: 'DEFERRED',
+            budgetEnforcement: budget ? 'RESERVED_ESTIMATE' : 'DEFERRED',
+            ...(reservedCostCents !== null ? { reservedCostCents } : {}),
           },
           requiredWorkerRoles: routine.requiredWorkerRoles,
           requiredWorkerCapabilities: routine.requiredWorkerCapabilities,
@@ -476,6 +645,7 @@ export async function dispatchDueAgentRoutineAction(
         routineId: routine.id,
         scheduledFor,
         agentRunId: run.id,
+        ...(reservedCostCents !== null ? { reservedCostCents } : {}),
       },
     })
     await tx.agentRoutine.update({

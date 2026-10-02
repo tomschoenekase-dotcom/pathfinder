@@ -215,6 +215,129 @@ describe.skipIf(!enabled)(
       )
     })
 
+    it('stop rules and a dollar budget go through the same propose, approve and edit path, scoped to the tenant', async () => {
+      const request = await withTenantIsolationBypass(() =>
+        db.supportRequest.create({
+          data: {
+            tenantId,
+            venueId,
+            category: 'GENERAL',
+            subject: 'Example follow-up',
+            createdByKind: 'OPERATOR',
+            createdById: 'seed',
+            updatedByKind: 'OPERATOR',
+            updatedById: 'seed',
+          },
+        }),
+      )
+      const foreignVenue = `rr-foreign-venue-${suffix}`
+      const foreignRequest = await withTenantIsolationBypass(async () => {
+        await db.venue.create({
+          data: {
+            id: foreignVenue,
+            tenantId: otherTenantId,
+            name: 'Example Foreign Garden',
+            slug: `rr-foreign-${suffix}`,
+          },
+        })
+        return db.supportRequest.create({
+          data: {
+            tenantId: otherTenantId,
+            venueId: foreignVenue,
+            category: 'GENERAL',
+            subject: 'Example foreign request',
+            createdByKind: 'OPERATOR',
+            createdById: 'seed',
+            updatedByKind: 'OPERATOR',
+            updatedById: 'seed',
+          },
+        })
+      })
+      const base = {
+        tenantId,
+        venueId,
+        agentIdentityId: agentId,
+        prompt: 'Remind the client about the open request.',
+        intervalSeconds: 3600,
+      }
+      // A subject that lives in another tenant is not found: it cannot be proposed at all.
+      await expect(
+        propose('routines.propose_create', {
+          ...base,
+          routineKey: 'foreign-subject',
+          stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: foreignRequest.id } },
+        }),
+      ).rejects.toBeInstanceOf(OperatorNotFoundError)
+
+      const created = await propose('routines.propose_create', {
+        ...base,
+        routineKey: 'client-follow-up',
+        stopRules: {
+          subject: { kind: 'SUPPORT_REQUEST', id: request.id },
+          maxReminders: 3,
+          endsAt: '2027-01-01T00:00:00.000Z',
+        },
+        budget: { amountCents: 500, currency: 'USD', period: 'WEEK', estimatedRunCostCents: 40 },
+      })
+      expect((await approve(created)).status).toBe('APPLIED')
+      const routine = await withTenantIsolationBypass(() =>
+        db.agentRoutine.findFirstOrThrow({ where: { tenantId, routineKey: 'client-follow-up' } }),
+      )
+      expect(routine).toMatchObject({
+        enabled: false,
+        budgetCents: 500,
+        budgetCurrency: 'USD',
+        budgetPeriod: 'WEEK',
+        estimatedRunCostCents: 40,
+        stopRules: {
+          subject: { kind: 'SUPPORT_REQUEST', id: request.id },
+          maxReminders: 3,
+          endsAt: '2027-01-01T00:00:00.000Z',
+        },
+      })
+
+      const status = await read('routines.get_run_status', { routineId: routine.id })
+      expect(status.limits.cost).toMatchObject({
+        enforced: true,
+        budget: { amountCents: 500, spentCents: 0, remainingCents: 500, period: 'WEEK' },
+      })
+      expect(status.limits.stopRules).toMatchObject({ maxReminders: 3, stopReason: null })
+
+      // The budget changes only through a proposal, and only while the routine is disabled.
+      const edit = await propose('routines.propose_update', {
+        tenantId,
+        venueId,
+        routineId: routine.id,
+        expectedUpdatedAt: status.version,
+        budget: { amountCents: 900, currency: 'USD', period: 'MONTH', estimatedRunCostCents: 60 },
+      })
+      expect((await approve(edit)).status).toBe('APPLIED')
+      const edited = await read('routines.get_run_status', { routineId: routine.id })
+      expect(edited.limits.cost.budget).toMatchObject({ amountCents: 900, period: 'MONTH' })
+
+      const remove = await propose('routines.propose_update', {
+        tenantId,
+        venueId,
+        routineId: routine.id,
+        expectedUpdatedAt: edited.version,
+        budget: null,
+      })
+      expect((await approve(remove)).status).toBe('APPLIED')
+      const cleared = await read('routines.get_run_status', { routineId: routine.id })
+      expect(cleared.limits.cost).toMatchObject({ enforced: false, budget: null })
+      // The edit left a durable audit row for the budget change.
+      const audit = await withTenantIsolationBypass(() =>
+        db.auditLog.count({
+          where: { tenantId, targetId: routine.id, action: 'agent-routine.updated' },
+        }),
+      )
+      expect(audit).toBe(2)
+      // Another tenant's grant cannot read this routine's budget or stop state.
+      await expect(
+        read('routines.get_run_status', { routineId: routine.id }, otherGrant),
+      ).rejects.toBeDefined()
+    })
+
     it('reads a report in full, classifies a stalled one from evidence and refuses a foreign grant', async () => {
       const body = 'Insight. '.repeat(400)
       const reportId = `rr-report-${suffix}`

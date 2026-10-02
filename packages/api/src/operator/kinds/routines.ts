@@ -1,4 +1,5 @@
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
+import type { RoutineStopRules } from '@pathfinder/contracts'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import {
   AgentRoutineActionError,
@@ -61,6 +62,54 @@ async function readRoutine(
 
 const byId = (tenantId: string, venueId: string, id: string) => ({ tenantId, venueId, id })
 
+/**
+ * A stop-rule subject must exist where the routine lives, so a typo cannot create a reminder that
+ * stops itself immediately (or never). Support requests are tenant and venue scoped. Prospect
+ * contacts are platform records with no proven tenant relation, so tenant routines refuse them
+ * without even looking the contact up.
+ */
+async function assertStopSubject(
+  database: OperatorDatabase,
+  tenantId: string,
+  venueId: string,
+  rules: RoutineStopRules | undefined,
+) {
+  const subject = rules?.subject
+  if (!subject) return
+  if (subject.kind !== 'SUPPORT_REQUEST') throw new OperatorNotFoundError()
+  const found = await database.supportRequest.findFirst({
+    where: { id: subject.id, tenantId, venueId },
+    select: { id: true },
+  })
+  if (!found) throw new OperatorNotFoundError()
+}
+
+function describeStopRules(rules: RoutineStopRules | undefined): string[] {
+  if (!rules) return []
+  return [
+    ...(rules.subject
+      ? [
+          `stops when the ${rules.subject.kind.toLowerCase().replace('_', ' ')} is answered, closed or suppressed`,
+        ]
+      : []),
+    ...(rules.maxReminders !== undefined ? [`stops after ${rules.maxReminders} runs`] : []),
+    ...(rules.endsAt !== undefined ? [`stops at ${rules.endsAt}`] : []),
+  ]
+}
+
+function describeBudget(
+  budget:
+    | { amountCents: number; currency: string; period: string; estimatedRunCostCents: number }
+    | null
+    | undefined,
+): string[] {
+  if (budget === undefined) return []
+  if (budget === null) return ['removes the dollar budget']
+  return [
+    `budget ${budget.amountCents} ${budget.currency} cents per ${budget.period.toLowerCase()}, reserving ${budget.estimatedRunCostCents} per run; a run that does not fit is refused (BUDGET_EXCEEDED)`,
+  ]
+}
+
 function mapRoutineError(error: unknown): never {
   if (error instanceof AgentRoutineActionError) {
     if (error.code === 'NOT_FOUND') throw new OperatorNotFoundError()
@@ -122,6 +171,7 @@ export const routinesCreateKind: OperatorProposalKind<CreateArgs> = {
       select: { id: true },
     })
     if (!identity) throw new OperatorNotFoundError()
+    await assertStopSubject(context.database, args.tenantId, args.venueId, args.stopRules)
   },
   targetVersion: async () => null,
   currentVersion: async () => null,
@@ -131,6 +181,8 @@ export const routinesCreateKind: OperatorProposalKind<CreateArgs> = {
       `key: ${args.routineKey}`,
       `every ${args.intervalSeconds} seconds, at most ${args.maxRunsPerDay} runs a day`,
       `agent identity: ${args.agentIdentityId}`,
+      ...describeStopRules(args.stopRules),
+      ...describeBudget(args.budget),
       'It is created disabled. Enabling it is a separate decision that always needs a person.',
     ],
   }),
@@ -152,6 +204,8 @@ export const routinesCreateKind: OperatorProposalKind<CreateArgs> = {
           maxRunsPerDay: args.maxRunsPerDay,
           requiredWorkerRoles: args.requiredWorkerRoles,
           requiredWorkerCapabilities: args.requiredWorkerCapabilities,
+          stopRules: args.stopRules,
+          budget: args.budget,
         },
         context.actor.id,
         context.database,
@@ -207,6 +261,8 @@ function existing<Args extends ExistingArgs>(
     run: (args: Args, context: OperatorApplyContext) => Promise<void>
     /** Throws a stale error when the routine is not in a state this change may start from. */
     precondition?: (state: RoutineState) => void
+    /** Extra scope checks that need the arguments (for example that a stop subject exists). */
+    validate?: (args: Args, context: OperatorKindContext) => Promise<void>
   },
 ): OperatorProposalKind<Args> {
   return {
@@ -224,6 +280,7 @@ function existing<Args extends ExistingArgs>(
         byId(args.tenantId, args.venueId, args.routineId),
       )
       if (!state) throw new OperatorNotFoundError()
+      await spec.validate?.(args, context)
     },
     targetVersion: async (args) => new Date(args.expectedUpdatedAt).toISOString(),
     currentVersion: async (args, context) =>
@@ -284,8 +341,12 @@ export const routinesUpdateKind = existing<UpdateArgs>({
       ...(args.intervalSeconds !== undefined ? [`interval → ${args.intervalSeconds} seconds`] : []),
       ...(args.maxRunsPerDay !== undefined ? [`max runs a day → ${args.maxRunsPerDay}`] : []),
       ...(args.prompt !== undefined ? [`prompt → ${args.prompt.slice(0, 400)}`] : []),
+      ...describeStopRules(args.stopRules),
+      ...describeBudget(args.budget),
     ],
   }),
+  validate: (args, context) =>
+    assertStopSubject(context.database, args.tenantId, args.venueId, args.stopRules),
   precondition: (state) => {
     if (state.enabled) throw new OperatorStaleError('Disable the routine before editing it.')
   },
@@ -300,6 +361,8 @@ export const routinesUpdateKind = existing<UpdateArgs>({
         ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
         ...(args.intervalSeconds !== undefined ? { intervalSeconds: args.intervalSeconds } : {}),
         ...(args.maxRunsPerDay !== undefined ? { maxRunsPerDay: args.maxRunsPerDay } : {}),
+        ...(args.stopRules !== undefined ? { stopRules: args.stopRules } : {}),
+        ...(args.budget !== undefined ? { budget: args.budget } : {}),
       },
       context.actor.id,
       context.database,

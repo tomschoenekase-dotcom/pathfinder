@@ -337,6 +337,113 @@ describe('routines kinds', () => {
     expect(mocks.createRoutine.mock.calls[0]![0]).not.toHaveProperty('enabled')
     expect(() => routinesCreateKind.parse({ ...args, enabled: true })).toThrow()
   })
+  it('carries reminder stop rules and a dollar budget through the proposal and shows them in the preview', async () => {
+    const args = routinesCreateKind.parse({
+      ...scope,
+      routineKey: 'follow-up',
+      agentIdentityId: 'agent-1',
+      prompt: 'Remind about the open request.',
+      intervalSeconds: 3600,
+      operationId: OP,
+      stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: 'req-1' }, maxReminders: 3 },
+      budget: { amountCents: 500, currency: 'USD', period: 'DAY', estimatedRunCostCents: 40 },
+    })
+    const preview = routinesCreateKind.describe(args).lines.join(' | ')
+    expect(preview).toContain('stops when the support request is answered, closed or suppressed')
+    expect(preview).toContain('stops after 3 runs')
+    expect(preview).toContain('BUDGET_EXCEEDED')
+    mocks.createRoutine.mockResolvedValue({ routine: { id: 'rt-1' }, replayed: false })
+    const { database } = fakeDb({ agentRoutine: { findFirst: () => routineRow() } })
+    await routinesCreateKind.apply(args, apply(database))
+    expect(mocks.createRoutine.mock.calls.at(-1)![0]).toMatchObject({
+      stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: 'req-1' }, maxReminders: 3 },
+      budget: { amountCents: 500, currency: 'USD', period: 'DAY', estimatedRunCostCents: 40 },
+    })
+  })
+  it('rejects malformed budgets and stop rules at the contract', () => {
+    const common = {
+      ...scope,
+      routineKey: 'k',
+      agentIdentityId: 'a',
+      prompt: 'x',
+      intervalSeconds: 60,
+      operationId: OP,
+    }
+    const budget = { amountCents: 100, currency: 'USD', period: 'DAY', estimatedRunCostCents: 10 }
+    expect(() => routinesCreateKind.parse({ ...common, budget })).not.toThrow()
+    for (const bad of [
+      { ...budget, amountCents: 0 },
+      { ...budget, amountCents: 10.5 },
+      { ...budget, currency: 'usd' },
+      { ...budget, period: 'YEAR' },
+      { ...budget, estimatedRunCostCents: 101 },
+      { ...budget, extra: true },
+    ]) {
+      expect(() => routinesCreateKind.parse({ ...common, budget: bad })).toThrow()
+    }
+    expect(() =>
+      routinesCreateKind.parse({ ...common, stopRules: { subject: { kind: 'TENANT', id: 'x' } } }),
+    ).toThrow()
+    expect(() => routinesCreateKind.parse({ ...common, stopRules: { maxReminders: 0 } })).toThrow()
+    expect(() =>
+      routinesCreateKind.parse({ ...common, stopRules: { endsAt: 'next tuesday' } }),
+    ).toThrow()
+  })
+  it('hides a stop subject that is not in the venue at authorization', async () => {
+    const args = routinesCreateKind.parse({
+      ...scope,
+      routineKey: 'k',
+      agentIdentityId: 'a',
+      prompt: 'x',
+      intervalSeconds: 60,
+      operationId: OP,
+      stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: 'foreign-request' } },
+    })
+    const { database, calls } = fakeDb({
+      ...base,
+      agentIdentity: { findFirst: () => ({ id: 'a' }) },
+      supportRequest: { findFirst: () => null },
+    })
+    await expect(routinesCreateKind.authorize!(args, ctx(database))).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    const where = JSON.stringify(calls.find((c) => c.model === 'supportRequest')?.args.where)
+    expect(where).toContain(TENANT)
+    expect(where).toContain(VENUE)
+  })
+  it('refuses a platform prospect subject before any global CRM read', async () => {
+    const args = routinesCreateKind.parse({
+      ...scope,
+      routineKey: 'k',
+      agentIdentityId: 'a',
+      prompt: 'x',
+      intervalSeconds: 60,
+      operationId: OP,
+      stopRules: { subject: { kind: 'PROSPECT_CONTACT', id: 'contact-1' } },
+    })
+    const { database, calls } = fakeDb({
+      ...base,
+      agentIdentity: { findFirst: () => ({ id: 'a' }) },
+    })
+    await expect(routinesCreateKind.authorize!(args, ctx(database))).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(calls.some((call) => call.model === 'prospectContact')).toBe(false)
+  })
+  it('update: names the budget change in the preview and passes null to remove it', async () => {
+    const args = routinesUpdateKind.parse({ ...existing, budget: null })
+    expect(routinesUpdateKind.describe(args).lines.join(' ')).toContain('removes the dollar budget')
+    mocks.updateRoutine.mockResolvedValue({})
+    const rows = [routineRow(), routineRow()]
+    const { database } = fakeDb({ agentRoutine: { findFirst: () => rows.shift() } })
+    await routinesUpdateKind.apply(args, apply(database))
+    expect(mocks.updateRoutine.mock.calls.at(-1)![0]).toMatchObject({ budget: null })
+    // A budget or stop-rule change alone is a real change, and an empty update is still refused.
+    expect(() => routinesUpdateKind.parse({ ...existing })).toThrow()
+    expect(() =>
+      routinesUpdateKind.parse({ ...existing, stopRules: { maxReminders: 2 } }),
+    ).not.toThrow()
+  })
   it('hides an agent identity outside the tenant at authorization', async () => {
     const args = routinesCreateKind.parse({
       ...scope,
