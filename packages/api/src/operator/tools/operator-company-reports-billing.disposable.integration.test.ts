@@ -10,7 +10,6 @@ import {
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { resolveOperatorConfig } from '../config'
-import { OperatorNotFoundError } from '../grants'
 import type { VerifiedOperatorGrant } from '../oauth'
 import { createOperatorRegistry, defaultVenueRead } from '../registry'
 

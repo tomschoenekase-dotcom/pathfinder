@@ -681,6 +681,13 @@ describe('routines.get_run_status', () => {
     createdBy: 'user_owner',
     updatedAt: new Date('2026-10-01T00:00:00Z'),
     agentIdentity: { id: 'agent-1', name: 'Monitor', enabled: true },
+    budgetCents: null,
+    budgetCurrency: null,
+    budgetPeriod: null,
+    estimatedRunCostCents: null,
+    stopRules: {},
+    stoppedAt: null,
+    stopReason: null,
     ...overrides,
   })
   const run = (status: string) => ({
@@ -701,7 +708,7 @@ describe('routines.get_run_status', () => {
     )
     return { output, calls }
   }
-  it('is unknown, never ok, when nothing has run, and says reminder stops are not implemented', async () => {
+  it('is unknown, never ok, when nothing has run, and reports no budget and no stop yet', async () => {
     const { output, calls } = await status(routine(), [])
     expect(output.health).toBe('unknown')
     expect(output.lastResult).toBeNull()
@@ -711,7 +718,16 @@ describe('routines.get_run_status', () => {
       cadence: 'every 1 hour(s)',
     })
     expect(output.limits.cost).toMatchObject({ enforced: false })
-    expect(output.stopConditions.find((s: any) => s.key === 'reminder_stops').active).toBeNull()
+    expect(output.limits.cost.budget).toBeNull()
+    expect(output.limits.stopRules).toEqual({
+      subject: null,
+      maxReminders: null,
+      endsAt: null,
+      stoppedAt: null,
+      stopReason: null,
+    })
+    expect(output.stopConditions.find((s: any) => s.key === 'stopped_by_rule').active).toBe(false)
+    expect(output.stopConditions.find((s: any) => s.key === 'budget_exceeded').active).toBeNull()
     expect(output.owner.createdBy).toBe('user_owner')
     expectEveryQueryScopedTo(calls, TENANT, ['tenant'])
   })
@@ -733,6 +749,53 @@ describe('routines.get_run_status', () => {
         now: NOW,
       }).health,
     ).toBe('attention')
+  })
+  it('reports an enforced budget with the period spend, and a routine that stopped itself', async () => {
+    const budgeted = routine({
+      budgetCents: 500,
+      budgetCurrency: 'USD',
+      budgetPeriod: 'DAY',
+      estimatedRunCostCents: 40,
+      lastSkipReason: 'BUDGET_EXCEEDED',
+      stopRules: {
+        subject: { kind: 'SUPPORT_REQUEST', id: 'req-1' },
+        maxReminders: 3,
+        endsAt: '2026-12-01T00:00:00.000Z',
+      },
+      enabled: false,
+      stoppedAt: new Date('2026-10-02T10:00:00Z'),
+      stopReason: 'TARGET_REPLIED',
+    })
+    const { database, calls } = fakeDb({
+      ...tenantAndVenue,
+      agentRoutine: { findFirst: () => budgeted },
+      agentRoutineDispatch: { findMany: () => [], count: () => 0 },
+      agentRoutineBudgetUsage: { findFirst: () => ({ spentCents: 120 }) },
+    })
+    const output = await call(
+      'routines.get_run_status',
+      { tenantId: TENANT, routineId: 'rt-1' },
+      context(database),
+    )
+    expect(output.limits.cost).toMatchObject({
+      enforced: true,
+      budget: {
+        amountCents: 500,
+        currency: 'USD',
+        period: 'DAY',
+        estimatedRunCostCents: 40,
+        spentCents: 120,
+        remainingCents: 380,
+      },
+    })
+    expect(output.limits.stopRules).toMatchObject({
+      subject: { kind: 'SUPPORT_REQUEST', id: 'req-1' },
+      maxReminders: 3,
+      stopReason: 'TARGET_REPLIED',
+    })
+    expect(output.stopConditions.find((s: any) => s.key === 'stopped_by_rule').active).toBe(true)
+    expect(output.stopConditions.find((s: any) => s.key === 'budget_exceeded').active).toBe(true)
+    expectEveryQueryScopedTo(calls, TENANT, ['tenant'])
   })
   it('is not found for a routine of another tenant', async () => {
     const { database } = fakeDb({ ...tenantAndVenue, agentRoutine: { findFirst: () => null } })

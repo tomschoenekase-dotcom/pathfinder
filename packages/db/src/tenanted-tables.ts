@@ -113,6 +113,7 @@ export const TENANTED_TABLES = [
   'AgentRun',
   'AgentRoutine',
   'AgentRoutineDispatch',
+  'AgentRoutineBudgetUsage',
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',

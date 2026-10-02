@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { RoutineBudget, RoutineStopRules } from './agent-routine'
 import { McpAppearanceUpdateInput, type JsonSchema } from './mcp-v0'
 import { OPERATIONAL_UPDATE_LIFECYCLES } from './operational-update-lifecycle'
 import {
@@ -1254,6 +1255,10 @@ export const OPERATOR_MCP_INPUTS = {
     maxRunsPerDay: z.number().int().min(1).max(1_440).default(24),
     requiredWorkerRoles: z.array(Identifier).max(50).default([]),
     requiredWorkerCapabilities: z.array(Identifier).max(100).default([]),
+    /** When the reminder stops itself. Checked at run time before anything happens. */
+    stopRules: RoutineStopRules.default({}),
+    /** A dollar budget for the spend its runs can trigger. Omit for none. */
+    budget: RoutineBudget.nullable().default(null),
   }),
   'routines.propose_update': writeInput({
     ...venueScope,
@@ -1268,11 +1273,16 @@ export const OPERATOR_MCP_INPUTS = {
       .max(7 * 24 * 60 * 60)
       .optional(),
     maxRunsPerDay: z.number().int().min(1).max(1_440).optional(),
+    stopRules: RoutineStopRules.optional(),
+    /** Replaces the budget; null removes it; omitted leaves it. */
+    budget: RoutineBudget.nullable().optional(),
   }).superRefine((value, context) => {
     if (
       value.prompt === undefined &&
       value.intervalSeconds === undefined &&
-      value.maxRunsPerDay === undefined
+      value.maxRunsPerDay === undefined &&
+      value.stopRules === undefined &&
+      value.budget === undefined
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -3051,7 +3061,34 @@ export const OPERATOR_MCP_OUTPUTS = {
               enforced: z.boolean(),
               perRunBudgetE8Usd: z.string().max(40).nullable(),
               dailyBudgetE8Usd: z.string().max(40).nullable(),
+              /** The enforced dollar budget and this period's ledger; null when there is none. */
+              budget: z
+                .object({
+                  amountCents: z.number().int().nonnegative(),
+                  currency: z.string().max(3),
+                  period: z.enum(['DAY', 'WEEK', 'MONTH']),
+                  estimatedRunCostCents: z.number().int().nonnegative(),
+                  periodStart: IsoDateTime,
+                  periodEnd: IsoDateTime,
+                  spentCents: z.number().int().nonnegative(),
+                  remainingCents: z.number().int().nonnegative(),
+                })
+                .strict()
+                .nullable(),
               note: z.string().max(300),
+            })
+            .strict(),
+          /** The reminder stop rules as saved, and why the routine stopped, if it did. */
+          stopRules: z
+            .object({
+              subject: z
+                .object({ kind: z.enum(['SUPPORT_REQUEST', 'PROSPECT_CONTACT']), id: Identifier })
+                .strict()
+                .nullable(),
+              maxReminders: z.number().int().positive().nullable(),
+              endsAt: IsoDateTime.nullable(),
+              stoppedAt: IsoDateTime.nullable(),
+              stopReason: z.string().max(64).nullable(),
             })
             .strict(),
         })
@@ -3165,6 +3202,9 @@ export const OPERATOR_MCP_OUTPUTS = {
         nextRunAt: IsoDateTime.nullable(),
         lastRunAt: IsoDateTime.nullable(),
         lastSkipReason: UntrustedText.nullable(),
+        /** Set when the routine stopped itself because its purpose was met or went stale. */
+        stoppedAt: IsoDateTime.nullable(),
+        stopReason: z.string().max(64).nullable(),
         createdAt: IsoDateTime,
         updatedAt: IsoDateTime,
         agentIdentity: z
@@ -4252,7 +4292,7 @@ const seeds: readonly Seed[] = [
   [
     'routines.propose_create',
     'Propose routine',
-    `Propose saving a routine definition. It is always created disabled and never runs until a person approves routines.propose_enable.${PROPOSE}`,
+    `Propose saving a routine definition, optionally with reminder stop rules and a dollar budget. It is always created disabled and never runs until a person approves routines.propose_enable.${PROPOSE}`,
     'routines:propose',
     'venue',
     'routines.create',
@@ -4260,7 +4300,7 @@ const seeds: readonly Seed[] = [
   [
     'routines.propose_update',
     'Propose routine update',
-    `Propose changing a disabled routine's prompt, interval or daily run limit at the observed updatedAt. An enabled routine must be disabled first.${PROPOSE}`,
+    `Propose changing a disabled routine's prompt, interval, daily run limit, reminder stop rules or dollar budget at the observed updatedAt. An enabled routine must be disabled first.${PROPOSE}`,
     'routines:propose',
     'venue',
     'routines.update',

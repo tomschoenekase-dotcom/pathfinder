@@ -243,6 +243,7 @@ model Tenant {
   agentRuns                                 AgentRun[]
   agentRoutines                             AgentRoutine[]
   agentRoutineDispatches                    AgentRoutineDispatch[]
+  agentRoutineBudgetUsages                  AgentRoutineBudgetUsage[]
   agentActions                              AgentAction[]
   agentTimelineEvents                       AgentTimelineEvent[]
   approvalRequests                          ApprovalRequest[]
@@ -1584,6 +1585,7 @@ model Venue {
   agentRuns                                 AgentRun[]
   agentRoutines                             AgentRoutine[]
   agentRoutineDispatches                    AgentRoutineDispatch[]
+  agentRoutineBudgetUsages                  AgentRoutineBudgetUsage[]
   agentActions                              AgentAction[]
   agentTimelineEvents                       AgentTimelineEvent[]
   approvalRequests                          ApprovalRequest[]
@@ -9260,33 +9262,46 @@ model AgentWorker {
 /// flag. The definition, next due time, and every resulting AgentRun are
 /// retained by Torchiko rather than a desktop worker.
 model AgentRoutine {
-  id                         String                 @id @default(cuid())
-  tenantId                   String                 @map("tenant_id")
-  venueId                    String                 @map("venue_id")
-  routineKey                 String                 @map("routine_key") @db.VarChar(191)
-  agentIdentityId            String                 @map("agent_identity_id")
-  requestedOperation         String                 @map("requested_operation") @db.VarChar(191)
-  prompt                     String                 @db.VarChar(10000)
-  intervalSeconds            Int                    @map("interval_seconds")
-  maxAttempts                Int                    @default(1) @map("max_attempts")
-  maxRunsPerDay              Int                    @default(24) @map("max_runs_per_day")
+  id                         String                    @id @default(cuid())
+  tenantId                   String                    @map("tenant_id")
+  venueId                    String                    @map("venue_id")
+  routineKey                 String                    @map("routine_key") @db.VarChar(191)
+  agentIdentityId            String                    @map("agent_identity_id")
+  requestedOperation         String                    @map("requested_operation") @db.VarChar(191)
+  prompt                     String                    @db.VarChar(10000)
+  intervalSeconds            Int                       @map("interval_seconds")
+  maxAttempts                Int                       @default(1) @map("max_attempts")
+  maxRunsPerDay              Int                       @default(24) @map("max_runs_per_day")
   // Reserved legacy fields. New routine admission always writes null and
   // runtime refuses non-null rows until pre-call budget enforcement exists.
-  perRunBudgetE8Usd          BigInt?                @map("per_run_budget_e8_usd")
-  dailyBudgetE8Usd           BigInt?                @map("daily_budget_e8_usd")
-  requiredWorkerRoles        String[]               @default([]) @map("required_worker_roles")
-  requiredWorkerCapabilities String[]               @default([]) @map("required_worker_capabilities")
-  enabled                    Boolean                @default(false)
-  nextRunAt                  DateTime?              @map("next_run_at")
-  lastRunAt                  DateTime?              @map("last_run_at")
-  lastSkipReason             String?                @map("last_skip_reason") @db.VarChar(191)
-  createdBy                  String                 @map("created_by") @db.VarChar(191)
-  createdAt                  DateTime               @default(now()) @map("created_at")
-  updatedAt                  DateTime               @updatedAt @map("updated_at")
-  tenant                     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                      Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity              AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  perRunBudgetE8Usd          BigInt?                   @map("per_run_budget_e8_usd")
+  dailyBudgetE8Usd           BigInt?                   @map("daily_budget_e8_usd")
+  requiredWorkerRoles        String[]                  @default([]) @map("required_worker_roles")
+  requiredWorkerCapabilities String[]                  @default([]) @map("required_worker_capabilities")
+  enabled                    Boolean                   @default(false)
+  nextRunAt                  DateTime?                 @map("next_run_at")
+  lastRunAt                  DateTime?                 @map("last_run_at")
+  lastSkipReason             String?                   @map("last_skip_reason") @db.VarChar(191)
+  /// Reminder stop rules (subject, max reminders, end date); see RoutineStopRules in contracts.
+  /// Evaluated at run time before any effect. Empty means only the always-on offboarding checks.
+  stopRules                  Json                      @default("{}") @map("stop_rules")
+  stoppedAt                  DateTime?                 @map("stopped_at")
+  stopReason                 String?                   @map("stop_reason") @db.VarChar(64)
+  /// Dollar budget in integer minor units for spend a run can trigger. All four are set together or
+  /// all null (database CHECK). estimatedRunCostCents is the conservative per-run ceiling reserved
+  /// before every run.
+  budgetCents                Int?                      @map("budget_cents")
+  budgetCurrency             String?                   @map("budget_currency") @db.Char(3)
+  budgetPeriod               AgentRoutineBudgetPeriod? @map("budget_period")
+  estimatedRunCostCents      Int?                      @map("estimated_run_cost_cents")
+  createdBy                  String                    @map("created_by") @db.VarChar(191)
+  createdAt                  DateTime                  @default(now()) @map("created_at")
+  updatedAt                  DateTime                  @updatedAt @map("updated_at")
+  tenant                     Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                      Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity              AgentIdentity             @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   dispatches                 AgentRoutineDispatch[]
+  budgetUsages               AgentRoutineBudgetUsage[]
 
   @@unique([tenantId, venueId, routineKey], map: "agent_routines_scope_key")
   @@unique([id, tenantId, venueId], map: "agent_routines_id_scope_key")
@@ -9298,22 +9313,56 @@ model AgentRoutine {
 /// One durable dispatch slot. The unique routine/scheduled-for key prevents
 /// duplicate AgentRuns even if scheduler replicas wake simultaneously.
 model AgentRoutineDispatch {
-  id           String       @id @default(cuid())
-  tenantId     String       @map("tenant_id")
-  venueId      String       @map("venue_id")
-  routineId    String       @map("routine_id")
-  scheduledFor DateTime     @map("scheduled_for")
-  agentRunId   String       @unique @map("agent_run_id")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  routine      AgentRoutine @relation(fields: [routineId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun     AgentRun     @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue        Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                String       @id @default(cuid())
+  tenantId          String       @map("tenant_id")
+  venueId           String       @map("venue_id")
+  routineId         String       @map("routine_id")
+  scheduledFor      DateTime     @map("scheduled_for")
+  agentRunId        String       @unique @map("agent_run_id")
+  /// The conservative cost reserved against the routine's budget for this run, if it has one.
+  reservedCostCents Int?         @map("reserved_cost_cents")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  routine           AgentRoutine @relation(fields: [routineId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun          AgentRun     @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([routineId, scheduledFor], map: "agent_routine_dispatches_routine_due_key")
   @@unique([agentRunId, tenantId, venueId], map: "agent_routine_dispatches_run_scope_key")
   @@index([tenantId, venueId, scheduledFor], map: "agent_routine_dispatches_scope_due_idx")
   @@map("agent_routine_dispatches")
+}
+
+enum AgentRoutineBudgetPeriod {
+  DAY
+  WEEK
+  MONTH
+}
+
+/// Per-period spend ledger for a routine budget. The conditional UPDATE in
+/// reserveAgentRoutineBudget plus the CHECK (spent_cents <= budget_cents) make overspend impossible
+/// even if two schedulers race.
+model AgentRoutineBudgetUsage {
+  id          String                   @id @default(cuid())
+  tenantId    String                   @map("tenant_id")
+  venueId     String                   @map("venue_id")
+  routineId   String                   @map("routine_id")
+  period      AgentRoutineBudgetPeriod
+  periodStart DateTime                 @map("period_start")
+  periodEnd   DateTime                 @map("period_end")
+  currency    String                   @db.Char(3)
+  budgetCents Int                      @map("budget_cents")
+  spentCents  Int                      @default(0) @map("spent_cents")
+  runCount    Int                      @default(0) @map("run_count")
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  routine     AgentRoutine             @relation(fields: [routineId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue       Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([routineId, period, periodStart], map: "agent_routine_budget_usage_period_key")
+  @@index([tenantId, venueId, periodStart], map: "agent_routine_budget_usage_scope_idx")
+  @@map("agent_routine_budget_usage")
 }
 
 enum CompanyKnowledgeType {

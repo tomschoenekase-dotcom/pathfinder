@@ -1,4 +1,6 @@
+import { RoutineStopRules } from '@pathfinder/contracts'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { budgetPeriodBounds, routineBudgetOf } from '@pathfinder/db'
 
 import { operatorUntrustedText } from '../crm-projection'
 import { assertTenantInGrant, assertVenueInGrant, OperatorNotFoundError } from '../grants'
@@ -44,6 +46,8 @@ const routinesList: OperatorReadTool = {
         nextRunAt: true,
         lastRunAt: true,
         lastSkipReason: true,
+        stoppedAt: true,
+        stopReason: true,
         createdAt: true,
         updatedAt: true,
         agentIdentity: { select: { id: true, name: true, enabled: true } },
@@ -73,6 +77,8 @@ const routinesList: OperatorReadTool = {
         nextRunAt: row.nextRunAt?.toISOString() ?? null,
         lastRunAt: row.lastRunAt?.toISOString() ?? null,
         lastSkipReason: row.lastSkipReason ? operatorUntrustedText(row.lastSkipReason) : null,
+        stoppedAt: row.stoppedAt?.toISOString() ?? null,
+        stopReason: row.stopReason,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
         agentIdentity: {
@@ -103,6 +109,7 @@ const BLOCKING_SKIP_REASONS = new Set([
   'UNSUPPORTED_MAX_ATTEMPTS',
   'UNSUPPORTED_BUDGET_ENFORCEMENT',
   'DAILY_RUN_LIMIT_REACHED',
+  'BUDGET_EXCEEDED',
 ])
 
 function describeCadence(seconds: number): string {
@@ -171,6 +178,13 @@ const routinesGetRunStatus: OperatorReadTool = {
         maxRunsPerDay: true,
         perRunBudgetE8Usd: true,
         dailyBudgetE8Usd: true,
+        budgetCents: true,
+        budgetCurrency: true,
+        budgetPeriod: true,
+        estimatedRunCostCents: true,
+        stopRules: true,
+        stoppedAt: true,
+        stopReason: true,
         enabled: true,
         nextRunAt: true,
         lastRunAt: true,
@@ -220,7 +234,46 @@ const routinesGetRunStatus: OperatorReadTool = {
       latestRun: latest ? { status: latest.runStatus } : null,
       now: context.now,
     })
-    const budgetsPresent = routine.perRunBudgetE8Usd !== null || routine.dailyBudgetE8Usd !== null
+    const legacyBudgetsPresent =
+      routine.perRunBudgetE8Usd !== null || routine.dailyBudgetE8Usd !== null
+    const budgetConfig = routineBudgetOf(routine)
+    let budget: {
+      amountCents: number
+      currency: string
+      period: 'DAY' | 'WEEK' | 'MONTH'
+      estimatedRunCostCents: number
+      periodStart: string
+      periodEnd: string
+      spentCents: number
+      remainingCents: number
+    } | null = null
+    if (budgetConfig) {
+      const bounds = budgetPeriodBounds(budgetConfig.budgetPeriod, context.now)
+      const usage = await context.database.agentRoutineBudgetUsage.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          routineId: routine.id,
+          period: budgetConfig.budgetPeriod,
+          periodStart: bounds.start,
+        },
+        select: { spentCents: true },
+      })
+      const spentCents = usage?.spentCents ?? 0
+      budget = {
+        amountCents: budgetConfig.budgetCents,
+        currency: budgetConfig.budgetCurrency,
+        period: budgetConfig.budgetPeriod,
+        estimatedRunCostCents: budgetConfig.estimatedRunCostCents,
+        periodStart: bounds.start.toISOString(),
+        periodEnd: bounds.end.toISOString(),
+        spentCents,
+        remainingCents: Math.max(budgetConfig.budgetCents - spentCents, 0),
+      }
+    }
+    const parsedRules = RoutineStopRules.safeParse(routine.stopRules ?? {})
+    const rules = parsedRules.success ? parsedRules.data : {}
+    const hasStopRules =
+      rules.subject !== undefined || rules.maxReminders !== undefined || rules.endsAt !== undefined
     return {
       tenantId: input.tenantId,
       venueId: routine.venueId,
@@ -249,12 +302,22 @@ const routinesGetRunStatus: OperatorReadTool = {
         runsTodayUtc: runsToday,
         maxAttempts: routine.maxAttempts,
         cost: {
-          enforced: false,
+          enforced: budget !== null,
           perRunBudgetE8Usd: routine.perRunBudgetE8Usd?.toString() ?? null,
           dailyBudgetE8Usd: routine.dailyBudgetE8Usd?.toString() ?? null,
-          note: budgetsPresent
-            ? 'Budget values are stored but not enforced; the scheduler skips a routine that carries one.'
-            : 'No dollar budget is enforced. The run count per day is the only cost limit.',
+          budget,
+          note: legacyBudgetsPresent
+            ? 'Legacy E8 budget values are stored but not enforced; the scheduler skips a routine that carries one.'
+            : budget
+              ? 'Each run reserves its estimated cost before it starts; a run that does not fit in the remaining period budget is refused with BUDGET_EXCEEDED. Estimates are conservative ceilings, not measured spend.'
+              : 'No dollar budget is set. The run count per day is the only cost limit.',
+        },
+        stopRules: {
+          subject: rules.subject ? { kind: rules.subject.kind, id: rules.subject.id } : null,
+          maxReminders: rules.maxReminders ?? null,
+          endsAt: rules.endsAt ? new Date(rules.endsAt).toISOString() : null,
+          stoppedAt: routine.stoppedAt?.toISOString() ?? null,
+          stopReason: routine.stopReason ?? null,
         },
       },
       stopConditions: [
@@ -279,10 +342,24 @@ const routinesGetRunStatus: OperatorReadTool = {
           detail: 'A routine does not start a run while its previous run is unfinished.',
         },
         {
-          key: 'reminder_stops',
-          active: null,
+          key: 'stopped_by_rule',
+          active: Boolean(routine.stoppedAt),
+          detail: routine.stopReason
+            ? `The routine stopped itself: ${routine.stopReason}. Enabling it again re-checks the rules.`
+            : 'Before every run the scheduler checks stop rules (client reply recorded, request resolved or cancelled, venue or customer offboarded, reminder count, end date) and stops the routine if one is met.',
+        },
+        {
+          key: 'budget_exceeded',
+          active: budget ? routine.lastSkipReason === 'BUDGET_EXCEEDED' : null,
+          detail: budget
+            ? 'A run is refused, with nothing started, when its estimated cost does not fit in the remaining budget for the period.'
+            : 'No dollar budget is set on this routine.',
+        },
+        {
+          key: 'stop_rules_configured',
+          active: hasStopRules,
           detail:
-            'Stopping reminders on opt-out, pause or a closed request is not implemented. No routine type sends reminders, so there is nothing to stop.',
+            'Whether this routine carries its own stop rules. Offboarding, suspension and customer churn are always checked.',
         },
       ],
       recentRuns,
