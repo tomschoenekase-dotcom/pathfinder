@@ -10136,30 +10136,32 @@ model OperatorOAuthClient {
   createdAt          DateTime                    @default(now()) @map("created_at")
   codes              OperatorAuthorizationCode[]
   grants             OperatorGrant[]
+  jobGrants          OperatorJobGrant[]
 
   @@index([registrationIpHash, createdAt], map: "operator_oauth_clients_ip_created_idx")
   @@map("operator_oauth_clients")
 }
 
 model OperatorGrant {
-  id           String                      @id @default(cuid())
-  clientId     String                      @map("client_id") @db.VarChar(64)
-  userId       String                      @map("user_id") @db.VarChar(191)
-  allTenants   Boolean                     @map("all_tenants")
-  tenantIds    String[]                    @map("tenant_ids")
-  capabilities String[]
-  resource     String                      @db.VarChar(2048)
-  scope        String                      @db.VarChar(191)
-  expiresAt    DateTime                    @map("expires_at")
-  revokedAt    DateTime?                   @map("revoked_at")
-  revokeReason String?                     @map("revoke_reason") @db.VarChar(191)
-  lastUsedAt   DateTime?                   @map("last_used_at")
-  createdAt    DateTime                    @default(now()) @map("created_at")
-  client       OperatorOAuthClient         @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  codes        OperatorAuthorizationCode[]
-  tokens       OperatorToken[]
-  proposals    OperatorProposal[]
-  plans        OperatorPlan[]
+  id               String                      @id @default(cuid())
+  clientId         String                      @map("client_id") @db.VarChar(64)
+  userId           String                      @map("user_id") @db.VarChar(191)
+  allTenants       Boolean                     @map("all_tenants")
+  tenantIds        String[]                    @map("tenant_ids")
+  capabilities     String[]
+  resource         String                      @db.VarChar(2048)
+  scope            String                      @db.VarChar(191)
+  expiresAt        DateTime                    @map("expires_at")
+  revokedAt        DateTime?                   @map("revoked_at")
+  revokeReason     String?                     @map("revoke_reason") @db.VarChar(191)
+  lastUsedAt       DateTime?                   @map("last_used_at")
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  client           OperatorOAuthClient         @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  codes            OperatorAuthorizationCode[]
+  tokens           OperatorToken[]
+  proposals        OperatorProposal[]
+  plans            OperatorPlan[]
+  decisionRequests OperatorDecisionRequest[]
 
   @@index([clientId, createdAt], map: "operator_grants_client_created_idx")
   @@map("operator_grants")
@@ -10234,52 +10236,118 @@ model OperatorPlan {
 }
 
 model OperatorProposal {
-  id              String                 @id @default(cuid())
-  grantId         String                 @map("grant_id")
-  clientId        String                 @map("client_id") @db.VarChar(64)
-  operationId     String                 @map("operation_id") @db.Uuid
-  kind            String                 @db.VarChar(120)
-  tool            String                 @db.VarChar(120)
-  capability      String                 @db.VarChar(120)
-  targetTenantId  String?                @map("target_tenant_id") @db.VarChar(191)
-  targetVenueId   String?                @map("target_venue_id") @db.VarChar(191)
-  targetRef       String?                @map("target_ref") @db.VarChar(191)
-  args            Json
-  argsHash        String                 @map("args_hash") @db.Char(64)
-  targetVersion   String?                @map("target_version") @db.VarChar(191)
-  status          OperatorProposalStatus @default(PENDING)
-  planId          String?                @map("plan_id")
-  planStepIndex   Int?                   @map("plan_step_index")
-  revertOfId      String?                @map("revert_of_id")
-  decidedByUserId String?                @map("decided_by_user_id") @db.VarChar(191)
-  decidedAt       DateTime?              @map("decided_at")
-  autoApproved    Boolean                @default(false) @map("auto_approved")
-  applyClaimedAt  DateTime?              @map("apply_claimed_at")
+  id               String                    @id @default(cuid())
+  grantId          String                    @map("grant_id")
+  clientId         String                    @map("client_id") @db.VarChar(64)
+  operationId      String                    @map("operation_id") @db.Uuid
+  kind             String                    @db.VarChar(120)
+  tool             String                    @db.VarChar(120)
+  capability       String                    @db.VarChar(120)
+  targetTenantId   String?                   @map("target_tenant_id") @db.VarChar(191)
+  targetVenueId    String?                   @map("target_venue_id") @db.VarChar(191)
+  targetRef        String?                   @map("target_ref") @db.VarChar(191)
+  args             Json
+  argsHash         String                    @map("args_hash") @db.Char(64)
+  targetVersion    String?                   @map("target_version") @db.VarChar(191)
+  status           OperatorProposalStatus    @default(PENDING)
+  planId           String?                   @map("plan_id")
+  planStepIndex    Int?                      @map("plan_step_index")
+  revertOfId       String?                   @map("revert_of_id")
+  decidedByUserId  String?                   @map("decided_by_user_id") @db.VarChar(191)
+  decidedAt        DateTime?                 @map("decided_at")
+  autoApproved     Boolean                   @default(false) @map("auto_approved")
+  applyClaimedAt   DateTime?                 @map("apply_claimed_at")
   /// Set immediately before the domain write may begin; null means no effect can have started.
-  applyStartedAt  DateTime?              @map("apply_started_at")
-  leaseExpiresAt  DateTime?              @map("lease_expires_at")
-  fenceToken      Int                    @default(0) @map("fence_token")
-  attempt         Int                    @default(0)
+  applyStartedAt   DateTime?                 @map("apply_started_at")
+  leaseExpiresAt   DateTime?                 @map("lease_expires_at")
+  fenceToken       Int                       @default(0) @map("fence_token")
+  attempt          Int                       @default(0)
   /// Hash of the exact preview (and semantics version) the approver saw; a mismatch forces a fresh preview.
-  previewDigest   String?                @map("preview_digest") @db.Char(64)
-  policyRevision  Int?                   @map("policy_revision")
-  appliedAt       DateTime?              @map("applied_at")
-  beforeSnapshot  Json?                  @map("before_snapshot")
-  afterSnapshot   Json?                  @map("after_snapshot")
-  result          Json?
-  failureCode     String?                @map("failure_code") @db.VarChar(120)
-  expiresAt       DateTime               @map("expires_at")
-  createdAt       DateTime               @default(now()) @map("created_at")
-  updatedAt       DateTime               @updatedAt @map("updated_at")
-  grant           OperatorGrant          @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  plan            OperatorPlan?          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  previewDigest    String?                   @map("preview_digest") @db.Char(64)
+  policyRevision   Int?                      @map("policy_revision")
+  /// Set when a bounded job grant, not a person or an autonomy switch, authorised this proposal.
+  jobGrantId       String?                   @map("job_grant_id")
+  appliedAt        DateTime?                 @map("applied_at")
+  beforeSnapshot   Json?                     @map("before_snapshot")
+  afterSnapshot    Json?                     @map("after_snapshot")
+  result           Json?
+  failureCode      String?                   @map("failure_code") @db.VarChar(120)
+  expiresAt        DateTime                  @map("expires_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+  grant            OperatorGrant             @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  plan             OperatorPlan?             @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  jobGrant         OperatorJobGrant?         @relation(fields: [jobGrantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  decisionRequests OperatorDecisionRequest[]
 
   @@unique([grantId, operationId], map: "operator_proposals_grant_operation_key")
   @@unique([planId, planStepIndex], map: "operator_proposals_plan_step_key")
   @@index([status, createdAt], map: "operator_proposals_status_created_idx")
   @@index([status, leaseExpiresAt], map: "operator_proposals_status_lease_idx")
   @@index([grantId, createdAt], map: "operator_proposals_grant_created_idx")
+  @@index([jobGrantId], map: "operator_proposals_job_grant_idx")
   @@map("operator_proposals")
+}
+
+enum OperatorDecisionRequestStatus {
+  REQUESTED
+  DECIDED
+  EXPIRED
+  INVALIDATED
+}
+
+/// A chat surface's request that a signed-in person decide one exact proposal version. It carries no
+/// authority: only the dashboard decision route, behind a human session, can move it to DECIDED, once.
+model OperatorDecisionRequest {
+  id              String                        @id @default(cuid())
+  proposalId      String                        @map("proposal_id")
+  grantId         String                        @map("grant_id")
+  clientId        String                        @map("client_id") @db.VarChar(64)
+  /// The exact version the person is shown: a changed proposal no longer matches and is refused.
+  argsHash        String                        @map("args_hash") @db.Char(64)
+  previewDigest   String?                       @map("preview_digest") @db.Char(64)
+  targetVersion   String?                       @map("target_version") @db.VarChar(191)
+  status          OperatorDecisionRequestStatus @default(REQUESTED)
+  decision        String?                       @db.VarChar(16)
+  decidedByUserId String?                       @map("decided_by_user_id") @db.VarChar(191)
+  decidedAt       DateTime?                     @map("decided_at")
+  resultStatus    String?                       @map("result_status") @db.VarChar(32)
+  expiresAt       DateTime                      @map("expires_at")
+  createdAt       DateTime                      @default(now()) @map("created_at")
+  proposal        OperatorProposal              @relation(fields: [proposalId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  grant           OperatorGrant                 @relation(fields: [grantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([proposalId, status], map: "operator_decision_requests_proposal_status_idx")
+  @@index([status, expiresAt], map: "operator_decision_requests_status_expires_idx")
+  @@map("operator_decision_requests")
+}
+
+/// An owner's advance, bounded permission for one named job to apply specific proposal kinds without
+/// per-item approval. Created and revoked only by a signed-in person. Counters are the remaining
+/// budget, so a claim is one conditional update that cannot overspend under concurrency.
+model OperatorJobGrant {
+  id                   String              @id @default(cuid())
+  name                 String              @db.VarChar(120)
+  clientId             String              @map("client_id") @db.VarChar(64)
+  createdByUserId      String              @map("created_by_user_id") @db.VarChar(191)
+  targetTenantId       String              @map("target_tenant_id") @db.VarChar(191)
+  /// Null covers every venue of the tenant.
+  targetVenueId        String?             @map("target_venue_id") @db.VarChar(191)
+  allowedKinds         String[]            @map("allowed_kinds")
+  maxExecutions        Int                 @map("max_executions")
+  remainingExecutions  Int                 @map("remaining_executions")
+  maxAmountCents       Int?                @map("max_amount_cents")
+  remainingAmountCents Int?                @map("remaining_amount_cents")
+  expiresAt            DateTime            @map("expires_at")
+  revokedAt            DateTime?           @map("revoked_at")
+  revokedByUserId      String?             @map("revoked_by_user_id") @db.VarChar(191)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  client               OperatorOAuthClient @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  proposals            OperatorProposal[]
+
+  @@index([clientId, targetTenantId, expiresAt], map: "operator_job_grants_client_tenant_expires_idx")
+  @@index([createdAt], map: "operator_job_grants_created_idx")
+  @@map("operator_job_grants")
 }
 
 model OperatorAutonomyPolicy {

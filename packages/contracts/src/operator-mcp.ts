@@ -307,6 +307,9 @@ export const OPERATOR_READ_TOOL_NAMES = [
 export const OPERATOR_CONTROL_TOOL_NAMES = [
   'operator.cancel_operation',
   'operator.recover_operation',
+  // Asks a signed-in person to decide one proposal. It records a ticket and returns a link, and
+  // repeating it renders the decision. It carries no authority and can never approve or reject.
+  'operator.request_decision',
 ] as const
 
 export const OPERATOR_WRITE_TOOL_NAMES = [
@@ -819,6 +822,7 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'operator.cancel_operation': readInput({ originalOperationId: OperationId }),
   'operator.recover_operation': readInput({ originalOperationId: OperationId }),
+  'operator.request_decision': readInput({ proposalId: Identifier }),
   'crm.list_campaign_members': readInput({
     campaignId: Identifier,
     organizationId: Identifier.optional(),
@@ -2084,6 +2088,22 @@ const OperatorImportRow = z
 export const OperatorEffect = z.enum(['none', 'applied', 'partial', 'unknown'])
 export type OperatorEffect = z.infer<typeof OperatorEffect>
 
+const OperatorDecisionRequestView = z
+  .object({
+    proposalId: Identifier,
+    proposalStatus: z.string().max(32),
+    /** Null when no request exists and none can be made because the proposal is not pending. */
+    requestId: z.string().max(191).nullable(),
+    state: z.enum(['requested', 'decided', 'expired', 'invalidated']).nullable(),
+    decision: z.enum(['approve', 'reject']).nullable(),
+    /** The link the owner opens to decide. Present only while the request is open. */
+    decisionUrl: z.string().url().max(2000).optional(),
+    expiresAt: IsoDateTime.optional(),
+    /** The proposal's status after the owner's decision was applied. */
+    resultStatus: z.string().max(32).optional(),
+  })
+  .strict()
+
 const OperatorProposalView = z
   .object({
     proposalId: Identifier,
@@ -2991,6 +3011,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'operator.get_operation': OperatorProposalView,
   'operator.cancel_operation': OperatorProposalView,
   'operator.recover_operation': OperatorProposalView,
+  'operator.request_decision': OperatorDecisionRequestView,
   'operator.list_plans': Page(OperatorProposalView),
   'customers.get_onboarding': OperatorOnboardingDossier,
   'customers.list_blocking_questions': Page(OperatorBlockingQuestion),
@@ -4231,6 +4252,13 @@ const seeds: readonly Seed[] = [
     'operator.recover_operation',
     'Recover operation',
     `Continue an already-approved operation whose worker was interrupted (pass the original operationId). It re-checks the connection and scope first, never repeats an effect that may have happened, and holds an undecidable outcome for a human. It cannot approve anything.`,
+    'operator:plan',
+    'platform',
+  ],
+  [
+    'operator.request_decision',
+    'Request decision',
+    `Ask the signed-in owner to approve or reject one of this connection's own pending proposals (pass proposalId). It returns a short-lived link that opens the exact change; the owner decides there after verifying themselves. You cannot approve or reject anything yourself. Call it again with the same proposalId to see the owner's decision. A changed proposal needs a new request. Plan steps are decided with their plan on the approval page.`,
     'operator:plan',
     'platform',
   ],

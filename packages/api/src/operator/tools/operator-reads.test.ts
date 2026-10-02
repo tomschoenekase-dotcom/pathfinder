@@ -247,6 +247,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         // Orchestration controls ride the same registry path; they need operator:plan, not a read.
         'operator.cancel_operation',
         'operator.recover_operation',
+        'operator.request_decision',
       ].sort(),
     )
     for (const tool of OPERATOR_READ_TOOLS) {

@@ -7,6 +7,7 @@ export const OPERATOR_TABS = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'autonomy', label: 'Autonomy' },
   { id: 'connections', label: 'Connections' },
+  { id: 'grants', label: 'Job grants' },
   { id: 'audit', label: 'Audit' },
 ] as const
 

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
       operatorAutonomy: vi.fn(),
       operatorConnections: vi.fn(),
       operatorAudit: vi.fn(),
+      operatorJobGrants: vi.fn(),
     },
   },
   logError: vi.fn(),
@@ -62,6 +63,12 @@ describe('/admin/operator page data path', () => {
     mocks.caller.admin.operatorAutonomy.mockResolvedValue([])
     mocks.caller.admin.operatorConnections.mockResolvedValue([])
     mocks.caller.admin.operatorAudit.mockResolvedValue([])
+    mocks.caller.admin.operatorJobGrants.mockResolvedValue({
+      grants: [],
+      clients: [],
+      tenants: [],
+      kinds: [],
+    })
   })
   afterEach(() => {
     cleanup()
@@ -102,6 +109,7 @@ describe('/admin/operator page data path', () => {
     ['autonomy', 'operatorAutonomy', 'Autonomy'],
     ['connections', 'operatorConnections', 'Connections'],
     ['audit', 'operatorAudit', 'Audit'],
+    ['grants', 'operatorJobGrants', 'Job grants'],
   ] as const)(
     'fails the %s tab as an error panel and leaves other tabs working',
     async (tab, method, label) => {
