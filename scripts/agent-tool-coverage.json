@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 566,
-    "sha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
+    "count": 567,
+    "sha256": "0ff86ae8e6d8ee0fab5a6d34a9e0c44eeb4094b3c1d65cb29fd79866bf558c95",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-      "sha256": "6498002252bb04870be19c24b3d59ea7d3a0c319602252c06c90d0e44e5f149b"
+      "operationInventorySha256": "0ff86ae8e6d8ee0fab5a6d34a9e0c44eeb4094b3c1d65cb29fd79866bf558c95",
+      "sha256": "6a9af9fa5cf91f7b97f3d2295e0618ee5736440e1c7a8f63cb7418a42b69df8a"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -672,6 +672,14 @@
       "developerCoverage": "full",
       "decision": "The public mutation is bounded external human ingress. Review and explicit canonical CRM conversion remain human-platform-admin-only; conversion reuses the canonical prospect action, records immutable provenance, and cannot send, price, create customer state, onboard, or bill.",
       "evidence": "packages/api/src/public-interest-disposable.integration.test.ts"
+    },
+    {
+      "id": "guest-preview",
+      "pattern": "^guestPreviewRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The public query renders one exact, read-only release or package draft for a holder of a signed, expiring, tenant, venue and version-bound link. The operator mints links through venues.get_preview_link; the query itself is not an agent tool, accepts no tenant authority from input, and returns only guest-visible content.",
+      "evidence": "packages/api/src/routers/guest-preview.test.ts"
     },
     {
       "id": "company-brain",

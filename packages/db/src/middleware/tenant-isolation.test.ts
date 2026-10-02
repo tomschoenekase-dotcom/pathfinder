@@ -267,6 +267,8 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectConversion',
       'ProspectCustomerRelationship',
       'ProspectLocationConversion',
+      'VenueSource',
+      'VenueSourceInput',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual([
       'User',
@@ -417,6 +419,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeRun',
       'IntakeEvidenceRecord',
       'IntakeWebsiteResearchReceipt',
+      'VenueSourceInput',
       'IntakeFileClarificationResolution',
       'IntakeInterviewClarificationResolution',
       'IntakeUploadVerificationReceipt',

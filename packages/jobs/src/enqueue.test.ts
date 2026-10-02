@@ -50,6 +50,7 @@ import {
   enqueueWeeklyReport,
   enqueueWeeklyReportDispatch,
   enqueueWeeklyReportRecovery,
+  enqueueVenueSourceCapture,
   enqueueVoiceSessionHangup,
 } from './enqueue'
 
@@ -393,6 +394,43 @@ describe('job enqueues', () => {
       },
     ])
     expect(first![2].jobId).not.toContain(DISPATCH_ID_A)
+  })
+
+  it.each([
+    { tenantId: '', venueId: 'venue_1', sourceId: 'source_1' },
+    { tenantId: 'tenant_1', venueId: 'venue 1', sourceId: 'source_1' },
+    { tenantId: 'tenant_1', venueId: 'venue_1', sourceId: 'https://example.com/x' },
+    { tenantId: 'tenant_1', venueId: 'venue_1', sourceId: 'x'.repeat(192) },
+  ])('rejects invalid venue source capture identities before touching a queue', async (payload) => {
+    await expect(enqueueVenueSourceCapture(payload)).rejects.toThrow(
+      'Venue source capture IDs must be opaque identifiers',
+    )
+    expect(mocks.queue).not.toHaveBeenCalled()
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
+  it('enqueues a venue source capture with opaque IDs only and a stable per-source job ID', async () => {
+    const payload = { tenantId: 'tenant_1', venueId: 'venue_1', sourceId: 'source_1' }
+    await enqueueVenueSourceCapture({ ...payload, url: 'https://example.com/' } as typeof payload)
+    await enqueueVenueSourceCapture(payload)
+    await enqueueVenueSourceCapture({ ...payload, sourceId: 'source_2' })
+
+    const [first, replay, distinct] = mocks.add.mock.calls
+    expect(replay![2].jobId).toBe(first![2].jobId)
+    expect(distinct![2].jobId).not.toBe(first![2].jobId)
+    // Only the three scope IDs travel; a URL or any other field is dropped, never queued.
+    expect(first).toEqual([
+      'venue-source-capture-process',
+      payload,
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10_000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: expect.stringMatching(/^venue-source-capture-[a-f0-9]{48}$/u),
+      },
+    ])
+    expect(first![2].jobId).not.toContain('source_1')
   })
 
   it.each(['', '   ', 'x'.repeat(201)])(

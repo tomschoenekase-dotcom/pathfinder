@@ -1547,3 +1547,21 @@ export {
   GuestConversationDispositionAuthorizationInput,
   GuestConversationDispositionAuthorityError,
 } from './helpers/guest-conversation-disposition-authority'
+export {
+  claimVenueSourceForCaptureAction,
+  completeVenueSourceCaptureAction,
+  failVenueSourceAction,
+  readAuthorizedSourceHostsAction,
+  releaseVenueSourceClaimAction,
+  requestVenueSourceAction,
+  VENUE_SOURCE_CLAIM_STALE_MS,
+  VENUE_SOURCE_MAX_ATTEMPTS,
+  VenueSourceActionError,
+  venueSourceSelect,
+} from './helpers/venue-source-actions'
+export type {
+  VenueSourceActionClient,
+  VenueSourceActionErrorCode,
+  VenueSourceInputRecord,
+  VenueSourceTerminalStatus,
+} from './helpers/venue-source-actions'

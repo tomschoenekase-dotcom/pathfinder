@@ -221,6 +221,8 @@ model Tenant {
   nativeVenueDeploymentArtifacts            NativeVenueDeploymentArtifact[]
   nativeVenueDeploymentEffects              NativeVenueDeploymentEffect[]
   nativeVenueDeploymentHeads                NativeVenueDeploymentHead[]
+  venueSources                              VenueSource[]
+  venueSourceInputs                         VenueSourceInput[]
   nativeVenueDeploymentCommands             NativeVenueDeploymentCommand[]
   nativeVenuePublicationLineages            NativeVenueDeploymentPublicationLineage[]
   nativeDeploymentEvaluations               NativeVenueDeploymentEvaluationEvidence[]
@@ -1521,6 +1523,8 @@ model Venue {
   reportConfiguration                       VenueReportConfiguration?
   distribution                              VenueDistribution?
   websiteOrigins                            VenueWebsiteOrigin[]
+  sources                                   VenueSource[]
+  sourceInputs                              VenueSourceInput[]
   answerAnalysisSnapshots                   AnswerAnalysisSnapshot[]
   guestAnswerAttributions                   GuestAnswerAttribution[]
   guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
@@ -3330,6 +3334,86 @@ model VenueWebsiteOrigin {
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, state])
   @@map("venue_website_origins")
+}
+
+enum VenueSourceStatus {
+  REQUESTED
+  FETCHING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+enum VenueSourceInputDisposition {
+  SUCCEEDED
+  PARTIAL
+  FAILED
+  UNSUPPORTED
+  SKIPPED
+}
+
+/// A public web source an operator asked to freeze as evidence for one venue. The fetch is
+/// bounded, SSRF-checked on every hop and runs in a worker. A source never changes venue content,
+/// guest answers, or any authority: text read from it is untrusted evidence only.
+model VenueSource {
+  id              String             @id @default(cuid())
+  tenantId        String             @map("tenant_id")
+  venueId         String             @map("venue_id")
+  requestUrl      String             @map("request_url") @db.VarChar(2000)
+  host            String             @db.VarChar(255)
+  note            String?            @db.VarChar(500)
+  status          VenueSourceStatus  @default(REQUESTED)
+  maxPages        Int                @map("max_pages")
+  maxBytesPerPage Int                @map("max_bytes_per_page")
+  parserVersion   String             @map("parser_version") @db.VarChar(64)
+  operationId     String             @map("operation_id") @db.Uuid
+  requestedBy     String             @map("requested_by") @db.VarChar(191)
+  attempts        Int                @default(0)
+  errorCode       String?            @map("error_code") @db.VarChar(64)
+  requestedAt     DateTime           @default(now()) @map("requested_at")
+  startedAt       DateTime?          @map("started_at")
+  completedAt     DateTime?          @map("completed_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  inputs          VenueSourceInput[]
+
+  @@unique([id, tenantId, venueId], map: "venue_sources_scope_key")
+  @@unique([tenantId, operationId], map: "venue_sources_tenant_operation_key")
+  @@index([tenantId, venueId, requestedAt], map: "venue_sources_scope_requested_idx")
+  @@index([status, requestedAt], map: "venue_sources_status_requested_idx")
+  @@map("venue_sources")
+}
+
+/// Append-only frozen snapshot of one fetched input (a page or a document) of a source.
+model VenueSourceInput {
+  id            String                      @id @default(cuid())
+  sourceId      String                      @map("source_id")
+  tenantId      String                      @map("tenant_id")
+  venueId       String                      @map("venue_id")
+  ordinal       Int
+  requestedUrl  String                      @map("requested_url") @db.VarChar(2000)
+  finalUrl      String?                     @map("final_url") @db.VarChar(2000)
+  redirectChain Json                        @map("redirect_chain")
+  disposition   VenueSourceInputDisposition
+  reasonCode    String?                     @map("reason_code") @db.VarChar(64)
+  httpStatus    Int?                        @map("http_status")
+  contentType   String?                     @map("content_type") @db.VarChar(200)
+  byteSize      Int?                        @map("byte_size")
+  contentHash   String?                     @map("content_hash") @db.Char(64)
+  retrievedAt   DateTime                    @map("retrieved_at")
+  parserVersion String                      @map("parser_version") @db.VarChar(64)
+  extractedText String?                     @map("extracted_text") @db.Text
+  textTruncated Boolean                     @default(false) @map("text_truncated")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  source        VenueSource                 @relation(fields: [sourceId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([sourceId, ordinal], map: "venue_source_inputs_ordinal_key")
+  @@unique([id, tenantId, venueId], map: "venue_source_inputs_scope_key")
+  @@index([tenantId, venueId, sourceId], map: "venue_source_inputs_scope_idx")
+  @@map("venue_source_inputs")
 }
 
 model AiUsageEvent {

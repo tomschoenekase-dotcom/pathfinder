@@ -155,6 +155,11 @@ const KIND_REFUSAL_CODES = new Set([
   'ESCALATION_UNACKNOWLEDGED',
   'RELEASE_LIMIT',
   'RELEASE_DISABLED',
+  'STALE',
+  'CHANGESET_INVALID',
+  'SOURCE_HOST_NOT_AUTHORIZED',
+  'SOURCE_LIMIT',
+  'SOURCE_ALREADY_PENDING',
 ])
 
 function errorCode(error: unknown): string {
@@ -227,6 +232,25 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
   TARGET_CHANGED: {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
+  },
+  CHANGESET_INVALID: {
+    retryable: false,
+    nextAction:
+      'Read the rows with venues.list_content and venues.get_content, run venues.preview_content_changeset to see each problem, then propose a corrected changeset.',
+  },
+  SOURCE_HOST_NOT_AUTHORIZED: {
+    retryable: false,
+    nextAction:
+      'Only hosts the venue has authorized as website origins can be captured. Ask a person to add the origin, then propose again. Nothing was fetched.',
+  },
+  SOURCE_LIMIT: {
+    retryable: true,
+    retryAfterSeconds: 120,
+    nextAction: 'Read venues.list_sources and wait for a capture to finish, then propose again.',
+  },
+  SOURCE_ALREADY_PENDING: {
+    retryable: false,
+    nextAction: 'Read venues.list_sources; this URL is already queued. Do not request it again.',
   },
 }
 

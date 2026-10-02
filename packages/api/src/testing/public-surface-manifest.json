@@ -37,6 +37,16 @@
       "behavioralEvidence": ["packages/api/src/routers/feedback.test.ts"]
     },
     {
+      "path": "guestPreview.getByToken",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": [
+        "packages/api/src/routers/guest-preview.test.ts",
+        "packages/api/src/lib/guest-preview-token.test.ts"
+      ]
+    },
+    {
       "path": "health",
       "kind": "query",
       "exposure": "public",

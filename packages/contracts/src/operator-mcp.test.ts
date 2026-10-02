@@ -27,6 +27,16 @@ const EXPECTED_TOOLS = [
   'venues.list_operational_updates',
   'venues.get_visitor_summary',
   'venues.get_readiness',
+  'venues.list_sources',
+  'venues.get_source',
+  'venues.list_content',
+  'venues.get_content',
+  'venues.preview_content_changeset',
+  'venues.list_releases',
+  'venues.get_release',
+  'venues.get_effective_guest_version',
+  'venues.get_release_preflight',
+  'venues.get_preview_link',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -93,6 +103,7 @@ const EXPECTED_TOOLS = [
   'venues.propose_create',
   'venues.propose_source',
   'venues.propose_knowledge',
+  'venues.propose_content_changeset',
   'venues.propose_publish',
   'venues.propose_operational_update',
   'venues.propose_operational_update_schedule',
@@ -277,6 +288,8 @@ describe('operator MCP catalog', () => {
       'support.propose_information_request',
       'support.propose_completion',
       'customers.propose_onboarding_questions',
+      'venues.propose_source',
+      'venues.propose_content_changeset',
     ])
   })
 

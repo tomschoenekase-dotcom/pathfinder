@@ -131,6 +131,9 @@ const rawEnvSchema = z
     // hop and the edge middleware emits self-only frame policy.
     INTERNAL_POLICY_TOKEN: z.string().min(32).max(512).optional(),
     INTERNAL_WEB_ORIGIN: z.string().url().max(2_048).optional(),
+    // Server-only HMAC key that signs private, expiring, version-bound guest preview links. Without
+    // it no preview link can be minted or accepted, so previews fail closed.
+    GUEST_PREVIEW_SIGNING_SECRET: z.string().min(32).max(512).optional(),
     VOICE_MODE_ENABLED: z.enum(['true', 'false']).optional(),
     OPENAI_REALTIME_PREMIUM_MODEL: z.string().min(1).max(100).optional(),
     OPENAI_REALTIME_ECONOMY_MODEL: z.string().min(1).max(100).optional(),

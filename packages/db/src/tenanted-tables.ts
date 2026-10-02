@@ -189,6 +189,9 @@ export const TENANTED_TABLES = [
   // prospect records on their other side are platform-owned.
   'ProspectCustomerRelationship',
   'ProspectLocationConversion',
+  // Operator-requested public web sources, frozen as evidence for one venue.
+  'VenueSource',
+  'VenueSourceInput',
 ] as const
 
 export const PLATFORM_TABLES = [

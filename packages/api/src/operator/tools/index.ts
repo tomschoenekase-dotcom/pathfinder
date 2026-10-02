@@ -15,6 +15,9 @@ import { operationReadTools } from './operations'
 import { reportReadTools } from './reports'
 import { supportReadTools } from './support'
 import { updateReadTools } from './updates'
+import { venueContentReadTools } from './venue-content'
+import { venueReleaseReadTools } from './venue-releases'
+import { venueSourceReadTools } from './venue-sources'
 import { venueReadTools } from './venues'
 
 /** Every read tool the operator adds beside the built-in proposal, autonomy and appearance reads. */
@@ -29,6 +32,9 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...routineReadTools,
   ...accessReadTools,
   ...venueReadTools,
+  ...venueSourceReadTools,
+  ...venueContentReadTools,
+  ...venueReleaseReadTools,
   ...supportReadTools,
   ...updateReadTools,
   ...manualReadTools,

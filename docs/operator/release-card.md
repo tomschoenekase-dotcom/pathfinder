@@ -47,8 +47,14 @@ With the flag off, every operator path answers 404 and the migration's tables st
 
 ## Known limits
 
-- Parked: `venues.propose_source` (no source model exists, so the tool is not listed). Campaign membership, customer invite and
-  support triage now exist; see `release-proposal-operator-crm-20261001.md` for the migration 255 candidate, which is a separate release.
+- Venue sources, content changesets, release reads and private previews (packet W05) are built but not released.
+  They need migration `20261002090000_add_venue_sources` (two additive tables, no data change), the isolated
+  website-research worker runtime (`INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED`) for captures, and, for previews,
+  `GUEST_PREVIEW_SIGNING_SECRET` (32+ characters) on the web and dashboard services plus `NEXT_PUBLIC_WEB_URL`.
+  Without the secret no preview link can be minted or accepted. Typed content changes also need
+  `GENERALIZED_CONTENT_CAPABILITIES_ENABLED`. No live provider, real site or hosted system was exercised.
+  Campaign membership, customer invite and support triage now exist; see `release-proposal-operator-crm-20261001.md` for the
+  migration 255 candidate, which is a separate release.
 - Clerk `strict` reverification accepts a password if the account has no second factor; Tom's
   account should have a passkey or MFA.
 - Refresh reuse revokes the whole connection (no grace window), per the plan.
