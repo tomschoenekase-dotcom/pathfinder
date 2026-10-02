@@ -551,18 +551,15 @@ export function buildOutreachContext(input: OutreachContextInput) {
     },
     {
       claim: 'recent_news_or_events',
-      status: citable.some((item) => item.freshness.status === 'fresh')
-        ? ('supported' as const)
-        : ('unsupported' as const),
-      basis: citable.some((item) => item.freshness.status === 'fresh')
-        ? `Only from evidence researched within ${OUTREACH_FRESH_DAYS} days.`
-        : `No evidence researched within ${OUTREACH_FRESH_DAYS} days; do not mention anything recent.`,
+      status: 'unsupported' as const,
+      basis:
+        'A recent research date does not establish a recent event. Verify a dated event in the cited source before making this claim.',
     },
     {
       claim: 'visitor_volume_or_attendance',
-      status: input.venue?.row.estimatedSize ? ('supported' as const) : ('unsupported' as const),
+      status: 'unsupported' as const,
       basis: input.venue?.row.estimatedSize
-        ? 'Only the recorded size bucket; it is an estimate, not a measured figure.'
+        ? 'The recorded size bucket is an estimate and does not establish attendance or visitor volume.'
         : 'No size or visitor figure is recorded.',
     },
     {

@@ -274,7 +274,11 @@ describe('buildOutreachContext', () => {
       'https://museum.example.com/visit',
     ])
     expect(pack.claims.find((c) => c.claim === 'venue_specific_facts')?.status).toBe('supported')
-    expect(pack.claims.find((c) => c.claim === 'recent_news_or_events')?.status).toBe('supported')
+    // Freshly researched opening hours do not prove a recent event or measured attendance.
+    expect(pack.claims.find((c) => c.claim === 'recent_news_or_events')?.status).toBe('unsupported')
+    expect(pack.claims.find((c) => c.claim === 'visitor_volume_or_attendance')?.status).toBe(
+      'unsupported',
+    )
   })
 
   it('grades freshness by age', () => {

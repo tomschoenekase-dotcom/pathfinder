@@ -235,7 +235,8 @@ describe('BillingStateView', () => {
             nextAction: 'contact_support',
             period: {
               ...data().period!,
-              accessEndsAt: new Date('2026-09-01T00:00:00Z'),
+              // This assertion is about the displayed month, independent of the runner's timezone.
+              accessEndsAt: new Date(2026, 8, 1, 12),
               expired: true,
             },
           }),

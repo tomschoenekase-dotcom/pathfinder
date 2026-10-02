@@ -113,3 +113,35 @@ prefix is required by the migration script and the test guard; migration needs `
 - `pnpm test:scripts`: 18 failures = the 14 known admission pins plus 4 in `ci-plan-workflow-wiring.test.mjs`, which
   fail identically on the clean base commit (checked with a stash) and are unrelated.
 - NOT RUN: full-repo `pnpm typecheck`/`pnpm test` for other packages (only contracts and api touched).
+
+## Outreach continuation (2026-10-02)
+
+Reviewed the existing A04 commit and fixed an authorization defect: the first 50 active customer
+relationships cannot establish authority for the complete account. The loader now checks every
+active relationship; a 51-relationship cross-tenant regression proves refusal. Recent research dates
+do not establish recent news, and estimated size does not establish attendance; both claims remain
+unsupported until independently verified. No network, model, mailbox or mutation was added.
+
+The broad run also exposed portable-test defects. The dashboard boundary test now uses
+`fileURLToPath`, and the billing month fixture uses local noon. The CI workflow contract normalizes
+CRLF before matching YAML. Removed one unused test import. Product timezone behavior and the
+staging admission script and its tests are unchanged.
+
+Commands run from this lane root, with the handoff's synthetic local CI environment, disposable
+database `pathfinder_disposable_einstein_outreach`, Redis index 3. Logs are retained in the lane's
+external `qa` folder. Each shell must set this environment; it does not persist across invocations.
+
+| Exact command                                                                                                                                                                                                                              | Result                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                                                           | PASS                                                                                                                                                                                                                                |
+| `pnpm typecheck`                                                                                                                                                                                                                           | PASS, all 27 Turbo tasks                                                                                                                                                                                                            |
+| `pnpm lint`                                                                                                                                                                                                                                | Initial FAIL: unused `OperatorNotFoundError` test import; removed; rerun PASS, 15 tasks, existing warnings only                                                                                                                     |
+| `pnpm test`                                                                                                                                                                                                                                | Initial FAIL: two dashboard portable-test defects; next shell FAIL from missing dummy worker configuration; final configured rerun: all 27 Turbo tasks PASS, command exits FAIL solely for the 14 frozen admission-pin script tests |
+| `pnpm test:scripts`                                                                                                                                                                                                                        | Initial FAIL 18 (14 pins + 4 CRLF workflow-parser failures); final invocation inside `pnpm test`: 620 tests, 605 PASS, 14 FAIL, 1 skipped                                                                                           |
+| `pnpm --dir apps/dashboard exec vitest run lib/server-client-boundary.test.ts components/billing/BillingStateView.test.tsx --pool=forks --maxWorkers=1`                                                                                    | PASS, 339 tests                                                                                                                                                                                                                     |
+| `RUN_OPERATOR_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator/outreach-context.test.ts src/operator/tools/operator-outreach-context.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000` | PASS, 23 unit + 11 DB tests                                                                                                                                                                                                         |
+
+Final workspace test counts: config 108, contracts 729, AI 179, auth 76, intake-engine 15,
+character-factory 14, jobs 98, UI 43, DB 2293, analytics 4, billing 87, API 3364, web 547,
+workers 707, dashboard 2096 PASS. Guarded integration skips in this unit run are not DB proof;
+the dbint lane owns the exhaustive integration inventory. Hosted/provider/device checks NOT RUN.

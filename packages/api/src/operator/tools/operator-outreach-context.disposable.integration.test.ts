@@ -509,6 +509,26 @@ describe.skipIf(!enabled)(
       ).rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
     })
 
+    it('checks tenant authority beyond the first fifty active relationships', async () => {
+      const organization = await makeOrg(`Many relationships ${suffix}`)
+      await withTenantIsolationBypass(async () => {
+        await db.prospectCustomerRelationship.createMany({
+          data: Array.from({ length: 51 }, (_, index) => ({
+            organizationId: organization.id,
+            tenantId: index === 50 ? tenantB : tenantA,
+            relationshipVersion: index + 1,
+            idempotencyKey: `outreach-relationship-${suffix}-${index}`,
+            createdBy: 'seed',
+          })),
+        })
+      })
+      await expect(call({ organizationId: organization.id })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      })
+      const visible = await call({ organizationId: organization.id }, grant([tenantA, tenantB]))
+      expect(visible.organization.customerLinked).toBe(true)
+    })
+
     it('rejects unknown arguments and writes nothing', async () => {
       const before = await db.prospectActivity.count({ where: { organizationId: mainOrg } })
       await expect(call({ organizationId: mainOrg, tenantId: tenantA })).rejects.toThrow()

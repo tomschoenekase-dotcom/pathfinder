@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const workflow = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+const workflow = (await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+  .replaceAll('\r\n', '\n')
 
 function jobBlock(name) {
   const match = workflow.match(

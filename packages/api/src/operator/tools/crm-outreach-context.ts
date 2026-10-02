@@ -83,7 +83,8 @@ export async function loadOutreachContext(
       researchProvenance: true,
       opportunity: { select: { stage: true } },
       conversion: { select: { tenantId: true } },
-      customerRelationships: { where: { status: 'ACTIVE' }, select: { tenantId: true }, take: 50 },
+      // Authorization must inspect every active relationship, never a truncated display page.
+      customerRelationships: { where: { status: 'ACTIVE' }, select: { tenantId: true } },
     },
   })
   if (!org) throw new OperatorNotFoundError()
