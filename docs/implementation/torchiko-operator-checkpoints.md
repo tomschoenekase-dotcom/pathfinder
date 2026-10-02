@@ -228,3 +228,26 @@ Lossless merge (design first), real-device keyboard proof (`torchiko-keyboard-de
   flag activation, email, invitation, credential creation or money movement. Next: investigate the aborted-response
   errors, complete strict runtime acceptance, then restore original production autodeploy true. This journal commit
   is evidence only and does not change the deployed source or claim green checks for its new head.
+
+## 2026-10-01 — production acceptance completed after cancellation diagnosis
+
+- Supersedes the preceding BLOCKED result. A real loopback HTTP client disconnect reproduced the exact
+  `[ResponseAborted: ]` log using Next.js 15.5.24, matching the deployed adapter SHA-256
+  `006db434d9d859733b55761d53e2c47e7f1983cea9709bfbdee97c711d3ac3bd`.
+  Next's own `isAbortError` recognizes this cancellation and `isUserLandError` returns false;
+  a completed response does not abort and an ordinary application error remains an error.
+- Corrected only the private operational audit to count that exact unstructured, empty-message framework
+  cancellation separately. Nine classification cases passed, including rejection of application errors,
+  aborts carrying error messages/stacks and structured failures. Repository checks/workflows and application
+  source remain unchanged. Raw cancellation counts are retained, not erased; the earlier failed proofs remain.
+- Final actual three-service production acceptance PASS after restoring original autodeploy true:
+  source `9f726afd101cc3a3cb3c96d9504e06adc9618642`, all three previously listed deployments SUCCESS/RUNNING,
+  correct database/Redis up, dashboard sign-in and existing OAuth discovery 200, workers dormant.
+  Application error rows 0; HTTP 5xx rows 0; web client cancellations 5. No new deployment queued.
+  All three staging autodeploy settings remain false; all three production settings read back true.
+- Private final proof: `tmp/production-acceptance-9f726afd-final.json`, SHA-256
+  `f20d51527afa452cd337cbe4fc8874045040e933001982ff1fd91e136ea24d03`.
+  Reproduction and classification helpers/proofs remain outside the repository under operator-program `tmp`.
+  Existing OAuth and disabled operator/worker flags are preserved. No additional migration was run.
+- Production publication is complete. Authenticated end-to-end MCP connection and physical-device keyboard
+  acceptance were not run and are not claimed. This evidence-only commit does not alter the deployed source.
