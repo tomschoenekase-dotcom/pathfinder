@@ -142,7 +142,7 @@ describe('Home payment', () => {
     )
     expect(screen.getAllByRole('link', { name: 'Pay now' })).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Billing details' }).getAttribute('href')).toBe(
-      '/settings#payment',
+      '/payment',
     )
   })
 })

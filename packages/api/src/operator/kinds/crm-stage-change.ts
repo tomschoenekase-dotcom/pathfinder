@@ -72,6 +72,33 @@ export const crmStageChangeKind: OperatorProposalKind<StageArgs> = {
   }),
   snapshot: async (args, context) =>
     (await readState(context.database, args.organizationId)) as unknown as JsonValue,
+  /**
+   * The canonical action writes its reason, which names this proposal, onto the activity it
+   * records in the same transaction as the stage change, so that activity is the receipt.
+   */
+  reconcile: async (args, context) => {
+    const receipt = await context.database.prospectActivity.findFirst({
+      where: {
+        organizationId: args.organizationId,
+        detail: operatorReason(context.proposalId),
+        type: { in: ['STAGE_CHANGED', 'NOTE_ADDED'] },
+      },
+      select: { id: true },
+    })
+    if (!receipt) return { state: 'not_applied' }
+    const after = await readState(context.database, args.organizationId)
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          organizationId: args.organizationId,
+          stage: after?.stage ?? args.stage,
+          version: after?.version ?? null,
+        },
+        after: after as unknown as JsonValue,
+      },
+    }
+  },
   apply: async (args, context: OperatorApplyContext) => {
     await updateProspectPipelineAction(
       {
@@ -79,6 +106,10 @@ export const crmStageChangeKind: OperatorProposalKind<StageArgs> = {
         stage: args.stage,
         reason: operatorReason(context.proposalId),
         actor: context.actor,
+        // Re-checked inside the write transaction: a stage, note or send recorded since the
+        // proposer read the organization, or a do-not-contact set meanwhile, is a conflict.
+        expectedVersion: args.expectedVersion,
+        refuseLiftingDoNotContact: true,
       },
       context.database,
     )

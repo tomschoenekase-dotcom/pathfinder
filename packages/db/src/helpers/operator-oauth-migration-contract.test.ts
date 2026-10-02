@@ -14,6 +14,9 @@ const operatorModels = [
   'OperatorPlan',
   'OperatorProposal',
   'OperatorAutonomyPolicy',
+  'OperatorPolicyState',
+  'OperatorAdmissionCounter',
+  'OperatorArming',
   'OperatorAuditEvent',
 ] as const
 

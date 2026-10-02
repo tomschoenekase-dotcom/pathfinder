@@ -12,6 +12,16 @@ export class OperatorNotFoundError extends Error {
   }
 }
 
+/** A tenant has more venues than one read scope can carry; refusing is safer than a silent subset. */
+export class OperatorScopeTooLargeError extends Error {
+  readonly code = 'SCOPE_TOO_LARGE'
+  constructor() {
+    super('Tenant has more venues than a single read scope supports')
+  }
+}
+
+export const OPERATOR_READ_SCOPE_VENUE_LIMIT = 500
+
 export class OperatorCapabilityError extends Error {
   readonly code = 'CAPABILITY_DENIED'
   constructor() {
@@ -74,8 +84,9 @@ export async function buildOperatorReadScope(
     where: { tenantId },
     select: { id: true },
     orderBy: { id: 'asc' },
-    take: 500,
+    take: OPERATOR_READ_SCOPE_VENUE_LIMIT + 1,
   })
+  if (venues.length > OPERATOR_READ_SCOPE_VENUE_LIMIT) throw new OperatorScopeTooLargeError()
   return {
     credentialId: grant.grantId,
     tenantId,

@@ -65,6 +65,34 @@ export const crmOutreachDraftKind: OperatorProposalKind<DraftArgs> = {
   }),
   snapshot: async (args, context) =>
     (await readLatest(context.database, args.campaignMemberId)) as unknown as JsonValue,
+  /** The draft records this proposal in its grounding snapshot, in the same transaction. */
+  reconcile: async (args, context) => {
+    const draft = await context.database.prospectOutreachDraft.findFirst({
+      where: {
+        memberId: args.campaignMemberId,
+        groundingSnapshot: { path: ['proposalId'], equals: context.proposalId },
+      },
+      select: { id: true, version: true, status: true },
+    })
+    if (!draft) return { state: 'not_applied' }
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          draftId: draft.id,
+          version: draft.version,
+          campaignMemberId: args.campaignMemberId,
+          status: draft.status,
+        },
+        after: {
+          draftId: draft.id,
+          version: draft.version,
+          status: draft.status,
+          memberId: args.campaignMemberId,
+        },
+      },
+    }
+  },
   apply: async (args, context: OperatorApplyContext) => {
     const draft = await saveProspectOutreachDraftAction(
       {

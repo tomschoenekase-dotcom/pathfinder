@@ -9,7 +9,6 @@ import {
   BoundedClientRequestError,
   runBoundedClientRequest,
 } from '../../lib/bounded-client-request'
-import { ClientBillingPanel } from '../billing/ClientBillingPanel'
 import { ClientTochiPreferenceWorkspace } from '../ClientTochiPreferenceWorkspace'
 import {
   PortalNotice,
@@ -189,13 +188,7 @@ function TeamList({
   )
 }
 
-export function AccountWorkspace({
-  paymentAvailable,
-  reportsAvailable,
-}: {
-  paymentAvailable: boolean
-  reportsAvailable: boolean
-}) {
+export function AccountWorkspace({ reportsAvailable }: { reportsAvailable: boolean }) {
   const client = useTRPCClient()
 
   const [data, setData] = useState<SettingsData | null>(null)
@@ -265,7 +258,7 @@ export function AccountWorkspace({
   }, [])
 
   return (
-    <PortalPage title="Account" description="Your organization, team, billing and invoices.">
+    <PortalPage title="Account" description="Your organization, team, and reports.">
       <div className="space-y-5">
         {error ? (
           <PortalNotice tone="error" role="alert">
@@ -289,12 +282,6 @@ export function AccountWorkspace({
             </dl>
           )}
         </PortalSection>
-
-        {paymentAvailable ? (
-          <div id="payment" className="scroll-mt-20">
-            <ClientBillingPanel />
-          </div>
-        ) : null}
 
         <PortalSection
           id="team-heading"

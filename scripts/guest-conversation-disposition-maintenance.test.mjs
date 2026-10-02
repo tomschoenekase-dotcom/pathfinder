@@ -20,9 +20,9 @@ import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../p
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
-test('254 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
+test('255 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  const rows = manifest.names.slice(0, 254).map((migration_name) => ({
+  const rows = manifest.names.slice(0, 255).map((migration_name) => ({
     migration_name,
     checksum: manifest.ledgerChecksums.get(migration_name),
     finished_at: '2026-09-12T00:00:00Z',
@@ -66,12 +66,13 @@ test('254 maintenance source verification accepts the reviewed ledger and refuse
     assert.equal(calls, 1)
   }
 })
-test('maintenance source verification requires the admitted 254-row endpoint and refuses 252 before function reads', async () => {
+test('maintenance source verification requires the admitted 255-row endpoint and refuses 252 before function reads', async () => {
   const current = await readMigrationManifest(join(root, 'packages/db/prisma'))
-  assert.equal(current.names.length, 254)
-  assert.deepEqual(current.names.slice(-2), [
+  assert.equal(current.names.length, 255)
+  assert.deepEqual(current.names.slice(-3), [
     '20260930100000_add_mcp_venue_appearance_capabilities',
     '20261001090000_add_operator_oauth',
+    '20261001100000_crm_receipt_and_execution_foundations',
   ])
   assert.equal(current.names[251], '20260927090000_add_venue_chat_appearance')
   const names = current.names.slice(0, 252)

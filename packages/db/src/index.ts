@@ -336,6 +336,27 @@ export {
   updateProspectPipelineAction,
 } from './helpers/prospect-actions'
 export {
+  evaluateProspectContactEligibility,
+  isAddressBlockedOnAnotherRow,
+  PROSPECT_ELIGIBILITY_REASON_TEXT,
+} from './helpers/prospect-eligibility'
+export type {
+  ProspectEligibility,
+  ProspectEligibilityPurpose,
+  ProspectEligibilityReason,
+} from './helpers/prospect-eligibility'
+export {
+  addProspectCampaignMemberAction,
+  appendProspectNoteAction,
+  createProspectContactAction,
+  isAddressBlockedAnywhere,
+  maintenanceReceiptKey,
+  resolveProspectDuplicatePairAction,
+  setProspectContactArchivedAction,
+  updateProspectContactAction,
+  updateProspectFollowupAction,
+} from './helpers/prospect-maintenance-actions'
+export {
   prepareProspectEmailAttachmentRetentionAction,
   reviewProspectEmailAttachmentRetentionAction,
 } from './helpers/prospect-email-attachment-retention-actions'

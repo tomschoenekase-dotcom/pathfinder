@@ -20,7 +20,12 @@ export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 export type ProspectActionClient = typeof db
 type ProspectTransactionClient = Parameters<Parameters<ProspectActionClient['$transaction']>[0]>[0]
-export type ProspectActionErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT' | 'UNSAFE_MERGE'
+export type ProspectActionErrorCode =
+  | 'NOT_FOUND'
+  | 'CONFLICT'
+  | 'INVALID_INPUT'
+  | 'UNSAFE_MERGE'
+  | 'SUPPRESSED'
 
 export class ProspectActionError extends Error {
   constructor(
@@ -493,6 +498,14 @@ export async function updateProspectPipelineAction(
     nextAction?: string | null | undefined
     nextActionAt?: Date | null | undefined
     reason?: string | undefined
+    /**
+     * When set, the change applies only if the organization's version (1 plus its activity rows) is
+     * still this value, checked inside the transaction and enforced by a compare-and-swap on the
+     * opportunity row, so a concurrent writer yields a conflict instead of a lost update.
+     */
+    expectedVersion?: number | undefined
+    /** Refuse to move an organization out of DO_NOT_CONTACT, evaluated on the locked row. */
+    refuseLiftingDoNotContact?: boolean | undefined
     actor: ProspectActor
   },
   client: ProspectActionClient = db,
@@ -509,7 +522,40 @@ export async function updateProspectPipelineAction(
       where: { organizationId: input.organizationId },
     })
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Prospect opportunity not found')
+    if (
+      input.refuseLiftingDoNotContact &&
+      before.stage === 'DO_NOT_CONTACT' &&
+      input.stage !== 'DO_NOT_CONTACT'
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Do-not-contact can only be lifted by a human.')
+    }
+    if (input.expectedVersion !== undefined) {
+      const activities = await tx.prospectActivity.count({
+        where: { organizationId: input.organizationId },
+      })
+      if (1 + activities !== input.expectedVersion) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const now = new Date()
+    const guarded = input.expectedVersion !== undefined || input.refuseLiftingDoNotContact === true
+    if (guarded) {
+      // Compare-and-swap: the row must still be exactly the one that was read. Two writers holding
+      // one version cannot both succeed, and a suppression set meanwhile is never overwritten.
+      const swapped = await tx.prospectOpportunity.updateMany({
+        where: {
+          id: before.id,
+          updatedAt: before.updatedAt,
+          ...(input.refuseLiftingDoNotContact && input.stage !== 'DO_NOT_CONTACT'
+            ? { stage: { not: 'DO_NOT_CONTACT' } }
+            : {}),
+        },
+        data: { updatedBy: input.actor.id },
+      })
+      if (swapped.count !== 1) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const saved = await tx.prospectOpportunity.update({
       where: { id: before.id },
       data: {
@@ -608,14 +654,48 @@ export async function addProspectNoteAction(
 }
 
 export async function archiveProspectAction(
-  input: { organizationId: string; archived: boolean; reason: string; actor: ProspectActor },
+  input: {
+    organizationId: string
+    archived: boolean
+    reason: string
+    actor: ProspectActor
+    /** When set, applies only if the account is still at this version (1 + its activity rows). */
+    expectedVersion?: number | undefined
+    /** Unique receipt written on the activity; a repeat with the same key is a no-op replay. */
+    receiptKey?: string | undefined
+  },
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
   if (!input.reason.trim()) throw new ProspectActionError('INVALID_INPUT', 'Reason is required')
   return client.$transaction(async (tx) => {
+    if (input.receiptKey) {
+      const replay = await tx.prospectActivity.findUnique({
+        where: { externalReceiptKey: input.receiptKey },
+        select: { organizationId: true },
+      })
+      if (replay) {
+        return tx.prospectOrganization.findUniqueOrThrow({ where: { id: replay.organizationId } })
+      }
+    }
     const before = await tx.prospectOrganization.findUnique({ where: { id: input.organizationId } })
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
+    if (input.expectedVersion !== undefined) {
+      const activities = await tx.prospectActivity.count({
+        where: { organizationId: input.organizationId },
+      })
+      if (1 + activities !== input.expectedVersion) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+      // The row itself must still be the one that was read: a concurrent edit loses.
+      const swapped = await tx.prospectOrganization.updateMany({
+        where: { id: before.id, updatedAt: before.updatedAt },
+        data: { updatedBy: input.actor.id },
+      })
+      if (swapped.count !== 1) {
+        throw new ProspectActionError('CONFLICT', 'The prospect changed since it was read')
+      }
+    }
     const archivedAt = input.archived ? new Date() : null
     const organization = await tx.prospectOrganization.update({
       where: { id: input.organizationId },
@@ -636,6 +716,7 @@ export async function archiveProspectAction(
         summary: input.archived ? 'Prospect archived' : 'Prospect restored',
         detail: input.reason.trim(),
         actorId: input.actor.id,
+        ...(input.receiptKey ? { externalReceiptKey: input.receiptKey } : {}),
       },
     })
     await writeAuditLogStrict(
@@ -2201,14 +2282,21 @@ export async function resolveProspectDuplicateAction(
     if (!before) throw new ProspectActionError('NOT_FOUND', 'Duplicate candidate not found')
     if (before.status !== 'OPEN')
       throw new ProspectActionError('CONFLICT', 'Duplicate candidate is already resolved')
-    const saved = await tx.prospectDuplicateCandidate.update({
-      where: { id: before.id },
+    // Guarded by the status it was read at: of two reviewers, only the first resolves it.
+    const swapped = await tx.prospectDuplicateCandidate.updateMany({
+      where: { id: before.id, status: 'OPEN' },
       data: {
         status: input.resolution,
         resolutionNote: input.note.trim(),
         reviewedBy: input.actor.id,
         reviewedAt: new Date(),
       },
+    })
+    if (swapped.count !== 1) {
+      throw new ProspectActionError('CONFLICT', 'Duplicate candidate is already resolved')
+    }
+    const saved = await tx.prospectDuplicateCandidate.findUniqueOrThrow({
+      where: { id: before.id },
     })
     await writeAuditLogStrict(
       {

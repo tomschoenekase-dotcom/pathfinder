@@ -8,12 +8,16 @@ import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({ refresh: vi.fn(), post: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  post: vi.fn(),
+  searchParams: new URLSearchParams(),
+}))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/admin/operator',
   useRouter: () => ({ refresh: mocks.refresh, replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mocks.searchParams,
 }))
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -135,14 +139,14 @@ const revert: OperatorReviewItemView = {
 }
 
 const autonomyRows: OperatorAutonomyRow[] = [
-  { capability: 'crm:propose', mode: 'ask', locked: false },
-  { capability: 'crm:log', mode: 'auto', locked: false },
-  { capability: 'venues:propose', mode: 'ask', locked: false },
-  { capability: 'appearance:propose', mode: 'auto', locked: false },
-  { capability: 'customers:propose', mode: 'ask', locked: true },
-  { capability: 'support:propose', mode: 'ask', locked: false },
-  { capability: 'operator:plan', mode: 'ask', locked: true },
-  { capability: 'operator:revert', mode: 'ask', locked: true },
+  { capability: 'crm:propose', mode: 'ask', locked: false, autoKinds: [] },
+  { capability: 'crm:log', mode: 'auto', locked: false, autoKinds: [] },
+  { capability: 'venues:propose', mode: 'ask', locked: false, autoKinds: [] },
+  { capability: 'appearance:propose', mode: 'auto', locked: false, autoKinds: [] },
+  { capability: 'customers:propose', mode: 'ask', locked: true, autoKinds: [] },
+  { capability: 'support:propose', mode: 'ask', locked: false, autoKinds: [] },
+  { capability: 'operator:plan', mode: 'ask', locked: true, autoKinds: [] },
+  { capability: 'operator:revert', mode: 'ask', locked: true, autoKinds: [] },
 ]
 
 const connections: OperatorConnectionRow[] = [
@@ -219,7 +223,7 @@ const auditRows: OperatorAuditRowView[] = [
 
 const noFilters = { eventType: '', outcome: '', tool: '', days: '' }
 
-function shell(tab: OperatorTabId, inboxCount: number | null, content: React.ReactNode) {
+function shell(tab: OperatorTabId | null, inboxCount: number | null, content: React.ReactNode) {
   return (
     <AdminSectionShell routePathname="/admin/operator" showOperator>
       <OperatorAdminView tab={tab} inboxCount={inboxCount}>
@@ -247,6 +251,13 @@ const screens: Record<string, React.ReactElement> = {
     null,
     <OperatorAudit rows={auditRows} filters={{ ...noFilters, days: '7' }} />,
   ),
+  'admin-loading': shell(
+    null,
+    null,
+    <div role="status" aria-busy="true">
+      Loading operator information…
+    </div>,
+  ),
   'approve-single': (
     <OperatorApproveView
       item={appearance}
@@ -271,7 +282,10 @@ const screens: Record<string, React.ReactElement> = {
 }
 
 beforeEach(() => vi.clearAllMocks())
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  mocks.searchParams = new URLSearchParams()
+})
 
 describe('operator screens', () => {
   it.each(Object.entries(screens))('%s has no axe violations', async (name, element) => {
@@ -281,6 +295,64 @@ describe('operator screens', () => {
       rules: { 'color-contrast': { enabled: false }, region: { enabled: false } },
     })
     expect(result.violations.map((v) => `${name}: ${v.id} ${v.nodes[0]?.html}`)).toEqual([])
+  })
+
+  it('keeps operator section links available during the pending transition', () => {
+    render(screens['admin-loading']!)
+    expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByRole('link', { name: 'Audit' }).getAttribute('href')).toBe(
+      '/admin/operator?tab=audit',
+    )
+    expect(screen.getByRole('link', { name: 'Audit' }).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('selects a clicked tab immediately and replaces stale content while its route loads', () => {
+    render(shell('inbox', 2, <OperatorInbox items={[plan]} now={now} />))
+    fireEvent.click(screen.getByRole('link', { name: 'Audit' }))
+    expect(screen.getByRole('link', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('status').textContent).toContain('Loading operator information')
+    expect(screen.queryByText('Set up Lakeside Aquarium and invite the owner')).toBeNull()
+  })
+
+  it('keeps the latest rapid tab choice and Escape clears a still-pending choice', () => {
+    render(shell('inbox', 2, <OperatorInbox items={[plan]} now={now} />))
+    fireEvent.click(screen.getByRole('link', { name: 'Audit' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Connections' }))
+    expect(screen.getByRole('link', { name: 'Connections' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+    expect(screen.getByText('Loading operator information…')).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByText('Loading operator information…')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Inbox (2)' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+  })
+
+  it('clears the pending indicator when browser navigation returns to the origin tab', () => {
+    const { rerender } = render(shell('inbox', 2, <OperatorInbox items={[plan]} now={now} />))
+    fireEvent.click(screen.getByRole('link', { name: 'Audit' }))
+    mocks.searchParams = new URLSearchParams('tab=audit')
+    rerender(shell('inbox', 2, <OperatorInbox items={[plan]} now={now} />))
+    expect(screen.getByText('Loading operator information…')).toBeTruthy()
+
+    mocks.searchParams = new URLSearchParams('tab=inbox')
+    rerender(shell('inbox', 2, <OperatorInbox items={[plan]} now={now} />))
+    expect(screen.queryByText('Loading operator information…')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Inbox (2)' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+  })
+
+  it('marks the requested destination as active as soon as the URL changes', () => {
+    const { rerender } = render(shell('inbox', 0, <OperatorInbox items={[]} now={now} />))
+    expect(screen.getByRole('link', { name: 'Inbox' }).getAttribute('aria-current')).toBe('page')
+
+    mocks.searchParams = new URLSearchParams('tab=audit')
+    rerender(shell('inbox', 0, <OperatorInbox items={[]} now={now} />))
+
+    expect(screen.getByRole('link', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Inbox' }).getAttribute('aria-current')).toBeNull()
   })
 
   it('writes static pages for the browser accessibility and screenshot run when asked', () => {
@@ -316,7 +388,7 @@ describe('operator screens', () => {
       return { json: async () => ({ saved: 1 }) }
     })
     render(<OperatorAutonomy rows={autonomyRows} />)
-    const locked = screen.getByRole('switch', { name: 'Customer invites' }) as HTMLButtonElement
+    const locked = screen.getByRole('switch', { name: 'Customer setup' }) as HTMLButtonElement
     expect(locked.disabled).toBe(true)
     fireEvent.click(screen.getByRole('switch', { name: 'CRM changes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save 1 change' }))

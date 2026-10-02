@@ -661,36 +661,31 @@ describe.skipIf(!enabled)(
           venueId: otherVenueId,
         })
         expect(read.isError).toBe(true)
-        expect(read.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(read.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         const list = await callTool(connection.access, 'venues.list', { tenantId: otherTenantId })
-        expect(list.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(list.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         const write = await callTool(connection.access, 'venues.propose_publish', {
           tenantId: otherTenantId,
           venueId: otherVenueId,
           operationId: randomUUID(),
           expectedUpdatedAt: new Date().toISOString(),
         })
-        expect(write.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(write.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
 
       it('an unknown tool name is UNKNOWN_TOOL and creates nothing', async () => {
         const connection = await connect()
-        for (const name of [
-          'crm.send_email',
-          'operator.set_autonomy',
-          'customers.propose_invite',
-        ]) {
+        for (const name of ['crm.send_email', 'operator.set_autonomy', 'venues.propose_source']) {
           const result = await callTool(connection.access, name, {
             tenantId,
             operationId: randomUUID(),
           })
           expect(result.isError, name).toBe(true)
-          expect(result.structuredContent, name).toEqual({ error: 'UNKNOWN_TOOL' })
+          expect(result.structuredContent, name).toMatchObject({ error: 'UNKNOWN_TOOL' })
         }
         const listed = await mcp(connection.access, 'tools/list')
         const names = new Set(listed.body.result.tools.map((tool: { name: string }) => tool.name))
-        expect(names.has('customers.propose_invite')).toBe(false)
         expect(names.has('venues.propose_source')).toBe(false)
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
@@ -925,7 +920,7 @@ describe.skipIf(!enabled)(
           note: INJECTION,
         })
         expect(result.isError).toBe(true)
-        expect(result.structuredContent).toEqual({ error: 'UNKNOWN_TOOL' })
+        expect(result.structuredContent).toMatchObject({ error: 'UNKNOWN_TOOL' })
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
 

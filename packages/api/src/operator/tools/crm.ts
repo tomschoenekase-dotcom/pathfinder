@@ -4,7 +4,6 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
-  evaluateCanContact,
   isUncontactedOrganization,
   operatorContactView,
   operatorOrganizationView,
@@ -14,6 +13,8 @@ import {
 } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
+import { evaluateAddress } from './crm-eligibility'
+import { OperatorInvalidCursorError, pageResult } from './page'
 import {
   loadActivityCounts,
   loadOutreach,
@@ -24,8 +25,8 @@ import {
 
 const MAX_CONTACTS = 50
 const MAX_NOTES = 20
-const MAX_HISTORY_EVENTS = 200
 const UNCONTACTED_BATCH = 100
+const CAN_CONTACT_BATCH = 500
 /** Bounds the work of one uncontacted scan; the caller continues from `nextCursor`. */
 const UNCONTACTED_SCAN_CAP = 1_000
 
@@ -118,7 +119,7 @@ async function pageOrganizations(
   })
   const page = rows.slice(0, input.limit)
   const items = (await viewsFor(database, page)).map((entry) => entry.view)
-  return { items, nextCursor: rows.length > input.limit ? page.at(-1)!.id : null }
+  return pageResult(items, rows.length > input.limit ? page.at(-1)!.id : null)
 }
 
 /** Follows the P17 CLI rules (see `isUncontactedOrganization`) over bounded scan windows. */
@@ -163,7 +164,7 @@ async function pageUncontacted(
     }
     cursor = rows.at(-1)!.id
   }
-  return { items, nextCursor: exhausted ? null : lastScannedId }
+  return pageResult(items, exhausted ? null : lastScannedId)
 }
 
 function toContactInput(contact: LoadedOrganization['contacts'][number]): SnapshotContactInput {
@@ -220,7 +221,7 @@ const CONTACT_RULE_SELECT = {
 } as const
 
 /** Normalized addresses from `emails` that are blocked on at least one contact row anywhere. */
-async function blockedAddressesAnywhere(
+export async function blockedAddressesAnywhere(
   database: OperatorCallContext['database'],
   emails: readonly string[],
 ): Promise<Set<string>> {
@@ -276,115 +277,174 @@ const getOrganization: OperatorReadTool = {
   },
 }
 
+/**
+ * History is two streams (CRM activity and email messages) read as one, newest first. Events can
+ * share an instant, so the order is total: time (newest first), then stream (activity before
+ * message), then id (newest first). The cursor names the last event returned in that order, so a
+ * tie on the same millisecond is neither skipped nor repeated across pages.
+ */
+type HistoryEvent = {
+  type: string
+  occurredAt: Date
+  summary: ReturnType<typeof operatorUntrustedText>
+  rank: 'a' | 'm'
+  id: string
+}
+
+function encodeHistoryCursor(event: Pick<HistoryEvent, 'occurredAt' | 'rank' | 'id'>) {
+  return `h:${event.occurredAt.toISOString()}|${event.rank}|${event.id}`
+}
+
+function decodeHistoryCursor(cursor: string) {
+  const match = /^h:([^|]{20,40})\|([am])\|(.{1,191})$/u.exec(cursor)
+  const at = match ? new Date(match[1]!) : null
+  if (!match || !at || Number.isNaN(at.getTime())) throw new OperatorInvalidCursorError()
+  return { at, rank: match[2] as 'a' | 'm', id: match[3]! }
+}
+
 const getContactHistory: OperatorReadTool = {
   name: 'crm.get_contact_history',
   capability: 'crm:read',
   async handler(raw, context) {
-    const { organizationId } = OPERATOR_MCP_INPUTS['crm.get_contact_history'].parse(raw)
+    const { organizationId, cursor, limit } =
+      OPERATOR_MCP_INPUTS['crm.get_contact_history'].parse(raw)
     const database = context.database
     const organization = await database.prospectOrganization.findFirst({
       where: { id: organizationId, archivedAt: null },
       select: { id: true },
     })
     if (!organization) throw new OperatorNotFoundError()
+    const after = cursor === undefined ? null : decodeHistoryCursor(cursor)
+    if (after) {
+      // The cursor must name an event of this account, or it is refused outright.
+      const anchor =
+        after.rank === 'a'
+          ? await database.prospectActivity.findFirst({
+              where: { id: after.id, organizationId },
+              select: { id: true },
+            })
+          : await database.prospectEmailMessage.findFirst({
+              where: { id: after.id, organizationId },
+              select: { id: true },
+            })
+      if (!anchor) throw new OperatorInvalidCursorError()
+    }
+    const earlier = (stream: 'a' | 'm') =>
+      after
+        ? {
+            OR: [
+              { occurredAt: { lt: after.at } },
+              // Same instant: activities come before messages, then newer ids before older ones.
+              ...(stream === 'a'
+                ? after.rank === 'a'
+                  ? [{ occurredAt: after.at, id: { lt: after.id } }]
+                  : []
+                : after.rank === 'a'
+                  ? [{ occurredAt: after.at }]
+                  : [{ occurredAt: after.at, id: { lt: after.id } }]),
+            ],
+          }
+        : {}
     const [activities, messages] = await Promise.all([
       database.prospectActivity.findMany({
-        where: { organizationId },
+        where: { organizationId, ...earlier('a') },
         orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: MAX_HISTORY_EVENTS,
-        select: { type: true, summary: true, occurredAt: true },
+        take: limit + 1,
+        select: { id: true, type: true, summary: true, occurredAt: true },
       }),
       database.prospectEmailMessage.findMany({
-        where: { organizationId },
+        where: { organizationId, ...earlier('m') },
         orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: MAX_HISTORY_EVENTS,
+        take: limit + 1,
         // Bodies, addresses and provider IDs are never selected.
-        select: { direction: true, status: true, subject: true, occurredAt: true },
+        select: { id: true, direction: true, status: true, subject: true, occurredAt: true },
       }),
     ])
-    const events = [
+    const events: HistoryEvent[] = [
       ...activities.map((row) => ({
         type: row.type as string,
         occurredAt: row.occurredAt,
         summary: operatorUntrustedText(redactAddresses(row.summary)),
+        rank: 'a' as const,
+        id: row.id,
       })),
       ...messages.map((row) => ({
         type: row.direction === 'OUTBOUND' ? 'EMAIL_OUTBOUND' : 'EMAIL_INBOUND',
         occurredAt: row.occurredAt,
         summary: operatorUntrustedText(redactAddresses(`${row.status}: ${row.subject}`)),
+        rank: 'm' as const,
+        id: row.id,
       })),
-    ]
-      .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
-      .slice(0, MAX_HISTORY_EVENTS)
+    ].sort(
+      (a, b) =>
+        b.occurredAt.getTime() - a.occurredAt.getTime() ||
+        (a.rank === b.rank ? 0 : a.rank === 'a' ? -1 : 1) ||
+        (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    )
+    const page = events.slice(0, limit)
     return {
       organizationId,
-      events: events.map((event) => ({
+      events: page.map((event) => ({
         type: event.type,
         occurredAt: event.occurredAt.toISOString(),
         summary: event.summary,
       })),
+      nextCursor: events.length > limit ? encodeHistoryCursor(page.at(-1)!) : null,
+      complete: events.length <= limit,
     }
   },
 }
+
+type ContactMatchRow = Parameters<typeof evaluateAddress>[0][number]
 
 const checkCanContact: OperatorReadTool = {
   name: 'crm.check_can_contact',
   capability: 'crm:read',
   async handler(raw, context) {
-    const { email } = OPERATOR_MCP_INPUTS['crm.check_can_contact'].parse(raw)
-    const rows = await context.database.prospectContact.findMany({
-      where: {
-        OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' } }],
-      },
-      orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
-      // Enough rows that a blocked duplicate can never be cut off by the page size.
-      take: 1000,
-      select: {
-        id: true,
-        venueId: true,
-        fullName: true,
-        title: true,
-        email: true,
-        phone: true,
-        emailReadiness: true,
-        permissionState: true,
-        doNotContact: true,
-        suppressionReason: true,
-        suppressedAt: true,
-        unsubscribedAt: true,
-        complainedAt: true,
-        lastHardBounceAt: true,
-        archivedAt: true,
-        organizationId: true,
-        organization: {
-          select: { archivedAt: true, opportunity: { select: { stage: true } } },
+    const { email, purpose } = OPERATOR_MCP_INPUTS['crm.check_can_contact'].parse(raw)
+    const where = {
+      OR: [{ normalizedEmail: email }, { email: { equals: email, mode: 'insensitive' as const } }],
+    }
+    // Every row carrying the address is read, a page at a time and never capped, so a block on an
+    // old archived alias cannot be missed because many other rows came first.
+    const rows: ContactMatchRow[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await context.database.prospectContact.findMany({
+        where,
+        orderBy: [{ archivedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        take: CAN_CONTACT_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          normalizedEmail: true,
+          doNotContact: true,
+          emailReadiness: true,
+          permissionState: true,
+          suppressedAt: true,
+          unsubscribedAt: true,
+          complainedAt: true,
+          lastHardBounceAt: true,
+          archivedAt: true,
+          organizationId: true,
+          organization: {
+            select: { archivedAt: true, opportunity: { select: { stage: true } } },
+          },
         },
-      },
-    })
-    const matches = rows
-      .map((row) => ({
-        contact: row as SnapshotContactInput,
-        organizationId: row.organizationId,
-        organizationStage: row.organization.opportunity?.stage ?? null,
-        active: row.archivedAt === null && row.organization.archivedAt === null,
-      }))
-      .sort((a, b) => Number(b.active) - Number(a.active))
-    const answer = evaluateCanContact(matches)
-    // An address already known to be undeliverable is never sent to.
-    const invalid = matches.find((match) => match.contact.emailReadiness === 'INVALID')
-    if (answer.allowed && invalid) {
-      return {
-        allowed: false,
-        reason: 'suppressed' as const,
-        organizationId: invalid.organizationId,
-        contactId: invalid.contact.id,
-      }
+      })
+      rows.push(...(batch as unknown as ContactMatchRow[]))
+      if (batch.length < CAN_CONTACT_BATCH) break
+      cursor = batch.at(-1)!.id
     }
-    // A blocked answer stands even for an archived row. An allow needs a live contact.
-    if (answer.allowed && !matches.some((match) => match.active)) {
-      return { allowed: false, reason: 'unknown_address', organizationId: null, contactId: null }
+    const answer = evaluateAddress(rows, purpose)
+    return {
+      allowed: answer.allowed,
+      reason: answer.reason,
+      reasons: [...answer.reasons],
+      purpose: answer.purpose,
+      organizationId: answer.organizationId,
+      contactId: answer.contactId,
     }
-    return answer
   },
 }
 

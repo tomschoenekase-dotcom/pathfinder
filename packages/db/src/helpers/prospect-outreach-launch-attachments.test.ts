@@ -57,6 +57,7 @@ describe('prospect outreach launch attachment freeze', () => {
       contentHash,
       groundingSnapshot: snapshot,
       escalationFlags: [],
+      organization: { opportunity: { stage: 'RESEARCHED' } },
       contact: {
         doNotContact: false,
         normalizedEmail: recipient,
@@ -67,6 +68,7 @@ describe('prospect outreach launch attachment freeze', () => {
       },
     }
     const tx = {
+      prospectContact: { findFirst: vi.fn().mockResolvedValue(null) },
       prospectOutreachDraft: { findMany: vi.fn().mockResolvedValue([draft]) },
       prospectSendBatch: { create: vi.fn().mockResolvedValue({ id: 'batch-1' }) },
     }

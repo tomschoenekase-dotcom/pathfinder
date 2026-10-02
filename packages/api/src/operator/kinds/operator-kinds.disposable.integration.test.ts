@@ -2,7 +2,12 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  createVenueAction,
+  db,
+  updateProspectPipelineAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { resolveAutonomy, setAutonomyPolicy } from '../autonomy'
 import { resolveOperatorConfig } from '../config'
@@ -48,6 +53,7 @@ let organizationId = ''
 let otherOrganizationId = ''
 let contactId = ''
 let memberId = ''
+let sendBatchesAtStart = 0
 
 const now = () => new Date()
 const ids = { organizations: [] as string[] }
@@ -141,6 +147,7 @@ describe.skipIf(!enabled)(
   { timeout: 90_000 },
   () => {
     beforeAll(async () => {
+      sendBatchesAtStart = await db.prospectSendBatch.count()
       await withTenantIsolationBypass(async () => {
         await db.tenant.create({
           data: { id: tenantId, name: `Example ${tenantId}`, slug: tenantId },
@@ -218,11 +225,34 @@ describe.skipIf(!enabled)(
         [
           'appearance.propose_update',
           'crm.log_outreach_sent',
+          'crm.propose_account_archive',
+          'crm.propose_batch_approve',
+          'crm.propose_batch_release',
+          'crm.propose_batch_stage',
+          'crm.propose_campaign_create',
+          'crm.propose_campaign_membership',
+          'crm.propose_draft_review',
+          'crm.propose_contact_archive',
+          'crm.propose_contact_create',
+          'crm.propose_contact_update',
+          'crm.propose_duplicate_resolution',
+          'crm.propose_followup_update',
+          'crm.propose_note',
+          'support.propose_completion',
+          'support.propose_triage',
+          'customers.propose_onboarding_questions',
+          'customers.propose_create',
+          'customers.propose_invite',
+          'support.propose_information_request',
+          'support.propose_internal_note',
           'crm.propose_outreach_draft',
           'crm.propose_stage_change',
           'venues.propose_create',
           'venues.propose_knowledge',
           'venues.propose_publish',
+          'venues.propose_operational_update',
+          'venues.propose_operational_update_schedule',
+          'venues.propose_operational_update_end',
         ].sort(),
       )
     })
@@ -340,6 +370,59 @@ describe.skipIf(!enabled)(
         ).toBe('DO_NOT_CONTACT')
       })
 
+      it('lets exactly one of two writers holding the same version win, and never lifts a suppression set meanwhile', async () => {
+        const admin = { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' } as const
+        const organization = await newOrganization('RESEARCHED')
+        const version = await opportunityVersion(organization)
+        const attempt = (stage: 'QUALIFIED' | 'PARKED') =>
+          updateProspectPipelineAction({
+            organizationId: organization,
+            stage,
+            reason: 'race',
+            actor: admin,
+            expectedVersion: version,
+            refuseLiftingDoNotContact: true,
+          })
+        const outcomes = await Promise.allSettled([attempt('QUALIFIED'), attempt('PARKED')])
+        expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+        const lost = outcomes.find(
+          (outcome) => outcome.status === 'rejected',
+        ) as PromiseRejectedResult
+        expect(lost.reason).toMatchObject({ code: 'CONFLICT' })
+
+        // A human sets do-not-contact after the operator read the record: the stale write loses.
+        const guarded = await newOrganization('RESEARCHED')
+        const guardedVersion = await opportunityVersion(guarded)
+        await updateProspectPipelineAction({
+          organizationId: guarded,
+          stage: 'DO_NOT_CONTACT',
+          reason: 'asked to stop',
+          actor: admin,
+        })
+        await expect(
+          updateProspectPipelineAction({
+            organizationId: guarded,
+            stage: 'READY_FOR_OUTREACH',
+            actor: admin,
+            expectedVersion: guardedVersion,
+            refuseLiftingDoNotContact: true,
+          }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        // Even with the right version the lock holds.
+        await expect(
+          updateProspectPipelineAction({
+            organizationId: guarded,
+            stage: 'READY_FOR_OUTREACH',
+            actor: admin,
+            expectedVersion: await opportunityVersion(guarded),
+            refuseLiftingDoNotContact: true,
+          }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        expect(
+          (await db.prospectOpportunity.findUnique({ where: { organizationId: guarded } }))?.stage,
+        ).toBe('DO_NOT_CONTACT')
+      })
+
       it('treats an archived organization as NOT_FOUND for writes', async () => {
         const archived = await newOrganization()
         await db.prospectOrganization.update({
@@ -391,13 +474,90 @@ describe.skipIf(!enabled)(
         })
         expect(activities).toHaveLength(1)
         expect(activities[0]?.occurredAt.toISOString()).toBe(args.sentAt)
-        expect(await db.prospectSendBatch.count()).toBe(0)
+        // Logging a send never stages a batch: the count is whatever other suites left, unchanged.
+        expect(await db.prospectSendBatch.count()).toBe(sendBatchesAtStart)
         const reverted = await createRevertProposal(
           { proposalId: view.proposalId, operationId: randomUUID() },
           (raw) => raw as { proposalId: string; operationId: string },
           { config, database: db, grant, kinds, now: now(), requestId: randomUUID() },
         ).catch((error: { code?: string }) => error)
         expect(reverted).toMatchObject({ code: 'NOT_REVERTIBLE' })
+      })
+
+      it('records one namespaced receipt under concurrency and never rewinds last activity', async () => {
+        const gmailMessageId = `gmail-${randomUUID()}`
+        const base = { organizationId, contactId, gmailMessageId, mailbox: 'sender@example.com' }
+        // Two different proposals for the same provider message, approved at the same moment.
+        const first = await propose('crm.log_outreach_sent', {
+          ...base,
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        const second = await propose('crm.log_outreach_sent', {
+          ...base,
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        await Promise.all([approve(first), approve(second)])
+        const key = `gmail:sender@example.com:${gmailMessageId}`
+        expect(await db.prospectActivity.count({ where: { externalReceiptKey: key } })).toBe(1)
+        const receipt = await db.prospectActivity.findUniqueOrThrow({
+          where: { externalReceiptKey: key },
+        })
+        expect(receipt.evidence).toMatchObject({ verification: 'unverified' })
+        // The same provider id from another mailbox is a different message.
+        const otherMailbox = await propose('crm.log_outreach_sent', {
+          ...base,
+          mailbox: 'someone-else@example.com',
+          sentAt: '2026-08-01T10:00:00.000Z',
+        })
+        expect((await approve(otherMailbox)).status).toBe('APPLIED')
+
+        // An older historical send must not move the account's last activity backwards.
+        const target = await newOrganization('RESEARCHED')
+        const targetContact = await db.prospectContact.create({
+          data: {
+            organizationId: target,
+            fullName: 'Example Person',
+            email: `hist-${randomUUID().slice(0, 8)}@example.com`,
+            normalizedEmail: `hist-${randomUUID().slice(0, 8)}@example.com`,
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        const log = (messageId: string, sentAt: string) =>
+          propose('crm.log_outreach_sent', {
+            organizationId: target,
+            contactId: targetContact.id,
+            gmailMessageId: messageId,
+            sentAt,
+          }).then(approve)
+        await log(`recent-${randomUUID()}`, '2026-09-20T10:00:00.000Z')
+        await log(`older-${randomUUID()}`, '2026-07-01T10:00:00.000Z')
+        const opportunity = await db.prospectOpportunity.findUniqueOrThrow({
+          where: { organizationId: target },
+        })
+        expect(opportunity.lastActivityAt?.toISOString()).toBe('2026-09-20T10:00:00.000Z')
+
+        // Another organization cannot claim a message already logged for this one.
+        const outsider = await newOrganization('RESEARCHED')
+        const outsiderContact = await db.prospectContact.create({
+          data: {
+            organizationId: outsider,
+            fullName: 'Other Person',
+            email: `other-${randomUUID().slice(0, 8)}@example.com`,
+            normalizedEmail: `other-${randomUUID().slice(0, 8)}@example.com`,
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        await expect(
+          propose('crm.log_outreach_sent', {
+            organizationId: outsider,
+            contactId: outsiderContact.id,
+            gmailMessageId,
+            mailbox: 'sender@example.com',
+            sentAt: '2026-08-01T10:00:00.000Z',
+          }),
+        ).rejects.toMatchObject({ code: 'RECEIPT_CONFLICT' })
       })
 
       it('auto path applies; a message logged meanwhile makes the proposal STALE', async () => {
@@ -446,7 +606,8 @@ describe.skipIf(!enabled)(
         const drafts = await db.prospectOutreachDraft.findMany({ where: { memberId } })
         expect(drafts).toHaveLength(1)
         expect(drafts[0]).toMatchObject({ status: 'NEEDS_REVIEW', generatedById: 'user_owner' })
-        expect(await db.prospectSendBatch.count()).toBe(0)
+        // Logging a send never stages a batch: the count is whatever other suites left, unchanged.
+        expect(await db.prospectSendBatch.count()).toBe(sendBatchesAtStart)
         const reverted = await revert(view.proposalId)
         expect(reverted.status).toBe('APPLIED')
         expect(
@@ -528,6 +689,84 @@ describe.skipIf(!enabled)(
         await expect(
           propose('venues.propose_create', { tenantId: 'other-tenant', name: 'Nope' }),
         ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      })
+
+      it('never adopts or deactivates a live venue that already holds the slug', async () => {
+        const slug = `live-${randomUUID().slice(0, 8)}`
+        const human = { type: 'HUMAN', id: 'user_owner', role: 'OWNER' } as const
+        // A pre-existing, active, content-empty venue with exactly the name and slug the operator
+        // will ask for: the case the old name-and-slug "replay" match would deactivate.
+        const live = await createVenueAction({
+          tenantId,
+          actor: human,
+          name: 'Example Live',
+          baseSlug: slug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        })
+        const before = await venueRow(live.record.id)
+        const pending = await propose('venues.propose_create', {
+          tenantId,
+          name: 'Example Live',
+          slug,
+        })
+        const applied = await approve(pending)
+        // The slug conflict is the target having changed; nothing was created or altered.
+        expect(applied.status).toBe('STALE')
+        const after = await venueRow(live.record.id)
+        expect(after.isActive).toBe(true)
+        expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime())
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
+      })
+
+      it('creates inactive in one commit; the operation key proves a retry and legacy callers stay active', async () => {
+        const human = { type: 'HUMAN', id: 'user_owner', role: 'OWNER' } as const
+        const slug = `once-${randomUUID().slice(0, 8)}`
+        const operationKey = randomUUID()
+        const input = {
+          tenantId,
+          actor: human,
+          name: 'Example Once',
+          baseSlug: slug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+          initiallyActive: false,
+          operationKey,
+        } as const
+        const first = await createVenueAction(input)
+        expect(first.replayed).toBe(false)
+        expect(first.record.isActive).toBe(false)
+        // Someone publishes it; a retry must return it as it is now, not turn it back off.
+        await db.venue.update({
+          where: { id: first.record.id, tenantId },
+          data: { isActive: true },
+        })
+        const retry = await createVenueAction(input)
+        expect(retry.replayed).toBe(true)
+        expect(retry.record.id).toBe(first.record.id)
+        expect(retry.record.isActive).toBe(true)
+        // The same key with different setup is a conflict, never a second venue.
+        await expect(createVenueAction({ ...input, name: 'Different Name' })).rejects.toMatchObject(
+          { code: 'CONFLICT' },
+        )
+        // A different key cannot adopt the existing venue by slug.
+        await expect(
+          createVenueAction({ ...input, operationKey: randomUUID() }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
+        // Legacy behavior is unchanged: no flag means active, and the same-slug match still replays.
+        const legacySlug = `legacy-${randomUUID().slice(0, 8)}`
+        const legacy = {
+          tenantId,
+          actor: human,
+          name: 'Example Legacy',
+          baseSlug: legacySlug,
+          callerSuppliedSlug: true,
+          guideMode: 'non_location',
+        } as const
+        const created = await createVenueAction(legacy)
+        expect(created.record.isActive).toBe(true)
+        expect((await createVenueAction(legacy)).replayed).toBe(true)
       })
     })
 

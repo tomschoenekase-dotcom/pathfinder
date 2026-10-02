@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import {
   OPERATOR_ALWAYS_ASK_TOOLS,
+  OPERATOR_CONTROL_TOOL_NAMES,
   OPERATOR_MCP_INPUTS,
   OPERATOR_MCP_OUTPUTS,
   OPERATOR_MCP_TOOLS,
@@ -23,6 +24,8 @@ const EXPECTED_TOOLS = [
   'crm.get_contact_history',
   'crm.check_can_contact',
   'venues.list',
+  'venues.list_operational_updates',
+  'venues.get_visitor_summary',
   'venues.get_readiness',
   'appearance.get',
   'support.list',
@@ -30,7 +33,60 @@ const EXPECTED_TOOLS = [
   'operator.get_proposal',
   'operator.list_proposals',
   'operator.get_autonomy',
+  'operator.get_context',
+  'operator.get_operation',
+  'operator.list_plans',
+  'customers.list',
+  'crm.list_campaigns',
+  'crm.list_campaign_members',
+  'crm.resolve_account',
+  'crm.get_account_context',
+  'crm.list_contacts',
+  'crm.list_notes',
+  'crm.list_duplicates',
+  'crm.get_campaign',
+  'crm.list_drafts',
+  'crm.get_outreach_batch',
+  'support.get_request',
+  'customers.get_onboarding',
+  'support.list_messages',
+  'crm.list_mailboxes',
+  'crm.list_mail_threads',
+  'crm.list_mail_messages',
+  'crm.list_mail_receipts',
+  'crm.list_mail_quarantine',
+  'crm.list_mail_webhook_receipts',
+  'crm.list_activity_receipts',
+  'company.list_context',
+  'reports.list',
+  'reports.get_status',
+  'billing.get_status',
+  'billing.list_invoices',
+  'routines.list',
+  'access.list_memberships',
+  'offboarding.list_plans',
+  'offboarding.list_targets',
+  'offboarding.list_evidence',
+  'offboarding.list_artifacts',
+  'operator.cancel_operation',
+  'operator.recover_operation',
   'crm.propose_campaign_membership',
+  'crm.propose_contact_create',
+  'crm.propose_contact_update',
+  'crm.propose_contact_archive',
+  'crm.propose_followup_update',
+  'crm.propose_note',
+  'crm.propose_account_archive',
+  'crm.propose_duplicate_resolution',
+  'crm.propose_campaign_create',
+  'crm.propose_draft_review',
+  'crm.propose_batch_stage',
+  'crm.propose_batch_approve',
+  'crm.propose_batch_release',
+  'support.propose_internal_note',
+  'support.propose_information_request',
+  'support.propose_completion',
+  'customers.propose_onboarding_questions',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -38,8 +94,12 @@ const EXPECTED_TOOLS = [
   'venues.propose_source',
   'venues.propose_knowledge',
   'venues.propose_publish',
+  'venues.propose_operational_update',
+  'venues.propose_operational_update_schedule',
+  'venues.propose_operational_update_end',
   'appearance.propose_update',
   'customers.propose_invite',
+  'customers.propose_create',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -80,9 +140,13 @@ describe('operator MCP catalog', () => {
     const names = OPERATOR_MCP_TOOLS.map((tool) => tool.name)
     expect([...names].sort()).toEqual([...EXPECTED_TOOLS].sort())
     expect(new Set(names).size).toBe(names.length)
-    expect([...OPERATOR_READ_TOOL_NAMES, ...OPERATOR_WRITE_TOOL_NAMES].sort()).toEqual(
-      [...EXPECTED_TOOLS].sort(),
-    )
+    expect(
+      [
+        ...OPERATOR_READ_TOOL_NAMES,
+        ...OPERATOR_WRITE_TOOL_NAMES,
+        ...OPERATOR_CONTROL_TOOL_NAMES,
+      ].sort(),
+    ).toEqual([...EXPECTED_TOOLS].sort())
     expect(Object.keys(OPERATOR_MCP_INPUTS).sort()).toEqual([...EXPECTED_TOOLS].sort())
     expect(Object.keys(OPERATOR_MCP_OUTPUTS).sort()).toEqual([...EXPECTED_TOOLS].sort())
   })
@@ -105,13 +169,14 @@ describe('operator MCP catalog', () => {
   it('classifies effects, annotations, capabilities and scopes', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const isRead = (OPERATOR_READ_TOOL_NAMES as readonly string[]).includes(tool.name)
-      expect(tool.effect).toBe(isRead ? 'read' : 'proposal')
+      const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
+      expect(tool.effect).toBe(isRead ? 'read' : isControl ? 'control' : 'proposal')
       expect(tool.annotations.readOnlyHint).toBe(isRead)
       expect(tool.annotations.destructiveHint).toBe(false)
       expect(tool.annotations.openWorldHint).toBe(false)
       expect(OperatorCapability.safeParse(tool.capability).success).toBe(true)
       expect(['platform', 'tenant', 'venue']).toContain(tool.scope)
-      expect(Boolean(tool.proposalKind)).toBe(!isRead)
+      expect(Boolean(tool.proposalKind)).toBe(!isRead && !isControl)
       if (isRead) expect(tool.capability).toMatch(/:read$/u)
     }
     const kinds = OPERATOR_MCP_TOOLS.flatMap((tool) =>
@@ -154,6 +219,8 @@ describe('operator MCP catalog', () => {
   it('requires an operationId uuid on every write and on no read', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[] }
+      // Only proposals carry an operationId. Controls name the earlier operation by
+      // originalOperationId and are naturally idempotent.
       expect(json.required.includes('operationId')).toBe(tool.effect === 'proposal')
     }
     expect(
@@ -199,7 +266,17 @@ describe('operator MCP catalog', () => {
     }
     expect([...OPERATOR_ALWAYS_ASK_TOOLS]).toEqual([
       'customers.propose_invite',
+      'customers.propose_create',
       'operator.propose_revert',
+      'crm.propose_account_archive',
+      'crm.propose_duplicate_resolution',
+      'crm.propose_draft_review',
+      'crm.propose_batch_stage',
+      'crm.propose_batch_approve',
+      'crm.propose_batch_release',
+      'support.propose_information_request',
+      'support.propose_completion',
+      'customers.propose_onboarding_questions',
     ])
   })
 
@@ -349,7 +426,35 @@ describe('operator MCP inputs', () => {
 
   it('normalizes emails for the contact check', () => {
     const schema = OPERATOR_MCP_INPUTS['crm.check_can_contact']
-    expect(schema.parse({ email: ' Person@Example.com ' })).toEqual({ email: 'person@example.com' })
+    // The default purpose is the strict one: sending needs a verified address.
+    expect(schema.parse({ email: ' Person@Example.com ' })).toEqual({
+      email: 'person@example.com',
+      purpose: 'send',
+    })
+    expect(schema.parse({ email: 'a@example.com', purpose: 'draft' }).purpose).toBe('draft')
     expect(schema.safeParse({ email: 'nope' }).success).toBe(false)
+  })
+})
+
+describe('operator MCP truthful outcome semantics', () => {
+  it('describes availability-only publish and non-atomic plans honestly', () => {
+    const publish = getOperatorToolDefinition('venues.propose_publish')!
+    expect(publish.description).toMatch(/availability only/i)
+    expect(publish.description).not.toMatch(/Propose publishing a venue/)
+    const plan = getOperatorToolDefinition('operator.propose_plan')!
+    expect(plan.description).toMatch(/earlier applied steps stay applied/i)
+  })
+
+  it('lets support.list report an unrecorded priority as null, not a default', () => {
+    const page = OPERATOR_MCP_OUTPUTS['support.list']
+    const item = {
+      requestId: 'req_1',
+      venueId: 'venue_1',
+      status: 'OPEN',
+      priority: null,
+      updatedAt: '2026-09-30T12:00:00.000Z',
+      subject: { untrusted: true, text: 'x', truncated: false },
+    }
+    expect(page.safeParse({ items: [item], nextCursor: null, complete: true }).success).toBe(true)
   })
 })

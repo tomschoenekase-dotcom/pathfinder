@@ -51,8 +51,8 @@ async function readVenue(
 }
 
 /**
- * Creates a draft venue: the canonical create action, then the canonical availability action turns
- * it off, so nothing is offered to visitors until a separate publish proposal is approved.
+ * Creates a draft venue through the canonical create action, inactive from the first commit, so
+ * nothing is offered to visitors until a separate publish proposal is approved.
  * City and region have no column of their own; they become the guide notes.
  */
 export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
@@ -83,6 +83,9 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
     }) as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
     const place = [args.city, args.region].filter(Boolean).join(', ')
+    // The venue is created inactive in the same transaction, so no moment exists in which a draft
+    // is live. The operation id is the replay receipt: a retry returns the venue this operation
+    // created, and a venue that merely shares the slug is refused, never adopted or changed.
     const created = await createVenueAction(
       {
         tenantId: args.tenantId,
@@ -91,34 +94,17 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
         baseSlug: args.slug ?? normalizeVenueSlug(args.name),
         callerSuppliedSlug: args.slug !== undefined,
         guideMode: 'non_location',
+        initiallyActive: false,
+        operationKey: context.operationId,
         ...(place ? { guideNotes: `Located in ${place}.` } : {}),
       },
       context.database,
     )
     const venueId = created.record.id
-    // The approval promised a draft, so the venue must end inactive. Retry once against the
-    // current version; if it still is not a draft, fail loudly instead of reporting success.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const current = await readVenue(context.database, args.tenantId, venueId)
-      if (!current || !current.isActive) break
-      try {
-        await setVenueAvailabilityAction(
-          {
-            tenantId: args.tenantId,
-            venueId,
-            expectedUpdatedAt: new Date(current.updatedAt),
-            enabled: false,
-            reason: `Draft until published. ${operatorReason(context.proposalId)}`,
-            actor: venueActor(context.actor, 'MANAGER'),
-          },
-          context.database,
-        )
-      } catch {
-        // Re-read and retry once below.
-      }
-    }
     const after = (await readVenue(context.database, args.tenantId, venueId))!
-    if (after.isActive) {
+    // A first creation must end inactive. A replay reports the venue as it is now: if a person
+    // has since published it, that is their decision and this retry must not undo it.
+    if (after.isActive && !created.replayed) {
       throw Object.assign(new Error('The new venue could not be set to draft.'), {
         code: 'DRAFT_NOT_SET',
       })
@@ -129,10 +115,42 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
         slug: after.slug,
         updatedAt: after.updatedAt,
         isActive: after.isActive,
-        draft: true,
+        draft: !after.isActive,
         replayed: created.replayed,
       },
       after: after as unknown as JsonValue,
+    }
+  },
+  /**
+   * The create is one transaction that also writes an audit row carrying this operation's key, so
+   * the presence of that row proves the venue exists and its absence proves nothing was created.
+   */
+  reconcile: async (args, context) => {
+    const receipt = await context.database.auditLog.findFirst({
+      where: {
+        tenantId: args.tenantId,
+        actorType: 'HUMAN',
+        idempotencyKey: context.operationId,
+        action: 'venue.created',
+      },
+      select: { targetId: true },
+    })
+    if (!receipt) return { state: 'not_applied' }
+    const after = await readVenue(context.database, args.tenantId, receipt.targetId)
+    if (!after) return { state: 'unknown' }
+    return {
+      state: 'applied',
+      outcome: {
+        result: {
+          venueId: after.venueId,
+          slug: after.slug,
+          updatedAt: after.updatedAt,
+          isActive: after.isActive,
+          draft: !after.isActive,
+          replayed: false,
+        },
+        after: after as unknown as JsonValue,
+      },
     }
   },
   /** Archives the created venue by switching its availability off (nothing is deleted). */

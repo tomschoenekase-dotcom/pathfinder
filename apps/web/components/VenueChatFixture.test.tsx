@@ -72,6 +72,23 @@ describe('VenueChatFixture', () => {
     expect(screen.getByRole('button', { name: 'Share location' })).toBeTruthy()
   })
 
+  it('clears starter prompt separators while the guide is thinking', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="character"
+        state="thinking"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'What can I help you find?' })).toBeTruthy()
+    expect(screen.queryByText('START WITH A QUESTION')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'What should I know first.' })).toBeNull()
+    expect(container.querySelector('section.mb-4')).toBeNull()
+  })
+
   it('renders deterministic long-conversation and error controls', async () => {
     const { container } = render(
       <VenueChatFixture

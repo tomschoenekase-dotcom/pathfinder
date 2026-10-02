@@ -467,6 +467,35 @@ describe('AGENT_BRIDGE_HTTP_ENABLED', () => {
   })
 })
 
+describe('OPERATOR_CAMPAIGN_RELEASE_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT })
+          .OPERATOR_CAMPAIGN_RELEASE_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('turns on only for the exact value true', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_CAMPAIGN_RELEASE_ENABLED: 'true',
+      }).OPERATOR_CAMPAIGN_RELEASE_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OPERATOR_CAMPAIGN_RELEASE_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('OPERATOR_OAUTH_ENABLED', () => {
   it.each(['production', 'staging', 'preview'] as const)(
     'defaults to disabled in %s',
@@ -705,3 +734,15 @@ describe('WIDGET_PREVIEW_ORIGINS_JSON', () => {
     ).toThrow()
   })
 })
+
+describe.each(['OPERATOR_CUSTOMER_CREATE_ENABLED', 'OPERATOR_CUSTOMER_INVITE_ENABLED'] as const)(
+  '%s',
+  (flag) => {
+    it('defaults to disabled and turns on only for the exact value true', () => {
+      const base = { ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'staging' }
+      expect(envSchema.parse(base)[flag]).toBe(false)
+      expect(envSchema.parse({ ...base, [flag]: 'true' })[flag]).toBe(true)
+      expect(() => envSchema.parse({ ...base, [flag]: 'yes' })).toThrow()
+    })
+  },
+)

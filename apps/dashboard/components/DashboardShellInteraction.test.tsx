@@ -67,6 +67,15 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe('/support')
   })
 
+  it('routes billing to its own page and keeps the section active there', () => {
+    pathname = '/payment'
+    render(<DashboardShell>Billing page</DashboardShell>)
+
+    expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe('/payment')
+    expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Account' }).getAttribute('aria-current')).toBeNull()
+  })
+
   it('keeps an encoded venue through recognized onboarding navigation', () => {
     pathname = '/venues/venue%20%2F%201/onboarding'
     render(<DashboardShell>Journey</DashboardShell>)
@@ -223,12 +232,12 @@ describe('DashboardShell interaction semantics', () => {
     ).toBe(false)
   })
 
-  it('offers exactly five destinations, scoped to the selected venue', () => {
+  it('offers six clear destinations, scoped to the selected venue', () => {
     searchParams = new URLSearchParams({ venue: 'venue-1' })
     render(<DashboardShell>Home</DashboardShell>)
     const nav = screen.getByRole('navigation', { name: 'Client portal navigation' })
     const labels = [...nav.querySelectorAll('ul a')].map((link) => link.textContent)
-    expect(labels).toEqual(['Home', 'Look & feel', 'Updates', 'Help', 'Account'])
+    expect(labels).toEqual(['Home', 'Look & feel', 'Updates', 'Help', 'Account', 'Billing'])
     expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/?venue=venue-1')
     expect(screen.getByRole('link', { name: 'Look & feel' }).getAttribute('href')).toBe(
       '/look-and-feel?venue=venue-1',
@@ -240,6 +249,7 @@ describe('DashboardShell interaction semantics', () => {
       '/support?venue=venue-1',
     )
     expect(screen.getByRole('link', { name: 'Account' }).getAttribute('href')).toBe('/settings')
+    expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe('/payment')
     for (const retired of ['Information', 'Reports', 'Payment', 'Visitor experience', 'Today'])
       expect(screen.queryByRole('link', { name: retired })).toBeNull()
     expect(document.querySelector('nav details')).toBeNull()
@@ -252,7 +262,7 @@ describe('DashboardShell interaction semantics', () => {
       ['/ai-controls', 'Look & feel'],
       ['/chat-design', 'Look & feel'],
       ['/help', 'Help'],
-      ['/payment', 'Account'],
+      ['/payment', 'Billing'],
       ['/weekly-reports/report-1', 'Account'],
       ['/operational-updates/new', 'Updates'],
     ]

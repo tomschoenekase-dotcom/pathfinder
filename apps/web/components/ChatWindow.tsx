@@ -269,6 +269,7 @@ export function ChatWindow({
       ) : null}
       <div
         ref={scrollRef}
+        data-chat-conversation
         className={`${styles.conversation} min-h-0 flex-1 space-y-5 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]`}
         role="log"
         aria-label={conversationLabel}

@@ -253,7 +253,7 @@ export async function verifyDispositionDatabaseSource(target) {
   const rows = await target.query(
     `SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM (SELECT migration_name,checksum,finished_at,rolled_back_at,logs FROM public._prisma_migrations ORDER BY migration_name LIMIT 255) x`,
   )
-  if (!Array.isArray(rows) || rows.length !== 254) refuse('database migration endpoint')
+  if (!Array.isArray(rows) || rows.length !== 255) refuse('database migration endpoint')
   // Verify the admitted endpoint before inspecting the unchanged disposition functions.
   if (ledgerState(rows, manifest) !== 'complete') refuse('current ledger')
   const final = rows[248],

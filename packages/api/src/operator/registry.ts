@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { McpToolResult, VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
   OPERATOR_MCP_INPUTS,
+  OPERATOR_MCP_OUTPUTS,
   OPERATOR_MCP_TOOLS,
   type OperatorCapability,
   type OperatorToolDefinition,
@@ -11,21 +12,23 @@ import {
 import { db } from '@pathfinder/db'
 
 import type { OperatorDatabase } from './audit'
-import { readAutonomyPolicies } from './autonomy'
+import { readAutonomyPolicies, readPolicyRevision } from './autonomy'
 import type { OperatorServerConfig } from './config'
 import { assertGrantCapability, buildOperatorReadScope, OperatorNotFoundError } from './grants'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
 import type { VerifiedOperatorGrant } from './oauth'
-import { createPlan, planView } from './plans'
+import { createPlan } from './plans'
 import {
   createKindRegistry,
   createProposal,
   createRevertProposal,
-  proposalView,
   type OperatorKindRegistry,
   type AnyOperatorProposalKind,
 } from './proposals'
 import { OPERATOR_READ_TOOLS } from './tools'
+import { createContextReadTool } from './tools/context'
+import { findOwnedOperation, proposalOperationView } from './tools/operations'
+import { pageResult, requireCursorInScope } from './tools/page'
 
 export type OperatorCallContext = Readonly<{
   config: OperatorServerConfig
@@ -57,27 +60,8 @@ const builtInReads: readonly OperatorReadTool[] = [
     capability: 'operator:read',
     async handler(raw, context) {
       const { proposalId } = OPERATOR_MCP_INPUTS['operator.get_proposal'].parse(raw)
-      const plan = await context.database.operatorPlan.findUnique({ where: { id: proposalId } })
-      if (plan) {
-        if (plan.grantId !== context.grant.grantId) throw new OperatorNotFoundError()
-        return {
-          ...(await planView(plan, context)),
-          tool: 'operator.propose_plan',
-          kind: 'operator.plan',
-          createdAt: plan.createdAt.toISOString(),
-          expiresAt: plan.expiresAt.toISOString(),
-        }
-      }
-      const row = await context.database.operatorProposal.findUnique({ where: { id: proposalId } })
-      // Only this connection's own proposals are visible; anything else is indistinguishable.
-      if (!row || row.grantId !== context.grant.grantId) throw new OperatorNotFoundError()
-      return {
-        ...proposalView(row, context.config),
-        tool: row.tool,
-        kind: row.kind,
-        createdAt: row.createdAt.toISOString(),
-        expiresAt: row.expiresAt.toISOString(),
-      }
+      // Only this connection's own proposals and plans are visible; anything else is absent.
+      return findOwnedOperation(proposalId, context)
     },
   },
   {
@@ -85,27 +69,28 @@ const builtInReads: readonly OperatorReadTool[] = [
     capability: 'operator:read',
     async handler(raw, context) {
       const input = OPERATOR_MCP_INPUTS['operator.list_proposals'].parse(raw)
+      const where = {
+        grantId: context.grant.grantId,
+        planId: null,
+        ...(input.status ? { status: input.status } : {}),
+      }
+      await requireCursorInScope(input.cursor, (id) =>
+        context.database.operatorProposal.findFirst({
+          where: { ...where, id },
+          select: { id: true },
+        }),
+      )
       const rows = await context.database.operatorProposal.findMany({
-        where: {
-          grantId: context.grant.grantId,
-          planId: null,
-          ...(input.status ? { status: input.status } : {}),
-        },
+        where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 26,
         ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
       })
       const page = rows.slice(0, 25)
-      return {
-        items: page.map((row) => ({
-          ...proposalView(row, context.config),
-          tool: row.tool,
-          kind: row.kind,
-          createdAt: row.createdAt.toISOString(),
-          expiresAt: row.expiresAt.toISOString(),
-        })),
-        nextCursor: rows.length > 25 ? page.at(-1)!.id : null,
-      }
+      return pageResult(
+        page.map((row) => proposalOperationView(row, context)),
+        rows.length > 25 ? page.at(-1)!.id : null,
+      )
     },
   },
   {
@@ -113,7 +98,11 @@ const builtInReads: readonly OperatorReadTool[] = [
     capability: 'operator:read',
     async handler(raw, context) {
       OPERATOR_MCP_INPUTS['operator.get_autonomy'].parse(raw)
-      return { policies: await readAutonomyPolicies(context.database) }
+      const [policies, revision] = await Promise.all([
+        readAutonomyPolicies(context.database),
+        readPolicyRevision(context.database),
+      ])
+      return { revision, policies }
     },
   },
   {
@@ -162,6 +151,22 @@ export class OperatorUnknownToolError extends Error {
   readonly code = 'UNKNOWN_TOOL'
 }
 
+/** A handler produced something its own published output schema does not allow. */
+export class OperatorOutputInvalidError extends Error {
+  readonly code = 'OUTPUT_INVALID'
+  constructor(readonly tool: string) {
+    super('Tool output failed its published schema')
+  }
+}
+
+function validateOutput(name: string, value: unknown): unknown {
+  const schema = (OPERATOR_MCP_OUTPUTS as Record<string, z.ZodTypeAny>)[name]
+  if (!schema) return value
+  const parsed = schema.safeParse(value)
+  if (!parsed.success) throw new OperatorOutputInvalidError(name)
+  return parsed.data
+}
+
 const PlanInput = OPERATOR_MCP_INPUTS['operator.propose_plan']
 const RevertInput = OPERATOR_MCP_INPUTS['operator.propose_revert']
 
@@ -183,9 +188,9 @@ export function createOperatorRegistry(
     'operator.propose_plan',
     'operator.propose_revert',
   ])
-  const available = OPERATOR_MCP_TOOLS.filter(
-    (tool) => reads.has(tool.name) || writeNames.has(tool.name),
-  )
+  const implemented = new Set<string>([...reads.keys(), ...writeNames, 'operator.get_context'])
+  reads.set('operator.get_context', createContextReadTool(implemented))
+  const available = OPERATOR_MCP_TOOLS.filter((tool) => implemented.has(tool.name))
   return {
     kinds,
     listTools: () => available,
@@ -202,15 +207,18 @@ export function createOperatorRegistry(
       const read = reads.get(name)
       if (read) {
         assertGrantCapability(context.grant, read.capability)
-        return read.handler(args, context)
+        return validateOutput(name, await read.handler(args, context))
       }
       if (name === 'operator.propose_plan') {
-        return createPlan(PlanInput.parse(args), service)
+        return validateOutput(name, await createPlan(PlanInput.parse(args), service))
       }
       if (name === 'operator.propose_revert') {
-        return createRevertProposal(args, (raw) => RevertInput.parse(raw), service)
+        return validateOutput(
+          name,
+          await createRevertProposal(args, (raw) => RevertInput.parse(raw), service),
+        )
       }
-      if (kinds.has(name)) return createProposal(name, args, service)
+      if (kinds.has(name)) return validateOutput(name, await createProposal(name, args, service))
       throw new OperatorUnknownToolError('Unknown tool')
     },
   }

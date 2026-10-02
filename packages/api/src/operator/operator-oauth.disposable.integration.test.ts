@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- failure-injection proxy */
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -8,6 +9,7 @@ import { setAutonomyPolicy } from './autonomy'
 import { resolveOperatorConfig, type OperatorServerConfig } from './config'
 import { handleOperatorMcpRequest } from './http'
 import {
+  activeOperatorArming,
   armOperatorConnection,
   completeAuthorization,
   handleClientRegistration,
@@ -589,7 +591,7 @@ describe.skipIf(!enabled)(
       })
       for (const denied of [outside, missing, wrongVenue]) {
         expect(denied.isError).toBe(true)
-        expect(denied.structuredContent).toEqual({ error: 'NOT_FOUND' })
+        expect(denied.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
       }
       const audit = await db.operatorAuditEvent.findMany({
         where: { grantId: connection.grantId, eventType: 'mcp.denied', outcome: 'NOT_FOUND' },
@@ -602,7 +604,7 @@ describe.skipIf(!enabled)(
         expectedUpdatedAt: new Date().toISOString(),
         chatTheme: 'forest',
       })
-      expect(writeOutside.structuredContent).toEqual({ error: 'NOT_FOUND' })
+      expect(writeOutside.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
     })
 
     it('creates pending proposals, ignores forged approval claims, and binds approval to the argsHash', async () => {
@@ -634,7 +636,7 @@ describe.skipIf(!enabled)(
         ...args,
         chatTheme: 'sunset',
       })
-      expect(reused.structuredContent).toEqual({ error: 'OPERATION_ID_REUSED' })
+      expect(reused.structuredContent).toMatchObject({ error: 'OPERATION_ID_REUSED' })
 
       const context = { actorUserId: 'user_owner', requestId: randomUUID(), now: clock }
       await expect(
@@ -988,7 +990,7 @@ describe.skipIf(!enabled)(
       expect(
         (await callTool(intruder.access, 'operator.get_proposal', { proposalId: view.proposalId }))
           .structuredContent,
-      ).toEqual({ error: 'NOT_FOUND' })
+      ).toMatchObject({ error: 'NOT_FOUND' })
       const listed = await callTool(intruder.access, 'operator.list_proposals', {})
       expect(JSON.stringify(listed.structuredContent)).not.toContain(view.proposalId)
       expect(
@@ -998,7 +1000,7 @@ describe.skipIf(!enabled)(
             operationId: randomUUID(),
           })
         ).structuredContent,
-      ).toEqual({ error: 'NOT_FOUND' })
+      ).toMatchObject({ error: 'NOT_FOUND' })
     })
 
     it('does not write audit rows for guessed tokens', async () => {
@@ -1024,6 +1026,161 @@ describe.skipIf(!enabled)(
         db.$executeRawUnsafe('DELETE FROM operator_audit_events WHERE id = $1', row!.id),
       ).rejects.toThrow(/append-only/u)
       await expect(db.operatorAuditEvent.deleteMany({ where: { id: row!.id } })).rejects.toThrow()
+    })
+    describe('hardening', () => {
+      /** A database whose token-pair issue fails once inside a transaction, as a crash would. */
+      function failingIssueDatabase() {
+        const bind = (target: any, prop: string | symbol) => {
+          const value = Reflect.get(target, prop)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+        return new Proxy(db, {
+          get(target, prop) {
+            if (prop !== '$transaction') return bind(target, prop)
+            return (fn: (tx: unknown) => Promise<unknown>) =>
+              target.$transaction(async (tx) =>
+                fn(
+                  new Proxy(tx, {
+                    get(inner, innerProp) {
+                      if (innerProp !== 'operatorToken') return bind(inner, innerProp)
+                      return new Proxy(inner.operatorToken, {
+                        get(model, modelProp) {
+                          if (modelProp === 'createMany') {
+                            return async () => {
+                              throw new Error('simulated crash while issuing tokens')
+                            }
+                          }
+                          return bind(model, modelProp)
+                        },
+                      })
+                    },
+                  }),
+                ),
+              )
+          },
+        })
+      }
+
+      const refresh = (connection: { clientId: string }, refreshToken: string, database = db) =>
+        handleTokenRequest(
+          new Request('https://app.operator.test/oauth/token', {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'refresh_token',
+              refresh_token: refreshToken,
+              client_id: connection.clientId,
+              resource: config.resource,
+            }).toString(),
+          }),
+          { ...deps(), database },
+        )
+
+      it('an interrupted rotation rolls back: the old refresh token still works and the grant stays alive', async () => {
+        const connection = await connect()
+        await expect(
+          refresh(connection, connection.refresh, failingIssueDatabase() as never),
+        ).rejects.toThrow(/simulated crash/u)
+        const old = await db.operatorToken.findFirstOrThrow({
+          where: { grantId: connection.grantId, kind: 'REFRESH' },
+        })
+        // Nothing half-done: the old token is not marked rotated and no new pair exists.
+        expect(old.rotatedAt).toBeNull()
+        expect(await db.operatorToken.count({ where: { grantId: connection.grantId } })).toBe(2)
+        const retry = await refresh(connection, connection.refresh)
+        expect(retry.status).toBe(200)
+        const grant = await db.operatorGrant.findUniqueOrThrow({
+          where: { id: connection.grantId },
+        })
+        expect(grant.revokedAt).toBeNull()
+      })
+
+      it('two requests spending one refresh token: exactly one wins, and the replay revokes the family', async () => {
+        const connection = await connect()
+        const [first, second] = await Promise.all([
+          refresh(connection, connection.refresh),
+          refresh(connection, connection.refresh),
+        ])
+        expect([first.status, second.status].sort()).toEqual([200, 400])
+        const grant = await db.operatorGrant.findUniqueOrThrow({
+          where: { id: connection.grantId },
+        })
+        // Strict reuse detection stays: the loser's replay is indistinguishable from theft.
+        expect(grant.revokedAt).not.toBeNull()
+        expect(grant.revokeReason).toBe('refresh_reuse')
+      })
+
+      it('one arming lets exactly one of two concurrent consents through, and creates one grant', async () => {
+        const userId = `user_race_${suffix}`
+        const decision = {
+          decision: 'approve' as const,
+          allTenants: true,
+          tenantIds: [],
+          capabilities: ['operator:read' as const],
+          expiresInDays: 1,
+        }
+        const clients = [
+          (await (await register()).json()) as { client_id: string },
+          (await (await register()).json()) as { client_id: string },
+        ]
+        await armOperatorConnection({ userId, requestId: randomUUID() })
+        const consent = (clientId: string) =>
+          completeAuthorization({
+            config,
+            userId,
+            params: {
+              response_type: 'code',
+              client_id: clientId,
+              redirect_uri: REDIRECT,
+              code_challenge: pkce().challenge,
+              code_challenge_method: 'S256',
+            },
+            decision,
+            now: clock,
+            requestId: randomUUID(),
+          })
+        const outcomes = await Promise.all(clients.map((client) => consent(client.client_id)))
+        expect(outcomes.filter((outcome) => 'redirectTo' in outcome)).toHaveLength(1)
+        expect(outcomes.filter((outcome) => 'error' in outcome)).toEqual([{ error: 'not_armed' }])
+        expect(await db.operatorGrant.count({ where: { userId } })).toBe(1)
+        const used = await db.operatorArming.findFirstOrThrow({ where: { userId } })
+        expect(used.consumedAt).not.toBeNull()
+        expect(used.consumedGrantId).not.toBeNull()
+      })
+
+      it('an arming expires, and an expired one cannot be claimed', async () => {
+        const userId = `user_expired_${suffix}`
+        const client = (await (await register()).json()) as { client_id: string }
+        // Armed 11 minutes ago against a 10-minute window.
+        await armOperatorConnection({
+          userId,
+          requestId: randomUUID(),
+          now: new Date(Date.now() - 11 * 60_000),
+        })
+        expect(await activeOperatorArming(userId, db)).toBeNull()
+        const outcome = await completeAuthorization({
+          config,
+          userId,
+          params: {
+            response_type: 'code',
+            client_id: client.client_id,
+            redirect_uri: REDIRECT,
+            code_challenge: pkce().challenge,
+            code_challenge_method: 'S256',
+          },
+          decision: {
+            decision: 'approve',
+            allTenants: true,
+            tenantIds: [],
+            capabilities: ['operator:read'],
+            expiresInDays: 1,
+          },
+          now: clock,
+          requestId: randomUUID(),
+        })
+        expect(outcome).toEqual({ error: 'not_armed' })
+        expect(await db.operatorGrant.count({ where: { userId } })).toBe(0)
+      })
     })
   },
 )

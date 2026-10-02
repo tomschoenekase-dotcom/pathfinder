@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
+import { getOperatorToolDefinition } from '@pathfinder/contracts/operator-mcp'
 import { db } from '@pathfinder/db'
 
+import { admitCall } from './admission'
 import { writeOperatorAudit, writeOperatorAuditBestEffort, type OperatorDatabase } from './audit'
 import {
   protectedResourceMetadataUrl,
@@ -10,21 +12,26 @@ import {
   type OperatorConfigResolution,
   type OperatorServerConfig,
 } from './config'
-import { OperatorCapabilityError, OperatorNotFoundError } from './grants'
+import {
+  OperatorCapabilityError,
+  OperatorNotFoundError,
+  OperatorScopeTooLargeError,
+} from './grants'
 import { verifyOperatorAccessToken, type VerifiedOperatorGrant } from './oauth'
 import { OperatorProposalError } from './proposals'
 import {
   createOperatorRegistry,
   defaultVenueRead,
   OperatorToolCallParams,
+  OperatorOutputInvalidError,
   OperatorUnknownToolError,
   type OperatorRegistry,
   type VenueReadService,
 } from './registry'
 import { argsHash } from './tokens'
+import { OperatorInvalidCursorError } from './tools/page'
 
 const MAX_BODY_BYTES = 128 * 1024
-const CALLS_PER_MINUTE_PER_GRANT = 120
 const PROTOCOL_VERSIONS = new Set(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'])
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18'
 
@@ -138,7 +145,17 @@ function toolResult(structured: unknown, isError = false) {
 }
 
 /** Refusals a kind raises at propose time that the Dot should see by name. */
-const KIND_REFUSAL_CODES = new Set(['DO_NOT_CONTACT_LOCKED', 'SENT_AT_IN_FUTURE', 'INVALID_URL'])
+const KIND_REFUSAL_CODES = new Set([
+  'DO_NOT_CONTACT_LOCKED',
+  'SENT_AT_IN_FUTURE',
+  'INVALID_URL',
+  'RECEIPT_CONFLICT',
+  'ADDRESS_SUPPRESSED',
+  'CONTENT_CHANGED',
+  'ESCALATION_UNACKNOWLEDGED',
+  'RELEASE_LIMIT',
+  'RELEASE_DISABLED',
+])
 
 function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
@@ -146,12 +163,111 @@ function errorCode(error: unknown): string {
   if (error instanceof OperatorUnknownToolError) return 'UNKNOWN_TOOL'
   if (error instanceof OperatorProposalError) return error.code
   if (error instanceof z.ZodError) return 'INVALID_ARGUMENTS'
+  if (error instanceof OperatorInvalidCursorError) return 'INVALID_CURSOR'
+  if (error instanceof OperatorScopeTooLargeError) return 'SCOPE_TOO_LARGE'
+  if (error instanceof OperatorOutputInvalidError) return 'OUTPUT_INVALID'
   const code =
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code: unknown }).code)
       : ''
   if (KIND_REFUSAL_CODES.has(code)) return code
   return 'TOOL_FAILED'
+}
+
+type ErrorGuidance = Readonly<{
+  retryable: boolean
+  retryAfterSeconds?: number
+  nextAction: string
+}>
+
+const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
+  NOT_FOUND: {
+    retryable: false,
+    nextAction:
+      'Find the id with a discovery read (customers.list, venues.list, crm.search_organizations, crm.list_campaigns). A target outside this connection looks the same as a missing one.',
+  },
+  CAPABILITY_DENIED: {
+    retryable: false,
+    nextAction:
+      'Read operator.get_context. This connection lacks the capability; the owner must reconnect it.',
+  },
+  UNKNOWN_TOOL: {
+    retryable: false,
+    nextAction: 'Read operator.get_context for the available tools.',
+  },
+  INVALID_ARGUMENTS: {
+    retryable: false,
+    nextAction: 'Correct the arguments at the listed paths and call again.',
+  },
+  INVALID_CURSOR: { retryable: false, nextAction: 'Start the list again without a cursor.' },
+  SCOPE_TOO_LARGE: {
+    retryable: false,
+    nextAction:
+      'This tenant has more venues than one read scope supports. Ask the owner; do not assume a subset is complete.',
+  },
+  OUTPUT_INVALID: {
+    retryable: false,
+    nextAction:
+      'The server built an invalid response. Report it; nothing in the data was changed by a read.',
+  },
+  NOT_CANCELLABLE: {
+    retryable: false,
+    nextAction:
+      'Read operator.get_operation. Work that already started cannot be cancelled; recover it or wait for it to finish.',
+  },
+  RATE_LIMITED: {
+    retryable: true,
+    retryAfterSeconds: 60,
+    nextAction: 'Wait, then repeat the same call.',
+  },
+  STALE: {
+    retryable: false,
+    nextAction: 'Read the target again and propose again with the new version.',
+  },
+  TARGET_CHANGED: {
+    retryable: false,
+    nextAction: 'Read the target again and propose again with the new version.',
+  },
+}
+
+/** The structured error a caller sees: stable code, retryability, request id and a safe next step. */
+function errorBody(
+  code: string,
+  name: string,
+  requestId: string,
+  extra: Record<string, unknown> = {},
+) {
+  const effect = getOperatorToolDefinition(name)?.effect
+  const write = effect === 'proposal'
+  const known = ERROR_GUIDANCE[code]
+  // A failed write call may still have recorded the proposal, so the same operationId is the
+  // only safe way to find out. A new operationId could repeat the effect.
+  const unknownWrite = write && code === 'TOOL_FAILED'
+  const guidance: ErrorGuidance =
+    known ??
+    (unknownWrite
+      ? {
+          retryable: false,
+          nextAction:
+            'The outcome is unknown. Call operator.get_operation with the same operationId before doing anything else. Never send a new operationId for the same change.',
+        }
+      : {
+          retryable: !write && code === 'TOOL_FAILED',
+          nextAction: write
+            ? 'Read the target and operator.get_operation before deciding what to do.'
+            : 'Repeat the read once; if it fails again, report the requestId.',
+        })
+  return {
+    error: code,
+    retryable: guidance.retryable,
+    ...(guidance.retryAfterSeconds === undefined
+      ? {}
+      : { retryAfterSeconds: guidance.retryAfterSeconds }),
+    requestId,
+    nextAction: guidance.nextAction,
+    ...(unknownWrite ? { outcome: 'unknown' } : {}),
+    ...extra,
+  }
 }
 
 function targetOf(args: Record<string, unknown>) {
@@ -332,19 +448,26 @@ async function callTool(
     args,
     ...targetOf(args),
   }
-  const recent = await context.database.operatorAuditEvent.count({
-    where: {
-      grantId: grant.grantId,
-      eventType: { in: ['mcp.call', 'mcp.denied'] },
-      occurredAt: { gt: new Date(context.now.getTime() - 60_000) },
-    },
-  })
-  if (recent >= CALLS_PER_MINUTE_PER_GRANT) {
-    await writeOperatorAuditBestEffort(
-      { ...base, eventType: 'mcp.denied', outcome: 'RATE_LIMITED' },
-      context.database,
-    )
-    return { jsonrpc: '2.0' as const, id, result: toolResult({ error: 'RATE_LIMITED' }, true) }
+  // Counted by the statement that admits the call, so a burst cannot all pass a read-then-act gap.
+  const admission = await admitCall(context.database, grant.grantId, context.now)
+  if (!admission.allowed) {
+    // One denial row per window; further retries only raise the counter.
+    if (admission.firstDenial) {
+      await writeOperatorAuditBestEffort(
+        { ...base, eventType: 'mcp.denied', outcome: 'RATE_LIMITED' },
+        context.database,
+      )
+    }
+    return {
+      jsonrpc: '2.0' as const,
+      id,
+      result: toolResult(
+        errorBody('RATE_LIMITED', name, context.requestId, {
+          retryAfterSeconds: admission.retryAfterSeconds,
+        }),
+        true,
+      ),
+    }
   }
   try {
     const structured = await context.registry.callTool(name, args, {
@@ -383,11 +506,10 @@ async function callTool(
       id,
       result: toolResult(
         code === 'INVALID_ARGUMENTS' && error instanceof z.ZodError
-          ? {
-              error: code,
+          ? errorBody(code, name, context.requestId, {
               issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
-            }
-          : { error: code },
+            })
+          : errorBody(code, name, context.requestId),
         true,
       ),
     }

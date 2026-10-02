@@ -1218,6 +1218,14 @@ const approvedOperations = [
     policy: 'tenant-mcp-venue-create-operation-lock',
     effect: 'write',
   },
+  // Serialize one human operator's create operation key before its replay receipt lookup.
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$executeRaw',
+    hash: 'c451c9f6994363cc05dc6c6a98e4901bbd2017c1ee33c613e87937e6d94cd697',
+    policy: 'tenant-mcp-venue-create-operation-lock',
+    effect: 'write',
+  },
   // Serialize one credential's appearance operation key before replay receipt lookup.
   {
     file: 'packages/db/src/helpers/venue-actions.ts',
@@ -1669,6 +1677,14 @@ const approvedEffectOverrides = new Map([
       '$executeRaw',
       'e0c0c1bd32308df31ad319d4085077291157fe29dd03502e6e8f54efb17f9840',
     ].join('\0'),
+    'write',
+  ],
+  [
+    [
+      'packages/db/src/helpers/venue-create-action.ts',
+      '$executeRaw',
+      'c451c9f6994363cc05dc6c6a98e4901bbd2017c1ee33c613e87937e6d94cd697',
+    ].join(' '),
     'write',
   ],
   [

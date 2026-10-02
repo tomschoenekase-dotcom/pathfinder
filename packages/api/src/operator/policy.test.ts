@@ -6,6 +6,7 @@ import { OPERATOR_MCP_TOOLS } from '@pathfinder/contracts/operator-mcp'
 import { redactOperatorArgs } from './audit'
 import {
   OPERATOR_ALWAYS_ASK_KINDS,
+  OPERATOR_LEGACY_AUTO_KINDS,
   OPERATOR_LOCKED_CAPABILITIES,
   OperatorAutonomyLockedError,
   resolveAutonomy,
@@ -14,9 +15,11 @@ import {
 import { resolveStepReferences } from './plans'
 import { createOperatorRegistry, OperatorToolCallParams } from './registry'
 
-function policyDatabase(mode: 'AUTO' | 'ASK' | null) {
+function policyDatabase(mode: 'AUTO' | 'ASK' | null, allowedKinds: string[] = []) {
   return {
-    operatorAutonomyPolicy: { findUnique: vi.fn(async () => (mode ? { mode } : null)) },
+    operatorAutonomyPolicy: {
+      findUnique: vi.fn(async () => (mode ? { mode, allowedKinds } : null)),
+    },
   } as never
 }
 
@@ -37,6 +40,36 @@ describe('autonomy dial', () => {
         policyDatabase('AUTO'),
       ),
     ).toBe('auto')
+  })
+
+  it('an old broad AUTO switch never covers an action added after it', async () => {
+    // A legacy row names no kinds: it keeps covering the kinds that existed, and nothing newer.
+    for (const kind of OPERATOR_LEGACY_AUTO_KINDS) {
+      const capability = kind.startsWith('crm') ? 'crm:propose' : 'venues:propose'
+      if (kind === 'appearance.update') continue
+      expect(await resolveAutonomy({ kind, capability }, policyDatabase('AUTO'))).toBe('auto')
+    }
+    expect(
+      await resolveAutonomy(
+        { kind: 'crm.future-action', capability: 'crm:propose' },
+        policyDatabase('AUTO'),
+      ),
+    ).toBe('ask')
+    // A switch that names kinds covers exactly those, even if it also exists for the capability.
+    const named = policyDatabase('AUTO', ['crm.stage-change'])
+    expect(
+      await resolveAutonomy({ kind: 'crm.stage-change', capability: 'crm:propose' }, named),
+    ).toBe('auto')
+    expect(
+      await resolveAutonomy({ kind: 'crm.outreach-draft', capability: 'crm:propose' }, named),
+    ).toBe('ask')
+    // Asking means asking, whatever kinds are remembered.
+    expect(
+      await resolveAutonomy(
+        { kind: 'crm.stage-change', capability: 'crm:propose' },
+        policyDatabase('ASK', ['crm.stage-change']),
+      ),
+    ).toBe('ask')
   })
 
   it('never auto-applies an always-ask kind, even with an AUTO row', async () => {
@@ -79,7 +112,7 @@ describe('autonomy dial', () => {
     for (const name of sources) {
       const source = readFileSync(new URL(name, import.meta.url), 'utf8')
       expect(source, name).not.toMatch(
-        /setAutonomyPolicy|operatorAutonomyPolicy\.(upsert|update|create|delete)/u,
+        /setAutonomyPolic|operatorAutonomyPolicy\.(upsert|update|create|delete)/u,
       )
     }
     expect(

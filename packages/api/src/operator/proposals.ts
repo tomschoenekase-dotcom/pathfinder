@@ -9,7 +9,8 @@ import type {
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
-import { resolveAutonomy } from './autonomy'
+import { admitAutoApply } from './admission'
+import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
 import type { VerifiedOperatorGrant } from './oauth'
@@ -59,6 +60,14 @@ export type OperatorApplyOutcome = Readonly<{
   after: JsonValue
 }>
 
+export type OperatorReconcileOutcome =
+  | Readonly<{ state: 'applied'; outcome: OperatorApplyOutcome }>
+  | Readonly<{ state: 'not_applied' }>
+  | Readonly<{ state: 'unknown' }>
+
+/** How long one apply claim holds a proposal before it may be reconciled. */
+export const OPERATOR_APPLY_LEASE_MS = 5 * 60 * 1000
+
 /** Thrown by a kind when its target moved since the proposal; the proposal becomes STALE. */
 export class OperatorStaleError extends Error {
   readonly code = 'STALE'
@@ -82,6 +91,12 @@ export type OperatorProposalKind<Args = unknown> = Readonly<{
   snapshot: (args: Args, context: OperatorKindContext) => Promise<JsonValue>
   /** Calls the canonical domain action with the human actor. */
   apply: (args: Args, context: OperatorApplyContext) => Promise<OperatorApplyOutcome>
+  /**
+   * Decides from canonical state whether an interrupted apply took effect. Only a kind whose
+   * domain write is atomic and leaves a findable receipt can answer `applied` or `not_applied`;
+   * anything else must answer `unknown` (or omit this), and the operation is held for a human.
+   */
+  reconcile?: (args: Args, context: OperatorApplyContext) => Promise<OperatorReconcileOutcome>
   /** Undo for an APPLIED proposal of this kind; absent means the kind cannot be reverted. */
   revert?: (
     original: StoredOperatorProposal,
@@ -97,6 +112,7 @@ export class OperatorProposalError extends Error {
       | 'ARGS_HASH_MISMATCH'
       | 'NOT_PENDING'
       | 'PLAN_STEP'
+      | 'NOT_CANCELLABLE'
       | 'NOT_REVERTIBLE',
     message: string,
   ) {
@@ -121,7 +137,7 @@ export function createKindRegistry(
   return byTool
 }
 
-function kindByName(registry: OperatorKindRegistry, name: string) {
+export function kindByName(registry: OperatorKindRegistry, name: string) {
   for (const kind of registry.values()) if (kind.kind === name) return kind
   return undefined
 }
@@ -158,6 +174,31 @@ export function proposalView(row: ProposalRow, config: OperatorServerConfig): Op
         ? { result: { failureCode: row.failureCode } }
         : {}),
   }
+}
+
+/**
+ * Bumped whenever a kind's behaviour changes in a way an approver would care about. It is part of
+ * the preview digest, so an approval given under older semantics cannot apply under newer ones.
+ */
+export const OPERATOR_KIND_SEMANTICS_VERSION = 1
+
+/**
+ * What the approver actually saw: the kind, its semantics version, the human-readable diff and the
+ * version of the target it was computed against. Approval is only valid while this still holds.
+ */
+export function previewDigestOf(
+  kind: AnyOperatorProposalKind,
+  args: unknown,
+  targetVersion: string | null,
+): string {
+  return hashArgs({
+    tool: kind.tool,
+    args: {
+      semantics: OPERATOR_KIND_SEMANTICS_VERSION,
+      preview: kind.describe(args),
+      targetVersion,
+    },
+  })
 }
 
 /** Arguments minus the idempotency key: the same change always has the same hash. */
@@ -223,6 +264,8 @@ export async function createProposal(
     },
   })
   if (existing) return replayView(existing, argsHash, service.config)
+  const targetVersion = await kind.targetVersion(args, context)
+  const policyRevision = await readPolicyRevision(database)
   let row: ProposalRow
   try {
     row = await database.operatorProposal.create({
@@ -238,7 +281,9 @@ export async function createProposal(
         targetRef: target.ref ?? null,
         args: args as object,
         argsHash,
-        targetVersion: await kind.targetVersion(args, context),
+        targetVersion,
+        previewDigest: previewDigestOf(kind, args, targetVersion),
+        policyRevision,
         expiresAt: new Date(
           service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
         ),
@@ -256,7 +301,12 @@ export async function createProposal(
     return replayView(raced, argsHash, service.config)
   }
   await auditTransition(database, service.requestId, row, 'CREATED', null)
-  if ((await resolveAutonomy(kind, database)) === 'auto') {
+  // Automatic application spends a per-connection hourly budget. When it is spent the proposal
+  // stays PENDING for a human; it never fails and never bypasses the limit.
+  if (
+    (await resolveAutonomy(kind, database)) === 'auto' &&
+    (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+  ) {
     await approveAndApplyProposal(
       {
         proposalId: row.id,
@@ -340,14 +390,19 @@ type DecisionInput = Readonly<{
   auto?: boolean
 }>
 
-async function loadGrant(
+export async function loadGrant(
   database: OperatorDatabase,
   grantId: string,
   now: Date,
   allowedUserIds: ReadonlySet<string>,
 ) {
-  const grant = await database.operatorGrant.findUnique({ where: { id: grantId } })
+  const grant = await database.operatorGrant.findUnique({
+    where: { id: grantId },
+    include: { client: { select: { revokedAt: true } } },
+  })
   if (!grant || grant.revokedAt !== null || grant.expiresAt <= now) return null
+  // Revoking the connection (client) ends every grant under it, including work already queued.
+  if (grant.client.revokedAt !== null) return null
   if (!allowedUserIds.has(grant.userId)) return null
   return {
     grantId: grant.id,
@@ -420,7 +475,7 @@ export async function approveAndApplyProposal(
   return applyApprovedProposal(row.id, input, dependencies)
 }
 
-async function finish(
+export async function finish(
   database: OperatorDatabase,
   row: ProposalRow,
   status: 'APPLIED' | 'FAILED' | 'STALE',
@@ -431,12 +486,16 @@ async function finish(
     failureCode?: string
     appliedAt?: Date
     args?: JsonValue
+    /** The domain action refused atomically, so no write began: clear the "may have started" mark. */
+    clearStarted?: boolean
   },
   requestId: string,
   actorUserId: string,
 ) {
-  await database.operatorProposal.updateMany({
-    where: { id: row.id, status: 'APPROVED' },
+  // Fenced: only the claim that still holds the lease may record the result. A stale worker whose
+  // lease was taken over finds the token changed and records nothing.
+  const recorded = await database.operatorProposal.updateMany({
+    where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
     data: {
       status,
       ...(data.beforeSnapshot !== undefined
@@ -447,15 +506,19 @@ async function finish(
       ...(data.args !== undefined ? { args: data.args as object } : {}),
       failureCode: data.failureCode ?? null,
       appliedAt: data.appliedAt ?? null,
+      leaseExpiresAt: null,
+      ...(data.clearStarted ? { applyStartedAt: null } : {}),
     },
   })
-  await auditTransition(
-    database,
-    requestId,
-    row,
-    status === 'FAILED' ? `FAILED:${data.failureCode ?? ''}` : status,
-    actorUserId,
-  )
+  if (recorded.count === 1) {
+    await auditTransition(
+      database,
+      requestId,
+      row,
+      status === 'FAILED' ? `FAILED:${data.failureCode ?? ''}` : status,
+      actorUserId,
+    )
+  }
   return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
 }
 
@@ -468,12 +531,40 @@ function failureCode(error: unknown): string {
   return 'APPLY_FAILED'
 }
 
+/**
+ * A canonical domain action that rejects its input does so inside its own transaction, which then
+ * rolls back: nothing was written. Those refusals are the only errors that prove "no effect".
+ */
+function isAtomicRefusal(error: unknown) {
+  if (!(error instanceof Error)) return false
+  const code = (error as Error & { code?: unknown }).code
+  return (
+    [
+      'ProspectActionError',
+      'VenueActionError',
+      'ProspectOutreachError',
+      'SupportActionError',
+    ].includes(error.name) &&
+    [
+      'NOT_FOUND',
+      'INVALID_INPUT',
+      'CONFLICT',
+      'SUPPRESSED',
+      'APPROVAL_REQUIRED',
+      'RELEASE_DISABLED',
+    ].includes(String(code))
+  )
+}
+
 function isStale(error: unknown) {
   if (error instanceof OperatorStaleError) return true
   // Canonical domain actions report optimistic-concurrency loss as CONFLICT.
   return (
     error instanceof Error &&
-    error.name === 'VenueActionError' &&
+    (error.name === 'VenueActionError' ||
+      error.name === 'ProspectActionError' ||
+      error.name === 'ProspectOutreachError' ||
+      error.name === 'SupportActionError') &&
     (error as Error & { code?: unknown }).code === 'CONFLICT'
   )
 }
@@ -490,7 +581,13 @@ export async function applyApprovedProposal(
   const database = dependencies.database ?? db
   const claimed = await database.operatorProposal.updateMany({
     where: { id: proposalId, status: 'APPROVED', applyClaimedAt: null },
-    data: { applyClaimedAt: input.now },
+    data: {
+      applyClaimedAt: input.now,
+      leaseExpiresAt: new Date(input.now.getTime() + OPERATOR_APPLY_LEASE_MS),
+      applyStartedAt: null,
+      fenceToken: { increment: 1 },
+      attempt: { increment: 1 },
+    },
   })
   const row = (await database.operatorProposal.findUnique({ where: { id: proposalId } }))!
   if (claimed.count !== 1) return row
@@ -528,6 +625,22 @@ export async function applyApprovedProposal(
       )
     const args = kind.parse(input.resolvedArgs ?? row.args)
     await assertKindScope(kind, args, context)
+    // The approval covered a specific preview. If what this code would show for the stored
+    // arguments is no longer what was approved (a new release changed the semantics, or the
+    // target moved), the approval does not carry over: a fresh preview is required.
+    if (row.previewDigest !== null && input.resolvedArgs === undefined) {
+      const current = previewDigestOf(kind, kind.parse(row.args), row.targetVersion)
+      if (current !== row.previewDigest) {
+        return finish(
+          database,
+          row,
+          'STALE',
+          { failureCode: 'PREVIEW_CHANGED' },
+          input.requestId,
+          input.actorUserId,
+        )
+      }
+    }
     const expected =
       row.targetVersion ?? (input.resolvedArgs ? await kind.targetVersion(args, context) : null)
     if (expected !== null && (await kind.currentVersion(args, context)) !== expected) {
@@ -541,6 +654,15 @@ export async function applyApprovedProposal(
       )
     }
     const before = await kind.snapshot(args, context)
+    // From here a domain write may begin. Recording that first, under the fence, is what lets a
+    // later reconciler say "never started" or "may have committed" instead of guessing.
+    const started = await database.operatorProposal.updateMany({
+      where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
+      data: { applyStartedAt: input.now },
+    })
+    if (started.count !== 1) {
+      return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
+    }
     const outcome = await kind.apply(args, context)
     return finish(
       database,
@@ -562,7 +684,7 @@ export async function applyApprovedProposal(
         database,
         row,
         'STALE',
-        { failureCode: 'TARGET_CHANGED' },
+        { failureCode: 'TARGET_CHANGED', clearStarted: true },
         input.requestId,
         input.actorUserId,
       )
@@ -571,7 +693,10 @@ export async function applyApprovedProposal(
       database,
       row,
       'FAILED',
-      { failureCode: failureCode(error) },
+      {
+        failureCode: failureCode(error),
+        ...(isAtomicRefusal(error) ? { clearStarted: true } : {}),
+      },
       input.requestId,
       input.actorUserId,
     )
@@ -603,6 +728,13 @@ async function applyRevert(
   }
   if (original.targetTenantId) {
     await assertTenantInGrant(context.grant, original.targetTenantId, database)
+  }
+  const started = await database.operatorProposal.updateMany({
+    where: { id: row.id, status: 'APPROVED', fenceToken: row.fenceToken },
+    data: { applyStartedAt: input.now },
+  })
+  if (started.count !== 1) {
+    return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
   }
   const outcome = await kind.revert(original, context)
   return finish(

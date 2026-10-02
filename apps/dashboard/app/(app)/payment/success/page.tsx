@@ -19,7 +19,7 @@ export default function PaymentSuccessPage() {
           verified webhook or reconciliation confirms the subscription.
         </p>
         <Link
-          href="/settings#payment"
+          href="/payment"
           className="mt-7 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
         >
           View payment status

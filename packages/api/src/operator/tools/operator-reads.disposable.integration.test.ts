@@ -194,6 +194,7 @@ describe.skipIf(!enabled)(
         },
       })
       const sent = await makeOrganization('Sent')
+      await makeContact(sent, `verified-${suffix}@example.com`, { emailReadiness: 'VALID' })
       await db.prospectActivity.create({
         data: {
           organizationId: sent,
@@ -307,13 +308,29 @@ describe.skipIf(!enabled)(
     })
 
     it('crm.check_can_contact answers from the same rules', async () => {
+      // Drafting may start before an address is verified; sending may not.
       expect(
-        await call('crm.check_can_contact', { email: `Reachable-${suffix}@Example.com` }),
+        await call('crm.check_can_contact', {
+          email: `Reachable-${suffix}@Example.com`,
+          purpose: 'draft',
+        }),
       ).toMatchObject({
         allowed: true,
         reason: 'ok',
+        purpose: 'draft',
         organizationId: orgIds.Open,
       })
+      expect(
+        await call('crm.check_can_contact', { email: `Reachable-${suffix}@Example.com` }),
+      ).toMatchObject({
+        allowed: false,
+        reason: 'not_verified',
+        purpose: 'send',
+        organizationId: orgIds.Open,
+      })
+      expect(
+        await call('crm.check_can_contact', { email: `Verified-${suffix}@Example.com` }),
+      ).toMatchObject({ allowed: true, reason: 'ok', purpose: 'send' })
       const expected: Record<string, string> = {
         [`gone-${suffix}@example.com`]: 'do_not_contact',
         [`quiet-${suffix}@example.com`]: 'suppressed',
@@ -331,6 +348,8 @@ describe.skipIf(!enabled)(
       ).toEqual({
         allowed: false,
         reason: 'unknown_address',
+        reasons: ['unknown_address'],
+        purpose: 'send',
         organizationId: null,
         contactId: null,
       })
@@ -350,9 +369,11 @@ describe.skipIf(!enabled)(
       await expect(call('venues.list', { tenantId: otherTenantId })).rejects.toBeInstanceOf(
         OperatorNotFoundError,
       )
+      expect(page.complete).toBe(true)
+      expect(page.nextCursor).toBeNull()
+      // A cursor that names no venue of this tenant, or a venue of another tenant, is refused.
       await expect(call('venues.list', { tenantId, cursor: 'bad' })).rejects.toThrow()
-      const beyond = await call('venues.list', { tenantId, cursor: 'o:25' })
-      expect(beyond.items).toEqual([])
+      await expect(call('venues.list', { tenantId, cursor: 'o:25' })).rejects.toThrow()
     })
 
     it('venues.get_readiness is tenant and venue scoped', async () => {
@@ -408,7 +429,7 @@ describe.skipIf(!enabled)(
       await makeContact(elsewhere, `invalid-${suffix}@example.com`, { emailReadiness: 'INVALID' })
       expect(
         await call('crm.check_can_contact', { email: `invalid-${suffix}@example.com` }),
-      ).toMatchObject({ allowed: false, reason: 'suppressed' })
+      ).toMatchObject({ allowed: false, reason: 'invalid_address' })
     })
 
     it('operator.get_manual works through the registry', async () => {

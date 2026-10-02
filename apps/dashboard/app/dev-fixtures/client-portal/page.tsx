@@ -29,7 +29,7 @@ export default async function ClientPortalFixturePage({
   const params = await searchParams
   const page = pick<FixturePage>(
     params.page,
-    ['home', 'look', 'help', 'updates', 'account'],
+    ['home', 'look', 'help', 'updates', 'account', 'billing'],
     'home',
   )
   const options: FixtureOptions = {
