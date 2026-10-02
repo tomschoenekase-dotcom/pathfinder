@@ -3,6 +3,7 @@ export {
   createOrganization,
   currentUser,
   ensureOrganizationInvitation,
+  findOrganizationsForCreateOperation,
   inviteOrganizationMember,
   listPendingOrganizationInvitations,
   requireAuth,
@@ -11,6 +12,7 @@ export {
 export type {
   CreatedOrganization,
   EnsuredOrganizationInvitation,
+  OrganizationCreateCandidate,
   OrganizationRole,
   PendingOrganizationInvitation,
   ValidatedOrganizationOwner,

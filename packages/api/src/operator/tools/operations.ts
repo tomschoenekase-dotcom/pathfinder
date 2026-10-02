@@ -47,6 +47,21 @@ function executionOf(
   return { state, attempt: row.attempt, leaseExpiresAt: iso(row.leaseExpiresAt) }
 }
 
+const NEXT_ACTION_BY_FAILURE: Readonly<Record<string, string>> = {
+  OUTCOME_UNKNOWN:
+    'The outcome is unconfirmed. Call operator.recover_operation with this operationId to reconcile it. Do not send a new operationId for the same change until it reports a settled state.',
+  PARTIALLY_APPLIED:
+    'Part of the change took effect. Do not propose it again; a person must review and finish the remainder.',
+  FAILED_NO_EFFECT:
+    'Nothing was changed. It is safe to propose the change again with a new operationId.',
+}
+
+function summaryOf(result: unknown): string | undefined {
+  const summary =
+    result && typeof result === 'object' ? (result as { summary?: unknown }).summary : undefined
+  return typeof summary === 'string' && summary.length > 0 ? summary.slice(0, 500) : undefined
+}
+
 /** One proposal as the operator reads it back: status plus what is known about its effect. */
 export function proposalOperationView(row: ProposalRow, context: OperatorCallContext) {
   return {
@@ -66,6 +81,10 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
     planId: row.planId,
     planStepIndex: row.planStepIndex,
     failureCode: row.failureCode,
+    ...(summaryOf(row.result) ? { summary: summaryOf(row.result)! } : {}),
+    ...(row.status === 'FAILED' && row.failureCode && NEXT_ACTION_BY_FAILURE[row.failureCode]
+      ? { nextAction: NEXT_ACTION_BY_FAILURE[row.failureCode]! }
+      : {}),
   }
 }
 

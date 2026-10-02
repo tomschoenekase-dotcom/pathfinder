@@ -6,13 +6,20 @@ import type {
   OperatorProposalStatus,
   OperatorWriteToolName,
 } from '@pathfinder/contracts/operator-mcp'
+import { logger } from '@pathfinder/config/logger'
 import { db } from '@pathfinder/db'
+import { ZodError } from 'zod'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
 import { readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
-import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
+import {
+  assertGrantCapability,
+  assertTenantInGrant,
+  OperatorCapabilityError,
+  OperatorNotFoundError,
+} from './grants'
 import type { VerifiedOperatorGrant } from './oauth'
 import { argsHash as hashArgs, sameHash } from './tokens'
 
@@ -65,6 +72,42 @@ export type OperatorReconcileOutcome =
   | Readonly<{ state: 'not_applied' }>
   | Readonly<{ state: 'unknown' }>
 
+/**
+ * What a kind can prove, from canonical and provider state, about an apply whose outcome was not
+ * recorded. `partially_applied` and `no_effect` are durable settled states; `unknown` leaves the
+ * operation held for a person.
+ */
+export type OperatorUnknownResolution =
+  | Readonly<{ state: 'applied'; outcome: OperatorApplyOutcome }>
+  | Readonly<{
+      state: 'partially_applied'
+      result: Record<string, JsonValue>
+      summary: string
+    }>
+  | Readonly<{ state: 'no_effect'; summary: string }>
+  | Readonly<{ state: 'unknown'; summary?: string }>
+
+/** Refusals a kind raises at propose time that the caller should see by name. */
+export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'DO_NOT_CONTACT_LOCKED',
+  'SENT_AT_IN_FUTURE',
+  'INVALID_URL',
+  'RECEIPT_CONFLICT',
+  'ADDRESS_SUPPRESSED',
+  'CONTENT_CHANGED',
+  'ESCALATION_UNACKNOWLEDGED',
+  'RELEASE_LIMIT',
+  'RELEASE_DISABLED',
+  'DISABLED',
+  'SLUG_TAKEN',
+  'UNRECONCILED_PRIOR_OPERATION',
+])
+
+/** Durable failure codes that make the effect of a FAILED operation first-class and queryable. */
+export const OPERATOR_OUTCOME_UNKNOWN = 'OUTCOME_UNKNOWN'
+export const OPERATOR_PARTIALLY_APPLIED = 'PARTIALLY_APPLIED'
+export const OPERATOR_FAILED_NO_EFFECT = 'FAILED_NO_EFFECT'
+
 /** How long one apply claim holds a proposal before it may be reconciled. */
 export const OPERATOR_APPLY_LEASE_MS = 5 * 60 * 1000
 
@@ -97,6 +140,12 @@ export type OperatorProposalKind<Args = unknown> = Readonly<{
    * anything else must answer `unknown` (or omit this), and the operation is held for a human.
    */
   reconcile?: (args: Args, context: OperatorApplyContext) => Promise<OperatorReconcileOutcome>
+  /**
+   * Resolves an operation recorded as OUTCOME_UNKNOWN (or PARTIALLY_APPLIED) by looking, read-only,
+   * at canonical state and the provider. It must never repeat an effect and never create a second
+   * identity. Absent means the operation stays held for a person.
+   */
+  resolveUnknown?: (args: Args, context: OperatorApplyContext) => Promise<OperatorUnknownResolution>
   /** Undo for an APPLIED proposal of this kind; absent means the kind cannot be reverted. */
   revert?: (
     original: StoredOperatorProposal,
@@ -113,7 +162,8 @@ export class OperatorProposalError extends Error {
       | 'NOT_PENDING'
       | 'PLAN_STEP'
       | 'NOT_CANCELLABLE'
-      | 'NOT_REVERTIBLE',
+      | 'NOT_REVERTIBLE'
+      | 'NOT_RECORDED',
     message: string,
   ) {
     super(message)
@@ -171,7 +221,14 @@ export function proposalView(row: ProposalRow, config: OperatorServerConfig): Op
     ...(row.status === 'APPLIED' && row.result && typeof row.result === 'object'
       ? { result: row.result as Record<string, unknown> }
       : row.failureCode
-        ? { result: { failureCode: row.failureCode } }
+        ? {
+            result: {
+              ...(row.result && typeof row.result === 'object'
+                ? (row.result as Record<string, unknown>)
+                : {}),
+              failureCode: row.failureCode,
+            },
+          }
         : {}),
   }
 }
@@ -246,6 +303,27 @@ export async function assertKindScope(
   return target
 }
 
+/**
+ * Errors a caller can act on by name. Anything else thrown before the proposal row exists is an
+ * infrastructure failure: it is reported as NOT_RECORDED (proved no effect, no operation to look
+ * up) rather than as an unknown outcome that points the caller at a record that was never made.
+ */
+function isClassifiedRefusal(error: unknown) {
+  if (
+    error instanceof OperatorNotFoundError ||
+    error instanceof OperatorCapabilityError ||
+    error instanceof OperatorProposalError ||
+    error instanceof ZodError
+  ) {
+    return true
+  }
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : ''
+  return OPERATOR_KIND_REFUSAL_CODES.has(code)
+}
+
 export async function createProposal(
   tool: string,
   rawArgs: unknown,
@@ -256,69 +334,104 @@ export async function createProposal(
   if (!kind) throw new OperatorProposalError('UNKNOWN_KIND', 'Unknown proposal kind')
   const args = kind.parse(rawArgs) as Record<string, unknown> & { operationId: string }
   const context = { database, grant: service.grant, now: service.now }
-  const target = await assertKindScope(kind, args, context)
   const argsHash = proposalArgsHash(tool, args)
-  const existing = await database.operatorProposal.findUnique({
-    where: {
-      grantId_operationId: { grantId: service.grant.grantId, operationId: args.operationId },
-    },
-  })
-  if (existing) return replayView(existing, argsHash, service.config)
-  const targetVersion = await kind.targetVersion(args, context)
-  const policyRevision = await readPolicyRevision(database)
+
+  // Everything up to and including the INSERT happens before any effect. If it fails, no row
+  // exists, so the caller must not be told to look the operation up: the failure is a proved
+  // no-effect (NOT_RECORDED) that is safe to retry with the same operationId.
   let row: ProposalRow
   try {
-    row = await database.operatorProposal.create({
-      data: {
-        grantId: service.grant.grantId,
-        clientId: service.grant.clientId,
-        operationId: args.operationId,
-        kind: kind.kind,
-        tool,
-        capability: kind.capability,
-        targetTenantId: target.tenantId ?? null,
-        targetVenueId: target.venueId ?? null,
-        targetRef: target.ref ?? null,
-        args: args as object,
-        argsHash,
-        targetVersion,
-        previewDigest: previewDigestOf(kind, args, targetVersion),
-        policyRevision,
-        expiresAt: new Date(
-          service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
-        ),
-        createdAt: service.now,
-      },
-    })
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error
-    const raced = await database.operatorProposal.findUnique({
+    const target = await assertKindScope(kind, args, context)
+    const existing = await database.operatorProposal.findUnique({
       where: {
         grantId_operationId: { grantId: service.grant.grantId, operationId: args.operationId },
       },
     })
-    if (!raced) throw error
-    return replayView(raced, argsHash, service.config)
-  }
-  await auditTransition(database, service.requestId, row, 'CREATED', null)
-  // Automatic application spends a per-connection hourly budget. When it is spent the proposal
-  // stays PENDING for a human; it never fails and never bypasses the limit.
-  if (
-    (await resolveAutonomy(kind, database)) === 'auto' &&
-    (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
-  ) {
-    await approveAndApplyProposal(
-      {
-        proposalId: row.id,
-        argsHash,
-        actorUserId: service.grant.userId,
-        auto: true,
-        requestId: service.requestId,
-        now: service.now,
-      },
-      { database, kinds: service.kinds, allowedUserIds: service.config.allowedUserIds },
+    if (existing) return replayView(existing, argsHash, service.config)
+    const targetVersion = await kind.targetVersion(args, context)
+    const policyRevision = await readPolicyRevision(database)
+    try {
+      row = await database.operatorProposal.create({
+        data: {
+          grantId: service.grant.grantId,
+          clientId: service.grant.clientId,
+          operationId: args.operationId,
+          kind: kind.kind,
+          tool,
+          capability: kind.capability,
+          targetTenantId: target.tenantId ?? null,
+          targetVenueId: target.venueId ?? null,
+          targetRef: target.ref ?? null,
+          args: args as object,
+          argsHash,
+          targetVersion,
+          previewDigest: previewDigestOf(kind, args, targetVersion),
+          policyRevision,
+          expiresAt: new Date(
+            service.now.getTime() + OPERATOR_OAUTH_LIFETIMES.proposalHours * 3_600_000,
+          ),
+          createdAt: service.now,
+        },
+      })
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error
+      const raced = await database.operatorProposal.findUnique({
+        where: {
+          grantId_operationId: { grantId: service.grant.grantId, operationId: args.operationId },
+        },
+      })
+      if (!raced) throw error
+      return replayView(raced, argsHash, service.config)
+    }
+  } catch (error) {
+    if (isClassifiedRefusal(error)) throw error
+    logger.error({
+      action: 'operator.proposal.not_recorded',
+      error: error instanceof Error ? error.name : 'unknown',
+      requestId: service.requestId,
+      tool,
+      grantId: service.grant.grantId,
+    })
+    throw new OperatorProposalError(
+      'NOT_RECORDED',
+      'The change was not recorded and nothing was changed. It is safe to send the same request again.',
     )
-    row = (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
+  }
+
+  // From here the operation is durable and can be looked up by its operationId. Nothing below may
+  // throw the operation away: a failure now leaves the recorded state to speak for itself.
+  try {
+    await auditTransition(database, service.requestId, row, 'CREATED', null)
+    // Automatic application spends a per-connection hourly budget. When it is spent the proposal
+    // stays PENDING for a human; it never fails and never bypasses the limit.
+    if (
+      (await resolveAutonomy(kind, database)) === 'auto' &&
+      (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+    ) {
+      await approveAndApplyProposal(
+        {
+          proposalId: row.id,
+          argsHash,
+          actorUserId: service.grant.userId,
+          auto: true,
+          requestId: service.requestId,
+          now: service.now,
+        },
+        { database, kinds: service.kinds, allowedUserIds: service.config.allowedUserIds },
+      )
+    }
+  } catch (error) {
+    logger.error({
+      action: 'operator.proposal.post_record_failure',
+      error: error instanceof Error ? error.name : 'unknown',
+      requestId: service.requestId,
+      proposalId: row.id,
+    })
+  }
+  try {
+    row = (await database.operatorProposal.findUnique({ where: { id: row.id } })) ?? row
+  } catch {
+    // Report the row as it was recorded.
   }
   return proposalView(row, service.config)
 }
@@ -609,6 +722,8 @@ export async function applyApprovedProposal(
     proposalId: row.id,
     operationId: row.operationId,
   }
+  let applyBegan = false
+  let resolvableLater = false
   try {
     if (row.kind === 'operator.revert') {
       return await applyRevert(row, context, dependencies, input)
@@ -623,6 +738,7 @@ export async function applyApprovedProposal(
         input.requestId,
         input.actorUserId,
       )
+    resolvableLater = kind.resolveUnknown !== undefined
     const args = kind.parse(input.resolvedArgs ?? row.args)
     await assertKindScope(kind, args, context)
     // The approval covered a specific preview. If what this code would show for the stored
@@ -663,6 +779,7 @@ export async function applyApprovedProposal(
     if (started.count !== 1) {
       return (await database.operatorProposal.findUnique({ where: { id: row.id } }))!
     }
+    applyBegan = true
     const outcome = await kind.apply(args, context)
     return finish(
       database,
@@ -689,18 +806,57 @@ export async function applyApprovedProposal(
         input.actorUserId,
       )
     }
+    const summary = failureSummaryOf(error)
+    // A kind that can reconcile records an interrupted apply as a first-class OUTCOME_UNKNOWN
+    // (with the cause kept in the result) so it is found, held and resolved, never retried blind.
+    if (applyBegan && resolvableLater && !isProvedNoEffect(error)) {
+      return finish(
+        database,
+        row,
+        'FAILED',
+        {
+          failureCode: OPERATOR_OUTCOME_UNKNOWN,
+          result: { cause: failureCode(error), ...(summary ? { summary } : {}) },
+        },
+        input.requestId,
+        input.actorUserId,
+      )
+    }
     return finish(
       database,
       row,
       'FAILED',
       {
         failureCode: failureCode(error),
-        ...(isAtomicRefusal(error) ? { clearStarted: true } : {}),
+        ...(summary ? { result: { summary } } : {}),
+        ...(isProvedNoEffect(error) ? { clearStarted: true } : {}),
       },
       input.requestId,
       input.actorUserId,
     )
   }
+}
+
+/**
+ * A kind that failed before reaching anything outside its own bookkeeping marks the error, so the
+ * operation is recorded as "no effect" instead of "unknown".
+ */
+function isProvedNoEffect(error: unknown) {
+  return (
+    isAtomicRefusal(error) ||
+    (typeof error === 'object' &&
+      error !== null &&
+      (error as { provedNoEffect?: unknown }).provedNoEffect === true)
+  )
+}
+
+/** A business-language statement of what a failed apply did and did not do, if the kind gave one. */
+function failureSummaryOf(error: unknown): string | undefined {
+  const summary =
+    typeof error === 'object' && error !== null
+      ? (error as { summary?: unknown }).summary
+      : undefined
+  return typeof summary === 'string' && summary.length > 0 ? summary.slice(0, 500) : undefined
 }
 
 async function applyRevert(
