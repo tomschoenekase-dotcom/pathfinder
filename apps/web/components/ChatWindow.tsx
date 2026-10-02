@@ -127,6 +127,8 @@ export function ChatWindow({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
+  const sendTouchStartRef = useRef<{ id: number; x: number; y: number } | null>(null)
+  const lastSendTouchEndAtRef = useRef(0)
   const wasLoadingRef = useRef(isLoading)
   const announcementWasLoadingRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
@@ -509,7 +511,7 @@ export function ChatWindow({
                   ? accentContrastColor
                   : undefined,
             }}
-            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
+            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
             disabled={
               !isOnline ||
               conversationLocked ||
@@ -526,7 +528,42 @@ export function ChatWindow({
                     : sendingLabel
                   : sendMessageLabel
             }
-            onClick={isLoading ? onStopResponse : submit}
+            onTouchStart={(event) => {
+              const touch = event.changedTouches[0]
+              sendTouchStartRef.current =
+                event.touches.length === 1 && touch
+                  ? { id: touch.identifier, x: touch.clientX, y: touch.clientY }
+                  : null
+            }}
+            onTouchCancel={() => {
+              if (sendTouchStartRef.current) lastSendTouchEndAtRef.current = Date.now()
+              sendTouchStartRef.current = null
+            }}
+            onTouchEnd={(event) => {
+              const start = sendTouchStartRef.current
+              const touch = Array.from(event.changedTouches).find(
+                (candidate) => candidate.identifier === start?.id,
+              )
+              sendTouchStartRef.current = null
+              if (!start || !touch) return
+              // Even a swipe can produce a delayed compatibility click in some
+              // engines; do not let that turn a cancelled gesture into a send.
+              lastSendTouchEndAtRef.current = Date.now()
+              if (Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > 12) {
+                return
+              }
+              // On Safari, dismissing the keyboard can move Send between touch
+              // release and the synthetic click. Act on release, then suppress
+              // that click so a single tap cannot submit twice.
+              event.preventDefault()
+              if (isLoading) onStopResponse?.()
+              else submit()
+            }}
+            onClick={(event) => {
+              if (event.detail > 0 && Date.now() - lastSendTouchEndAtRef.current < 750) return
+              if (isLoading) onStopResponse?.()
+              else submit()
+            }}
           >
             {isLoading && onStopResponse ? (
               <>

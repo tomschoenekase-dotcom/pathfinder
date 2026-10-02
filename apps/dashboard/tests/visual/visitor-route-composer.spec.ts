@@ -93,7 +93,7 @@ async function expectHitTarget(locator: Locator) {
 async function expectScrollableConversationWithPersistentComposer(page: Page) {
   const conversation = page.getByRole('log', { name: 'Conversation' })
   const composer = page.getByRole('textbox')
-  const composerField = composer.locator('..')
+  const composerField = composer.locator('xpath=../..')
   const send = page.getByRole('button', { name: 'Send message' })
   const metrics = await conversation.evaluate((node) => ({
     clientHeight: node.clientHeight,
@@ -120,7 +120,7 @@ async function expectPersistentActiveVoiceLayout(page: Page) {
   const conversation = page.getByRole('log', { name: 'Conversation' })
   const endVoice = page.getByRole('button', { name: 'End voice conversation' })
   const composer = page.getByRole('textbox')
-  const composerField = composer.locator('..')
+  const composerField = composer.locator('xpath=../..')
   const send = page.getByRole('button', { name: 'Send message' })
 
   await composer.fill(

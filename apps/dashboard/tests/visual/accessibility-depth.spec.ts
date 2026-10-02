@@ -78,11 +78,18 @@ test('missing character media retains an announced fallback and complete text ch
     'mode=character&state=idle&conversation=empty&asset=missing&motion=reduced&voice=none&network=online&language=English',
   )
 
-  await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: 'Character display unavailable; text chat is ready' }),
-  ).toBeVisible({ timeout: 15_000 })
+  // Short landscape layouts intentionally hide the character stage to keep the
+  // conversation and composer usable. Its fallback is announced when displayed.
+  const character = page.locator('[data-character-layout]')
+  if (page.viewportSize()!.height > 540) {
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: 'Character display unavailable; text chat is ready' }),
+    ).toBeVisible({ timeout: 15_000 })
+  } else {
+    await expect(character).toBeHidden()
+  }
   await expect(page.getByRole('main')).toBeVisible()
   await expect(page.getByRole('log', { name: 'Conversation' })).toBeVisible()
   const composer = page.getByRole('textbox')
