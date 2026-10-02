@@ -609,18 +609,20 @@ describe.skipIf(!enabled)('knowledge proposal package handoff disposable lifecyc
         publishedBy: operatorId,
       })
       expect(scheduled.preview).toMatchObject({ lifecycle: 'SCHEDULED', guestVisibleNow: false })
-      await expect(
-        scheduleOperationalUpdateAction(
-          {
-            tenantId,
-            actor,
-            id: update.id,
-            expectedUpdatedAt: update.updatedAt,
-            now: new Date('2029-12-01T00:00:00.000Z'),
-          },
-          db,
-        ),
-      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      // Go-live is idempotent (51129cde): a retry against an already published notice, even with a
+      // stale expectedUpdatedAt, returns the current state and writes no second change.
+      const replayed = await scheduleOperationalUpdateAction(
+        {
+          tenantId,
+          actor,
+          id: update.id,
+          expectedUpdatedAt: update.updatedAt,
+          now: new Date('2029-12-01T00:00:00.000Z'),
+        },
+        db,
+      )
+      expect(replayed.update.updatedAt).toEqual(scheduled.update.updatedAt)
+      expect(replayed.update).toMatchObject({ status: 'PUBLISHED', isActive: true })
 
       const deactivated = await expireOperationalUpdateAction(
         {

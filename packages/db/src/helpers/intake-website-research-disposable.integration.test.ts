@@ -131,7 +131,7 @@ describe.skipIf(!enabled)('website research receipt disposable lifecycle', () =>
           where: { id: succeededOperationId },
           data: { latencyMs: 99 },
         }),
-      ).rejects.toThrow(/append-only/u)
+      ).rejects.toThrow(/append-only/iu)
 
       expect(
         await db.intakeWebsiteResearchReceipt.count({ where: { tenantId, venueId, runId } }),
