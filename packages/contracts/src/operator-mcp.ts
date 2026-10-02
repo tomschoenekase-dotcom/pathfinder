@@ -264,6 +264,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_campaign_members',
   'crm.resolve_account',
   'crm.get_account_context',
+  'crm.get_outreach_context',
   'crm.list_contacts',
   'crm.list_notes',
   'crm.get_note',
@@ -513,6 +514,13 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.get_outreach_context': readInput({
+    organizationId: Identifier,
+    /** The person to write to. Leave out to let the server pick the first draftable contact. */
+    contactId: Identifier.optional(),
+    /** The venue to write about. Leave out to use the contact's venue, the only venue, or the first. */
+    venueId: Identifier.optional(),
+  }),
   'support.get_request': readInput({ ...tenantScope, requestId: Identifier }),
   'support.list_messages': readInput({
     ...tenantScope,
@@ -2395,6 +2403,264 @@ const OperatorRoutineRunRow = z
   })
   .strict()
 
+const OutreachContextText = (max: number) =>
+  z
+    .object({ untrusted: z.literal(true), text: z.string().max(max), truncated: z.boolean() })
+    .strict()
+
+const OutreachContextFreshness = z
+  .object({
+    /** The research date the record carries; null when none was recorded (status is then unknown). */
+    observedAt: IsoDateTime.nullable(),
+    /** Whole days from observedAt to generatedAt; null when no date is known. */
+    ageDays: z.number().int().nonnegative().nullable(),
+    status: z.enum(['fresh', 'aging', 'stale', 'unknown']),
+  })
+  .strict()
+
+const OutreachContextSection = (cap: number) =>
+  z
+    .object({
+      total: z.number().int().nonnegative(),
+      returned: z.number().int().nonnegative(),
+      cap: z.literal(cap),
+      truncated: z.boolean(),
+    })
+    .strict()
+
+const OutreachContextBlocker = z
+  .object({
+    code: z.string().max(60),
+    scope: z.enum(['account', 'contact', 'selection']),
+    contactId: Identifier.nullable(),
+    text: z.string().max(300),
+  })
+  .strict()
+
+const OperatorOutreachContext = z
+  .object({
+    packVersion: z.literal('outreach-context-v1'),
+    generatedAt: IsoDateTime,
+    /** SHA-256 over the ids and versions of every record the pack read: equal records give an equal value. */
+    sourceFingerprint: Sha256Hex,
+    organizationId: Identifier,
+    drafting: z
+      .object({
+        /** False means do not draft. Free text, notes, evidence and message previews are then withheld. */
+        allowed: z.boolean(),
+        blockers: z.array(OutreachContextBlocker).max(30),
+        warnings: z.array(OutreachContextBlocker).max(30),
+        instruction: z.string().max(500),
+      })
+      .strict(),
+    organization: z
+      .object({
+        name: z.string().max(200),
+        website: z.string().max(500).nullable(),
+        type: z.string().max(80).nullable(),
+        city: z.string().max(120).nullable(),
+        region: z.string().max(120).nullable(),
+        country: z.string().max(80).nullable(),
+        stage: ProspectStageValue.nullable(),
+        archived: z.boolean(),
+        updatedAt: IsoDateTime,
+        customerLinked: z.boolean(),
+      })
+      .strict(),
+    venue: z
+      .object({
+        venueId: Identifier,
+        name: z.string().max(200),
+        website: z.string().max(500).nullable(),
+        type: z.string().max(80).nullable(),
+        city: z.string().max(120).nullable(),
+        region: z.string().max(120).nullable(),
+        country: z.string().max(80).nullable(),
+        estimatedSize: z.string().max(10).nullable(),
+        /** How this venue was chosen: asked for, the contact's own, the only one, or the first by id. */
+        selection: z.enum(['requested', 'contact', 'only', 'first']),
+        fit: OutreachContextText(2_000).nullable(),
+        visitorOperations: OutreachContextText(1_000).nullable(),
+        updatedAt: IsoDateTime,
+      })
+      .strict()
+      .nullable(),
+    venueCount: z.number().int().nonnegative(),
+    contact: z
+      .object({
+        selection: z.enum(['requested', 'auto', 'none']),
+        chosen: z
+          .object({
+            contactId: Identifier,
+            venueId: Identifier.nullable(),
+            displayName: z.string().max(200).nullable(),
+            role: z.string().max(200).nullable(),
+            /** Present only when drafting to this person is allowed. */
+            email: z.string().max(320).nullable(),
+            flags: ContactFlags,
+            draftEligible: z.boolean(),
+            draftReasons: z.array(z.string().max(60)).max(15),
+            releaseEligible: z.boolean(),
+            releaseReasons: z.array(z.string().max(60)).max(15),
+            suppressionReason: z.string().max(60).nullable(),
+            lastSuppressionEvent: z
+              .object({
+                eventType: z.string().max(40),
+                reasonCode: z.string().max(100),
+                occurredAt: IsoDateTime,
+              })
+              .strict()
+              .nullable(),
+          })
+          .strict()
+          .nullable(),
+        /** Other live contacts of the account; no addresses. */
+        others: z
+          .array(
+            z
+              .object({
+                contactId: Identifier,
+                displayName: z.string().max(200).nullable(),
+                role: z.string().max(200).nullable(),
+                draftEligible: z.boolean(),
+              })
+              .strict(),
+          )
+          .max(10),
+        section: OutreachContextSection(10),
+      })
+      .strict(),
+    correspondence: z
+      .object({
+        /** True when drafting is not allowed: counts stay, previews are withheld. */
+        previewsWithheld: z.boolean(),
+        inboundMessages: z.number().int().nonnegative(),
+        outboundMessages: z.number().int().nonnegative(),
+        threads: z.number().int().nonnegative(),
+        lastInboundAt: IsoDateTime.nullable(),
+        lastOutboundAt: IsoDateTime.nullable(),
+        /** An inbound message newer than the newest outbound one: the next message is a reply. */
+        awaitingOurReply: z.boolean(),
+        recentMessages: z
+          .array(
+            z
+              .object({
+                messageId: Identifier,
+                threadId: Identifier,
+                direction: z.enum(['INBOUND', 'OUTBOUND']),
+                status: z.string().max(40),
+                occurredAt: IsoDateTime,
+                subject: OutreachContextText(200),
+                /** The stored preview only (never the full body); addresses withheld. */
+                preview: OutreachContextText(300).nullable(),
+                aboutChosenContact: z.boolean(),
+              })
+              .strict(),
+          )
+          .max(5),
+        messageSection: OutreachContextSection(5),
+        priorDrafts: z
+          .array(
+            z
+              .object({
+                draftId: Identifier,
+                version: z.number().int().positive(),
+                status: z.string().max(20),
+                createdAt: IsoDateTime,
+                subject: OutreachContextText(200),
+                escalationFlags: z.array(z.string().max(60)).max(10),
+              })
+              .strict(),
+          )
+          .max(3),
+        draftSection: OutreachContextSection(3),
+      })
+      .strict(),
+    notes: z
+      .object({
+        withheld: z.boolean(),
+        embedded: OutreachContextText(500).nullable(),
+        recorded: z
+          .array(
+            z
+              .object({
+                noteId: Identifier,
+                occurredAt: IsoDateTime,
+                text: OutreachContextText(500),
+              })
+              .strict(),
+          )
+          .max(5),
+        section: OutreachContextSection(5),
+      })
+      .strict(),
+    evidence: z
+      .object({
+        withheld: z.boolean(),
+        items: z
+          .array(
+            z
+              .object({
+                evidenceId: Identifier,
+                scope: z.enum(['organization', 'venue', 'contact']),
+                sourceType: z.string().max(80),
+                sourceLabel: z.string().max(200).nullable(),
+                /** Public https only; any other URL is withheld and flagged. */
+                sourceUrl: z.string().max(500).nullable(),
+                urlWithheld: z.boolean(),
+                capturedValue: OutreachContextText(300).nullable(),
+                researchedAt: IsoDateTime.nullable(),
+                freshness: OutreachContextFreshness,
+              })
+              .strict(),
+          )
+          .max(10),
+        /** URLs from the legacy research provenance fields, without captured values. */
+        legacySources: z
+          .array(
+            z
+              .object({
+                origin: z.enum(['organization', 'venue']),
+                sourceUrl: z.string().max(500),
+                label: z.string().max(200).nullable(),
+              })
+              .strict(),
+          )
+          .max(5),
+        section: OutreachContextSection(10),
+        legacySection: OutreachContextSection(5),
+        /** Evidence items that carry a public URL and a known date. */
+        citableCount: z.number().int().nonnegative(),
+        newestObservedAt: IsoDateTime.nullable(),
+      })
+      .strict(),
+    /** Claims a draft must not make, each with why. Everything not listed as supported is unsupported. */
+    claims: z
+      .array(
+        z
+          .object({
+            claim: z.string().max(80),
+            status: z.enum(['supported', 'unsupported']),
+            basis: z.string().max(200),
+          })
+          .strict(),
+      )
+      .max(12),
+    limits: z
+      .object({
+        complete: z.boolean(),
+        truncatedSections: z.array(z.string().max(40)).max(10),
+        textFieldsTruncated: z.number().int().nonnegative(),
+        /** Characters of the serialized pack, so a caller can budget its context. */
+        approxChars: z.number().int().nonnegative(),
+        freshnessWindows: z
+          .object({ freshDays: z.number().int(), staleDays: z.number().int() })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict()
+
 export const OPERATOR_MCP_OUTPUTS = {
   'crm.search_organizations': Page(OperatorOrganization),
   'crm.get_organization': z
@@ -2435,6 +2701,7 @@ export const OPERATOR_MCP_OUTPUTS = {
     })
     .strict(),
   'crm.get_account_context': OperatorAccountContext,
+  'crm.get_outreach_context': OperatorOutreachContext,
   'crm.list_contacts': Page(OperatorContactDetail),
   'crm.list_duplicates': Page(
     z
@@ -3817,6 +4084,13 @@ const seeds: readonly Seed[] = [
     'crm.get_account_context',
     'Get account context',
     `Read one account in a single call: aliases, venues, opportunity (owner, next action, due date), customer link, contact counts, campaign memberships, duplicates and history counts, plus the version writes expect.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.get_outreach_context',
+    'Get outreach context',
+    `Build the bounded, read-only context pack for drafting one grounded outreach email: account and venue facts, the chosen contact with its contactability and suppression state (drafting.allowed is false for a suppressed or do-not-contact person), prior correspondence metadata, recent notes, source evidence with URLs and freshness, the claims the evidence does not support, and explicit truncation markers. It calls no model, reads no mailbox and sends nothing.${READ}`,
     'crm:read',
     'platform',
   ],

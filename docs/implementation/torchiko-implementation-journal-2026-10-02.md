@@ -57,3 +57,91 @@ Later lanes (W03, W04, W05, W07/W11, W08, W10) are recorded in the final handoff
 ## Acceptance status (this run)
 
 See the final handoff for the complete A01–A29 / M / B / L / CI / H / P / S table.
+
+## Outreach (2026-10-02)
+
+Acceptance row A04 (grounded outreach draft): the context pack is now built.
+
+**What changed.** New read-only operator tool `crm.get_outreach_context` (capability `crm:read`, scope `platform`,
+like the other CRM reads). Input: `organizationId`, optional `contactId`, optional `venueId`. Output is a bounded,
+deterministic pack (`outreach-context-v1`): account and venue facts, the chosen contact with its draft/release
+eligibility and suppression ledger entry, correspondence counts plus up to 5 recent message previews and 3 prior
+drafts, up to 5 recorded notes, up to 10 source-evidence items with public https URL, research date and freshness,
+up to 5 legacy research URLs, a fixed list of claims marked supported/unsupported, per-section
+`total/returned/cap/truncated`, `limits.complete`, `limits.truncatedSections` and a source fingerprint.
+No model call, no Gmail/network access, no send, no write, no migration (read model over existing tables).
+
+**Files.** `packages/contracts/src/operator-mcp.ts` (tool name, input, output, catalog seed);
+`packages/api/src/operator/outreach-context.ts` (pure builder); `packages/api/src/operator/tools/crm-outreach-context.ts`
+(loader + registration, exported `loadOutreachContext`); `tools/index.ts`; manual text and `docs/operator/manual.md`;
+tests (unit, contract list, reads list, disposable integration).
+
+**Design decisions.**
+
+- Contactability reuses the shared rule (`eligibilityForContacts` -> `evaluateProspectContactEligibility`, purpose
+  `draft`, including an address blocked on another record). Any draft reason makes `drafting.allowed=false`;
+  not-verified for release is only a warning. A requested contact is never overridden; auto selection takes the first
+  draftable live contact (venue match first, then id) from a bounded 30-contact scan and says when it was bounded.
+- When drafting is not allowed the pack withholds notes, evidence, legacy sources and message text, and omits the
+  address. Message text of a person who may not be contacted is withheld even when drafting to someone else is allowed.
+- Free text is untrusted-marked and address-redacted; source URLs must be public https (no credentials, localhost,
+  private hosts); otherwise `urlWithheld` is set. Freshness: fresh <= 90 days, aging <= 365, stale beyond, unknown
+  when no research date is stored (undated evidence is not citable).
+- Tenant scope: prospect tables are platform-wide, so a prospect linked to a customer tenant (conversion or active
+  relationship) outside the grant reads as NOT_FOUND, like any out-of-scope target. A contact or venue of another
+  account is NOT_FOUND. Unknown arguments are rejected (strict schema).
+- Tool and property names avoid send/charge/delete/autonomy/approved (`releaseEligible`, not a send word).
+- Determinism: no clock reads inside the builder (uses the call's `now`), sorted keys, stable ordering with id
+  tiebreakers. The fingerprint hashes record ids and versions, not time.
+
+**Commands and results.** Disposable DB `pathfinder_disposable_einstein_outreach` (the `pathfinder_disposable_`
+prefix is required by the migration script and the test guard; migration needs `PATHFINDER_DISPOSABLE_DATABASE_URL`).
+
+- `pnpm install --frozen-lockfile`, `prisma generate`: PASS.
+- `tsc --noEmit` in packages/api and packages/contracts: PASS.
+- `pnpm lint` packages/contracts: PASS. packages/api: FAIL on one pre-existing unused import in
+  `operator-company-reports-billing.disposable.integration.test.ts` (not touched here); my files lint clean.
+- Contracts `pnpm test`: 73 files / 729 tests PASS.
+- API `pnpm test`: 310 files passed, 1 failed (`venue-qr-pdf` timeout under full-suite load; passes alone, 6/6).
+- Unit `outreach-context.test.ts`: 23 PASS.
+- `RUN_OPERATOR_DB_INTEGRATION=1 vitest run src/operator --pool=forks --maxWorkers=1`: 42 of 43 files pass; the one
+  failure was a 10s `beforeAll` hook timeout in `operator-discovery` under load; rerun alone with a longer hook
+  timeout: 8/8 PASS. New `operator-outreach-context.disposable.integration.test.ts`: 10/10 PASS (healthy pack, suppressed
+  contact, unsubscribed-only account with ledger, address blocked on an archived alias, do-not-contact account, missing
+  venue/contact/evidence, truncation of evidence/notes/messages, determinism and fingerprint change, cross-tenant,
+  cross-account, missing capability, strict args and no writes).
+- `pnpm test:scripts`: 18 failures = the 14 known admission pins plus 4 in `ci-plan-workflow-wiring.test.mjs`, which
+  fail identically on the clean base commit (checked with a stash) and are unrelated.
+- NOT RUN: full-repo `pnpm typecheck`/`pnpm test` for other packages (only contracts and api touched).
+
+## Outreach continuation (2026-10-02)
+
+Reviewed the existing A04 commit and fixed an authorization defect: the first 50 active customer
+relationships cannot establish authority for the complete account. The loader now checks every
+active relationship; a 51-relationship cross-tenant regression proves refusal. Recent research dates
+do not establish recent news, and estimated size does not establish attendance; both claims remain
+unsupported until independently verified. No network, model, mailbox or mutation was added.
+
+The broad run also exposed portable-test defects. The dashboard boundary test now uses
+`fileURLToPath`, and the billing month fixture uses local noon. The CI workflow contract normalizes
+CRLF before matching YAML. Removed one unused test import. Product timezone behavior and the
+staging admission script and its tests are unchanged.
+
+Commands run from this lane root, with the handoff's synthetic local CI environment, disposable
+database `pathfinder_disposable_einstein_outreach`, Redis index 3. Logs are retained in the lane's
+external `qa` folder. Each shell must set this environment; it does not persist across invocations.
+
+| Exact command                                                                                                                                                                                                                              | Result                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                                                           | PASS                                                                                                                                                                                                                                |
+| `pnpm typecheck`                                                                                                                                                                                                                           | PASS, all 27 Turbo tasks                                                                                                                                                                                                            |
+| `pnpm lint`                                                                                                                                                                                                                                | Initial FAIL: unused `OperatorNotFoundError` test import; removed; rerun PASS, 15 tasks, existing warnings only                                                                                                                     |
+| `pnpm test`                                                                                                                                                                                                                                | Initial FAIL: two dashboard portable-test defects; next shell FAIL from missing dummy worker configuration; final configured rerun: all 27 Turbo tasks PASS, command exits FAIL solely for the 14 frozen admission-pin script tests |
+| `pnpm test:scripts`                                                                                                                                                                                                                        | Initial FAIL 18 (14 pins + 4 CRLF workflow-parser failures); final invocation inside `pnpm test`: 620 tests, 605 PASS, 14 FAIL, 1 skipped                                                                                           |
+| `pnpm --dir apps/dashboard exec vitest run lib/server-client-boundary.test.ts components/billing/BillingStateView.test.tsx --pool=forks --maxWorkers=1`                                                                                    | PASS, 339 tests                                                                                                                                                                                                                     |
+| `RUN_OPERATOR_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator/outreach-context.test.ts src/operator/tools/operator-outreach-context.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000` | PASS, 23 unit + 11 DB tests                                                                                                                                                                                                         |
+
+Final workspace test counts: config 108, contracts 729, AI 179, auth 76, intake-engine 15,
+character-factory 14, jobs 98, UI 43, DB 2293, analytics 4, billing 87, API 3364, web 547,
+workers 707, dashboard 2096 PASS. Guarded integration skips in this unit run are not DB proof;
+the dbint lane owns the exhaustive integration inventory. Hosted/provider/device checks NOT RUN.

@@ -208,6 +208,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'operator.list_plans',
         'crm.resolve_account',
         'crm.get_account_context',
+        'crm.get_outreach_context',
         'crm.list_contacts',
         'crm.list_notes',
         'crm.get_note',
