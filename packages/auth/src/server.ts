@@ -145,6 +145,79 @@ export async function validateExistingOrganizationOwner(input: {
   }
 }
 
+/** Private-metadata key that binds a provider organization to the operation that created it. */
+const CREATE_OPERATION_KEY = 'pathfinderCreateOperationId'
+const LOOKUP_PAGE_SIZE = 100
+const LOOKUP_MAX_PAGES = 5
+
+export type OrganizationCreateCandidate = {
+  id: string
+  name: string
+  /**
+   * `operation_metadata`: the organization carries this operation's identity.
+   * `legacy_creator_and_name`: created before operation identity was recorded; matched only on the
+   * same creator, the exact name and a creation time after the operation began.
+   */
+  matchedBy: 'operation_metadata' | 'legacy_creator_and_name'
+}
+
+/**
+ * Read-only provider lookup used to reconcile an interrupted organization creation. `complete` is
+ * false when the search was cut short, in which case "no candidates" proves nothing. Provider
+ * failures throw, so the caller keeps the operation unresolved instead of guessing.
+ */
+export async function findOrganizationsForCreateOperation(input: {
+  operationId: string
+  name: string
+  createdByUserId: string
+  createdAfter: Date
+}): Promise<{ candidates: OrganizationCreateCandidate[]; complete: boolean }> {
+  try {
+    const client = await clerkClient()
+    const creator = providerUserId(input.createdByUserId)
+    const candidates: OrganizationCreateCandidate[] = []
+    let complete = false
+    for (let page = 0; page < LOOKUP_MAX_PAGES; page += 1) {
+      const result = await client.organizations.getOrganizationList({
+        query: input.name,
+        limit: LOOKUP_PAGE_SIZE,
+        offset: page * LOOKUP_PAGE_SIZE,
+      })
+      for (const organization of result.data) {
+        const bound = organization.privateMetadata?.[CREATE_OPERATION_KEY]
+        if (bound === input.operationId) {
+          candidates.push({
+            id: applicationTenantId(organization.id),
+            name: organization.name,
+            matchedBy: 'operation_metadata',
+          })
+        } else if (
+          bound === undefined &&
+          organization.name === input.name &&
+          organization.createdBy === creator &&
+          organization.createdAt >= input.createdAfter.getTime()
+        ) {
+          candidates.push({
+            id: applicationTenantId(organization.id),
+            name: organization.name,
+            matchedBy: 'legacy_creator_and_name',
+          })
+        }
+      }
+      if ((page + 1) * LOOKUP_PAGE_SIZE >= result.totalCount || result.data.length === 0) {
+        complete = true
+        break
+      }
+    }
+    return { candidates, complete }
+  } catch {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Organization lookup is temporarily unavailable',
+    })
+  }
+}
+
 /**
  * Creates a real Clerk Organization server-side. `createdBy` makes that user
  * an admin member of the org automatically, so a platform admin creating a
@@ -160,12 +233,20 @@ export async function createOrganization(input: {
   name: string
   slug: string
   createdByUserId: string
+  /**
+   * Stable identity of the operation creating this organization. It is stored in the provider's
+   * private metadata so a reconciliation step can later find the organization without a retry.
+   */
+  operationId?: string
 }): Promise<CreatedOrganization> {
   try {
     const client = await clerkClient()
     const organization = await client.organizations.createOrganization({
       name: input.name,
       createdBy: providerUserId(input.createdByUserId),
+      ...(input.operationId
+        ? { privateMetadata: { [CREATE_OPERATION_KEY]: input.operationId } }
+        : {}),
     })
 
     return {

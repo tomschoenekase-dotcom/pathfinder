@@ -1434,6 +1434,10 @@ const OperatorProposalView = z
     planId: Identifier.nullable().optional(),
     planStepIndex: z.number().int().nonnegative().nullable().optional(),
     failureCode: z.string().max(120).nullable().optional(),
+    /** What happened, in business language (for example "client created; no invitation sent"). */
+    summary: z.string().max(500).optional(),
+    /** The one safe next step for this recorded state. */
+    nextAction: z.string().max(500).optional(),
     approveUrl: z.string().url().max(2000).optional(),
     result: z.record(z.unknown()).optional(),
   })

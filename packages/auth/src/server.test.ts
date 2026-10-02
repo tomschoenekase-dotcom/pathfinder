@@ -7,6 +7,7 @@ const {
   createOrganizationInvitation,
   getOrganization,
   getOrganizationInvitationList,
+  getOrganizationList,
   getOrganizationMembershipList,
   getUser,
 } = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const {
   createOrganizationInvitation: vi.fn(),
   getOrganization: vi.fn(),
   getOrganizationInvitationList: vi.fn(),
+  getOrganizationList: vi.fn(),
   getOrganizationMembershipList: vi.fn(),
   getUser: vi.fn(),
 }))
@@ -27,6 +29,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 import {
   createOrganization as createOrganizationAction,
   ensureOrganizationInvitation,
+  findOrganizationsForCreateOperation,
   validateExistingOrganizationOwner,
 } from './server'
 
@@ -188,6 +191,99 @@ describe('createOrganization', () => {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Organization creation is temporarily unavailable',
     } satisfies Partial<TRPCError>)
+  })
+})
+
+describe('createOrganization operation identity', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    clerkClientMock.mockResolvedValue({ organizations: { createOrganization } })
+    createOrganization.mockResolvedValue({ id: 'org_new', name: 'New Organization', slug: null })
+  })
+
+  it('stores the operation id in private metadata only', async () => {
+    await createOrganizationAction({
+      name: 'New Organization',
+      slug: 'new-organization',
+      createdByUserId: 'admin_1',
+      operationId: '36b36c4b-151d-44d5-a801-cf0d0cd6a29c',
+    })
+    expect(createOrganization).toHaveBeenCalledWith({
+      name: 'New Organization',
+      createdBy: 'admin_1',
+      privateMetadata: { pathfinderCreateOperationId: '36b36c4b-151d-44d5-a801-cf0d0cd6a29c' },
+    })
+  })
+})
+
+describe('findOrganizationsForCreateOperation', () => {
+  const lookup = {
+    operationId: '36b36c4b-151d-44d5-a801-cf0d0cd6a29c',
+    name: 'Sample Venue Group',
+    createdByUserId: 'admin_1',
+    createdAfter: new Date('2026-09-30T00:00:00Z'),
+  }
+  beforeEach(() => {
+    vi.resetAllMocks()
+    clerkClientMock.mockResolvedValue({ organizations: { getOrganizationList } })
+  })
+
+  it('matches by operation metadata and by the narrow legacy rule, nothing else', async () => {
+    getOrganizationList.mockResolvedValue({
+      totalCount: 4,
+      data: [
+        {
+          id: 'org_meta',
+          name: 'Sample Venue Group',
+          privateMetadata: { pathfinderCreateOperationId: lookup.operationId },
+          createdBy: 'admin_1',
+          createdAt: 1,
+        },
+        {
+          id: 'org_legacy',
+          name: 'Sample Venue Group',
+          privateMetadata: {},
+          createdBy: 'admin_1',
+          createdAt: Date.parse('2026-10-01T00:00:00Z'),
+        },
+        {
+          id: 'org_other_op',
+          name: 'Sample Venue Group',
+          privateMetadata: { pathfinderCreateOperationId: 'another' },
+          createdBy: 'admin_1',
+          createdAt: Date.parse('2026-10-01T00:00:00Z'),
+        },
+        {
+          id: 'org_old',
+          name: 'Sample Venue Group',
+          privateMetadata: {},
+          createdBy: 'admin_1',
+          createdAt: Date.parse('2026-01-01T00:00:00Z'),
+        },
+      ],
+    })
+    await expect(findOrganizationsForCreateOperation(lookup)).resolves.toEqual({
+      complete: true,
+      candidates: [
+        { id: 'org_meta', name: 'Sample Venue Group', matchedBy: 'operation_metadata' },
+        { id: 'org_legacy', name: 'Sample Venue Group', matchedBy: 'legacy_creator_and_name' },
+      ],
+    })
+  })
+
+  it('reports an incomplete search and hides provider detail on failure', async () => {
+    getOrganizationList.mockResolvedValue({
+      totalCount: 10_000,
+      data: [{ id: 'org_x', name: 'x', privateMetadata: {}, createdBy: 'z', createdAt: 1 }],
+    })
+    await expect(findOrganizationsForCreateOperation(lookup)).resolves.toMatchObject({
+      complete: false,
+    })
+    getOrganizationList.mockRejectedValue({ errors: [{ longMessage: 'secret detail' }] })
+    await expect(findOrganizationsForCreateOperation(lookup)).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Organization lookup is temporarily unavailable',
+    })
   })
 })
 

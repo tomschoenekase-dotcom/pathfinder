@@ -18,7 +18,7 @@ import {
   OperatorScopeTooLargeError,
 } from './grants'
 import { verifyOperatorAccessToken, type VerifiedOperatorGrant } from './oauth'
-import { OperatorProposalError } from './proposals'
+import { OPERATOR_KIND_REFUSAL_CODES, OperatorProposalError } from './proposals'
 import {
   createOperatorRegistry,
   defaultVenueRead,
@@ -144,20 +144,7 @@ function toolResult(structured: unknown, isError = false) {
   }
 }
 
-/** Refusals a kind raises at propose time that the Dot should see by name. */
-const KIND_REFUSAL_CODES = new Set([
-  'DO_NOT_CONTACT_LOCKED',
-  'SENT_AT_IN_FUTURE',
-  'INVALID_URL',
-  'RECEIPT_CONFLICT',
-  'ADDRESS_SUPPRESSED',
-  'CONTENT_CHANGED',
-  'ESCALATION_UNACKNOWLEDGED',
-  'RELEASE_LIMIT',
-  'RELEASE_DISABLED',
-])
-
-function errorCode(error: unknown): string {
+export function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
   if (error instanceof OperatorCapabilityError) return 'CAPABILITY_DENIED'
   if (error instanceof OperatorUnknownToolError) return 'UNKNOWN_TOOL'
@@ -170,7 +157,7 @@ function errorCode(error: unknown): string {
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code: unknown }).code)
       : ''
-  if (KIND_REFUSAL_CODES.has(code)) return code
+  if (OPERATOR_KIND_REFUSAL_CODES.has(code)) return code
   return 'TOOL_FAILED'
 }
 
@@ -220,6 +207,25 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
     retryAfterSeconds: 60,
     nextAction: 'Wait, then repeat the same call.',
   },
+  NOT_RECORDED: {
+    retryable: true,
+    nextAction:
+      'Nothing was recorded and nothing was changed, so there is no operation to look up. It is safe to send the same request again with the same operationId.',
+  },
+  DISABLED: {
+    retryable: false,
+    nextAction:
+      'This action is switched off on this deployment. Nothing was recorded or changed. Ask the owner to enable it.',
+  },
+  SLUG_TAKEN: {
+    retryable: false,
+    nextAction: 'Nothing was changed. Choose a different slug and propose again.',
+  },
+  UNRECONCILED_PRIOR_OPERATION: {
+    retryable: false,
+    nextAction:
+      'An earlier operation for this same customer has an unconfirmed outcome. Call operator.recover_operation with that earlier operationId until it settles. Do not send a new operationId; that could create a second customer.',
+  },
   STALE: {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
@@ -231,7 +237,7 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
 }
 
 /** The structured error a caller sees: stable code, retryability, request id and a safe next step. */
-function errorBody(
+export function errorBody(
   code: string,
   name: string,
   requestId: string,
@@ -265,7 +271,13 @@ function errorBody(
       : { retryAfterSeconds: guidance.retryAfterSeconds }),
     requestId,
     nextAction: guidance.nextAction,
-    ...(unknownWrite ? { outcome: 'unknown' } : {}),
+    // A write refused before any record existed provably changed nothing.
+    ...(unknownWrite
+      ? { outcome: 'unknown' }
+      : write && code !== 'TOOL_FAILED'
+        ? { outcome: 'none' }
+        : {}),
+    ...(code === 'NOT_RECORDED' ? { operationRecorded: false } : {}),
     ...extra,
   }
 }
@@ -514,7 +526,18 @@ async function callTool(
                 ...(issue.code === 'custom' ? { message: issue.message } : {}),
               })),
             })
-          : errorBody(code, name, context.requestId),
+          : errorBody(
+              code,
+              name,
+              context.requestId,
+              name === 'operator.get_operation' && code === 'NOT_FOUND'
+                ? {
+                    operationRecorded: false,
+                    nextAction:
+                      'No operation with this operationId is recorded for this connection. A write that returned an error with outcome "none" or "operationRecorded: false" changed nothing and may be sent again with the same operationId. If the original call returned a different error, read the target before sending anything.',
+                  }
+                : {},
+            ),
         true,
       ),
     }
