@@ -20,9 +20,8 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'crm.account-archive',
   // Changes how history is read across two accounts; an exact reviewed decision each time.
   'crm.duplicate-resolution',
-  // Changes who is emailed for a person, and commits a whole reviewed import at once.
+  // Changes who is emailed for a person.
   'crm.contact-address-change',
-  'crm.import-commit',
   // Every human gate on outbound mail: policy never stands in for the person.
   'crm.draft-review',
   'crm.batch-stage',
@@ -80,6 +79,39 @@ export const OPERATOR_LEGACY_AUTO_KINDS: ReadonlySet<string> = new Set([
   'venues.publish',
 ])
 
+/**
+ * Ordinary, locally validated writes a newly connected operator may apply without another
+ * dashboard decision. This list is deliberately exact: new kinds and external effects still ask.
+ * A stored policy row, including ASK, always takes precedence over this default.
+ */
+export const OPERATOR_ROUTINE_AUTO_KINDS: ReadonlySet<string> = new Set([
+  'appearance.update',
+  'crm.prospect-create',
+  'crm.account-update',
+  'crm.contact-create',
+  'crm.contact-update',
+  'crm.followup-update',
+  'crm.note',
+  'crm.stage-change',
+  'crm.outreach-draft',
+  'crm.outreach-log',
+  'crm.import-commit',
+  'crm.campaign-create',
+  'crm.campaign-membership',
+  'venues.create',
+  'support.internal-note',
+])
+
+function routineKindsForCapability(capability: OperatorCapability): string[] {
+  if (capability === 'appearance:propose') return ['appearance.update']
+  if (capability === 'crm:propose') {
+    return [...OPERATOR_ROUTINE_AUTO_KINDS].filter((kind) => kind.startsWith('crm.'))
+  }
+  if (capability === 'venues:propose') return ['venues.create']
+  if (capability === 'support:propose') return ['support.internal-note']
+  return []
+}
+
 /** The kinds an AUTO row covers: the ones it names, or the legacy set when it names none. */
 export function effectiveAutoKinds(row: Readonly<{ allowedKinds: readonly string[] }>): string[] {
   return row.allowedKinds.length > 0 ? [...row.allowedKinds] : [...OPERATOR_LEGACY_AUTO_KINDS]
@@ -105,7 +137,7 @@ export async function readPolicyRevision(database: OperatorDatabase = db): Promi
 }
 
 /**
- * Decides who approves a proposal. Missing rows mean `ask`. An always-ask kind or locked
+ * Decides who approves a proposal. Missing rows auto-apply only the exact routine list. An always-ask kind or locked
  * capability is `ask` whatever the stored row says, so a bad row cannot widen autonomy.
  */
 export async function resolveAutonomy(
@@ -119,6 +151,8 @@ export async function resolveAutonomy(
     where: { capability: proposal.capability },
     select: { mode: true, allowedKinds: true },
   })
+  if (!row)
+    return routineKindsForCapability(proposal.capability).includes(proposal.kind) ? 'auto' : 'ask'
   // AUTO covers this kind only if the switch is on and names it (or is a legacy switch and the
   // kind is a legacy kind). A kind added later is never covered by an older switch.
   return row?.mode === 'AUTO' && effectiveAutoKinds(row).includes(proposal.kind) ? 'auto' : 'ask'
@@ -133,13 +167,20 @@ export async function readAutonomyPolicies(database: OperatorDatabase = db) {
   return OPERATOR_POLICY_CAPABILITIES.map((capability) => {
     const locked = OPERATOR_LOCKED_CAPABILITIES.has(capability)
     const row = stored.get(capability)
-    const auto = !locked && row?.mode === 'AUTO'
+    const autoKinds = locked
+      ? []
+      : row
+        ? row.mode === 'AUTO'
+          ? effectiveAutoKinds(row).filter((kind) => !isAlwaysAskKind(kind))
+          : []
+        : routineKindsForCapability(capability)
+    const auto = autoKinds.length > 0
     return {
       capability,
       mode: (auto ? 'auto' : 'ask') as OperatorAutonomyMode,
       locked,
       // Which actions the switch actually covers; empty whenever the capability asks.
-      autoKinds: auto && row ? effectiveAutoKinds(row).sort() : [],
+      autoKinds: autoKinds.sort(),
     }
   })
 }

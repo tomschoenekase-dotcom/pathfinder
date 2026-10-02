@@ -35,7 +35,7 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
           _max: { occurredAt: true },
         }),
       ])
-      const mode = new Map(policies.map((policy) => [policy.capability, policy.mode]))
+      const autoKinds = new Map(policies.map((policy) => [policy.capability, policy.autoKinds]))
       const lastSuccess = new Map(successes.map((row) => [row.tool, row._max.occurredAt] as const))
       const capabilities = new Set<string>(grant.capabilities)
       const missing = [...new Set(OPERATOR_MCP_TOOLS.map((tool) => tool.capability))].filter(
@@ -70,7 +70,9 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
               ? null
               : tool.proposalKind && isAlwaysAskKind(tool.proposalKind)
                 ? ('ask' as const)
-                : (mode.get(tool.capability) ?? ('ask' as const))
+                : autoKinds.get(tool.capability)?.includes(tool.proposalKind ?? '')
+                  ? ('auto' as const)
+                  : ('ask' as const)
           return {
             name: tool.name,
             effect: tool.effect,

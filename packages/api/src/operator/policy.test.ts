@@ -12,13 +12,16 @@ import {
   OPERATOR_ALWAYS_ASK_KINDS,
   OPERATOR_LEGACY_AUTO_KINDS,
   OPERATOR_LOCKED_CAPABILITIES,
+  OPERATOR_ROUTINE_AUTO_KINDS,
   OperatorAutonomyLockedError,
   isAlwaysAskKind,
+  readAutonomyPolicies,
   resolveAutonomy,
   setAutonomyPolicy,
 } from './autonomy'
 import { resolveStepReferences } from './plans'
 import { createOperatorRegistry, OperatorToolCallParams } from './registry'
+import { createContextReadTool } from './tools/context'
 
 function policyDatabase(mode: 'AUTO' | 'ASK' | null, allowedKinds: string[] = []) {
   return {
@@ -29,12 +32,32 @@ function policyDatabase(mode: 'AUTO' | 'ASK' | null, allowedKinds: string[] = []
 }
 
 describe('autonomy dial', () => {
-  it('defaults every capability to ask', async () => {
+  it('defaults only explicitly listed, correctly scoped routine writes to auto', async () => {
+    for (const kind of OPERATOR_ROUTINE_AUTO_KINDS) {
+      const capability = kind.startsWith('crm.')
+        ? 'crm:propose'
+        : kind === 'appearance.update'
+          ? 'appearance:propose'
+          : kind.startsWith('venues.')
+            ? 'venues:propose'
+            : 'support:propose'
+      expect(await resolveAutonomy({ kind, capability }, policyDatabase(null)), kind).toBe('auto')
+      expect(
+        await resolveAutonomy({ kind, capability: 'customers:propose' }, policyDatabase(null)),
+        kind,
+      ).toBe('ask')
+    }
+    for (const [kind, capability] of [
+      ['crm.contact-archive', 'crm:propose'],
+      ['venues.knowledge', 'venues:propose'],
+      ['venues.source', 'venues:propose'],
+      ['venues.publish', 'venues:propose'],
+      ['crm.future-action', 'crm:propose'],
+    ] as const) {
+      expect(await resolveAutonomy({ kind, capability }, policyDatabase(null)), kind).toBe('ask')
+    }
     expect(
-      await resolveAutonomy(
-        { kind: 'appearance.update', capability: 'appearance:propose' },
-        policyDatabase(null),
-      ),
+      await resolveAutonomy({ kind: 'crm.note', capability: 'crm:propose' }, policyDatabase('ASK')),
     ).toBe('ask')
   })
 
@@ -137,6 +160,44 @@ describe('autonomy dial', () => {
     expect(
       OPERATOR_MCP_TOOLS.map((tool) => tool.name).filter((name) => /autonomy/u.test(name)),
     ).toEqual(['operator.get_autonomy'])
+  })
+
+  it('reports exact default and stored policy kinds to discovery', async () => {
+    const database = {
+      operatorAutonomyPolicy: {
+        findMany: vi.fn(async () => [
+          { capability: 'venues:propose', mode: 'ASK', allowedKinds: [] },
+          { capability: 'support:propose', mode: 'AUTO', allowedKinds: ['support.internal-note'] },
+        ]),
+      },
+      operatorAuditEvent: { groupBy: vi.fn(async () => []) },
+    } as never
+    const policies = await readAutonomyPolicies(database)
+    expect(policies.find((row) => row.capability === 'crm:propose')).toMatchObject({
+      mode: 'auto',
+      autoKinds: expect.arrayContaining(['crm.note', 'crm.import-commit']),
+    })
+    expect(policies.find((row) => row.capability === 'venues:propose')).toMatchObject({
+      mode: 'ask',
+      autoKinds: [],
+    })
+    const tool = createContextReadTool(new Set(OPERATOR_MCP_TOOLS.map((row) => row.name)))
+    const context = await tool.handler({}, {
+      database,
+      grant: {
+        grantId: 'grant',
+        allTenants: true,
+        tenantIds: [],
+        capabilities: ['operator:read', 'crm:propose', 'venues:propose', 'support:propose'],
+      },
+      now: new Date('2026-10-02T00:00:00.000Z'),
+    } as never)
+    const byName = new Map(context.tools.map((row) => [row.name, row]))
+    expect(byName.get('crm.propose_note')?.approvalMode).toBe('auto')
+    expect(byName.get('crm.propose_draft_review')?.approvalMode).toBe('ask')
+    expect(byName.get('venues.propose_create')?.approvalMode).toBe('ask')
+    expect(byName.get('support.propose_internal_note')?.approvalMode).toBe('auto')
+    expect(byName.get('support.propose_triage')?.approvalMode).toBe('ask')
   })
 })
 
