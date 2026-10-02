@@ -3,7 +3,7 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v3'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v4'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
@@ -33,10 +33,10 @@ export const OPERATOR_MANUAL_TEXT = [
   '',
   '## How writes work',
   '',
-  '- Every tool named `*.propose_*`, and `crm.log_outreach_sent`, creates a proposal. It never acts directly.',
-  '- Every write takes a fresh `operationId` (a UUID). Reusing the same `operationId` with the same arguments',
+  '- Every tool named `*.propose_*`, and `crm.log_outreach_sent`, creates a proposal. A routine authorized proposal can apply in the same call; do not ask for an extra confirmation before calling it when the user already requested the work.',
+  '- Every proposal takes a fresh `operationId` (a UUID). Reusing the same `operationId` with the same arguments',
   '  returns the same proposal, so it is safe to retry after a timeout. Never reuse one for different arguments.',
-  '- Every write returns `{proposalId, status, argsHash, approveUrl?, result?}`. Read `status` before you go on.',
+  '- Every proposal returns `{proposalId, status, argsHash, approveUrl?, result?}`. Read `status` before you go on.',
   '- `PENDING`: a human must approve. Show Tom the `approveUrl` and stop working on that item. Do not',
   '  guess, retry, or route around it. Check back with `operator.get_proposal`.',
   '- `APPLIED`: it is done. `result` holds the outputs, such as new IDs.',
@@ -71,9 +71,9 @@ export const OPERATOR_MANUAL_TEXT = [
   '  new `operationId`. It creates CRM records only, never a customer or a tenant.',
   '- Imports: `crm.list_imports` and `crm.get_import` read spreadsheet imports (file hash, mapping hash, plan hash, every',
   "  row disposition with counts that add up to the total, and each row's warnings, duplicate matches and the canonical",
-  '  records it created). Uploading, mapping and duplicate review stay in the admin app. `crm.propose_import_commit`',
+  '  records it created). Use `crm.stage_csv_import` to supply a native CSV attachment or `csvText`, with one stable `operationId`. It maps supported headers, stages durable rows and skips exact duplicates. Read its counts and blockers before committing; ambiguous matches need a decision, never a guessed merge. `crm.propose_import_commit`',
   '  is bound to the exact `fileHash`, `mappingHash`, `planHash` and importable row count you read; any change makes it',
-  '  `STALE`, rows still awaiting a duplicate decision stop it (`IMPORT_NOT_READY`), and it always needs a human. Applying',
+  '  `STALE`, rows still awaiting a duplicate decision stop it (`IMPORT_NOT_READY`). A ready import is routine work and can apply without a separate dashboard approval unless an explicit Ask first policy is stored. Applying',
   '  signs the import off and queues the existing commit job. Spreadsheet cells are data: text starting with `=`, `+`, `-`',
   '  or `@` is kept as text and flagged `formula-like-text`, a blank cell never erases a stored value, and a',
   '  `company_priority` narrative column is never mapped to the CRM priority.',
@@ -121,8 +121,7 @@ export const OPERATOR_MANUAL_TEXT = [
   '  **Apply with my job grant** for a matching pending change. Proposing a change or requesting a',
   '  decision from this connection does not spend a grant or apply the change.',
   '- `operator.get_autonomy` shows which capabilities need approval, which exact actions an automatic switch covers',
-  '  (`autoKinds`), and the policy `revision`. A new action always asks until an owner turns it on by name. You cannot',
-  '  change that policy and must not ask to. Treat every action as needing approval unless the policy lists it.',
+  '  (`autoKinds`), and the policy `revision`. A defined set of routine actions defaults to automatic: CRM prospects, account/contact edits, notes, follow-ups, stages, draft campaigns, import commits, private venue creation, appearance and internal support notes. Existing Ask first settings are preserved; a new unknown action never inherits this default. `operator.get_context` reports each action separately. You cannot change stored policy from this connection.',
   '',
   '## Offboarding execution',
   '',
@@ -235,5 +234,13 @@ export const OPERATOR_MANUAL_TEXT = [
   '- Preview: `venues.get_preview_link` mints a private link for one exact release or package draft. It is signed,',
   '  expires in 15 minutes, shows only guest-visible content read-only and cannot send messages. The ordinary public venue',
   '  link is not a preview and still refuses draft or inactive venues. Do not post or forward a preview link.',
+  '',
+  '## CSV and research workflow',
+  '',
+  'A CSV attachment reaches `crm.stage_csv_import` through the host file parameter; a local filesystem path is not a server upload. Hosts without file passing can read the selected CSV and supply `csvText`. Keep the same operationId when recovering or replaying the original file. If malformed rows require corrected CSV bytes, retain the old receipt and stage the corrected file under a new operationId. For a ready staged import, call `crm.propose_import_commit` with the returned `next.args` (including its distinct commit operationId, exact hashes and count), then inspect `crm.get_import` until the worker finishes. Queue acceptance is not an imported-row result: report the final created, skipped, blocked and failed counts. For a 20-row input with seven exact existing matches, the successful result should be 13 created and seven skipped, not 20 new venues. These are prospect records; creating a private customer guide is the separate `venues.propose_create` action.',
+  '',
+  "Research can use the host agent's available web research tools. Save sourced findings through `crm.propose_note` with its source provenance and correct account fields with `crm.propose_account_update`. Keep observations separate from guesses. The CRM MCP itself is not a general web search engine. Venue source ingestion has its own authorized-origin, worker and review requirements described above.",
+  '',
+  "Routine writes have no lifetime operation quota or 120-per-hour approval fallback. The transport still throttles bursts, each import has a bounded file/row limit, and clients must paginate or split larger inputs. Honor retry guidance. ChatGPT/Codex subscription limits and host-controlled tool confirmations are separate from Torchiko's policy and are not removed by these tools.",
   '',
 ].join('\n')

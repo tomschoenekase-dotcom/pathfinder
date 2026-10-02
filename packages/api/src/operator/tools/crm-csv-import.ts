@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
+import { isIP } from 'node:net'
 
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import { isPublicWebsiteAddress, isPrivateHostname } from '../../lib/website-intake'
@@ -65,6 +66,12 @@ const ALIASES: Record<string, string> = {
 
 function sha256(value: string | Uint8Array) {
   return createHash('sha256').update(value).digest('hex')
+}
+
+function commitOperationId(importId: string) {
+  const digest = sha256(`mcp-csv-commit:v1:${importId}`)
+  const variant = ((Number.parseInt(digest[16]!, 16) & 0x3) | 0x8).toString(16)
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${variant}${digest.slice(17, 20)}-${digest.slice(20, 32)}`
 }
 
 export class CsvImportError extends Error {
@@ -191,7 +198,8 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
       url.username ||
       url.password ||
       (url.port && url.port !== '443') ||
-      isPrivateHostname(url.hostname)
+      isPrivateHostname(url.hostname) ||
+      isIP(url.hostname) !== 0
     ) {
       throw new CsvImportError('FETCH_FAILED', 'Attachment URL is not a public HTTPS address')
     }
@@ -214,6 +222,8 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
     ) {
       throw new CsvImportError('FETCH_FAILED', 'Attachment host is not public')
     }
+    const requestRemaining = deadline - Date.now()
+    if (requestRemaining <= 0) throw new CsvImportError('FETCH_FAILED', 'Attachment timed out')
     const response = await new Promise<{ status: number; location?: string; body: Buffer }>(
       (resolve, reject) => {
         const req = httpsRequest(
@@ -228,7 +238,7 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
               Accept: 'text/csv,text/plain',
               'Accept-Encoding': 'identity',
             },
-            timeout: Math.min(10_000, remaining),
+            timeout: Math.min(10_000, requestRemaining),
           },
           (incoming) => {
             const declared = Number(incoming.headers['content-length'] ?? 0)
@@ -262,7 +272,7 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
         )
         const absoluteDeadline = setTimeout(
           () => req.destroy(new CsvImportError('FETCH_FAILED', 'Attachment timed out')),
-          remaining,
+          requestRemaining,
         )
         req.on('close', () => clearTimeout(absoluteDeadline))
         req.on('error', reject)
@@ -272,7 +282,11 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
       throw new CsvImportError('FETCH_FAILED', 'Attachment could not be downloaded')
     })
     if ([301, 302, 303, 307, 308].includes(response.status) && response.location) {
-      current = new URL(response.location, url).toString()
+      try {
+        current = new URL(response.location, url).toString()
+      } catch {
+        throw new CsvImportError('FETCH_FAILED', 'Attachment redirect URL is invalid')
+      }
       continue
     }
     if (response.status !== 200)
@@ -613,6 +627,7 @@ async function receipt(
       : {
           tool: 'crm.propose_import_commit' as const,
           args: {
+            operationId: commitOperationId(importId),
             importId,
             fileHash: refreshed.fileHash,
             mappingHash: refreshed.mappingHash,

@@ -47,6 +47,14 @@ const dependencies = { database: db, kinds, allowedUserIds: config.allowedUserId
 const suffix = randomUUID().replaceAll('-', '').slice(0, 10)
 const tenantId = `kind-tenant-${suffix}`
 const clientId = `opc_kinds_${suffix}`
+const askFixtureCapabilities = [
+  'crm:propose',
+  'crm:log',
+  'venues:propose',
+  'customers:propose',
+] as const
+let originalAutonomyPolicies: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findMany>> = []
+let autonomyPoliciesSnapshotTaken = false
 let grant: VerifiedOperatorGrant
 let venueId = ''
 let organizationId = ''
@@ -210,9 +218,43 @@ describe.skipIf(!enabled)(
         data: { campaignId: campaign.id, organizationId, contactId, status: 'SELECTED' },
       })
       memberId = member.id
+      originalAutonomyPolicies = await db.operatorAutonomyPolicy.findMany({
+        where: { capability: { in: [...askFixtureCapabilities] } },
+      })
+      autonomyPoliciesSnapshotTaken = true
+      for (const capability of askFixtureCapabilities) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability },
+          create: { capability, mode: 'ASK', updatedByUserId: 'user_owner' },
+          update: { mode: 'ASK' },
+        })
+      }
     })
 
     afterAll(async () => {
+      if (autonomyPoliciesSnapshotTaken) {
+        for (const capability of askFixtureCapabilities) {
+          const original = originalAutonomyPolicies.find((row) => row.capability === capability)
+          if (original) {
+            await db.operatorAutonomyPolicy.upsert({
+              where: { capability },
+              create: {
+                capability,
+                mode: original.mode,
+                allowedKinds: original.allowedKinds,
+                updatedByUserId: original.updatedByUserId,
+              },
+              update: {
+                mode: original.mode,
+                allowedKinds: original.allowedKinds,
+                updatedByUserId: original.updatedByUserId,
+              },
+            })
+          } else {
+            await db.operatorAutonomyPolicy.deleteMany({ where: { capability } })
+          }
+        }
+      }
       // Leave no embedding work behind: later CI steps lease any pending dispatch in this database.
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId] } } }),

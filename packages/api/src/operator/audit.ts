@@ -38,8 +38,8 @@ export type OperatorAuditInput = Readonly<{
 }>
 
 const SENSITIVE_KEY =
-  /token|secret|password|authorization|verifier|challenge|cookie|pepper|^code$|refresh|credential/iu
-const BODY_KEY = /^(textBody|body|note|text)$/u
+  /token|secret|password|authorization|verifier|challenge|cookie|pepper|^code$|refresh|credential|^download_url$|^file_id$/iu
+const BODY_KEY = /^(textBody|body|note|text|csvText)$/u
 const EMAIL = /^([^@\s]{1,64})@([^@\s]{1,255})$/u
 
 /**

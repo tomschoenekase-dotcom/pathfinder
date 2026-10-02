@@ -173,7 +173,7 @@ describe('operator.get_manual', () => {
 })
 
 describe('OPERATOR_READ_TOOLS', () => {
-  it('covers exactly the P4 reads plus the discovery and operation reads, each with a read capability', () => {
+  it('covers the exact reads and controls with their required capabilities', () => {
     const names = OPERATOR_READ_TOOLS.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
@@ -215,6 +215,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_duplicates',
         'crm.list_imports',
         'crm.get_import',
+        'crm.stage_csv_import',
         'crm.get_campaign',
         'crm.list_drafts',
         'crm.get_outreach_batch',
@@ -254,7 +255,9 @@ describe('OPERATOR_READ_TOOLS', () => {
     for (const tool of OPERATOR_READ_TOOLS) {
       const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
       if (isControl) {
-        expect(tool.capability).toBe('operator:plan')
+        expect(tool.capability).toBe(
+          tool.name === 'crm.stage_csv_import' ? 'crm:propose' : 'operator:plan',
+        )
       } else {
         expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
         expect(tool.capability.endsWith(':read')).toBe(true)

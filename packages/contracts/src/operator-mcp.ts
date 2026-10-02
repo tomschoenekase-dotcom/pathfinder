@@ -36,7 +36,7 @@ import { SupportRequestStatus } from './support-workflow'
  * requests can queue one email to a member's verified address through the existing worker, behind
  * a default-off deployment switch; the operator never addresses or sends it.
  */
-export const OPERATOR_MCP_CATALOG_VERSION = 'torchiko-operator-mcp-v0' as const
+export const OPERATOR_MCP_CATALOG_VERSION = 'torchiko-operator-mcp-v1' as const
 
 // ---------------------------------------------------------------------------
 // Shared value shapes
@@ -3700,6 +3700,7 @@ export const OPERATOR_MCP_OUTPUTS = {
           tool: z.literal('crm.propose_import_commit'),
           args: z
             .object({
+              operationId: OperationId,
               importId: Identifier,
               fileHash: Sha256Hex,
               mappingHash: Sha256Hex,

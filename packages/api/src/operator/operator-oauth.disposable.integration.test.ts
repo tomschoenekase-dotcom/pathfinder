@@ -3,7 +3,12 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  commitProspectImportBatchAction,
+  createVenueAction,
+  db,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { setAutonomyPolicy } from './autonomy'
 import { resolveOperatorConfig, type OperatorServerConfig } from './config'
@@ -63,6 +68,7 @@ let venueId = ''
 let otherVenueId = ''
 const seenTokens: string[] = []
 const grantIds: string[] = []
+let previousAppearancePolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
 
 async function register(
   ip = `198.51.100.${Math.floor(Math.random() * 250)}`,
@@ -243,6 +249,15 @@ describe.skipIf(!enabled)(
   { timeout: 60_000 },
   () => {
     beforeAll(async () => {
+      previousAppearancePolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'appearance:propose' },
+      })
+      await setAutonomyPolicy({
+        capability: 'appearance:propose',
+        mode: 'ask',
+        userId: 'user_owner',
+        requestId: randomUUID(),
+      })
       await withTenantIsolationBypass(async () => {
         for (const id of [tenantId, otherTenantId]) {
           await db.tenant.create({ data: { id, name: `Example ${id}`, slug: id } })
@@ -264,6 +279,19 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      if (previousAppearancePolicy) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability: 'appearance:propose' },
+          create: previousAppearancePolicy,
+          update: {
+            mode: previousAppearancePolicy.mode,
+            allowedKinds: previousAppearancePolicy.allowedKinds,
+            updatedByUserId: previousAppearancePolicy.updatedByUserId,
+          },
+        })
+      } else {
+        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'appearance:propose' } })
+      }
       // No token plaintext may ever reach the audit trail.
       const rows = await db.operatorAuditEvent.findMany({
         where: { OR: [{ grantId: { in: grantIds } }, { eventType: 'oauth.register' }] },
@@ -574,6 +602,14 @@ describe.skipIf(!enabled)(
         clientInfo: { name: 'test', version: '1' },
       })
       expect(init.body.result).toMatchObject({ protocolVersion: '2025-06-18' })
+      const listed = await mcp(connection.access, 'tools/list')
+      const csvTool = listed.body.result!.tools!.find(
+        (tool: { name: string }) => tool.name === 'crm.stage_csv_import',
+      )
+      expect(csvTool).toMatchObject({
+        _meta: { 'openai/fileParams': ['file'] },
+        annotations: { readOnlyHint: false },
+      })
       const own = await callTool(connection.access, 'appearance.get', { tenantId, venueId })
       expect(own.isError).toBe(false)
       expect(own.structuredContent).toMatchObject({ venueId })
@@ -605,6 +641,99 @@ describe.skipIf(!enabled)(
         chatTheme: 'forest',
       })
       expect(writeOutside.structuredContent).toMatchObject({ error: 'NOT_FOUND' })
+    })
+
+    it('stages a CSV through the authenticated MCP wire and rejects a limited connection', async () => {
+      const connection = await connect()
+      const operationId = randomUUID()
+      const csvText = `name,website,city\nExample Wire ${suffix},https://wire-${suffix}.example.test,Example City`
+      const args = { operationId, csvText }
+      const limited = await callTool(connection.access, 'crm.stage_csv_import', args)
+      expect(limited.isError).toBe(true)
+      expect(limited.structuredContent).toMatchObject({ error: 'SCOPE_REQUIRED', outcome: 'none' })
+      await db.operatorGrant.update({
+        where: { id: connection.grantId },
+        data: { allTenants: true },
+      })
+      const staged = await callTool(connection.access, 'crm.stage_csv_import', args)
+      expect(staged.isError).toBe(false)
+      expect(staged.structuredContent).toMatchObject({
+        totalRows: 1,
+        addedRows: 0,
+        importableRows: 1,
+        blocked: false,
+      })
+      const replayed = await callTool(connection.access, 'crm.stage_csv_import', args)
+      expect(replayed.structuredContent).toMatchObject({
+        importId: staged.structuredContent!.importId,
+        replayed: true,
+      })
+      const commitArgs = (
+        staged.structuredContent!.next as {
+          args: Record<string, unknown>
+        }
+      ).args
+      expect(commitArgs.operationId).not.toBe(operationId)
+      const previousCrmPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'crm:propose' },
+      })
+      await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
+      try {
+        const committed = await callTool(connection.access, 'crm.propose_import_commit', commitArgs)
+        expect(committed.isError).toBe(false)
+        expect(committed.structuredContent).toMatchObject({ status: 'APPLIED' })
+        expect(committed.structuredContent?.approveUrl).toBeUndefined()
+        const repeated = await callTool(connection.access, 'crm.propose_import_commit', commitArgs)
+        expect(repeated.structuredContent).toMatchObject({
+          proposalId: committed.structuredContent!.proposalId,
+          status: 'APPLIED',
+        })
+        expect(
+          await db.operatorProposal.count({
+            where: {
+              grantId: connection.grantId,
+              kind: 'crm.import-commit',
+              operationId: commitArgs.operationId as string,
+            },
+          }),
+        ).toBe(1)
+        const finished = await commitProspectImportBatchAction({
+          importId: staged.structuredContent!.importId as string,
+          limit: 100,
+          actor: { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' },
+        })
+        expect(finished.done).toBe(true)
+        expect(
+          await db.prospectImportRow.count({
+            where: { importId: staged.structuredContent!.importId as string, status: 'IMPORTED' },
+          }),
+        ).toBe(1)
+      } finally {
+        if (previousCrmPolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: 'crm:propose' },
+            create: previousCrmPolicy,
+            update: {
+              mode: previousCrmPolicy.mode,
+              allowedKinds: previousCrmPolicy.allowedKinds,
+              updatedByUserId: previousCrmPolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
+        }
+      }
+      await db.operatorGrant.update({
+        where: { id: connection.grantId },
+        data: { capabilities: ['operator:read'] },
+      })
+      const narrowed = await callTool(connection.access, 'crm.stage_csv_import', {
+        ...args,
+        operationId: randomUUID(),
+      })
+      expect(narrowed.structuredContent).toMatchObject({ error: 'CAPABILITY_DENIED' })
+      const audit = await db.operatorAuditEvent.findMany({ where: { grantId: connection.grantId } })
+      expect(JSON.stringify(audit)).not.toContain(csvText)
     })
 
     it('creates pending proposals, ignores forged approval claims, and binds approval to the argsHash', async () => {
@@ -775,6 +904,9 @@ describe.skipIf(!enabled)(
         requestId: randomUUID(),
       })
       // A bad stored row for a locked capability must not widen autonomy.
+      const previousRevertPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'operator:revert' },
+      })
       await db.operatorAutonomyPolicy.upsert({
         where: { capability: 'operator:revert' },
         create: { capability: 'operator:revert', mode: 'AUTO', updatedByUserId: 'test' },
@@ -822,10 +954,21 @@ describe.skipIf(!enabled)(
           userId: 'user_owner',
           requestId: randomUUID(),
         })
-        await db.operatorAutonomyPolicy.update({
-          where: { capability: 'operator:revert' },
-          data: { mode: 'ASK' },
-        })
+        if (previousRevertPolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: 'operator:revert' },
+            create: previousRevertPolicy,
+            update: {
+              mode: previousRevertPolicy.mode,
+              allowedKinds: previousRevertPolicy.allowedKinds,
+              updatedByUserId: previousRevertPolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({
+            where: { capability: 'operator:revert' },
+          })
+        }
       }
     })
 

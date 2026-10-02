@@ -56,10 +56,14 @@ const tenantId = `dg-tenant-${suffix}`
 const otherTenantId = `dg-other-${suffix}`
 const clientId = `opc_dg_${suffix}`
 const otherClientId = `opc_dg_other_${suffix}`
+const APPEARANCE_CAPABILITY = 'appearance:propose'
 
 let grant: VerifiedOperatorGrant
 let otherGrant: VerifiedOperatorGrant
 let narrowGrant: VerifiedOperatorGrant
+let originalAppearancePolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>> =
+  null
+let appearancePolicySnapshotTaken = false
 let venueId = ''
 let secondVenueId = ''
 let foreignVenueId = ''
@@ -224,9 +228,46 @@ describe.skipIf(!enabled)(
       grant = await makeGrant(clientId, [tenantId, otherTenantId])
       otherGrant = await makeGrant(otherClientId, [tenantId, otherTenantId])
       narrowGrant = await makeGrant(clientId, [otherTenantId])
+      // This suite needs pending proposals regardless of whether an earlier
+      // suite left a policy row or the current missing-row default is AUTO.
+      originalAppearancePolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: APPEARANCE_CAPABILITY },
+      })
+      appearancePolicySnapshotTaken = true
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: APPEARANCE_CAPABILITY },
+        create: {
+          capability: APPEARANCE_CAPABILITY,
+          mode: 'ASK',
+          updatedByUserId: 'user_owner',
+        },
+        update: { mode: 'ASK' },
+      })
     }, 90_000)
 
     afterAll(async () => {
+      if (appearancePolicySnapshotTaken) {
+        if (originalAppearancePolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: APPEARANCE_CAPABILITY },
+            create: {
+              capability: APPEARANCE_CAPABILITY,
+              mode: originalAppearancePolicy.mode,
+              allowedKinds: originalAppearancePolicy.allowedKinds,
+              updatedByUserId: originalAppearancePolicy.updatedByUserId,
+            },
+            update: {
+              mode: originalAppearancePolicy.mode,
+              allowedKinds: originalAppearancePolicy.allowedKinds,
+              updatedByUserId: originalAppearancePolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({
+            where: { capability: APPEARANCE_CAPABILITY },
+          })
+        }
+      }
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } }),
       )

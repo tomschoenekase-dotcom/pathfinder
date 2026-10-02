@@ -12,7 +12,7 @@ import { ZodError } from 'zod'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
-import { readPolicyRevision, resolveAutonomy } from './autonomy'
+import { OPERATOR_ROUTINE_AUTO_KINDS, readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import {
   assertGrantCapability,
@@ -452,8 +452,8 @@ export async function createProposal(
   // throw the operation away: a failure now leaves the recorded state to speak for itself.
   try {
     await auditTransition(database, service.requestId, row, 'CREATED', null)
-    // Automatic application spends a per-connection hourly budget. When it is spent the proposal
-    // stays PENDING for a human; it never fails and never bypasses the limit.
+    // Routine account work is throttled by MCP call admission, not an approval quota.
+    // Other automatic effects retain the separate hourly budget and human fallback.
     const dependencies = {
       database,
       kinds: service.kinds,
@@ -462,7 +462,8 @@ export async function createProposal(
     const autonomy = await resolveAutonomy(kind, database)
     if (
       autonomy === 'auto' &&
-      (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
+      (OPERATOR_ROUTINE_AUTO_KINDS.has(kind.kind) ||
+        (await admitAutoApply(database, service.grant.grantId, service.now)).allowed)
     ) {
       await approveAndApplyProposal(
         {

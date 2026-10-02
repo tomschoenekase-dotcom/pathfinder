@@ -398,6 +398,9 @@ describe.skipIf(!enabled)(
 
     it('always asks, even under a named AUTO policy, and nothing applies until a person approves', async () => {
       const customer = await makeCustomer('ask')
+      const previousPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'customers:propose' },
+      })
       await db.operatorAutonomyPolicy.upsert({
         where: { capability: 'customers:propose' },
         create: {
@@ -418,7 +421,19 @@ describe.skipIf(!enabled)(
           await db.venue.count({ where: { tenantId: customer.tenantId, isActive: true } }),
         ).toBe(2)
       } finally {
-        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'customers:propose' } })
+        if (previousPolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: 'customers:propose' },
+            create: previousPolicy,
+            update: {
+              mode: previousPolicy.mode,
+              allowedKinds: previousPolicy.allowedKinds,
+              updatedByUserId: previousPolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'customers:propose' } })
+        }
       }
     })
 

@@ -170,6 +170,8 @@ export function errorCode(error: unknown): string {
       ? String((error as { code: unknown }).code)
       : ''
   if (OPERATOR_KIND_REFUSAL_CODES.has(code)) return code
+  if (['INVALID_CSV', 'FETCH_FAILED', 'SCOPE_REQUIRED', 'OPERATION_CONFLICT'].includes(code))
+    return code
   return 'TOOL_FAILED'
 }
 
@@ -180,6 +182,24 @@ type ErrorGuidance = Readonly<{
 }>
 
 const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
+  INVALID_CSV: {
+    retryable: false,
+    nextAction: 'Correct the CSV format, mapping or size. No import rows were staged by this call.',
+  },
+  FETCH_FAILED: {
+    retryable: true,
+    nextAction:
+      'Supply a fresh authorized CSV attachment link or csvText and retry with the same operationId.',
+  },
+  SCOPE_REQUIRED: {
+    retryable: false,
+    nextAction: 'CSV imports require an owner-authorized platform-wide CRM connection.',
+  },
+  OPERATION_CONFLICT: {
+    retryable: false,
+    nextAction:
+      'This operationId belongs to a different file or mapping. Recover the original import before starting distinct work.',
+  },
   NOT_FOUND: {
     retryable: false,
     nextAction:
@@ -254,7 +274,7 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
   IMPORT_NOT_READY: {
     retryable: false,
     nextAction:
-      'Read crm.get_import. The import must be staged, free of rows awaiting a duplicate decision, and unchanged since you read it. Reviewing rows happens in the admin app.',
+      'Read crm.get_import. The import must finish staging, have no unresolved duplicate rows, and match the hashes you read. Stage CSV attachments with crm.stage_csv_import; review uncertain duplicate rows in the admin app.',
   },
   OWNER_NOT_FOUND: {
     retryable: false,
@@ -290,8 +310,15 @@ export function errorBody(
   extra: Record<string, unknown> = {},
 ) {
   const effect = getOperatorToolDefinition(name)?.effect
-  const write = effect === 'proposal'
-  const known = ERROR_GUIDANCE[code]
+  const write = effect !== undefined && effect !== 'read'
+  const known =
+    name === 'crm.stage_csv_import' && code === 'TOOL_FAILED'
+      ? {
+          retryable: false,
+          nextAction:
+            'The staging outcome is unknown. Repeat crm.stage_csv_import with the same operationId and original file or csvText to recover its durable import receipt. Do not create a new operationId for the same import.',
+        }
+      : ERROR_GUIDANCE[code]
   // A failed write call may still have recorded the proposal, so the same operationId is the
   // only safe way to find out. A new operationId could repeat the effect.
   const unknownWrite = write && code === 'TOOL_FAILED'
@@ -424,9 +451,9 @@ export async function handleOperatorMcpRequest(
               result: {
                 protocolVersion: version,
                 capabilities: { tools: { listChanged: false } },
-                serverInfo: { name: 'torchiko-operator', version: '1.0.0' },
+                serverInfo: { name: 'torchiko-operator', version: '1.1.0' },
                 instructions:
-                  'Call operator.get_manual first and follow it. Every write is a proposal; show Tom the approveUrl when a result is PENDING.',
+                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit.',
               },
             },
             requestId,
@@ -454,6 +481,7 @@ export async function handleOperatorMcpRequest(
                   inputSchema: tool.inputSchema,
                   outputSchema: tool.outputSchema,
                   annotations: tool.annotations,
+                  ...(tool._meta ? { _meta: tool._meta } : {}),
                 })),
               },
             },

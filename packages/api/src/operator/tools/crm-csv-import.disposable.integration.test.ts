@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
+import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import {
   createProspectAction,
@@ -64,12 +65,18 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
       addedRows: 0,
       next: { tool: 'crm.propose_import_commit', args: { expectedRows: 13 } },
     })
+    expect(staged.next).not.toBeNull()
+    expect(staged.next?.args.operationId).not.toBe(operationId)
+    expect(
+      OPERATOR_MCP_INPUTS['crm.propose_import_commit'].safeParse(staged.next?.args).success,
+    ).toBe(true)
     const replay = await stageCsvImport(input, context(true))
     expect(replay).toMatchObject({
       importId: staged.importId,
       replayed: true,
       skippedDuplicates: 7,
     })
+    expect(replay.next?.args.operationId).toBe(staged.next?.args.operationId)
     const savedManifest = (
       await db.prospectImport.findUniqueOrThrow({ where: { id: staged.importId } })
     ).packageManifest as Record<string, unknown>
