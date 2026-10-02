@@ -17,6 +17,7 @@ import { tenantRouter } from './routers/tenant'
 import { supportRouter } from './routers/support'
 import { venueRouter } from './routers/venue'
 import { venuePackageRouter } from './routers/venue-package'
+import { venueRecommendationRouter } from './routers/venue-recommendation'
 import { voiceRouter } from './routers/voice'
 import { locationRouter } from './routers/location'
 import { widgetRouter } from './routers/widget'
@@ -40,6 +41,7 @@ export const appRouter = router({
   tenant: tenantRouter,
   venue: venueRouter,
   venuePackage: venuePackageRouter,
+  venueRecommendation: venueRecommendationRouter,
   voice: voiceRouter,
   location: locationRouter,
   widget: widgetRouter,
