@@ -107,7 +107,7 @@ describe('ClientBillingPanel', () => {
     expect(
       await screen.findByRole('heading', { name: 'Your Torchiko team has not set up billing yet' }),
     ).toBeTruthy()
-    expect(container.textContent).toContain('Nothing is due')
+    expect(container.textContent).toContain('No payment has been requested through this page')
   })
 
   it('shows a retry, not a blank or empty state, when the request fails', async () => {

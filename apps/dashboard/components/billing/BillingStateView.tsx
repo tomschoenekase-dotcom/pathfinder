@@ -28,7 +28,7 @@ const STATE_COPY: Record<Exclude<ClientBillingStateData['state'], 'error'>, Copy
   no_setup: {
     label: 'Not set up',
     heading: 'Your Torchiko team has not set up billing yet',
-    body: 'Nothing is due. When your arrangement is ready, your price and any payment steps will appear here.',
+    body: 'No payment has been requested through this page. When your arrangement is set up, your price and any payment steps will appear here. Questions about your arrangement? Contact your Torchiko team.',
     tone: 'quiet',
   },
   complimentary: {
@@ -52,7 +52,7 @@ const STATE_COPY: Record<Exclude<ClientBillingStateData['state'], 'error'>, Copy
   no_subscription: {
     label: 'No subscription',
     heading: 'There is no subscription to pay yet',
-    body: 'An arrangement exists but no payment has been requested. Nothing is due right now.',
+    body: 'An arrangement exists, but no payment has been requested through this page yet.',
     tone: 'quiet',
   },
   checkout_pending: {

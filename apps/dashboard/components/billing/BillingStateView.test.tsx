@@ -113,12 +113,12 @@ describe('BillingStateView', () => {
     expect(screen.queryByText(/no subscription/i)).toBeNull()
   })
 
-  it('tells a tenant without billing setup that nothing is due', () => {
+  it('tells a tenant without billing setup that no payment has been requested', () => {
     render(<BillingStateView view={{ status: 'ready', data: noSetup }} />)
     expect(
       screen.getByRole('heading', { name: 'Your Torchiko team has not set up billing yet' }),
     ).toBeTruthy()
-    expect(screen.getByText(/Nothing is due/)).toBeTruthy()
+    expect(screen.getByText(/No payment has been requested through this page/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Contact Torchiko' }).getAttribute('href')).toBe(
       '/support',
     )
