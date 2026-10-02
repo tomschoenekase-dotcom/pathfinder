@@ -2,11 +2,8 @@ import { notFound } from 'next/navigation'
 
 import { createAdminCaller } from '../../../../lib/admin-caller'
 import { resolveOperatorSession } from '../../../../lib/operator-session'
-import {
-  OperatorAdminView,
-  OPERATOR_TABS,
-  type OperatorTabId,
-} from '../../../../components/operator/OperatorAdminView'
+import { OperatorAdminView } from '../../../../components/operator/OperatorAdminView'
+import { OPERATOR_TABS, type OperatorTabId } from '../../../../components/operator/operator-tabs'
 import { OperatorAudit, AUDIT_EVENT_TYPES } from '../../../../components/operator/OperatorAudit'
 import { OperatorAutonomy } from '../../../../components/operator/OperatorAutonomy'
 import { OperatorConnections } from '../../../../components/operator/OperatorConnections'
