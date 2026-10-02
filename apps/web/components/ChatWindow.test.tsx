@@ -990,6 +990,41 @@ describe('ChatWindow mobile send and composer hint', () => {
     expect(document.activeElement).not.toBe(composer)
   })
 
+  it('submits one touch release before a moved Safari click and ignores a swipe', () => {
+    phone()
+    const onSend = vi.fn()
+    render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    const send = screen.getByRole('button', { name: 'Send message' })
+    fireEvent.change(composer, { target: { value: 'Where is the quiet gallery?' } })
+
+    fireEvent.touchStart(send, {
+      touches: [{ identifier: 1, clientX: 20, clientY: 20 }],
+      changedTouches: [{ identifier: 1, clientX: 20, clientY: 20 }],
+    })
+    fireEvent.touchEnd(send, { changedTouches: [{ identifier: 1, clientX: 45, clientY: 45 }] })
+    fireEvent.click(send, { detail: 1 })
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.touchStart(send, {
+      touches: [{ identifier: 3, clientX: 20, clientY: 20 }],
+      changedTouches: [{ identifier: 3, clientX: 20, clientY: 20 }],
+    })
+    fireEvent.touchCancel(send, { changedTouches: [{ identifier: 3, clientX: 20, clientY: 20 }] })
+    fireEvent.click(send, { detail: 1 })
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.touchStart(send, {
+      touches: [{ identifier: 2, clientX: 20, clientY: 20 }],
+      changedTouches: [{ identifier: 2, clientX: 20, clientY: 20 }],
+    })
+    fireEvent.touchEnd(send, { changedTouches: [{ identifier: 2, clientX: 21, clientY: 20 }] })
+    fireEvent.click(send, { detail: 1 })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledWith('Where is the quiet gallery?')
+    expect((composer as HTMLTextAreaElement).value).toBe('')
+  })
+
   it('keeps the keyboard for whitespace, an IME confirmation and a rejected send', () => {
     phone()
     const onSend = vi.fn().mockReturnValue(false)
