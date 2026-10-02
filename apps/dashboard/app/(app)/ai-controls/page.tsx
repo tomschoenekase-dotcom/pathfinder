@@ -1,11 +1,14 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import { auth } from '@pathfinder/auth/server'
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 
 import tochiDevelopmentManifest from '../../../../../assets/characters/tochi/v0-development/manifest.json'
 import { AiControlsForm } from '../../../components/AiControlsForm'
 import { PortalPage, portalTextLink } from '../../../components/portal/PortalPrimitives'
+import { VenueRecommendationsPanel } from '../../../components/VenueRecommendationsPanel'
+import { isManagerRole } from '../../../lib/portal-capabilities'
 import { createDashboardCaller } from '../../../lib/server-caller'
 
 type AiControlsPageProps = {
@@ -33,6 +36,11 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       profiles: await caller.venue.listPersonalityProfiles({ venueId: venue.id }),
     })),
   )
+
+  const { orgRole, sessionClaims } = await auth()
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as { platform_role?: string } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
 
   const characterRolloutVisible =
     isFeatureEnabled('venueCharacterMode') &&
@@ -71,6 +79,13 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
         venues={configurations}
         tochiDevelopmentPreview={tochiDevelopmentPreview}
       />
+      <div className="mt-8">
+        <VenueRecommendationsPanel
+          venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
+          initialVenueId={initialVenueId}
+          canManage={isManagerRole(orgRole, isPlatformAdmin)}
+        />
+      </div>
     </PortalPage>
   )
 }

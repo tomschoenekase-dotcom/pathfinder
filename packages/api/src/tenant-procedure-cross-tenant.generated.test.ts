@@ -703,6 +703,7 @@ import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
+import { venueRecommendationRouter } from './routers/venue-recommendation'
 import {
   venuePackageCreateRouter,
   venuePackageLifecycleRouter,
@@ -728,6 +729,7 @@ const testRouter = router({
   support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
+  venueRecommendation: venueRecommendationRouter,
   venuePackageCreate: venuePackageCreateRouter,
   venuePackageLifecycle: venuePackageLifecycleRouter,
   venuePackageRead: venuePackageReadRouter,

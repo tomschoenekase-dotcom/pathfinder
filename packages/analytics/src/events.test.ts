@@ -22,6 +22,9 @@ describe('analytics event trust boundary', () => {
       'custom_personality_saved',
       'character_chat_started',
       'character_mode_disabled',
+      'recommendation.candidate',
+      'recommendation.shown',
+      'recommendation.declined',
     ] as const) {
       expect(ANALYTICS_EVENT_TYPES).toContain(eventType)
       expect(PUBLIC_ANALYTICS_EVENT_TYPES).not.toContain(eventType as never)

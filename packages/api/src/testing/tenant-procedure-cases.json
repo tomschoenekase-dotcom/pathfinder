@@ -1357,5 +1357,72 @@
     "input": {
       "connectorId": "cconnector12345678901"
     }
+  },
+  {
+    "path": "venueRecommendation.getOverview",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "venueRecommendation.upsertItem",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "stableKey": "lemonade",
+      "fields": {
+        "category": "cold_drink",
+        "name": "Lemonade"
+      }
+    }
+  },
+  {
+    "path": "venueRecommendation.archiveItem",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "itemId": "citemabc123456789012x",
+      "expectedVersion": 1
+    }
+  },
+  {
+    "path": "venueRecommendation.setItemPriority",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "itemId": "citemabc123456789012x",
+      "priority": "HIGH"
+    }
+  },
+  {
+    "path": "venueRecommendation.upsertPolicy",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "enabled": true,
+      "maxBoost": 3,
+      "ownerLabel": "Venue manager"
+    }
+  },
+  {
+    "path": "venueRecommendation.getMeasurement",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "days": 30
+    }
   }
 ]

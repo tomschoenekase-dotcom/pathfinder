@@ -120,6 +120,10 @@ const tenantFeatureFlagFindMany = vi.fn()
 const tenantFeatureFlagFindUnique = vi.fn()
 const venueKnowledgeEntryFindMany = vi.fn()
 const dbTransaction = vi.fn()
+const recommendationPolicyFindFirst = vi.fn()
+const catalogItemFindMany = vi.fn()
+const catalogPriorityFindMany = vi.fn()
+const analyticsEventFindMany = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
@@ -159,6 +163,10 @@ const mockDb = {
   guestChatTurn: { findFirst: guestChatTurnFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
+  venueRecommendationPolicy: { findFirst: recommendationPolicyFindFirst },
+  venueCatalogItem: { findMany: catalogItemFindMany },
+  venueCatalogItemPriority: { findMany: catalogPriorityFindMany },
+  analyticsEvent: { findMany: analyticsEventFindMany },
   $queryRaw: dbQueryRaw,
   $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
@@ -4011,6 +4019,197 @@ describe('chat router', () => {
 
       expect(result.response).toBe('The elephants are 50m north.')
       expect(result.sessionId).toBe(SESSION_ID)
+    })
+
+    describe('venue recommendations (W08)', () => {
+      const freshObserved = () => new Date(Date.now() - 2 * 60 * 60 * 1000)
+      function catalogRow(overrides: Record<string, unknown>) {
+        return {
+          id: 'item_lemonade',
+          venueId: VENUE_ID,
+          version: 3,
+          category: 'cold_drink',
+          name: 'Fresh Lemonade',
+          description: null,
+          placeId: null,
+          routeNote: 'Order at the cafe window',
+          priceMinor: 500,
+          currency: 'USD',
+          sizeLabel: '16 oz',
+          priceObservedAt: freshObserved(),
+          effectiveFrom: null,
+          effectiveUntil: null,
+          availability: 'AVAILABLE',
+          availabilityObservedAt: freshObserved(),
+          hours: {},
+          seasonalWindows: [],
+          ingredients: { status: 'known', values: ['lemon', 'sugar'] },
+          allergens: { status: 'known', values: [] },
+          dietary: {},
+          lastVerifiedAt: freshObserved(),
+          allowedClaims: [],
+          archivedAt: null,
+          ...overrides,
+        }
+      }
+      function enable(extra: { shown?: boolean; declined?: boolean } = {}) {
+        recommendationPolicyFindFirst.mockResolvedValue({
+          id: 'policy_1',
+          venueId: VENUE_ID,
+          version: 2,
+          enabled: true,
+          maxBoost: 3,
+          maxUnsolicitedPerSession: 1,
+          factMaxAgeDays: 30,
+          availabilityMaxAgeHours: 24,
+          expiresAt: null,
+        })
+        catalogItemFindMany.mockResolvedValue([
+          catalogRow({}),
+          catalogRow({ id: 'item_water', name: 'Bottled Water', priceMinor: 200, version: 1 }),
+        ])
+        catalogPriorityFindMany.mockResolvedValue([{ itemId: 'item_lemonade', priority: 'HIGH' }])
+        analyticsEventFindMany.mockResolvedValue([
+          ...(extra.shown
+            ? [{ eventType: 'recommendation.shown', metadata: { itemId: 'item_lemonade' } }]
+            : []),
+          ...(extra.declined ? [{ eventType: 'recommendation.declined', metadata: {} }] : []),
+        ])
+      }
+      const thirsty = { ...sendInput, message: "I'm thirsty, what cold drinks do you have?" }
+      const recommendationEvents = () =>
+        emitEvent.mock.calls
+          .map(([event]) => event as { eventType: string; metadata?: Record<string, unknown> })
+          .filter((event) => event.eventType.startsWith('recommendation.'))
+
+      it('is off by default: no prompt block, no catalog reads, no events', async () => {
+        setupHappyPath('Cold drinks are near the entrance.')
+        recommendationPolicyFindFirst.mockResolvedValue(null)
+        await caller.chat.send(thirsty)
+        expect(getConcatenatedSystemPrompt()).not.toContain('VENUE RECOMMENDATION DECISION')
+        expect(catalogItemFindMany).not.toHaveBeenCalled()
+        expect(catalogPriorityFindMany).not.toHaveBeenCalled()
+        expect(recommendationEvents()).toEqual([])
+      })
+
+      it('is off when the policy exists but is disabled', async () => {
+        setupHappyPath('Cold drinks are near the entrance.')
+        recommendationPolicyFindFirst.mockResolvedValue({
+          id: 'policy_1',
+          venueId: VENUE_ID,
+          version: 1,
+          enabled: false,
+          maxBoost: 3,
+          maxUnsolicitedPerSession: 1,
+          factMaxAgeDays: 30,
+          availabilityMaxAgeHours: 24,
+          expiresAt: null,
+        })
+        await caller.chat.send(thirsty)
+        expect(getConcatenatedSystemPrompt()).not.toContain('VENUE RECOMMENDATION DECISION')
+        expect(catalogItemFindMany).not.toHaveBeenCalled()
+      })
+
+      it('passes labelled constraints, appends the disclosure, and records exposure server-side', async () => {
+        setupHappyPath('The Fresh Lemonade at the cafe window is a cold option.')
+        enable()
+        const result = await caller.chat.send(thirsty)
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('decision: FEATURE_ONE_ITEM')
+        expect(prompt).toContain('Fresh Lemonade')
+        // The private commercial priority never reaches the model.
+        expect(prompt).not.toMatch(/\bHIGH\b/u)
+        expect(prompt).not.toMatch(/priorit(?:y|ies)\b.*lemonade/iu)
+        expect(result.response).toBe(
+          'The Fresh Lemonade at the cafe window is a cold option.\n\nFeatured by City Zoo',
+        )
+        const events = recommendationEvents()
+        expect(events.map((event) => event.eventType)).toEqual([
+          'recommendation.candidate',
+          'recommendation.shown',
+        ])
+        expect(events[1]?.metadata).toMatchObject({
+          itemId: 'item_lemonade',
+          itemVersion: 3,
+          policyId: 'policy_1',
+          policyVersion: 2,
+          candidateCount: 2,
+          disclosureAppended: true,
+        })
+        expect(JSON.stringify(events)).not.toMatch(/HIGH|priority/u)
+        // Exposure is read back through tenant-scoped queries only.
+        expect(analyticsEventFindMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
+          }),
+        )
+        expect(catalogItemFindMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
+          }),
+        )
+      })
+
+      it('records a candidate but not a shown exposure when the answer never mentions the item', async () => {
+        setupHappyPath('There are cold drinks at the cafe.')
+        enable()
+        const result = await caller.chat.send(thirsty)
+        expect(result.response).toBe('There are cold drinks at the cafe.')
+        expect(recommendationEvents().map((event) => event.eventType)).toEqual([
+          'recommendation.candidate',
+        ])
+      })
+
+      it('forbids proactive recommendations for an unrelated question', async () => {
+        setupHappyPath('The sculpture was made in 1902.')
+        enable()
+        await caller.chat.send({ ...sendInput, message: 'Who sculpted the bronze horse?' })
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('decision: NO_PROACTIVE_RECOMMENDATION')
+        expect(prompt).not.toContain('Fresh Lemonade')
+        expect(recommendationEvents()).toEqual([])
+      })
+
+      it('respects the per-session cap using the recorded exposure ledger', async () => {
+        setupHappyPath('The cafe has more cold drinks.')
+        enable({ shown: true })
+        await caller.chat.send(thirsty)
+        expect(getConcatenatedSystemPrompt()).toContain('decision: NO_PROACTIVE_RECOMMENDATION')
+        expect(
+          recommendationEvents().some((event) => event.eventType === 'recommendation.shown'),
+        ).toBe(false)
+      })
+
+      it('records a refusal and then stays quiet', async () => {
+        setupHappyPath('Of course, no problem.')
+        enable({ shown: true })
+        await caller.chat.send({ ...sendInput, message: 'No thanks, I am not interested.' })
+        expect(recommendationEvents().map((event) => event.eventType)).toEqual([
+          'recommendation.declined',
+        ])
+      })
+
+      it('still answers a direct question about the item after a refusal', async () => {
+        setupHappyPath('Fresh Lemonade is $5.00.')
+        enable({ shown: true, declined: true })
+        const result = await caller.chat.send({
+          ...sendInput,
+          message: 'How much is the lemonade?',
+        })
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('decision: ANSWER_DIRECT_QUESTION')
+        expect(prompt).toContain('"price":"$5.00"')
+        expect(result.response).toBe('Fresh Lemonade is $5.00.')
+        expect(recommendationEvents()).toEqual([])
+      })
+
+      it('fails open when recommendation state cannot be read', async () => {
+        setupHappyPath('Cold drinks are near the entrance.')
+        recommendationPolicyFindFirst.mockRejectedValue(new Error('db offline'))
+        const result = await caller.chat.send(thirsty)
+        expect(result.response).toBe('Cold drinks are near the entrance.')
+        expect(getConcatenatedSystemPrompt()).not.toContain('VENUE RECOMMENDATION DECISION')
+      })
     })
   })
 
