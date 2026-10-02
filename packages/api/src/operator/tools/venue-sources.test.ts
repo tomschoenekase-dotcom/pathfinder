@@ -283,10 +283,13 @@ describe('recording a URL is not ingestion', () => {
     )
     expect(reconciled).toMatchObject({ state: 'applied' })
     expect(
-      await venuesSourceKind.reconcile!({ ...args(), operationId: 'x' } as never, {
-        ...apply('x'),
-        operationId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-      }),
+      await venuesSourceKind.reconcile!(
+        { ...(args() as object), operationId: 'x' } as never,
+        {
+          ...(apply('x') as object),
+          operationId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        } as OperatorApplyContext,
+      ),
     ).toEqual({ state: 'not_applied' })
   })
 

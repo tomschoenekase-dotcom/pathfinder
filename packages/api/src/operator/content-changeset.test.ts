@@ -898,7 +898,7 @@ describe('content changeset: typed revisions', () => {
     seed()
   })
 
-  const tourUpdate = {
+  const tourUpdate: ChangesetScope['ops'][number] = {
     op: 'update',
     representation: 'TYPED_REVISION',
     id: 'm_tours',
@@ -914,7 +914,7 @@ describe('content changeset: typed revisions', () => {
       },
     },
     evidence: [{ sourceId: 'src_1', ordinal: 0, locator: 'p1' }],
-  } as const
+  }
 
   it('authors a new revision with frozen evidence and does not touch the publication', async () => {
     const resolved = await resolveChangeset(database, scope([tourUpdate]), NOW)

@@ -231,7 +231,7 @@ describe.skipIf(!enabled)(
       await withTenantIsolationBypass(() =>
         db.tenantMembership.updateMany({
           where: { tenantId, userId: leaver },
-          data: { status: 'SUSPENDED' },
+          data: { status: 'REMOVED' },
         }),
       )
 
