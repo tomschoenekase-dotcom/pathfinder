@@ -1,5 +1,7 @@
 # Reconciling an unknown customer-create operation
 
+> **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
+
 Applies to `customers.propose_create` operations whose recorded outcome is `unknown`. First case:
 operation `36b36c4b-151d-44d5-a801-cf0d0cd6a29c`.
 
@@ -34,6 +36,7 @@ Run against production with a read-only database role. Do not call any write too
      if `effect` is `unknown` or `partial`.
    - NOT_FOUND with `operationRecorded: false`: continue below.
 2. Intent receipt (the fence written before any provider call):
+
    ```sql
    SELECT status, provider_organization_id, completed_tenant_id, completed_venue_id,
           local_slug, created_at
@@ -44,6 +47,7 @@ Run against production with a read-only database role. Do not call any write too
    - No row, or `RESERVED`: the provider was never called. The create had no effect.
    - `PROVIDER_STARTED`: the provider call may have happened. Treat as unknown.
    - `PROVIDER_CONFIRMED` or `COMPLETED`: an organization exists; note `provider_organization_id`.
+
 3. Local records for any candidate organization id or the intended slug:
    ```sql
    SELECT id, slug, name, created_at FROM tenants WHERE id = '<organization id>' OR slug = '<slug>';

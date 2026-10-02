@@ -1,5 +1,7 @@
 # Torchiko operator program: implementation journal
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+
 Handoff: "Torchiko Claude Code Implementation Handoff" (lanes H01-H10, H12-H14 active; H11 decision-needed).
 No secrets or real customer content in this file. PASS / FAIL / NOT RUN is recorded with the command and environment.
 
