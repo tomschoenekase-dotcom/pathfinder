@@ -195,3 +195,36 @@ Lossless merge (design first), real-device keyboard proof (`torchiko-keyboard-de
 - This documentation/safety commit creates a new head. The results above bind only the stated head;
   next require the new head's CI and candidate/handoff proof, then staged backup/rehearsal and admission
   before production promotion under `docs/production-cutover-20261001.md`.
+
+## 2026-10-01 — production published; final runtime acceptance blocked
+
+- Deployed source: `9f726afd101cc3a3cb3c96d9504e06adc9618642`, exactly the tested PR #38
+  head `10261982885a065355feee7b89d8a95247188986` tree. PR #38 merged; [PR #39](https://github.com/tomschoenekase-dotcom/pathfinder/pull/39)
+  merged into master as `26a9e7e2fd5d495515422a4e415a5765c4e053bb`, with the same tree.
+- Exact-source production PR checks PASS:
+  [ci](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36956001668/job/110678967948),
+  [visitor-launch](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36956001668/job/110678967762),
+  [railway-iac](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36956001668/job/110678968063).
+  Owner [CI run 36946813400](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36946813400), attempt 2, and
+  [production promotion gate](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/36956001649) also PASS.
+- Staging migration hold produced verified finite exit 2; closed migration controls and actual three-service
+  admission passed. Its old cancelled deployment context was the intentional hold, not application health.
+- Independently drained production writers, captured a fresh post-drain backup, restored the public schema
+  to disposable PostgreSQL 17 and rehearsed only 255. Archive SHA-256:
+  `3e1925efab8f888167fac2e1c2d9be1af4777b34e36c771bd52a9925f4c78ae9`.
+  Existing `@pathfinder/db db:migrate:prod` applied only 255. Live verification passed all 277 original
+  table counts/hashes, complete old ledger preservation, 255 finished migrations / 280 tables, and integrity checks.
+- Production SUCCESS/RUNNING at exact source: web `2ecaf7a7-db45-4d0f-a8bd-7cceb0d16a78`,
+  dashboard `0a457ca2-21b1-4111-a9f9-c6957967eb48`, workers `ba26e512-9956-4d5d-9e39-c22d7c777360`.
+  [Guide health](https://guide.torchiko.com/api/health) reports correct source and database/Redis up;
+  [dashboard sign-in](https://app.torchiko.com/sign-in) and existing OAuth discovery return 200.
+  Existing OAuth remains true; three new operator switches remain unset/off; all 13 worker switches are false.
+- **BLOCKED:** final runtime audit exits 1: web has two `[ResponseAborted: ]` error rows at
+  `2026-10-02T04:02:32.495Z`. Both web and dashboard HTTP 5xx counts are 0; dashboard/worker error counts are 0.
+  No exception was added and no completed acceptance is claimed. Production autodeploy remains paused on all
+  three services; staging remains false. Diagnostic proof SHA-256:
+  `4fb17a2a212a2f1d7c88a66eb873e9d8d9353f1e1998e5478e4c38e95212513d`.
+- Private proofs remain outside the repository in the operator-program `tmp` directory. No source/workflow fix,
+  flag activation, email, invitation, credential creation or money movement. Next: investigate the aborted-response
+  errors, complete strict runtime acceptance, then restore original production autodeploy true. This journal commit
+  is evidence only and does not change the deployed source or claim green checks for its new head.
