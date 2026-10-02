@@ -201,6 +201,9 @@ export const TENANTED_TABLES = [
   // Operator-requested public web sources, frozen as evidence for one venue.
   'VenueSource',
   'VenueSourceInput',
+  // What an offboarding execution switched off and what a person must still do.
+  'OffboardingExecution',
+  'OffboardingExecutionStep',
 ] as const
 
 export const PLATFORM_TABLES = [

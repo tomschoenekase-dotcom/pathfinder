@@ -17,6 +17,17 @@ export function isCustomerCreateEnabled(
   return source.OPERATOR_CUSTOMER_CREATE_ENABLED === 'true'
 }
 
+/**
+ * Executing a reviewed offboarding plan: closes the customer's venues, stops its schedules,
+ * revokes its credentials and suspends its members. Local effects only (no provider is called),
+ * but it is customer-wide and hard to undo, so it is dark unless a deployment turns it on.
+ */
+export function isOffboardingExecutionEnabled(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return source.OPERATOR_OFFBOARDING_EXECUTION_ENABLED === 'true'
+}
+
 /** Having the identity provider email a sign-up link. A separate switch from creation. */
 export function isCustomerInviteEnabled(
   source: Readonly<Record<string, string | undefined>> = process.env,

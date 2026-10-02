@@ -189,6 +189,8 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'customers.propose_invite',
   // Creates a real organization at the identity provider, so a person decides each time.
   'customers.propose_create',
+  // Switches off a whole customer's public access, schedules, connections and member access.
+  'offboarding.propose_execution',
   'operator.propose_revert',
   // Hides an account from every list, so a person decides each time.
   'crm.propose_account_archive',
@@ -358,6 +360,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'appearance.propose_update',
   'customers.propose_invite',
   'customers.propose_create',
+  'offboarding.propose_execution',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -1380,6 +1383,19 @@ export const OPERATOR_MCP_INPUTS = {
     ...tenantScope,
     email: Email,
     role: OperatorInviteRole,
+  }),
+  'offboarding.propose_execution': writeInput({
+    ...tenantScope,
+    /** A reviewed offboarding plan that covers every venue of the customer. */
+    planId: Identifier,
+    /**
+     * Say true only after a person cancelled or settled any live paid arrangement at the payment
+     * provider. Needed when the customer still has one; a note says what was done.
+     */
+    billingHandled: z.boolean().default(false),
+    billingNote: z.string().trim().min(1).max(500).optional(),
+  }).refine((value) => !value.billingHandled || value.billingNote !== undefined, {
+    message: 'Saying billing is handled needs a note.',
   }),
   'support.propose_triage': writeInput({
     ...venueScope,
@@ -3670,6 +3686,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'appearance.propose_update': OperatorWriteResult,
   'customers.propose_create': OperatorWriteResult,
   'customers.propose_invite': OperatorWriteResult,
+  'offboarding.propose_execution': OperatorWriteResult,
   'support.propose_triage': OperatorWriteResult,
   'operator.propose_plan': OperatorWriteResult,
   'operator.propose_revert': OperatorWriteResult,
@@ -4677,6 +4694,14 @@ const seeds: readonly Seed[] = [
     'customers:propose',
     'tenant',
     'customers.invite',
+  ],
+  [
+    'offboarding.propose_execution',
+    'Propose offboarding execution',
+    `Propose executing a reviewed offboarding plan for one customer, covering every venue it has. Applying it, step by step with each outcome recorded so a failure can be resumed: closes the venues to visitors (guest chat stops serving; QR links and embeds show a neutral closed page), stops routines, report schedules and live-data feeds, revokes the customer's integration credentials and operator connections, and suspends the customer's member access in the app. It records, but never performs, the payment cancellation and the identity-provider action as checklist items for a person, and lists what exists as a manifest. Nothing is deleted; retention and deletion stay a separate future decision. Refused while a paid arrangement may still be live unless you pass billingHandled with a note. An approved execution can be reverted to reopen the venues and restore member access; credentials, routines and operator connections are not restored. Disabled unless the deployment turns it on. Always needs a human.${PROPOSE}`,
+    'customers:propose',
+    'tenant',
+    'offboarding.execution',
   ],
   [
     'support.propose_triage',

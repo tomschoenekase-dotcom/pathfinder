@@ -111,6 +111,12 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SOURCE_HOST_NOT_AUTHORIZED',
   'SOURCE_LIMIT',
   'SOURCE_ALREADY_PENDING',
+  // Offboarding execution: the plan is not reviewed, does not cover every venue, a paid arrangement
+  // may be live, or an earlier execution was reinstated.
+  'PLAN_NOT_APPROVED',
+  'PLAN_SCOPE_INCOMPLETE',
+  'BILLING_ACTIVE',
+  'EXECUTION_CLOSED',
 ])
 
 /** Durable failure codes that make the effect of a FAILED operation first-class and queryable. */
@@ -892,7 +898,7 @@ export async function applyApprovedProposal(
     const summary = failureSummaryOf(error)
     // A kind that can reconcile records an interrupted apply as a first-class OUTCOME_UNKNOWN
     // (with the cause kept in the result) so it is found, held and resolved, never retried blind.
-    if (applyBegan && resolvableLater && !isProvedNoEffect(error)) {
+    if (applyBegan && resolvableLater && !isProvedNoEffect(error) && !isRecordedPartial(error)) {
       return finish(
         database,
         row,
@@ -918,6 +924,18 @@ export async function applyApprovedProposal(
       input.actorUserId,
     )
   }
+}
+
+/**
+ * A kind that records each step durably can state exactly which steps held. It says so with the
+ * PARTIALLY_APPLIED code, and that account is kept as the failure instead of an unknown outcome.
+ */
+function isRecordedPartial(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === OPERATOR_PARTIALLY_APPLIED
+  )
 }
 
 /**

@@ -225,6 +225,8 @@ model Tenant {
   nativeVenueDeploymentEffects              NativeVenueDeploymentEffect[]
   nativeVenueDeploymentHeads                NativeVenueDeploymentHead[]
   venueSources                              VenueSource[]
+  offboardingExecutions                     OffboardingExecution[]
+  offboardingExecutionSteps                 OffboardingExecutionStep[]
   venueSourceInputs                         VenueSourceInput[]
   nativeVenueDeploymentCommands             NativeVenueDeploymentCommand[]
   nativeVenuePublicationLineages            NativeVenueDeploymentPublicationLineage[]
@@ -7506,6 +7508,7 @@ model OffboardingPlan {
   exportReviewAuditId       String?                       @unique(map: "offboarding_plans_export_review_audit_key") @map("export_review_audit_id")
   tenant                    Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venueTargets              OffboardingVenueTarget[]
+  execution                 OffboardingExecution?
 
   @@unique([id, tenantId])
   @@unique([tenantId, requestId], map: "offboarding_plans_tenant_request_key")
@@ -7606,6 +7609,83 @@ model OffboardingExportOperation {
   @@unique([tenantId, planId, venueId, kind], map: "offboarding_export_operations_tuple_key")
   @@index([tenantId, planId, status, requestedAt, id])
   @@map("offboarding_export_operations")
+}
+
+enum OffboardingExecutionStatus {
+  IN_PROGRESS
+  COMPLETED
+  REINSTATED
+}
+
+enum OffboardingExecutionStepKey {
+  PUBLIC_ACCESS
+  SCHEDULED_WORK
+  CONNECTIONS
+  MEMBER_ACCESS
+  BILLING
+  IDENTITY_PROVIDER
+  DATA_MANIFEST
+}
+
+enum OffboardingExecutionStepStatus {
+  PENDING
+  COMPLETE
+  SKIPPED
+  FAILED
+  ACTION_REQUIRED
+}
+
+/// One execution of an approved offboarding plan. It records what was switched off and what a
+/// human must still do. It never deletes data, never calls a payment or identity provider, and
+/// never advances the plan itself: the plan keeps its reviewed status.
+model OffboardingExecution {
+  id              String                     @id @default(cuid())
+  tenantId        String                     @map("tenant_id")
+  planId          String                     @map("plan_id")
+  status          OffboardingExecutionStatus @default(IN_PROGRESS)
+  billingHandled  Boolean                    @default(false) @map("billing_handled")
+  billingNote     String?                    @map("billing_note") @db.VarChar(500)
+  requestedBy     String                     @map("requested_by") @db.VarChar(191)
+  lastOperationId String                     @map("last_operation_id") @db.Uuid
+  /// What the tenant looked like before any step ran, captured once with the row. Reinstating and
+  /// the manual checklist read it; nothing else changes it.
+  priorState      Json                       @map("prior_state")
+  startedAt       DateTime                   @default(now()) @map("started_at")
+  completedAt     DateTime?                  @map("completed_at")
+  reinstatedAt    DateTime?                  @map("reinstated_at")
+  reinstatedBy    String?                    @map("reinstated_by") @db.VarChar(191)
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  tenant          Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  plan            OffboardingPlan            @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  steps           OffboardingExecutionStep[]
+
+  @@unique([planId, tenantId], map: "offboarding_executions_plan_key")
+  @@unique([id, tenantId], map: "offboarding_executions_scope_key")
+  @@index([tenantId, status, startedAt], map: "offboarding_executions_scope_status_idx")
+  @@map("offboarding_executions")
+}
+
+/// The durable outcome of one step of an execution. A step already COMPLETE, SKIPPED or
+/// ACTION_REQUIRED is never run again, so a resumed or repeated execution only does what is left.
+model OffboardingExecutionStep {
+  id          String                         @id @default(cuid())
+  tenantId    String                         @map("tenant_id")
+  executionId String                         @map("execution_id")
+  key         OffboardingExecutionStepKey
+  status      OffboardingExecutionStepStatus @default(PENDING)
+  attempts    Int                            @default(0)
+  outcome     Json?
+  errorCode   String?                        @map("error_code") @db.VarChar(100)
+  completedAt DateTime?                      @map("completed_at")
+  createdAt   DateTime                       @default(now()) @map("created_at")
+  updatedAt   DateTime                       @updatedAt @map("updated_at")
+  tenant      Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  execution   OffboardingExecution           @relation(fields: [executionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([executionId, key], map: "offboarding_execution_steps_key")
+  @@index([tenantId, executionId], map: "offboarding_execution_steps_scope_idx")
+  @@map("offboarding_execution_steps")
 }
 
 enum OffboardingExportOperationStatus {
