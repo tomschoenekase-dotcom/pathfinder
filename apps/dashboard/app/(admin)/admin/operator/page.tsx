@@ -7,6 +7,7 @@ import { OPERATOR_TABS, type OperatorTabId } from '../../../../components/operat
 import { OperatorAudit, AUDIT_EVENT_TYPES } from '../../../../components/operator/OperatorAudit'
 import { OperatorAutonomy } from '../../../../components/operator/OperatorAutonomy'
 import { OperatorConnections } from '../../../../components/operator/OperatorConnections'
+import { OperatorJobGrants } from '../../../../components/operator/OperatorJobGrants'
 import { OperatorInbox } from '../../../../components/operator/OperatorInbox'
 import { OperatorPanelError } from '../../../../components/operator/OperatorPanelError'
 import { loadOperatorPanel } from '../../../../lib/operator-panel'
@@ -84,6 +85,25 @@ export default async function OperatorAdminPage({
     return (
       <OperatorAdminView tab={tab} inboxCount={null}>
         <OperatorConnections rows={rows} now={now} />
+      </OperatorAdminView>
+    )
+  }
+  if (tab === 'grants') {
+    const result = await loadOperatorPanel('grants', () => caller.admin.operatorJobGrants())
+    if (!result.ok) {
+      return (
+        <OperatorAdminView tab={tab} inboxCount={null}>
+          <OperatorPanelError
+            section="Job grants"
+            category={result.category}
+            retryHref={retryHref}
+          />
+        </OperatorAdminView>
+      )
+    }
+    return (
+      <OperatorAdminView tab={tab} inboxCount={null}>
+        <OperatorJobGrants panel={result.data} now={now} />
       </OperatorAdminView>
     )
   }

@@ -1,6 +1,7 @@
 import { db } from '@pathfinder/db'
 
 import { redactOperatorArgs, type OperatorDatabase } from './audit'
+import { listJobGrantableKinds, listJobGrants } from './job-grants'
 import { createOperatorRegistry } from './registry'
 import type { OperatorKindRegistry } from './proposals'
 
@@ -409,6 +410,42 @@ export async function listOperatorConnections(
       scope: `${grant.allTenants ? 'All clients' : `${grant.tenantIds.length} client(s)`}, ${grant.capabilities.length} capabilities`,
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Job grants
+// ---------------------------------------------------------------------------
+
+/** Everything the job-grant panel shows: current grants plus the choices the create form offers. */
+export async function loadJobGrantPanel(
+  now: Date,
+  database: OperatorDatabase = db,
+  kinds: OperatorKindRegistry = createOperatorRegistry().kinds,
+) {
+  const [grants, clients, tenants] = await Promise.all([
+    listJobGrants(now, database),
+    database.operatorOAuthClient.findMany({
+      where: {
+        revokedAt: null,
+        consentedAt: { not: null },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: LIST_LIMIT,
+      select: { id: true, clientName: true },
+    }),
+    database.tenant.findMany({
+      orderBy: { name: 'asc' },
+      take: 200,
+      select: { id: true, name: true },
+    }),
+  ])
+  return {
+    grants,
+    clients: clients.map((client) => ({ id: client.id, name: client.clientName })),
+    tenants,
+    kinds: listJobGrantableKinds(kinds),
+  }
 }
 
 // ---------------------------------------------------------------------------

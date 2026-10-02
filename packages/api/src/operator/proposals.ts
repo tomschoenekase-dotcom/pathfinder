@@ -20,6 +20,7 @@ import {
   OperatorCapabilityError,
   OperatorNotFoundError,
 } from './grants'
+import { claimJobGrantUse } from './job-grants'
 import type { VerifiedOperatorGrant } from './oauth'
 import { argsHash as hashArgs, sameHash } from './tokens'
 
@@ -178,6 +179,14 @@ export type OperatorProposalKind<Args = unknown> = Readonly<{
    * identity. Absent means the operation stays held for a person.
    */
   resolveUnknown?: (args: Args, context: OperatorApplyContext) => Promise<OperatorUnknownResolution>
+  /**
+   * Explicit opt-in for bounded job grants (an owner's advance permission for a named job). Absent
+   * means the kind is never grantable: default deny. A kind with an external effect (mail, invites,
+   * billing) must not set this, and an always-ask kind is refused here regardless of what it sets.
+   * `amountCents` is the cost or amount a use carries, for grants that cap a total; a kind that
+   * cannot state one cannot be placed under an amount cap.
+   */
+  jobGrant?: Readonly<{ amountCents?: (args: Args) => number }>
   /** Undo for an APPLIED proposal of this kind; absent means the kind cannot be reverted. */
   revert?: (
     original: StoredOperatorProposal,
@@ -195,7 +204,11 @@ export class OperatorProposalError extends Error {
       | 'PLAN_STEP'
       | 'NOT_CANCELLABLE'
       | 'NOT_REVERTIBLE'
-      | 'NOT_RECORDED',
+      | 'NOT_RECORDED'
+      | 'REQUEST_EXPIRED'
+      | 'REQUEST_USED'
+      | 'REQUEST_INVALIDATED'
+      | 'FORBIDDEN_ACTOR',
     message: string,
   ) {
     super(message)
@@ -436,8 +449,14 @@ export async function createProposal(
     await auditTransition(database, service.requestId, row, 'CREATED', null)
     // Automatic application spends a per-connection hourly budget. When it is spent the proposal
     // stays PENDING for a human; it never fails and never bypasses the limit.
+    const dependencies = {
+      database,
+      kinds: service.kinds,
+      allowedUserIds: service.config.allowedUserIds,
+    }
+    const autonomy = await resolveAutonomy(kind, database)
     if (
-      (await resolveAutonomy(kind, database)) === 'auto' &&
+      autonomy === 'auto' &&
       (await admitAutoApply(database, service.grant.grantId, service.now)).allowed
     ) {
       await approveAndApplyProposal(
@@ -449,8 +468,36 @@ export async function createProposal(
           requestId: service.requestId,
           now: service.now,
         },
-        { database, kinds: service.kinds, allowedUserIds: service.config.allowedUserIds },
+        dependencies,
       )
+    } else if (autonomy === 'ask') {
+      // A bounded job grant an owner created in advance. It is looked up and spent entirely on the
+      // server from what the proposal is (kind, tenant, venue, amount); the caller names nothing.
+      // No match, or an exhausted, expired, revoked or out-of-scope grant, leaves the proposal
+      // pending for a person.
+      const use = await claimJobGrantUse(database, {
+        kind,
+        args,
+        clientId: service.grant.clientId,
+        tenantId: row.targetTenantId,
+        venueId: row.targetVenueId,
+        now: service.now,
+        allowedUserIds: service.config.allowedUserIds,
+      })
+      if (use) {
+        await approveAndApplyProposal(
+          {
+            proposalId: row.id,
+            argsHash,
+            actorUserId: use.createdByUserId,
+            auto: true,
+            jobGrantId: use.id,
+            requestId: service.requestId,
+            now: service.now,
+          },
+          dependencies,
+        )
+      }
     }
   } catch (error) {
     logger.error({
@@ -494,6 +541,7 @@ async function auditTransition(
   >,
   outcome: string,
   actorUserId: string | null,
+  args?: unknown,
 ) {
   await writeOperatorAudit(
     {
@@ -509,6 +557,7 @@ async function auditTransition(
       proposalId: row.id,
       planId: row.planId,
       actorUserId,
+      ...(args !== undefined ? { args } : {}),
     },
     database,
   )
@@ -533,6 +582,8 @@ type DecisionInput = Readonly<{
   requestId: string
   now: Date
   auto?: boolean
+  /** The bounded job grant that authorised this approval; only set by the job-grant path. */
+  jobGrantId?: string
 }>
 
 export async function loadGrant(
@@ -605,6 +656,7 @@ export async function approveAndApplyProposal(
       decidedByUserId: input.actorUserId,
       decidedAt: input.now,
       autoApproved: input.auto === true,
+      ...(input.jobGrantId !== undefined ? { jobGrantId: input.jobGrantId } : {}),
     },
   })
   if (approved.count !== 1) {
@@ -614,8 +666,13 @@ export async function approveAndApplyProposal(
     database,
     input.requestId,
     row,
-    input.auto ? 'AUTO_APPROVED' : 'APPROVED',
+    input.jobGrantId !== undefined
+      ? 'JOB_GRANT_APPROVED'
+      : input.auto
+        ? 'AUTO_APPROVED'
+        : 'APPROVED',
     input.actorUserId,
+    ...(input.jobGrantId !== undefined ? [{ jobGrantId: input.jobGrantId }] : []),
   )
   return applyApprovedProposal(row.id, input, dependencies)
 }
@@ -747,6 +804,23 @@ export async function applyApprovedProposal(
       input.requestId,
       input.actorUserId,
     )
+  // A job grant revoked after it approved this proposal but before the write began stops it here.
+  if (row.jobGrantId !== null) {
+    const jobGrant = await database.operatorJobGrant.findUnique({
+      where: { id: row.jobGrantId },
+      select: { revokedAt: true },
+    })
+    if (!jobGrant || jobGrant.revokedAt !== null) {
+      return finish(
+        database,
+        row,
+        'FAILED',
+        { failureCode: 'JOB_GRANT_REVOKED' },
+        input.requestId,
+        input.actorUserId,
+      )
+    }
+  }
   const context: OperatorApplyContext = {
     database,
     grant,

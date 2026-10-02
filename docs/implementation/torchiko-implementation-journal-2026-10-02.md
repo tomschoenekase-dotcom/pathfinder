@@ -57,3 +57,45 @@ Later lanes (W03, W04, W05, W07/W11, W08, W10) are recorded in the final handoff
 ## Acceptance status (this run)
 
 See the final handoff for the complete A01–A29 / M / B / L / CI / H / P / S table.
+
+## W12 authenticated chat approvals and bounded job grants (2026-10-02)
+
+### Design (written from the existing operator code)
+
+Existing: `approveAndApplyProposal` / `rejectProposal` (packages/api/src/operator/proposals.ts) are called only by
+`POST /api/operator/approve`, behind `guardOperatorMutation` (Clerk session, PLATFORM_ADMIN + operator allowlist,
+exact-origin check, strict reverification). The approval POST is bound to the proposal `argsHash`; apply re-checks the
+preview digest and target version. The MCP connection (bearer token) only reaches `createProposal`/reads/controls via
+`registry.callTool`. Autonomy (`OperatorAutonomyPolicy`) is per-capability and owner-set; proposals carry
+`autoApproved`.
+
+A25 chat approvals (new `decisions.ts`, table `operator_decision_requests`):
+
+- Chat side, `operator.request_decision {proposalId}` (control tool, `operator:plan`): own pending standalone proposals
+  only (other grant / out-of-grant tenant = NOT_FOUND, plan step = refused). Records a ticket snapshotting argsHash,
+  previewDigest and targetVersion, TTL 10 minutes, and returns a link. Repeating the call renders the decision. It
+  never approves, rejects or applies.
+- Human side, `decideRequest` is called only by `POST /api/operator/decide` after the same guard as approve. Order:
+  allowlist, ticket exists, status/expiry, input argsHash equals ticket, proposal still PENDING with the same
+  argsHash/previewDigest/targetVersion (else ticket INVALIDATED), then ONE compare-and-set REQUESTED->DECIDED (single
+  use), then the existing approve/reject service. Replay, race and stale page all fail before touching the proposal.
+- CSRF/replay: Clerk session + exact Origin + strict reverification + single-use ticket + argsHash body binding.
+- Audit: `decision.request` events REQUESTED / DECIDED:approve|reject / EXPIRED / INVALIDATED, plus the existing
+  proposal.transition rows. No operator tool imports `decideRequest` (static test).
+- Plans: not covered (plans keep the approval page). Reuse, not fork: decisions call the existing services.
+
+A26 bounded job grants (new `job-grants.ts`, table `operator_job_grants`, column `operator_proposals.job_grant_id`):
+
+- Grant = name, operator connection (OAuth client), one tenant (+ optional venue), exact kinds, maxExecutions (1..100),
+  optional maxAmountCents (only for kinds that declare `jobGrant.amountCents`), required expiry (default 24 h, 5 min..7 d),
+  revocable. Counters are stored as REMAINING budget so a use is one conditional UPDATE (no overspend under races).
+- Created/revoked only by `POST /api/operator/job-grants` behind the same human guard; no operator tool reaches it and
+  the connection cannot name a grant: `createProposal` matches one server-side from kind/tenant/venue/connection.
+- Default deny: a kind must set `jobGrant` itself; always-ask kinds and locked capabilities are refused. Only
+  `appearance.update` opts in this lane; mail, invites, billing and all always-ask kinds stay non-grantable.
+- Use: only when autonomy resolves to `ask`; on a match the proposal is approved by the grant creator as actor with
+  `job_grant_id` recorded and audit outcome `JOB_GRANT_APPROVED` (args: jobGrantId). Revoked before apply = FAILED
+  `JOB_GRANT_REVOKED`. Exhausted/expired/revoked/other scope/other kind = no match = stays PENDING (normal approval).
+- A claimed use is spent even if the change later goes stale or fails (conservative).
+- Migration `20261002110000_add_operator_decisions_and_job_grants` (additive; both tables PLATFORM*TABLES; CHECK
+  constraints on bounds). Disposable DB must be named `pathfinder_disposable*_`for the suites to run (not`pathfinder*einstein*_`), so this lane used `pathfinder_disposable_einstein_w12`.

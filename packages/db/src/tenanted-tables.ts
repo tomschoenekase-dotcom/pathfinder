@@ -289,6 +289,10 @@ export const PLATFORM_TABLES = [
   'OperatorAdmissionCounter',
   'OperatorArming',
   'OperatorAuditEvent',
+  // Decision requests and job grants are platform-owned operator state. The target tenant of a job
+  // grant is data matched against each proposal's target, never a tenant-isolation key.
+  'OperatorDecisionRequest',
+  'OperatorJobGrant',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

@@ -91,6 +91,7 @@ const EXPECTED_TOOLS = [
   'offboarding.list_artifacts',
   'operator.cancel_operation',
   'operator.recover_operation',
+  'operator.request_decision',
   'crm.propose_campaign_membership',
   'crm.propose_contact_create',
   'crm.propose_contact_update',

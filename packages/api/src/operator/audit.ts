@@ -17,6 +17,8 @@ export type OperatorAuditEventType =
   | 'plan.transition'
   | 'proposal.recovery'
   | 'autonomy.change'
+  | 'decision.request'
+  | 'job_grant.change'
 
 export type OperatorAuditInput = Readonly<{
   requestId: string

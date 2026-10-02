@@ -7,14 +7,22 @@ export function ApprovePanel({
   id,
   argsHash,
   label,
+  decisionRequestId,
 }: {
   id: string
   argsHash: string
   label: string
+  decisionRequestId?: string | undefined
 }) {
   return (
     <div className="sticky bottom-0 border-t border-tk-rule bg-tk-paper px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-      <DecisionButtons id={id} argsHash={argsHash} size="large" label={label} />
+      <DecisionButtons
+        id={id}
+        argsHash={argsHash}
+        size="large"
+        label={label}
+        decisionRequestId={decisionRequestId}
+      />
     </div>
   )
 }
