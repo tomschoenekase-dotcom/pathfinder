@@ -1,3 +1,4 @@
+import { computeOperationalUpdateLifecycle } from '@pathfinder/contracts/operational-update-lifecycle'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
@@ -85,12 +86,12 @@ export function classifyDateSensitiveUpdate(
   update: { startsAt: Date; expiresAt: Date },
   observedAt: Date,
 ) {
-  const temporalState =
-    update.expiresAt <= observedAt
-      ? ('EXPIRED' as const)
-      : update.startsAt > observedAt
-        ? ('SCHEDULED' as const)
-        : ('LIVE' as const)
+  // Rows reaching this audit are already PUBLISHED and isActive; the shared function decides
+  // whether the window makes them live, scheduled or expired.
+  const temporalState = computeOperationalUpdateLifecycle(
+    { status: 'PUBLISHED', isActive: true, ...update },
+    observedAt,
+  ).lifecycle as 'EXPIRED' | 'SCHEDULED' | 'LIVE'
   return {
     temporalState,
     guestVisibleNow: temporalState === 'LIVE',

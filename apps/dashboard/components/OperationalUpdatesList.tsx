@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 
+import { computeOperationalUpdateLifecycle } from '@pathfinder/contracts/operational-update-lifecycle'
+
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { ContentHistoryPanel } from './ContentHistoryPanel'
@@ -44,11 +46,23 @@ const priorityClass = {
   URGENT: 'border-rose-200 bg-rose-50 text-rose-700',
 } as const
 
+// The shared lifecycle (never raw isActive) decides the section and the badge, recomputed against
+// the ticking clock so a notice that expires while the page is open leaves "Current".
+function lifecycleFor(update: OperationalUpdateItem, now: number) {
+  return computeOperationalUpdateLifecycle(update, now)
+}
+
 function sectionFor(update: OperationalUpdateItem, now: number): Section {
-  if (update.status === 'DRAFT') return 'Draft'
-  if (!update.isActive || new Date(update.expiresAt).getTime() <= now) return 'Past'
-  if (new Date(update.startsAt).getTime() > now) return 'Scheduled'
-  return 'Current'
+  switch (lifecycleFor(update, now).lifecycle) {
+    case 'DRAFT':
+      return 'Draft'
+    case 'SCHEDULED':
+      return 'Scheduled'
+    case 'LIVE':
+      return 'Current'
+    default:
+      return 'Past'
+  }
 }
 
 function labelType(value: string) {
@@ -267,6 +281,21 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                           <span className="rounded-md border border-tk-rule bg-white px-2 py-0.5 font-medium text-tk-soft">
                             {labelType(update.updateType)}
                           </span>
+                          {(() => {
+                            const state = lifecycleFor(update, now)
+                            return (
+                              <span
+                                data-lifecycle={state.lifecycle}
+                                className={`rounded-md border px-2 py-0.5 font-semibold ${
+                                  state.isActiveButExpired
+                                    ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                    : 'border-tk-rule bg-white text-tk-ink'
+                                }`}
+                              >
+                                {state.label}
+                              </span>
+                            )
+                          })()}
                           <span className="text-tk-soft">
                             {update.venue.name}
                             {update.place ? ` · ${update.place.name}` : ' · Entire venue'}
@@ -309,7 +338,9 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                             {pendingId === update.id ? 'Publishing...' : 'Publish'}
                           </button>
                         ) : null}
-                        {section === 'Scheduled' || section === 'Current' ? (
+                        {section === 'Scheduled' ||
+                        section === 'Current' ||
+                        (section === 'Past' && update.status === 'PUBLISHED' && update.isActive) ? (
                           <button
                             type="button"
                             disabled={pendingId !== null}

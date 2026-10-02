@@ -1,4 +1,8 @@
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
+import {
+  computeOperationalUpdateLifecycle,
+  type OperationalUpdateEffectiveLifecycle,
+} from '@pathfinder/contracts/operational-update-lifecycle'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -99,8 +103,10 @@ export type SelectedOperationalUpdate = {
 }
 
 export type OperationalUpdatePreview = {
-  lifecycle: 'DRAFT' | 'SCHEDULED' | 'LIVE' | 'EXPIRED' | 'INACTIVE'
+  lifecycle: OperationalUpdateEffectiveLifecycle
   guestVisibleNow: boolean
+  isActiveButExpired: boolean
+  lifecycleLabel: string
   startsAt: string
   expiresAt: string
 }
@@ -114,16 +120,12 @@ export function buildOperationalUpdatePreview(
   update: Pick<SelectedOperationalUpdate, 'status' | 'isActive' | 'startsAt' | 'expiresAt'>,
   now = new Date(),
 ): OperationalUpdatePreview {
-  const current = now.getTime()
-  let lifecycle: OperationalUpdatePreview['lifecycle']
-  if (update.status === 'DRAFT') lifecycle = 'DRAFT'
-  else if (!update.isActive) lifecycle = 'INACTIVE'
-  else if (update.expiresAt.getTime() <= current) lifecycle = 'EXPIRED'
-  else if (update.startsAt.getTime() > current) lifecycle = 'SCHEDULED'
-  else lifecycle = 'LIVE'
+  const computed = computeOperationalUpdateLifecycle(update, now)
   return {
-    lifecycle,
-    guestVisibleNow: lifecycle === 'LIVE',
+    lifecycle: computed.lifecycle,
+    guestVisibleNow: computed.guestVisibleNow,
+    isActiveButExpired: computed.isActiveButExpired,
+    lifecycleLabel: computed.label,
     startsAt: update.startsAt.toISOString(),
     expiresAt: update.expiresAt.toISOString(),
   }
@@ -446,6 +448,14 @@ export async function scheduleOperationalUpdateAction(
     const existing = await findUpdate(tx, input.id, input.tenantId)
     if (!existing)
       throw new OperationalUpdateActionError('NOT_FOUND', 'Operational update not found')
+    // Idempotent go-live: a retry against an already published, still-active notice returns the
+    // current state without writing a second audit row. An ended notice is never reopened.
+    if (existing.status === 'PUBLISHED' && existing.isActive) {
+      return {
+        update: existing,
+        preview: buildOperationalUpdatePreview(existing, input.now ?? new Date()),
+      }
+    }
     if (existing.status !== 'DRAFT') {
       throw new OperationalUpdateActionError('CONFLICT', 'Only a draft can be scheduled')
     }
@@ -514,7 +524,12 @@ export async function expireOperationalUpdateAction(
     const existing = await findUpdate(tx, input.id, input.tenantId)
     if (!existing)
       throw new OperationalUpdateActionError('NOT_FOUND', 'Operational update not found')
-    if (existing.status !== 'PUBLISHED' || !existing.isActive) {
+    // Idempotent end: re-ending an already ended notice returns the existing state, with no write
+    // and no second audit row. Only a draft (never published) cannot be ended.
+    if (existing.status === 'PUBLISHED' && !existing.isActive) {
+      return { update: existing, preview: buildOperationalUpdatePreview(existing, now) }
+    }
+    if (existing.status !== 'PUBLISHED') {
       throw new OperationalUpdateActionError('CONFLICT', 'Operational update is not active')
     }
     const changed = await tx.operationalUpdate.updateMany({

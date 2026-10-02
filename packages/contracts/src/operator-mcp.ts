@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { McpAppearanceUpdateInput, type JsonSchema } from './mcp-v0'
+import { OPERATIONAL_UPDATE_LIFECYCLES } from './operational-update-lifecycle'
 import { SupportRequestStatus } from './support-workflow'
 
 /**
@@ -1570,8 +1571,13 @@ export const OPERATOR_MCP_OUTPUTS = {
         expiresAt: IsoDateTime,
         status: z.string().max(16),
         isActive: z.boolean(),
-        /** What visitors see now: draft, scheduled, live, expired or inactive. */
-        lifecycle: z.enum(['DRAFT', 'SCHEDULED', 'LIVE', 'EXPIRED', 'INACTIVE']),
+        /** What visitors see now: draft, scheduled, live, expired or ended (never `isActive` alone). */
+        lifecycle: z.enum(OPERATIONAL_UPDATE_LIFECYCLES),
+        /** True only for `lifecycle: LIVE`. */
+        guestVisibleNow: z.boolean(),
+        /** Marked active but its window is over: visitors do not see it; end it to clean up. */
+        isActiveButExpired: z.boolean(),
+        lifecycleLabel: z.string().max(120),
         /** The version writes expect (`expectedUpdatedAt`). */
         updatedAt: IsoDateTime,
       })

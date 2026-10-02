@@ -3094,7 +3094,13 @@ describe('chat router', () => {
       })
       expect(query.where.startsAt.lte).toBe(query.where.expiresAt.gt)
       expect(query.where.OR).toEqual([{ placeId: null }, { place: { visibility: 'PUBLIC' } }])
-      expect(query.orderBy).toEqual([{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }])
+      // Overlap precedence: priority, then severity, then most recent start, then id.
+      expect(query.orderBy).toEqual([
+        { priority: 'desc' },
+        { severity: 'desc' },
+        { startsAt: 'desc' },
+        { id: 'asc' },
+      ])
       expect(query.take).toBe(20)
       expect(getConcatenatedSystemPrompt()).toContain(
         '[URGENT TEMPORARY_CLOSURE CLOSURE] Reptile House closed (affected location: Reptile House)',

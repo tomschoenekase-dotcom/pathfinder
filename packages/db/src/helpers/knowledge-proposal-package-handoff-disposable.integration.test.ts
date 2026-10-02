@@ -633,7 +633,7 @@ describe.skipIf(!enabled)('knowledge proposal package handoff disposable lifecyc
         db,
       )
       expect(deactivated.update).toMatchObject({ status: 'PUBLISHED', isActive: false })
-      expect(deactivated.preview).toMatchObject({ lifecycle: 'INACTIVE', guestVisibleNow: false })
+      expect(deactivated.preview).toMatchObject({ lifecycle: 'ENDED', guestVisibleNow: false })
       expect(
         await db.auditLog.count({
           where: {
