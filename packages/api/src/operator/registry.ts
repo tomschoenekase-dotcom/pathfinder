@@ -28,6 +28,7 @@ import {
 import { OPERATOR_READ_TOOLS } from './tools'
 import { createContextReadTool } from './tools/context'
 import { findOwnedOperation, proposalOperationView } from './tools/operations'
+import { withBoundCursor } from './tools/bound-cursor'
 import { pageResult, requireCursorInScope } from './tools/page'
 
 export type OperatorCallContext = Readonly<{
@@ -207,7 +208,21 @@ export function createOperatorRegistry(
       const read = reads.get(name)
       if (read) {
         assertGrantCapability(context.grant, read.capability)
-        return validateOutput(name, await read.handler(args, context))
+        // Every paginated read hands out cursors bound to its own normalized query, so a cursor
+        // can never be replayed against a different filter, sort or scope.
+        const record = args && typeof args === 'object' ? (args as Record<string, unknown>) : {}
+        const tenantId = typeof record.tenantId === 'string' ? record.tenantId.trim() : null
+        const result = await withBoundCursor(
+          {
+            tool: name,
+            scope: tenantId ? `tenant:${tenantId}` : 'platform',
+            sort: 'default',
+            filters: record,
+          },
+          record,
+          (inner) => read.handler(inner, context),
+        )
+        return validateOutput(name, result)
       }
       if (name === 'operator.propose_plan') {
         return validateOutput(name, await createPlan(PlanInput.parse(args), service))

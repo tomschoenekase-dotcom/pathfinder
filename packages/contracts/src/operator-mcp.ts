@@ -526,7 +526,11 @@ export const OPERATOR_MCP_INPUTS = {
       value.campaignId !== undefined ||
       value.organizationId !== undefined ||
       value.memberId !== undefined,
-    { message: 'Name a campaign, an organization or a campaign member' },
+    {
+      message:
+        'crm.list_drafts needs a scope: provide at least one of campaignId, organizationId or memberId (the campaign member id)',
+      path: ['campaignId'],
+    },
   ),
   'crm.get_outreach_batch': readInput({ batchId: Identifier }),
   'crm.list_duplicates': readInput({
