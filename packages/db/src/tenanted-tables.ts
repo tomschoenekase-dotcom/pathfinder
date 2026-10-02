@@ -132,6 +132,7 @@ export const TENANTED_TABLES = [
   'OnboardingQuestionLink',
   'ClientNotificationIntent',
   'ClientNotificationReceipt',
+  'ClientInboundReply',
   'ApprovalRequest',
   'ApprovalDecision',
   'ApprovalGrant',
@@ -271,6 +272,8 @@ export const PLATFORM_TABLES = [
   'EncryptedIntegrationCredential',
   'GmailOAuthAttempt',
   'ProspectInboundQuarantine',
+  // Unmatched inbound client replies have no tenant by construction; identifiers and hashes only.
+  'ClientInboundQuarantine',
   // Provider-dark public acquisition evidence is platform-owned until a separately reviewed
   // conversion creates canonical CRM or customer state.
   'PublicInterestSubmission',

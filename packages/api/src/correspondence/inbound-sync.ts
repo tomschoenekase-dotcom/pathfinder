@@ -1,3 +1,4 @@
+import type { ClientReplyLinker } from './client-reply-linking'
 import { normalizeUntrustedCorrespondenceBody } from './content-safety'
 import type { CorrespondenceProvider } from './provider'
 import type {
@@ -185,6 +186,11 @@ export function createInboundCorrespondenceService(input: {
   store: InboundCorrespondenceStore
   now?: () => Date
   pageSize?: number
+  /**
+   * Optional second matcher for client notification replies. It runs only when no prospect thread
+   * matched, so a message with a prospect identifier is never claimed by the client path.
+   */
+  clientReplyLinker?: ClientReplyLinker
 }) {
   const { provider, store } = input
   const now = input.now ?? (() => new Date())
@@ -194,6 +200,19 @@ export function createInboundCorrespondenceService(input: {
     const message = normalizedForPersistence(messageInput)
     const candidates = await store.findThreadCandidates(message)
     const match = chooseThreadMatch(candidates)
+    if (
+      match.state === 'UNKNOWN' &&
+      message.direction === 'INBOUND' &&
+      input.clientReplyLinker !== undefined
+    ) {
+      const linked = await input.clientReplyLinker(message)
+      // The linker records its own quarantine or link; only an untouched message continues.
+      if (linked.state !== 'UNMATCHED') {
+        return linked.state === 'QUARANTINED'
+          ? { state: 'QUARANTINED' as const, match }
+          : { state: 'PROCESSED' as const, inserted: linked.state === 'LINKED' }
+      }
+    }
     if (match.state !== 'MATCHED') {
       await store.quarantine({
         receiptId,

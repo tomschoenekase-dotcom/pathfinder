@@ -166,7 +166,10 @@ export async function processSendClientNotificationEmailJob(
       return
     }
 
-    const decision = await beginClientNotificationEmailDelivery(identity)
+    const decision = await beginClientNotificationEmailDelivery({
+      ...identity,
+      messageIdDomain: env.RESEND_FROM_EMAIL!.split('@').at(-1) ?? '',
+    })
     if (decision.action === 'skip') {
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       logger.info({
@@ -195,6 +198,8 @@ export async function processSendClientNotificationEmailJob(
           subject: message.subject,
           text: message.text,
           html: message.html,
+          // The anchor an inbound reply cites in In-Reply-To/References to be linked back.
+          ...(decision.rfcMessageId ? { headers: { 'Message-ID': decision.rfcMessageId } } : {}),
         },
         { idempotencyKey: providerIdempotencyKey(payload) },
       )

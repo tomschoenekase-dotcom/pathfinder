@@ -307,6 +307,9 @@ const approvedCallCounts = new Map([
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
   ['packages/api/src/correspondence/prisma-inbound-store.ts', 11],
+  // One read-only anchor resolution that selects identifiers to find the owning tenant of an
+  // inbound client reply; every later write is bound to that resolved tenant.
+  ['packages/db/src/helpers/client-inbound-replies.ts', 1],
   // Capability-checked platform CRM agent tools have no tenant authority or send capability.
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
@@ -738,6 +741,15 @@ const liveDataApprovedDelta = 1
 if (approvedCallCounts.get('packages/db/src/helpers/live-data.ts') !== liveDataApprovedDelta) {
   throw new Error('Live data scheduler bypass delta differs')
 }
+// Inbound client reply linking (packages/db/src/helpers/client-inbound-replies.ts): exactly one
+// reviewed read-only anchor resolution; every write after it is bound to the resolved tenant.
+const inboundReplyApprovedDelta = 1
+if (
+  approvedCallCounts.get('packages/db/src/helpers/client-inbound-replies.ts') !==
+  inboundReplyApprovedDelta
+) {
+  throw new Error('Inbound client reply bypass delta differs')
+}
 if (approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !== 3 + 1) {
   throw new Error('Packet 5 venue voice usage bypass delta differs')
 }
@@ -749,7 +761,8 @@ if (
   453 +
     [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) +
     packet5ApprovedDelta +
-    liveDataApprovedDelta
+    liveDataApprovedDelta +
+    inboundReplyApprovedDelta
 ) {
   throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
 }

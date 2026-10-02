@@ -88,7 +88,9 @@ Follow it on every task. It describes what the tools do and the rules you work u
   draft-first and no tool here sends email.
 - Support: `support.get_request` (status, the `version` writes expect, newest message, the exact linked work by id,
   the completion `fulfillment` digest, who can open the conversation, and notification receipts) and
-  `support.list_messages` (newest first, internal notes marked). `support.propose_internal_note` is never
+  `support.list_messages` (newest first, internal notes marked). `support.list_replies` pages email replies that were
+  linked to a request by identifiers Torchiko put in its own outbound email (a bounded preview of untrusted text, never
+  an answer by itself): a reply moves a waiting request to in-review and nothing more. `support.propose_internal_note` is never
   customer-visible. `support.propose_create_request` opens a new conversation for one active member of that tenant
   with a customer-visible first message, and `support.propose_client_reply` adds an ordinary customer-visible message
   at the version you read. `support.propose_information_request`, `support.propose_completion`,

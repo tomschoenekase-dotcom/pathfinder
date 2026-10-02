@@ -417,3 +417,55 @@ describe('inbound correspondence synchronization', () => {
     ).toHaveLength(255)
   })
 })
+
+describe('client reply linking hook', () => {
+  const run = async (
+    linked: { state: string },
+    candidates: readonly ThreadMatchCandidate[],
+    direction: NormalizedProviderMessage['direction'] = 'INBOUND',
+  ) => {
+    const provider = createFakeCorrespondenceProvider()
+    const incoming = message({ direction })
+    provider.state.messages.set('provider-message-1', incoming)
+    const fixture = createStore({ candidates })
+    const clientReplyLinker = vi.fn(async () => linked as never)
+    const service = createInboundCorrespondenceService({
+      provider,
+      store: fixture.store,
+      clientReplyLinker,
+    })
+    const result = await service.receiveNotification({
+      mailbox,
+      externalReceiptId: 'notification-client',
+      message: incoming.message,
+    })
+    return { result, fixture, clientReplyLinker }
+  }
+
+  it('lets a message no prospect thread claimed be linked to a client notification', async () => {
+    const { result, fixture, clientReplyLinker } = await run({ state: 'LINKED' }, [])
+    expect(clientReplyLinker).toHaveBeenCalledTimes(1)
+    expect(result.state).toBe('PROCESSED')
+    expect(fixture.calls.quarantines).toEqual([])
+    expect(fixture.calls.replies).toEqual([])
+  })
+
+  it('treats a client-path quarantine as final and leaves the prospect path untouched', async () => {
+    const { result, fixture } = await run({ state: 'QUARANTINED' }, [])
+    expect(result.state).toBe('QUARANTINED')
+    expect(fixture.calls.quarantines).toEqual([])
+  })
+
+  it('falls through to the prospect quarantine when the client path matched nothing', async () => {
+    const { fixture } = await run({ state: 'UNMATCHED' }, [])
+    expect(fixture.calls.quarantines).toHaveLength(1)
+  })
+
+  it('never offers a prospect-matched or outbound message to the client path', async () => {
+    const matched = await run({ state: 'LINKED' }, [candidate()])
+    expect(matched.clientReplyLinker).not.toHaveBeenCalled()
+    expect(matched.fixture.calls.replies).toHaveLength(1)
+    const outbound = await run({ state: 'LINKED' }, [], 'OUTBOUND')
+    expect(outbound.clientReplyLinker).not.toHaveBeenCalled()
+  })
+})

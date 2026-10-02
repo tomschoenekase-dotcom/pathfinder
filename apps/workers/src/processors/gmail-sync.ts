@@ -1,5 +1,6 @@
 import {
   CorrespondenceProviderError,
+  createClientReplyLinker,
   createGmailApiClient,
   createGmailCorrespondenceProvider,
   createGmailOAuthRuntime,
@@ -80,6 +81,9 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
   const service = createInboundCorrespondenceService({
     provider,
     store: createPrismaInboundCorrespondenceStore(),
+    // Passive second matcher: a message no prospect thread claims may answer a client
+    // notification. It links by platform-minted identifiers only and sends nothing.
+    clientReplyLinker: createClientReplyLinker({ quarantineUnknown: false }),
   })
 
   try {
