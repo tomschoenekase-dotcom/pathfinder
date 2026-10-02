@@ -46,7 +46,10 @@ const EXPECTED_TOOLS = [
   'crm.get_account_context',
   'crm.list_contacts',
   'crm.list_notes',
+  'crm.get_note',
   'crm.list_duplicates',
+  'crm.list_imports',
+  'crm.get_import',
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
@@ -83,6 +86,10 @@ const EXPECTED_TOOLS = [
   'crm.propose_followup_update',
   'crm.propose_note',
   'crm.propose_account_archive',
+  'crm.propose_account_update',
+  'crm.propose_contact_address_change',
+  'crm.propose_prospect_create',
+  'crm.propose_import_commit',
   'crm.propose_duplicate_resolution',
   'crm.propose_campaign_create',
   'crm.propose_draft_review',
@@ -282,6 +289,8 @@ describe('operator MCP catalog', () => {
       'operator.propose_revert',
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',
+      'crm.propose_contact_address_change',
+      'crm.propose_import_commit',
       'crm.propose_draft_review',
       'crm.propose_batch_stage',
       'crm.propose_batch_approve',
@@ -471,5 +480,57 @@ describe('operator MCP truthful outcome semantics', () => {
       subject: { untrusted: true, text: 'x', truncated: false },
     }
     expect(page.safeParse({ items: [item], nextCursor: null, complete: true }).success).toBe(true)
+  })
+})
+
+describe('CRM account, address, prospect and import tools', () => {
+  it('says plainly that a duplicate resolution is a decision and not a merge', () => {
+    const resolution = getOperatorToolDefinition('crm.propose_duplicate_resolution')!
+    expect(resolution.description).toMatch(/decision record only/iu)
+    expect(resolution.description).toMatch(/does NOT merge/u)
+    const list = getOperatorToolDefinition('crm.list_duplicates')!
+    expect(list.description).toMatch(/persisted duplicate review pairs only/u)
+    expect(list.description).toMatch(/not a live search/u)
+  })
+
+  it('binds an import commit to the file, mapping and plan hashes', () => {
+    const schema = OPERATOR_MCP_INPUTS['crm.propose_import_commit']
+    const base = {
+      importId: 'import-1',
+      fileHash: 'a'.repeat(64),
+      mappingHash: 'b'.repeat(64),
+      planHash: 'c'.repeat(64),
+      expectedRows: 3,
+      operationId: OPERATION_ID,
+    }
+    expect(schema.safeParse(base).success).toBe(true)
+    for (const key of ['fileHash', 'mappingHash', 'planHash', 'expectedRows'] as const) {
+      const { [key]: _omitted, ...rest } = base
+      void _omitted
+      expect(schema.safeParse(rest).success, key).toBe(false)
+    }
+    expect(schema.safeParse({ ...base, fileHash: 'short' }).success).toBe(false)
+    expect(schema.safeParse({ ...base, expectedRows: 0 }).success).toBe(false)
+  })
+
+  it('exposes the contact phone and the account version guards on the reads', () => {
+    const contact = OPERATOR_MCP_TOOLS.find((tool) => tool.name === 'crm.list_contacts')!
+    expect(JSON.stringify(contact.outputSchema)).toContain('"phone"')
+    const context = OPERATOR_MCP_TOOLS.find((tool) => tool.name === 'crm.get_account_context')!
+    expect(JSON.stringify(context.outputSchema)).toContain('"updatedAt"')
+    expect(JSON.stringify(context.outputSchema)).toContain('"tags"')
+  })
+
+  it('keeps the new proposal tools in plans and unique in their proposal kinds', () => {
+    for (const name of [
+      'crm.propose_account_update',
+      'crm.propose_contact_address_change',
+      'crm.propose_prospect_create',
+      'crm.propose_import_commit',
+    ] as const) {
+      expect(OPERATOR_PLAN_STEP_TOOLS).toContain(name)
+      expect(getOperatorToolDefinition(name)?.effect).toBe('proposal')
+      expect(getOperatorToolDefinition(name)?.capability).toBe('crm:propose')
+    }
   })
 })

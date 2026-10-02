@@ -101,6 +101,12 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'DISABLED',
   'SLUG_TAKEN',
   'UNRECONCILED_PRIOR_OPERATION',
+  // The target moved since it was read (the current state rides along as `details`).
+  'STALE',
+  // An exact name, domain or address match needs a person's decision (matches ride as `details`).
+  'DUPLICATE_REVIEW',
+  'IMPORT_NOT_READY',
+  'OWNER_NOT_FOUND',
 ])
 
 /** Durable failure codes that make the effect of a FAILED operation first-class and queryable. */
@@ -114,6 +120,19 @@ export const OPERATOR_APPLY_LEASE_MS = 5 * 60 * 1000
 /** Thrown by a kind when its target moved since the proposal; the proposal becomes STALE. */
 export class OperatorStaleError extends Error {
   readonly code = 'STALE'
+  /** What the target looks like now, so the proposer can re-read nothing and re-propose at once. */
+  constructor(
+    message?: string,
+    readonly details?: JsonValue,
+  ) {
+    super(message)
+  }
+}
+
+/** The current state a stale refusal carries, if it carries any. */
+function staleDetails(error: unknown): JsonValue | undefined {
+  if (error instanceof OperatorStaleError) return error.details
+  return undefined
 }
 
 export type OperatorProposalKind<Args = unknown> = Readonly<{
@@ -665,6 +684,7 @@ function isAtomicRefusal(error: unknown) {
       'SUPPRESSED',
       'APPROVAL_REQUIRED',
       'RELEASE_DISABLED',
+      'DUPLICATE_REVIEW',
     ].includes(String(code))
   )
 }
@@ -797,11 +817,16 @@ export async function applyApprovedProposal(
     )
   } catch (error) {
     if (isStale(error)) {
+      const current = staleDetails(error)
       return finish(
         database,
         row,
         'STALE',
-        { failureCode: 'TARGET_CHANGED', clearStarted: true },
+        {
+          failureCode: 'TARGET_CHANGED',
+          clearStarted: true,
+          ...(current !== undefined ? { result: { current } } : {}),
+        },
         input.requestId,
         input.actorUserId,
       )

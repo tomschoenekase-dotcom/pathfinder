@@ -757,6 +757,14 @@ async function readPair(database: OperatorDatabase, args: DuplicateArgs) {
   }
 }
 
+/** Said plainly in every receipt: this records a decision, it is not a merge. */
+const DECISION_ONLY = {
+  decisionOnly: true,
+  merged: false,
+  notice:
+    'Decision recorded only. No account, contact, activity or message was merged, moved or deleted; both accounts are unchanged.',
+} as const
+
 /**
  * A reviewed decision about two accounts. It changes how history is read across them, so it is
  * always a human decision, and it never merges, moves or deletes anything.
@@ -777,7 +785,8 @@ export const crmDuplicateResolutionKind: OperatorProposalKind<DuplicateArgs> = {
   targetVersion: async (args, context) => (await readPair(context.database, args)).status,
   currentVersion: async (args, context) => (await readPair(context.database, args)).status,
   describe: (args) => ({
-    title: 'Record a duplicate review (nothing is merged or moved)',
+    title:
+      'Record a duplicate DECISION only (this does not merge: nothing is merged, moved or deleted)',
     lines: [
       `accounts ${args.organizationId} and ${args.otherOrganizationId}`,
       `decision: ${args.resolution}`,
@@ -802,8 +811,9 @@ export const crmDuplicateResolutionKind: OperatorProposalKind<DuplicateArgs> = {
         candidateId: saved.candidate.id,
         status: saved.candidate.status,
         replayed: saved.replayed,
+        ...DECISION_ONLY,
       },
-      after: { candidateId: saved.candidate.id, status: saved.candidate.status },
+      after: { candidateId: saved.candidate.id, status: saved.candidate.status, merged: false },
     }
   },
   /** The decision's note names this proposal, so a resolved pair carrying it is the receipt. */
@@ -819,8 +829,13 @@ export const crmDuplicateResolutionKind: OperatorProposalKind<DuplicateArgs> = {
     return {
       state: 'applied',
       outcome: {
-        result: { candidateId: candidate.id, status: candidate.status, replayed: false },
-        after: { candidateId: candidate.id, status: candidate.status },
+        result: {
+          candidateId: candidate.id,
+          status: candidate.status,
+          replayed: false,
+          ...DECISION_ONLY,
+        },
+        after: { candidateId: candidate.id, status: candidate.status, merged: false },
       },
     }
   },

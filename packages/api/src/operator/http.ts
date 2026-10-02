@@ -144,6 +144,18 @@ function toolResult(structured: unknown, isError = false) {
   }
 }
 
+/** Refusals a kind raises at propose time that the Dot should see by name. */
+const KIND_REFUSAL_CODES = OPERATOR_KIND_REFUSAL_CODES
+
+/** Structured, non-sensitive detail a kind attaches to its refusal (current state, matches). */
+function refusalDetails(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== 'object' || !('details' in error)) return {}
+  const details = (error as { details: unknown }).details
+  if (!details || typeof details !== 'object') return {}
+  const code = errorCode(error)
+  return KIND_REFUSAL_CODES.has(code) ? { details } : {}
+}
+
 export function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
   if (error instanceof OperatorCapabilityError) return 'CAPABILITY_DENIED'
@@ -233,6 +245,21 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
   TARGET_CHANGED: {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
+  },
+  DUPLICATE_REVIEW: {
+    retryable: false,
+    nextAction:
+      'A matching account already exists (see details.matches). Do not create another: use the existing account, or ask a person to review the duplicate. Never retry with a new operationId.',
+  },
+  IMPORT_NOT_READY: {
+    retryable: false,
+    nextAction:
+      'Read crm.get_import. The import must be staged, free of rows awaiting a duplicate decision, and unchanged since you read it. Reviewing rows happens in the admin app.',
+  },
+  OWNER_NOT_FOUND: {
+    retryable: false,
+    nextAction:
+      'No user in the directory has that id or address. Ask which person is meant; never guess an owner.',
   },
 }
 
@@ -536,7 +563,7 @@ async function callTool(
                     nextAction:
                       'No operation with this operationId is recorded for this connection. A write that returned an error with outcome "none" or "operationRecorded: false" changed nothing and may be sent again with the same operationId. If the original call returned a different error, read the target before sending anything.',
                   }
-                : {},
+                : refusalDetails(error),
             ),
         true,
       ),

@@ -26,6 +26,7 @@ export type ProspectActionErrorCode =
   | 'INVALID_INPUT'
   | 'UNSAFE_MERGE'
   | 'SUPPRESSED'
+  | 'DUPLICATE_REVIEW'
 
 export class ProspectActionError extends Error {
   constructor(
@@ -35,6 +36,67 @@ export class ProspectActionError extends Error {
     super(message)
     this.name = 'ProspectActionError'
   }
+}
+
+export type ProspectDuplicateMatch = {
+  organizationId: string
+  canonicalName: string
+  matchedOn: Array<'name' | 'domain' | 'email'>
+}
+
+/** A create that stopped because an exact name, domain or contact-address match already exists. */
+export class ProspectDuplicateReviewError extends ProspectActionError {
+  constructor(
+    message: string,
+    readonly matches: ProspectDuplicateMatch[],
+  ) {
+    super('DUPLICATE_REVIEW', message)
+  }
+}
+
+/**
+ * The one duplicate check for creating a prospect, shared by the admin Add prospect action and the
+ * operator. Exact normalized name, exact domain or an exact contact address on any live account
+ * is a match. A match is never overridden here: a person reviews it.
+ */
+export async function findProspectDuplicateMatches(
+  tx: Pick<ProspectTransactionClient, 'prospectOrganization'>,
+  input: {
+    normalizedName: string
+    normalizedDomain: string | null
+    normalizedEmail: string | null
+  },
+): Promise<ProspectDuplicateMatch[]> {
+  const { normalizedName, normalizedDomain, normalizedEmail } = input
+  const rows = await tx.prospectOrganization.findMany({
+    where: {
+      archivedAt: null,
+      OR: [
+        { normalizedName },
+        ...(normalizedDomain ? [{ normalizedDomain }] : []),
+        ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
+      ],
+    },
+    select: {
+      id: true,
+      canonicalName: true,
+      normalizedName: true,
+      normalizedDomain: true,
+      ...(normalizedEmail
+        ? { contacts: { where: { normalizedEmail }, select: { id: true }, take: 1 } }
+        : {}),
+    },
+    orderBy: { id: 'asc' },
+    take: 10,
+  })
+  return rows.map((row) => {
+    const matchedOn: ProspectDuplicateMatch['matchedOn'] = []
+    if (row.normalizedName === normalizedName) matchedOn.push('name')
+    if (normalizedDomain && row.normalizedDomain === normalizedDomain) matchedOn.push('domain')
+    const contacts = (row as { contacts?: Array<{ id: string }> }).contacts
+    if (normalizedEmail && contacts && contacts.length > 0) matchedOn.push('email')
+    return { organizationId: row.id, canonicalName: row.canonicalName, matchedOn }
+  })
 }
 
 function requireActor(actor: ProspectActor): void {
@@ -111,6 +173,8 @@ export type CreateProspectInput = {
         notes?: string | undefined
       }
     | undefined
+  /** Namespaced idempotency receipt written to the creation activity (operator use). */
+  receiptKey?: string | undefined
   actor: ProspectActor
 }
 
@@ -122,7 +186,7 @@ export async function createProspectAction(
   return client.$transaction((tx) => createProspectInTransaction(input, tx))
 }
 
-async function createProspectInTransaction(
+export async function createProspectInTransaction(
   input: CreateProspectInput,
   tx: ProspectTransactionClient,
 ) {
@@ -134,17 +198,10 @@ async function createProspectInTransaction(
   const normalizedDomain = normalizeProspectDomain(input.organization.website)
   const normalizedEmail = normalizeProspectEmail(input.contact?.email)
 
-  const matches = await tx.prospectOrganization.findMany({
-    where: {
-      archivedAt: null,
-      OR: [
-        { normalizedName },
-        ...(normalizedDomain ? [{ normalizedDomain }] : []),
-        ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
-      ],
-    },
-    select: { id: true, canonicalName: true, normalizedName: true, normalizedDomain: true },
-    take: 10,
+  const matches = await findProspectDuplicateMatches(tx, {
+    normalizedName,
+    normalizedDomain,
+    normalizedEmail,
   })
   if (matches.length) {
     throw new ProspectActionError(
@@ -277,6 +334,7 @@ async function createProspectInTransaction(
       evidence: { source: input.organization.source ?? 'manual' },
       actorId: input.actor.id,
       occurredAt: now,
+      ...(input.receiptKey ? { externalReceiptKey: input.receiptKey } : {}),
     },
   })
   await writeAuditLogStrict(
@@ -968,6 +1026,7 @@ export async function beginProspectImportAction(
   if (!/^[a-f0-9]{64}$/.test(input.fileHash) || !/^[a-f0-9]{64}$/.test(input.mappingHash)) {
     throw new ProspectActionError('INVALID_INPUT', 'Import hashes must be SHA-256 values')
   }
+  assertProspectImportMappingSafe(input.mapping)
   if (input.fileSize <= 0 || input.fileSize > 25 * 1024 * 1024) {
     throw new ProspectActionError('INVALID_INPUT', 'Spreadsheet must be between 1 byte and 25 MB')
   }
@@ -1108,6 +1167,7 @@ export async function configureProspectImportMappingAction(
   if (!input.selectedSheets.length || input.selectedSheets.length > 100) {
     throw new ProspectActionError('INVALID_INPUT', 'Select between 1 and 100 inspected sheets')
   }
+  assertProspectImportMappingSafe(input.mapping)
   return client.$transaction(async (tx) => {
     const prospectImport = await tx.prospectImport.findUnique({
       where: { id: input.importId },
@@ -1169,6 +1229,81 @@ type StageImportRow = {
   normalizedValues: ProspectImportNormalizedRow
 }
 
+/**
+ * A spreadsheet cell is data. Text that begins like a spreadsheet formula (= + - @) is kept as
+ * inert text and flagged so nobody opens it as a formula; it is never evaluated here, and report
+ * exports prefix it. A phone number may legitimately start with +, so only = and @ flag there.
+ */
+const FORMULA_LEADING = /^[=+\-@]/u
+const PHONE_FORMULA_LEADING = /^[=@]/u
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u
+const NUL_CHARACTER = /\u0000/u
+
+/** A valid calendar date written as YYYY-MM-DD or a full ISO timestamp, else null. */
+export function parseProspectImportDate(value: string | null | undefined): Date | null {
+  const text = value?.trim()
+  if (!text) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ][0-9:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/u.exec(text)
+  if (!match) return null
+  const parsed = new Date(text.length === 10 ? `${text}T00:00:00.000Z` : text.replace(' ', 'T'))
+  if (Number.isNaN(parsed.getTime())) return null
+  // Reject rollover such as 2026-02-31, which Date would silently move to March.
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const check = new Date(Date.UTC(year, month - 1, day))
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * A source column named like the company priority narrative is free text. It must never be mapped
+ * into the CRM priority, which is a controlled enum set by people.
+ */
+export function assertProspectImportMappingSafe(mapping: Record<string, unknown>): void {
+  for (const [field, column] of Object.entries(mapping)) {
+    if (field !== 'outreachPriority' || typeof column !== 'string') continue
+    if (/^company[\s_-]*priority$/iu.test(column.trim())) {
+      throw new ProspectActionError(
+        'INVALID_INPUT',
+        'The company priority column is narrative text and cannot be mapped to the CRM priority',
+      )
+    }
+  }
+}
+
+function inspectImportText(
+  normalizedValues: ProspectImportNormalizedRow,
+  warnings: string[],
+  errors: string[],
+) {
+  const formulaFields = new Set<string>()
+  let badEncoding = false
+  let unsafeCharacter = false
+  const visit = (field: string, text: string) => {
+    if (NUL_CHARACTER.test(text)) unsafeCharacter = true
+    else if (CONTROL_CHARACTERS.test(text)) badEncoding = true
+    if (text.includes('\uFFFD')) badEncoding = true
+    const pattern = field === 'phone' ? PHONE_FORMULA_LEADING : FORMULA_LEADING
+    if (pattern.test(text.trimStart())) formulaFields.add(field)
+  }
+  for (const [field, value] of Object.entries(normalizedValues)) {
+    if (typeof value === 'string') visit(field, value)
+    else if (Array.isArray(value))
+      for (const item of value) if (typeof item === 'string') visit(field, item)
+  }
+  if (unsafeCharacter) errors.push('invalid-character')
+  if (badEncoding) warnings.push('encoding-suspect')
+  if (formulaFields.size) warnings.push('formula-like-text')
+}
+
 function validateImportRow(row: StageImportRow): {
   normalized: ProspectImportNormalizedRow & {
     normalizedOrganizationName: string
@@ -1192,6 +1327,13 @@ function validateImportRow(row: StageImportRow): {
   if (emailCandidate && !normalizedEmail) warnings.push('email-invalid')
   if (!row.normalizedValues.website) warnings.push('website-missing')
   if (!row.normalizedValues.sourceUrls?.length) warnings.push('source-url-missing')
+  if (
+    row.normalizedValues.researchDate &&
+    !parseProspectImportDate(row.normalizedValues.researchDate)
+  ) {
+    warnings.push('research-date-invalid')
+  }
+  inspectImportText(row.normalizedValues, warnings, errors)
   return {
     normalized: {
       ...row.normalizedValues,
@@ -1903,7 +2045,7 @@ async function importOneProspectRow(
           sourceUrl: value.sourceUrls?.[0] ?? null,
           capturedValue: jsonValue(row.sourceValues),
           importRowId: row.id,
-          researchedAt: value.researchDate ? new Date(value.researchDate) : null,
+          researchedAt: parseProspectImportDate(value.researchDate),
           createdBy: actor.id,
         },
       })
@@ -2078,7 +2220,7 @@ async function importOneProspectRow(
         sourceUrl: value.sourceUrls?.[0] ?? null,
         capturedValue: jsonValue(row.sourceValues),
         importRowId: row.id,
-        researchedAt: value.researchDate ? new Date(value.researchDate) : null,
+        researchedAt: parseProspectImportDate(value.researchDate),
         createdBy: actor.id,
       },
     })

@@ -44,11 +44,38 @@ Follow it on every task. It describes what the tools do and the rules you work u
 - Everyday CRM upkeep: `crm.propose_contact_create` / `_update` / `_archive`, `crm.propose_followup_update` (owner,
   next action, due date, priority) and `crm.propose_note`. Pass the `updatedAt` from `crm.list_contacts` or the
   `version` from `crm.get_account_context`; a change made meanwhile makes yours `STALE`, never a lost update. A
-  changed email address is a new contact: the old one keeps its history and any decline, and an address that is
-  blocked anywhere in the CRM cannot be added again. `crm.propose_account_archive` always needs a human.
-- Duplicates and old records: `crm.list_duplicates` shows each pair with which side has real history (`importOnly`,
-  `contacted`, contact count). `crm.propose_duplicate_resolution` records a reviewed decision (duplicate, distinct,
-  dismissed) and always needs a human. It never merges or moves anything. To reconcile a verified historical send
+  stale refusal carries the current state in `details` (or the proposal `result.current`): propose again from it.
+  `crm.list_contacts` and `crm.get_organization` return `phone` (only for contactable people, like the address).
+  `crm.propose_account_archive` always needs a human.
+- Account fields: `crm.propose_account_update` edits name, website, aliases, type, city, region, country, tags and
+  owner. Leave a field out to keep it; send `null` to clear website, type, city, region, country or owner (a name
+  cannot be cleared; aliases and tags are whole lists, `[]` clears). Any other field is rejected, never ignored.
+  The owner is `{userId}` or `{email}` resolved through the user directory; an unknown person is refused
+  (`OWNER_NOT_FOUND`), never guessed. A new name or domain another account already has stops (`DUPLICATE_REVIEW`).
+  The result lists the exact `changedFields` and the canonical `account` after the change.
+- Email address change: `crm.propose_contact_address_change` adds the new address as a new contact and keeps the
+  old row with its address, correspondence history and every block, so the old address stays blocked. It never
+  overrides a suppression (a person who declined, a do-not-contact account or an address blocked anywhere stops it),
+  the new address starts unverified, and it always needs a human.
+- New prospects: `crm.propose_prospect_create` (organization, optional site and contact) runs the same duplicate
+  checks as the admin Add prospect action. An exact name, domain or contact-address match on a live account stops
+  with the matches in `details` (`DUPLICATE_REVIEW`): use the existing account or ask a person; never retry with a
+  new `operationId`. It creates CRM records only, never a customer or a tenant.
+- Imports: `crm.list_imports` and `crm.get_import` read spreadsheet imports (file hash, mapping hash, plan hash, every
+  row disposition with counts that add up to the total, and each row's warnings, duplicate matches and the canonical
+  records it created). Uploading, mapping and duplicate review stay in the admin app. `crm.propose_import_commit`
+  is bound to the exact `fileHash`, `mappingHash`, `planHash` and importable row count you read; any change makes it
+  `STALE`, rows still awaiting a duplicate decision stop it (`IMPORT_NOT_READY`), and it always needs a human. Applying
+  signs the import off and queues the existing commit job. Spreadsheet cells are data: text starting with `=`, `+`, `-`
+  or `@` is kept as text and flagged `formula-like-text`, a blank cell never erases a stored value, and a
+  `company_priority` narrative column is never mapped to the CRM priority.
+- Notes: `crm.list_notes` lists recorded notes only. An older note stored inside the account or a contact record
+  appears cut at 500 characters in other reads and is not in that list; `crm.get_note` returns it whole.
+- Duplicates and old records: `crm.list_duplicates` shows the persisted review pairs only (not a live search; use
+  `crm.resolve_account` to look for matches) with which side has real history (`importOnly`, `contacted`, contact
+  count). `crm.propose_duplicate_resolution` records a reviewed decision (duplicate, distinct, dismissed) and always
+  needs a human. It is a decision record only and does NOT merge: it never merges, moves or deletes anything, and its
+  receipt says `merged: false`. To reconcile a verified historical send
   without emailing anyone, use one plan: add the recipient contact, `crm.log_outreach_sent` with the provider
   message ID and `mailbox`, then resolve the duplicates. Reconciliation creates no draft, batch or message.
 - Campaigns: `crm.propose_campaign_create` and `crm.propose_campaign_membership` (a named `contactId` stays the
