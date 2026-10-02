@@ -268,6 +268,24 @@ describe('email delivery state machine', () => {
     expect(store.state.intents[0]).toMatchObject({ emailStatus: 'SENDING', emailAttemptCount: 1 })
   })
 
+  it('mints one unguessable Message-ID anchor with the claim when a sending domain is given', async () => {
+    const decision = await begin({ messageIdDomain: 'mail.example.com' } as never)
+
+    expect(decision.action === 'send' && decision.rfcMessageId).toMatch(
+      /^<ci\.[0-9a-f]{48}@mail\.example\.com>$/u,
+    )
+    expect(store.state.intents[0]!.emailRfcMessageId).toBe(
+      decision.action === 'send' ? decision.rfcMessageId : null,
+    )
+  })
+
+  it('mints no anchor without a sending domain', async () => {
+    const decision = await begin()
+
+    expect(decision.action === 'send' && decision.rfcMessageId).toBeNull()
+    expect(store.state.intents[0]!.emailRfcMessageId).toBeUndefined()
+  })
+
   it('treats a claim that never reported as unknown and never offers it for sending again', async () => {
     await begin()
 

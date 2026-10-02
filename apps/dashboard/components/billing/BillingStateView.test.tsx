@@ -235,7 +235,8 @@ describe('BillingStateView', () => {
             nextAction: 'contact_support',
             period: {
               ...data().period!,
-              accessEndsAt: new Date('2026-09-01T00:00:00Z'),
+              // Rendered dates use the viewer's locale; use local noon to keep this fixture on September 1.
+              accessEndsAt: new Date(2026, 8, 1, 12),
               expired: true,
             },
           }),

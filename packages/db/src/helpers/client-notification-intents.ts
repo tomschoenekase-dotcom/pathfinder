@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -78,6 +78,15 @@ export function clientNotificationIdempotencyKey(input: {
   contentHash: string
 }): string {
   return sha256({ domain: 'pathfinder-client-notification-intent-v1', ...input })
+}
+
+/**
+ * A fresh outbound Message-ID. The random token makes it unguessable, which is what lets an
+ * inbound reply that cites it be trusted to belong to this one notification.
+ */
+export function mintClientNotificationRfcMessageId(domain: string | undefined): string | null {
+  if (!domain || !/^[a-z0-9]([a-z0-9.-]{0,198}[a-z0-9])?$/iu.test(domain)) return null
+  return `<ci.${randomBytes(24).toString('hex')}@${domain.toLowerCase()}>`
 }
 
 /** The canonical customer-portal location of one support conversation. */
@@ -292,6 +301,8 @@ export type ClientNotificationDeliveryDecision =
       generation: number
       venueId: string
       to: string
+      /** The Message-ID this send must carry so a reply can be linked back; null when unavailable. */
+      rfcMessageId: string | null
       content: ClientNotificationContent
       /** Items whose question and conversation are still open; closed ones are not re-asked. */
       openItems: ClientNotificationItem[]
@@ -349,7 +360,13 @@ async function closeEmail(
  * the caller holds the only claim, or it is closed with a reason and nothing is sent.
  */
 export async function beginClientNotificationEmailDelivery(
-  input: { tenantId: string; intentId: string; generation: number },
+  input: {
+    tenantId: string
+    intentId: string
+    generation: number
+    /** Sending domain for the minted Message-ID. Without it no anchor is minted. */
+    messageIdDomain?: string
+  },
   client: Client = db,
 ): Promise<ClientNotificationDeliveryDecision> {
   return client.$transaction(async (tx) => {
@@ -424,6 +441,7 @@ export async function beginClientNotificationEmailDelivery(
       return { action: 'skip', reason: 'SUPERSEDED' }
     }
 
+    const rfcMessageId = mintClientNotificationRfcMessageId(input.messageIdDomain)
     const claimed = await tx.clientNotificationIntent.updateMany({
       where: {
         id: intent.id,
@@ -431,7 +449,11 @@ export async function beginClientNotificationEmailDelivery(
         emailGeneration: input.generation,
         emailStatus: 'QUEUED',
       },
-      data: { emailStatus: 'SENDING', emailAttemptCount: { increment: 1 } },
+      data: {
+        emailStatus: 'SENDING',
+        emailAttemptCount: { increment: 1 },
+        ...(rfcMessageId ? { emailRfcMessageId: rfcMessageId } : {}),
+      },
     })
     if (claimed.count !== 1) return { action: 'skip', reason: 'NOT_QUEUED' }
     return {
@@ -440,6 +462,7 @@ export async function beginClientNotificationEmailDelivery(
       generation: intent.emailGeneration,
       venueId: intent.venueId,
       to: intent.recipientEmail,
+      rfcMessageId,
       content,
       openItems,
     }

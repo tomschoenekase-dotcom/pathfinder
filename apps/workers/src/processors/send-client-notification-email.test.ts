@@ -59,6 +59,7 @@ const sendDecision = {
   generation: 1,
   venueId: 'venue_1',
   to: 'owner@example.com',
+  rfcMessageId: '<ci.0123456789abcdef@example.com>' as string | null,
   content,
   openItems: items,
 }
@@ -130,6 +131,9 @@ describe('processSendClientNotificationEmailJob', () => {
       'https://dashboard.example.com/support?venue=venue_1&request=request_1',
     )
     expect(options.idempotencyKey).toMatch(/^client-notification-[a-f0-9]{64}$/u)
+    // The reply anchor is minted for the sending domain and sent as the Message-ID.
+    expect(mocks.begin).toHaveBeenCalledWith({ ...payload, messageIdDomain: 'example.com' })
+    expect(message.headers).toEqual({ 'Message-ID': '<ci.0123456789abcdef@example.com>' })
     expect(mocks.begin.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.send.mock.invocationCallOrder[0]!,
     )

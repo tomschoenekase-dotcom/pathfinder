@@ -68,6 +68,7 @@ const EXPECTED_TOOLS = [
   'customers.list_blocking_questions',
   'customers.get_blocking_question',
   'support.list_messages',
+  'support.list_replies',
   'crm.list_mailboxes',
   'crm.list_mail_threads',
   'crm.list_mail_messages',

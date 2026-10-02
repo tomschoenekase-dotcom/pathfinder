@@ -1595,6 +1595,21 @@ export type {
   CreateClientNotificationIntentInput,
 } from './helpers/client-notification-intents'
 export {
+  boundedInboundPreview,
+  candidateMessageIds,
+  CLIENT_INBOUND_MAX_HTML_BYTES,
+  CLIENT_INBOUND_MAX_TEXT_BYTES,
+  ClientInboundReplyError,
+  hashInboundSender,
+  linkInboundClientReply,
+  normalizeInboundSenderAddress,
+  type ClientInboundEmailInput,
+  type ClientInboundLinkResult,
+  type ClientInboundMatchEvidence,
+  type ClientInboundQuarantineReason,
+  type LinkInboundClientReplyOptions,
+} from './helpers/client-inbound-replies'
+export {
   createOperatorSupportRequestAction,
   OperatorSupportRequestError,
   operatorSupportRequestOperationHash,

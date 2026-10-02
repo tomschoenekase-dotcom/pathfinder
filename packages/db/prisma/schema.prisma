@@ -252,6 +252,7 @@ model Tenant {
   onboardingQuestionLinks                   OnboardingQuestionLink[]
   clientNotificationIntents                 ClientNotificationIntent[]
   clientNotificationReceipts                ClientNotificationReceipt[]
+  clientInboundReplies                      ClientInboundReply[]
   agentMessages                             AgentMessage[]
   agentOutcomeObservations                  AgentOutcomeObservation[]
   agentImprovementProposals                 AgentImprovementProposal[]
@@ -1594,6 +1595,7 @@ model Venue {
   agentQuestionDiscussionMessages           AgentQuestionDiscussionMessage[]
   onboardingQuestionLinks                   OnboardingQuestionLink[]
   clientNotificationIntents                 ClientNotificationIntent[]
+  clientInboundReplies                      ClientInboundReply[]
   agentMessages                             AgentMessage[]
   agentOutcomeObservations                  AgentOutcomeObservation[]
   agentImprovementProposals                 AgentImprovementProposal[]
@@ -6886,6 +6888,7 @@ model SupportRequest {
   agentRunLineages            SupportAgentRunLineage[]
   onboardingQuestionLink      OnboardingQuestionLink?
   clientNotificationIntents   ClientNotificationIntent[]
+  clientInboundReplies        ClientInboundReply[]
   clientAssistantHandoff      ClientAssistantSupportHandoff?
   customerAccessRequests      CustomerAccessRequest[]
   knowledgeChangeProposals    KnowledgeChangeProposal[]
@@ -7035,6 +7038,9 @@ model ClientNotificationIntent {
   emailGeneration        Int                            @default(0) @map("email_generation")
   emailAttemptCount      Int                            @default(0) @map("email_attempt_count")
   emailProviderMessageId String?                        @map("email_provider_message_id") @db.VarChar(191)
+  /// Outbound RFC 5322 Message-ID minted when the email is claimed for delivery. Inbound replies
+  /// link to this intent by In-Reply-To/References; it carries a random token and is never reused.
+  emailRfcMessageId      String?                        @map("email_rfc_message_id") @db.VarChar(998)
   emailLastErrorCode     String?                        @map("email_last_error_code") @db.VarChar(100)
   emailSentAt            DateTime?                      @map("email_sent_at")
   createdAt              DateTime                       @default(now()) @map("created_at")
@@ -7044,12 +7050,76 @@ model ClientNotificationIntent {
   supportRequest         SupportRequest                 @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   supportMessage         SupportMessage                 @relation(fields: [supportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
   receipts               ClientNotificationReceipt[]
+  inboundReplies         ClientInboundReply[]
 
   @@unique([tenantId, idempotencyKey], map: "client_notification_intents_tenant_idempotency_key")
   @@unique([id, tenantId], map: "client_notification_intents_id_tenant_key")
+  @@unique([emailRfcMessageId], map: "client_notification_intents_rfc_message_id_key")
   @@index([tenantId, supportRequestId, createdAt], map: "client_notification_intents_request_idx")
   @@index([emailStatus, updatedAt], map: "client_notification_intents_email_status_idx")
   @@map("client_notification_intents")
+}
+
+/// One inbound email reply that was linked, by strong identifiers only, to an outbound client
+/// notification and therefore to exactly one support request. Tenant, venue and request come from
+/// the matched outbound record, never from the message. Only a bounded preview of the untrusted
+/// body is kept; the full message stays in the mailbox and is addressed by provider ids.
+model ClientInboundReply {
+  id                String                   @id @default(cuid())
+  tenantId          String                   @map("tenant_id")
+  venueId           String                   @map("venue_id")
+  supportRequestId  String                   @map("support_request_id")
+  intentId          String                   @map("intent_id")
+  provider          String                   @db.VarChar(32)
+  mailboxId         String                   @map("mailbox_id") @db.VarChar(191)
+  providerMessageId String                   @map("provider_message_id") @db.VarChar(191)
+  providerThreadId  String?                  @map("provider_thread_id") @db.VarChar(191)
+  rfcMessageId      String?                  @map("rfc_message_id") @db.VarChar(998)
+  inReplyTo         String?                  @map("in_reply_to") @db.VarChar(998)
+  matchEvidence     String[]                 @default([]) @map("match_evidence")
+  senderHash        String                   @map("sender_hash") @db.Char(64)
+  bodyPreview       String                   @map("body_preview") @db.VarChar(500)
+  bodySha256        String                   @map("body_sha256") @db.Char(64)
+  bodyBytes         Int                      @map("body_bytes")
+  requestEffect     String                   @map("request_effect") @db.VarChar(32)
+  receivedAt        DateTime                 @map("received_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest    SupportRequest           @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  intent            ClientNotificationIntent @relation(fields: [intentId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([provider, mailboxId, providerMessageId], map: "client_inbound_replies_provider_message_key")
+  @@index([tenantId, supportRequestId, receivedAt, id], map: "client_inbound_replies_request_idx")
+  @@index([provider, mailboxId, providerThreadId], map: "client_inbound_replies_thread_idx")
+  @@index([rfcMessageId], map: "client_inbound_replies_rfc_message_idx")
+  @@map("client_inbound_replies")
+}
+
+/// Triage queue for inbound messages that could not be linked safely. It is platform-owned
+/// because an unmatched message has no tenant. It holds identifiers, hashes and sizes only; no
+/// sender address, subject or body, so an operator fetches the message from the mailbox itself.
+model ClientInboundQuarantine {
+  id                String    @id @default(cuid())
+  provider          String    @db.VarChar(32)
+  mailboxId         String    @map("mailbox_id") @db.VarChar(191)
+  providerMessageId String    @map("provider_message_id") @db.VarChar(191)
+  providerThreadId  String?   @map("provider_thread_id") @db.VarChar(191)
+  rfcMessageId      String?   @map("rfc_message_id") @db.VarChar(998)
+  reason            String    @db.VarChar(40)
+  candidateCount    Int       @default(0) @map("candidate_count")
+  senderHash        String?   @map("sender_hash") @db.Char(64)
+  bodySha256        String?   @map("body_sha256") @db.Char(64)
+  bodyBytes         Int       @default(0) @map("body_bytes")
+  status            String    @default("OPEN") @db.VarChar(16)
+  receivedAt        DateTime  @map("received_at")
+  resolvedAt        DateTime? @map("resolved_at")
+  resolvedBy        String?   @map("resolved_by") @db.VarChar(191)
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@unique([provider, mailboxId, providerMessageId], map: "client_inbound_quarantines_provider_message_key")
+  @@index([status, receivedAt, id], map: "client_inbound_quarantines_status_idx")
+  @@map("client_inbound_quarantines")
 }
 
 /// Append-only channel receipts for one intent. A receipt never changes; a retry adds another.

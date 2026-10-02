@@ -1,3 +1,4 @@
+export { createClientReplyLinker, type ClientReplyLinker } from './client-reply-linking'
 export { normalizeUntrustedCorrespondenceBody } from './content-safety'
 export { createFakeCorrespondenceProvider } from './fake'
 export type { FakeCorrespondenceState } from './fake'

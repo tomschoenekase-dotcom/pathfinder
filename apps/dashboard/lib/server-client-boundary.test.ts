@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -8,7 +9,7 @@ import { describe, expect, it } from 'vitest'
  * is an opaque client reference, so every render threw (jsdom unit tests cannot see this).
  * Server components may import only components (and types) from client modules.
  */
-const here = dirname(new URL(import.meta.url).pathname)
+const here = dirname(fileURLToPath(import.meta.url))
 const dashboardRoot = resolve(here, '..')
 const SOURCE_DIRS = ['app', 'components', 'lib']
 

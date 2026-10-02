@@ -349,8 +349,69 @@ const supportListMessages: OperatorReadTool = {
   },
 }
 
+const supportListReplies: OperatorReadTool = {
+  name: 'support.list_replies',
+  capability: 'support:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['support.list_replies'].parse(raw)
+    await assertTenantInGrant(context.grant, input.tenantId, context.database)
+    const request = await context.database.supportRequest.findFirst({
+      where: { id: input.requestId, tenantId: input.tenantId },
+      select: { id: true },
+    })
+    if (!request) throw new OperatorNotFoundError()
+    const after = input.cursor === undefined ? null : decodeKeysetCursor(input.cursor)
+    const rows = await context.database.clientInboundReply.findMany({
+      where: {
+        tenantId: input.tenantId,
+        supportRequestId: request.id,
+        ...(after
+          ? {
+              OR: [
+                { receivedAt: { lt: after.at } },
+                { receivedAt: after.at, id: { lt: after.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+      take: input.limit + 1,
+      // Sender hash, provider ids and message ids are never selected.
+      select: {
+        id: true,
+        intentId: true,
+        receivedAt: true,
+        matchEvidence: true,
+        requestEffect: true,
+        bodyBytes: true,
+        bodyPreview: true,
+      },
+    })
+    const page = rows.slice(0, input.limit)
+    return pageResult(
+      page.map((reply) => ({
+        replyId: reply.id,
+        notificationId: reply.intentId,
+        receivedAt: reply.receivedAt.toISOString(),
+        matchEvidence: reply.matchEvidence as (
+          | 'RFC_REFERENCE'
+          | 'REPLY_CHAIN'
+          | 'PROVIDER_THREAD'
+        )[],
+        requestEffect: reply.requestEffect as 'MOVED_TO_IN_REVIEW' | 'NO_CHANGE',
+        bodyBytes: reply.bodyBytes,
+        bodyPreview: operatorUntrustedText(redactAddresses(reply.bodyPreview), 500),
+      })),
+      rows.length > input.limit
+        ? encodeKeysetCursor(page.at(-1)!.receivedAt, page.at(-1)!.id)
+        : null,
+    )
+  },
+}
+
 export const supportReadTools: readonly OperatorReadTool[] = [
   supportList,
   supportGetRequest,
   supportListMessages,
+  supportListReplies,
 ]

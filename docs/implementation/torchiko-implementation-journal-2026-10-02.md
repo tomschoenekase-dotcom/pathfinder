@@ -57,3 +57,16 @@ Later lanes (W03, W04, W05, W07/W11, W08, W10) are recorded in the final handoff
 ## Acceptance status (this run)
 
 See the final handoff for the complete A01–A29 / M / B / L / CI / H / P / S table.
+
+## Inbound (2026-10-02)
+
+- A06/A12: inbound Gmail sync offers otherwise-unmatched inbound messages to a client-notification reply linker. A fresh outbound RFC Message-ID anchors matching; recipient equality is required after identifier resolution. Linked replies store a bounded untrusted preview and hashes, move only `WAITING_FOR_CLIENT` requests to `IN_REVIEW`, and are readable through `support.list_replies`. Unknown, ambiguous, mismatched, malformed and oversized messages remain quarantined. Migration `20261002111000_add_client_inbound_replies` is additive; no hosted migration or email was run.
+- Scope: prospect-thread matching runs first. Client replies never become a support message, answer a question, complete work, or authorize another action. Follow-up for integration: the A23 support-request routine stop rule must also check `clientInboundReply` because inbound email replies do not create `supportMessage`.
+- Environment for database checks: `DATABASE_URL` and `DIRECT_DATABASE_URL` pointed at local `pathfinder_disposable_einstein_inbound` on `127.0.0.1:35432`; Redis index 4; provider keys were dummy CI values. Logs stayed in the lane root outside the repository.
+- `pnpm install` — PASS.
+- `PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 pnpm db:migrate:disposable -- --database pathfinder_disposable_einstein_inbound --confirm-database pathfinder_disposable_einstein_inbound` with `PATHFINDER_DISPOSABLE_DATABASE_URL` set to that local database — PASS, 260 migrations present, none pending. The first invocation without `PATHFINDER_DISPOSABLE_DATABASE_URL` was refused as designed.
+- `pnpm typecheck --concurrency=2` — PASS, 27/27 tasks. An earlier unconstrained `pnpm typecheck` was interrupted during shared-machine memory contention and is NOT RUN to completion.
+- `pnpm lint --concurrency=2` — PASS, 15/15 tasks after removing one pre-existing unused import in an API integration test. First run FAIL on that import.
+- `pnpm test` with the packet's dummy CI env — FAIL, 26/27 Turbo tasks passed; dashboard had one Windows/local-date fixture failure. The first attempt without CI env also failed four worker suite startup checks for absent dummy Clerk values. `pnpm exec vitest run lib/server-client-boundary.test.ts components/billing/BillingStateView.test.tsx --pool=forks --maxWorkers=1` from `apps/dashboard` — PASS, 339/339 after portable path and local-noon fixture fixes. Final integrated `pnpm test` remains the merger's gate.
+- `RUN_CLIENT_INBOUND_REPLY_DB_INTEGRATION=1 pnpm exec vitest run src/helpers/client-inbound-replies-disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/db` — PASS, 7/7 including cross-tenant refusal and concurrent duplicate delivery.
+- `pnpm test:scripts` — FAIL, 620 tests: 599 PASS, 20 FAIL, 1 skipped. Four CI YAML CRLF parser failures and two stale current-truth inventory counts require integration updates; the other 14 are the known staging migration-admission pins. The pin script and its tests were not edited. No live provider or hosted database checks were run.
