@@ -43,6 +43,7 @@
     "./character-runtime-pack": "./src/character-runtime-pack.ts",
     "./character-production-brief": "./src/character-production-brief.ts",
     "./actor": "./src/actor.ts",
+    "./operational-update-lifecycle": "./src/operational-update-lifecycle.ts",
     "./agent-workflow-registry": "./src/agent-workflow-registry.ts",
     "./agent-workflow-promotion-assessment": "./src/agent-workflow-promotion-assessment.ts",
     "./agent-workflow-activation": "./src/agent-workflow-activation.ts",

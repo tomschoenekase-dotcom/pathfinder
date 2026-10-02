@@ -89,6 +89,10 @@ import {
 import { captureConversationLearning } from '../lib/capture-conversation-learning'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
+import {
+  LIVE_OPERATIONAL_UPDATE_ORDER_BY,
+  liveOperationalUpdateWindowWhere,
+} from '@pathfinder/contracts/operational-update-lifecycle'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { publicProcedure } from '../trpc'
 
@@ -1056,10 +1060,7 @@ const chatReadRouter = router({
         where: {
           venueId: input.venueId,
           tenantId: venue.tenantId,
-          status: 'PUBLISHED',
-          isActive: true,
-          startsAt: { lte: operationalNow },
-          expiresAt: { gt: operationalNow },
+          ...liveOperationalUpdateWindowWhere(operationalNow),
           ...(includeSecondLayer
             ? {}
             : {
@@ -1076,7 +1077,7 @@ const chatReadRouter = router({
           redirectTo: true,
           place: { select: { name: true } },
         },
-        orderBy: [{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
+        orderBy: LIVE_OPERATIONAL_UPDATE_ORDER_BY,
         take: MAX_GUEST_OPERATIONAL_UPDATES,
       }),
       ctx.db.tenant.findUnique({
