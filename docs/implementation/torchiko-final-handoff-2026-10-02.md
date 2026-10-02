@@ -9,7 +9,7 @@ Nothing was deployed, migrated on a hosted database, sent, invited, charged or c
 
 | Journey                                | Implemented now                                                                                                                                       | Verified how                                                                         |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Visitor chat on iPhone                 | One viewport model (shell = visual viewport); valid send dismisses the keyboard immediately; no refocus while answering; clean one-line hint          | Unit + Chromium emulation PASS; **real iPhone NOT RUN**                              |
+| Visitor chat on iPhone                 | One viewport model (shell = visual viewport); valid send dismisses the keyboard immediately; no refocus while answering; clean one-line hint          | Unit + Chromium and WebKit emulation PASS; **real iPhone NOT RUN**                   |
 | Operator console `/admin/operator`     | Root cause fixed (server page used a value from a client module); per-section honest errors                                                           | Unit + boundary test; production confirmation NOT RUN                                |
 | Client `/look-and-feel`                | Same defect class fixed                                                                                                                               | Boundary test fails on old shape                                                     |
 | Unknown customer create                | Failures before recording now say "not recorded, no effect"; real unknowns reconcile against Clerk by operation id; retries refused until reconciled  | Unit (16 durability cases); production reconciliation BLOCKED (owner-approved reads) |
@@ -53,7 +53,7 @@ Commands ran serially through `../qa/final-checks.ps1` with the packet's synthet
 | W14 storage policy + compatibility exports                                                                                                                                       | PASS — 4 config + 4 API tests                                                                                           |
 | Responsive guest Playwright journey                                                                                                                                              | PASS — 6/6 on Chromium at 390, 820 and 1440px; phone screenshot inspected                                               |
 | W12 authenticated grant screen browser rendering                                                                                                                                 | NOT RUN — no provider-dark guarded-page fixture; route/component/a11y tests passed                                      |
-| Real iPhone Safari/Chrome, WebKit, Stripe sandbox, hosted smoke                                                                                                                  | NOT RUN                                                                                                                 |
+| Real iPhone Safari/Chrome, Stripe sandbox, hosted smoke                                                                                                                          | NOT RUN                                                                                                                 |
 
 Twelve frozen-pin failures remain release blockers. The original 14 included two documentation-safety failures, now PASS after removing obsolete executable hosted instructions and marking historical command receipts inert. The frozen 255 endpoint and its tests were not edited. No non-pin failure is to be counted as an expected pass.
 
@@ -65,7 +65,7 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 | ------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | A01 discover/add prospect       | Implemented; unit + disposable DB PASS                           | duplicate stop, bound cursors                                                         |
 | A02 correct CRM data            | Implemented; unit PASS                                           | revision guard, unsupported fields rejected                                           |
-| A03 import + duplicate decision | Implemented; unit PASS; real files NOT RUN                       | 372-row CSV not in repo                                                               |
+| A03 import + duplicate decision | Native CSV staging + commit; synthetic 20/7/13 DB PASS           | Ambiguous duplicates require review; original 372-row file NOT RUN                    |
 | A04 grounded outreach draft     | Implemented; unit + disposable DB PASS                           | bounded context, full relationship scope, explicit unsupported claims                 |
 | A05 send/reconcile outreach     | NOT RUN                                                          | sending gated, unauthorized                                                           |
 | A06 receive reply               | Implemented; provider-dark DB PASS                               | unique anchor + sender match; ambiguous/overflow quarantined; no live mailbox proof   |
@@ -127,7 +127,7 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 
 - No deploy, hosted migration, live-provider call, email or invitation, purchase, branch-protection change or staging-pin edit.
 - The 12 frozen admission-pin failures are not fixed; all original 14 are classified in the journal. Exact-head CI may remain red at this gate; the delivery receipt records actual check outcomes.
-- Real iPhone/WebKit, Stripe sandbox, hosted operator/offboarding smoke and the W12 guarded-page browser check remain NOT RUN.
+- Physical iPhone Safari, Stripe sandbox, hosted operator/offboarding smoke and the W12 guarded-page browser check remain NOT RUN.
 - Bounded job grants support an explicit human Apply action for opted-in appearance changes; no autonomous scheduler consumes them.
 - Routine budgets reserve a configured per-run estimate, not observed provider spend. Global prospect-contact routines remain refused until a tenant-safe relation exists.
 - Offboarding local execution does not remove Clerk memberships/sessions or cancel billing. Those manual obligations remain visible. Reinstatement does not resurrect credentials, sessions or paused schedules.
@@ -161,3 +161,15 @@ all 41 operator test files, 510 tests PASS (RUN_OPERATOR_DB_INTEGRATION=1). The 
 
 Process: the promotion gate only admits PRs into `master` from `codex/pathfinder-v2-staging` whose exact head is
 healthy on staging. Retarget this PR to `codex/pathfinder-v2-staging` (or open a new one there).
+
+## 10. Safari and CRM follow-up (2026-10-02)
+
+- WebKit reproduced a Send tap lost during a viewport shift. Touch release now submits once, with swipe/cancel and duplicate-click guards; keyboard and mouse paths remain. Removing hover opacity fixed 4.43:1 button contrast. Local WebKit matrix: PASS 27, eight intentional project skips; ChatWindow: PASS 41. Physical iPhone, software keyboard and VoiceOver: NOT RUN.
+- Native MCP CSV attachments or inline CSV now stage durable rows, skip exact duplicates and expose unresolved rows. A ready receipt supplies complete commit arguments, including a stable distinct operation ID. Disposable proof: 20 input rows, seven existing duplicates skipped, 13 created. Ambiguous matches block; this result is not promised for arbitrary files.
+- Partial imports cannot commit; concurrent and expired-link retries recover the original receipt. Corrected CSV bytes require a new staging operation ID. Limits are 100 KB, 500 rows and 50 columns per file. Signed file URLs, file IDs and CSV contents are redacted from operator audit payloads.
+- Routine CRM edits/imports, private venue creation and appearance changes default to automatic application. Explicit stored ASK settings and always-reviewed effects remain authoritative. Routine automatic writes no longer fall back to human approval after 120/hour; burst throttles and host subscription/tool-confirmation limits still apply.
+- Consent, settings, embedded manual and per-kind context now describe the actual policy. Research uses the host's web tools with sourced CRM notes; the MCP is not a general web search engine. Source capture retains authorized-origin requirements.
+- One authorized read-only MCP context check confirmed the installed connection is reachable with platform scope and 18 capabilities, but runs older release `9f726afd101cc3a3cb3c96d9504e06adc9618642`, catalog v0. Local catalog v1 and attachment support require a separately approved release and host tool refresh. No hosted write occurred.
+- Prior head `ba0465b6` CI failed at public API surface inventory. The reviewed guarded decision/job-grant routes are now inventoried; local inventory verification PASS. The frozen staging-admission pins remain untouched.
+- Follow-up source `5c9896e4`: install, full typecheck/lint and final API checks PASS; serial workspace PASS 10,565 tests; fresh operator suite PASS 51 files / 662 tests; canonical CRM suites PASS 2. Exact commands and all intermediate failures are in the journal and `../qa/crm-safari-*`. Script results and final exact-head CI are in the delivery receipt.
+- Release/rollback remains the unexecuted proposal in section 8. Add native attachment staging/commit, routine writes, explicit ASK and real-device Send checks to staging acceptance; retain durable import receipts through rollback. Before reverting to older code without the completion guard, pause import writers and reconcile or cancel incomplete MCP CSV imports through canonical tools; application rollback does not undo created prospect records. No new migration was introduced by this follow-up.
