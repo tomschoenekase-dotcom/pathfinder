@@ -20,6 +20,7 @@ import { VENUE_BOT_RESPONSE_DEPTH_OPTIONS } from '@pathfinder/contracts/venue-bo
 
 import { useTRPCClient } from '../lib/trpc'
 import { CustomPersonalityEditor } from './CustomPersonalityEditor'
+import { LiveDataSettings } from './LiveDataSettings'
 
 type VenueBotEditorState = {
   presentationMode: VenueBotPresentationMode
@@ -206,263 +207,269 @@ export function AiControlsForm({
   if (!initialConfiguration || !selectedVenue) return null
 
   return (
-    <form className="space-y-6" onSubmit={handleSubmit} aria-busy={isSaving}>
-      {venues.length > 1 ? (
+    <>
+      <form className="space-y-6" onSubmit={handleSubmit} aria-busy={isSaving}>
+        {venues.length > 1 ? (
+          <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+            <label htmlFor="venue-bot-venue" className="text-sm font-semibold text-pf-deep">
+              Venue
+            </label>
+            <select
+              id="venue-bot-venue"
+              value={selectedVenueId}
+              disabled={isSaving}
+              onChange={(event) => selectVenue(event.target.value)}
+              className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light bg-pf-white px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {venues.map((venue) => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.name}
+                </option>
+              ))}
+            </select>
+          </section>
+        ) : null}
+
         <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
-          <label htmlFor="venue-bot-venue" className="text-sm font-semibold text-pf-deep">
-            Venue
-          </label>
-          <select
-            id="venue-bot-venue"
-            value={selectedVenueId}
-            disabled={isSaving}
-            onChange={(event) => selectVenue(event.target.value)}
-            className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light bg-pf-white px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {venues.map((venue) => (
-              <option key={venue.id} value={venue.id}>
-                {venue.name}
-              </option>
-            ))}
-          </select>
-        </section>
-      ) : null}
-
-      <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
-          Presentation
-        </p>
-        <h2 id="presentation-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
-          Choose the public visitor experience
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Presentation changes how Venue Bot appears. It does not change what the guide knows, its
-          safety rules, or your private client assistant.
-        </p>
-
-        <div
-          role="group"
-          aria-labelledby="presentation-heading"
-          className="mt-6 grid gap-4 lg:grid-cols-2"
-        >
-          <button
-            type="button"
-            aria-pressed={draft.presentationMode === 'CLASSIC'}
-            disabled={isSaving}
-            onClick={selectClassic}
-            className={`relative min-h-44 rounded-3xl border p-6 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none ${
-              draft.presentationMode === 'CLASSIC'
-                ? 'border-pf-primary bg-pf-primary/[0.06] shadow-sm'
-                : 'border-pf-light bg-pf-surface hover:border-pf-accent/50'
-            }`}
-          >
-            {draft.presentationMode === 'CLASSIC' ? (
-              <span className="absolute right-5 top-5 flex h-7 w-7 items-center justify-center rounded-full bg-pf-primary text-white">
-                <Check className="h-4 w-4" aria-hidden="true" />
-              </span>
-            ) : null}
-            <span className="block pr-10 text-xl font-semibold text-pf-deep">Classic</span>
-            <span className="mt-3 block text-sm leading-6 text-pf-deep/75">
-              The dependable text-chat experience. This remains the default and is fully supported.
-            </span>
-            <span className="mt-4 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-              Available now
-            </span>
-          </button>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
+            Presentation
+          </p>
+          <h2 id="presentation-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
+            Choose the public visitor experience
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+            Presentation changes how Venue Bot appears. It does not change what the guide knows, its
+            safety rules, or your private client assistant.
+          </p>
 
           <div
-            className={`relative min-h-44 overflow-hidden rounded-3xl border p-6 ${
-              savedCharacterConfiguration
-                ? 'border-amber-400 bg-amber-50'
-                : 'border-pf-light bg-pf-surface'
-            }`}
+            role="group"
+            aria-labelledby="presentation-heading"
+            className="mt-6 grid gap-4 lg:grid-cols-2"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 text-xl font-semibold text-pf-deep">
-                  <LockKeyhole className="h-5 w-5 text-amber-700" aria-hidden="true" />
-                  Character
+            <button
+              type="button"
+              aria-pressed={draft.presentationMode === 'CLASSIC'}
+              disabled={isSaving}
+              onClick={selectClassic}
+              className={`relative min-h-44 rounded-3xl border p-6 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none ${
+                draft.presentationMode === 'CLASSIC'
+                  ? 'border-pf-primary bg-pf-primary/[0.06] shadow-sm'
+                  : 'border-pf-light bg-pf-surface hover:border-pf-accent/50'
+              }`}
+            >
+              {draft.presentationMode === 'CLASSIC' ? (
+                <span className="absolute right-5 top-5 flex h-7 w-7 items-center justify-center rounded-full bg-pf-primary text-white">
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                </span>
+              ) : null}
+              <span className="block pr-10 text-xl font-semibold text-pf-deep">Classic</span>
+              <span className="mt-3 block text-sm leading-6 text-pf-deep/75">
+                The dependable text-chat experience. This remains the default and is fully
+                supported.
+              </span>
+              <span className="mt-4 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                Available now
+              </span>
+            </button>
+
+            <div
+              className={`relative min-h-44 overflow-hidden rounded-3xl border p-6 ${
+                savedCharacterConfiguration
+                  ? 'border-amber-400 bg-amber-50'
+                  : 'border-pf-light bg-pf-surface'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-xl font-semibold text-pf-deep">
+                    <LockKeyhole className="h-5 w-5 text-amber-700" aria-hidden="true" />
+                    Character
+                  </div>
+                  <p className="mt-3 max-w-md text-sm leading-6 text-pf-deep/75">
+                    {savedCharacterConfiguration
+                      ? 'A Character setup is saved, but it cannot be newly selected or published until approved character assets are available.'
+                      : 'A future visual layer around the same visitor guide. No approved publishable character pack is available yet.'}
+                  </p>
                 </div>
-                <p className="mt-3 max-w-md text-sm leading-6 text-pf-deep/75">
-                  {savedCharacterConfiguration
-                    ? 'A Character setup is saved, but it cannot be newly selected or published until approved character assets are available.'
-                    : 'A future visual layer around the same visitor guide. No approved publishable character pack is available yet.'}
-                </p>
+                {tochiDevelopmentPreview ? (
+                  <Image
+                    src={tochiDevelopmentPreview.src}
+                    width={tochiDevelopmentPreview.width}
+                    height={tochiDevelopmentPreview.height}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-24 w-20 shrink-0 object-contain opacity-80"
+                  />
+                ) : null}
               </div>
               {tochiDevelopmentPreview ? (
-                <Image
-                  src={tochiDevelopmentPreview.src}
-                  width={tochiDevelopmentPreview.width}
-                  height={tochiDevelopmentPreview.height}
-                  alt=""
-                  aria-hidden="true"
-                  className="h-24 w-20 shrink-0 object-contain opacity-80"
-                />
-              ) : null}
-            </div>
-            {tochiDevelopmentPreview ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
-                  Tochi development preview
-                </span>
-                <span className="text-xs text-pf-deep/65">Not available to publish</span>
-              </div>
-            ) : (
-              <div className="mt-4 text-xs font-semibold text-pf-deep/70">
-                Character early access is not enabled for this environment.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
-          Personality
-        </p>
-        <h2 id="tone-heading" className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-          How should Venue Bot sound?
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Choose a style for visitor conversations. Personality is independent from presentation,
-          and safety and factual guidance stay the same.
-        </p>
-
-        <div
-          role="group"
-          aria-labelledby="tone-heading"
-          className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          {TONE_PRESET_IDS.map((presetId) => {
-            const preset = TONE_PRESET_REGISTRY[presetId]
-            const selected = draft.personalityMode === 'PRESET' && draft.tonePreset === presetId
-
-            return (
-              <button
-                key={presetId}
-                type="button"
-                aria-pressed={selected}
-                disabled={isSaving}
-                onClick={() => selectTone(presetId)}
-                className={`relative min-h-36 rounded-3xl border p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
-                  selected
-                    ? 'border-pf-primary bg-pf-primary/[0.06] shadow-sm'
-                    : 'border-pf-light bg-pf-surface hover:border-pf-accent/50 hover:bg-white'
-                }`}
-              >
-                {selected ? (
-                  <span className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-pf-primary text-white">
-                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+                    Tochi development preview
                   </span>
-                ) : null}
-                <span className="block pr-8 text-lg font-semibold text-pf-deep">
-                  {preset.label}
-                </span>
-                <span className="mt-2 block text-sm leading-6 text-pf-deep/75">
-                  {preset.description}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+                  <span className="text-xs text-pf-deep/65">Not available to publish</span>
+                </div>
+              ) : (
+                <div className="mt-4 text-xs font-semibold text-pf-deep/70">
+                  Character early access is not enabled for this environment.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
 
-        <CustomPersonalityEditor
-          key={selectedVenueId}
-          venueId={selectedVenueId}
-          profiles={profilesByVenue[selectedVenueId] ?? []}
-          selectedProfileId={draft.personalityMode === 'CUSTOM' ? draft.personalityProfileId : null}
-          disabled={isSaving}
-          onSelect={selectCustomProfile}
-          onSaved={(profile) =>
-            setProfilesByVenue((current) => ({
-              ...current,
-              [selectedVenueId]: [
-                ...(current[selectedVenueId] ?? []).filter((item) => item.id !== profile.id),
-                profile,
-              ].sort((left, right) => left.name.localeCompare(right.name)),
-            }))
-          }
-        />
-      </section>
+        <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
+            Personality
+          </p>
+          <h2 id="tone-heading" className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+            How should Venue Bot sound?
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+            Choose a style for visitor conversations. Personality is independent from presentation,
+            and safety and factual guidance stay the same.
+          </p>
 
-      <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
-          Answer depth
-        </p>
-        <h2 id="response-depth-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
-          How much context should visitors get?
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Every setting stays concise and venue-grounded. Visitors can still choose Tell me more
-          when an answer deserves extra context.
-        </p>
-        <div
-          role="group"
-          aria-labelledby="response-depth-heading"
-          className="mt-6 divide-y divide-pf-light border-y border-pf-light md:grid md:grid-cols-3 md:divide-x md:divide-y-0"
-        >
-          {VENUE_BOT_RESPONSE_DEPTH_OPTIONS.map((option) => {
-            const selected = draft.responseDepth === option.id
-            return (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={selected}
-                disabled={isSaving}
-                onClick={() => {
-                  setDraft((current) => ({ ...current, responseDepth: option.id }))
-                  clearMessages()
-                }}
-                className={`relative min-h-28 px-4 py-5 text-left transition focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
-                  selected
-                    ? 'bg-pf-primary/[0.06] shadow-[inset_3px_0_0_var(--color-pf-primary)] md:shadow-[inset_0_3px_0_var(--color-pf-primary)]'
-                    : 'hover:bg-pf-surface'
-                }`}
-              >
-                <span className="flex items-center justify-between gap-3 text-lg font-semibold text-pf-deep">
-                  {option.label}
+          <div
+            role="group"
+            aria-labelledby="tone-heading"
+            className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            {TONE_PRESET_IDS.map((presetId) => {
+              const preset = TONE_PRESET_REGISTRY[presetId]
+              const selected = draft.personalityMode === 'PRESET' && draft.tonePreset === presetId
+
+              return (
+                <button
+                  key={presetId}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={isSaving}
+                  onClick={() => selectTone(presetId)}
+                  className={`relative min-h-36 rounded-3xl border p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+                    selected
+                      ? 'border-pf-primary bg-pf-primary/[0.06] shadow-sm'
+                      : 'border-pf-light bg-pf-surface hover:border-pf-accent/50 hover:bg-white'
+                  }`}
+                >
                   {selected ? (
-                    <Check className="h-4 w-4 text-pf-primary" aria-hidden="true" />
+                    <span className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-pf-primary text-white">
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
                   ) : null}
-                </span>
-                <span className="mt-2 block text-sm leading-6 text-pf-deep/70">
-                  {option.description}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </section>
+                  <span className="block pr-8 text-lg font-semibold text-pf-deep">
+                    {preset.label}
+                  </span>
+                  <span className="mt-2 block text-sm leading-6 text-pf-deep/75">
+                    {preset.description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
 
-      {formError ? (
-        <p
-          role="alert"
-          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-        >
-          {formError}
-        </p>
-      ) : null}
-      {successMessage ? (
-        <p
-          role="status"
-          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-        >
-          {successMessage}
-        </p>
-      ) : null}
+          <CustomPersonalityEditor
+            key={selectedVenueId}
+            venueId={selectedVenueId}
+            profiles={profilesByVenue[selectedVenueId] ?? []}
+            selectedProfileId={
+              draft.personalityMode === 'CUSTOM' ? draft.personalityProfileId : null
+            }
+            disabled={isSaving}
+            onSelect={selectCustomProfile}
+            onSaved={(profile) =>
+              setProfilesByVenue((current) => ({
+                ...current,
+                [selectedVenueId]: [
+                  ...(current[selectedVenueId] ?? []).filter((item) => item.id !== profile.id),
+                  profile,
+                ].sort((left, right) => left.name.localeCompare(right.name)),
+              }))
+            }
+          />
+        </section>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={isSaving || !dirty}
-          className="inline-flex min-h-12 items-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isSaving ? 'Saving settings…' : 'Save Venue Bot settings'}
-        </button>
-        {!dirty && !successMessage ? (
-          <span className="text-sm text-pf-deep/70">No unsaved changes.</span>
+        <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
+            Answer depth
+          </p>
+          <h2 id="response-depth-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
+            How much context should visitors get?
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+            Every setting stays concise and venue-grounded. Visitors can still choose Tell me more
+            when an answer deserves extra context.
+          </p>
+          <div
+            role="group"
+            aria-labelledby="response-depth-heading"
+            className="mt-6 divide-y divide-pf-light border-y border-pf-light md:grid md:grid-cols-3 md:divide-x md:divide-y-0"
+          >
+            {VENUE_BOT_RESPONSE_DEPTH_OPTIONS.map((option) => {
+              const selected = draft.responseDepth === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={isSaving}
+                  onClick={() => {
+                    setDraft((current) => ({ ...current, responseDepth: option.id }))
+                    clearMessages()
+                  }}
+                  className={`relative min-h-28 px-4 py-5 text-left transition focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+                    selected
+                      ? 'bg-pf-primary/[0.06] shadow-[inset_3px_0_0_var(--color-pf-primary)] md:shadow-[inset_0_3px_0_var(--color-pf-primary)]'
+                      : 'hover:bg-pf-surface'
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-3 text-lg font-semibold text-pf-deep">
+                    {option.label}
+                    {selected ? (
+                      <Check className="h-4 w-4 text-pf-primary" aria-hidden="true" />
+                    ) : null}
+                  </span>
+                  <span className="mt-2 block text-sm leading-6 text-pf-deep/70">
+                    {option.description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {formError ? (
+          <p
+            role="alert"
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          >
+            {formError}
+          </p>
         ) : null}
-      </div>
-    </form>
+        {successMessage ? (
+          <p
+            role="status"
+            className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+          >
+            {successMessage}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={isSaving || !dirty}
+            className="inline-flex min-h-12 items-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? 'Saving settings…' : 'Save Venue Bot settings'}
+          </button>
+          {!dirty && !successMessage ? (
+            <span className="text-sm text-pf-deep/70">No unsaved changes.</span>
+          ) : null}
+        </div>
+      </form>
+      <LiveDataSettings key={selectedVenueId} venueId={selectedVenueId} />
+    </>
   )
 }

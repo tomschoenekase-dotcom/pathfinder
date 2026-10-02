@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 566,
-    "sha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
+    "count": 573,
+    "sha256": "668f1d606956de61f8bf6cf5c1cc5b15fb9b8ea6142fd5427d8091ff80e7d74a",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-      "sha256": "6498002252bb04870be19c24b3d59ea7d3a0c319602252c06c90d0e44e5f149b"
+      "operationInventorySha256": "668f1d606956de61f8bf6cf5c1cc5b15fb9b8ea6142fd5427d8091ff80e7d74a",
+      "sha256": "9ba54879fbaf839c5d12383d352c2ff58338afeeb22e76d897b8f6f848c69486"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -760,6 +760,14 @@
       "developerCoverage": "full",
       "decision": "Agents may inspect a count-only, policy-unresolved retention preview; offboarding finalization, policy approval, revocation, deletion, anonymization, and provider-side actions remain restricted.",
       "evidence": "docs/retention-disposition-preview.md"
+    },
+    {
+      "id": "live-data-connectors",
+      "pattern": "^liveDataRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Venue live-data connectors (read-only pull feeds with a closed field mapping) are configured and enabled by an authenticated human manager or owner, server-side, with audit. The policy query is read-only and reports open-web browsing as permanently off. No agent tool can create, point, enable or test a connector, because an endpoint is outbound network authority.",
+      "evidence": "docs/implementation/live-data-and-open-web-policy.md"
     },
     {
       "id": "operator-approvals",

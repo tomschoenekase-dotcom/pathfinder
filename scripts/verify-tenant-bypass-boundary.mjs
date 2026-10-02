@@ -48,6 +48,9 @@ const approvedCallCounts = new Map([
   // Durable provider identities are tenant-scoped; each mutation is ID/lease/revision-fenced.
   ['packages/db/src/helpers/media-provider-operations.ts', 5],
   ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
+  // Platform live-data scheduler discovers a bounded set of opaque due connector IDs; each poll
+  // job re-enters one exact tenant+venue+connector scope and never serves guest content.
+  ['packages/db/src/helpers/live-data.ts', 1],
   // Platform recovery scans only bounded authoritative upload identities; each
   // job then re-enters one exact tenant+venue+upload scope before mutation.
   ['apps/workers/src/processors/intake-upload-verification.ts', 1],
@@ -730,10 +733,12 @@ for (const [fileName, addition] of r2ApprovedDelta) {
 }
 const r2ApprovedTotal = [...approvedCallCounts.values()].reduce((sum, count) => sum + count, 0)
 const packet5ApprovedDelta = 4
-if (
-  approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !==
-  3 + 1
-) {
+// W10 live-data scheduler discovery (packages/db/src/helpers/live-data.ts): exactly one reviewed call.
+const liveDataApprovedDelta = 1
+if (approvedCallCounts.get('packages/db/src/helpers/live-data.ts') !== liveDataApprovedDelta) {
+  throw new Error('Live data scheduler bypass delta differs')
+}
+if (approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !== 3 + 1) {
   throw new Error('Packet 5 venue voice usage bypass delta differs')
 }
 if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') !== 1 + 3) {
@@ -741,7 +746,10 @@ if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') 
 }
 if (
   r2ApprovedTotal !==
-  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) + packet5ApprovedDelta
+  453 +
+    [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) +
+    packet5ApprovedDelta +
+    liveDataApprovedDelta
 ) {
   throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
 }

@@ -101,6 +101,8 @@ describe('tenantIsolationMiddleware', () => {
       'Venue',
       'VenueDistribution',
       'VenueWebsiteOrigin',
+      'LiveDataConnector',
+      'LiveDataObservation',
       'VenueBotConfiguration',
       'PersonalityProfile',
       'CustomCharacter',

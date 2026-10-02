@@ -8,6 +8,7 @@ import { clientAssistantRouter } from './routers/client-assistant'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
+import { liveDataRouter } from './routers/live-data'
 import { intakeRouter } from './routers/intake'
 import { intakeUploadRouter } from './routers/intake-upload'
 import { operationalUpdateRouter } from './routers/operational-update'
@@ -33,6 +34,7 @@ export const appRouter = router({
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
+  liveData: liveDataRouter,
   intake: intakeRouter,
   intakeUpload: intakeUploadRouter,
   operationalUpdate: operationalUpdateRouter,

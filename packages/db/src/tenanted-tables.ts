@@ -20,6 +20,8 @@ export const TENANTED_TABLES = [
   'Venue',
   'VenueDistribution',
   'VenueWebsiteOrigin',
+  'LiveDataConnector',
+  'LiveDataObservation',
   'VenueBotConfiguration',
   'PersonalityProfile',
   'CustomCharacter',

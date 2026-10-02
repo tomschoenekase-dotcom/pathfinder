@@ -1521,6 +1521,7 @@ model Venue {
   reportConfiguration                       VenueReportConfiguration?
   distribution                              VenueDistribution?
   websiteOrigins                            VenueWebsiteOrigin[]
+  liveDataConnectors                        LiveDataConnector[]
   answerAnalysisSnapshots                   AnswerAnalysisSnapshot[]
   guestAnswerAttributions                   GuestAnswerAttribution[]
   guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
@@ -3330,6 +3331,77 @@ model VenueWebsiteOrigin {
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, state])
   @@map("venue_website_origins")
+}
+
+enum LiveDataConnectorKind {
+  SPORTS_SCORE
+  RIDE_STATUS
+  GENERIC_JSON
+}
+
+enum LiveDataConnectorState {
+  ACTIVE
+  DISABLED
+}
+
+/// Venue-approved, read-only pull feed. No credentials are stored: the endpoint carries none.
+model LiveDataConnector {
+  id                     String                 @id @default(cuid())
+  tenantId               String                 @map("tenant_id")
+  venueId                String                 @map("venue_id")
+  name                   String                 @db.VarChar(120)
+  kind                   LiveDataConnectorKind
+  provider               String                 @db.VarChar(80)
+  resourceId             String                 @map("resource_id") @db.VarChar(80)
+  resourceLabel          String                 @map("resource_label") @db.VarChar(120)
+  endpointUrl            String                 @map("endpoint_url") @db.VarChar(2048)
+  endpointHost           String                 @map("endpoint_host") @db.VarChar(255)
+  mapping                Json
+  pollIntervalSeconds    Int                    @map("poll_interval_seconds")
+  freshnessBudgetSeconds Int                    @map("freshness_budget_seconds")
+  timezone               String                 @db.VarChar(64)
+  state                  LiveDataConnectorState @default(DISABLED)
+  nextPollAt             DateTime?              @map("next_poll_at")
+  lastAttemptAt          DateTime?              @map("last_attempt_at")
+  lastSuccessAt          DateTime?              @map("last_success_at")
+  lastErrorCategory      String?                @map("last_error_category") @db.VarChar(32)
+  lastErrorAt            DateTime?              @map("last_error_at")
+  consecutiveFailures    Int                    @default(0) @map("consecutive_failures")
+  lastTestAt             DateTime?              @map("last_test_at")
+  lastTestOutcome        String?                @map("last_test_outcome") @db.VarChar(16)
+  lastTestErrorCategory  String?                @map("last_test_error_category") @db.VarChar(32)
+  lastTestPreview        Json?                  @map("last_test_preview")
+  createdBy              String                 @map("created_by") @db.VarChar(191)
+  updatedBy              String                 @map("updated_by") @db.VarChar(191)
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  venue                  Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  observation            LiveDataObservation?
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, venueId, resourceId])
+  @@index([tenantId, venueId, state])
+  @@index([state, nextPollAt])
+  @@map("live_data_connectors")
+}
+
+/// Latest stored observation per connector. Guest answers read this row, never the provider.
+model LiveDataObservation {
+  id                     String            @id @default(cuid())
+  tenantId               String            @map("tenant_id")
+  venueId                String            @map("venue_id")
+  connectorId            String            @unique @map("connector_id")
+  values                 Json
+  observedAt             DateTime?         @map("observed_at")
+  fetchedAt              DateTime          @map("fetched_at")
+  timestampBasis         String            @map("timestamp_basis") @db.VarChar(16)
+  conflicts              Json              @default("[]")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  connector              LiveDataConnector @relation(fields: [connectorId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([connectorId, tenantId])
+  @@index([tenantId, venueId])
+  @@map("live_data_observations")
 }
 
 model AiUsageEvent {

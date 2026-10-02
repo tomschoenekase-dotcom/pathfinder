@@ -51,6 +51,8 @@ import {
   MEDIA_INGESTION_RETRY_BACKOFF,
   OPERATIONAL_QUEUE_NAMES,
   VOICE_SESSION_HANGUP_JOB,
+  LIVE_DATA_POLL_QUEUE,
+  LIVE_DATA_POLL_PROCESS_JOB,
   VOICE_SESSION_RECOVERY_QUEUE,
   PROSPECT_IMPORT_COMMIT_JOB,
   PROSPECT_IMPORT_INSPECT_JOB,
@@ -96,6 +98,7 @@ import type {
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
   VoiceSessionHangupJobPayload,
+  LiveDataPollJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -756,6 +759,38 @@ export async function enqueueVoiceSessionHangup(input: {
     jobId: voiceSessionHangupJobId(input.voiceSessionId, deadlineAt),
   })
   logger.info({ action: 'jobs.voice-session.hangup-enqueued' })
+}
+
+const LIVE_DATA_ID = /^[A-Za-z0-9_-]{1,191}$/u
+
+/**
+ * Enqueues one connector poll. Scheduled polls are de-duplicated per connector per 15-second
+ * bucket and test polls per connector per 30-second bucket, so repeated scheduler ticks or
+ * operator clicks cannot multiply provider calls. The worker still claims the slot in Postgres.
+ */
+export async function enqueueLiveDataPoll(
+  payload: LiveDataPollJobPayload,
+  now: Date = new Date(),
+): Promise<void> {
+  for (const value of [payload.tenantId, payload.venueId, payload.connectorId]) {
+    if (!LIVE_DATA_ID.test(value)) throw new Error('Live data poll identity is invalid')
+  }
+  const bucketSeconds = payload.mode === 'test' ? 30 : 15
+  const bucket = Math.floor(now.getTime() / (bucketSeconds * 1000))
+  await getQueue(LIVE_DATA_POLL_QUEUE).add(LIVE_DATA_POLL_PROCESS_JOB, payload, {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 5_000 },
+    removeOnComplete: 200,
+    removeOnFail: 500,
+    jobId: `live-data-poll-${payload.mode}-${payload.connectorId}-${bucket}`,
+  })
+  logger.info({
+    action: 'jobs.live-data-poll.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    connectorId: payload.connectorId,
+    mode: payload.mode,
+  })
 }
 
 export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promise<void> {

@@ -67,6 +67,7 @@ import { buildGuestCitations } from '../lib/guest-citations'
 import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
 import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-configuration'
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
+import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1484,10 +1485,22 @@ const chatReadRouter = router({
       formality: (venue.customFormality ?? -1) / 100,
       ...(venue.customInstruction ? { customInstruction: venue.customInstruction } : {}),
     })
+    // Latest STORED observations only: guest turns never call a live-data provider. A read failure
+    // degrades to "no live facts", so the guide cannot state a value it could not verify.
+    const liveDataPrompt = await loadGuestLiveDataContext(ctx.db, {
+      tenantId: venue.tenantId,
+      venueId: venue.id,
+    })
+      .then((result) => result.prompt)
+      .catch(() => {
+        logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+        return ''
+      })
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const preparePrompt = () =>
       buildVenueSystemPromptParts({
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
+        ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
           ...venue,
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),

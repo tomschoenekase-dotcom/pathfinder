@@ -127,6 +127,11 @@ export const INTAKE_V1_FILE_EXTRACTION_QUEUE = queueName('intake-v1-file-extract
 export const INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB = 'intake-v1-file-extraction-process'
 export const INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB = 'intake-v1-file-extraction-recovery'
 
+/** Pull-mode venue live data. Jobs carry opaque tenant/venue/connector IDs only. */
+export const LIVE_DATA_POLL_QUEUE = queueName('live-data-poll')
+export const LIVE_DATA_POLL_PROCESS_JOB = 'live-data-poll-process'
+export const LIVE_DATA_POLL_SCHEDULER_JOB = 'live-data-poll-scheduler'
+
 export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
 export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
 export const VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF = 'venue-media-derivative-retry'
@@ -164,4 +169,5 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
   INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
+  LIVE_DATA_POLL_QUEUE,
 ] as const)

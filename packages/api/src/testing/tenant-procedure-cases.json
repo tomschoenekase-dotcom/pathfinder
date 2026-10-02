@@ -385,7 +385,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "tenant.inviteMember",
@@ -1225,27 +1227,128 @@
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "revisionLimit": 20 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "revisionLimit": 20
+    }
   },
   {
     "path": "intake.listV1Candidates",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 25
+    }
   },
   {
     "path": "intake.listV1UploadCandidates",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 25
+    }
   },
   {
     "path": "venue.listApprovedBrandingAssets",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 50 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 50
+    }
+  },
+  {
+    "path": "liveData.policy",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "liveData.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "liveDataConnector.findMany",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "liveData.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "name": "Home game score",
+      "kind": "sports_score",
+      "provider": "fixture-sports",
+      "resourceId": "game.home",
+      "resourceLabel": "Hawks home game",
+      "endpointUrl": "https://feeds.example-sports.com/v1/game",
+      "mapping": {
+        "observedAt": {
+          "pointer": "/updated",
+          "format": "iso8601"
+        },
+        "fields": {
+          "homeScore": {
+            "pointer": "/home",
+            "type": "integer"
+          },
+          "awayScore": {
+            "pointer": "/away",
+            "type": "integer"
+          }
+        }
+      },
+      "pollIntervalSeconds": 60,
+      "freshnessBudgetSeconds": 180,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "path": "liveData.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901",
+      "name": "Renamed"
+    }
+  },
+  {
+    "path": "liveData.enable",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "liveData.disable",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "liveData.test",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
   }
 ]
