@@ -198,8 +198,6 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'crm.propose_duplicate_resolution',
   // Changes who is emailed for a person: a person decides each address change.
   'crm.propose_contact_address_change',
-  // Commits a whole reviewed spreadsheet of records at once, bound to its exact hashes.
-  'crm.propose_import_commit',
   // Each of these is a human gate on outbound mail. Policy never stands in for the person.
   'crm.propose_draft_review',
   'crm.propose_batch_stage',
@@ -309,6 +307,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
  * policy already approved, under a fresh authority check.
  */
 export const OPERATOR_CONTROL_TOOL_NAMES = [
+  // Stages a bounded CSV under an explicit platform-wide CRM grant; it never sends outreach.
+  'crm.stage_csv_import',
   'operator.cancel_operation',
   'operator.recover_operation',
   // Asks a signed-in person to decide one proposal. It records a ticket and returns a link, and
@@ -1092,6 +1092,21 @@ export const OPERATOR_MCP_INPUTS = {
     planHash: Sha256Hex,
     /** The number of rows that will be created or linked (VALID plus WARNING) as crm.get_import reports. */
     expectedRows: z.number().int().positive(),
+  }),
+  'crm.stage_csv_import': writeInput({
+    file: z
+      .object({
+        download_url: z.string().url().max(4096),
+        file_id: z.string().min(1).max(191),
+        mime_type: z.string().max(100).optional(),
+        file_name: z.string().max(200).optional(),
+      })
+      .strict()
+      .optional(),
+    csvText: z.string().min(1).max(100_000).optional(),
+    mapping: z.record(z.string().min(1).max(300)).optional(),
+  }).refine((value) => Boolean(value.file) !== Boolean(value.csvText), {
+    message: 'Provide exactly one CSV attachment or csvText',
   }),
   'crm.propose_duplicate_resolution': writeInput({
     organizationId: Identifier,
@@ -3663,6 +3678,40 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_account_update': OperatorWriteResult,
   'crm.propose_contact_address_change': OperatorWriteResult,
   'crm.propose_prospect_create': OperatorWriteResult,
+  'crm.stage_csv_import': z
+    .object({
+      importId: Identifier,
+      replayed: z.boolean(),
+      blocked: z.boolean(),
+      status: z.string().max(40),
+      recovery: z
+        .enum(['RETRY_SAME_OPERATION_WITH_VALID_ATTACHMENT', 'REVIEW_ROWS', 'CORRECT_CSV'])
+        .nullable(),
+      totalRows: z.number().int().nonnegative(),
+      stagedRows: z.number().int().nonnegative(),
+      unmappedColumns: z.array(z.string().max(300)).max(50),
+      skippedDuplicates: z.number().int().nonnegative(),
+      malformedRows: z.number().int().nonnegative(),
+      unresolvedDuplicates: z.number().int().nonnegative(),
+      importableRows: z.number().int().nonnegative(),
+      addedRows: z.number().int().nonnegative(),
+      next: z
+        .object({
+          tool: z.literal('crm.propose_import_commit'),
+          args: z
+            .object({
+              importId: Identifier,
+              fileHash: Sha256Hex,
+              mappingHash: Sha256Hex,
+              planHash: Sha256Hex,
+              expectedRows: z.number().int().positive(),
+            })
+            .strict(),
+        })
+        .strict()
+        .nullable(),
+    })
+    .strict(),
   'crm.propose_import_commit': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
   'crm.propose_campaign_create': OperatorWriteResult,
@@ -3817,12 +3866,13 @@ export type OperatorToolDefinition = Readonly<{
     readOnlyHint: boolean
     destructiveHint: false
     idempotentHint: true
-    openWorldHint: false
+    openWorldHint: boolean
   }>
   capability: OperatorCapability
   effect: OperatorToolEffect
   /** Present on proposal tools only: the server-side proposal kind this tool creates. */
   proposalKind?: string
+  _meta?: Readonly<{ 'openai/fileParams': readonly string[] }>
   scope: OperatorToolScope
 }>
 
@@ -4468,9 +4518,16 @@ const seeds: readonly Seed[] = [
     'crm.prospect-create',
   ],
   [
+    'crm.stage_csv_import',
+    'Stage CSV prospect import',
+    'Stage a bounded attached CSV or csvText in the prospect CRM, conservatively skip exact duplicates, and return the import-commit arguments. Requires a platform-wide CRM grant. Does not send mail or invite anyone. This changes import staging records but does not create prospects until the commit job runs.',
+    'crm:propose',
+    'platform',
+  ],
+  [
     'crm.propose_import_commit',
     'Propose import commit',
-    `Propose committing one reviewed spreadsheet import, bound to its exact file hash, mapping hash, plan hash and importable row count from crm.get_import. Rows still awaiting a duplicate decision, an unfinished staging run or any change since you read it stops it. Applying signs the import off and queues the existing commit job; rows are created or linked by that job, never merged. Always needs a human.${PROPOSE}`,
+    `Propose committing one reviewed spreadsheet import, bound to its exact file hash, mapping hash, plan hash and importable row count from crm.get_import. Rows still awaiting a duplicate decision, an unfinished staging run or any change since you read it stops it. Applying signs the import off and queues the existing commit job; rows are created or linked by that job, never merged. An owner-authorized auto policy may apply this routine CRM import; otherwise show the pending approval.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.import-commit',
@@ -4761,10 +4818,11 @@ export const OPERATOR_MCP_TOOLS: readonly OperatorToolDefinition[] = seeds.map(
         readOnlyHint: isRead,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: name === 'crm.stage_csv_import',
       },
       capability,
       effect: isRead ? 'read' : isControl ? 'control' : 'proposal',
+      ...(name === 'crm.stage_csv_import' ? { _meta: { 'openai/fileParams': ['file'] } } : {}),
       ...(proposalKind ? { proposalKind } : {}),
       scope,
     } satisfies OperatorToolDefinition

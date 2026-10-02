@@ -524,6 +524,7 @@ async function loadImport(database: OperatorDatabase, importId: string) {
       mappingHash: true,
       progressCursor: true,
       sourceObjectKey: true,
+      packageManifest: true,
       approvedAt: true,
     },
   })
@@ -566,6 +567,17 @@ export const crmImportCommitKind: OperatorProposalKind<ImportCommitArgs> = {
     }
     if (row.sourceObjectKey && row.progressCursor !== 'DRY_RUN_READY') {
       throw refusal('IMPORT_NOT_READY', 'Workbook staging has not finished.', current)
+    }
+    const csvManifest = row.packageManifest as {
+      mcpCsv?: boolean
+      stagingComplete?: boolean
+      sourceRows?: number
+    } | null
+    if (
+      csvManifest?.mcpCsv &&
+      (!csvManifest.stagingComplete || plan.rowTotal !== csvManifest.sourceRows)
+    ) {
+      throw refusal('IMPORT_NOT_READY', 'CSV staging has not finished.', current)
     }
     if (plan.counts.DUPLICATE_REVIEW > 0) {
       throw refusal(

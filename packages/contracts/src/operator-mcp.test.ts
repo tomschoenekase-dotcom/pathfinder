@@ -139,6 +139,7 @@ const EXPECTED_TOOLS = [
   'crm.propose_contact_address_change',
   'crm.propose_prospect_create',
   'crm.propose_import_commit',
+  'crm.stage_csv_import',
   'crm.propose_duplicate_resolution',
   'crm.propose_campaign_create',
   'crm.propose_draft_review',
@@ -245,7 +246,7 @@ describe('operator MCP catalog', () => {
       expect(tool.effect).toBe(isRead ? 'read' : isControl ? 'control' : 'proposal')
       expect(tool.annotations.readOnlyHint).toBe(isRead)
       expect(tool.annotations.destructiveHint).toBe(false)
-      expect(tool.annotations.openWorldHint).toBe(false)
+      expect(tool.annotations.openWorldHint).toBe(tool.name === 'crm.stage_csv_import')
       expect(OperatorCapability.safeParse(tool.capability).success).toBe(true)
       expect(['platform', 'tenant', 'venue']).toContain(tool.scope)
       expect(Boolean(tool.proposalKind)).toBe(!isRead && !isControl)
@@ -291,9 +292,10 @@ describe('operator MCP catalog', () => {
   it('requires an operationId uuid on every write and on no read', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[] }
-      // Only proposals carry an operationId. Controls name the earlier operation by
-      // originalOperationId and are naturally idempotent.
-      expect(json.required.includes('operationId')).toBe(tool.effect === 'proposal')
+      // CSV staging is the one control that starts a durable operation of its own.
+      expect(json.required.includes('operationId')).toBe(
+        tool.effect === 'proposal' || tool.name === 'crm.stage_csv_import',
+      )
     }
     expect(
       OPERATOR_MCP_INPUTS['crm.propose_campaign_membership'].safeParse({
@@ -344,7 +346,6 @@ describe('operator MCP catalog', () => {
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',
       'crm.propose_contact_address_change',
-      'crm.propose_import_commit',
       'crm.propose_draft_review',
       'crm.propose_batch_stage',
       'crm.propose_batch_approve',
