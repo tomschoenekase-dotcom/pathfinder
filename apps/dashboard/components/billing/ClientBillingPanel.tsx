@@ -1,22 +1,22 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
-import { ClientBillingView } from './ClientBillingView'
 import {
-  clientBillingPresentation as presentation,
-  type ClientBillingOverview as Overview,
-} from '../../lib/client-billing-presentation'
+  isForbiddenError,
+  type ClientBillingStateData,
+  type ClientBillingViewState,
+} from '../../lib/client-billing-state'
+import { BillingStateView } from './BillingStateView'
 
 const BILLING_READ_TIMEOUT_MS = 15_000
 
 export function ClientBillingPanel() {
   const client = useTRPCClient()
-  const [overview, setOverview] = useState<Overview | null>(null)
-  const [hidden, setHidden] = useState(false)
-  const [loadError, setLoadError] = useState(false)
+  const [view, setView] = useState<ClientBillingViewState>({ status: 'loading' })
+  const lastGood = useRef<ClientBillingStateData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -33,18 +33,36 @@ export function ClientBillingPanel() {
     loadAbort.current?.abort()
     const controller = new AbortController()
     loadAbort.current = controller
-    setLoadError(false)
+    setView((current) => (current.status === 'ready' ? current : { status: 'loading' }))
     try {
       const next = await runBoundedClientRequest({
         parentSignal: controller.signal,
         timeoutMs: BILLING_READ_TIMEOUT_MS,
-        request: (signal) => client.billing.overview.query(undefined, { signal }),
+        request: (signal) => client.billing.clientState.query(undefined, { signal }),
       })
       if (loadGeneration.current !== generation) return
-      if (!next.enabled) return setHidden(true)
-      setOverview(next)
-    } catch {
-      if (loadGeneration.current === generation && !controller.signal.aborted) setLoadError(true)
+      if (next.state !== 'error') lastGood.current = next
+      setView(
+        next.state === 'error'
+          ? {
+              status: 'error',
+              kind: next.errorKind ?? 'retrieval',
+              lastConfirmedAt: lastGood.current?.lastReliableUpdateAt ?? null,
+            }
+          : { status: 'ready', data: next },
+      )
+    } catch (cause) {
+      if (loadGeneration.current !== generation || controller.signal.aborted) return
+      // A request failure is never rendered as an empty or paid state.
+      setView(
+        isForbiddenError(cause)
+          ? { status: 'forbidden' }
+          : {
+              status: 'error',
+              kind: 'retrieval',
+              lastConfirmedAt: lastGood.current?.lastReliableUpdateAt ?? null,
+            },
+      )
     } finally {
       if (loadAbort.current === controller) loadAbort.current = null
     }
@@ -90,11 +108,10 @@ export function ClientBillingPanel() {
       cancelTriggerRef.current?.focus()
     }
   }, [cancelOpen])
-  const view = useMemo(() => (overview ? presentation(overview) : null), [overview])
-
   function checkout() {
-    if (overview?.currentCheckoutUrl) {
-      window.location.assign(overview.currentCheckoutUrl)
+    const url = view.status === 'ready' ? view.data.actions.checkoutUrl : null
+    if (url) {
+      window.location.assign(url)
       return
     }
     setError(
@@ -136,50 +153,12 @@ export function ClientBillingPanel() {
     }
   }
 
-  async function recordInterest(featureKey: string) {
-    setBusy(true)
-    setError(null)
-    try {
-      await client.billing.recordAddOnInterest.mutate({
-        operationId: crypto.randomUUID(),
-        featureKey,
-      })
-      setNotice(
-        'Thanks—our team will review your account and contact you with a custom offer. Nothing has been added or charged.',
-      )
-      await load()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Your interest could not be recorded.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (hidden) return null
-  if (loadError) {
-    return (
-      <section className="rounded-xl border border-tk-rule bg-tk-card p-5 sm:p-6">
-        <h2 className="text-xl font-semibold text-pf-deep">Payment details are unavailable</h2>
-        <p role="alert" className="mt-2 text-sm leading-6 text-pf-deep/70">
-          We could not load your payment status. Please try again or contact Torchiko support.
-        </p>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="mt-5 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
-        >
-          Try again
-        </button>
-      </section>
-    )
-  }
-  if (!overview || !view) return <ClientBillingView state="loading" billing={null} />
   return (
-    <section className="rounded-xl border border-tk-rule bg-tk-card p-5 sm:p-6">
+    <div className="space-y-4">
       {error ? (
         <p
           role="alert"
-          className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+          className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
         >
           {error}
         </p>
@@ -187,34 +166,21 @@ export function ClientBillingPanel() {
       {notice ? (
         <p
           role="status"
-          className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
         >
           {notice}
         </p>
       ) : null}
-      <ClientBillingView
-        state={view.state}
-        billing={view.model}
-        reconciliationWarning={
-          overview.account &&
-          ['DRIFT', 'ERROR', 'STALE'].includes(overview.account.reconciliationHealth)
-            ? 'The local billing projection is being checked against Stripe. Access is not granted from the redirect alone.'
-            : null
-        }
-        {...(view.model?.canStartCheckout && !busy ? { onStartCheckout: checkout } : {})}
-        {...(view.model?.canRetryCheckout && !busy ? { onRetryCheckout: () => void portal() } : {})}
-        {...(view.model?.canManageBilling && !busy ? { onManageBilling: () => void portal() } : {})}
-        {...(view.model?.canCancel && !busy
-          ? {
-              onRequestCancellation: () => {
-                cancelTriggerRef.current = document.activeElement as HTMLElement | null
-                setCancelOpen(true)
-              },
-            }
-          : {})}
-        {...(!busy
-          ? { onAddOnInterest: (featureKey: string) => void recordInterest(featureKey) }
-          : {})}
+      <BillingStateView
+        view={view}
+        busy={busy}
+        onRetry={() => void load()}
+        onCheckout={checkout}
+        onManageBilling={() => void portal()}
+        onRequestCancellation={() => {
+          cancelTriggerRef.current = document.activeElement as HTMLElement | null
+          setCancelOpen(true)
+        }}
       />
       {cancelOpen ? (
         <div
@@ -277,6 +243,6 @@ export function ClientBillingPanel() {
           </form>
         </div>
       ) : null}
-    </section>
+    </div>
   )
 }

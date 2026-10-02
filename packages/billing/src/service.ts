@@ -737,6 +737,21 @@ function projectedAccountStatus(status: ReturnType<typeof projectStripeSubscript
   return projected === 'TRIALING' ? 'MANUAL_REVIEW' : projected
 }
 
+/**
+ * The grace window starts with the first failure. A later failed retry or subscription update
+ * while the account is already past due must not push the end of the window forward.
+ */
+export function graceEndFor(params: {
+  account: { status: string; gracePeriodEndsAt: Date | null }
+  providerCreatedAt: Date
+  days: number
+}): Date {
+  if (params.account.status === 'PAST_DUE' && params.account.gracePeriodEndsAt) {
+    return params.account.gracePeriodEndsAt
+  }
+  return new Date(params.providerCreatedAt.getTime() + params.days * 86_400_000)
+}
+
 async function quarantine(params: {
   receiptId: string
   eventId: string
@@ -912,7 +927,14 @@ export async function applyVerifiedStripeEvent(params: {
               where: { id: agreement.billingAccountId, tenantId: agreement.tenantId },
             })
           : null)
-      if (!resolvedAccount || (metadataTenantId && metadataTenantId !== resolvedAccount.tenantId)) {
+      // Ownership comes from provider object identifiers (customer and subscription ids). The
+      // account and agreement must belong to the same tenant, and metadata may only confirm that
+      // ownership; it can never redirect an event to another tenant.
+      if (
+        !resolvedAccount ||
+        (agreement && agreement.tenantId !== resolvedAccount.tenantId) ||
+        (metadataTenantId && metadataTenantId !== resolvedAccount.tenantId)
+      ) {
         return quarantine({
           receiptId: receipt.id,
           eventId: params.event.id,
@@ -949,29 +971,43 @@ export async function applyVerifiedStripeEvent(params: {
             params.event.type === 'checkout.session.completed' ||
             params.event.type === 'checkout.session.async_payment_succeeded'
           const expired = params.event.type === 'checkout.session.expired'
-          await tx.billingCheckoutAttempt.update({
-            where: { id: attempt.id, tenantId: attempt.tenantId },
-            data: {
-              status: completed ? 'COMPLETED' : expired ? 'EXPIRED' : 'FAILED',
-              completedAt: completed ? new Date() : null,
-              failureCode:
-                params.event.type === 'checkout.session.async_payment_failed'
-                  ? 'ASYNC_PAYMENT_FAILED'
-                  : null,
-              providerStateChangedAt: providerCreatedAt,
-              lastAppliedStripeEventId: params.event.id,
-              lastAppliedStripeEventAt: providerCreatedAt,
-            },
-          })
-          appliedObjectType = 'BillingCheckoutAttempt'
-          appliedObjectId = attempt.id
-          transition = {
-            ...transition,
-            checkoutStatus: completed
-              ? 'COMPLETED_PENDING_SUBSCRIPTION_WEBHOOK'
-              : expired
-                ? 'EXPIRED'
-                : 'FAILED',
+          if (
+            !isNewerProviderState({
+              incomingAt: providerCreatedAt,
+              incomingEventId: params.event.id,
+              appliedAt: attempt.lastAppliedStripeEventAt,
+              appliedEventId: attempt.lastAppliedStripeEventId,
+            })
+          ) {
+            // An older Checkout event delivered late must not overwrite newer attempt state.
+            applicationStatus = 'IGNORED_STALE'
+            appliedObjectType = 'BillingCheckoutAttempt'
+            appliedObjectId = attempt.id
+          } else {
+            await tx.billingCheckoutAttempt.update({
+              where: { id: attempt.id, tenantId: attempt.tenantId },
+              data: {
+                status: completed ? 'COMPLETED' : expired ? 'EXPIRED' : 'FAILED',
+                completedAt: completed ? new Date() : null,
+                failureCode:
+                  params.event.type === 'checkout.session.async_payment_failed'
+                    ? 'ASYNC_PAYMENT_FAILED'
+                    : null,
+                providerStateChangedAt: providerCreatedAt,
+                lastAppliedStripeEventId: params.event.id,
+                lastAppliedStripeEventAt: providerCreatedAt,
+              },
+            })
+            appliedObjectType = 'BillingCheckoutAttempt'
+            appliedObjectId = attempt.id
+            transition = {
+              ...transition,
+              checkoutStatus: completed
+                ? 'COMPLETED_PENDING_SUBSCRIPTION_WEBHOOK'
+                : expired
+                  ? 'EXPIRED'
+                  : 'FAILED',
+            }
           }
         } else if (params.event.type.startsWith('customer.subscription.')) {
           const projection = projectStripeSubscription(
@@ -1006,10 +1042,11 @@ export async function applyVerifiedStripeEvent(params: {
           } else {
             const graceEndsAt =
               projection.status === 'PAST_DUE'
-                ? new Date(
-                    providerCreatedAt.getTime() +
-                      environment.BILLING_GRACE_PERIOD_DAYS * 86_400_000,
-                  )
+                ? graceEndFor({
+                    account: resolvedAccount,
+                    providerCreatedAt,
+                    days: environment.BILLING_GRACE_PERIOD_DAYS,
+                  })
                 : null
             await tx.commercialAgreement.update({
               where: { id: target.id, tenantId: target.tenantId },
@@ -1136,9 +1173,11 @@ export async function applyVerifiedStripeEvent(params: {
                 appliedEventId: agreement.lastAppliedStripeEventId,
               })
             ) {
-              const graceEndsAt = new Date(
-                providerCreatedAt.getTime() + environment.BILLING_GRACE_PERIOD_DAYS * 86_400_000,
-              )
+              const graceEndsAt = graceEndFor({
+                account: resolvedAccount,
+                providerCreatedAt,
+                days: environment.BILLING_GRACE_PERIOD_DAYS,
+              })
               await tx.commercialAgreement.update({
                 where: { id: agreement.id, tenantId: agreement.tenantId },
                 data: {

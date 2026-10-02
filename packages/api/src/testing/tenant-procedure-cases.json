@@ -1102,6 +1102,13 @@
     "input": null
   },
   {
+    "path": "billing.clientState",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": null
+  },
+  {
     "path": "billing.createCheckout",
     "kind": "mutation",
     "minimumRole": "OWNER",

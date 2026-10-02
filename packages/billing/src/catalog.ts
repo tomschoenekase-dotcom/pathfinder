@@ -21,6 +21,14 @@ export const BillingPlan = z
     newSalesEnabled: z.boolean().default(false),
     portalChangesEnabled: z.boolean().default(false),
     metadata: z.record(z.string(), z.string()).default({}),
+    // Explicit, recorded owner approval. Required before any live plan can be sold.
+    liveApproval: z
+      .object({
+        approvedAt: z.string().datetime(),
+        approvalReference: z.string().trim().min(3).max(200),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine(
@@ -30,6 +38,32 @@ export const BillingPlan = z
   )
 
 export type BillingPlan = z.infer<typeof BillingPlan>
+
+const FIXTURE_MARKER =
+  /(?:^|[^a-z0-9])(?:test|tests|fixture|sandbox|demo|not[\s_-]*for[\s_-]*(?:live|sale|sales))(?:$|[^a-z0-9])/iu
+
+/**
+ * Why a plan may not be sold in live mode, or null when it may. A live plan needs an explicit
+ * recorded approval, and anything labelled as a test, fixture, sandbox, demo or not-for-live-sales
+ * item is refused no matter how it reached the catalog.
+ */
+export function liveSaleBlocker(plan: BillingPlan): string | null {
+  if (plan.providerMode !== 'live') return null
+  const labels = [
+    plan.key,
+    plan.displayName,
+    plan.description,
+    ...Object.keys(plan.metadata),
+    ...Object.values(plan.metadata),
+  ]
+  if (labels.some((label) => FIXTURE_MARKER.test(label))) {
+    return 'A product or price labelled as a test fixture cannot be used for live Checkout'
+  }
+  if (!plan.liveApproval) {
+    return 'A live plan requires an explicit recorded owner approval before it can be sold'
+  }
+  return null
+}
 
 const BillingCatalog = z
   .object({
@@ -47,6 +81,10 @@ const BillingCatalog = z
           path: ['plans', index, 'key'],
           message: 'Test fixture plan keys are forbidden in the live catalog',
         })
+      }
+      const blocker = plan.newSalesEnabled ? liveSaleBlocker(plan) : null
+      if (blocker) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['plans', index], message: blocker })
       }
       const key = `${plan.key}@${plan.version}:${plan.providerMode}`
       if (keys.has(key)) {
@@ -96,6 +134,9 @@ export function findApprovedPlan(params: {
     .sort((left, right) => right.version - left.version)
   const plan = candidates[0]
   if (!plan) throw new BillingCatalogError('PLAN_NOT_AVAILABLE')
+  // Defense in depth: even a hand-built catalog object cannot sell a fixture or unapproved plan live.
+  if (params.forNewSale && liveSaleBlocker(plan))
+    throw new BillingCatalogError('PLAN_NOT_AVAILABLE')
   return plan
 }
 

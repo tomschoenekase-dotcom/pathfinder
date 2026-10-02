@@ -9,6 +9,7 @@ export {
   BillingCatalogError,
   BillingPlan,
   findApprovedPlan,
+  liveSaleBlocker,
   parseBillingCatalog,
   type BillingCatalog,
 } from './catalog'
@@ -61,6 +62,7 @@ export {
   createTenantCheckout,
   createTenantPortal,
   getTenantBillingOverview,
+  graceEndFor,
   isNewerProviderState,
   reconcileBillingAccount,
   recordManualPayment,
