@@ -134,7 +134,8 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
           initiatedById: actor.id,
         },
       })
-      await db.agentQuestion.create({
+      // New questions must begin PENDING (database guard); the answer is a separate transition.
+      const question = await db.agentQuestion.create({
         data: {
           operationId: randomUUID(),
           tenantId,
@@ -143,11 +144,17 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
           agentRunId: run.id,
           question: 'What is the approved visitor capacity?',
           category: 'capacity',
+          status: 'PENDING',
+          evidence: [{ source: 'founder-answer' }],
+        },
+      })
+      await db.agentQuestion.update({
+        where: { id: question.id },
+        data: {
           status: 'ANSWERED',
           answer: 'The approved capacity is 137 visitors.',
           answeredById: actor.id,
           answeredAt: new Date(),
-          evidence: [{ source: 'founder-answer' }],
         },
       })
       const interrupted = await claimAgentBridgeTask({
