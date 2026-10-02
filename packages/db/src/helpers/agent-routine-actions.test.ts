@@ -8,6 +8,7 @@ import {
   createAgentRoutineAction,
   dispatchDueAgentRoutineAction,
   setAgentRoutineEnabledAction,
+  updateAgentRoutineDefinitionAction,
 } from './agent-routine-actions'
 
 const input = {
@@ -299,5 +300,101 @@ describe('agent routines', () => {
         data: expect.objectContaining({ lastSkipReason: 'UNSUPPORTED_MAX_ATTEMPTS' }),
       }),
     )
+  })
+})
+
+describe('agent routine definition update', () => {
+  const version = new Date('2026-10-01T00:00:00.000Z')
+  const updateInput = {
+    operationId: 'bea37bcb-7d76-44a0-bbd4-0debd19c1c1d',
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    routineId: 'routine-1',
+    expectedUpdatedAt: version,
+    intervalSeconds: 7200,
+  }
+  const existing = (overrides: Record<string, unknown> = {}) => ({
+    id: 'routine-1',
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    enabled: false,
+    intervalSeconds: 3600,
+    maxRunsPerDay: 24,
+    updatedAt: version,
+    ...overrides,
+  })
+
+  it('changes only the named fields of a disabled routine at the observed version, with audit', async () => {
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(existing())
+      .mockResolvedValueOnce(existing({ intervalSeconds: 7200 }))
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = transaction({ agentRoutine: { findFirst, updateMany } })
+    await updateAgentRoutineDefinitionAction(updateInput, 'admin-1', client(tx) as never)
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'routine-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        enabled: false,
+        updatedAt: version,
+      },
+      data: { intervalSeconds: 7200 },
+    })
+    expect((tx.auditLog as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalled()
+  })
+
+  it('refuses an enabled routine, a moved routine and a lost race', async () => {
+    const enabled = transaction({
+      agentRoutine: {
+        findFirst: vi.fn().mockResolvedValue(existing({ enabled: true })),
+        updateMany: vi.fn(),
+      },
+    })
+    await expect(
+      updateAgentRoutineDefinitionAction(updateInput, 'admin-1', client(enabled) as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    const moved = transaction({
+      agentRoutine: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue(existing({ updatedAt: new Date('2026-10-02T00:00:00Z') })),
+        updateMany: vi.fn(),
+      },
+    })
+    await expect(
+      updateAgentRoutineDefinitionAction(updateInput, 'admin-1', client(moved) as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    const raced = transaction({
+      agentRoutine: {
+        findFirst: vi.fn().mockResolvedValue(existing()),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    })
+    await expect(
+      updateAgentRoutineDefinitionAction(updateInput, 'admin-1', client(raced) as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('is not found outside the tenant and venue, and rejects unbounded input', async () => {
+    const missing = transaction({
+      agentRoutine: { findFirst: vi.fn().mockResolvedValue(null), updateMany: vi.fn() },
+    })
+    await expect(
+      updateAgentRoutineDefinitionAction(updateInput, 'admin-1', client(missing) as never),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(
+      (missing.agentRoutine as { findFirst: ReturnType<typeof vi.fn> }).findFirst,
+    ).toHaveBeenCalledWith({
+      where: { id: 'routine-1', tenantId: 'tenant-1', venueId: 'venue-1' },
+    })
+    await expect(
+      updateAgentRoutineDefinitionAction(
+        { ...updateInput, intervalSeconds: 5 },
+        'admin-1',
+        client(missing) as never,
+      ),
+    ).rejects.toThrow()
   })
 })

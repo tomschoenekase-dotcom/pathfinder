@@ -16,6 +16,8 @@ import { reportReadTools } from './reports'
 import { supportReadTools } from './support'
 import { updateReadTools } from './updates'
 import { venueReadTools } from './venues'
+import { attentionReadTools } from './attention'
+import { evidenceReadTools } from './evidence'
 
 /** Every read tool the operator adds beside the built-in proposal, autonomy and appearance reads. */
 export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
@@ -29,6 +31,8 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...routineReadTools,
   ...accessReadTools,
   ...venueReadTools,
+  ...evidenceReadTools,
+  ...attentionReadTools,
   ...supportReadTools,
   ...updateReadTools,
   ...manualReadTools,

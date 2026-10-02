@@ -119,8 +119,10 @@ export const OperatorCapability = z.enum([
   'customers:propose',
   'company:read',
   'reports:read',
+  'reports:propose',
   'billing:read',
   'routines:read',
+  'routines:propose',
   'access:read',
   'support:read',
   'support:propose',
@@ -152,6 +154,11 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'support.propose_information_request',
   'support.propose_completion',
   'customers.propose_onboarding_questions',
+  // Generating spends model budget and publishing makes a report visible to the customer.
+  'reports.propose_generate',
+  'reports.propose_publish',
+  // A routine that runs on its own may message people or cost money, so each start is a decision.
+  'routines.propose_enable',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -168,6 +175,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.list_operational_updates',
   'venues.get_visitor_summary',
   'venues.get_readiness',
+  'venues.list_sessions',
+  'venues.get_answer_evidence',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -176,6 +185,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'operator.get_autonomy',
   'operator.get_context',
   'operator.get_operation',
+  'operator.get_attention',
   'operator.list_plans',
   'customers.list',
   'customers.get_onboarding',
@@ -201,9 +211,12 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'company.list_context',
   'reports.list',
   'reports.get_status',
+  'reports.get',
+  'reports.reconcile_generating',
   'billing.get_status',
   'billing.list_invoices',
   'routines.list',
+  'routines.get_run_status',
   'access.list_memberships',
   'offboarding.list_plans',
   'offboarding.list_targets',
@@ -239,6 +252,12 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'support.propose_information_request',
   'support.propose_completion',
   'customers.propose_onboarding_questions',
+  'reports.propose_generate',
+  'reports.propose_publish',
+  'routines.propose_create',
+  'routines.propose_update',
+  'routines.propose_enable',
+  'routines.propose_disable',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
@@ -281,6 +300,20 @@ export const OPERATOR_PLAN_STEP_TOOLS = OPERATOR_WRITE_TOOL_NAMES.filter(
 const readInput = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 const writeInput = <T extends z.ZodRawShape>(shape: T) =>
   z.object({ ...shape, operationId: OperationId }).strict()
+
+const TimeZoneName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: value })
+      return true
+    } catch {
+      return false
+    }
+  }, 'Must be an IANA time zone name such as Europe/London or UTC')
 
 const tenantScope = { tenantId: Identifier } as const
 const venueScope = { tenantId: Identifier, venueId: Identifier } as const
@@ -459,6 +492,20 @@ export const OPERATOR_MCP_INPUTS = {
     limit: PageLimit,
   }),
   'reports.get_status': readInput({ ...tenantScope, venueId: Identifier.optional() }),
+  'reports.get': readInput({ ...venueScope, reportId: Identifier }),
+  'reports.reconcile_generating': readInput({
+    ...tenantScope,
+    venueId: Identifier.optional(),
+    /** Only reports that have been GENERATING at least this long are classified. */
+    minAgeMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(60 * 24 * 90)
+      .default(60),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
   'billing.get_status': readInput({ ...tenantScope }),
   'billing.list_invoices': readInput({
     ...tenantScope,
@@ -471,6 +518,7 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
+  'routines.get_run_status': readInput({ ...tenantScope, routineId: Identifier }),
   'access.list_memberships': readInput({
     ...tenantScope,
     status: z.enum(['ACTIVE', 'INVITED', 'REMOVED']).optional(),
@@ -567,6 +615,39 @@ export const OPERATOR_MCP_INPUTS = {
     limit: PageLimit,
   }),
   'venues.get_readiness': readInput({ ...venueScope }),
+  'venues.list_sessions': readInput({
+    ...venueScope,
+    /** Inclusive start and exclusive end of the window, at most 92 days. */
+    windowStart: IsoDateTime,
+    windowEnd: IsoDateTime,
+    /** Used only to label local dates; the window itself is two exact instants. */
+    timeZone: TimeZoneName,
+    classification: z.enum(['guest', 'employee', 'all']).default('guest'),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }).superRefine((value, context) => {
+    const start = Date.parse(value.windowStart)
+    const end = Date.parse(value.windowEnd)
+    if (!(end > start)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['windowEnd'],
+        message: 'End must follow start',
+      })
+    } else if (end - start > 92 * 24 * 60 * 60 * 1000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['windowEnd'],
+        message: 'Window is at most 92 days',
+      })
+    }
+  }),
+  'venues.get_answer_evidence': readInput({
+    ...venueScope,
+    sessionId: Identifier,
+    /** Omit to list the session's turns; give one to read that turn's evidence. */
+    turnSequence: z.number().int().min(0).max(100_000).optional(),
+  }),
   'appearance.get': readInput({ ...venueScope }),
   'support.list': readInput({
     ...tenantScope,
@@ -582,6 +663,11 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'operator.get_autonomy': readInput({}),
   'operator.get_context': readInput({}),
+  'operator.get_attention': readInput({
+    ...tenantScope,
+    /** Items shown per category; counts are always exact. */
+    limit: z.number().int().min(1).max(10).default(5),
+  }),
   'operator.get_operation': readInput({ originalOperationId: OperationId }),
   'operator.list_plans': readInput({
     status: OperatorProposalStatus.optional(),
@@ -839,6 +925,96 @@ export const OPERATOR_MCP_INPUTS = {
     reason: z.string().trim().min(1).max(500),
   }),
   'venues.propose_publish': writeInput({ ...venueScope, expectedUpdatedAt: IsoDateTime }),
+  'reports.propose_generate': writeInput({
+    ...venueScope,
+    /** Retry: the id of a FAILED, or provably stalled GENERATING, report. Its week and title are reused. */
+    retryOfReportId: Identifier.optional(),
+    /** Required unless retrying. */
+    weekStart: IsoDateTime.optional(),
+    weekEnd: IsoDateTime.optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    /** For a retry, the `updatedAt` of the report as read, so a report that moved is stale. */
+    expectedUpdatedAt: IsoDateTime.optional(),
+  }).superRefine((value, context) => {
+    if (value.retryOfReportId) {
+      if (!value.expectedUpdatedAt) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['expectedUpdatedAt'],
+          message: 'Required for a retry',
+        })
+      }
+    } else if (!value.weekStart || !value.weekEnd) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['weekStart'],
+        message: 'weekStart and weekEnd are required',
+      })
+    } else if (Date.parse(value.weekStart) > Date.parse(value.weekEnd)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['weekEnd'],
+        message: 'Week must not end before it starts',
+      })
+    }
+  }),
+  'reports.propose_publish': writeInput({
+    ...venueScope,
+    reportId: Identifier,
+    /** The `updatedAt` of the draft as read with reports.get. Any change since makes this stale. */
+    expectedUpdatedAt: IsoDateTime,
+  }),
+  'routines.propose_create': writeInput({
+    ...venueScope,
+    routineKey: z.string().trim().min(1).max(191),
+    agentIdentityId: Identifier,
+    prompt: z.string().trim().min(1).max(10_000),
+    requestedOperation: z.string().trim().min(1).max(191).default('routine_monitor'),
+    intervalSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(7 * 24 * 60 * 60),
+    maxRunsPerDay: z.number().int().min(1).max(1_440).default(24),
+    requiredWorkerRoles: z.array(Identifier).max(50).default([]),
+    requiredWorkerCapabilities: z.array(Identifier).max(100).default([]),
+  }),
+  'routines.propose_update': writeInput({
+    ...venueScope,
+    routineId: Identifier,
+    /** The `updatedAt` of the routine as read. Only a disabled routine can be edited. */
+    expectedUpdatedAt: IsoDateTime,
+    prompt: z.string().trim().min(1).max(10_000).optional(),
+    intervalSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+    maxRunsPerDay: z.number().int().min(1).max(1_440).optional(),
+  }).superRefine((value, context) => {
+    if (
+      value.prompt === undefined &&
+      value.intervalSeconds === undefined &&
+      value.maxRunsPerDay === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['prompt'],
+        message: 'Nothing to change',
+      })
+    }
+  }),
+  'routines.propose_enable': writeInput({
+    ...venueScope,
+    routineId: Identifier,
+    expectedUpdatedAt: IsoDateTime,
+  }),
+  'routines.propose_disable': writeInput({
+    ...venueScope,
+    routineId: Identifier,
+    expectedUpdatedAt: IsoDateTime,
+  }),
   'venues.propose_operational_update': writeInput({
     ...venueScope,
     placeId: Identifier.optional(),
@@ -1435,6 +1611,280 @@ const OperatorProposalView = z
   })
   .strict()
 
+const Count = z.number().int().nonnegative()
+/** A measured value that may not exist. `unavailable` is never a zero and never a pass. */
+const Availability = z.enum(['available', 'unavailable'])
+
+const OperatorReportActor = z
+  .object({ actorId: z.string().max(191), actorRole: z.string().max(60) })
+  .strict()
+
+const OperatorReportJob = z
+  .object({
+    jobRecordId: Identifier,
+    jobName: z.string().max(120),
+    status: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+    attemptNumber: z.number().int().nullable(),
+    maxAttempts: z.number().int().nullable(),
+    failureDisposition: z.string().max(40).nullable(),
+    error: UntrustedText.nullable(),
+    startedAt: IsoDateTime,
+    completedAt: IsoDateTime.nullable(),
+  })
+  .strict()
+
+const OperatorReportDetail = z
+  .object({
+    tenantId: Identifier,
+    venueId: Identifier,
+    reportId: Identifier,
+    status: z.enum(['GENERATING', 'DRAFT', 'PUBLISHED', 'FAILED']),
+    lifecycleStatus: z.enum(['QUEUED', 'RUNNING', 'REVIEW', 'PUBLISHED', 'FAILED']),
+    /** The report's `updatedAt`; pass it as expectedUpdatedAt to a publish or retry proposal. */
+    version: IsoDateTime,
+    title: UntrustedText,
+    /** The whole stored body, never cut to the list preview. */
+    body: UntrustedText.nullable(),
+    bodyChars: Count,
+    window: z
+      .object({
+        start: IsoDateTime,
+        end: IsoDateTime,
+        /** Venues store no time zone, so the window is two exact instants. */
+        timeZone: z.string().max(64).nullable(),
+        note: z.string().max(300),
+      })
+      .strict(),
+    denominators: z
+      .object({
+        publicSessions: Count,
+        capturedAnswers: Count,
+        /** What those two numbers count, so they are not read as total messages. */
+        definition: z.string().max(500),
+        totalMessages: Availability,
+      })
+      .strict(),
+    configuration: z
+      .object({
+        enabled: z.boolean(),
+        updatedBy: z.string().max(191).nullable(),
+        updatedAt: IsoDateTime.nullable(),
+      })
+      .strict(),
+    sources: z
+      .object({
+        dispatchId: Identifier.nullable(),
+        requestId: Identifier.nullable(),
+        dispatchStatus: z.string().max(40).nullable(),
+        dispatchAttempts: Count.nullable(),
+        dispatchLastError: UntrustedText.nullable(),
+        jobs: z.array(OperatorReportJob).max(10),
+        releaseId: z.string().max(191).nullable(),
+        releaseNote: z.string().max(300),
+      })
+      .strict(),
+    people: z
+      .object({
+        author: z.string().max(191),
+        reviewers: z
+          .array(
+            OperatorReportActor.extend({ action: z.string().max(80), at: IsoDateTime }).strict(),
+          )
+          .max(25),
+        recipients: z.object({ state: Availability, note: z.string().max(300) }).strict(),
+      })
+      .strict(),
+    statusHistory: z
+      .array(
+        z
+          .object({
+            auditId: Identifier,
+            action: z.string().max(80),
+            actorId: z.string().max(191),
+            actorRole: z.string().max(60),
+            at: IsoDateTime,
+          })
+          .strict(),
+      )
+      .max(25),
+    error: UntrustedText.nullable(),
+    generatedAt: IsoDateTime.nullable(),
+    publishedAt: IsoDateTime.nullable(),
+    createdAt: IsoDateTime,
+    /** Publishing is not delivery. Nothing here records an email or portal send. */
+    delivery: z.object({ state: z.literal('not_modeled'), note: z.string().max(300) }).strict(),
+  })
+  .strict()
+
+export const OPERATOR_REPORT_GENERATION_CLASSES = [
+  'no_job_found',
+  'job_failed',
+  'job_running_with_heartbeat',
+  'unknown',
+] as const
+
+const OperatorSessionRow = z
+  .object({
+    sessionId: Identifier,
+    startedAt: IsoDateTime,
+    localDate: z.string().max(10),
+    lastActiveAt: IsoDateTime,
+    classification: z.enum(['guest', 'employee', 'other']),
+    entrySurface: z.string().max(60).nullable(),
+    disposed: z.boolean(),
+    turns: Count,
+    visitorMessages: Count,
+    assistantMessages: Count,
+    totalMessages: Count,
+    fallbackTurns: Count,
+    failedTurns: Count,
+    turnsWithStoredEvidence: Count,
+  })
+  .strict()
+
+const OperatorEvidenceSource = z
+  .object({
+    sourceId: z.string().max(300),
+    kind: z.string().max(40),
+    label: UntrustedText,
+    rank: z.number().int().nullable(),
+    snapshotHash: z.string().max(64),
+    moduleId: z.string().max(191).nullable(),
+    revisionId: z.string().max(191).nullable(),
+    excerpt: UntrustedText,
+  })
+  .strict()
+
+const OperatorTurnEvidence = z
+  .object({
+    turnId: Identifier,
+    turnSequence: z.number().int(),
+    status: z.string().max(20),
+    createdAt: IsoDateTime,
+    completedAt: IsoDateTime.nullable(),
+    /** Text is redacted by default: addresses, phone numbers and long digit runs are withheld. */
+    textMode: z.enum(['redacted', 'withheld']),
+    question: UntrustedText.nullable(),
+    answer: UntrustedText.nullable(),
+    evidence: z
+      .object({
+        state: z.enum(['stored', 'unavailable']),
+        reason: z.string().max(300).nullable(),
+        schemaVersion: z.string().max(60).nullable(),
+        promptContractVersion: z.string().max(120).nullable(),
+        evidenceSetHash: z.string().max(64).nullable(),
+        answerHash: z.string().max(64).nullable(),
+        routeConfigurationVersion: z.string().max(191).nullable(),
+        sourceCount: Count,
+        sourcesShown: Count,
+        sources: z.array(OperatorEvidenceSource).max(25),
+      })
+      .strict(),
+    release: z
+      .object({ releaseId: z.string().max(191).nullable(), note: z.string().max(300) })
+      .strict(),
+    model: z
+      .object({
+        state: z.enum(['recorded', 'unavailable']),
+        reason: z.string().max(300).nullable(),
+        calls: z
+          .array(
+            z
+              .object({
+                usageId: Identifier,
+                provider: z.string().max(100),
+                model: z.string().max(191),
+                routeModelKey: z.string().max(100).nullable(),
+                capability: z.string().max(64),
+                fallbackUsed: z.boolean(),
+                success: z.boolean(),
+                errorCode: z.string().max(120).nullable(),
+                latencyMs: Count,
+                attempts: Count,
+              })
+              .strict(),
+          )
+          .max(10),
+      })
+      .strict(),
+    latency: z
+      .object({
+        state: z.enum(['recorded', 'unavailable']),
+        reason: z.string().max(300).nullable(),
+        totalMs: Count.nullable(),
+        modelMs: Count.nullable(),
+        retrievalMs: Count.nullable(),
+      })
+      .strict(),
+    outcome: z
+      .object({
+        fallbackCode: z.string().max(64).nullable(),
+        failureCode: z.string().max(64).nullable(),
+        providerFallbackUsed: z.boolean().nullable(),
+      })
+      .strict(),
+    attribution: z
+      .object({
+        state: z.enum(['recorded', 'none']),
+        attributionId: Identifier.nullable(),
+        createdAt: IsoDateTime.nullable(),
+        claimCount: Count.nullable(),
+        supportedCount: Count.nullable(),
+        unsupportedCount: Count.nullable(),
+        uncertainCount: Count.nullable(),
+        evaluatorModel: z.string().max(191).nullable(),
+      })
+      .strict(),
+  })
+  .strict()
+
+export const OPERATOR_ATTENTION_CATEGORIES = [
+  'pending_decisions',
+  'blocking_questions',
+  'failed_operations',
+  'failed_jobs',
+  'stale_sources',
+  'expiring_notices',
+  'mail_reconciliation',
+  'generating_reports',
+  'billing_exceptions',
+] as const
+
+const OperatorAttentionItem = z
+  .object({
+    recordType: z.string().max(60),
+    recordId: z.string().max(191),
+    venueId: z.string().max(191).nullable(),
+    summary: UntrustedText,
+    since: IsoDateTime.nullable(),
+    nextAction: z.string().max(300),
+  })
+  .strict()
+
+const OperatorAttentionCategory = z
+  .object({
+    key: z.enum(OPERATOR_ATTENTION_CATEGORIES),
+    label: z.string().max(80),
+    /** `unknown` means it could not be measured. It is not clear and it is not a failure. */
+    state: z.enum(['clear', 'attention', 'unknown']),
+    count: Count.nullable(),
+    unknownReason: z.string().max(300).nullable(),
+    items: z.array(OperatorAttentionItem).max(10),
+    itemsComplete: z.boolean(),
+  })
+  .strict()
+
+const OperatorRoutineRunRow = z
+  .object({
+    runId: Identifier,
+    scheduledFor: IsoDateTime,
+    runStatus: z.string().max(40),
+    errorCode: z.string().max(100).nullable(),
+    startedAt: IsoDateTime.nullable(),
+    completedAt: IsoDateTime.nullable(),
+  })
+  .strict()
+
 export const OPERATOR_MCP_OUTPUTS = {
   'crm.search_organizations': Page(OperatorOrganization),
   'crm.get_organization': z
@@ -1885,6 +2335,158 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'reports.get': OperatorReportDetail,
+  'reports.reconcile_generating': Page(
+    z
+      .object({
+        reportId: Identifier,
+        venueId: Identifier,
+        weekStart: IsoDateTime,
+        weekEnd: IsoDateTime,
+        createdAt: IsoDateTime,
+        updatedAt: IsoDateTime,
+        /** Reported for context only. Age never decides the classification. */
+        ageMinutes: Count,
+        classification: z.enum(OPERATOR_REPORT_GENERATION_CLASSES),
+        reason: z.string().max(300),
+        evidence: z
+          .object({
+            dispatchStatus: z.string().max(40).nullable(),
+            dispatchAttempts: Count.nullable(),
+            dispatchLastError: UntrustedText.nullable(),
+            latestJob: OperatorReportJob.nullable(),
+            leaseExpiresAt: IsoDateTime.nullable(),
+            leaseLive: z.boolean().nullable(),
+          })
+          .strict(),
+        nextAction: z.string().max(300),
+        observedAt: IsoDateTime,
+      })
+      .strict(),
+  ),
+  'venues.list_sessions': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      window: z
+        .object({ start: IsoDateTime, end: IsoDateTime, timeZone: z.string().max(64) })
+        .strict(),
+      classification: z.enum(['guest', 'employee', 'all']),
+      items: z.array(OperatorSessionRow).max(25),
+      nextCursor: z.string().max(500).nullable(),
+      complete: z.boolean(),
+      counts: z
+        .object({
+          /** Every session in the window that matches the classification filter, across all pages. */
+          included: Count,
+          /** In the window but removed by the classification filter. */
+          excluded: z.object({ guest: Count, employee: Count, other: Count }).strict(),
+          unavailable: z
+            .object({
+              /** Test or internal sessions are not recorded separately; they count as guest sessions. */
+              testClassification: z.literal(true),
+              note: z.string().max(300),
+            })
+            .strict(),
+        })
+        .strict(),
+    })
+    .strict(),
+  'venues.get_answer_evidence': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      sessionId: Identifier,
+      classification: z.enum(['guest', 'employee', 'other']),
+      disposed: z.boolean(),
+      turns: z
+        .array(
+          z
+            .object({
+              turnSequence: z.number().int(),
+              turnId: Identifier,
+              status: z.string().max(20),
+              createdAt: IsoDateTime,
+              fallbackCode: z.string().max(64).nullable(),
+              failureCode: z.string().max(64).nullable(),
+              evidenceStored: z.boolean(),
+            })
+            .strict(),
+        )
+        .max(100),
+      turnsComplete: z.boolean(),
+      turn: OperatorTurnEvidence.nullable(),
+    })
+    .strict(),
+  'operator.get_attention': z
+    .object({
+      tenantId: Identifier,
+      asOf: IsoDateTime,
+      categories: z.array(OperatorAttentionCategory).max(12),
+      totals: z.object({ attention: Count, unknown: Count, clear: Count }).strict(),
+    })
+    .strict(),
+  'routines.get_run_status': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      routineId: Identifier,
+      routineKey: UntrustedText,
+      owner: z
+        .object({
+          createdBy: z.string().max(191),
+          agentIdentityId: Identifier,
+          agentName: UntrustedText,
+          agentEnabled: z.boolean(),
+        })
+        .strict(),
+      version: IsoDateTime,
+      state: z.enum(['enabled', 'disabled']),
+      schedule: z
+        .object({
+          kind: z.literal('interval'),
+          intervalSeconds: z.number().int().positive(),
+          cadence: z.string().max(120),
+          /** Routines run on an interval from UTC; they have no local-time schedule. */
+          timeZone: z.string().max(64).nullable(),
+          nextRunAt: IsoDateTime.nullable(),
+          lastRunAt: IsoDateTime.nullable(),
+        })
+        .strict(),
+      lastResult: OperatorRoutineRunRow.nullable(),
+      lastSkipReason: UntrustedText.nullable(),
+      limits: z
+        .object({
+          maxRunsPerDay: z.number().int().positive(),
+          runsTodayUtc: Count,
+          maxAttempts: z.number().int().positive(),
+          cost: z
+            .object({
+              enforced: z.boolean(),
+              perRunBudgetE8Usd: z.string().max(40).nullable(),
+              dailyBudgetE8Usd: z.string().max(40).nullable(),
+              note: z.string().max(300),
+            })
+            .strict(),
+        })
+        .strict(),
+      stopConditions: z
+        .array(
+          z
+            .object({
+              key: z.string().max(60),
+              active: z.boolean().nullable(),
+              detail: z.string().max(300),
+            })
+            .strict(),
+        )
+        .max(12),
+      recentRuns: z.array(OperatorRoutineRunRow).max(10),
+      /** `unknown` when the routine has never run or is disabled; it is never reported as healthy then. */
+      health: z.enum(['ok', 'attention', 'unknown']),
+      healthReason: z.string().max(300),
+    })
+    .strict(),
   'reports.get_status': z
     .object({
       tenantId: Identifier,
@@ -2111,6 +2713,12 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_source': OperatorWriteResult,
   'venues.propose_knowledge': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
+  'reports.propose_generate': OperatorWriteResult,
+  'reports.propose_publish': OperatorWriteResult,
+  'routines.propose_create': OperatorWriteResult,
+  'routines.propose_update': OperatorWriteResult,
+  'routines.propose_enable': OperatorWriteResult,
+  'routines.propose_disable': OperatorWriteResult,
   'venues.propose_operational_update': OperatorWriteResult,
   'venues.propose_operational_update_schedule': OperatorWriteResult,
   'venues.propose_operational_update_end': OperatorWriteResult,
@@ -2322,6 +2930,20 @@ const seeds: readonly Seed[] = [
     'venue',
   ],
   [
+    'venues.list_sessions',
+    'List visitor sessions',
+    `Page a venue's conversations in an exact date window with a time zone label. Counts only, no message text. Guest and employee sessions are classified; test sessions are not recorded separately. Reports included, excluded and unavailable counts, and total messages separately from visitor messages.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.get_answer_evidence',
+    'Get answer evidence',
+    `Read one assistant turn's evidence: the sources and revisions used, release and configuration, model, latency and fallback. Question and answer text is redacted. Older turns that stored no evidence say unavailable.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
     'appearance.get',
     'Get venue appearance',
     `Read visitor chat appearance settings and the updatedAt needed to propose a change.${READ}`,
@@ -2372,6 +2994,13 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   [
+    'operator.get_attention',
+    'Get attention',
+    `One tenant's attention list: pending decisions, unanswered blocking questions, failed operations and jobs, stale sources, expiring notices, mail failures, long-running reports and billing exceptions, each with an exact record id and next action. A measure that cannot be taken is unknown, never clear and never a failure.${READ}`,
+    'operator:read',
+    'tenant',
+  ],
+  [
     'operator.get_operation',
     'Get operation',
     `Recover a past write from the operationId you originally sent (pass it as originalOperationId) (a proposal or a plan), with its status and what is known about whether it took effect.${READ}`,
@@ -2409,7 +3038,7 @@ const seeds: readonly Seed[] = [
   [
     'reports.list',
     'List reports',
-    `Page through one tenant's weekly report records. Report text is marked as untrusted.${READ}`,
+    `Page through one tenant's weekly report records. Report text is marked as untrusted and the content is only a 500-character preview (truncated says so); read the whole body with reports.get.${READ}`,
     'reports:read',
     'tenant',
   ],
@@ -2417,6 +3046,20 @@ const seeds: readonly Seed[] = [
     'reports.get_status',
     'Get report status',
     `Read report counts, latest report status and opt-in configuration counts for one tenant or venue.${READ}`,
+    'reports:read',
+    'tenant',
+  ],
+  [
+    'reports.get',
+    'Get report',
+    `Read one report in full: the whole body (never the list preview), window, denominators, configuration, generation sources, author and reviewers, and status history. Recipients and delivery are not recorded and are reported as unavailable.${READ}`,
+    'reports:read',
+    'venue',
+  ],
+  [
+    'reports.reconcile_generating',
+    'Reconcile generating reports',
+    `Classify reports stuck in GENERATING from real job and lease evidence: no job found, job failed, job running with a live heartbeat, or unknown. Age alone never decides the class.${READ}`,
     'reports:read',
     'tenant',
   ],
@@ -2438,6 +3081,13 @@ const seeds: readonly Seed[] = [
     'routines.list',
     'List routines',
     `Page tenant routines with scheduling state and latest run status. Prompts and budget values are omitted.${READ}`,
+    'routines:read',
+    'tenant',
+  ],
+  [
+    'routines.get_run_status',
+    'Get routine run status',
+    `Read one routine: owner, cadence and next run, last result, run and cost limits, stop conditions and recent runs. Health is unknown, never ok, when nothing has run.${READ}`,
     'routines:read',
     'tenant',
   ],
@@ -2840,6 +3490,54 @@ const seeds: readonly Seed[] = [
     'venues:propose',
     'venue',
     'venues.publish',
+  ],
+  [
+    'reports.propose_generate',
+    'Propose report generation',
+    `Propose generating a weekly report draft for a venue week, or retrying a FAILED or provably stalled one. Spends model budget, creates a draft only, never publishes. Always needs a human.${PROPOSE}`,
+    'reports:propose',
+    'venue',
+    'reports.generate',
+  ],
+  [
+    'reports.propose_publish',
+    'Propose report publish',
+    `Propose publishing a reviewed draft report at the observed updatedAt. Publishing makes the report visible in the customer portal; it does not email anyone, and delivery stays a separate action. Always needs a human.${PROPOSE}`,
+    'reports:propose',
+    'venue',
+    'reports.publish',
+  ],
+  [
+    'routines.propose_create',
+    'Propose routine',
+    `Propose saving a routine definition. It is always created disabled and never runs until a person approves routines.propose_enable.${PROPOSE}`,
+    'routines:propose',
+    'venue',
+    'routines.create',
+  ],
+  [
+    'routines.propose_update',
+    'Propose routine update',
+    `Propose changing a disabled routine's prompt, interval or daily run limit at the observed updatedAt. An enabled routine must be disabled first.${PROPOSE}`,
+    'routines:propose',
+    'venue',
+    'routines.update',
+  ],
+  [
+    'routines.propose_enable',
+    'Propose routine enable',
+    `Propose enabling a routine so the scheduler may run it. A routine can message people or spend money, so this always needs a human.${PROPOSE}`,
+    'routines:propose',
+    'venue',
+    'routines.enable',
+  ],
+  [
+    'routines.propose_disable',
+    'Propose routine disable',
+    `Propose disabling a routine so it stops running and clears its next run.${PROPOSE}`,
+    'routines:propose',
+    'venue',
+    'routines.disable',
   ],
   [
     'appearance.propose_update',

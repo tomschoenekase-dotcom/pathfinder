@@ -253,6 +253,12 @@ describe.skipIf(!enabled)(
           'venues.propose_operational_update',
           'venues.propose_operational_update_schedule',
           'venues.propose_operational_update_end',
+          'reports.propose_generate',
+          'reports.propose_publish',
+          'routines.propose_create',
+          'routines.propose_update',
+          'routines.propose_enable',
+          'routines.propose_disable',
         ].sort(),
       )
     })

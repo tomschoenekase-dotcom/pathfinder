@@ -27,11 +27,18 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'support.information-request',
   'support.completion',
   'customers.onboarding-questions',
+  // Generation spends model budget, publishing shows a report to the customer, and an enabled
+  // routine runs on its own and may message people or spend money.
+  'reports.generate',
+  'reports.publish',
+  'routines.enable',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */
 export const OPERATOR_LOCKED_CAPABILITIES: ReadonlySet<OperatorCapability> = new Set([
   'customers:propose',
+  // Both report kinds are always-ask, so the capability has no ask-optional kind to switch.
+  'reports:propose',
   'operator:revert',
   // A plan's autonomy is derived from its steps; it has no switch of its own.
   'operator:plan',
