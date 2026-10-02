@@ -13,15 +13,17 @@ import { crmOutreachDraftKind } from './crm-outreach-draft'
 import { crmOutreachLogKind } from './crm-outreach-log'
 import { crmStageChangeKind } from './crm-stage-change'
 import { venuesCreateKind } from './venues-create'
+import { venuesContentChangesetKind } from './venues-content-changeset'
 import { venuesKnowledgeKind } from './venues-knowledge'
 import { venuesPublishKind } from './venues-publish'
+import { venuesSourceKind } from './venues-source'
 
 /**
  * Every proposal kind the operator can create. Add a kind by writing one file next to
  * `appearance.ts` and listing it here; `createKindRegistry` rejects duplicate tools.
  *
  * Not yet present because no canonical domain action exists for them: crm.propose_campaign_membership,
- * venues.propose_source, customers.propose_invite and support.propose_triage.
+ * customers.propose_invite and support.propose_triage.
  */
 export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   appearanceUpdateKind,
@@ -30,6 +32,8 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   crmStageChangeKind,
   venuesCreateKind,
   venuesKnowledgeKind,
+  venuesContentChangesetKind,
+  venuesSourceKind,
   venuesPublishKind,
   ...CRM_MAINTENANCE_KINDS,
   ...CRM_PROSPECT_ADMIN_KINDS,
@@ -57,5 +61,7 @@ export {
   crmStageChangeKind,
   venuesCreateKind,
   venuesKnowledgeKind,
+  venuesContentChangesetKind,
+  venuesSourceKind,
   venuesPublishKind,
 }

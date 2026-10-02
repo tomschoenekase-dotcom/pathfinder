@@ -22,6 +22,7 @@ import { voiceRouter } from './routers/voice'
 import { locationRouter } from './routers/location'
 import { widgetRouter } from './routers/widget'
 import { feedbackRouter } from './routers/feedback'
+import { guestPreviewRouter } from './routers/guest-preview'
 import { billingRouter } from './routers/billing'
 import { publicInterestRouter } from './routers/public-interest'
 
@@ -46,6 +47,7 @@ export const appRouter = router({
   location: locationRouter,
   widget: widgetRouter,
   feedback: feedbackRouter,
+  guestPreview: guestPreviewRouter,
   billing: billingRouter,
   place: placeRouter,
   portal: portalRouter,

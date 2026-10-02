@@ -31,10 +31,11 @@ export type OperatorReviewStep = {
   venueName: string | null
   /**
    * `applied`: before → after recorded when the change was applied. `restore`: what an undo will
-   * put back (now → restored). Pending changes have no snapshot yet; the lines describe them and
-   * the target's version is checked again at approval.
+   * put back (now → restored). `pending`: the server-computed difference a still-pending proposal
+   * of a kind that can compute one would make (current → proposed). Other pending changes have no
+   * snapshot yet; the lines describe them and the target's version is checked again at approval.
    */
-  changeMode: 'applied' | 'restore' | null
+  changeMode: 'applied' | 'restore' | 'pending' | null
   changes: OperatorFieldChange[]
   args: string
   failureCode: string | null
@@ -199,48 +200,63 @@ async function buildSteps(
     database,
     rows.map((row) => ({ tenantId: row.targetTenantId, venueId: row.targetVenueId })),
   )
-  return rows.map((row) => {
-    const original = row.revertOfId ? originalById.get(row.revertOfId) : undefined
-    let title: string
-    let lines: string[]
-    let changeMode: OperatorReviewStep['changeMode'] = null
-    let changes: OperatorFieldChange[] = []
-    if (row.kind === 'operator.revert') {
-      const undone = original ? describeStep(kinds, original.tool, original.args) : null
-      title = undone ? `Undo: ${undone.title}` : 'Undo an applied change'
-      lines = ['Restores the values from before the original change was applied.']
-      if (original) {
-        // The original's beforeSnapshot is what comes back; its afterSnapshot is what is live now.
-        changeMode = 'restore'
-        changes = diffSnapshots(original.afterSnapshot, original.beforeSnapshot)
+  return Promise.all(
+    rows.map(async (row) => {
+      const original = row.revertOfId ? originalById.get(row.revertOfId) : undefined
+      let title: string
+      let lines: string[]
+      let changeMode: OperatorReviewStep['changeMode'] = null
+      let changes: OperatorFieldChange[] = []
+      if (row.kind === 'operator.revert') {
+        const undone = original ? describeStep(kinds, original.tool, original.args) : null
+        title = undone ? `Undo: ${undone.title}` : 'Undo an applied change'
+        lines = ['Restores the values from before the original change was applied.']
+        if (original) {
+          // The original's beforeSnapshot is what comes back; its afterSnapshot is what is live now.
+          changeMode = 'restore'
+          changes = diffSnapshots(original.afterSnapshot, original.beforeSnapshot)
+        }
+      } else {
+        const described = describeStep(kinds, row.tool, row.args)
+        title = described.title
+        lines = described.lines
+        if (row.beforeSnapshot !== null && row.afterSnapshot !== null) {
+          changeMode = 'applied'
+          changes = diffSnapshots(row.beforeSnapshot, row.afterSnapshot)
+        } else if (row.status === 'PENDING') {
+          const kind = kinds.get(row.tool)
+          if (kind?.pendingChanges) {
+            try {
+              const computed = await kind.pendingChanges(kind.parse(row.args), database)
+              if (computed.length > 0) {
+                changeMode = 'pending'
+                changes = computed.map((entry) => ({ ...entry }))
+              }
+            } catch {
+              // The exact arguments still show in full; the diff is a convenience, never a gate.
+            }
+          }
+        }
       }
-    } else {
-      const described = describeStep(kinds, row.tool, row.args)
-      title = described.title
-      lines = described.lines
-      if (row.beforeSnapshot !== null && row.afterSnapshot !== null) {
-        changeMode = 'applied'
-        changes = diffSnapshots(row.beforeSnapshot, row.afterSnapshot)
+      return {
+        index: row.planStepIndex ?? 0,
+        proposalId: row.id,
+        tool: row.tool,
+        status: row.status,
+        title,
+        lines,
+        tenantName: row.targetTenantId ? (tenantNames.get(row.targetTenantId) ?? null) : null,
+        venueName:
+          row.targetTenantId && row.targetVenueId
+            ? (venueNames.get(`${row.targetTenantId}:${row.targetVenueId}`) ?? null)
+            : null,
+        changeMode,
+        changes,
+        args: boundedArgs(row.args),
+        failureCode: row.failureCode,
       }
-    }
-    return {
-      index: row.planStepIndex ?? 0,
-      proposalId: row.id,
-      tool: row.tool,
-      status: row.status,
-      title,
-      lines,
-      tenantName: row.targetTenantId ? (tenantNames.get(row.targetTenantId) ?? null) : null,
-      venueName:
-        row.targetTenantId && row.targetVenueId
-          ? (venueNames.get(`${row.targetTenantId}:${row.targetVenueId}`) ?? null)
-          : null,
-      changeMode,
-      changes,
-      args: boundedArgs(row.args),
-      failureCode: row.failureCode,
-    }
-  })
+    }),
+  )
 }
 
 async function clientNames(database: OperatorDatabase, clientIds: readonly string[]) {

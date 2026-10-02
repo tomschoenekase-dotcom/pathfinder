@@ -107,6 +107,10 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'DUPLICATE_REVIEW',
   'IMPORT_NOT_READY',
   'OWNER_NOT_FOUND',
+  'CHANGESET_INVALID',
+  'SOURCE_HOST_NOT_AUTHORIZED',
+  'SOURCE_LIMIT',
+  'SOURCE_ALREADY_PENDING',
 ])
 
 /** Durable failure codes that make the effect of a FAILED operation first-class and queryable. */
@@ -151,6 +155,15 @@ export type OperatorProposalKind<Args = unknown> = Readonly<{
   /** Human-readable diff for the approval page. Never includes secrets. */
   describe: (args: Args) => Readonly<{ title: string; lines: readonly string[] }>
   snapshot: (args: Args, context: OperatorKindContext) => Promise<JsonValue>
+  /**
+   * The server-computed difference a still-pending proposal would make, current value to proposed
+   * value, for the approval page. It reads live state and never writes; the exact target version is
+   * still checked when the proposal is approved.
+   */
+  pendingChanges?: (
+    args: Args,
+    database: OperatorDatabase,
+  ) => Promise<ReadonlyArray<Readonly<{ field: string; before: string; after: string }>>>
   /** Calls the canonical domain action with the human actor. */
   apply: (args: Args, context: OperatorApplyContext) => Promise<OperatorApplyOutcome>
   /**

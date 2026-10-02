@@ -34,6 +34,7 @@ const approvedPolicies = new Set([
   'tenant-workflow-activation-revoke',
   'tenant-agent-outcome-source-provenance-lock',
   'tenant-agent-routine-operation-lock',
+  'tenant-support-operation-lock',
 
   'tenant-media-identity-request-lock',
   'tenant-media-identity-exact-receipt',
@@ -233,6 +234,13 @@ const approvedOperations = [
   },
   // Routine creation serializes one exact tenant/venue/key definition before
   // replay/conflict evaluation; subsequent runtime locks one opaque routine ID.
+  // Operator-created support requests serialize on the exact tenant and operation id (lock only, no data).
+  {
+    file: 'packages/db/src/helpers/support-operator-request-actions.ts',
+    method: '$executeRaw',
+    hash: 'e67a968d54d45beed322bc8e8fe01410a4c40a2a477a6281da801fca726e9670',
+    policy: 'tenant-support-operation-lock',
+  },
   {
     file: 'packages/db/src/helpers/agent-routine-actions.ts',
     method: '$executeRaw',

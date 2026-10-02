@@ -36,6 +36,7 @@ import {
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  VENUE_SOURCE_CAPTURE_PROCESS_JOB,
   INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
   INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
@@ -98,6 +99,7 @@ import type {
   GmailSyncJobPayload,
   IntakeUploadVerificationJobPayload,
   IntakeV1SourceProcessingJobPayload,
+  VenueSourceCaptureJobPayload,
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
   VoiceSessionHangupJobPayload,
@@ -633,6 +635,44 @@ export async function enqueueIntakeV1SourceProcessing(dispatchId: string): Promi
     },
   )
   logger.info({ action: 'jobs.intake-v1-source-processing.enqueued' })
+}
+
+const VENUE_SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,191}$/u
+
+function venueSourceCaptureJobId(sourceId: string): string {
+  return `venue-source-capture-${createHash('sha256')
+    .update(JSON.stringify(['pathfinder-venue-source-capture-v1', sourceId]))
+    .digest('hex')
+    .slice(0, 48)}`
+}
+
+/**
+ * Queues the capture of one requested source. The job ID is derived from the source, so enqueueing
+ * again (an interrupted apply being retried) never creates a second capture.
+ */
+export async function enqueueVenueSourceCapture(
+  payload: VenueSourceCaptureJobPayload,
+): Promise<void> {
+  for (const value of [payload.tenantId, payload.venueId, payload.sourceId]) {
+    if (typeof value !== 'string' || !VENUE_SOURCE_ID_PATTERN.test(value)) {
+      throw new Error('Venue source capture IDs must be opaque identifiers')
+    }
+  }
+  const body: VenueSourceCaptureJobPayload = {
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    sourceId: payload.sourceId,
+  }
+  await getQueue(INTAKE_V1_SOURCE_PROCESSING_QUEUE).add(VENUE_SOURCE_CAPTURE_PROCESS_JOB, body, {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 10_000 },
+    // The durable source row is the retry and audit state; a retained terminal queue job under
+    // this stable ID would swallow a later re-enqueue, so terminal records are removed.
+    removeOnComplete: true,
+    removeOnFail: true,
+    jobId: venueSourceCaptureJobId(payload.sourceId),
+  })
+  logger.info({ action: 'jobs.venue-source-capture.enqueued' })
 }
 
 export async function enqueueIntakeV1FileExtraction(dispatchId: string): Promise<void> {

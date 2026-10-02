@@ -140,6 +140,54 @@ describe('loadOperatorReview', () => {
     })
   })
 
+  it('shows the server-computed difference for a pending proposal whose kind can compute one', async () => {
+    const pendingChanges = vi.fn(async () => [
+      { field: '1. update k1 · body', before: 'old', after: 'new' },
+    ])
+    const withDiff = new Map([
+      [
+        'venues.propose_content_changeset',
+        {
+          kind: 'venues.content-changeset',
+          parse: (raw: unknown) => raw,
+          describe: () => ({ title: 'Change venue content', lines: ['1. UPDATE k1'] }),
+          pendingChanges,
+        },
+      ],
+    ]) as unknown as OperatorKindRegistry
+    const { database } = fakeDatabase([
+      proposal({ tool: 'venues.propose_content_changeset', kind: 'venues.content-changeset' }),
+    ])
+    const review = await loadOperatorReview('p1', database, withDiff)
+    expect(pendingChanges).toHaveBeenCalledTimes(1)
+    expect(review!.steps[0]).toMatchObject({
+      changeMode: 'pending',
+      changes: [{ field: '1. update k1 · body', before: 'old', after: 'new' }],
+    })
+  })
+
+  it('still shows the exact arguments when the diff cannot be computed', async () => {
+    const failing = new Map([
+      [
+        'venues.propose_content_changeset',
+        {
+          kind: 'venues.content-changeset',
+          parse: (raw: unknown) => raw,
+          describe: () => ({ title: 'Change venue content', lines: [] }),
+          pendingChanges: async () => {
+            throw new Error('database unavailable')
+          },
+        },
+      ],
+    ]) as unknown as OperatorKindRegistry
+    const { database } = fakeDatabase([
+      proposal({ tool: 'venues.propose_content_changeset', args: { ops: [] } }),
+    ])
+    const review = await loadOperatorReview('p1', database, failing)
+    expect(review!.steps[0]).toMatchObject({ changeMode: null, changes: [] })
+    expect(review!.steps[0]!.args).toContain('"ops"')
+  })
+
   it('shows what a revert will restore from the original before snapshot', async () => {
     const { database } = fakeDatabase([
       proposal({

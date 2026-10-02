@@ -676,7 +676,7 @@ describe.skipIf(!enabled)(
 
       it('an unknown tool name is UNKNOWN_TOOL and creates nothing', async () => {
         const connection = await connect()
-        for (const name of ['crm.send_email', 'operator.set_autonomy', 'venues.propose_source']) {
+        for (const name of ['crm.send_email', 'operator.set_autonomy', 'venues.fetch_source']) {
           const result = await callTool(connection.access, name, {
             tenantId,
             operationId: randomUUID(),
@@ -686,7 +686,9 @@ describe.skipIf(!enabled)(
         }
         const listed = await mcp(connection.access, 'tools/list')
         const names = new Set(listed.body.result.tools.map((tool: { name: string }) => tool.name))
-        expect(names.has('venues.propose_source')).toBe(false)
+        expect(names.has('venues.fetch_source')).toBe(false)
+        // The source tool exists, but only as a proposal: there is no direct fetch tool.
+        expect(names.has('venues.propose_source')).toBe(true)
         expect(await proposalRows(connection.grantId)).toBe(0)
       })
 
@@ -714,7 +716,7 @@ describe.skipIf(!enabled)(
             {
               operationId: randomUUID(),
               title: 'Example plan',
-              steps: [{ tool: 'venues.propose_source', arguments: { tenantId } }],
+              steps: [{ tool: 'venues.fetch_source', arguments: { tenantId } }],
             },
             {
               config,
@@ -910,7 +912,7 @@ describe.skipIf(!enabled)(
         ).toBe(0)
       })
 
-      it('venues.propose_source is UNKNOWN_TOOL and creates no proposal', async () => {
+      it('venues.propose_source for a venue with no authorized origin is refused by name and stores nothing', async () => {
         const connection = await connect()
         const result = await callTool(connection.access, 'venues.propose_source', {
           tenantId,
@@ -920,8 +922,9 @@ describe.skipIf(!enabled)(
           note: INJECTION,
         })
         expect(result.isError).toBe(true)
-        expect(result.structuredContent).toMatchObject({ error: 'UNKNOWN_TOOL' })
+        expect(result.structuredContent).toMatchObject({ error: 'SOURCE_HOST_NOT_AUTHORIZED' })
         expect(await proposalRows(connection.grantId)).toBe(0)
+        expect(await db.venueSource.count({ where: { tenantId, venueId } })).toBe(0)
       })
 
       it('injection text inside venues.propose_knowledge is stored only as proposal args, in exactly one proposal, and nothing applies', async () => {

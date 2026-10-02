@@ -6,6 +6,7 @@
     "./feature-flags": "./src/feature-flags.ts",
     "./geo": "./src/geo.ts",
     "./guest-conversation-disposition-policy": "./src/guest-conversation-disposition-policy.ts",
+    "./guest-preview-secret": "./src/guest-preview-secret.ts",
     "./incident-control": "./src/incident-control.ts",
     "./logger": "./src/logger.ts",
     "./monitoring": "./src/monitoring.ts",

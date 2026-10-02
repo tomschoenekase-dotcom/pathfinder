@@ -227,10 +227,13 @@ describe.skipIf(!enabled)(
       )
       expect(limited.tools).toHaveLength(OPERATOR_MCP_TOOLS.length)
       const byName = new Map<string, any>(limited.tools.map((tool: any) => [tool.name, tool]))
-      // Declared but unbuilt tools are shown as such rather than hidden.
-      for (const name of ['venues.propose_source']) {
-        expect(byName.get(name)?.implemented, name).toBe(false)
-        expect(byName.get(name)?.approvalMode, name).toBeNull()
+      // Every declared tool is built, including the source, content, release and preview tools.
+      for (const name of [
+        'venues.propose_source',
+        'venues.list_sources',
+        'venues.get_preview_link',
+      ]) {
+        expect(byName.get(name)?.implemented, name).toBe(true)
       }
       expect(byName.get('operator.get_context')).toMatchObject({
         implemented: true,

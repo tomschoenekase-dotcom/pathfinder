@@ -261,6 +261,25 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
     nextAction:
       'No user in the directory has that id or address. Ask which person is meant; never guess an owner.',
   },
+  CHANGESET_INVALID: {
+    retryable: false,
+    nextAction:
+      'Read the rows with venues.list_content and venues.get_content, run venues.preview_content_changeset to see each problem, then propose a corrected changeset.',
+  },
+  SOURCE_HOST_NOT_AUTHORIZED: {
+    retryable: false,
+    nextAction:
+      'Only hosts the venue has authorized as website origins can be captured. Ask a person to add the origin, then propose again. Nothing was fetched.',
+  },
+  SOURCE_LIMIT: {
+    retryable: true,
+    retryAfterSeconds: 120,
+    nextAction: 'Read venues.list_sources and wait for a capture to finish, then propose again.',
+  },
+  SOURCE_ALREADY_PENDING: {
+    retryable: false,
+    nextAction: 'Read venues.list_sources; this URL is already queued. Do not request it again.',
+  },
 }
 
 /** The structured error a caller sees: stable code, retryability, request id and a safe next step. */

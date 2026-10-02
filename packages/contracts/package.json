@@ -24,6 +24,7 @@
     "./venue-deployment-manifest": "./src/venue-deployment-manifest.ts",
     "./mcp-v0": "./src/mcp-v0.ts",
     "./operator-mcp": "./src/operator-mcp.ts",
+    "./operator-venue-content": "./src/operator-venue-content.ts",
     "./offboarding": "./src/offboarding.ts",
     "./offboarding-export-preview": "./src/offboarding-export-preview.ts",
     "./offboarding-export-finalization": "./src/offboarding-export-finalization.ts",

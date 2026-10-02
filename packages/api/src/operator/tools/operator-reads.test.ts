@@ -189,6 +189,16 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.list_sessions',
         'venues.get_answer_evidence',
         'operator.get_attention',
+        'venues.list_sources',
+        'venues.get_source',
+        'venues.list_content',
+        'venues.get_content',
+        'venues.preview_content_changeset',
+        'venues.list_releases',
+        'venues.get_release',
+        'venues.get_effective_guest_version',
+        'venues.get_release_preflight',
+        'venues.get_preview_link',
         'support.list',
         'operator.get_manual',
         'customers.list',
@@ -252,7 +262,11 @@ describe('OPERATOR_READ_TOOLS', () => {
 
 describe('separately registered onboarding proposal tools', () => {
   it('has a proposal binding beside the reads without treating it as a read', () => {
-    const proposalTools = ['customers.propose_onboarding_questions']
+    const proposalTools = [
+      'customers.propose_onboarding_questions',
+      'venues.propose_source',
+      'venues.propose_content_changeset',
+    ]
     const registered = createOperatorRegistry().listTools()
     for (const name of proposalTools) {
       expect(registered.find((tool) => tool.name === name)?.effect).toBe('proposal')

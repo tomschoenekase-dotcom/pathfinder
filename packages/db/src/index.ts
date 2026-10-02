@@ -1600,3 +1600,21 @@ export {
   operatorSupportRequestOperationHash,
 } from './helpers/support-operator-request-actions'
 export type { CreateOperatorSupportRequestInput } from './helpers/support-operator-request-actions'
+export {
+  claimVenueSourceForCaptureAction,
+  completeVenueSourceCaptureAction,
+  failVenueSourceAction,
+  readAuthorizedSourceHostsAction,
+  releaseVenueSourceClaimAction,
+  requestVenueSourceAction,
+  VENUE_SOURCE_CLAIM_STALE_MS,
+  VENUE_SOURCE_MAX_ATTEMPTS,
+  VenueSourceActionError,
+  venueSourceSelect,
+} from './helpers/venue-source-actions'
+export type {
+  VenueSourceActionClient,
+  VenueSourceActionErrorCode,
+  VenueSourceInputRecord,
+  VenueSourceTerminalStatus,
+} from './helpers/venue-source-actions'

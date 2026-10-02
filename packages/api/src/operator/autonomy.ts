@@ -38,6 +38,9 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   // A new customer conversation and a customer-visible reply: a person decides each time.
   'support.create-request',
   'support.client-reply',
+  // Starts outbound requests to an outside website, and edits what guests may be told.
+  'venues.source',
+  'venues.content-changeset',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

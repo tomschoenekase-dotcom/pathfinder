@@ -124,6 +124,12 @@ export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
 export const INTAKE_V1_SOURCE_PROCESSING_QUEUE = queueName('intake-v1-source-processing')
 export const INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB = 'intake-v1-source-processing-process'
 export const INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB = 'intake-v1-source-processing-recovery'
+/**
+ * Operator-requested venue source capture rides the same isolated website-fetch runtime and queue
+ * as intake website research, so it inherits that runtime's flag and network policy. The payload
+ * carries only opaque scope IDs; the worker re-reads the source and the venue's authorized hosts.
+ */
+export const VENUE_SOURCE_CAPTURE_PROCESS_JOB = 'venue-source-capture-process'
 
 export const INTAKE_V1_FILE_EXTRACTION_QUEUE = queueName('intake-v1-file-extraction')
 export const INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB = 'intake-v1-file-extraction-process'

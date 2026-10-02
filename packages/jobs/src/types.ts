@@ -38,6 +38,13 @@ export type IntakeV1SourceProcessingJobPayload = {
   dispatchId: string
 }
 
+/** Carries only opaque scope IDs of a requested venue source; the URL and bounds are re-read. */
+export type VenueSourceCaptureJobPayload = {
+  tenantId: string
+  venueId: string
+  sourceId: string
+}
+
 /** Carries only a durable file-extraction dispatch identity; authority is re-read. */
 export type IntakeV1FileExtractionJobPayload = {
   dispatchId: string
