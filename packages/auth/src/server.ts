@@ -354,3 +354,31 @@ export async function listPendingOrganizationInvitations(
     role: invitation.role,
   }))
 }
+
+export type VerifiedMemberEmail = { userId: string; emailAddress: string }
+
+/**
+ * Resolves the one address the identity provider has verified for a member. It reads the user's
+ * primary address and returns it only when the provider reports that exact address as verified;
+ * an unverified, missing or unreachable address returns null, so a caller never guesses one from
+ * the local user record or from anything a client or operator typed. Application user IDs are
+ * translated through the identity binding, and a provider user whose ID does not map back to the
+ * requested user is refused.
+ */
+export async function resolveVerifiedMemberEmail(
+  applicationUserId_: string,
+): Promise<VerifiedMemberEmail | null> {
+  try {
+    const providerId = providerUserId(applicationUserId_)
+    const client = await clerkClient()
+    const user = await client.users.getUser(providerId)
+    if (user.id !== providerId) return null
+    const primary = user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
+    if (!primary || primary.verification?.status !== 'verified') return null
+    const emailAddress = primary.emailAddress.trim()
+    if (emailAddress.length === 0 || emailAddress.length > 320) return null
+    return { userId: applicationUserId_, emailAddress }
+  } catch {
+    return null
+  }
+}

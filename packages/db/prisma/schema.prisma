@@ -245,6 +245,8 @@ model Tenant {
   agentQuestionOperations                   AgentQuestionOperation[]
   agentQuestionDiscussionMessages           AgentQuestionDiscussionMessage[]
   onboardingQuestionLinks                   OnboardingQuestionLink[]
+  clientNotificationIntents                 ClientNotificationIntent[]
+  clientNotificationReceipts                ClientNotificationReceipt[]
   agentMessages                             AgentMessage[]
   agentOutcomeObservations                  AgentOutcomeObservation[]
   agentImprovementProposals                 AgentImprovementProposal[]
@@ -1581,6 +1583,7 @@ model Venue {
   agentQuestionOperations                   AgentQuestionOperation[]
   agentQuestionDiscussionMessages           AgentQuestionDiscussionMessage[]
   onboardingQuestionLinks                   OnboardingQuestionLink[]
+  clientNotificationIntents                 ClientNotificationIntent[]
   agentMessages                             AgentMessage[]
   agentOutcomeObservations                  AgentOutcomeObservation[]
   agentImprovementProposals                 AgentImprovementProposal[]
@@ -6791,6 +6794,7 @@ model SupportRequest {
   participants                SupportRequestParticipant[]
   agentRunLineages            SupportAgentRunLineage[]
   onboardingQuestionLink      OnboardingQuestionLink?
+  clientNotificationIntents   ClientNotificationIntent[]
   clientAssistantHandoff      ClientAssistantSupportHandoff?
   customerAccessRequests      CustomerAccessRequest[]
   knowledgeChangeProposals    KnowledgeChangeProposal[]
@@ -6862,6 +6866,7 @@ model SupportMessage {
   attachments               SupportMessageAttachment[]
   previewFeedback           SupportPreviewFeedback?
   onboardingQuestionAnswers OnboardingQuestionLink[]
+  clientNotificationIntents ClientNotificationIntent[]
   customerAccessRequests    CustomerAccessRequest[]
 
   @@unique([id, tenantId, venueId, supportRequestId])
@@ -6898,6 +6903,81 @@ model OnboardingQuestionLink {
   @@unique([answeredSupportMessageId, tenantId, venueId, supportRequestId], map: "onboarding_question_links_answer_message_key")
   @@index([tenantId, venueId, resumedAt, createdAt], map: "onboarding_question_links_scope_resume_idx")
   @@map("onboarding_question_links")
+}
+
+enum ClientNotificationEmailStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+enum ClientNotificationReceiptStatus {
+  PORTAL_POSTED
+  EMAIL_QUEUED
+  EMAIL_SENT
+  EMAIL_FAILED
+  EMAIL_UNKNOWN
+}
+
+/// One durable notification intent per approved information request: a portal post that already
+/// exists (the linked support message) plus an optional email to one exact verified recipient.
+/// Content is frozen and hashed at creation; the worker never rebuilds it from mutable rows.
+model ClientNotificationIntent {
+  id                     String                         @id @default(cuid())
+  tenantId               String                         @map("tenant_id")
+  venueId                String                         @map("venue_id")
+  supportRequestId       String                         @map("support_request_id")
+  supportMessageId       String                         @map("support_message_id")
+  kind                   String                         @default("INFORMATION_REQUEST") @db.VarChar(40)
+  requestVersion         Int                            @map("request_version")
+  questionIds            String[]                       @default([]) @map("question_ids")
+  recipientUserId        String                         @map("recipient_user_id") @db.VarChar(191)
+  recipientEmail         String?                        @map("recipient_email") @db.VarChar(320)
+  contentSnapshot        Json                           @map("content_snapshot")
+  contentHash            String                         @map("content_hash") @db.Char(64)
+  idempotencyKey         String                         @map("idempotency_key") @db.Char(64)
+  createdBy              String                         @map("created_by") @db.VarChar(191)
+  emailRequested         Boolean                        @map("email_requested")
+  emailStatus            ClientNotificationEmailStatus? @map("email_status")
+  emailGeneration        Int                            @default(0) @map("email_generation")
+  emailAttemptCount      Int                            @default(0) @map("email_attempt_count")
+  emailProviderMessageId String?                        @map("email_provider_message_id") @db.VarChar(191)
+  emailLastErrorCode     String?                        @map("email_last_error_code") @db.VarChar(100)
+  emailSentAt            DateTime?                      @map("email_sent_at")
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  updatedAt              DateTime                       @updatedAt @map("updated_at")
+  tenant                 Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest         SupportRequest                 @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportMessage         SupportMessage                 @relation(fields: [supportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
+  receipts               ClientNotificationReceipt[]
+
+  @@unique([tenantId, idempotencyKey], map: "client_notification_intents_tenant_idempotency_key")
+  @@unique([id, tenantId], map: "client_notification_intents_id_tenant_key")
+  @@index([tenantId, supportRequestId, createdAt], map: "client_notification_intents_request_idx")
+  @@index([emailStatus, updatedAt], map: "client_notification_intents_email_status_idx")
+  @@map("client_notification_intents")
+}
+
+/// Append-only channel receipts for one intent. A receipt never changes; a retry adds another.
+model ClientNotificationReceipt {
+  id                String                          @id @default(cuid())
+  tenantId          String                          @map("tenant_id")
+  intentId          String                          @map("intent_id")
+  channel           String                          @db.VarChar(10)
+  status            ClientNotificationReceiptStatus
+  generation        Int                             @default(0)
+  errorCode         String?                         @map("error_code") @db.VarChar(100)
+  providerMessageId String?                         @map("provider_message_id") @db.VarChar(191)
+  actorId           String?                         @map("actor_id") @db.VarChar(191)
+  createdAt         DateTime                        @default(now()) @map("created_at")
+  tenant            Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  intent            ClientNotificationIntent        @relation(fields: [intentId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, intentId, createdAt, id], map: "client_notification_receipts_intent_idx")
+  @@map("client_notification_receipts")
 }
 
 /// Metadata only. Source bytes remain owned by the existing intake/media

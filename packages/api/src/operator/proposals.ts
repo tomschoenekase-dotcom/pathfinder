@@ -256,7 +256,7 @@ export function proposalView(row: ProposalRow, config: OperatorServerConfig): Op
  * Bumped whenever a kind's behaviour changes in a way an approver would care about. It is part of
  * the preview digest, so an approval given under older semantics cannot apply under newer ones.
  */
-export const OPERATOR_KIND_SEMANTICS_VERSION = 1
+export const OPERATOR_KIND_SEMANTICS_VERSION = 2
 
 /**
  * What the approver actually saw: the kind, its semantics version, the human-readable diff and the

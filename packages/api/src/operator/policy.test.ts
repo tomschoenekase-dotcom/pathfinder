@@ -1,7 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
-import { OPERATOR_MCP_TOOLS } from '@pathfinder/contracts/operator-mcp'
+import {
+  getOperatorToolDefinition,
+  OPERATOR_ALWAYS_ASK_TOOLS,
+  OPERATOR_MCP_TOOLS,
+} from '@pathfinder/contracts/operator-mcp'
 
 import { redactOperatorArgs } from './audit'
 import {
@@ -9,6 +13,7 @@ import {
   OPERATOR_LEGACY_AUTO_KINDS,
   OPERATOR_LOCKED_CAPABILITIES,
   OperatorAutonomyLockedError,
+  isAlwaysAskKind,
   resolveAutonomy,
   setAutonomyPolicy,
 } from './autonomy'
@@ -80,6 +85,20 @@ describe('autonomy dial', () => {
     }
     for (const capability of OPERATOR_LOCKED_CAPABILITIES) {
       expect(await resolveAutonomy({ kind: 'x', capability }, policyDatabase('AUTO'))).toBe('ask')
+    }
+  })
+
+  it('keeps the contract always-ask tools and the hard-coded always-ask kinds in step', () => {
+    for (const tool of OPERATOR_ALWAYS_ASK_TOOLS) {
+      const kind = getOperatorToolDefinition(tool)?.proposalKind
+      expect(kind, tool).toBeDefined()
+      expect(isAlwaysAskKind(kind!), `${tool} (${kind})`).toBe(true)
+    }
+    for (const tool of [
+      'support.propose_create_request',
+      'support.propose_client_reply',
+    ] as const) {
+      expect((OPERATOR_ALWAYS_ASK_TOOLS as readonly string[]).includes(tool)).toBe(true)
     }
   })
 

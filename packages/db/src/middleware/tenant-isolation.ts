@@ -128,6 +128,8 @@ const AUDIT_LIFECYCLE_MODELS = [
   'SupportRequest',
   'SupportRequestParticipant',
   'OnboardingQuestionLink',
+  'ClientNotificationIntent',
+  'ClientNotificationReceipt',
   'OffboardingPlan',
   'OffboardingExportOperation',
   'IntakeUpload',

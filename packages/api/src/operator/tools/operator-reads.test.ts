@@ -209,6 +209,8 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.get_outreach_batch',
         'support.get_request',
         'customers.get_onboarding',
+        'customers.list_blocking_questions',
+        'customers.get_blocking_question',
         'support.list_messages',
         'crm.list_mailboxes',
         'crm.list_mail_threads',

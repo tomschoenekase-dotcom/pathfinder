@@ -5,6 +5,7 @@ import { crmAccountReadTools } from './crm-accounts'
 import { crmCampaignReadTools } from './crm-campaigns'
 import { crmImportReadTools } from './crm-imports'
 import { billingReadTools } from './billing'
+import { blockingQuestionReadTools } from './blocking-questions'
 import { routineReadTools } from './routines'
 import { accessReadTools } from './access'
 import { companyReadTools } from './company'
@@ -40,6 +41,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...manualReadTools,
   ...discoveryReadTools,
   ...onboardingReadTools,
+  ...blockingQuestionReadTools,
   ...operationReadTools,
   ...controlTools,
 ]

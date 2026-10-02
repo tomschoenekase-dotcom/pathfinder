@@ -9,7 +9,9 @@ import { SupportRequestStatus } from './support-workflow'
  * It provides no transport, authentication, or data access. Every write tool only creates a
  * proposal; a human (or a server-side autonomy policy the operator cannot read or write) decides
  * whether it applies. There is no tool that sends email, charges money, deletes data, or writes
- * autonomy policy. `operator.get_autonomy` is a read-only view of the policy.
+ * autonomy policy. `operator.get_autonomy` is a read-only view of the policy. Approved information
+ * requests can queue one email to a member's verified address through the existing worker, behind
+ * a default-off deployment switch; the operator never addresses or sends it.
  */
 export const OPERATOR_MCP_CATALOG_VERSION = 'torchiko-operator-mcp-v0' as const
 
@@ -187,6 +189,9 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'reports.propose_publish',
   // A routine that runs on its own may message people or cost money, so each start is a decision.
   'routines.propose_enable',
+  // Both open or continue a customer-visible conversation, so a person decides each time.
+  'support.propose_create_request',
+  'support.propose_client_reply',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -217,6 +222,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'operator.list_plans',
   'customers.list',
   'customers.get_onboarding',
+  'customers.list_blocking_questions',
+  'customers.get_blocking_question',
   'crm.list_campaigns',
   'crm.list_campaign_members',
   'crm.resolve_account',
@@ -286,6 +293,8 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'support.propose_internal_note',
   'support.propose_information_request',
   'support.propose_completion',
+  'support.propose_create_request',
+  'support.propose_client_reply',
   'customers.propose_onboarding_questions',
   'reports.propose_generate',
   'reports.propose_publish',
@@ -734,6 +743,15 @@ export const OPERATOR_MCP_INPUTS = {
     limit: PageLimit,
   }),
   'customers.get_onboarding': readInput({ ...tenantScope }),
+  'customers.list_blocking_questions': readInput({
+    ...tenantScope,
+    venueId: Identifier.optional(),
+    /** Omit for every state. PENDING is what customers.propose_onboarding_questions can still route. */
+    status: z.enum(['PENDING', 'ANSWERED', 'DISMISSED', 'EXPIRED', 'CANCELLED']).optional(),
+    cursor: Cursor.optional(),
+    limit: PageLimit,
+  }),
+  'customers.get_blocking_question': readInput({ ...tenantScope, questionId: Identifier }),
   'customers.list': readInput({
     query: z.string().trim().min(1).max(200).optional(),
     cursor: Cursor.optional(),
@@ -1025,14 +1043,61 @@ export const OPERATOR_MCP_INPUTS = {
     ...venueScope,
     requestId: Identifier,
     expectedVersion: z.number().int().positive(),
-    /** What the customer reads in their portal. This is a portal message, never an email. */
+    /** What the customer reads in their portal. The email, where allowed, carries the same checklist. */
     body: z.string().trim().min(1).max(20_000),
+    /**
+     * Who is emailed: the request's requester or an active participant. Omit it only when exactly
+     * one such person exists; with more, or none, the request is portal only. Never guessed.
+     */
+    recipientUserId: Identifier.optional(),
     /** The exact facts needed, as a checklist the customer sees. */
     missingInformation: z
       .array(z.string().trim().min(1).max(500))
       .min(1)
       .max(30)
       .refine((items) => new Set(items).size === items.length, { message: 'Items must be unique' }),
+  }),
+  'support.propose_create_request': writeInput({
+    ...venueScope,
+    /** An ACTIVE member of this tenant. The request is visible to them in the portal. */
+    recipientUserId: Identifier,
+    category: z
+      .enum([
+        'CONTENT_CORRECTION',
+        'OPERATIONAL_UPDATE',
+        'BRANDING',
+        'EXPERIENCE_BEHAVIOR',
+        'ACCESSIBILITY',
+        'GENERAL',
+      ])
+      .default('GENERAL'),
+    subject: z.string().trim().min(1).max(200),
+    /** The first message, which the customer reads in their portal. */
+    body: z.string().trim().min(1).max(20_000),
+    /** Operator-side urgency, recorded on the request. The customer portal does not show it. */
+    priority: OperatorSupportPriority.default('NORMAL'),
+    /**
+     * Existing pending blocking questions this request is about, by reference only. They are not
+     * routed or resumed (customers.propose_onboarding_questions does that) and stay open until
+     * answered. Their text becomes the request's checklist and is included in the email.
+     */
+    questionIds: z
+      .array(Identifier)
+      .max(10)
+      .refine((items) => new Set(items).size === items.length, {
+        message: 'Question identities must be unique',
+      })
+      .default([]),
+    /** Also email the recipient's verified address, when the deployment allows it. Default off. */
+    notifyByEmail: z.boolean().default(false),
+  }),
+  'support.propose_client_reply': writeInput({
+    ...venueScope,
+    requestId: Identifier,
+    /** The request's `version` from support.get_request. A newer customer message makes this stale. */
+    expectedVersion: z.number().int().positive(),
+    /** An ordinary customer-visible message in the portal. Portal only: it sends no email. */
+    body: z.string().trim().min(1).max(20_000),
   }),
   'customers.propose_onboarding_questions': writeInput({
     ...venueScope,
@@ -1324,6 +1389,28 @@ const OperatorContactDetail = OperatorContact.extend({
   notes: UntrustedText.nullable(),
 }).strict()
 
+/**
+ * One notification intent. `portal` is always portal_posted: the intent exists because the portal
+ * message was written. `email` distinguishes every outcome; email_unknown is never re-sent until a
+ * person reconciles it. No address or message text is returned.
+ */
+const OperatorNotificationSummary = z
+  .object({
+    intentId: Identifier,
+    requestId: Identifier,
+    requestVersion: z.number().int().positive(),
+    recipientUserId: Identifier,
+    contentHash: Sha256Hex,
+    portal: z.literal('portal_posted'),
+    email: z.enum(['not_requested', 'email_queued', 'email_sent', 'email_failed', 'email_unknown']),
+    /** Why the email is failed or unknown: a short code, never provider text. */
+    emailFailureCode: z.string().max(100).nullable(),
+    emailAttempts: z.number().int().nonnegative(),
+    questionCount: z.number().int().nonnegative(),
+    createdAt: IsoDateTime,
+  })
+  .strict()
+
 const OperatorOnboardingDossier = z
   .object({
     tenantId: Identifier,
@@ -1434,8 +1521,143 @@ const OperatorSupportDetail = z
         knowledgeProposals: z.number().int().nonnegative(),
       })
       .strict(),
+    /** Operator-side priority recorded when the request was created by an operator; null otherwise. */
+    priority: OperatorSupportPriority.nullable(),
+    /** The exact linked work, by id, so completion and follow-up never rely on a guess. */
+    work: z
+      .object({
+        packageHandoffs: z
+          .array(
+            z
+              .object({
+                handoffId: Identifier,
+                packageId: Identifier,
+                requestVersion: z.number().int().positive(),
+              })
+              .strict(),
+          )
+          .max(25),
+        previewFeedback: z
+          .array(z.object({ feedbackId: Identifier, packageId: Identifier }).strict())
+          .max(25),
+        knowledgeProposals: z
+          .array(z.object({ proposalId: Identifier, status: z.string().max(40) }).strict())
+          .max(25),
+        agentRuns: z
+          .array(
+            z
+              .object({
+                runId: Identifier,
+                status: z.string().max(40),
+                requestVersion: z.number().int().positive(),
+              })
+              .strict(),
+          )
+          .max(25),
+        /** The blocking question this conversation answers, when it was routed from one. */
+        onboardingQuestion: z
+          .object({
+            linkId: Identifier,
+            questionId: Identifier,
+            answered: z.boolean(),
+            resumedAt: IsoDateTime.nullable(),
+          })
+          .strict()
+          .nullable(),
+        /** True when any list above was capped at 25. */
+        truncated: z.boolean(),
+      })
+      .strict(),
+    /**
+     * The completion evidence support.propose_completion needs. `ready` carries the outcome and the
+     * digest to pass as expectedCompletionOutcome and expectedFulfillmentDigest; `not_ready` says
+     * why (for example a linked package that is not fully applied).
+     */
+    fulfillment: z
+      .object({
+        state: z.enum(['ready', 'not_ready']),
+        outcome: z.string().max(24).nullable(),
+        digest: Sha256Hex.nullable(),
+        linkedPackageCount: z.number().int().nonnegative().nullable(),
+        reason: z.string().max(300).nullable(),
+      })
+      .strict(),
+    /** Who can open this conversation, so an information request can name an exact recipient. */
+    access: z
+      .object({
+        requesterUserId: Identifier.nullable(),
+        participantUserIds: z.array(Identifier).max(25),
+      })
+      .strict(),
+    /** Notification intents for this request: one per approved information request. */
+    notifications: z.array(OperatorNotificationSummary).max(10),
   })
   .strict()
+
+const OperatorBlockingQuestionBase = z.object({
+  questionId: Identifier,
+  venueId: Identifier,
+  status: z.enum(['PENDING', 'ANSWERED', 'DISMISSED', 'EXPIRED', 'CANCELLED']),
+  /**
+   * awaiting_routing: pending and nobody has been asked. routed_awaiting_answer: in a customer's
+   * portal, unanswered. answered, declined (dismissed) and expired are final. superseded: the
+   * question was cancelled, or the work it blocked is no longer waiting for it.
+   */
+  state: z.enum([
+    'awaiting_routing',
+    'routed_awaiting_answer',
+    'answered',
+    'declined',
+    'expired',
+    'superseded',
+  ]),
+  question: UntrustedText,
+  /** Why this was asked, effect and finding, from the routed conversation or the question's own context. */
+  why: UntrustedText.nullable(),
+  effect: UntrustedText.nullable(),
+  whatWasFound: UntrustedText.nullable(),
+  category: z.string().max(100),
+  urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
+  questionType: z.string().max(40),
+  blocking: z.boolean(),
+  dueAt: IsoDateTime.nullable(),
+  expiresAt: IsoDateTime.nullable(),
+  createdAt: IsoDateTime,
+  /** The question's revision. Pass as `expectedUpdatedAt` in customers.propose_onboarding_questions. */
+  expectedUpdatedAt: IsoDateTime,
+  /** True only when customers.propose_onboarding_questions could route it right now. */
+  proposable: z.boolean(),
+  blockedWork: z
+    .object({
+      agentRunId: Identifier.nullable(),
+      status: z.string().max(40).nullable(),
+      requestedOperation: z.string().max(191).nullable(),
+    })
+    .strict(),
+  routing: z
+    .object({
+      linkId: Identifier,
+      supportRequestId: Identifier,
+      recipientUserId: Identifier,
+      routedAt: IsoDateTime,
+      requestStatus: z.string().max(40).nullable(),
+      /** The request's version, for support.propose_client_reply. */
+      requestVersion: z.number().int().positive().nullable(),
+      answeredMessageId: Identifier.nullable(),
+      resumedAt: IsoDateTime.nullable(),
+      /** Where the customer opens this conversation, relative to the dashboard origin. */
+      portalPath: z.string().max(500),
+    })
+    .strict()
+    .nullable(),
+  answer: UntrustedText.nullable(),
+  answeredAt: IsoDateTime.nullable(),
+})
+const OperatorBlockingQuestion = OperatorBlockingQuestionBase.strict()
+const OperatorBlockingQuestionDetail = OperatorBlockingQuestionBase.extend({
+  discussionMessages: z.number().int().nonnegative(),
+  notifications: z.array(OperatorNotificationSummary).max(10),
+}).strict()
 
 const OperatorDraftView = z
   .object({
@@ -2446,6 +2668,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'operator.recover_operation': OperatorProposalView,
   'operator.list_plans': Page(OperatorProposalView),
   'customers.get_onboarding': OperatorOnboardingDossier,
+  'customers.list_blocking_questions': Page(OperatorBlockingQuestion),
+  'customers.get_blocking_question': OperatorBlockingQuestionDetail,
   'customers.list': Page(
     z
       .object({
@@ -3002,6 +3226,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'support.propose_internal_note': OperatorWriteResult,
   'support.propose_information_request': OperatorWriteResult,
   'support.propose_completion': OperatorWriteResult,
+  'support.propose_create_request': OperatorWriteResult,
+  'support.propose_client_reply': OperatorWriteResult,
   'customers.propose_onboarding_questions': OperatorWriteResult,
   'crm.propose_account_archive': OperatorWriteResult,
   'crm.propose_account_update': OperatorWriteResult,
@@ -3337,6 +3563,20 @@ const seeds: readonly Seed[] = [
     'tenant',
   ],
   [
+    'customers.list_blocking_questions',
+    'List blocking questions',
+    `Page through a customer's blocking questions, newest first, with exact ids, text, why and effect, the work each blocks, who was asked, whether it is answered, declined, expired or superseded, and the expectedUpdatedAt that customers.propose_onboarding_questions needs.${READ}`,
+    'venues:read',
+    'tenant',
+  ],
+  [
+    'customers.get_blocking_question',
+    'Get blocking question',
+    `Read one blocking question in full: the same fields as the list plus its conversation link and version, the customer's answer, and the notification receipts (portal posted, email queued, sent, failed or unknown).${READ}`,
+    'venues:read',
+    'tenant',
+  ],
+  [
     'company.list_context',
     'List company context',
     `Page through current tenant-scoped company context. Platform, restricted and other-scope records are omitted.${READ}`,
@@ -3501,7 +3741,7 @@ const seeds: readonly Seed[] = [
   [
     'support.get_request',
     'Get support request',
-    `Read one support request: status, the version writes expect, message counts, the newest message and linked work.${READ}`,
+    `Read one support request: status, the version writes expect, message counts, the newest message, the exact linked work by id, the completion fulfillment digest, and notification receipts.${READ}`,
     'support:read',
     'tenant',
   ],
@@ -3743,7 +3983,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_information_request',
     'Propose information request',
-    `Propose asking the customer for specific missing facts, shown in their portal as a checklist. Portal only: it sends no email. Always needs a human.${PROPOSE}`,
+    `Propose asking the customer for specific missing facts, shown in their portal as a checklist, optionally naming the exact recipient. Applying it records one notification intent: the portal checklist is immediate, and an email carrying the checklist and the portal link is queued only where the deployment has turned client email on. Always needs a human.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.information-request',
@@ -3751,10 +3991,26 @@ const seeds: readonly Seed[] = [
   [
     'customers.propose_onboarding_questions',
     'Propose onboarding questions',
-    `Propose one reviewed group of up to ten existing blocking questions to an active tenant member. Each question keeps its canonical portal conversation. Nothing executes blocked work or emails anyone. Always needs a human.${PROPOSE}`,
+    `Propose one reviewed group of up to ten existing blocking questions to an active tenant member. Each question keeps its canonical portal conversation. Applying it records one notification intent: the portal post is immediate, and an email to the recipient's verified address is queued only where the deployment has turned client email on. Nothing executes blocked work. Always needs a human.${PROPOSE}`,
     'customers:propose',
     'venue',
     'customers.onboarding-questions',
+  ],
+  [
+    'support.propose_create_request',
+    'Propose support request',
+    `Propose opening a new support conversation with a customer-visible first message for one active member of this tenant, with a category, subject, priority and optional references to pending blocking questions. Email to the member's verified address is optional and queued only where the deployment has turned client email on. Always needs a human.${PROPOSE}`,
+    'support:propose',
+    'venue',
+    'support.create-request',
+  ],
+  [
+    'support.propose_client_reply',
+    'Propose customer reply',
+    `Propose an ordinary customer-visible message on an existing support request, at the version you read. A newer customer message makes it stale. Portal only: it sends no email. Always needs a human.${PROPOSE}`,
+    'support:propose',
+    'venue',
+    'support.client-reply',
   ],
   [
     'support.propose_completion',

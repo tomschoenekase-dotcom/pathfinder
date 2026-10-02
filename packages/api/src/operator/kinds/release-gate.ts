@@ -23,3 +23,14 @@ export function isCustomerInviteEnabled(
 ): boolean {
   return source.OPERATOR_CUSTOMER_INVITE_ENABLED === 'true'
 }
+
+/**
+ * Email copies of approved information requests, sent by the worker to a member's verified
+ * address. Default off, read at call time, and never inferred from another flag. While off, the
+ * portal post still happens and the email is recorded as not sent.
+ */
+export function isClientNotificationEmailEnabled(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return source.CLIENT_NOTIFICATION_EMAIL_ENABLED === 'true'
+}

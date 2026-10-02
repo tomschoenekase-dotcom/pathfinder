@@ -18,6 +18,9 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'crm.account-archive',
   // Changes how history is read across two accounts; an exact reviewed decision each time.
   'crm.duplicate-resolution',
+  // Changes who is emailed for a person, and commits a whole reviewed import at once.
+  'crm.contact-address-change',
+  'crm.import-commit',
   // Every human gate on outbound mail: policy never stands in for the person.
   'crm.draft-review',
   'crm.batch-stage',
@@ -32,6 +35,9 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'reports.generate',
   'reports.publish',
   'routines.enable',
+  // A new customer conversation and a customer-visible reply: a person decides each time.
+  'support.create-request',
+  'support.client-reply',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

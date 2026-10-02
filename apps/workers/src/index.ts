@@ -76,6 +76,8 @@ import {
   PROSPECT_IMPORT_QUEUE,
   PROSPECT_IMPORT_RETRY_BACKOFF,
   PROSPECT_IMPORT_STAGE_JOB,
+  SEND_CLIENT_NOTIFICATION_EMAIL_JOB,
+  SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -90,6 +92,7 @@ import {
   type GuestAnswerAttributionEvaluationJobPayload,
   type GenerationDispatchKickJobPayload,
   type GmailSyncJobPayload,
+  type SendClientNotificationEmailJobPayload,
   type SendWelcomeEmailJobPayload,
   type SendProspectOutreachJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
@@ -135,6 +138,7 @@ import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
 import { processGmailSyncJob } from './processors/gmail-sync'
+import { processSendClientNotificationEmailJob } from './processors/send-client-notification-email'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processSendProspectOutreachJob } from './processors/send-prospect-outreach'
 import { startProspectOutboxDispatcher } from './processors/prospect-outbox-dispatcher'
@@ -578,8 +582,20 @@ async function handleWeeklyReportQueueJob(
 }
 
 async function handleSendEmailQueueJob(
-  job: Job<SendWelcomeEmailJobPayload | SendProspectOutreachJobPayload>,
+  job: Job<
+    | SendWelcomeEmailJobPayload
+    | SendProspectOutreachJobPayload
+    | SendClientNotificationEmailJobPayload
+  >,
 ) {
+  if (job.name === SEND_CLIENT_NOTIFICATION_EMAIL_JOB) {
+    await processSendClientNotificationEmailJob(
+      job.data as SendClientNotificationEmailJobPayload,
+      getJobExecutionMetadata(job),
+    )
+    return
+  }
+
   if (job.name === SEND_WELCOME_EMAIL_JOB) {
     await processSendWelcomeEmailJob(
       job.data as SendWelcomeEmailJobPayload,
@@ -1319,6 +1335,10 @@ export async function startWorkers() {
       settings: {
         backoffStrategy: (attemptsMade, type) => {
           if (type === SEND_WELCOME_EMAIL_RETRY_BACKOFF) {
+            return getSendWelcomeEmailBackoffDelay(attemptsMade)
+          }
+
+          if (type === SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF) {
             return getSendWelcomeEmailBackoffDelay(attemptsMade)
           }
 

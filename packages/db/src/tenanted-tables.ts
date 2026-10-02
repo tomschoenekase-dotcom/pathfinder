@@ -127,6 +127,8 @@ export const TENANTED_TABLES = [
   'AgentWorkflowRunBinding',
   'AgentQuestion',
   'OnboardingQuestionLink',
+  'ClientNotificationIntent',
+  'ClientNotificationReceipt',
   'ApprovalRequest',
   'ApprovalDecision',
   'ApprovalGrant',
