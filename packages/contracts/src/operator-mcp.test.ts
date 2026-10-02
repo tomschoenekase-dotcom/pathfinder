@@ -49,6 +49,8 @@ const EXPECTED_TOOLS = [
   'crm.get_outreach_batch',
   'support.get_request',
   'customers.get_onboarding',
+  'customers.list_blocking_questions',
+  'customers.get_blocking_question',
   'support.list_messages',
   'crm.list_mailboxes',
   'crm.list_mail_threads',
@@ -86,6 +88,8 @@ const EXPECTED_TOOLS = [
   'support.propose_internal_note',
   'support.propose_information_request',
   'support.propose_completion',
+  'support.propose_create_request',
+  'support.propose_client_reply',
   'customers.propose_onboarding_questions',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
@@ -277,6 +281,8 @@ describe('operator MCP catalog', () => {
       'support.propose_information_request',
       'support.propose_completion',
       'customers.propose_onboarding_questions',
+      'support.propose_create_request',
+      'support.propose_client_reply',
     ])
   })
 

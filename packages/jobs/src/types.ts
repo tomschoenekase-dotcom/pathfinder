@@ -81,6 +81,16 @@ export type SendWelcomeEmailJobPayload = {
   orgName: string
 }
 
+/**
+ * Carries only durable identity. The worker reloads the frozen intent, so the job holds no
+ * address, question text or link. `generation` changes each time a failed email is queued again.
+ */
+export type SendClientNotificationEmailJobPayload = {
+  tenantId: string
+  intentId: string
+  generation: number
+}
+
 /** Carries only durable identity. The worker reloads the frozen approved snapshot. */
 export type SendProspectOutreachJobPayload = {
   outboxId: string

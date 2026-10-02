@@ -206,6 +206,8 @@ describe('tenantIsolationMiddleware', () => {
       'AgentWorkflowRunBinding',
       'AgentQuestion',
       'OnboardingQuestionLink',
+      'ClientNotificationIntent',
+      'ClientNotificationReceipt',
       'ApprovalRequest',
       'ApprovalDecision',
       'ApprovalGrant',

@@ -45,6 +45,7 @@ import {
   enqueueIntakeV1FileExtraction,
   enqueueIntakeV1SourceProcessing,
   enqueueIntakeUploadVerification,
+  enqueueClientNotificationEmail,
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
   enqueueWeeklyReport,
@@ -320,6 +321,36 @@ describe('job enqueues', () => {
       'membership_',
     )
     expect(JSON.stringify(mocks.loggerInfo.mock.calls)).not.toContain('membership_')
+  })
+
+  it('derives the client-notification email job from the intent and generation only', async () => {
+    const payload = { tenantId: 'tenant_1', intentId: 'intent_1', generation: 1 }
+
+    await enqueueClientNotificationEmail(payload)
+    await enqueueClientNotificationEmail(payload)
+    await enqueueClientNotificationEmail({ ...payload, generation: 2 })
+    await enqueueClientNotificationEmail({ ...payload, tenantId: 'tenant_2' })
+
+    const [first, repeat, requeued, otherTenant] = mocks.add.mock.calls
+    expect(first![0]).toBe('send-client-notification-email')
+    expect(first![1]).toEqual(payload)
+    expect(first![2].jobId).toMatch(/^send-client-notification-email-[a-f0-9]{64}$/u)
+    expect(repeat![2].jobId).toBe(first![2].jobId)
+    expect(requeued![2].jobId).not.toBe(first![2].jobId)
+    expect(otherTenant![2].jobId).not.toBe(first![2].jobId)
+    expect(first![2].jobId).not.toContain('intent_1')
+  })
+
+  it.each([
+    { tenantId: '', intentId: 'i', generation: 1 },
+    { tenantId: 't', intentId: '', generation: 1 },
+    { tenantId: 't', intentId: 'i', generation: 0 },
+    { tenantId: 't', intentId: 'i', generation: 1.5 },
+  ])('rejects an invalid client-notification email identity before the queue', async (payload) => {
+    await expect(enqueueClientNotificationEmail(payload)).rejects.toThrow(
+      'Valid client notification email identity is required',
+    )
+    expect(mocks.add).not.toHaveBeenCalled()
   })
 
   it.each(['', '   ', 'x'.repeat(201)])(

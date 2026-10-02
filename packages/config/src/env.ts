@@ -121,6 +121,10 @@ const rawEnvSchema = z
     // has the identity provider email a sign-up link, so it is a separate switch.
     OPERATOR_CUSTOMER_CREATE_ENABLED: z.enum(['true', 'false']).optional(),
     OPERATOR_CUSTOMER_INVITE_ENABLED: z.enum(['true', 'false']).optional(),
+    // Email copies of approved information requests (onboarding questions and support requests)
+    // sent to a member's verified address. Default off: the portal post still happens, the email
+    // is recorded as not sent, and nothing leaves the deployment until this is exactly "true".
+    CLIENT_NOTIFICATION_EMAIL_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
@@ -287,6 +291,22 @@ const rawEnvSchema = z
         })
       }
     }
+    if (values.CLIENT_NOTIFICATION_EMAIL_ENABLED === 'true') {
+      for (const field of [
+        'REDIS_URL',
+        'RESEND_API_KEY',
+        'RESEND_FROM_EMAIL',
+        'DASHBOARD_URL',
+      ] as const) {
+        if (!values[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required when client notification email is enabled`,
+          })
+        }
+      }
+    }
     if (values.OPERATIONAL_ALERT_DEV_SINK_ENABLED === 'true') {
       if (values.RAILWAY_ENVIRONMENT === 'production') {
         ctx.addIssue({
@@ -354,6 +374,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   OPERATOR_CAMPAIGN_RELEASE_ENABLED: values.OPERATOR_CAMPAIGN_RELEASE_ENABLED === 'true',
   OPERATOR_CUSTOMER_CREATE_ENABLED: values.OPERATOR_CUSTOMER_CREATE_ENABLED === 'true',
   OPERATOR_CUSTOMER_INVITE_ENABLED: values.OPERATOR_CUSTOMER_INVITE_ENABLED === 'true',
+  CLIENT_NOTIFICATION_EMAIL_ENABLED: values.CLIENT_NOTIFICATION_EMAIL_ENABLED === 'true',
   GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
   GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',

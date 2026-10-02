@@ -27,6 +27,9 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'support.information-request',
   'support.completion',
   'customers.onboarding-questions',
+  // A new customer conversation and a customer-visible reply: a person decides each time.
+  'support.create-request',
+  'support.client-reply',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

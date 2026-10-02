@@ -44,6 +44,8 @@ import {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  SEND_CLIENT_NOTIFICATION_EMAIL_JOB,
+  SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF,
   SEND_PROSPECT_OUTREACH_JOB,
   SEND_PROSPECT_OUTREACH_RETRY_BACKOFF,
   MEDIA_INGESTION_PROCESS_JOB,
@@ -81,6 +83,7 @@ import type {
   EmbedPlaceJobPayload,
   GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
+  SendClientNotificationEmailJobPayload,
   SendProspectOutreachJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
@@ -288,6 +291,15 @@ const sendWelcomeEmailJobOptions: JobsOptions = {
   backoff: {
     type: SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+// Only infrastructure failures before the provider call are retried by the queue. Once the
+// provider may have been reached, the processor records the outcome and never throws.
+const sendClientNotificationEmailJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF },
   removeOnComplete: 1000,
   removeOnFail: 5000,
 }
@@ -850,6 +862,44 @@ export async function enqueueWelcomeEmail(
   logger.info({
     action: 'jobs.send-welcome-email.enqueued',
     tenantId: payload.tenantId,
+  })
+}
+
+/**
+ * Queues one client-notification email. The job ID is derived from the intent and its generation,
+ * so enqueueing the same email twice is one job and a requeued email gets a fresh one.
+ */
+export async function enqueueClientNotificationEmail(
+  payload: SendClientNotificationEmailJobPayload,
+): Promise<void> {
+  if (
+    !payload.tenantId ||
+    payload.tenantId.length > 191 ||
+    !payload.intentId ||
+    payload.intentId.length > 191 ||
+    !Number.isInteger(payload.generation) ||
+    payload.generation < 1
+  )
+    throw new Error('Valid client notification email identity is required')
+  const identity = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'pathfinder-client-notification-email-v1',
+        payload.tenantId,
+        payload.intentId,
+        payload.generation,
+      ]),
+    )
+    .digest('hex')
+  await getQueue(SEND_EMAIL_QUEUE).add(SEND_CLIENT_NOTIFICATION_EMAIL_JOB, payload, {
+    ...sendClientNotificationEmailJobOptions,
+    jobId: `send-client-notification-email-${identity}`,
+  })
+  logger.info({
+    action: 'jobs.send-client-notification-email.enqueued',
+    tenantId: payload.tenantId,
+    intentId: payload.intentId,
+    generation: payload.generation,
   })
 }
 

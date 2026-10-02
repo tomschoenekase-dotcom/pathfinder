@@ -1547,3 +1547,34 @@ export {
   GuestConversationDispositionAuthorizationInput,
   GuestConversationDispositionAuthorityError,
 } from './helpers/guest-conversation-disposition-authority'
+export {
+  beginClientNotificationEmailDelivery,
+  CLIENT_NOTIFICATION_KIND,
+  CLIENT_NOTIFICATION_NON_RETRYABLE_CODES,
+  ClientNotificationError,
+  clientNotificationContentHash,
+  clientNotificationIdempotencyKey,
+  completeClientNotificationEmailDelivery,
+  createClientNotificationIntent,
+  createClientNotificationIntentAction,
+  failQueuedClientNotificationEmail,
+  markClientNotificationEnqueueFailed,
+  reconcileClientNotificationEmail,
+  requeueClientNotificationEmail,
+  supportRequestPortalPath,
+} from './helpers/client-notification-intents'
+export type {
+  ClientNotificationContent,
+  ClientNotificationDeliveryDecision,
+  ClientNotificationEmailOutcome,
+  ClientNotificationIntentRef,
+  ClientNotificationItem,
+  ClientNotificationSkipReason,
+  CreateClientNotificationIntentInput,
+} from './helpers/client-notification-intents'
+export {
+  createOperatorSupportRequestAction,
+  OperatorSupportRequestError,
+  operatorSupportRequestOperationHash,
+} from './helpers/support-operator-request-actions'
+export type { CreateOperatorSupportRequestInput } from './helpers/support-operator-request-actions'
