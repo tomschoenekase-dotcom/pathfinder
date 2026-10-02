@@ -370,6 +370,8 @@ test('guarded domain processors expose only finite failure codes to BullMQ reten
     ['apps/workers/src/processors/send-welcome-email.ts', 'WELCOME_EMAIL_DELIVERY_FAILED'],
     ['apps/workers/src/processors/generation-recovery.ts', 'GENERATION_RECOVERY_FAILED'],
     ['apps/workers/src/processors/voice-session-recovery.ts', 'VOICE_SESSION_RECOVERY_FAILED'],
+    ['apps/workers/src/processors/live-data-poll.ts', 'LIVE_DATA_POLL_FAILED'],
+    ['apps/workers/src/processors/live-data-poll.ts', 'LIVE_DATA_SCHEDULER_FAILED'],
   ]) {
     const source = await readFile(new URL(relativePath, root), 'utf8')
     assert.match(

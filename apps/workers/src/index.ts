@@ -22,6 +22,9 @@ import {
   VOICE_SESSION_RECOVERY_QUEUE,
   VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
   VOICE_SESSION_HANGUP_JOB,
+  LIVE_DATA_POLL_QUEUE,
+  LIVE_DATA_POLL_PROCESS_JOB,
+  LIVE_DATA_POLL_SCHEDULER_JOB,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -107,6 +110,7 @@ import {
   type MediaIngestionJobPayload,
   type VenueMediaDerivativeJobPayload,
   type VoiceSessionHangupJobPayload,
+  type LiveDataPollJobPayload,
   type OperationalEventDeliveryJobPayload,
   type ProspectImportCommitJobPayload,
   type ProspectImportInspectionJobPayload,
@@ -142,6 +146,7 @@ import { processOperationalEventDeliveries } from './processors/operational-even
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
 import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
 import { processVoiceSessionHangup } from './processors/voice-session-hangup'
+import { processLiveDataPoll, processLiveDataPollScheduler } from './processors/live-data-poll'
 import { processAgentQuestionExpiration } from './processors/agent-question-expiration'
 import { processAgentRoutineDispatch } from './processors/agent-routine-dispatch'
 import {
@@ -464,6 +469,19 @@ async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>)
   throw new Error(`Unsupported generation recovery job: ${job.name}`)
 }
 
+async function handleLiveDataPollQueueJob(
+  job: Job<LiveDataPollJobPayload | Record<string, never>>,
+) {
+  if (job.name === LIVE_DATA_POLL_SCHEDULER_JOB) {
+    await processLiveDataPollScheduler(getJobExecutionMetadata(job))
+    return
+  }
+  if (job.name !== LIVE_DATA_POLL_PROCESS_JOB) {
+    throw new Error(`Unsupported live data poll job: ${job.name}`)
+  }
+  await processLiveDataPoll(job.data as LiveDataPollJobPayload, getJobExecutionMetadata(job))
+}
+
 async function handleVoiceSessionRecoveryQueueJob(job: Job<Record<string, never>>) {
   if (job.name === VOICE_SESSION_HANGUP_JOB) {
     await processVoiceSessionHangup(
@@ -730,6 +748,7 @@ export async function startWorkers() {
   const billingReconciliationQueue = new Queue(BILLING_RECONCILIATION_QUEUE, { connection })
   const accountSummaryRefreshQueue = new Queue(ACCOUNT_SUMMARY_REFRESH_QUEUE, { connection })
   const voiceSessionRecoveryQueue = new Queue(VOICE_SESSION_RECOVERY_QUEUE, { connection })
+  const liveDataPollQueue = new Queue(LIVE_DATA_POLL_QUEUE, { connection })
   const agentQuestionMaintenanceQueue = new Queue(AGENT_QUESTION_MAINTENANCE_QUEUE, {
     connection,
   })
@@ -764,6 +783,7 @@ export async function startWorkers() {
     { name: BILLING_RECONCILIATION_QUEUE, close: () => billingReconciliationQueue.close() },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, close: () => accountSummaryRefreshQueue.close() },
     { name: VOICE_SESSION_RECOVERY_QUEUE, close: () => voiceSessionRecoveryQueue.close() },
+    { name: LIVE_DATA_POLL_QUEUE, close: () => liveDataPollQueue.close() },
     {
       name: AGENT_QUESTION_MAINTENANCE_QUEUE,
       close: () => agentQuestionMaintenanceQueue.close(),
@@ -838,6 +858,24 @@ export async function startWorkers() {
           ),
         remove: () =>
           voiceSessionRecoveryQueue.removeJobScheduler(VOICE_SESSION_RECOVERY_SCHEDULER_JOB),
+      },
+      {
+        upsert: () =>
+          liveDataPollQueue.upsertJobScheduler(
+            LIVE_DATA_POLL_SCHEDULER_JOB,
+            { every: 15_000 },
+            {
+              name: LIVE_DATA_POLL_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 2,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 20,
+                removeOnFail: 100,
+              },
+            },
+          ),
+        remove: () => liveDataPollQueue.removeJobScheduler(LIVE_DATA_POLL_SCHEDULER_JOB),
       },
       {
         upsert: () =>
@@ -1364,6 +1402,14 @@ export async function startWorkers() {
     ),
   )
 
+  const liveDataPollWorker = observeWorkerRuntime(
+    LIVE_DATA_POLL_QUEUE,
+    new Worker(LIVE_DATA_POLL_QUEUE, queueSafeJobProcessor(handleLiveDataPollQueueJob), {
+      connection,
+      concurrency: 4,
+    }),
+  )
+
   const agentQuestionMaintenanceWorker = observeWorkerRuntime(
     AGENT_QUESTION_MAINTENANCE_QUEUE,
     new Worker(
@@ -1550,6 +1596,7 @@ export async function startWorkers() {
     { name: BILLING_RECONCILIATION_QUEUE, worker: billingReconciliationWorker },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, worker: accountSummaryRefreshWorker },
     { name: VOICE_SESSION_RECOVERY_QUEUE, worker: voiceSessionRecoveryWorker },
+    { name: LIVE_DATA_POLL_QUEUE, worker: liveDataPollWorker },
     { name: AGENT_QUESTION_MAINTENANCE_QUEUE, worker: agentQuestionMaintenanceWorker },
     { name: AGENT_ROUTINE_MAINTENANCE_QUEUE, worker: agentRoutineMaintenanceWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
@@ -1624,6 +1671,7 @@ export async function startWorkers() {
       BILLING_RECONCILIATION_QUEUE,
       ACCOUNT_SUMMARY_REFRESH_QUEUE,
       VOICE_SESSION_RECOVERY_QUEUE,
+      LIVE_DATA_POLL_QUEUE,
       AGENT_QUESTION_MAINTENANCE_QUEUE,
       AGENT_ROUTINE_MAINTENANCE_QUEUE,
       MEDIA_INGESTION_QUEUE,
@@ -1685,6 +1733,8 @@ export async function startWorkers() {
     generationRecoveryWorker,
     voiceSessionRecoveryQueue,
     voiceSessionRecoveryWorker,
+    liveDataPollQueue,
+    liveDataPollWorker,
     agentQuestionMaintenanceQueue,
     agentQuestionMaintenanceWorker,
     agentRoutineMaintenanceQueue,

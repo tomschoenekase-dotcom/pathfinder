@@ -4,6 +4,9 @@ export {
   VOICE_SESSION_RECOVERY_QUEUE,
   VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
   VOICE_SESSION_HANGUP_JOB,
+  LIVE_DATA_POLL_QUEUE,
+  LIVE_DATA_POLL_PROCESS_JOB,
+  LIVE_DATA_POLL_SCHEDULER_JOB,
   AGENT_RUN_PROCESS_JOB,
   AGENT_RUN_QUEUE,
   AGENT_RUN_RETRY_BACKOFF,
@@ -139,6 +142,7 @@ export {
   enqueueIntakeV1FileExtraction,
   enqueueVenueMediaDerivative,
   enqueueVoiceSessionHangup,
+  enqueueLiveDataPoll,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
 export type {
@@ -170,4 +174,5 @@ export type {
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
   VoiceSessionHangupJobPayload,
+  LiveDataPollJobPayload,
 } from './types'

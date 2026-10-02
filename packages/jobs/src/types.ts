@@ -122,6 +122,18 @@ export type IntakeUploadVerificationJobPayload = {
   observedUpdatedAt: string
 }
 
+/**
+ * Carries only exact durable identity. The worker reloads the endpoint, mapping, and state, so a
+ * stale or forged job can never supply a URL or tenant authority.
+ */
+export type LiveDataPollJobPayload = {
+  tenantId: string
+  venueId: string
+  connectorId: string
+  /** "test" is operator-initiated and never writes an observation. */
+  mode: 'scheduled' | 'test'
+}
+
 /** Carries only exact durable identity. Source, rights, variant, and output policy are reloaded. */
 export type VenueMediaDerivativeJobPayload = {
   tenantId: string
