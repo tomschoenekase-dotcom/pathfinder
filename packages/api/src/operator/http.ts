@@ -507,7 +507,12 @@ async function callTool(
       result: toolResult(
         code === 'INVALID_ARGUMENTS' && error instanceof z.ZodError
           ? errorBody(code, name, context.requestId, {
-              issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
+              issues: error.issues.map((issue) => ({
+                path: issue.path,
+                code: issue.code,
+                // Only our own refinement text is echoed; built-in messages can quote input.
+                ...(issue.code === 'custom' ? { message: issue.message } : {}),
+              })),
             })
           : errorBody(code, name, context.requestId),
         true,
