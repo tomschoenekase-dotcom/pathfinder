@@ -547,7 +547,17 @@ export const supportCreateRequestKind: OperatorProposalKind<CreateRequestArgs> =
   authorize: async (a, context) => {
     await assertVenueInGrant(context.grant, a.tenantId, a.venueId, context.database)
     const { member, questions } = await createRequestScope(context.database, a)
-    if (!member || questions.length !== a.questionIds.length) throw new OperatorNotFoundError()
+    if (questions.length !== a.questionIds.length) throw new OperatorNotFoundError()
+    if (!member) {
+      // A known member of this tenant who is no longer active (left, removed, re-invited) makes
+      // the proposal stale; someone who was never a member here is simply not found.
+      const former = await context.database.tenantMembership.findFirst({
+        where: { tenantId: a.tenantId, userId: a.recipientUserId },
+        select: { id: true },
+      })
+      if (former) throw new OperatorStaleError('The recipient is no longer an active member')
+      throw new OperatorNotFoundError()
+    }
   },
   targetVersion: async (a, context) =>
     createRequestVersion(await createRequestScope(context.database, a), a),

@@ -274,3 +274,16 @@ describe('separately registered onboarding proposal tools', () => {
     }
   })
 })
+
+describe('missingCapabilitiesNote', () => {
+  it('stays within the published 300-character scope note and counts what it leaves out', async () => {
+    const { missingCapabilitiesNote } = await import('./context')
+    const many = Array.from({ length: 40 }, (_, index) => `capability-${index}:propose`)
+    const note = missingCapabilitiesNote(many)
+    expect(note.length).toBeLessThanOrEqual(300)
+    expect(note).toMatch(/ and \d+ more\.$/u)
+    expect(missingCapabilitiesNote(['a:read', 'b:read'])).toBe(
+      'This connection lacks capabilities: a:read, b:read.',
+    )
+  })
+})

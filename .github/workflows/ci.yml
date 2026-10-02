@@ -40,6 +40,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
+          # setup-node v5 enables package-manager caching from package.json `packageManager`, which
+          # needs pnpm on PATH. The classifier is plain node with no dependencies, so opt out.
+          package-manager-cache: false
       - name: Classify the complete change set
         id: plan
         if: ${{ !((github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master')) }}

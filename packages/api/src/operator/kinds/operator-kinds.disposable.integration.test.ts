@@ -259,6 +259,14 @@ describe.skipIf(!enabled)(
           'routines.propose_update',
           'routines.propose_enable',
           'routines.propose_disable',
+          'crm.propose_account_update',
+          'crm.propose_contact_address_change',
+          'crm.propose_prospect_create',
+          'crm.propose_import_commit',
+          'support.propose_create_request',
+          'support.propose_client_reply',
+          'venues.propose_source',
+          'venues.propose_content_changeset',
         ].sort(),
       )
     })
