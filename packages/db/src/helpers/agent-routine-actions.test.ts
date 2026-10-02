@@ -55,6 +55,7 @@ function transaction(overrides: Record<string, unknown> = {}) {
     offboardingPlan: { findFirst: vi.fn().mockResolvedValue(null) },
     supportRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     supportMessage: { findFirst: vi.fn().mockResolvedValue(null) },
+    clientInboundReply: { findFirst: vi.fn().mockResolvedValue(null) },
     prospectContact: { findUnique: vi.fn().mockResolvedValue(null) },
     prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
     agentRoutineBudgetUsage: {

@@ -23,6 +23,7 @@ export type RoutineGuardClient = Pick<
   | 'offboardingPlan'
   | 'supportRequest'
   | 'supportMessage'
+  | 'clientInboundReply'
   | 'agentRoutine'
   | 'agentRoutineDispatch'
   | 'agentRoutineBudgetUsage'
@@ -110,6 +111,16 @@ export async function evaluateRoutineStopRules(
       select: { id: true },
     })
     if (reply) return 'TARGET_REPLIED'
+    const emailReply = await client.clientInboundReply.findFirst({
+      where: {
+        tenantId,
+        venueId,
+        supportRequestId: subject.id,
+        receivedAt: { gt: routine.createdAt },
+      },
+      select: { id: true },
+    })
+    if (emailReply) return 'TARGET_REPLIED'
   }
   if (subject?.kind === 'PROSPECT_CONTACT') {
     // Legacy or directly persisted definitions are stopped without reading global CRM state.

@@ -24,6 +24,7 @@ function client(overrides: Record<string, unknown> = {}) {
     offboardingPlan: { findFirst: vi.fn().mockResolvedValue(null) },
     supportRequest: { findFirst: vi.fn().mockResolvedValue({ status: 'WAITING_FOR_CLIENT' }) },
     supportMessage: { findFirst: vi.fn().mockResolvedValue(null) },
+    clientInboundReply: { findFirst: vi.fn().mockResolvedValue(null) },
     prospectContact: { findUnique: vi.fn().mockResolvedValue({}) },
     prospectEmailMessage: { findFirst: vi.fn().mockResolvedValue(null) },
     agentRoutineDispatch: { count: vi.fn().mockResolvedValue(0) },
@@ -35,6 +36,25 @@ const supportRules = { subject: { kind: 'SUPPORT_REQUEST', id: 'req_1' } }
 const contactRules = { subject: { kind: 'PROSPECT_CONTACT', id: 'contact_1' } }
 
 describe('evaluateRoutineStopRules', () => {
+  it('stops for a linked email reply within the exact tenant, venue, request and reminder window', async () => {
+    const clientInboundReply = { findFirst: vi.fn().mockResolvedValue({ id: 'email-reply' }) }
+    await expect(
+      evaluateRoutineStopRules(
+        client({ clientInboundReply }),
+        { ...routine, stopRules: supportRules },
+        now,
+      ),
+    ).resolves.toBe('TARGET_REPLIED')
+    expect(clientInboundReply.findFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: routine.tenantId,
+        venueId: routine.venueId,
+        supportRequestId: 'req_1',
+        receivedAt: { gt: routine.createdAt },
+      },
+      select: { id: true },
+    })
+  })
   it('keeps a healthy routine with no rules running', async () => {
     await expect(evaluateRoutineStopRules(client(), routine, now)).resolves.toBeNull()
   })

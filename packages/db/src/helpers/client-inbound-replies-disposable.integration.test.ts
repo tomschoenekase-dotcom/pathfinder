@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '../client'
+import { evaluateRoutineStopRules } from './agent-routine-guards'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import {
   CLIENT_INBOUND_MAX_TEXT_BYTES,
@@ -121,6 +122,59 @@ describe.skipIf(!enabled)('client inbound reply linking (disposable database)', 
     })
   })
   afterAll(async () => db.$disconnect())
+
+  it('stops only the matching reminder after a newly linked email reply', async () => {
+    const target = await withTenantIsolationBypass(() => fixture('reminder', 'WAITING_FOR_CLIENT'))
+    const receivedAt = new Date('2026-10-02T12:00:00.000Z')
+    const routine = {
+      id: `reminder-${suffix}`,
+      tenantId: target.tenantId,
+      venueId: target.venueId,
+      createdAt: new Date(receivedAt.getTime() - 1000),
+      stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: target.requestId } },
+    }
+    await expect(
+      withTenantIsolationBypass(() => evaluateRoutineStopRules(db, routine, receivedAt)),
+    ).resolves.toBeNull()
+    expect(
+      await linkInboundClientReply(
+        email({
+          fromAddress: target.recipient,
+          inReplyTo: target.anchor,
+          receivedAt,
+        }),
+      ),
+    ).toMatchObject({ state: 'LINKED' })
+    await expect(
+      withTenantIsolationBypass(() => evaluateRoutineStopRules(db, routine, receivedAt)),
+    ).resolves.toBe('TARGET_REPLIED')
+    await expect(
+      withTenantIsolationBypass(() =>
+        evaluateRoutineStopRules(
+          db,
+          {
+            ...routine,
+            createdAt: receivedAt,
+          },
+          receivedAt,
+        ),
+      ),
+    ).resolves.toBeNull()
+    await expect(
+      withTenantIsolationBypass(() =>
+        evaluateRoutineStopRules(
+          db,
+          {
+            ...routine,
+            tenantId: b.tenantId,
+            venueId: b.venueId,
+            stopRules: { subject: { kind: 'SUPPORT_REQUEST', id: b.requestId } },
+          },
+          receivedAt,
+        ),
+      ),
+    ).resolves.toBeNull()
+  })
 
   it('links an exact In-Reply-To match, moves the request to review and never creates a message', async () => {
     const first = email({
