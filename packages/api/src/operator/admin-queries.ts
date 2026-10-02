@@ -126,9 +126,61 @@ async function resolveNames(database: OperatorDatabase, targets: readonly Target
   return { tenantNames, venueNames }
 }
 
-type ProposalRow = NonNullable<
-  Awaited<ReturnType<OperatorDatabase['operatorProposal']['findUnique']>>
->
+/**
+ * Explicit column lists for the review reads. These pages must keep rendering while a newer
+ * migration (lease, fence, attempt, preview digest, policy revision) has not reached a given
+ * database, so they never select columns they do not display. A bare findUnique/findMany selects
+ * every modelled column and fails the whole read with a missing-column error otherwise.
+ */
+export const OPERATOR_PROPOSAL_REVIEW_SELECT = {
+  id: true,
+  clientId: true,
+  kind: true,
+  tool: true,
+  args: true,
+  argsHash: true,
+  status: true,
+  planId: true,
+  planStepIndex: true,
+  revertOfId: true,
+  targetTenantId: true,
+  targetVenueId: true,
+  beforeSnapshot: true,
+  afterSnapshot: true,
+  failureCode: true,
+  expiresAt: true,
+  createdAt: true,
+} as const
+
+export const OPERATOR_PLAN_REVIEW_SELECT = {
+  id: true,
+  clientId: true,
+  title: true,
+  status: true,
+  argsHash: true,
+  createdAt: true,
+  expiresAt: true,
+} as const
+
+type ProposalRow = {
+  id: string
+  clientId: string
+  kind: string
+  tool: string
+  args: unknown
+  argsHash: string
+  status: string
+  planId: string | null
+  planStepIndex: number | null
+  revertOfId: string | null
+  targetTenantId: string | null
+  targetVenueId: string | null
+  beforeSnapshot: unknown
+  afterSnapshot: unknown
+  failureCode: string | null
+  expiresAt: Date
+  createdAt: Date
+}
 
 async function buildSteps(
   rows: readonly ProposalRow[],
@@ -137,7 +189,10 @@ async function buildSteps(
 ): Promise<OperatorReviewStep[]> {
   const revertIds = rows.flatMap((row) => (row.revertOfId ? [row.revertOfId] : []))
   const originals = revertIds.length
-    ? await database.operatorProposal.findMany({ where: { id: { in: revertIds } } })
+    ? await database.operatorProposal.findMany({
+        where: { id: { in: revertIds } },
+        select: OPERATOR_PROPOSAL_REVIEW_SELECT,
+      })
     : []
   const originalById = new Map(originals.map((row) => [row.id, row]))
   const { tenantNames, venueNames } = await resolveNames(
@@ -205,11 +260,15 @@ export async function loadOperatorReview(
   database: OperatorDatabase = db,
   kinds: OperatorKindRegistry = createOperatorRegistry().kinds,
 ): Promise<OperatorReviewItem | null> {
-  const plan = await database.operatorPlan.findUnique({ where: { id } })
+  const plan = await database.operatorPlan.findUnique({
+    where: { id },
+    select: OPERATOR_PLAN_REVIEW_SELECT,
+  })
   if (plan) {
     const rows = await database.operatorProposal.findMany({
       where: { planId: plan.id },
       orderBy: { planStepIndex: 'asc' },
+      select: OPERATOR_PROPOSAL_REVIEW_SELECT,
     })
     const names = await clientNames(database, [plan.clientId])
     return {
@@ -224,7 +283,10 @@ export async function loadOperatorReview(
       steps: await buildSteps(rows, kinds, database),
     }
   }
-  const row = await database.operatorProposal.findUnique({ where: { id } })
+  const row = await database.operatorProposal.findUnique({
+    where: { id },
+    select: OPERATOR_PROPOSAL_REVIEW_SELECT,
+  })
   if (!row || row.planId !== null) return null
   const steps = await buildSteps([row], kinds, database)
   const names = await clientNames(database, [row.clientId])
