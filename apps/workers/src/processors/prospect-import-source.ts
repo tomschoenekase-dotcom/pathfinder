@@ -46,6 +46,14 @@ const FIELD_KEYS = new Set([
   'sourceUrls',
   'notes',
   'territory',
+  'gmailMessageId',
+  'gmailThreadId',
+  'gmailDraftId',
+  'mailboxAddress',
+  'claimedSentAt',
+  'claimedDeliveryState',
+  'claimedDraftState',
+  'claimedRelationshipState',
 ])
 
 function inputJson(value: unknown): object | unknown[] {

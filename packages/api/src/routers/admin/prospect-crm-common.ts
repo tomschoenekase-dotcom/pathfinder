@@ -77,5 +77,13 @@ export const normalizedProspectImportRow = z
     sourceUrls: z.array(z.string().max(2000)).max(20).optional(),
     notes: z.string().max(100_000).optional(),
     territory: z.string().max(200).optional(),
+    gmailMessageId: z.string().max(191).optional(),
+    gmailThreadId: z.string().max(191).optional(),
+    gmailDraftId: z.string().max(191).optional(),
+    mailboxAddress: z.string().email().max(320).optional(),
+    claimedSentAt: z.string().max(100).optional(),
+    claimedDeliveryState: z.enum(['UNKNOWN', 'SENT', 'DELIVERED', 'BOUNCED']).optional(),
+    claimedDraftState: z.enum(['UNKNOWN', 'DRAFT', 'REVIEWED', 'QUEUED', 'SENT']).optional(),
+    claimedRelationshipState: z.string().max(200).optional(),
   })
   .strict()

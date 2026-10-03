@@ -127,6 +127,38 @@ function duplicateMatches(value: unknown) {
   return matches
 }
 
+const IMPORT_MAIL_KEYS = [
+  'gmailMessageId',
+  'gmailThreadId',
+  'gmailDraftId',
+  'mailboxAddress',
+  'claimedSentAt',
+  'claimedDeliveryState',
+  'claimedDraftState',
+  'claimedRelationshipState',
+] as const
+
+export function importedMailReferences(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const fields = value as Record<string, unknown>
+  if (!IMPORT_MAIL_KEYS.some((key) => typeof fields[key] === 'string' && fields[key] !== '')) {
+    return null
+  }
+  const read = (key: (typeof IMPORT_MAIL_KEYS)[number], max: number) =>
+    typeof fields[key] === 'string' ? cut(fields[key], max) : null
+  return {
+    verification: 'UNVERIFIED_IMPORT' as const,
+    gmailMessageId: read('gmailMessageId', 191),
+    gmailThreadId: read('gmailThreadId', 191),
+    gmailDraftId: read('gmailDraftId', 191),
+    mailboxAddress: read('mailboxAddress', 320),
+    claimedSentAt: read('claimedSentAt', 100),
+    claimedDeliveryState: read('claimedDeliveryState', 40),
+    claimedDraftState: read('claimedDraftState', 40),
+    claimedRelationshipState: read('claimedRelationshipState', 100),
+  }
+}
+
 const getImport: OperatorReadTool = {
   name: 'crm.get_import',
   capability: 'crm:read',
@@ -178,6 +210,7 @@ const getImport: OperatorReadTool = {
           sheetName: true,
           originalRowNumber: true,
           rowFingerprint: true,
+          normalizedValues: true,
           status: true,
           decision: true,
           warnings: true,
@@ -189,7 +222,6 @@ const getImport: OperatorReadTool = {
           importedContactId: true,
           processedAt: true,
           sourceValues: true,
-          normalizedValues: true,
           sourceEvidence: { select: { capturedValue: true }, take: 1 },
         },
       }),
@@ -275,6 +307,7 @@ const getImport: OperatorReadTool = {
           sheetName: cut(entry.sheetName, 300),
           originalRowNumber: entry.originalRowNumber,
           rowFingerprint: entry.rowFingerprint,
+          importedReferences: importedMailReferences(entry.normalizedValues),
           status: entry.status,
           decision: entry.decision,
           warnings: stringList(entry.warnings, 20),

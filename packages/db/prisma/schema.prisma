@@ -8209,6 +8209,7 @@ model CorrespondenceProviderAccount {
   threadMappings        ProspectEmailThreadProvider[]
   messages              ProspectEmailMessage[]
   events                ProspectEmailEvent[]
+  providerDrafts        ProspectOutreachDraft[]            @relation("ProspectOutreachProviderDraft")
   sendItems             ProspectSendItem[]
   outboxOperations      ProspectSendOutbox[]
   inboundReceipts       ProspectEmailWebhookReceipt[]
@@ -8943,36 +8944,41 @@ model ProspectCampaignMember {
 
 /// Versioned draft. Approval freezes the content hash and recipient snapshot.
 model ProspectOutreachDraft {
-  id                String                   @id @default(cuid())
-  campaignId        String                   @map("campaign_id")
-  memberId          String                   @map("member_id")
-  organizationId    String                   @map("organization_id")
-  venueId           String?                  @map("venue_id")
-  contactId         String?                  @map("contact_id")
-  version           Int                      @default(1)
-  status            ProspectDraftStatus      @default(NEEDS_REVIEW)
-  toEmail           String                   @map("to_email") @db.VarChar(320)
-  subject           String                   @db.VarChar(998)
-  textBody          String                   @map("text_body")
-  htmlBody          String?                  @map("html_body")
-  contentHash       String                   @map("content_hash") @db.Char(64)
-  groundingSnapshot Json                     @map("grounding_snapshot")
-  escalationFlags   String[]                 @default([]) @map("escalation_flags")
-  generatedByType   ActorType                @map("generated_by_type")
-  generatedById     String                   @map("generated_by_id") @db.VarChar(191)
-  approvedBy        String?                  @map("approved_by") @db.VarChar(191)
-  approvedAt        DateTime?                @map("approved_at")
-  rejectedReason    String?                  @map("rejected_reason") @db.VarChar(2000)
-  createdAt         DateTime                 @default(now()) @map("created_at")
-  campaign          ProspectOutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  member            ProspectCampaignMember   @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  organization      ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue             ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  contact           ProspectContact?         @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  sendItems         ProspectSendItem[]
-  followupSchedules ProspectFollowup[]       @relation("ProspectFollowupDraft")
+  id                     String                         @id @default(cuid())
+  campaignId             String                         @map("campaign_id")
+  memberId               String                         @map("member_id")
+  organizationId         String                         @map("organization_id")
+  venueId                String?                        @map("venue_id")
+  contactId              String?                        @map("contact_id")
+  /// Set only from an actual provider draft resource; a local draft has both fields null.
+  providerDraftAccountId String?                        @map("provider_draft_account_id")
+  providerDraftId        String?                        @map("provider_draft_id") @db.VarChar(191)
+  version                Int                            @default(1)
+  status                 ProspectDraftStatus            @default(NEEDS_REVIEW)
+  toEmail                String                         @map("to_email") @db.VarChar(320)
+  subject                String                         @db.VarChar(998)
+  textBody               String                         @map("text_body")
+  htmlBody               String?                        @map("html_body")
+  contentHash            String                         @map("content_hash") @db.Char(64)
+  groundingSnapshot      Json                           @map("grounding_snapshot")
+  escalationFlags        String[]                       @default([]) @map("escalation_flags")
+  generatedByType        ActorType                      @map("generated_by_type")
+  generatedById          String                         @map("generated_by_id") @db.VarChar(191)
+  approvedBy             String?                        @map("approved_by") @db.VarChar(191)
+  approvedAt             DateTime?                      @map("approved_at")
+  rejectedReason         String?                        @map("rejected_reason") @db.VarChar(2000)
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  campaign               ProspectOutreachCampaign       @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  member                 ProspectCampaignMember         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  organization           ProspectOrganization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue                  ProspectVenue?                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact                ProspectContact?               @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  providerDraftAccount   CorrespondenceProviderAccount? @relation("ProspectOutreachProviderDraft", fields: [providerDraftAccountId], references: [id], onDelete: Restrict)
+  sendItems              ProspectSendItem[]
+  followupSchedules      ProspectFollowup[]             @relation("ProspectFollowupDraft")
 
   @@unique([memberId, version])
+  @@unique([providerDraftAccountId, providerDraftId], map: "prospect_outreach_drafts_provider_draft_key")
   @@index([campaignId, status, createdAt])
   @@map("prospect_outreach_drafts")
 }

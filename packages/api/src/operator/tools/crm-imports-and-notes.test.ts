@@ -143,6 +143,35 @@ describe('crm.get_import', () => {
     expect(out.dispositions.reconciled).toBe(false)
   })
 
+  it('returns source mail IDs and claimed states only as unverified import references', async () => {
+    const source = row(1, 'IMPORTED', {
+      normalizedValues: {
+        gmailMessageId: 'gmail-message-example',
+        gmailThreadId: 'gmail-thread-example',
+        gmailDraftId: 'gmail-draft-example',
+        claimedDeliveryState: 'DELIVERED',
+        claimedDraftState: 'DRAFT',
+        claimedRelationshipState: 'NOT_INTERESTED',
+      },
+    })
+    const out = await run(getImport, { importId: 'import-1' }, importFake([source]))
+    expect(OPERATOR_MCP_OUTPUTS['crm.get_import'].safeParse(out).success).toBe(true)
+    expect(out.rows.items[0].importedReferences).toMatchObject({
+      verification: 'UNVERIFIED_IMPORT',
+      gmailMessageId: 'gmail-message-example',
+      gmailThreadId: 'gmail-thread-example',
+      gmailDraftId: 'gmail-draft-example',
+      claimedDeliveryState: 'DELIVERED',
+      claimedDraftState: 'DRAFT',
+      claimedRelationshipState: 'NOT_INTERESTED',
+    })
+    expect(out.rows.items[0].receipt).toEqual({
+      organizationId: null,
+      venueId: null,
+      contactId: null,
+    })
+  })
+
   it('returns per-row receipts with the canonical ids and the reason a row did not import', async () => {
     const out = await run(getImport, { importId: 'import-1', limit: 25 }, importFake(rows))
     const imported = out.rows.items.find((entry: any) => entry.status === 'IMPORTED')
