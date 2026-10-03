@@ -10,7 +10,7 @@ const kind = {
     title: 'Commit the reviewed import',
     lines: ['13 rows; 7 skipped', 'File and mapping hashes are bound'],
   }),
-} as AnyOperatorProposalKind
+} as unknown as AnyOperatorProposalKind
 const context = {
   config: { issuer: 'https://operator.example' },
   now: new Date(),
