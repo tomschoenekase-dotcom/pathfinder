@@ -579,6 +579,13 @@ export const crmImportCommitKind: OperatorProposalKind<ImportCommitArgs> = {
     ) {
       throw refusal('IMPORT_NOT_READY', 'CSV staging has not finished.', current)
     }
+    if (csvManifest?.mcpCsv && plan.counts.FAILED > 0) {
+      throw refusal(
+        'IMPORT_NOT_READY',
+        `${plan.counts.FAILED} CSV rows failed validation; correct and restage the source file before committing.`,
+        current,
+      )
+    }
     if (plan.counts.DUPLICATE_REVIEW > 0) {
       throw refusal(
         'IMPORT_NOT_READY',

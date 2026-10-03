@@ -557,6 +557,69 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
     })
   })
 
+  it('refuses canonical approval of a complete native CSV with one valid and one failed row', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const started = await beginProspectImportAction({
+        fileName: 'example-mixed.csv',
+        fileType: 'csv',
+        fileSize: 1024,
+        fileHash: hash(`mixed-file-${suffix}`),
+        mappingHash: hash(`mixed-mapping-${suffix}`),
+        mapping: { venueName: 'name' },
+        sheets: [{ sheetName: 'Locations', sheetIndex: 0, detectedRows: 2, columns: ['name'] }],
+        actor,
+      })
+      const importId = started.prospectImport.id
+      await stageProspectImportRowsAction({
+        importId,
+        rows: [
+          {
+            sheetName: 'Locations',
+            originalRowNumber: 2,
+            sourceValues: { name: `Example Valid ${suffix}` },
+            normalizedValues: { venueName: `Example Valid ${suffix}` },
+          },
+          {
+            sheetName: 'Locations',
+            originalRowNumber: 3,
+            sourceValues: { name: '' },
+            normalizedValues: { venueName: '', organizationName: `Example Invalid ${suffix}` },
+          },
+        ],
+        actor,
+      })
+      await db.prospectImport.update({
+        where: { id: importId },
+        data: { packageManifest: { mcpCsv: true, sourceRows: 2, stagingComplete: true } },
+      })
+      expect(
+        await db.prospectImportRow.groupBy({
+          by: ['status'],
+          where: { importId },
+          _count: { _all: true },
+        }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: 'WARNING', _count: { _all: 1 } }),
+          expect.objectContaining({ status: 'FAILED', _count: { _all: 1 } }),
+        ]),
+      )
+      await expect(approveProspectImportAction({ importId, actor })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      })
+      expect(await db.prospectImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+        status: 'DRY_RUN_READY',
+        approvedAt: null,
+      })
+    })
+  })
+
   it('proves review-gated import, partial failure, idempotency, provenance, and unique conversion', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)

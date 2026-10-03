@@ -685,6 +685,19 @@ describe('crm.import-commit kind', () => {
     })
   })
 
+  it('refuses a native CSV with one valid and one failed row despite exact plan hash and expected count', async () => {
+    const { database } = importDatabase([fakeRow(1, 'VALID'), fakeRow(2, 'FAILED')], {
+      packageManifest: { mcpCsv: true, sourceRows: 2, stagingComplete: true },
+    })
+    const args = await boundArgs(database)
+    expect(args.expectedRows).toBe(1)
+    expect(args.planHash).toBe((await computeImportPlan(database, identity)).planHash)
+    await expect(crmImportCommitKind.authorize!(args, ctx(database))).rejects.toMatchObject({
+      code: 'IMPORT_NOT_READY',
+      details: { counts: { FAILED: 1, VALID: 1 } },
+    })
+  })
+
   it('refuses an import that is not staged or already finished', async () => {
     for (const status of ['DRAFT', 'COMPLETE', 'CANCELLED', 'PROCESSING']) {
       const { database } = importDatabase(rows, { status })
