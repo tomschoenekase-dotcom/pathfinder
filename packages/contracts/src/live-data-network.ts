@@ -83,6 +83,7 @@ export function isPublicIpAddress(address: string): boolean {
     const first = groups[0]!
     if ((first & 0xe000) !== 0x2000) return false // outside 2000::/3
     if (first === 0x2001 && groups[1]! === 0x0db8) return false // documentation
+    if (first === 0x3fff && groups[1]! < 0x1000) return false // documentation 3fff::/20 (RFC 9637)
     if (first === 0x2001 && groups[1]! < 0x0200) return false // Teredo and IETF protocol space
     if (first === 0x2002) return false // 6to4 can embed private IPv4
     return true
