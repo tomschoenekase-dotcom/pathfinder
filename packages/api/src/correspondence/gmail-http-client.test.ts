@@ -358,6 +358,41 @@ describe('createGmailApiClient', () => {
     )
   })
 
+  it('captures the full-scan history baseline before listing messages', async () => {
+    const requests: string[] = []
+    let newMessageArrived = false
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.endsWith('/profile')) {
+        return json({ historyId: newMessageArrived ? '101' : '100' })
+      }
+      if (url.includes('/messages?')) {
+        // A new message after listing begins may be absent from this page. Its history
+        // event must remain newer than the cursor committed by the full scan.
+        newMessageArrived = true
+        return json({ messages: [{ id: 'older-message' }] })
+      }
+      if (url.endsWith('/messages/older-message?format=full')) {
+        return json(message('older-message'))
+      }
+      throw new Error(`unexpected Gmail request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+
+    const page = await client.listMessages({
+      accessToken: 'token',
+      mailboxAddress: 'outreach@torchiko.com',
+      after: new Date(0),
+      pageSize: 100,
+    })
+
+    expect(page.historyId).toBe('100')
+    expect(page.messages.map((entry) => entry.id)).toEqual(['older-message'])
+    expect(requests[0]).toContain('/profile')
+    expect(requests[1]).toContain('/messages?')
+  })
+
   it('classifies a missing history cursor separately from a missing message', async () => {
     let canceled = false
     const body = new ReadableStream({

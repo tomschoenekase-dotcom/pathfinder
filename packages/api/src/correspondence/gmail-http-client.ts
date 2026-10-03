@@ -323,6 +323,9 @@ export function createGmailApiClient(
       }
     },
     async listMessages(args) {
+      // Capture the history baseline before listing. Mail arriving during this page (or a
+      // later page) must be replayable after the full scan, even if pagination omits it.
+      const profile = await call({ ...args, path: 'profile' })
       const query = new URLSearchParams({
         maxResults: String(Math.min(args.pageSize, 100)),
         q: `after:${Math.floor(args.after.getTime() / 1_000)}`,
@@ -333,7 +336,6 @@ export function createGmailApiClient(
         const message = object(item)
         return typeof message.id === 'string' ? [message.id] : []
       })
-      const profile = await call({ ...args, path: 'profile' })
       return {
         messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
         historyId: required(profile.historyId, 'history ID'),
