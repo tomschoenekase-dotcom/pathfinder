@@ -256,7 +256,10 @@ const approvedCallCounts = new Map([
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 4],
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 2],
+  // Existing platform-admin thread/message reads, extracted unchanged from CRM core.
+  // Exact organization/thread predicates and bounded cursors retain their original scope.
+  ['packages/api/src/routers/admin/prospect-crm-threads.ts', 2],
   // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
   ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],

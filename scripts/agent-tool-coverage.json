@@ -2,13 +2,13 @@
   "schemaVersion": 2,
   "operationInventory": {
     "count": 585,
-    "sha256": "1fe3477c37f8b7108a93fd94826d15866be84e5e512be44c9ec69f5a24300259",
-    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release. The October 2 review adds admin.operatorJobGrants and admin.operatorDecisionRequest as authenticated dashboard reads; both remain unbound to agent tools. The current-mail review adds admin.getGmailReconciliation and admin.requestGmailReconciliation in the scoped mailbox router; platform-admin and CRM entitlement checks remain required, and both routes remain explicitly unbound to agent-operation tools. Separate operator MCP controls do not imply a direct binding here.",
+    "sha256": "7fa5b1de0e6d21c43b14c73ad6481aca130624fa0d7e54f381631a3093f76ac3",
+    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release. The October 2 review adds admin.operatorJobGrants and admin.operatorDecisionRequest as authenticated dashboard reads; both remain unbound to agent tools. The current-mail review adds admin.getGmailReconciliation and admin.requestGmailReconciliation in the scoped mailbox router; platform-admin and CRM entitlement checks remain required, and both routes remain explicitly unbound to agent-operation tools. Separate operator MCP controls do not imply a direct binding here. Thread and message reads were subsequently extracted unchanged into adminProspectCrmThreadsRouter; their guards, input predicates and operation bindings remain unchanged.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "1fe3477c37f8b7108a93fd94826d15866be84e5e512be44c9ec69f5a24300259",
+      "operationInventorySha256": "7fa5b1de0e6d21c43b14c73ad6481aca130624fa0d7e54f381631a3093f76ac3",
       "sha256": "46683c997968da3adee445b4cba8eeab0327bba396b3c7ce9dc77a2ffe506453"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
