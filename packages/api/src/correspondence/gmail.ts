@@ -227,6 +227,15 @@ function normalize(
   }
 }
 
+/** Gmail drafts are separate resources. A From header alone is not delivery evidence. */
+function isRecordedCorrespondence(mailbox: ProviderMailboxRef, message: GmailApiMessage): boolean {
+  if (message.labelIds.includes('DRAFT')) return false
+  const fromMailbox = parseAddress(message.headers.from).some(
+    (address) => address.email.toLowerCase() === mailbox.mailboxAddress.toLowerCase(),
+  )
+  return !fromMailbox || message.labelIds.includes('SENT')
+}
+
 function formatAddress(address: CorrespondenceAddress) {
   const email = assertSafeHeader(address.email, 'Email address', 320)
   return address.displayName
@@ -443,7 +452,9 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        messages: page.messages
+          .filter((message) => isRecordedCorrespondence(input.mailbox, message))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),
@@ -461,7 +472,9 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        messages: page.messages
+          .filter((message) => isRecordedCorrespondence(input.mailbox, message))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),
