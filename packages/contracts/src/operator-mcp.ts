@@ -1770,6 +1770,9 @@ const OperatorBlockingQuestionDetail = OperatorBlockingQuestionBase.extend({
 const OperatorDraftView = z
   .object({
     draftId: Identifier,
+    /** Actual Gmail draft resource, if one was explicitly linked; local drafts have nulls. */
+    gmailDraftId: z.string().max(191).nullable(),
+    gmailDraftMailboxId: Identifier.nullable(),
     memberId: Identifier,
     campaignId: Identifier,
     organizationId: Identifier,
@@ -2088,6 +2091,21 @@ const OperatorImportRow = z
     sheetName: z.string().max(300),
     originalRowNumber: z.number().int().nonnegative(),
     rowFingerprint: Sha256Hex,
+    /** Claimed identifiers and states from source data; never verified provider correspondence. */
+    importedReferences: z
+      .object({
+        verification: z.literal('UNVERIFIED_IMPORT'),
+        gmailMessageId: z.string().max(191).nullable(),
+        gmailThreadId: z.string().max(191).nullable(),
+        gmailDraftId: z.string().max(191).nullable(),
+        mailboxAddress: z.string().max(320).nullable(),
+        claimedSentAt: z.string().max(100).nullable(),
+        claimedDeliveryState: z.string().max(40).nullable(),
+        claimedDraftState: z.string().max(40).nullable(),
+        claimedRelationshipState: z.string().max(100).nullable(),
+      })
+      .strict()
+      .nullable(),
     status: ProspectImportRowStatusValue,
     /** The reviewer's decision on a possible duplicate, if one was made. */
     decision: z
@@ -2600,6 +2618,25 @@ const OperatorOutreachContext = z
       .strict(),
     correspondence: z
       .object({
+        /** Bounded source claims, separate from verified messages and delivery state. */
+        importedReferences: z
+          .object({
+            items: z
+              .array(
+                z
+                  .object({
+                    evidenceId: Identifier,
+                    importRowId: Identifier,
+                    references: OperatorImportRow.shape.importedReferences.unwrap(),
+                  })
+                  .strict(),
+              )
+              .max(20),
+            recordsScanned: z.number().int().nonnegative(),
+            moreRecordsUnscanned: z.boolean(),
+          })
+          .strict()
+          .optional(),
         /** True when drafting is not allowed: counts stay, previews are withheld. */
         previewsWithheld: z.boolean(),
         inboundMessages: z.number().int().nonnegative(),
@@ -3166,6 +3203,12 @@ export const OPERATOR_MCP_OUTPUTS = {
     z
       .object({
         threadId: Identifier,
+        gmailThreads: z
+          .array(
+            z.object({ gmailMailboxId: Identifier, gmailThreadId: z.string().max(191) }).strict(),
+          )
+          .max(20),
+        gmailThreadsTruncated: z.boolean(),
         organizationId: Identifier,
         venueId: Identifier.nullable(),
         contactId: Identifier.nullable(),
@@ -3180,6 +3223,11 @@ export const OPERATOR_MCP_OUTPUTS = {
     z
       .object({
         messageId: Identifier,
+        gmailMailboxId: Identifier.nullable(),
+        gmailMessageId: z.string().max(191).nullable(),
+        gmailThreadId: z.string().max(191).nullable(),
+        /** A send acceptance is not delivery; only a verified provider event supplies this. */
+        verifiedDeliveredAt: IsoDateTime.nullable(),
         direction: z.enum(['INBOUND', 'OUTBOUND']),
         status: z.string().max(40),
         participantCount: z.number().int().nonnegative(),

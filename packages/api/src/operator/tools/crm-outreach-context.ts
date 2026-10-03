@@ -12,6 +12,7 @@ import {
 import type { OperatorReadTool } from '../registry'
 import { eligibilityForContacts } from './crm-eligibility'
 import { loadOutreach } from './crm-data'
+import { importedMailReferences } from './crm-imports'
 
 /** The summary the note actions write. Other NOTE_ADDED rows record field updates, not notes. */
 const NOTE_SUMMARY = 'Operator note added'
@@ -341,7 +342,30 @@ export async function loadOutreachContext(
     evidenceTotal,
     evidence,
   }
-  return buildOutreachContext(input)
+  const context = buildOutreachContext(input)
+  // Import evidence is a source claim, never a verified Gmail message or delivery receipt.
+  const importedEvidence = await database.prospectSourceEvidence.findMany({
+    where: { organizationId, importRowId: { not: null } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: 21,
+    select: { id: true, importRowId: true, importRow: { select: { normalizedValues: true } } },
+  })
+  return {
+    ...context,
+    correspondence: {
+      ...context.correspondence,
+      importedReferences: {
+        items: importedEvidence.slice(0, 20).flatMap((row) => {
+          const references = importedMailReferences(row.importRow?.normalizedValues)
+          return row.importRowId && references
+            ? [{ evidenceId: row.id, importRowId: row.importRowId, references }]
+            : []
+        }),
+        recordsScanned: Math.min(importedEvidence.length, 20),
+        moreRecordsUnscanned: importedEvidence.length > 20,
+      },
+    },
+  }
 }
 
 const getOutreachContext: OperatorReadTool = {

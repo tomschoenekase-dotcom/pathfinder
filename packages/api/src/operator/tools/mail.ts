@@ -104,12 +104,23 @@ const mailThreads: OperatorReadTool = {
         lastMessageAt: true,
         updatedAt: true,
         _count: { select: { messages: true } },
+        providerMappings: {
+          where: { providerAccount: { provider: 'GMAIL' } },
+          take: 21,
+          orderBy: { id: 'asc' },
+          select: { providerAccountId: true, providerThreadId: true },
+        },
       },
     })
     const page = rows.slice(0, input.limit)
     return pageResult(
       page.map((row) => ({
         threadId: row.id,
+        gmailThreads: row.providerMappings.slice(0, 20).map((mapping) => ({
+          gmailMailboxId: mapping.providerAccountId,
+          gmailThreadId: mapping.providerThreadId,
+        })),
+        gmailThreadsTruncated: row.providerMappings.length > 20,
         organizationId: row.organizationId,
         venueId: row.venueId,
         contactId: row.contactId,
@@ -168,6 +179,23 @@ const mailMessages: OperatorReadTool = {
         bodyPreview: true,
         bodyRetentionState: true,
         occurredAt: true,
+        providerAccountId: true,
+        providerMessageId: true,
+        providerAccount: { select: { provider: true } },
+        thread: {
+          select: {
+            providerMappings: {
+              where: { providerAccount: { provider: 'GMAIL' } },
+              select: { providerAccountId: true, providerThreadId: true },
+            },
+          },
+        },
+        events: {
+          where: { eventType: 'DELIVERED' },
+          orderBy: { occurredAt: 'desc' },
+          take: 1,
+          select: { occurredAt: true },
+        },
       },
     })
     const page = rows.slice(0, input.limit)
@@ -176,6 +204,15 @@ const mailMessages: OperatorReadTool = {
         const body = row.textBody ?? row.bodyPreview
         return {
           messageId: row.id,
+          gmailMailboxId: row.providerAccount?.provider === 'GMAIL' ? row.providerAccountId : null,
+          gmailMessageId: row.providerAccount?.provider === 'GMAIL' ? row.providerMessageId : null,
+          gmailThreadId:
+            row.providerAccount?.provider === 'GMAIL'
+              ? (row.thread.providerMappings.find(
+                  (mapping) => mapping.providerAccountId === row.providerAccountId,
+                )?.providerThreadId ?? null)
+              : null,
+          verifiedDeliveredAt: row.events[0]?.occurredAt.toISOString() ?? null,
           direction: row.direction,
           status: row.status,
           participantCount: row.toAddresses.length + 1,

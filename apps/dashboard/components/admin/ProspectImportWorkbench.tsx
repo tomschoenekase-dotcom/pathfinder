@@ -41,6 +41,19 @@ const FIELD_DEFINITIONS = [
   ['sourceUrls', 'Source URLs', false, 'source_urls'],
   ['notes', 'Notes', false, 'notes'],
   ['territory', 'Territory', false, 'territory'],
+  ['gmailMessageId', 'Gmail message ID (unverified import claim)', false, 'gmail_message_id'],
+  ['gmailThreadId', 'Gmail thread ID (unverified import claim)', false, 'gmail_thread_id'],
+  ['gmailDraftId', 'Gmail draft ID (unverified import claim)', false, 'gmail_draft_id'],
+  ['mailboxAddress', 'Mailbox address (unverified import claim)', false, 'mailbox_address'],
+  ['claimedSentAt', 'Claimed sent time (unverified)', false, 'claimed_sent_at'],
+  ['claimedDeliveryState', 'Claimed delivery state (unverified)', false, 'claimed_delivery_state'],
+  ['claimedDraftState', 'Claimed draft state (unverified)', false, 'claimed_draft_state'],
+  [
+    'claimedRelationshipState',
+    'Claimed relationship state (unverified)',
+    false,
+    'claimed_relationship_state',
+  ],
 ] as const
 
 type FieldKey = (typeof FIELD_DEFINITIONS)[number][0]
@@ -73,6 +86,14 @@ type NormalizedRow = {
   sourceUrls?: string[] | undefined
   notes?: string | undefined
   territory?: string | undefined
+  gmailMessageId?: string | undefined
+  gmailThreadId?: string | undefined
+  gmailDraftId?: string | undefined
+  mailboxAddress?: string | undefined
+  claimedSentAt?: string | undefined
+  claimedDeliveryState?: 'UNKNOWN' | 'SENT' | 'DELIVERED' | 'BOUNCED' | undefined
+  claimedDraftState?: 'UNKNOWN' | 'DRAFT' | 'REVIEWED' | 'QUEUED' | 'SENT' | undefined
+  claimedRelationshipState?: string | undefined
 }
 type ImportDetail = {
   prospectImport: {
@@ -151,6 +172,28 @@ function mappedRow(
     ...(sourceUrls?.length ? { sourceUrls } : {}),
     ...(get('notes') ? { notes: get('notes') } : {}),
     territory: get('territory') ?? sheetName,
+    ...(get('gmailMessageId') ? { gmailMessageId: get('gmailMessageId') } : {}),
+    ...(get('gmailThreadId') ? { gmailThreadId: get('gmailThreadId') } : {}),
+    ...(get('gmailDraftId') ? { gmailDraftId: get('gmailDraftId') } : {}),
+    ...(get('mailboxAddress') ? { mailboxAddress: get('mailboxAddress') } : {}),
+    ...(get('claimedSentAt') ? { claimedSentAt: get('claimedSentAt') } : {}),
+    ...(get('claimedDeliveryState')
+      ? {
+          claimedDeliveryState: get('claimedDeliveryState') as NonNullable<
+            NormalizedRow['claimedDeliveryState']
+          >,
+        }
+      : {}),
+    ...(get('claimedDraftState')
+      ? {
+          claimedDraftState: get('claimedDraftState') as NonNullable<
+            NormalizedRow['claimedDraftState']
+          >,
+        }
+      : {}),
+    ...(get('claimedRelationshipState')
+      ? { claimedRelationshipState: get('claimedRelationshipState') }
+      : {}),
   }
 }
 
