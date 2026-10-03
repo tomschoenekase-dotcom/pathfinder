@@ -285,6 +285,16 @@ async function inventory(
   ])
   counts.prospectOpportunity = sourceOpportunity ? 1 : 0
   hash.update(JSON.stringify(['opportunities', sourceOpportunity, targetOpportunity]))
+  if (
+    sourceOpportunity &&
+    targetOpportunity &&
+    ['DO_NOT_CONTACT', 'LOST', 'PARKED'].includes(sourceOpportunity.stage) &&
+    targetOpportunity.stage !== sourceOpportunity.stage
+  ) {
+    blockers.push(
+      `source-stop-stage-would-be-weakened:${sourceOpportunity.stage}:${targetOpportunity.stage}`,
+    )
+  }
   if (sourceOpportunity && targetOpportunity) {
     const [history, followups] = await Promise.all([
       tx.prospectStageHistory.findMany({

@@ -1529,14 +1529,20 @@ export async function stageProspectImportRowsAction(
                 organizationId: explicitOrganization.id,
                 archivedAt: null,
                 normalizedName: checked.normalized.normalizedVenueName,
-                ...(checked.normalized.city ? { city: checked.normalized.city } : {}),
-                ...(checked.normalized.region ? { region: checked.normalized.region } : {}),
-                ...(checked.normalized.country ? { country: checked.normalized.country } : {}),
+                ...(checked.normalized.city
+                  ? { city: { equals: checked.normalized.city, mode: 'insensitive' as const } }
+                  : {}),
+                ...(checked.normalized.region
+                  ? { region: { equals: checked.normalized.region, mode: 'insensitive' as const } }
+                  : {}),
+                ...(checked.normalized.country
+                  ? { country: { equals: checked.normalized.country, mode: 'insensitive' as const } }
+                  : {}),
                 ...(checked.normalized.addressLine1
-                  ? { addressLine1: checked.normalized.addressLine1 }
+                  ? { addressLine1: { equals: checked.normalized.addressLine1, mode: 'insensitive' as const } }
                   : {}),
                 ...(checked.normalized.postalCode
-                  ? { postalCode: checked.normalized.postalCode }
+                  ? { postalCode: { equals: checked.normalized.postalCode, mode: 'insensitive' as const } }
                   : {}),
               },
               select: { id: true },
@@ -2312,11 +2318,13 @@ async function importOneProspectRow(
           where: {
             organizationId: organization.id,
             normalizedName: value.normalizedVenueName,
-            city: value.city ?? null,
-            region: value.region ?? null,
-            country: value.country ?? null,
-            addressLine1: value.addressLine1 ?? null,
-            postalCode: value.postalCode ?? null,
+            city: value.city ? { equals: value.city, mode: 'insensitive' } : null,
+            region: value.region ? { equals: value.region, mode: 'insensitive' } : null,
+            country: value.country ? { equals: value.country, mode: 'insensitive' } : null,
+            addressLine1: value.addressLine1
+              ? { equals: value.addressLine1, mode: 'insensitive' }
+              : null,
+            postalCode: value.postalCode ? { equals: value.postalCode, mode: 'insensitive' } : null,
             archivedAt: null,
           },
         })
