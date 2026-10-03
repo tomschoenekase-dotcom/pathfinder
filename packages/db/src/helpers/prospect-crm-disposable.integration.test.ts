@@ -9,7 +9,9 @@ import {
   createProspectAction,
   db,
   linkProspectConversionAction,
+  mergeProspectOrganizationsAction,
   previewProspectImportRepairAction,
+  previewProspectOrganizationMergeAction,
   recordProspectInboundReplyAction,
   repairProspectImportAction,
   resolveProspectImportRowAction,
@@ -26,6 +28,371 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
 describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
+
+  it('merges two ordinary accounts after a fresh preview, retaining contact and mail history', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const source = await createProspectAction({
+        organization: { canonicalName: `Example Arts North ${suffix}` },
+        venue: { name: `Example North ${suffix}`, city: 'Chicago', region: 'IL' },
+        actor,
+      })
+      const target = await createProspectAction({
+        organization: { canonicalName: `Example Arts ${suffix}` },
+        venue: { name: `Example South ${suffix}`, city: 'Evanston', region: 'IL' },
+        actor,
+      })
+      const contact = await db.prospectContact.create({
+        data: {
+          organizationId: source.organization.id,
+          venueId: source.venue!.id,
+          fullName: 'Casey Example',
+          email: `casey-${suffix}@example.test`,
+          normalizedEmail: `casey-${suffix}@example.test`,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      })
+      const thread = await db.prospectEmailThread.create({
+        data: {
+          organizationId: source.organization.id,
+          venueId: source.venue!.id,
+          contactId: contact.id,
+          replyTokenHash: hash(`thread-${suffix}`),
+          subject: 'Example correspondence',
+        },
+      })
+      const message = await db.prospectEmailMessage.create({
+        data: {
+          threadId: thread.id,
+          organizationId: source.organization.id,
+          venueId: source.venue!.id,
+          contactId: contact.id,
+          direction: 'OUTBOUND',
+          status: 'SENT',
+          fromAddress: 'operator@example.test',
+          toAddresses: [`casey-${suffix}@example.test`],
+          subject: 'Example correspondence',
+          occurredAt: new Date(),
+        },
+      })
+      const before = await previewProspectOrganizationMergeAction({
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+      })
+      expect(before.counts).toMatchObject({
+        prospectContact: 1,
+        prospectVenue: 1,
+        prospectEmailThread: 1,
+        prospectEmailMessage: 1,
+      })
+      expect(before.blockers).toEqual([])
+      await db.prospectActivity.create({
+        data: {
+          organizationId: source.organization.id,
+          type: 'NOTE_ADDED',
+          summary: 'A review-time note',
+          actorId: actor.id,
+        },
+      })
+      await expect(
+        mergeProspectOrganizationsAction({
+          sourceOrganizationId: source.organization.id,
+          targetOrganizationId: target.organization.id,
+          expectedPlanHash: before.planHash,
+          note: 'Same parent account, verified by a person',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const refreshed = await previewProspectOrganizationMergeAction({
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+      })
+      const applied = await mergeProspectOrganizationsAction({
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+        expectedPlanHash: refreshed.planHash,
+        note: 'Same parent account, verified by a person',
+        actor,
+      })
+      expect(applied.replayed).toBe(false)
+      expect(
+        await db.prospectOrganization.findUniqueOrThrow({ where: { id: source.organization.id } }),
+      ).toMatchObject({
+        mergedIntoOrganizationId: target.organization.id,
+        archivedAt: expect.any(Date),
+      })
+      expect(
+        await db.prospectContact.findUniqueOrThrow({ where: { id: contact.id } }),
+      ).toMatchObject({
+        organizationId: target.organization.id,
+        venueId: source.venue!.id,
+        email: contact.email,
+      })
+      expect(
+        await db.prospectEmailThread.findUniqueOrThrow({ where: { id: thread.id } }),
+      ).toMatchObject({
+        organizationId: target.organization.id,
+        contactId: contact.id,
+      })
+      expect(
+        await db.prospectEmailMessage.findUniqueOrThrow({ where: { id: message.id } }),
+      ).toMatchObject({
+        organizationId: target.organization.id,
+        threadId: thread.id,
+        status: 'SENT',
+      })
+      expect(
+        await db.prospectOpportunity.findUniqueOrThrow({
+          where: { organizationId: source.organization.id },
+        }),
+      ).toMatchObject({ organizationId: source.organization.id })
+      expect(
+        await db.prospectOrganizationMerge.findUniqueOrThrow({
+          where: { sourceOrganizationId: source.organization.id },
+        }),
+      ).toMatchObject({
+        targetOrganizationId: target.organization.id,
+        planHash: refreshed.planHash,
+      })
+      expect(
+        await mergeProspectOrganizationsAction({
+          sourceOrganizationId: source.organization.id,
+          targetOrganizationId: target.organization.id,
+          expectedPlanHash: refreshed.planHash,
+          note: 'Replay of exact reviewed merge',
+          actor,
+        }),
+      ).toMatchObject({ replayed: true, receipt: { id: applied.receipt.id } })
+    })
+  })
+
+  it('refuses a merge while a source research job still owns account work', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const source = await createProspectAction({
+        organization: { canonicalName: `Example Research North ${suffix}` },
+        actor,
+      })
+      const target = await createProspectAction({
+        organization: { canonicalName: `Example Research ${suffix}` },
+        actor,
+      })
+      await db.prospectResearchJob.create({
+        data: { organizationId: source.organization.id, queuedBy: actor.id },
+      })
+      const plan = await previewProspectOrganizationMergeAction({
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+      })
+      expect(plan.blockers).toContain('prospectResearchJob:requires-separate-reviewed-resolution')
+      await expect(
+        mergeProspectOrganizationsAction({
+          sourceOrganizationId: source.organization.id,
+          targetOrganizationId: target.organization.id,
+          expectedPlanHash: plan.planHash,
+          note: 'Should refuse while research remains attached',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'UNSAFE_MERGE' })
+      expect(
+        await db.prospectOrganization.findUniqueOrThrow({ where: { id: source.organization.id } }),
+      ).toMatchObject({ archivedAt: null, mergedIntoOrganizationId: null })
+    })
+  })
+
+  it('refuses live followups and inbound correspondence instead of reactivating or losing them', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const source = await createProspectAction({
+        organization: { canonicalName: `Example Followup North ${suffix}` },
+        actor,
+      })
+      const target = await createProspectAction({
+        organization: { canonicalName: `Example Followup ${suffix}` },
+        actor,
+      })
+      const sourceOpportunity = await db.prospectOpportunity.findUniqueOrThrow({
+        where: { organizationId: source.organization.id },
+      })
+      const followup = await db.prospectFollowup.create({
+        data: {
+          organizationId: source.organization.id,
+          opportunityId: sourceOpportunity.id,
+          dueAt: new Date(),
+          sequenceNumber: 1,
+          status: 'PENDING',
+        },
+      })
+      const thread = await db.prospectEmailThread.create({
+        data: { organizationId: source.organization.id, replyTokenHash: hash(`inbound-${suffix}`) },
+      })
+      const inbound = await db.prospectEmailMessage.create({
+        data: {
+          threadId: thread.id,
+          organizationId: source.organization.id,
+          direction: 'INBOUND',
+          status: 'RECEIVED',
+          fromAddress: 'example@example.test',
+          toAddresses: ['operator@example.test'],
+          subject: 'Example reply',
+          occurredAt: new Date(),
+        },
+      })
+      const plan = await previewProspectOrganizationMergeAction({
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+      })
+      expect(plan.blockers).toContain('active-followups:1')
+      expect(plan.blockers).toContain(
+        'inbound-or-unsettled-messages-require-source-bound-history:1',
+      )
+      await expect(
+        mergeProspectOrganizationsAction({
+          sourceOrganizationId: source.organization.id,
+          targetOrganizationId: target.organization.id,
+          expectedPlanHash: plan.planHash,
+          note: 'Must refuse active correspondence',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'UNSAFE_MERGE' })
+      expect(
+        await db.prospectFollowup.findUniqueOrThrow({ where: { id: followup.id } }),
+      ).toMatchObject({ organizationId: source.organization.id, status: 'PENDING' })
+      expect(
+        await db.prospectEmailMessage.findUniqueOrThrow({ where: { id: inbound.id } }),
+      ).toMatchObject({ organizationId: source.organization.id, status: 'RECEIVED' })
+    })
+  })
+
+  it('imports explicit CRM IDs into the right parent and distinct locations without losing contacts', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const parent = await createProspectAction({
+        organization: { canonicalName: `Example Arts ${suffix}` },
+        venue: { name: `Example Arts North ${suffix}`, city: 'Chicago', region: 'IL' },
+        actor,
+      })
+      const originalContact = await db.prospectContact.create({
+        data: {
+          organizationId: parent.organization.id,
+          venueId: parent.venue!.id,
+          fullName: 'Casey Example',
+          email: `casey-${suffix}@example.test`,
+          normalizedEmail: `casey-${suffix}@example.test`,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      })
+      const started = await beginProspectImportAction({
+        fileName: 'example-locations.csv',
+        fileType: 'csv',
+        fileSize: 1024,
+        fileHash: hash(`locations-${suffix}`),
+        mappingHash: hash(`locations-mapping-${suffix}`),
+        mapping: { venueName: 'name', existingOrganizationId: 'organization_id' },
+        sheets: [
+          {
+            sheetName: 'Locations',
+            sheetIndex: 0,
+            detectedRows: 2,
+            columns: ['name', 'organization_id', 'venue_id'],
+          },
+        ],
+        actor,
+      })
+      const importId = started.prospectImport.id
+      await stageProspectImportRowsAction({
+        importId,
+        rows: [
+          {
+            sheetName: 'Locations',
+            originalRowNumber: 2,
+            sourceValues: { name: `Example Arts North ${suffix}` },
+            normalizedValues: {
+              venueName: `Example Arts North ${suffix}`,
+              organizationName: `Example Arts ${suffix}`,
+              existingOrganizationId: parent.organization.id,
+              existingVenueId: parent.venue!.id,
+              city: 'Chicago',
+              region: 'IL',
+              contactEmail: `north-${suffix}@example.test`,
+            },
+          },
+          {
+            sheetName: 'Locations',
+            originalRowNumber: 3,
+            sourceValues: { name: `Example Arts South ${suffix}` },
+            normalizedValues: {
+              venueName: `Example Arts South ${suffix}`,
+              organizationName: `Example Arts ${suffix}`,
+              existingOrganizationId: parent.organization.id,
+              city: 'Evanston',
+              region: 'IL',
+              contactEmail: `south-${suffix}@example.test`,
+            },
+          },
+        ],
+        actor,
+      })
+      const staged = await db.prospectImportRow.findMany({
+        where: { importId },
+        orderBy: { originalRowNumber: 'asc' },
+      })
+      expect(staged.map((row) => row.status)).toEqual(['WARNING', 'WARNING'])
+      expect(staged.map((row) => row.targetOrganizationId)).toEqual([
+        parent.organization.id,
+        parent.organization.id,
+      ])
+      expect(staged.map((row) => row.targetVenueId)).toEqual([parent.venue!.id, null])
+      await approveProspectImportAction({ importId, actor })
+      const result = await commitProspectImportBatchAction({ importId, actor })
+      expect(result).toMatchObject({ processed: 2, failed: 0, done: true })
+      const committed = await db.prospectImportRow.findMany({
+        where: { importId },
+        orderBy: { originalRowNumber: 'asc' },
+      })
+      expect(committed.map((row) => row.importedOrganizationId)).toEqual([
+        parent.organization.id,
+        parent.organization.id,
+      ])
+      expect(committed[0]!.importedVenueId).toBe(parent.venue!.id)
+      expect(committed[1]!.importedVenueId).not.toBe(parent.venue!.id)
+      expect(
+        await db.prospectContact.findUnique({ where: { id: originalContact.id } }),
+      ).toMatchObject({ organizationId: parent.organization.id, venueId: parent.venue!.id })
+      expect(
+        await db.prospectSourceEvidence.count({
+          where: { importRowId: { in: staged.map((row) => row.id) } },
+        }),
+      ).toBe(2)
+      expect(await commitProspectImportBatchAction({ importId, actor })).toMatchObject({
+        processed: 0,
+        failed: 0,
+        done: true,
+      })
+    })
+  })
 
   it('proves review-gated import, partial failure, idempotency, provenance, and unique conversion', async () => {
     await withTenantIsolationBypass(async () => {

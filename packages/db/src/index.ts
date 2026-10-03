@@ -390,6 +390,11 @@ export type {
   ProspectImportNormalizedRow,
 } from './helpers/prospect-actions'
 export {
+  mergeProspectOrganizationsAction,
+  previewProspectOrganizationMergeAction,
+} from './helpers/prospect-organization-merge-actions'
+export type { ProspectOrganizationMergePlan } from './helpers/prospect-organization-merge-actions'
+export {
   applyProspectSizeProposalAction,
   type ProspectSizeProposal,
   type ProspectSizeApplyResult,

@@ -5,6 +5,7 @@ import { crmAccountReadTools } from './crm-accounts'
 import { crmCampaignReadTools } from './crm-campaigns'
 import { crmOutreachContextReadTools } from './crm-outreach-context'
 import { crmImportReadTools } from './crm-imports'
+import { crmMergeReadTools } from './crm-merges'
 import { crmStageCsvImportTool } from './crm-csv-import'
 import { billingReadTools } from './billing'
 import { blockingQuestionReadTools } from './blocking-questions'
@@ -34,6 +35,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...crmOutreachContextReadTools,
   ...crmCampaignReadTools,
   ...crmImportReadTools,
+  ...crmMergeReadTools,
   crmStageCsvImportTool,
   ...companyReadTools,
   ...reportReadTools,
