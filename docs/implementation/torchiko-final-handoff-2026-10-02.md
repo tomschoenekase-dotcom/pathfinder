@@ -23,7 +23,7 @@ Nothing was deployed, migrated on a hosted database, sent, invited, charged or c
 | Venue recommendations                  | Opt-in, deterministic eligibility/ranking (lemonade scenarios), private priority never in guest context, server-only exposure events                  | Unit (30+ scenario tests)                                                            |
 | Reports, evidence, routines, attention | Report/attention readers, disabled-by-default routine proposals, stop rules and estimated budget reservations                                         | Unit + disposable DB proof; no provider spend claim                                  |
 | CI                                     | Fail-safe dependency-aware plan for development branches; full suite unchanged for master/staging/promotion/merge queue                               | Script tests; GitHub timing NOT RUN                                                  |
-| Business prep                          | CityPASS drafts (no Skydeck claim without evidence), NYC wave plan                                                                                    | Docs only; nothing sent                                                              |
+| Business prep                          | Pass-program prospect drafts (no unsupported venue claims), NYC wave plan                                                                             | Docs only; nothing sent                                                              |
 
 ## 2. Identity
 
@@ -105,7 +105,7 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 | H01–H03 consolidation (W14)     | Conservative slice PASS; larger boundary cleanup remains                            | worker production API-import files 11 → 10; compatibility export retained             |
 | P01 portal/branding             | Billing + look-and-feel fixes; device NOT RUN                                       |                                                                                       |
 | P02 one guide across surfaces   | Existing; NOT RUN                                                                   |                                                                                       |
-| S01 CityPASS                    | Drafts PASS (unsent)                                                                | contact not selected                                                                  |
+| S01 pass prospect               | Drafts PASS (unsent)                                                                | contact not selected                                                                  |
 | S02 NYC plan                    | PASS (plan only)                                                                    |                                                                                       |
 
 ## 5. Root causes found (evidence in the journal)

@@ -33,7 +33,7 @@ Result vocabulary: PASS / FAIL / NOT RUN / BLOCKED. "Implemented" never means "v
 | W06 notices (A15)     | `51129cd`            | Shared lifecycle; isActive never means live; idempotent end                         |
 | W09 billing           | `36f5337`, `b3e4ad8` | Explicit 14-state model; webhook tenant-mismatch, ordering, grace, fixture guards   |
 | W13 CI                | `c5155e6`            | Fail-safe dependency-aware plan; master flake fixed; always-resolving gate          |
-| W15 business prep     | `f3e75c7`            | CityPASS drafts (unsent), NYC research plan                                         |
+| W15 business prep     | `f3e75c7`            | Pass-program prospect drafts (unsent), NYC research plan                            |
 | Docs safety           | `c86d1ac`            | Required historical/incident markers                                                |
 
 Later lanes (W03, W04, W05, W07/W11, W08, W10) are recorded in the final handoff.
