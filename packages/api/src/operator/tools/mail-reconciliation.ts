@@ -5,6 +5,34 @@ import { enqueueGmailSync, GMAIL_SYNC_QUEUE } from '@pathfinder/jobs'
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
 
+const DRAFT_COUNT_KEYS = [
+  'providerDraftsSeen',
+  'referencedLocalDrafts',
+  'referencesConfirmedPresent',
+  'referencesReleasedAsAbsent',
+  'unreferencedProviderDrafts',
+] as const
+
+/** Job payloads are untyped JSON; expose draft counts only when every field is well formed. */
+function providerDraftCounts(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (typeof record.complete !== 'boolean') return null
+  const counts: Record<(typeof DRAFT_COUNT_KEYS)[number], number> = {
+    providerDraftsSeen: 0,
+    referencedLocalDrafts: 0,
+    referencesConfirmedPresent: 0,
+    referencesReleasedAsAbsent: 0,
+    unreferencedProviderDrafts: 0,
+  }
+  for (const key of DRAFT_COUNT_KEYS) {
+    const count = record[key]
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) return null
+    counts[key] = count
+  }
+  return { complete: record.complete, ...counts }
+}
+
 function assertPlatformGrant(context: Parameters<OperatorReadTool['handler']>[1]) {
   if (!context.grant.allTenants || !context.config.allowedUserIds.has(context.grant.userId)) {
     throw new OperatorNotFoundError()
@@ -78,6 +106,7 @@ export const mailReconciliationTools: readonly OperatorReadTool[] = [
           nextJobId: null,
           errorCode: null,
           completedAt: null,
+          providerDrafts: null,
         }
       }
       return {
@@ -88,6 +117,7 @@ export const mailReconciliationTools: readonly OperatorReadTool[] = [
         nextJobId: typeof result.nextJobId === 'string' ? result.nextJobId : null,
         errorCode: record.error,
         completedAt: record.completedAt?.toISOString() ?? null,
+        providerDrafts: providerDraftCounts(result.providerDrafts),
       }
     },
   },

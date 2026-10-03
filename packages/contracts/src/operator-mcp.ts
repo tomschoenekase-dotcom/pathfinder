@@ -3357,6 +3357,18 @@ export const OPERATOR_MCP_OUTPUTS = {
       nextJobId: Identifier.nullable(),
       errorCode: z.string().max(100).nullable(),
       completedAt: IsoDateTime.nullable(),
+      // Read-only native draft check after a completed reconciliation; counts only.
+      providerDrafts: z
+        .object({
+          complete: z.boolean(),
+          providerDraftsSeen: z.number().int().nonnegative(),
+          referencedLocalDrafts: z.number().int().nonnegative(),
+          referencesConfirmedPresent: z.number().int().nonnegative(),
+          referencesReleasedAsAbsent: z.number().int().nonnegative(),
+          unreferencedProviderDrafts: z.number().int().nonnegative(),
+        })
+        .strict()
+        .nullable(),
     })
     .strict(),
   'crm.list_mail_threads': Page(

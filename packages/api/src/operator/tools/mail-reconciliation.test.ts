@@ -117,6 +117,7 @@ describe('Gmail reconciliation MCP controls', () => {
       nextJobId: JOB_ID,
       errorCode: null,
       completedAt: '2026-10-02T00:00:00.000Z',
+      providerDrafts: null,
     })
     const other = context({
       record: { status: 'COMPLETE', payload: { providerAccountId: 'other' } },
@@ -127,5 +128,36 @@ describe('Gmail reconciliation MCP controls', () => {
         other.value,
       ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('reports only well-formed native draft counts from the job record', async () => {
+    const counts = {
+      complete: true,
+      providerDraftsSeen: 7,
+      referencedLocalDrafts: 3,
+      referencesConfirmedPresent: 2,
+      referencesReleasedAsAbsent: 1,
+      unreferencedProviderDrafts: 4,
+    }
+    const read = async (providerDrafts: unknown) =>
+      mailReconciliationTools[1]!.handler(
+        { providerAccountId: 'account-1', jobId: JOB_ID },
+        context({
+          record: {
+            status: 'COMPLETE',
+            payload: { providerAccountId: 'account-1', complete: true, providerDrafts },
+            error: null,
+            completedAt: null,
+          },
+        }).value,
+      )
+    expect(await read({ ...counts, draftId: 'r-private' })).toMatchObject({
+      providerDrafts: counts,
+    })
+    expect(await read({ ...counts, referencesReleasedAsAbsent: -1 })).toMatchObject({
+      providerDrafts: null,
+    })
+    expect(await read({ ...counts, complete: 'yes' })).toMatchObject({ providerDrafts: null })
+    expect(await read(null)).toMatchObject({ providerDrafts: null })
   })
 })
