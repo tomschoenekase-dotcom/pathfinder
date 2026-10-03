@@ -37,6 +37,23 @@ Promote only from `codex/pathfinder-v2-staging` to `master` through the protecte
 Repeat the independent production drain, backup, restore/rehearsal and preservation checks before
 the existing production migration entrypoint and three-service release.
 
+The production migration entrypoint is the external workspace's
+`qa/release-migrate-production.mjs`. After explicit owner approval and the complete production
+backup/rehearsal gates above, run from that workspace with the approved environment injected by
+the operator (never put connection values in command arguments):
+
+```powershell
+node qa/release-migrate-production.mjs RELEASE_CHECKOUT FULL_RELEASE_SHA qa/production-fresh-before.json qa/production-migration-receipt.json
+```
+
+Use new output names for each attempt. Set `RELEASE_QUEUE_COUNTS_FILE` to current zero-count
+evidence; absent evidence is `NOT_PROVEN` and refuses migration. The wrapper requires production
+resource identity, exact HEAD, a clean tracked/untracked tree, and the frozen manifest. It runs a
+fresh schema-v2 before-readback against that same checkout, then rechecks source identity and the
+manifest immediately before Prisma. The readback must be from this invocation, at most 60 seconds
+old, and show no application writers. Older v1 readbacks cannot be reused. This wrapper does not
+replace drain, backup, restore rehearsal, promotion approval, or the after-migration comparison.
+
 Keep current customer-create/invite, outbound email/notifications, routines and job-grant switches
 unchanged. Do not send mail, invite users, perform live billing actions, change identity-provider
 users, purchase services or change the GPT-6 Luna setting. Do not force push, bypass a gate, use

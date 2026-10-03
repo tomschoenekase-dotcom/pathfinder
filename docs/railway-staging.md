@@ -881,6 +881,14 @@ migrations using the approved migration/recovery procedure, then deploy web,
 dashboard, and workers from that same SHA. If any code changes after staging
 approval, it is a new release and must return to staging.
 
+The production promotion PR gate reads the latest trusted
+`staging-admission.yml` run and its sanitized admission result from the run
+log. It requires a result no older than 60 minutes with the exact PR SHA on
+web, dashboard, and workers, then checks live web health. The dashboard and
+worker SHAs are admission-time evidence; repeat the read-only Railway topology
+check immediately before manual promotion to catch a deployment changed after
+admission.
+
 ### Required proof
 
 Attach or link the following to the release record without exposing secrets:
