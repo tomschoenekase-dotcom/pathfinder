@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
@@ -40,6 +40,45 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
     }) as unknown as OperatorCallContext
 
   afterAll(async () => db.$disconnect())
+
+  it('replays sorted mapping keys and preserves legacy manifest hashes without reopening receipts', async () => {
+    const mapping = { venueName: 'Venue', notes: 'Research' }
+    const input = {
+      operationId: randomUUID(),
+      csvText: `Venue,Research\nMapping Hall ${suffix},Synthetic evidence`,
+      mapping,
+    }
+    const staged = await stageCsvImport(input, context(true))
+    const replay = await stageCsvImport(
+      { ...input, mapping: { notes: 'Research', venueName: 'Venue' } },
+      context(true),
+    )
+    expect(replay).toMatchObject({ importId: staged.importId, replayed: true })
+    const saved = await db.prospectImport.findUniqueOrThrow({ where: { id: staged.importId } })
+    const manifest = saved.packageManifest as Record<string, unknown>
+    const legacyHash = createHash('sha256').update(JSON.stringify(mapping)).digest('hex')
+    await db.prospectImport.update({
+      where: { id: saved.id },
+      data: {
+        packageManifest: { ...manifest, suppliedMappingHash: legacyHash },
+      },
+    })
+    expect(await stageCsvImport(input, context(true))).toMatchObject({
+      importId: saved.id,
+      replayed: true,
+    })
+    await expect(
+      stageCsvImport(
+        { ...input, mapping: { venueName: 'Research', notes: 'Venue' } },
+        context(true),
+      ),
+    ).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' })
+    const unchanged = await db.prospectImport.findUniqueOrThrow({ where: { id: saved.id } })
+    expect(unchanged.mappingHash).toBe(saved.mappingHash)
+    expect((unchanged.packageManifest as Record<string, unknown>).suppliedMappingHash).toBe(
+      legacyHash,
+    )
+  })
 
   it('configures the same inspected source draft through MCP and resumes without a second import', async () => {
     const saved = await db.prospectImport.create({

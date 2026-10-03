@@ -14,7 +14,7 @@ const DRAFT_COUNT_KEYS = [
 ] as const
 
 /** Job payloads are untyped JSON; expose draft counts only when every field is well formed. */
-function providerDraftCounts(value: unknown) {
+export function providerDraftCounts(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   if (typeof record.complete !== 'boolean') return null

@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const createMock = vi.fn()
-const upsertMock = vi.fn()
-const updateMock = vi.fn()
-const findUniqueMock = vi.fn()
+const { createMock, upsertMock, updateMock, findUniqueMock } = vi.hoisted(() => ({
+  createMock: vi.fn(),
+  upsertMock: vi.fn(),
+  updateMock: vi.fn(),
+  findUniqueMock: vi.fn(),
+}))
+
+import {
+  writeJobRecord,
+  updateJobRecord,
+  findTerminalJobRecordEvidence,
+  findTerminalJobRecordEvidenceById,
+} from './job-records'
 
 vi.mock('../client', () => ({
   db: {
@@ -27,8 +36,6 @@ describe('writeJobRecord', () => {
   it('creates a plain record when bullJobId is absent (no retry collision risk)', async () => {
     createMock.mockResolvedValueOnce({ id: 'record_1' })
 
-    const { writeJobRecord } = await import('./job-records')
-
     const id = await writeJobRecord({
       queue: 'weekly-report',
       jobName: 'weekly-report-process',
@@ -43,8 +50,6 @@ describe('writeJobRecord', () => {
 
   it('upserts on queue and bullJobId so another queue cannot overwrite the retry record', async () => {
     upsertMock.mockResolvedValueOnce({ id: 'record_1' })
-
-    const { writeJobRecord } = await import('./job-records')
 
     const id = await writeJobRecord({
       queue: 'weekly-report',
@@ -92,7 +97,6 @@ describe('writeJobRecord', () => {
 
   it('persists exact venue scope separately from the opaque execution payload', async () => {
     createMock.mockResolvedValueOnce({ id: 'record_venue' })
-    const { writeJobRecord } = await import('./job-records')
 
     await writeJobRecord({
       queue: 'evaluation-run',
@@ -135,7 +139,6 @@ describe('findTerminalJobRecordEvidence', () => {
       terminalAt: new Date('2026-08-08T12:00:00.000Z'),
     }
     findUniqueMock.mockResolvedValueOnce(record)
-    const { findTerminalJobRecordEvidence } = await import('./job-records')
 
     await expect(
       findTerminalJobRecordEvidence({ queue: 'weekly-report', bullJobId: 'job_1' }),
@@ -162,7 +165,6 @@ describe('findTerminalJobRecordEvidence', () => {
 
   it('loads the same bounded evidence by record ID for an operator preview', async () => {
     findUniqueMock.mockResolvedValueOnce(null)
-    const { findTerminalJobRecordEvidenceById } = await import('./job-records')
 
     await expect(findTerminalJobRecordEvidenceById('record_1')).resolves.toBeNull()
     expect(findUniqueMock).toHaveBeenCalledWith({
@@ -191,7 +193,6 @@ describe('updateJobRecord', () => {
   })
 
   it('records retry-eligible failure without a terminal timestamp', async () => {
-    const { updateJobRecord } = await import('./job-records')
     const completedAt = new Date('2026-08-07T23:58:00.000Z')
 
     await updateJobRecord('record_1', {
@@ -219,7 +220,6 @@ describe('updateJobRecord', () => {
   it.each(['ATTEMPTS_EXHAUSTED', 'UNRECOVERABLE'] as const)(
     'records %s failure with the attempt completion as terminal time',
     async (failureDisposition) => {
-      const { updateJobRecord } = await import('./job-records')
       const completedAt = new Date('2026-08-07T23:59:00.000Z')
 
       await updateJobRecord('record_1', {
@@ -244,7 +244,6 @@ describe('updateJobRecord', () => {
   )
 
   it('clears stale failure lifecycle fields when the job completes', async () => {
-    const { updateJobRecord } = await import('./job-records')
     const completedAt = new Date('2026-08-08T00:00:00.000Z')
 
     await updateJobRecord('record_1', { status: 'COMPLETE', completedAt })

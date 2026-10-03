@@ -6,6 +6,7 @@ import { enqueueGmailSync, GMAIL_SYNC_QUEUE } from '@pathfinder/jobs'
 import { router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
+import { providerDraftCounts } from '../../operator/tools/mail-reconciliation'
 
 const id = z.string().min(1).max(191)
 
@@ -78,6 +79,7 @@ export const adminProspectCrmMailboxRouter = router({
         nextJobId: typeof result.nextJobId === 'string' ? result.nextJobId : null,
         errorCode: record?.error ?? null,
         completedAt: record?.completedAt ?? null,
+        providerDrafts: providerDraftCounts(result.providerDrafts),
       }
     }),
 })

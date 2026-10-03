@@ -144,6 +144,14 @@ describe('ProspectOutreachCenter', () => {
       nextJobId: null,
       errorCode: null,
       completedAt: new Date(),
+      providerDrafts: {
+        complete: false,
+        providerDraftsSeen: 7,
+        referencedLocalDrafts: 3,
+        referencesConfirmedPresent: 2,
+        referencesReleasedAsAbsent: 1,
+        unreferencedProviderDrafts: 5,
+      },
     })
     render(<ProspectOutreachCenter />)
     fireEvent.click(await screen.findByRole('button', { name: 'Reconcile mailbox' }))
@@ -155,6 +163,12 @@ describe('ProspectOutreachCenter', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: 'Check result' }))
     expect(await screen.findByText(/3 messages handled in this job/iu)).toBeTruthy()
+    expect(
+      screen.getByText(
+        /7 provider drafts · 3 local draft references · 2 linked references present/iu,
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText(/draft listing incomplete/iu)).toBeTruthy()
     expect(mocks.getReconciliation).toHaveBeenCalledWith(
       { providerAccountId: 'account-1', jobId: `gmail-sync-${'a'.repeat(64)}` },
       { signal: expect.any(AbortSignal) },

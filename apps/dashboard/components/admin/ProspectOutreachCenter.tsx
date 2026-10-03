@@ -153,6 +153,7 @@ export function ProspectOutreachCenter({
           nextJobId: null,
           errorCode: null,
           completedAt: null,
+          providerDrafts: null,
         },
       }))
     } catch {
@@ -339,6 +340,9 @@ export function ProspectOutreachCenter({
                     {reconciliation[account.id]!.errorCode
                       ? ` · ${reconciliation[account.id]!.errorCode}`
                       : ''}
+                    {reconciliation[account.id]!.providerDrafts
+                      ? ` · ${reconciliation[account.id]!.providerDrafts!.providerDraftsSeen} provider drafts · ${reconciliation[account.id]!.providerDrafts!.referencedLocalDrafts} local draft references · ${reconciliation[account.id]!.providerDrafts!.referencesConfirmedPresent} linked references present · ${reconciliation[account.id]!.providerDrafts!.referencesReleasedAsAbsent} absent references released · ${reconciliation[account.id]!.providerDrafts!.unreferencedProviderDrafts} unlinked provider drafts${reconciliation[account.id]!.providerDrafts!.complete ? '' : ' · draft listing incomplete'}`
+                      : ' · provider draft counts unavailable'}
                   </p>
                 ) : null}
               </li>

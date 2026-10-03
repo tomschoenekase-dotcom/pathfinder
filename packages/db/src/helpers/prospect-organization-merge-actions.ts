@@ -187,23 +187,29 @@ async function inventory(
       targetAliases: target.aliases,
     }),
   )
-  for (const model of [...movableModels, ...retainedModels]) {
-    const relation = delegate(tx, model)
-    const select = { id: true, ...(modelsWithUpdatedAt.has(model) ? { updatedAt: true } : {}) }
-    const [rows, targetRows] = await Promise.all([
-      relation.findMany({
-        where: { organizationId: sourceOrganizationId },
-        select,
-        orderBy: { id: 'asc' },
-        take: 10_001,
-      }),
-      relation.findMany({
-        where: { organizationId: targetOrganizationId },
-        select,
-        orderBy: { id: 'asc' },
-        take: 10_001,
-      }),
-    ])
+  const relationInventory = await Promise.all(
+    [...movableModels, ...retainedModels].map(async (model) => {
+      const relation = delegate(tx, model)
+      const select = { id: true, ...(modelsWithUpdatedAt.has(model) ? { updatedAt: true } : {}) }
+      const [rows, targetRows] = await Promise.all([
+        relation.findMany({
+          where: { organizationId: sourceOrganizationId },
+          select,
+          orderBy: { id: 'asc' },
+          take: 10_001,
+        }),
+        relation.findMany({
+          where: { organizationId: targetOrganizationId },
+          select,
+          orderBy: { id: 'asc' },
+          take: 10_001,
+        }),
+      ])
+      return { model, rows, targetRows }
+    }),
+  )
+  // Promise.all preserves registry order; hash bytes and blocker ordering remain identical.
+  for (const { model, rows, targetRows } of relationInventory) {
     counts[model] = rows.length
     if (rows.length > 10_000 || targetRows.length > 10_000)
       blockers.push(`${model}:review-limit-exceeded`)
@@ -392,10 +398,15 @@ async function inventory(
     'prospectCustomerRelationship',
     'publicInterestProspectConversion',
   ] as const
-  for (const model of specialModels) {
-    const count = await (tx as unknown as Record<string, RelationDelegate>)[model]!.count({
-      where: { organizationId: sourceOrganizationId },
-    })
+  const specialInventory = await Promise.all(
+    specialModels.map(async (model) => {
+      const count = await (tx as unknown as Record<string, RelationDelegate>)[model]!.count({
+        where: { organizationId: sourceOrganizationId },
+      })
+      return { model, count }
+    }),
+  )
+  for (const { model, count } of specialInventory) {
     counts[model] = count
     if (count) blockers.push(`${model}:requires-separate-reviewed-resolution`)
     hash.update(JSON.stringify([model, count]))

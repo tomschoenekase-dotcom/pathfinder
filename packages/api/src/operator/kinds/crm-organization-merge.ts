@@ -10,20 +10,36 @@ import { OperatorNotFoundError } from '../grants'
 import {
   OperatorStaleError,
   type OperatorApplyContext,
+  type OperatorKindContext,
   type OperatorProposalKind,
 } from '../proposals'
 
 const input = OPERATOR_MCP_INPUTS['crm.propose_organization_merge']
 type Args = ReturnType<typeof input.parse>
 
-const readPlan = async (args: Args, database: OperatorApplyContext['database']) =>
-  previewProspectOrganizationMergeAction(
+// Only reuse within one proposal/apply context. Authorization always refreshes; domain apply
+// still inventories inside its own serializable transaction, so a later write cannot escape it.
+const plans = new WeakMap<
+  OperatorKindContext,
+  {
+    key: string
+    plan: ReturnType<typeof previewProspectOrganizationMergeAction>
+  }
+>()
+const readPlan = (args: Args, context: OperatorKindContext, refresh = false) => {
+  const key = JSON.stringify([args.sourceOrganizationId, args.targetOrganizationId])
+  const previous = plans.get(context)
+  if (!refresh && previous?.key === key) return previous.plan
+  const plan = previewProspectOrganizationMergeAction(
     {
       sourceOrganizationId: args.sourceOrganizationId,
       targetOrganizationId: args.targetOrganizationId,
     },
-    database,
+    context.database,
   )
+  plans.set(context, { key, plan })
+  return plan
+}
 
 export const crmOrganizationMergeKind: OperatorProposalKind<Args> = {
   kind: 'crm.organization-merge',
@@ -37,7 +53,7 @@ export const crmOrganizationMergeKind: OperatorProposalKind<Args> = {
     }
     let plan
     try {
-      plan = await readPlan(args, context.database)
+      plan = await readPlan(args, context, true)
     } catch (error) {
       if (error instanceof ProspectActionError && error.code === 'NOT_FOUND') {
         throw new OperatorNotFoundError()
@@ -58,7 +74,7 @@ export const crmOrganizationMergeKind: OperatorProposalKind<Args> = {
     }
   },
   targetVersion: async (args) => args.expectedPlanHash,
-  currentVersion: async (args, context) => (await readPlan(args, context.database)).planHash,
+  currentVersion: async (args, context) => (await readPlan(args, context)).planHash,
   describe: (args) => ({
     title: 'Merge two CRM accounts',
     lines: [
@@ -69,8 +85,7 @@ export const crmOrganizationMergeKind: OperatorProposalKind<Args> = {
       'Moves contacts, venues and outreach history; retains the original opportunity snapshot.',
     ],
   }),
-  snapshot: async (args, context) =>
-    (await readPlan(args, context.database)) as unknown as JsonValue,
+  snapshot: async (args, context) => (await readPlan(args, context)) as unknown as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
     let applied
     try {

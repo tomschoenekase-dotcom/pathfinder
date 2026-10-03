@@ -540,3 +540,93 @@ Environment: `../qa/local-test-env.ps1` synthetic values; PostgreSQL 16/pgvector
 | Physical iPhone, live Gmail, Stripe sandbox, hosted smoke, exact-head CI                                                                                                                                                                       | NOT RUN                                                                                                                                                                                                                                                           |
 
 Agent-reported targeted runs (their own disposable DBs `..._opus_import`, `..._opus_merge`, `..._opus_gmail`) are superseded by the serial sweep above. The Gmail worker still imports `@pathfinder/api/correspondence`, an existing reviewed worker exception; the file count did not grow.
+
+### Authorized production release continuation (2026-10-03)
+
+The owner authorized finishing PR40, non-force push/CI repair, reviewed admission of exactly
+256–267, gated staging and protected production promotion. Provider effects and current model
+settings must remain unchanged. The attached objective is the current authority; earlier
+review-first pause and release proposals remain historical evidence.
+
+Starting local source `d5585dd9`; PR40 remote `397d4522`; staging base `9f726afd`.
+The requested runbooks are present at `docs/operator/staging-runbook-migration-255.md` and
+`docs/distribution/operator-runbook.md`. The three-service workflow and preservation rules remain.
+
+Local changes in progress: isolated synthetic canonicalization mailbox; sorted supplied-mapping
+identity with legacy receipt replay; dashboard native draft counts using the same validated
+payload as MCP; merge inventory reuse within one authorization context. Reauthorization refreshes
+the inventory, and domain apply still rechecks in its own serializable transaction. Registry
+order remains the hash order. No migration was added.
+
+Production WebKit reproduction failed at the missing-character fallback status, after correcting
+local harness setup (resource IDs, fixture prerender exclusion and auth middleware). The screenshot
+shows the brand fallback beside the incorrect Ready-to-help status. A child layout effect reports
+an already-failed SSR image before the parent's mount flag becomes active. Removed that flag
+check; keyed component ownership still isolates callbacks from previous characters.
+The regression test simulates a child-layout failure and passed with the other seven stage cases.
+The production component harness changes only local generated files and is never deployable.
+
+`pnpm install --frozen-lockfile` PASS; Prisma generation PASS; focused API merge/mail tests PASS
+10/10; first `pnpm --dir apps/web build` PASS; `pnpm lint --concurrency=2` PASS 15 tasks with
+the existing VoiceControl hook warning. Initial typecheck FAIL on a nullable manifest access in
+this continuation; corrected, rerun pending. Character stage regression PASS 8/8.
+Full workspace, script/security and fresh serial operator/CRM proof are still running via
+`../qa/release-phase1-checks.ps1`; exact exits/times remain in `release-phase1-results.tsv`.
+The fixed production build and repeated production WebKit proof are pending.
+
+Read-only Railway SSH observed staging at 255 migrations. The existing disposable 267 database
+has 297 public tables. The reviewed suffix manifest is
+`cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00`.
+Operational-health's latest-migration identity was stale at 265; corrected to the existing 267th
+migration so an upgraded ledger is not falsely reported as drift.
+No push, hosted migration, backup attestation, deployment, email or provider action occurred yet.
+Import-lineage indexes and Gmail draft message/thread IDs remain migration follow-ups.
+
+### Release continuation — admission and local runtime (2026-10-03 08:10 UTC)
+
+Extended the frozen endpoint to exactly 267 migrations and 297 public tables. The former
+255/280 endpoint is now a frozen predecessor with its original normalized manifest hash.
+Every earlier predecessor check and refusal remains; tests cover all partial 256–266 ledgers
+and checksum/status/name drift for every new suffix row. The staging image approval token
+now matches the endpoint. Source-maintenance verification requires the exact current ledger;
+its separate stale-plan refusal remains unchanged. Focused tests caught the stale image token,
+which was corrected. Full script and serial workspace verification are still running.
+
+Read-only production SSH confirmed PostgreSQL 17.6, 255 active migrations, 256 physical rows
+including one historical rollback, 280 public tables, no unfinished active migration, invalid
+public index or unvalidated public constraint. No hosted writes or backup proof are claimed.
+Fresh local DB creation failed because Docker Desktop stopped responding. Startup diagnostics
+identified inaccessible zero-byte runtime sockets; these were archived with dated names and
+Desktop restarted without touching containers, data, configuration or credentials. The fresh
+migrated operator/CRM suites and both backup/restore rehearsals remain pending runtime recovery.
+
+### Release local proof complete (2026-10-03 08:45 UTC)
+
+Docker recovered without a reset. Twenty orphan shell loops from prior timeout fixtures were
+consuming CPU; only exact matching loops with exited parents were stopped. Assertions, deadlines
+and refusal cases were retained. Local PostgreSQL 17.6 is ready for the separate backup rehearsals.
+
+The canonicalization fixture uses a unique whitespace representation of the existing approved
+company sender: production trimming still resolves the approved sender, while raw fixture
+identity is independent of earlier suites. No company sender gate was changed.
+
+- `node node_modules/turbo/bin/turbo run test --concurrency=1 --continue -- --pool=forks --maxWorkers=1`:
+  PASS, 27/27 tasks, `../qa/release-workspace-serial-final.log`. The preceding attempt failed one
+  contracts worker RPC timeout under orphan-process load; the complete repeat passed.
+- `pnpm typecheck --concurrency=2`: PASS, 27/27, `../qa/release-typecheck-final.log`.
+- `pnpm test:scripts`: PASS, 621 tests plus one expected skip,
+  `../qa/release-scripts-admitted267-corrected.log`. Documentation follow-up PASS 9/9.
+- Fresh `pathfinder_disposable_einstein_release_20261003`, existing disposable migration entrypoint:
+  PASS, all 267 migrations, `../qa/release-fresh-db-migrate.log`.
+- Serial operator sweep with operator/CSV integration flags: PASS, 59 files / 705 tests,
+  `../qa/release-operator-db-fresh.log`; corrected serial CRM sweep PASS, 4 files / 16 tests,
+  `../qa/release-crm-db-corrected.log`. Canonicalization repeated on the same DB PASS 1/1.
+- Fixed production WebKit proof: first 14/15 PASS, one tablet accessibility timeout; unchanged
+  tablet checks repeated PASS 3/3. Generated harness restored; evidence moved outside source to
+  `../qa/release-generated-artifacts-20261003`. Source auth and fixture exclusion remain intact.
+- Frozen install, lint and six boundary gates previously PASS in this continuation.
+
+Production read-only PG17 client connection PASS through existing authenticated Railway injection;
+this proves neither backup nor deploy readiness. No hosted writes, migrations, push, deployment,
+provider effects or acceptance claims yet. Next: clean committed candidate assessment and exact-head
+CI, then release-bound post-drain backup, private restore/rehearsal and staged protected promotion.

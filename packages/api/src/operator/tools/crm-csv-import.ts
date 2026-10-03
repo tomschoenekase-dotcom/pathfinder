@@ -388,7 +388,20 @@ export async function stageCsvImport(
   }
   const importIdentityHash = sha256(`mcp-csv:v1:${context.grant.grantId}:${input.operationId}`)
   const database = context.database
-  const suppliedMappingHash = sha256(JSON.stringify(input.mapping ?? null))
+  const legacySuppliedMappingHash = sha256(JSON.stringify(input.mapping ?? null))
+  const suppliedMappingHash = sha256(
+    JSON.stringify(
+      input.mapping
+        ? Object.fromEntries(
+            Object.entries(input.mapping).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+          )
+        : null,
+    ),
+  )
+  // Historical manifests hash JSON insertion order. Preserve those receipts without rewriting
+  // their identity; new manifests use sorted keys so equivalent mapping order is immaterial.
+  const matchesSuppliedMapping = (hash: string | undefined) =>
+    hash === suppliedMappingHash || hash === legacySuppliedMappingHash
   const suppliedFileIdHash = input.file ? sha256(input.file.file_id) : null
   const existing = await database.prospectImport.findUnique({ where: { importIdentityHash } })
   if (existing) {
@@ -397,8 +410,8 @@ export async function stageCsvImport(
       suppliedFileIdHash?: string | null
     } | null
     if (
-      manifest?.suppliedMappingHash !== suppliedMappingHash ||
-      (input.file && manifest.suppliedFileIdHash !== suppliedFileIdHash) ||
+      !matchesSuppliedMapping(manifest?.suppliedMappingHash) ||
+      (input.file && manifest?.suppliedFileIdHash !== suppliedFileIdHash) ||
       (input.csvText && existing.fileHash !== sha256(input.csvText))
     ) {
       throw new CsvImportError(
@@ -507,7 +520,7 @@ export async function stageCsvImport(
         prospectImport.fileHash !== fileHash ||
         prospectImport.mappingHash !== mappingHash ||
         racedManifest?.suppliedFileIdHash !== suppliedFileIdHash ||
-        racedManifest?.suppliedMappingHash !== suppliedMappingHash
+        !matchesSuppliedMapping(racedManifest?.suppliedMappingHash)
       ) {
         throw new CsvImportError(
           'OPERATION_CONFLICT',

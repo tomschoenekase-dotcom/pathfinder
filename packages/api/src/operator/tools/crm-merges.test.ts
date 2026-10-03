@@ -13,6 +13,25 @@ const args = {
 }
 
 describe('platform-wide organization merge scope', () => {
+  it('reuses the authorized preview only within one context and refreshes on reauthorization', async () => {
+    const plan = { planHash: args.expectedPlanHash, blockers: [] }
+    const transaction = vi.fn().mockResolvedValue(plan)
+    const context = {
+      grant: { allTenants: true, userId: 'owner' },
+      allowedUserIds: new Set(['owner']),
+      database: { $transaction: transaction },
+    }
+    await crmOrganizationMergeKind.authorize!(args, context as never)
+    expect(await crmOrganizationMergeKind.currentVersion(args, context as never)).toBe(
+      args.expectedPlanHash,
+    )
+    expect(await crmOrganizationMergeKind.snapshot(args, context as never)).toBe(plan)
+    expect(transaction).toHaveBeenCalledTimes(1)
+    await crmOrganizationMergeKind.authorize!(args, context as never)
+    expect(transaction).toHaveBeenCalledTimes(2)
+    expect(await crmOrganizationMergeKind.snapshot(args, { ...context } as never)).toBe(plan)
+    expect(transaction).toHaveBeenCalledTimes(3)
+  })
   it.each([
     { allTenants: false, allowed: true },
     { allTenants: true, allowed: false },
