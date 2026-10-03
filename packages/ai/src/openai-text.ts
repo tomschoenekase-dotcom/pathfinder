@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { AiMessage, AiSystemBlock, AiTokenUsage } from './anthropic'
 import type { AiModelSpec, AiTextProviderId } from './model-registry'
 
+const safeTokenCount = z.number().int().nonnegative().refine(Number.isSafeInteger)
+
 const openAiResponseSchema = z.object({
   status: z.string().optional(),
   incomplete_details: z
@@ -33,10 +35,13 @@ const openAiResponseSchema = z.object({
     .optional(),
   usage: z
     .object({
-      input_tokens: z.number().int().nonnegative(),
-      output_tokens: z.number().int().nonnegative(),
+      input_tokens: safeTokenCount,
+      output_tokens: safeTokenCount,
       input_tokens_details: z
-        .object({ cached_tokens: z.number().int().nonnegative().optional() })
+        .object({
+          cached_tokens: safeTokenCount.optional(),
+          cache_write_tokens: safeTokenCount.optional(),
+        })
         .passthrough()
         .optional(),
     })
@@ -49,8 +54,19 @@ export type OpenAiResponsesClient = {
     create: (
       params: {
         model: string
-        instructions: string
-        input: AiMessage[]
+        instructions?: string
+        input: Array<
+          | AiMessage
+          | {
+              role: 'developer'
+              content: Array<{
+                type: 'input_text'
+                text: string
+                prompt_cache_breakpoint?: { mode: 'explicit' }
+              }>
+            }
+        >
+        prompt_cache_options?: { mode: 'explicit' }
         max_output_tokens: number
         reasoning: { effort: 'none' | 'minimal' }
         store: false
@@ -76,6 +92,82 @@ type OpenAiResponsesProviderId = Extract<AiTextProviderId, 'openai' | 'deepseek'
 
 function reasoningEffort(model: string): 'none' | 'minimal' {
   return model === 'gpt-6-luna' ? 'none' : 'minimal'
+}
+
+function promptInput(
+  provider: AiTextProviderId,
+  model: string,
+  system: AiSystemBlock[],
+  messages: AiMessage[],
+): Pick<
+  Parameters<OpenAiResponsesClient['responses']['create']>[0],
+  'instructions' | 'input' | 'prompt_cache_options'
+> {
+  const breakpointIndex = system.reduce(
+    (last, block, index) => (block.cache_control?.type === 'ephemeral' ? index : last),
+    -1,
+  )
+  const supportsExplicitCaching =
+    provider === 'openai' && /^gpt-(?:5\.6|6|6\.1)(?:-|$)/u.test(model)
+  if (!supportsExplicitCaching) {
+    return { instructions: system.map((block) => block.text).join('\n\n'), input: messages }
+  }
+  if (breakpointIndex < 0) {
+    return {
+      instructions: system.map((block) => block.text).join('\n\n'),
+      input: messages,
+      prompt_cache_options: { mode: 'explicit' },
+    }
+  }
+  return {
+    input: [
+      ...system.map((block, index) => ({
+        role: 'developer' as const,
+        content: [
+          {
+            type: 'input_text' as const,
+            text: block.text,
+            ...(index === breakpointIndex
+              ? { prompt_cache_breakpoint: { mode: 'explicit' as const } }
+              : {}),
+          },
+        ],
+      })),
+      ...messages,
+    ],
+    prompt_cache_options: { mode: 'explicit' },
+  }
+}
+
+function hasExplicitBreakpoint(prompt: ReturnType<typeof promptInput>): boolean {
+  return prompt.input.some(
+    (message) =>
+      message.role === 'developer' &&
+      message.content.some((block) => block.prompt_cache_breakpoint?.mode === 'explicit'),
+  )
+}
+
+function tokenUsage(
+  usage: NonNullable<z.infer<typeof openAiResponseSchema>['usage']>,
+  explicitCache: boolean,
+): AiTokenUsage {
+  if (explicitCache && usage.input_tokens_details?.cache_write_tokens === undefined) {
+    throw new Error('OpenAI explicit cache write token usage is missing')
+  }
+  const cacheReadInputTokens = usage.input_tokens_details?.cached_tokens ?? 0
+  const cacheCreationInputTokens = usage.input_tokens_details?.cache_write_tokens ?? 0
+  if (
+    cacheReadInputTokens > usage.input_tokens ||
+    cacheCreationInputTokens > usage.input_tokens - cacheReadInputTokens
+  ) {
+    throw new Error('OpenAI cache token counts exceed total input tokens')
+  }
+  return {
+    inputTokens: usage.input_tokens - cacheReadInputTokens - cacheCreationInputTokens,
+    outputTokens: usage.output_tokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+  }
 }
 
 const OPENAI_RESPONSES_PROVIDER_CONFIG: Record<
@@ -164,11 +256,16 @@ export async function createOpenAiTextResponse(params: {
   timeoutMs: number
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+  const prompt = promptInput(
+    params.spec.provider,
+    params.spec.model,
+    params.system,
+    params.messages,
+  )
   const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(
     {
       model: params.spec.model,
-      instructions: params.system.map((block) => block.text).join('\n\n'),
-      input: params.messages,
+      ...prompt,
       max_output_tokens: params.maxOutputTokens,
       reasoning: { effort: reasoningEffort(params.spec.model) },
       store: false,
@@ -185,7 +282,6 @@ export async function createOpenAiTextResponse(params: {
     }
     throw new Error('OpenAI response did not include usage')
   }
-  const cachedInputTokens = response.usage.input_tokens_details?.cached_tokens ?? 0
   const text =
     response.output_text?.trim() ||
     (response.output ?? [])
@@ -197,12 +293,7 @@ export async function createOpenAiTextResponse(params: {
   return {
     ...(incomplete ? { incomplete: true as const } : {}),
     text,
-    usage: {
-      inputTokens: Math.max(0, response.usage.input_tokens - cachedInputTokens),
-      outputTokens: response.usage.output_tokens,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: cachedInputTokens,
-    },
+    usage: tokenUsage(response.usage, hasExplicitBreakpoint(prompt)),
   }
 }
 
@@ -215,11 +306,16 @@ export async function createOpenAiTextStream(params: {
   onTextDelta: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+  const prompt = promptInput(
+    params.spec.provider,
+    params.spec.model,
+    params.system,
+    params.messages,
+  )
   const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(
     {
       model: params.spec.model,
-      instructions: params.system.map((block) => block.text).join('\n\n'),
-      input: params.messages,
+      ...prompt,
       max_output_tokens: params.maxOutputTokens,
       reasoning: { effort: reasoningEffort(params.spec.model) },
       store: false,
@@ -261,7 +357,6 @@ export async function createOpenAiTextStream(params: {
     }
     throw new Error('OpenAI terminal response did not include usage')
   }
-  const cachedInputTokens = completedResponse.usage.input_tokens_details?.cached_tokens ?? 0
   const finalText =
     completedResponse.output_text?.trim() ||
     (completedResponse.output ?? [])
@@ -274,11 +369,6 @@ export async function createOpenAiTextStream(params: {
   return {
     ...(incomplete ? { incomplete: true as const } : {}),
     text: finalText,
-    usage: {
-      inputTokens: Math.max(0, completedResponse.usage.input_tokens - cachedInputTokens),
-      outputTokens: completedResponse.usage.output_tokens,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: cachedInputTokens,
-    },
+    usage: tokenUsage(completedResponse.usage, hasExplicitBreakpoint(prompt)),
   }
 }
