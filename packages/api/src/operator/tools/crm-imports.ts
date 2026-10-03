@@ -243,7 +243,8 @@ const getImport: OperatorReadTool = {
         ...summaryView(row),
         progress: {
           workerOwner: row.jobClaimOwner ?? null,
-          jobId: ['APPROVED', 'PROCESSING', 'PARTIAL', 'COMPLETE'].includes(row.status)
+          // A deterministic queue key is not proof that enqueue succeeded.
+          expectedJobId: ['APPROVED', 'PROCESSING', 'PARTIAL', 'COMPLETE'].includes(row.status)
             ? `prospect-import-${row.id}`
             : null,
           phase:
@@ -278,11 +279,13 @@ const getImport: OperatorReadTool = {
                 : manifest?.mcpCsv
                   ? 'RETRY_CSV_STAGE_WITH_SAME_OPERATION'
                   : 'REVIEW_LEGACY_DRAFT'
-              : counts.DUPLICATE_REVIEW > 0
-                ? 'REVIEW_DUPLICATES'
-                : counts.FAILED > 0
-                  ? 'INSPECT_ROW_ERRORS'
-                  : null,
+              : row.status === 'APPROVED'
+                ? 'CHECK_COMMIT_QUEUE'
+                : counts.DUPLICATE_REVIEW > 0
+                  ? 'REVIEW_DUPLICATES'
+                  : counts.FAILED > 0
+                    ? 'INSPECT_ROW_ERRORS'
+                    : null,
         },
         validRows: row.validRows,
         warningRows: row.warningRows,

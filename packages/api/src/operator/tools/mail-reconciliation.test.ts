@@ -73,6 +73,7 @@ describe('Gmail reconciliation MCP controls', () => {
         targetId: 'account-1',
         action: 'operator.gmail_reconciliation.requested',
       }),
+      fixture.value.database,
     )
     expect(order).toEqual(['audit', 'enqueue'])
   })

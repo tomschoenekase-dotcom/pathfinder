@@ -78,7 +78,7 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
-  ['apps/workers/src/processors/gmail-sync.ts', 4],
+  ['apps/workers/src/processors/gmail-sync.ts', 5],
   // Platform maintenance scans a bounded set of STALE summaries, then each
   // canonical refresh re-enters one exact tenant+organization scope.
   ['apps/workers/src/processors/account-summary-refresh.ts', 1],
@@ -280,6 +280,7 @@ const approvedCallCounts = new Map([
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
   ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  ['packages/api/src/routers/admin/prospect-crm-mailbox.ts', 3],
   // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
   // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
   ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],
@@ -756,13 +757,17 @@ if (approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.
 if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') !== 1 + 3) {
   throw new Error('Packet 5 voice-session recovery bypass delta differs')
 }
+// Gmail reconciliation: three admin mailbox reads and one worker cursor-recovery write.
+// Admin calls require platform admin and bind account/job identity; the worker uses one exact account.
+const gmailReconciliationApprovedDelta = 4
 if (
   r2ApprovedTotal !==
   453 +
     [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) +
     packet5ApprovedDelta +
     liveDataApprovedDelta +
-    inboundReplyApprovedDelta
+    inboundReplyApprovedDelta +
+    gmailReconciliationApprovedDelta
 ) {
   throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
 }
