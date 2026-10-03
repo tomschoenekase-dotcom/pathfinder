@@ -228,10 +228,15 @@ jobs:
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
       - name: Verify operator OAuth, grants, proposals and approvals on disposable PostgreSQL
         if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
-        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator.adversarial.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts src/operator/operator-routine-default.disposable.integration.test.ts src/operator/tools/crm-csv-import.disposable.integration.test.ts --pool=forks --maxWorkers=1
+        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator.adversarial.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts src/operator/operator-routine-default.disposable.integration.test.ts src/operator/tools/crm-csv-import.disposable.integration.test.ts src/operator/tools/crm-merges.disposable.integration.test.ts src/operator/operator-decisions-grants.disposable.integration.test.ts src/correspondence/prisma-provider-draft-store.disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
         env:
           RUN_OPERATOR_DB_INTEGRATION: '1'
           RUN_CRM_CSV_IMPORT_DB_INTEGRATION: '1'
+      - name: Verify CRM account merge plans and source preservation on disposable PostgreSQL
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
+        env:
+          RUN_PROSPECT_CRM_DB_INTEGRATION: '1'
       - name: Verify client MCP credential and venue appearance lifecycle
         if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/mcp/mcp-venue-appearance-disposable.integration.test.ts --pool=forks --maxWorkers=1
