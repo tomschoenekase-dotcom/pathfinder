@@ -29,11 +29,13 @@ Nothing was deployed, migrated on a hosted database, sent, invited, charged or c
 
 - Integration worktree: `20261002-einstein-finish/worktree`; local branch `claude/exciting-einstein-bl59qp-restore`.
 - Starting remote head: `415134988fb9696160d764f79e2d01a317d6ed4f`. Source proof and exact commands are in the journal and local `../qa/final-*` receipts; final commit identity is `git rev-parse HEAD`.
-- 265 migration files. Added lane migrations: `20261002110000` decisions/job grants, `20261002111000` inbound replies, `20261002112000` routine budgets, `20261002113000` offboarding execution, integrator-reviewed `20261002114000` deterministic credential capability collation, and `20261002115000` client-reported voice usage classification.
+- 267 migration files. The current continuation adds local-only `20261002120000` Gmail draft references and `20261002121000` organization merge receipts; both require release admission. Earlier lane additions follow. Added lane migrations: `20261002110000` decisions/job grants, `20261002111000` inbound replies, `20261002112000` routine budgets, `20261002113000` offboarding execution, integrator-reviewed `20261002114000` deterministic credential capability collation, and `20261002115000` client-reported voice usage classification.
 - The collation migration replaces only the evidence-trigger ordering expression; allowlists and evidence checks remain identical. The voice migration adds the runtime CLIENT_REPORTED value to the existing usage check without promoting it to provider-observed spend. No existing migration, credential or usage data was rewritten. All 265 applied only to disposable local PostgreSQL 16/pgvector.
 - Local proof uses synthetic credentials and loopback PostgreSQL/Redis/storage. No hosted-provider or physical-device proof is implied.
 
 ## 3. Test results (local continuation)
+
+The latest CRM continuation results are in section 11; the following table preserves the earlier lane integration evidence.
 
 Commands ran serially through `../qa/final-checks.ps1` with the packet's synthetic environment. The journal retains earlier failures and their corrective reruns. Full workspace proof used a7fb1502; follow-up source 57b90ac0 passed typecheck, lint and 14 readiness tests. Final script proof includes the final documentation and admin procedure inventory correction.
 
@@ -61,50 +63,50 @@ Twelve frozen-pin failures remain release blockers. The original 14 included two
 
 PASS here means "local automated evidence for the code path"; provider/device/hosted rows are separate.
 
-| Row                             | Status                                                           | Note                                                                                  |
-| ------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| A01 discover/add prospect       | Implemented; unit + disposable DB PASS                           | duplicate stop, bound cursors                                                         |
-| A02 correct CRM data            | Implemented; unit PASS                                           | revision guard, unsupported fields rejected                                           |
-| A03 import + duplicate decision | Native CSV staging + commit; synthetic 20/7/13 DB PASS           | Ambiguous duplicates require review; original 372-row file NOT RUN                    |
-| A04 grounded outreach draft     | Implemented; unit + disposable DB PASS                           | bounded context, full relationship scope, explicit unsupported claims                 |
-| A05 send/reconcile outreach     | NOT RUN                                                          | sending gated, unauthorized                                                           |
-| A06 receive reply               | Implemented; provider-dark DB PASS                               | unique anchor + sender match; ambiguous/overflow quarantined; no live mailbox proof   |
-| A07 convert prospect to client  | Implemented durability/reconcile; unit PASS                      | invitation separate                                                                   |
-| A08 private draft venue         | Existing; preview denial unit PASS                               | hosted NOT RUN                                                                        |
-| A09 ingest sources              | Implemented; unit PASS (fixtures)                                | no external fetch                                                                     |
-| A10 correct content             | Implemented changesets; unit PASS                                |                                                                                       |
-| A11 ask via portal + email      | Implemented; unit PASS; email NOT SENT                           | switch default off                                                                    |
-| A12 process replies             | Portal + linked inbound email evidence                           | moves waiting request to review; never auto-completes it                              |
-| A13 preview and publish         | Private preview + release reads implemented; publication NOT RUN |                                                                                       |
-| A14 theming/access assets       | Existing; NOT RUN                                                |                                                                                       |
-| A15 notices                     | Implemented; unit PASS                                           | venue timezone field absent                                                           |
-| A16 analyze conversations       | Readers implemented; unit PASS                                   | test sessions not distinguishable                                                     |
-| A17 finding → improvement       | Partially (evidence + changeset); end-to-end NOT RUN             |                                                                                       |
-| A18 lemonade recommendation     | Implemented; unit PASS                                           | capability off by default                                                             |
-| A19 measure commercial change   | Raw counts only; attribution explicitly unavailable              |                                                                                       |
-| A20 complete report             | Full reader + generate/publish proposals; delivery NOT MODELLED  |                                                                                       |
-| A21 billing setup/reconcile     | State model + webhook fixes; sandbox NOT RUN                     |                                                                                       |
-| A22 billing exception           | Grace/ordering fixes unit PASS; sandbox NOT RUN                  |                                                                                       |
-| A23 routines                    | Stop rules + estimated dollar reservations; DB PASS              | email/portal reply stops; global prospect bindings refused; no actual-spend cap claim |
-| A24 offboarding                 | Scoped durable local execution; DB PASS                          | resume checks live state; identity-provider removal and billing remain manual         |
-| A25 chat approvals              | Authenticated decision requests implemented; DB/route PASS       | MCP requests a decision link; only reverified owner decides                           |
-| A26 bounded job grant           | Bounded grant lifecycle + human-triggered apply; DB PASS         | appearance only; no MCP grant consumption or unattended scheduler                     |
-| A27 partial/unknown recovery    | Customer-create and local offboarding recovery tested            | hosted reconciliation NOT RUN; partial effects never called no-effect                 |
-| A28 isolation/limits            | Cross-tenant generated cases PASS; SSRF/limits unit PASS         |                                                                                       |
-| A29 real iPhone                 | NOT RUN                                                          | required to call the bug fixed                                                        |
-| M01–M05 mobile                  | Implemented; emulation PASS; device NOT RUN                      |                                                                                       |
-| B01 billing states              | Implemented; render PASS                                         |                                                                                       |
-| B02 live checklist              | Written; live inspection NOT RUN                                 |                                                                                       |
-| B03 event recovery              | Unit PASS; sandbox NOT RUN                                       |                                                                                       |
-| B04 billing access              | Server-side role checks; unit PASS                               |                                                                                       |
-| L01–L06 web policy/live data    | Implemented; fixture unit PASS                                   | no real feed                                                                          |
-| CI01–CI05                       | Implemented; script PASS                                         |                                                                                       |
-| CI06 before/after               | Baseline measured (median 52.8 min); after NOT RUN               | needs GitHub runs                                                                     |
-| H01–H03 consolidation (W14)     | Conservative slice PASS; larger boundary cleanup remains         | worker production API-import files 11 → 10; compatibility export retained             |
-| P01 portal/branding             | Billing + look-and-feel fixes; device NOT RUN                    |                                                                                       |
-| P02 one guide across surfaces   | Existing; NOT RUN                                                |                                                                                       |
-| S01 CityPASS                    | Drafts PASS (unsent)                                             | contact not selected                                                                  |
-| S02 NYC plan                    | PASS (plan only)                                                 |                                                                                       |
+| Row                             | Status                                                                              | Note                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| A01 discover/add prospect       | Implemented; unit + disposable DB PASS                                              | duplicate stop, bound cursors                                                         |
+| A02 correct CRM data            | Implemented; unit PASS                                                              | revision guard, unsupported fields rejected                                           |
+| A03 import + duplicate decision | Native CSV, mapping/resume, exact field retention and reviewed merge; local DB PASS | Ambiguous duplicates require review; original 372-row file NOT RUN                    |
+| A04 grounded outreach draft     | Implemented; unit + disposable DB PASS                                              | bounded context, full relationship scope, explicit unsupported claims                 |
+| A05 send/reconcile outreach     | NOT RUN                                                                             | sending gated, unauthorized                                                           |
+| A06 receive reply               | Initial/incremental Gmail reconciliation + linked replies; local DB PASS            | unique anchor + sender match; ambiguous/overflow quarantined; no live mailbox proof   |
+| A07 convert prospect to client  | Implemented durability/reconcile; unit PASS                                         | invitation separate                                                                   |
+| A08 private draft venue         | Existing; preview denial unit PASS                                                  | hosted NOT RUN                                                                        |
+| A09 ingest sources              | Implemented; unit PASS (fixtures)                                                   | no external fetch                                                                     |
+| A10 correct content             | Implemented changesets; unit PASS                                                   |                                                                                       |
+| A11 ask via portal + email      | Implemented; unit PASS; email NOT SENT                                              | switch default off                                                                    |
+| A12 process replies             | Portal + linked inbound email evidence                                              | moves waiting request to review; never auto-completes it                              |
+| A13 preview and publish         | Private preview + release reads implemented; publication NOT RUN                    |                                                                                       |
+| A14 theming/access assets       | Existing; NOT RUN                                                                   |                                                                                       |
+| A15 notices                     | Implemented; unit PASS                                                              | venue timezone field absent                                                           |
+| A16 analyze conversations       | Readers implemented; unit PASS                                                      | test sessions not distinguishable                                                     |
+| A17 finding → improvement       | Partially (evidence + changeset); end-to-end NOT RUN                                |                                                                                       |
+| A18 lemonade recommendation     | Implemented; unit PASS                                                              | capability off by default                                                             |
+| A19 measure commercial change   | Raw counts only; attribution explicitly unavailable                                 |                                                                                       |
+| A20 complete report             | Full reader + generate/publish proposals; delivery NOT MODELLED                     |                                                                                       |
+| A21 billing setup/reconcile     | State model + webhook fixes; sandbox NOT RUN                                        |                                                                                       |
+| A22 billing exception           | Grace/ordering fixes unit PASS; sandbox NOT RUN                                     |                                                                                       |
+| A23 routines                    | Stop rules + estimated dollar reservations; DB PASS                                 | email/portal reply stops; global prospect bindings refused; no actual-spend cap claim |
+| A24 offboarding                 | Scoped durable local execution; DB PASS                                             | resume checks live state; identity-provider removal and billing remain manual         |
+| A25 chat approvals              | Exact proposal descriptions + authenticated decision/resume; DB/route PASS          | MCP requests a decision link; only reverified owner decides                           |
+| A26 bounded job grant           | Bounded grant lifecycle + human-triggered apply; DB PASS                            | appearance only; no MCP grant consumption or unattended scheduler                     |
+| A27 partial/unknown recovery    | Customer-create and local offboarding recovery tested                               | hosted reconciliation NOT RUN; partial effects never called no-effect                 |
+| A28 isolation/limits            | Cross-tenant generated cases PASS; SSRF/limits unit PASS                            |                                                                                       |
+| A29 real iPhone                 | NOT RUN                                                                             | required to call the bug fixed                                                        |
+| M01–M05 mobile                  | Implemented; emulation PASS; device NOT RUN                                         |                                                                                       |
+| B01 billing states              | Implemented; render PASS                                                            |                                                                                       |
+| B02 live checklist              | Written; live inspection NOT RUN                                                    |                                                                                       |
+| B03 event recovery              | Unit PASS; sandbox NOT RUN                                                          |                                                                                       |
+| B04 billing access              | Server-side role checks; unit PASS                                                  |                                                                                       |
+| L01–L06 web policy/live data    | Implemented; fixture unit PASS                                                      | no real feed                                                                          |
+| CI01–CI05                       | Implemented; script PASS                                                            |                                                                                       |
+| CI06 before/after               | Baseline measured (median 52.8 min); after NOT RUN                                  | needs GitHub runs                                                                     |
+| H01–H03 consolidation (W14)     | Conservative slice PASS; larger boundary cleanup remains                            | worker production API-import files 11 → 10; compatibility export retained             |
+| P01 portal/branding             | Billing + look-and-feel fixes; device NOT RUN                                       |                                                                                       |
+| P02 one guide across surfaces   | Existing; NOT RUN                                                                   |                                                                                       |
+| S01 CityPASS                    | Drafts PASS (unsent)                                                                | contact not selected                                                                  |
+| S02 NYC plan                    | PASS (plan only)                                                                    |                                                                                       |
 
 ## 5. Root causes found (evidence in the journal)
 
@@ -116,7 +118,7 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 
 ## 6. Decisions and approvals needed from Tom
 
-1. Review and admit the exact migration suffix 256–265 separately before promotion. The staging pins remain frozen at 255 and produce 12 remaining pin failures.
+1. Review and admit the exact migration suffix 256–267 separately before promotion. The staging pins remain frozen at 255 and produce 12 remaining pin failures.
 2. Venue timezone migration and the existing documentation name replacement remain waiting for Tom's yes. Neither was performed.
 3. Run the real-iPhone Safari/Chrome protocol before declaring the keyboard/viewport journey fixed on device; run the Stripe sandbox lifecycle before any billing-readiness claim.
 4. Review the new offboarding tenant/plan lock, bounded inbound ownership discovery, and deterministic credential collation migration as part of release admission. Rehearsal must check compatibility with existing credential capability order without rewriting credential data.
@@ -124,6 +126,10 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 6. The earlier unknown customer-create operation still needs the scoped read-only production reconciliation in the runbook. New email enablement, provider effects and production release need their own authorization.
 
 ## 7. Not done (honest scope)
+
+- Native Gmail draft-resource synchronization (`drafts.list/get`) is NOT IMPLEMENTED. Message/thread IDs and nullable draft references are distinct; unknown draft references are not fabricated. Live initial/incremental sync, watch activation and deployed native-file upload remain NOT RUN.
+- Model selection remains `gpt-6-luna`, as Tom explicitly confirmed. Live overrides were not inspected. Explicit stable-prefix caching and separate read/write token accounting are implemented locally; live cache-hit rates, latency and savings remain NOT RUN.
+- Complex account merges (active work, inbound/review/onboarding graphs, tenant links, identity collisions or weaker stop state) are refused with explicit blockers. Broader resolution remains future reviewed work.
 
 - No deploy, hosted migration, live-provider call, email or invitation, purchase, branch-protection change or staging-pin edit.
 - The 12 frozen admission-pin failures are not fixed; all original 14 are classified in the journal. Exact-head CI may remain red at this gate; the delivery receipt records actual check outcomes.
@@ -136,12 +142,12 @@ PASS here means "local automated evidence for the code path"; provider/device/ho
 
 ## 8. Release and rollback proposal — NOT executed
 
-1. Keep PR #40 on the protected staging path. Review all local proof and exact-head CI; resolve non-pin failures and separately authorize the final 256–265 admission before promotion. Do not bypass the frozen gate.
-2. Staging proposal: freeze the exact source, drain writers, take a fresh backup, and rehearse all ten unadmitted migrations on a disposable restore. Compare original-table hashes/counts, review existing capability ordering for the trigger change, and retain the exact manifest and migration ledger.
+1. Keep PR #40 on the protected staging path. Review all local proof and exact-head CI; resolve non-pin failures and separately authorize the final 256–267 admission before promotion. Do not bypass the frozen gate.
+2. Staging proposal: freeze the exact source, drain writers, take a fresh backup, and rehearse all twelve unadmitted migrations on a disposable restore. Compare original-table hashes/counts, review existing capability ordering for the trigger change, and retain the exact manifest and migration ledger.
 3. Only after separate approval, use the existing gated migration/release runbook and exact three-service admission. Keep new email, offboarding and provider-related switches off. Run authenticated owner approval, offboarding recovery, guest-device and Stripe sandbox protocols before enabling corresponding journeys.
 4. Production requires a new scoped decision naming the exact tested SHA, migration manifest, backup and staging evidence. Nothing in this handoff grants that decision.
 5. Rollback proposal: drain writers and restore the previously admitted application SHA (the packet's baseline is `9f726af`; re-verify the release record before use). Retain additive tables and audit evidence; do not run destructive down migrations. The collation and client-reported usage migrations replace an existing trigger/check, so separately review compatibility rather than treating it as a removable table.
-6. Reconcile partially applied offboarding using durable receipts before retrying. Application rollback cannot restore identity-provider membership, revoked credentials or payment-provider state; those need a person and their own evidence.
+6. Pause import and merge writers before application rollback. Retain created CRM records, archived source IDs, source history and merge/import receipts; rollback is not an unmerge. Reconcile partially applied offboarding using durable receipts before retrying. Application rollback cannot restore identity-provider membership, revoked credentials or payment-provider state; those need a person and their own evidence.
 
 ## 9. Historical pause point (prior cloud session)
 
@@ -173,3 +179,37 @@ healthy on staging. Retarget this PR to `codex/pathfinder-v2-staging` (or open a
 - Prior head `ba0465b6` CI failed at public API surface inventory. The reviewed guarded decision/job-grant routes are now inventoried; local inventory verification PASS. The frozen staging-admission pins remain untouched.
 - Follow-up source `5c9896e4`: install, full typecheck/lint and final API checks PASS; serial workspace PASS 10,565 tests; fresh operator suite PASS 51 files / 662 tests; canonical CRM suites PASS 2. Exact commands and all intermediate failures are in the journal and `../qa/crm-safari-*`. Script results and final exact-head CI are in the delivery receipt.
 - Release/rollback remains the unexecuted proposal in section 8. Add native attachment staging/commit, routine writes, explicit ASK and real-device Send checks to staging acceptance; retain durable import receipts through rollback. Before reverting to older code without the completion guard, pause import writers and reconcile or cancel incomplete MCP CSV imports through canonical tools; application rollback does not undo created prospect records. No new migration was introduced by this follow-up.
+
+## 11. CRM current-mail and import review pause (2026-10-02)
+
+CRM code proof head: `4c7fc81d` (full SHA in the external sealed-run receipt); the earlier integrated proof below used `50967da98c700a1da2bf112f3df02423ab2ffcc8`. Subsequent cache changes and their proof are recorded separately. All six original lanes and the Gmail/import/merge continuation are committed. Delivery remains PR #40 into staging, with no deployment. The current local MCP catalog is v2, server 1.2.0, manual v5; installed older servers do not gain these tools until a separately authorized release and host refresh.
+
+Gmail connection queues watch renewal and initial reconciliation independently. Manual UI/MCP reconciliation supplies an inspectable job ID; bounded continuation and compare-and-set cursor completion preserve replay. The initial cursor is captured before listing to avoid missing arrivals. Draft-labelled messages are not recorded as sent, and sent evidence never implies verified delivery. Imported Gmail/status claims remain unverified source evidence.
+
+CSV/source imports expose mapping, selected sheets, phase/counts/errors/recovery, exact source-field pages and per-field retention hashes. Explicit existing account/location IDs and case-insensitive address matching distinguish parent organizations from locations. The 35,623-character provenance test and synthetic 20-input/7-duplicate/13-created replay test pass on the fresh integration database. Account merges require an exact preview and human approval, preserve contacts and outbound history, retain immutable source records through lineage, and refuse unsafe graphs or weakened stop states. Routine writes retain the owner's standing policy; host confirmations and subscription limits are independent.
+
+Final review corrections preserve supplied street/country/postal/parent identity during native CSV duplicate handling and refuse native CSV failed rows at both proposal and canonical approval boundaries. Gmail setup failures now update the durable receipt and sanitized diagnostic signal; status reads use bounded, cancellable requests. The CRM thread extraction preserves existing procedures and guards. Source inventories reflect 585 mounted operations and 467 reviewed bypass calls across 165 files; runtime Prisma namespace access was removed without changing serializable merge transactions.
+
+Current integrated proof: install, Prisma generation, all 267 local migrations, full typecheck (27 tasks), full lint (15 tasks), and operator sweep (58 files/690 tests) PASS. CRM merge/import/package cases PASS (8), canonicalization and outreach isolated reruns PASS (1 each), inbound/routines/budgets PASS (41), attachment retention PASS (1), isolated onboarding PASS (1), admin fit/size PASS (2), and isolated agent-copy PASS (1). Four old suites assume an empty database or a fixed unique mailbox; their initial shared-database failures and separate fresh-database reruns are retained in `../qa/crm-current-final-*.log`. No product fix was made for fixture isolation.
+
+Sealed CRM proof: fresh operator sweep PASS 58 files / 693 tests; CRM merge/import suite PASS 8 tests; all six boundary checks PASS. `pnpm test:scripts` reports 607 PASS, 12 frozen admission-pin FAIL and one SKIP. The original 14 failures remain classified as 12 frozen admission-pin failures and two corrected documentation checks. Workspace testing found one PDF correctness-test timeout under load; its bounded timeout correction passes 6/6 in isolation, with the full rerun combined with subsequent cache work. Exact commands and failed attempts remain in the journal and external `qa` receipts.
+
+Guest UI evidence: prior local WebKit matrix 27 PASS with eight intentional project skips; latest Chromium phone/tablet/desktop core journey 3 PASS after correcting a test selector to measure the existing outer composer. The displayed museum image was an existing synthetic local fixture, not a new design or deployed change. Physical iPhone/software-keyboard/VoiceOver proof remains NOT RUN.
+
+Release and rollback remain the unexecuted section 8 proposal. Review native Gmail draft synchronization, isolated-test assumptions, exact-head CI, deployed attachment flow and physical Safari before claiming the entire CRM/phone experience finished. Venue timezone and the existing document-name replacement still wait for Tom's yes.
+
+## 12. Prompt caching continuation (2026-10-02)
+
+Combined code source `94bb24da48b1c7493b78b6b343d62a00cfb86976` adds explicit stable-prefix caching for supported OpenAI models and separate ordinary-input, cache-read and cache-write accounting in both response paths. Unmarked dynamic prompts avoid implicit cache writes. Existing budget ceilings already reserve the write premium; a regression proves this without loosening limits. Provider response storage remains disabled. This caches repeated input prefixes, not CRM writes or reused answers.
+
+Featured-place context now follows the static cache boundary inside escaped untrusted data. The prompt contract advances to v23; historical evaluation evidence remains unchanged. Review the changed prompt identity before release. Focused cache/routing tests PASS 36/36, budget tests PASS 7/7, prompt/evaluation tests PASS 65/65; full combined outcomes are recorded in the journal and external delivery receipt.
+
+Guest routing remains `gpt-6-luna`. Tom explicitly confirmed keeping GPT-6 Luna; no model migration is requested. No live model override was inspected or changed. Actual provider cache hits, savings and latency are NOT RUN and require separately authorized release measurement. Cache creation can cost more on a first use; reuse determines savings.
+
+## 13. Review-first pause (latest instruction)
+
+Tom requested Opus review before another CI cycle. The broad local rerun was stopped; no new push or exact-head CI was started. Latest local code SHA: `e45c41b36497d095186229e02908a5d5805d7651`; final delivery adds this documentation. Use the external `OPUS-REVIEW-HANDOFF.md` as the review entrypoint.
+
+Combined production typecheck PASS (27 tasks), lint PASS (15 tasks), focused cache/prompt/budget checks PASS. The corrected API rerun PASS 3,471 tests with 373 opt-in skips. Full workspace rerun was interrupted before completion; subsequent `pnpm test` and boundary reruns are NOT RUN. Earlier sealed CRM proof remains 693 operator DB tests plus eight CRM DB tests PASS, six boundaries PASS, scripts 607 PASS / 12 frozen pin FAIL / one SKIP. No frozen pin was edited.
+
+Opus should review the local committed candidate and fixes before spending another final CI cycle. Keep GPT-6 Luna per Tom. Outstanding live/device checks, native Gmail drafts, held approvals and the unexecuted release/rollback proposal remain as documented above.
