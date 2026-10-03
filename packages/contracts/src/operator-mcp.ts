@@ -279,6 +279,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'support.list_messages',
   'support.list_replies',
   'crm.list_mailboxes',
+  'crm.get_mail_reconciliation',
   'crm.list_mail_threads',
   'crm.list_mail_messages',
   'crm.list_mail_receipts',
@@ -309,6 +310,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
 export const OPERATOR_CONTROL_TOOL_NAMES = [
   // Stages a bounded CSV under an explicit platform-wide CRM grant; it never sends outreach.
   'crm.stage_csv_import',
+  'crm.request_mail_reconciliation',
   'operator.cancel_operation',
   'operator.recover_operation',
   // Asks a signed-in person to decide one proposal. It records a ticket and returns a link, and
@@ -543,6 +545,14 @@ export const OPERATOR_MCP_INPUTS = {
     limit: PageLimit,
   }),
   'crm.list_mailboxes': readInput({ ...tenantScope, cursor: Cursor.optional(), limit: PageLimit }),
+  'crm.request_mail_reconciliation': readInput({
+    providerAccountId: Identifier,
+    requestId: z.string().uuid(),
+  }),
+  'crm.get_mail_reconciliation': readInput({
+    providerAccountId: Identifier,
+    jobId: z.string().regex(/^gmail-sync-[a-f0-9]{64}$/u),
+  }),
   'crm.list_mail_threads': readInput({
     ...tenantScope,
     cursor: Cursor.optional(),
@@ -3162,6 +3172,20 @@ export const OPERATOR_MCP_OUTPUTS = {
       })
       .strict(),
   ),
+  'crm.request_mail_reconciliation': z
+    .object({ jobId: Identifier, status: z.literal('QUEUED') })
+    .strict(),
+  'crm.get_mail_reconciliation': z
+    .object({
+      jobId: Identifier,
+      status: z.string().max(40),
+      processed: z.number().int().nonnegative().nullable(),
+      complete: z.boolean().nullable(),
+      nextJobId: Identifier.nullable(),
+      errorCode: z.string().max(100).nullable(),
+      completedAt: IsoDateTime.nullable(),
+    })
+    .strict(),
   'crm.list_mail_threads': Page(
     z
       .object({
@@ -4313,6 +4337,20 @@ const seeds: readonly Seed[] = [
     `List provider mailboxes linked to this tenant's canonical mail threads, with connection and health metadata.${READ}`,
     'crm:read',
     'tenant',
+  ],
+  [
+    'crm.request_mail_reconciliation',
+    'Reconcile Gmail mailbox',
+    'Queue bounded provider-read reconciliation of one connected Gmail account. Matched mail can update canonical CRM reply history and unmatched mail is quarantined for review. Requires a platform-wide CRM grant; returns a job ID. This does not send mail.',
+    'crm:propose',
+    'platform',
+  ],
+  [
+    'crm.get_mail_reconciliation',
+    'Get Gmail reconciliation result',
+    'Read one queued Gmail reconciliation job result with processed count and safe failure code. Requires a platform-wide CRM grant.',
+    'crm:read',
+    'platform',
   ],
   [
     'crm.list_mail_threads',

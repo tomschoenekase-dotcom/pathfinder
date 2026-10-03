@@ -91,6 +91,7 @@ export type InboundCorrespondenceStore = Readonly<{
   commitSyncCursor(input: {
     mailbox: ProviderMailboxRef
     cursor: string
+    expectedCursor: string | null
     mode: 'INCREMENTAL' | 'FULL_RECONCILIATION'
     completedAt: Date
   }): Promise<void>
@@ -310,27 +311,50 @@ export function createInboundCorrespondenceService(input: {
       return { ...result, receipt: received.receipt }
     },
 
-    async synchronize(mailbox: ProviderMailboxRef) {
+    async synchronize(
+      mailbox: ProviderMailboxRef,
+      options: {
+        mode?: 'FULL_RECONCILIATION' | 'INCREMENTAL'
+        pageToken?: string
+        maxPages?: number
+        after?: Date
+        baselineCursor?: string | null
+        targetCursor?: string
+      } = {},
+    ) {
       const cursor = await store.getSyncCursor(mailbox)
-      const mode = cursor ? 'INCREMENTAL' : 'FULL_RECONCILIATION'
-      let pageToken: string | undefined
-      let finalCursor = cursor ?? ''
+      if (options.pageToken && options.baselineCursor === undefined) {
+        throw new Error('Correspondence continuation has no cursor baseline')
+      }
+      const baselineCursor = options.pageToken ? options.baselineCursor! : cursor
+      const mode = options.mode ?? (baselineCursor ? 'INCREMENTAL' : 'FULL_RECONCILIATION')
+      if (mode === 'INCREMENTAL' && !baselineCursor) {
+        throw new Error('Incremental correspondence sync requires a cursor')
+      }
+      const maxPages = options.maxPages ?? 10
+      if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 10) {
+        throw new Error('Correspondence page budget must be between 1 and 10')
+      }
+      let pageToken: string | undefined = options.pageToken
+      let finalCursor = options.targetCursor ?? ''
       let processed = 0
+      let pages = 0
       try {
         do {
-          const page = cursor
-            ? await provider.syncIncremental({
-                mailbox,
-                cursor,
-                ...(pageToken ? { pageToken } : {}),
-                pageSize,
-              })
-            : await provider.reconcile({
-                mailbox,
-                after: new Date(0),
-                ...(pageToken ? { pageToken } : {}),
-                pageSize,
-              })
+          const page =
+            mode === 'INCREMENTAL' && baselineCursor
+              ? await provider.syncIncremental({
+                  mailbox,
+                  cursor: baselineCursor,
+                  ...(pageToken ? { pageToken } : {}),
+                  pageSize,
+                })
+              : await provider.reconcile({
+                  mailbox,
+                  after: options.after ?? new Date(0),
+                  ...(pageToken ? { pageToken } : {}),
+                  pageSize,
+                })
           for (const message of page.messages) {
             if (!sameScope(mailbox, message.message) || !sameScope(mailbox, message.thread)) {
               await store.quarantine({
@@ -344,19 +368,43 @@ export function createInboundCorrespondenceService(input: {
             await ingestMessage(message, null)
             processed += 1
           }
-          finalCursor = page.cursor
+          // Freeze the first page's provider history head. A message arriving while later
+          // pages are fetched must remain discoverable by the next incremental pass.
+          if (!finalCursor) finalCursor = page.cursor
           pageToken = page.hasMore ? (page.nextPageToken ?? undefined) : undefined
-        } while (pageToken)
+          if (page.hasMore && !pageToken) {
+            throw new Error('Correspondence provider omitted a continuation token')
+          }
+          pages += 1
+        } while (pageToken && pages < maxPages)
+
+        if (pageToken) {
+          return {
+            mode,
+            cursor: null,
+            processed,
+            complete: false as const,
+            nextPageToken: pageToken,
+            baselineCursor,
+            targetCursor: finalCursor,
+          }
+        }
 
         // Cursor advances only after every returned page and message has been durably handled.
-        await store.commitSyncCursor({ mailbox, cursor: finalCursor, mode, completedAt: now() })
+        await store.commitSyncCursor({
+          mailbox,
+          cursor: finalCursor,
+          expectedCursor: baselineCursor,
+          mode,
+          completedAt: now(),
+        })
         await store.recordHealth({
           mailbox,
           operation: mode === 'INCREMENTAL' ? 'INCREMENTAL_SYNC' : 'RECONCILIATION',
           state: 'SUCCEEDED',
           occurredAt: now(),
         })
-        return { mode, cursor: finalCursor, processed }
+        return { mode, cursor: finalCursor, processed, complete: true as const }
       } catch (error) {
         await store.recordHealth({
           mailbox,

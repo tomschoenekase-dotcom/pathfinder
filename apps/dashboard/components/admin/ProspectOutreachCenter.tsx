@@ -13,6 +13,9 @@ type Campaigns = Awaited<
 type Readiness = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectOutreachReadiness']['query']>
 >
+type Reconciliation = Awaited<
+  ReturnType<ReturnType<typeof useTRPCClient>['admin']['getGmailReconciliation']['query']>
+>
 
 const OUTREACH_READ_TIMEOUT_MS = 15_000
 
@@ -24,8 +27,11 @@ export function ProspectOutreachCenter({
   const [readiness, setReadiness] = useState<Readiness | null>(fixture?.readiness ?? null)
   const [loading, setLoading] = useState(!fixture)
   const [error, setError] = useState<string | null>(null)
+  const [reconciliation, setReconciliation] = useState<Record<string, Reconciliation>>({})
+  const [reconcilingAccountId, setReconcilingAccountId] = useState<string | null>(null)
   const requestSequence = useRef(0)
   const activeRequest = useRef<AbortController | null>(null)
+  const reconciliationRequestIds = useRef<Record<string, string>>({})
 
   const load = useCallback(async () => {
     const sequence = ++requestSequence.current
@@ -82,6 +88,54 @@ export function ProspectOutreachCenter({
       activeRequest.current = null
     }
   }, [fixture, load])
+
+  async function checkReconciliation(providerAccountId: string, jobId: string) {
+    try {
+      const result = await client.admin.getGmailReconciliation.query({ providerAccountId, jobId })
+      if (result.status === 'COMPLETE' && result.complete === false && result.nextJobId) {
+        const continuation = await client.admin.getGmailReconciliation.query({
+          providerAccountId,
+          jobId: result.nextJobId,
+        })
+        setReconciliation((current) => ({ ...current, [providerAccountId]: continuation }))
+      } else {
+        setReconciliation((current) => ({ ...current, [providerAccountId]: result }))
+      }
+      if (result.status === 'COMPLETE' || result.status === 'FAILED') await load()
+    } catch {
+      setError('Gmail reconciliation status could not be confirmed. Retry the status check.')
+    }
+  }
+
+  async function requestReconciliation(providerAccountId: string) {
+    setReconcilingAccountId(providerAccountId)
+    setError(null)
+    const requestId = reconciliationRequestIds.current[providerAccountId] ?? crypto.randomUUID()
+    reconciliationRequestIds.current[providerAccountId] = requestId
+    try {
+      const queued = await client.admin.requestGmailReconciliation.mutate({
+        providerAccountId,
+        requestId,
+      })
+      delete reconciliationRequestIds.current[providerAccountId]
+      setReconciliation((current) => ({
+        ...current,
+        [providerAccountId]: {
+          jobId: queued.jobId,
+          status: queued.status,
+          processed: null,
+          complete: null,
+          nextJobId: null,
+          errorCode: null,
+          completedAt: null,
+        },
+      }))
+    } catch {
+      setError('Gmail reconciliation could not be queued. Check mailbox health and retry.')
+    } finally {
+      setReconcilingAccountId(null)
+    }
+  }
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -222,6 +276,44 @@ export function ProspectOutreachCenter({
                   <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
                     {account.healthErrorCode ? `${account.healthErrorCode}: ` : ''}
                     {account.healthErrorSummary}
+                  </p>
+                ) : null}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      reconcilingAccountId === account.id ||
+                      account.connectionStatus === 'DISCONNECTED'
+                    }
+                    onClick={() => void requestReconciliation(account.id)}
+                    className="min-h-11 rounded-xl border border-sky-300 px-3 py-2 text-xs font-semibold text-sky-800 disabled:opacity-50"
+                  >
+                    {reconcilingAccountId === account.id ? 'Queuing…' : 'Reconcile mailbox'}
+                  </button>
+                  {reconciliation[account.id] ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void checkReconciliation(account.id, reconciliation[account.id]!.jobId)
+                      }
+                      className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Check result
+                    </button>
+                  ) : null}
+                </div>
+                {reconciliation[account.id] ? (
+                  <p role="status" className="mt-2 text-xs text-slate-700">
+                    Reconciliation {reconciliation[account.id]!.status.toLowerCase()}
+                    {reconciliation[account.id]!.processed !== null
+                      ? ` · ${reconciliation[account.id]!.processed} messages handled in this job`
+                      : ''}
+                    {reconciliation[account.id]!.complete === false
+                      ? ' · continuing in another bounded job'
+                      : ''}
+                    {reconciliation[account.id]!.errorCode
+                      ? ` · ${reconciliation[account.id]!.errorCode}`
+                      : ''}
                   </p>
                 ) : null}
               </li>

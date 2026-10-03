@@ -359,7 +359,8 @@ export function createGmailOAuthRuntime(input: {
               ],
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
+              // Profile history is a notification baseline, not proof of ingestion.
+              syncCursor: null,
               deliveryEnabled: false,
               createdBy: args.requestedBy,
               updatedBy: args.requestedBy,
@@ -367,7 +368,9 @@ export function createGmailOAuthRuntime(input: {
             update: {
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
-              syncCursor: profile.historyId,
+              // Keep an ingested cursor on reconnect; a never-synced account still needs
+              // its initial full backfill instead of skipping to the current profile.
+              ...(existing?.lastSuccessfulSyncAt ? {} : { syncCursor: null }),
               healthErrorCode: null,
               healthErrorSummary: null,
               deliveryEnabled: false,

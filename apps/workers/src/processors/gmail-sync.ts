@@ -8,8 +8,20 @@ import {
   createPrismaInboundCorrespondenceStore,
   type ProviderMailboxRef,
 } from '@pathfinder/api/correspondence'
-import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pathfinder/db'
-import type { GmailSyncJobPayload } from '@pathfinder/jobs'
+import {
+  db,
+  publishCrmOperationalSignal,
+  updateJobRecord,
+  withTenantIsolationBypass,
+  writeJobRecord,
+} from '@pathfinder/db'
+import { enqueueGmailSync, GMAIL_SYNC_QUEUE, type GmailSyncJobPayload } from '@pathfinder/jobs'
+
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 
 function configuration() {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
@@ -22,7 +34,9 @@ function configuration() {
   return { clientId, clientSecret, redirectUri, integrationEncryptionKey }
 }
 
-async function mailboxFor(providerAccountId: string): Promise<ProviderMailboxRef> {
+async function mailboxFor(
+  providerAccountId: string,
+): Promise<ProviderMailboxRef & { lastReconciliationAt: Date | null }> {
   const account = await withTenantIsolationBypass(() =>
     db.correspondenceProviderAccount.findUnique({ where: { id: providerAccountId } }),
   )
@@ -38,6 +52,7 @@ async function mailboxFor(providerAccountId: string): Promise<ProviderMailboxRef
     mailboxId: account.externalAccountId,
     mailboxAddress: account.mailboxAddress,
     credentialRef: account.credentialReferenceId,
+    lastReconciliationAt: account.lastReconciliationAt,
   }
 }
 
@@ -55,7 +70,7 @@ async function markNotificationReceipt(receiptId: string, success: boolean) {
   )
 }
 
-export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
+async function synchronizeGmail(payload: GmailSyncJobPayload) {
   if (payload.providerAccountId === '*') {
     if (payload.trigger === 'PUBSUB_NOTIFICATION') {
       throw new Error('A Pub/Sub notification must target one exact Gmail account')
@@ -73,6 +88,14 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
     return { accountsProcessed: accounts.length }
   }
   const mailbox = await mailboxFor(payload.providerAccountId)
+  const after = payload.after
+    ? new Date(payload.after)
+    : payload.trigger === 'SCHEDULED_RECONCILIATION' &&
+        !payload.requestId &&
+        mailbox.lastReconciliationAt
+      ? new Date(Math.max(0, mailbox.lastReconciliationAt.getTime() - 86_400_000))
+      : new Date(0)
+  if (!Number.isFinite(after.getTime())) throw new Error('Invalid Gmail reconciliation boundary')
   const runtime = createGmailOAuthRuntime({ configuration: configuration() })
   const provider = createGmailCorrespondenceProvider({
     credentials: runtime.credentials,
@@ -94,8 +117,32 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
     }
 
     try {
-      const result = await service.synchronize(mailbox)
-      if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
+      const result = await service.synchronize(mailbox, {
+        ...(payload.mode
+          ? { mode: payload.mode }
+          : payload.trigger === 'SCHEDULED_RECONCILIATION'
+            ? { mode: 'FULL_RECONCILIATION' as const }
+            : {}),
+        ...(payload.trigger === 'SCHEDULED_RECONCILIATION' ? { after } : {}),
+        ...(payload.pageToken ? { pageToken: payload.pageToken } : {}),
+        ...(payload.baselineCursor !== undefined ? { baselineCursor: payload.baselineCursor } : {}),
+        ...(payload.targetCursor ? { targetCursor: payload.targetCursor } : {}),
+      })
+      if (!result.complete) {
+        if (!result.nextPageToken) throw new Error('Gmail continuation token is missing')
+        const nextJobId = await enqueueGmailSync({
+          ...payload,
+          pageToken: result.nextPageToken,
+          after: after.toISOString(),
+          baselineCursor: result.baselineCursor,
+          mode: result.mode,
+          targetCursor: result.targetCursor,
+        })
+        return { ...result, nextJobId }
+      }
+      if (payload.receiptId) {
+        await markNotificationReceipt(payload.receiptId, true)
+      }
       return result
     } catch (error) {
       if (
@@ -112,8 +159,26 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
           data: { syncCursor: null },
         }),
       )
-      const result = await service.synchronize(mailbox)
-      if (payload.receiptId) await markNotificationReceipt(payload.receiptId, true)
+      const result = await service.synchronize(mailbox, {
+        mode: 'FULL_RECONCILIATION',
+        after: new Date(0),
+      })
+      if (!result.complete) {
+        if (!result.nextPageToken) throw new Error('Gmail continuation token is missing')
+        const nextJobId = await enqueueGmailSync({
+          ...payload,
+          trigger: 'SCHEDULED_RECONCILIATION',
+          pageToken: result.nextPageToken,
+          after: new Date(0).toISOString(),
+          baselineCursor: result.baselineCursor,
+          mode: result.mode,
+          targetCursor: result.targetCursor,
+        })
+        return { ...result, nextJobId }
+      }
+      if (payload.receiptId) {
+        await markNotificationReceipt(payload.receiptId, true)
+      }
       return result
     }
   } catch (error) {
@@ -129,6 +194,50 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
         summary: `Gmail synchronization failed (${errorCode}).`,
       },
     })
+    throw error
+  }
+}
+
+export async function processGmailSyncJob(
+  payload: GmailSyncJobPayload,
+  jobExecution?: JobExecutionInput,
+) {
+  const execution = normalizeJobExecutionMetadata(jobExecution)
+  const jobRecordId = execution.bullJobId
+    ? await writeJobRecord({
+        queue: GMAIL_SYNC_QUEUE,
+        jobName: payload.trigger,
+        bullJobId: execution.bullJobId,
+        status: 'RUNNING',
+        startedAt: new Date(),
+        attemptNumber: execution.attemptNumber,
+        maxAttempts: execution.maxAttempts,
+        payload: { providerAccountId: payload.providerAccountId, trigger: payload.trigger },
+      })
+    : null
+  try {
+    const result = await synchronizeGmail(payload)
+    if (jobRecordId) {
+      await withTenantIsolationBypass(() =>
+        db.jobRecord.update({
+          where: { id: jobRecordId },
+          data: {
+            payload: {
+              providerAccountId: payload.providerAccountId,
+              trigger: payload.trigger,
+              processed: 'processed' in result ? result.processed : 0,
+              complete: 'complete' in result ? result.complete : true,
+              nextJobId: 'nextJobId' in result ? result.nextJobId : null,
+              accountsProcessed: 'accountsProcessed' in result ? result.accountsProcessed : 1,
+            },
+          },
+        }),
+      )
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+    }
+    return result
+  } catch (error) {
+    if (jobRecordId) await recordJobFailure({ jobRecordId, error, execution })
     throw error
   }
 }

@@ -14,6 +14,7 @@ import { companyReadTools } from './company'
 import { discoveryReadTools } from './discovery'
 import { manualReadTools } from './manual'
 import { mailReadTools } from './mail'
+import { mailReconciliationTools } from './mail-reconciliation'
 import { onboardingReadTools } from './onboarding'
 import { operationReadTools } from './operations'
 import { reportReadTools } from './reports'
@@ -30,6 +31,7 @@ import { evidenceReadTools } from './evidence'
 export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...crmReadTools,
   ...mailReadTools,
+  ...mailReconciliationTools,
   ...crmAccountReadTools,
   ...crmOutreachContextReadTools,
   ...crmCampaignReadTools,

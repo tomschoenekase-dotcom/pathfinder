@@ -386,16 +386,18 @@ export async function enqueueProspectImportInspection(
 
 export async function enqueueProspectImportStaging(
   payload: ProspectImportStagingJobPayload,
-): Promise<void> {
+): Promise<string> {
   if (!payload.importId || payload.importId.length > 191)
     throw new Error('Valid import ID required')
+  const jobId = `prospect-import-stage-${payload.importId}-${Date.now()}`
   await getQueue(PROSPECT_IMPORT_QUEUE).add(PROSPECT_IMPORT_STAGE_JOB, payload, {
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
-    jobId: `prospect-import-stage-${payload.importId}-${Date.now()}`,
+    jobId,
     removeOnComplete: 100,
     removeOnFail: 500,
   })
+  return jobId
 }
 
 /** Agent execution is default-off. The caller must pass the explicit runtime
@@ -993,18 +995,34 @@ export async function enqueueProspectOutreach(
   logger.info({ action: 'jobs.send-prospect-outbox.enqueued', outboxId: payload.outboxId })
 }
 
-export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<void> {
+export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<string> {
   if (!payload.providerAccountId || payload.providerAccountId.length > 191) {
     throw new Error('Valid Gmail provider account identity is required')
   }
+  if (payload.pageToken && payload.pageToken.length > 2048) {
+    throw new Error('Gmail continuation token exceeds the bounded queue payload')
+  }
+  if (
+    payload.pageToken &&
+    (payload.baselineCursor === undefined || !payload.mode || !payload.targetCursor)
+  ) {
+    throw new Error('Gmail continuation requires its original cursor, mode and history head')
+  }
+  if (payload.after && (payload.after.length > 32 || !Number.isFinite(Date.parse(payload.after)))) {
+    throw new Error('Gmail reconciliation boundary is invalid')
+  }
   const receipt =
     payload.receiptId ??
+    payload.requestId ??
     (payload.trigger === 'WATCH_RENEWAL'
       ? `watch-day-${Math.floor(Date.now() / 86_400_000)}`
       : `reconcile-window-${Math.floor(Date.now() / 900_000)}`)
   const identity = createHash('sha256')
-    .update(`torchiko-gmail-sync-v1:${payload.providerAccountId}:${payload.trigger}:${receipt}`)
+    .update(
+      `torchiko-gmail-sync-v2:${payload.providerAccountId}:${payload.trigger}:${receipt}:${payload.pageToken ?? ''}`,
+    )
     .digest('hex')
+  const jobId = `gmail-sync-${identity}`
   await getQueue(GMAIL_SYNC_QUEUE).add(
     payload.trigger === 'WATCH_RENEWAL'
       ? GMAIL_SYNC_WATCH_RENEWAL_JOB
@@ -1015,12 +1033,13 @@ export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<vo
     {
       attempts: 8,
       backoff: { type: 'exponential', delay: 30_000 },
-      jobId: `gmail-sync-${identity}`,
+      jobId,
       removeOnComplete: 100,
       removeOnFail: 500,
     },
   )
   logger.info({ action: 'jobs.gmail-sync.enqueued', providerAccountId: payload.providerAccountId })
+  return jobId
 }
 
 export async function enqueueIntakeUploadVerification(
