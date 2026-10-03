@@ -44,17 +44,15 @@ The `20261002120000` migration stores only the provider draft ID pair. That is n
 
 ## Proposed migration (not written)
 
-```sql
-ALTER TABLE "prospect_outreach_drafts"
-  ADD COLUMN "provider_draft_message_id" VARCHAR(191),
-  ADD COLUMN "provider_draft_thread_id" VARCHAR(191),
-  ADD COLUMN "provider_draft_state" VARCHAR(16),
-  ADD COLUMN "provider_draft_last_seen_at" TIMESTAMP(3),
-  ADD COLUMN "provider_draft_absent_at" TIMESTAMP(3);
--- state is null exactly when no provider draft reference exists
-ALTER TABLE "prospect_outreach_drafts" ADD CONSTRAINT "prospect_outreach_drafts_provider_draft_state_check"
-  CHECK ("provider_draft_state" IS NULL OR "provider_draft_state" IN ('PRESENT', 'ABSENT'));
-```
+Proposed additive columns on `prospect_outreach_drafts` (design only; no migration exists):
+
+| Column                        | Type                                               | Meaning                                              |
+| ----------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `provider_draft_message_id`   | varchar(191), nullable                             | Gmail message ID of the latest draft revision        |
+| `provider_draft_thread_id`    | varchar(191), nullable                             | Gmail thread ID of the draft                         |
+| `provider_draft_state`        | varchar(16), nullable, check `PRESENT` or `ABSENT` | null exactly when no provider draft reference exists |
+| `provider_draft_last_seen_at` | timestamp(3), nullable                             | last complete listing that contained the draft       |
+| `provider_draft_absent_at`    | timestamp(3), nullable                             | first confirmed absence                              |
 
 With it, reconciliation would set `ABSENT` + `absent_at` instead of clearing the pair, refresh
 message/thread IDs on every listing, and the operator read surfaces would expose the state.
@@ -63,5 +61,5 @@ message/thread IDs on every listing, and the operator read surfaces would expose
 
 - `crm.get_mail_reconciliation` / `getGmailReconciliation` do not yet return the draft counts
   stored in the job payload (the MCP output contract lives in `packages/contracts`).
-- The new disposable test `prisma-provider-draft-store.disposable.integration.test.ts` is gated on
-  `RUN_OPERATOR_DB_INTEGRATION` but is not yet listed in `.github/workflows/ci.yml`.
+- The disposable test `prisma-provider-draft-store.disposable.integration.test.ts` is gated on
+  `RUN_OPERATOR_DB_INTEGRATION` and runs in the CI operator database step.
