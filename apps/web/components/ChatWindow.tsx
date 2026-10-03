@@ -538,7 +538,7 @@ export function ChatWindow({
                   ? accentContrastColor
                   : undefined,
             }}
-            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
+            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition-shadow motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
             disabled={
               !isOnline ||
               conversationLocked ||

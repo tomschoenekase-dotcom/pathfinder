@@ -667,3 +667,37 @@ outbound workers and schedulers false; provisioning/notification flags absent (d
 worker routines false; production dashboard OAuth true, staging false, preserved unchanged.
 No hosted application/configuration/database mutation has occurred. PR40 description updated
 through the authenticated browser after the connector refused metadata writes; no access changed.
+
+### Release candidate correction — Send contrast during state changes (2026-10-03)
+
+`f56ecb9bed457c48e266c5d6c84a5a2d0e827335` clean candidate assessment finished NOT READY:
+23 gates PASS; visual suite FAIL, 182 PASS / 39 intentional skips / four contrast failures.
+The voice-error and missing-character cases failed at tablet and desktop widths. Their functional
+assertions passed; enabled Send text crossed below 4.5:1 while its disabled colors interpolated to
+the enabled palette, even with reduced motion requested. Failed traces and the full report remain
+in `artifacts/mobile-visual/2026-10-03T09-26-39.858Z-bbac61e2` and
+`../qa/release-candidate-f56ecb9b.log`; they do not establish candidate readiness.
+
+Send now transitions only its shadow, with transitions disabled for reduced motion. Text and
+background colors change together immediately. No test, contrast threshold or assertion changed.
+`pnpm --filter @pathfinder/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/accessibility-depth.spec.ts --grep 'voice failure|missing character media' --repeat-each=5`
+PASS 30/30 across phone, tablet and desktop, `../qa/release-send-contrast-repeat.log`.
+Actual browser interaction at 820x1180 and 390x844 verified enabling Send, its local mock action
+clearing the draft, keyboard navigation and readable layout; screenshots remain in external QA.
+The dedicated local port 3108 server was stopped and the temporary browser viewport reset.
+The new exact clean candidate assessment and CI remain required. CI red cycles observed remain 2/4;
+the f56 assessment failure is local and its hosted CI was still running at this checkpoint.
+
+Fresh f56 production-build traces PASS: web 33 files, dashboard 206 files; zero CSS build-tool
+references or physical Tailwind/Autoprefixer/braces packages in either standalone runtime.
+Receipt: `../qa/release-css-runtime-boundary-f56ecb9b.json`. Read-only staging preflight PASS:
+255 active/physical migrations, 280 public tables, canonical weekly-digest fingerprint, zero invalid
+indexes or unvalidated constraints. This pre-drain observation is not a backup or release admission.
+All six application services still serve baseline `9f726afd101cc3a3cb3c96d9504e06adc9618642`.
+Authenticated Railway API confirmed staging autodeploy disabled and production enabled on all three;
+the settings are preserved. No hosted mutation, backup, restore, migration or deployment has occurred.
+
+Existing production `/admin/operator` failed before this release with the bounded diagnostic
+`OPERATOR_TABS.find is not a function`. The candidate already contains the shared server-safe tab
+definition and boundary regression; post-release browser proof remains required. Production's
+dashboard browser session is authenticated; staging requires owner sign-in, requested separately.
