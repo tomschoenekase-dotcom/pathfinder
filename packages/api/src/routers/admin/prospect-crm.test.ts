@@ -67,6 +67,7 @@ vi.mock('@pathfinder/db', () => ({
     correspondenceProviderAccount: { findMany: mocks.providerAccounts },
     prospectFollowup: { findMany: mocks.followups },
     prospectOrganization: { findUnique: mocks.prospect },
+    prospectOrganizationMerge: { findMany: vi.fn(async () => []) },
     prospectOnboardingDeliveryAttempt: { findFirst: mocks.onboardingAttempt },
   },
 }))
@@ -362,14 +363,27 @@ describe('admin prospect CRM router', () => {
   })
 
   it('returns only compact correspondence previews and source references in prospect detail', async () => {
-    mocks.prospect.mockResolvedValue({ customerRelationships: [], conversion: null })
+    mocks.prospect.mockResolvedValue({
+      id: 'org-1',
+      activities: [],
+      sources: [],
+      customerRelationships: [],
+      conversion: null,
+    })
 
     const result = await testRouter.createCaller(context(true)).crm.getProspect({
       organizationId: 'org-1',
     })
 
-    expect(result).toEqual({ customerRelationships: [], conversion: null })
-    const query = mocks.prospect.mock.calls[0]?.[0]
+    expect(result).toMatchObject({
+      customerRelationships: [],
+      conversion: null,
+      activities: [],
+      sources: [],
+      mergeReceipts: [],
+      mergedFromOrganizationId: null,
+    })
+    const query = mocks.prospect.mock.calls.find((call) => call[0]?.include)?.[0]
     const messageSelect = query?.include?.emailThreads?.include?.messages?.select
     expect(messageSelect).toMatchObject({
       bodyPreview: true,
@@ -446,11 +460,17 @@ describe('admin prospect CRM router', () => {
   })
 
   it('returns meeting transcript provenance metadata without transcript content', async () => {
-    mocks.prospect.mockResolvedValue({ customerRelationships: [], conversion: null })
+    mocks.prospect.mockResolvedValue({
+      id: 'org-1',
+      activities: [],
+      sources: [],
+      customerRelationships: [],
+      conversion: null,
+    })
 
     await testRouter.createCaller(context(true)).crm.getProspect({ organizationId: 'org-1' })
 
-    const query = mocks.prospect.mock.calls[0]?.[0]
+    const query = mocks.prospect.mock.calls.find((call) => call[0]?.include)?.[0]
     const artifactSelect = query?.include?.companyMeetings?.include?.transcriptArtifacts?.select
     expect(artifactSelect).toEqual({
       id: true,
