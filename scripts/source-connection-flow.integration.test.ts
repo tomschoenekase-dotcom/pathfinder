@@ -81,7 +81,7 @@ const config = SourceConnectionConfigSchema.parse({
   ],
 })
 
-function fixture(version = 1) {
+function fixture(version = 1, extra = false) {
   return {
     descriptions: [
       {
@@ -90,6 +90,16 @@ function fixture(version = 1) {
         text: `Synthetic source description revision ${version}`,
         links: [menuUrl],
       },
+      ...(extra
+        ? [
+            {
+              id: 'description-2',
+              title: 'Synthetic returning description',
+              text: 'Synthetic description that leaves and returns',
+              links: [],
+            },
+          ]
+        : []),
     ],
     shows: [
       {
@@ -145,6 +155,7 @@ describe.skipIf(!enabled)('source connection disposable database whole flow', ()
     let clock = new Date('2026-10-03T17:00:00.000Z')
     let version = 1
     let malformed = false
+    let extra = false
     let networkRequests = 0
     const requestsByDay = new Map<string, number>()
     let conditionalRequests = 0
@@ -190,12 +201,12 @@ describe.skipIf(!enabled)('source connection disposable database whole flow', ()
           networkRequests += 1
           const day = clock.toISOString().slice(0, 10)
           requestsByDay.set(day, (requestsByDay.get(day) ?? 0) + 1)
-          const etag = `"synthetic-${version}"`
+          const etag = `"synthetic-${version}${extra ? '-extra' : ''}"`
           if (request.validators.etag === etag) {
             conditionalRequests += 1
             return { status: 304, headers: { etag }, body: Buffer.alloc(0) }
           }
-          const payload = malformed ? { unsupported: true } : fixture(version)
+          const payload = malformed ? { unsupported: true } : fixture(version, extra)
           return {
             status: 200,
             headers: { etag, 'content-type': 'application/feed+json' },
@@ -445,6 +456,35 @@ describe.skipIf(!enabled)('source connection disposable database whole flow', ()
     expect(await db.contentModulePublication.count({ where: venueScope })).toBe(publishCount)
     expect(facts(await guest()).some((record) => record.id === 'event-1')).toBe(false)
 
+    // A record that leaves one snapshot and returns is re-adopted from its own ledger head only;
+    // the human withdrawal and the human override above stay in force.
+    extra = true
+    clock = new Date(clock.getTime() + 300_000)
+    expect(await poll('scheduled')).toEqual({ outcome: 'published' })
+    expect(facts(await guest()).some((record) => record.id === 'description-2')).toBe(true)
+    extra = false
+    clock = new Date(clock.getTime() + 300_000)
+    expect(await poll('scheduled')).toEqual({ outcome: 'unchanged' })
+    expect(facts(await guest()).some((record) => record.id === 'description-2')).toBe(false)
+    extra = true
+    clock = new Date(clock.getTime() + 300_000)
+    expect(await poll('scheduled')).toEqual({ outcome: 'published' })
+    const returned = facts(await guest())
+    expect(returned.some((record) => record.id === 'description-2')).toBe(true)
+    expect(returned.some((record) => record.id === 'event-1')).toBe(false)
+    expect(returned.some((record) => record.id === 'description-1')).toBe(false)
+    const returning = (await snapshot()).publicationIds.find(
+      (record) => record.recordId === 'description-2',
+    )!
+    expect(
+      await db.contentModuleRevision.count({
+        where: { ...venueScope, moduleId: returning.moduleId },
+      }),
+    ).toBe(2)
+    extra = false
+    clock = new Date(clock.getTime() + 300_000)
+    expect(await poll('scheduled')).toEqual({ outcome: 'unchanged' })
+
     const row = await readConnector()
     await setSourceConnectionStateAction({
       ...scope,
@@ -491,5 +531,31 @@ describe.skipIf(!enabled)('source connection disposable database whole flow', ()
     expect(
       await db.auditLog.count({ where: { tenantId, targetId: scope.connectorId } }),
     ).toBeGreaterThanOrEqual(4)
+
+    // A malformed stored mapping leaves a connector-visible diagnostic and changes nothing else.
+    await db.liveDataConnector.updateMany({
+      where: { id: scope.connectorId, ...venueScope },
+      data: { mapping: { synthetic: 'malformed' } },
+    })
+    const broken = await readConnector()
+    expect(await poll('scheduled')).toEqual({
+      outcome: 'invalid-config',
+      errorCategory: 'invalid_config',
+    })
+    const diagnosed = await readConnector()
+    expect(diagnosed).toMatchObject({
+      lastErrorCategory: 'invalid_config',
+      consecutiveFailures: broken.consecutiveFailures + 1,
+      state: broken.state,
+      mapping: broken.mapping,
+      lastTestPreview: broken.lastTestPreview,
+    })
+    expect(diagnosed.lastErrorAt?.getTime()).toBe(clock.getTime())
+    expect(diagnosed.nextPollAt!.getTime()).toBeGreaterThan(clock.getTime())
+    expect(
+      await db.liveDataConnector.count({
+        where: { tenantId: otherTenantId, lastErrorCategory: 'invalid_config' },
+      }),
+    ).toBe(0)
   }, 60_000)
 })

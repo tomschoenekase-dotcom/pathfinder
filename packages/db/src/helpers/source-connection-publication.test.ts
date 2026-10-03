@@ -329,4 +329,62 @@ describe('approved source publication', () => {
     expect(h.tx.contentModuleRevision.create).not.toHaveBeenCalled()
     expect(h.tx.venueKnowledgeEntry.updateMany).not.toHaveBeenCalled()
   })
+  describe('a record that reappears after leaving an earlier snapshot', () => {
+    const actorId = `source-connection:${scope.connectorId}`
+    const absent = (h: ReturnType<typeof harness>) =>
+      h.useOld({ records: [], publicationIds: [], contentHash: sourceConnectionSnapshotHash([]) })
+
+    it('is republished while the connector still owns its head and latest revision', async () => {
+      const h = harness()
+      absent(h)
+      h.tx.contentModuleRevision.findFirst.mockResolvedValue({
+        id: h.former.revisionId,
+        version: 1,
+        createdBy: actorId,
+      } as never)
+      const result = await publishSourceConnectionSnapshot(
+        { ...scope, snapshot: h.snapshot, now },
+        h.client,
+      )
+      expect(result.status).toBe('PUBLISHED')
+      expect(result.snapshot?.publicationIds).toHaveLength(1)
+      expect(h.tx.contentModuleRevision.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ version: 2 }) }),
+      )
+      expect(h.tx.venueKnowledgeEntry.updateMany).not.toHaveBeenCalled()
+    })
+    it('stays withdrawn after a human withdrawal', async () => {
+      const h = harness()
+      absent(h)
+      h.tx.contentModulePublication.findFirst.mockResolvedValue({
+        id: 'human_withdrawal',
+        revisionId: h.former.revisionId,
+        action: 'WITHDRAW',
+        actorId: 'user_fixture',
+      } as never)
+      const result = await publishSourceConnectionSnapshot(
+        { ...scope, snapshot: h.snapshot, now },
+        h.client,
+      )
+      expect(result.snapshot?.publicationIds).toEqual([])
+      expect(h.tx.contentModuleRevision.create).not.toHaveBeenCalled()
+      expect(h.tx.contentModulePublication.create).not.toHaveBeenCalled()
+    })
+    it('stays human-owned when a person created the latest revision', async () => {
+      const h = harness()
+      absent(h)
+      h.tx.contentModuleRevision.findFirst.mockResolvedValue({
+        id: 'human_draft_revision',
+        version: 2,
+        createdBy: 'user_fixture',
+      } as never)
+      const result = await publishSourceConnectionSnapshot(
+        { ...scope, snapshot: h.snapshot, now },
+        h.client,
+      )
+      expect(result.snapshot?.publicationIds).toEqual([])
+      expect(h.tx.contentModuleRevision.create).not.toHaveBeenCalled()
+      expect(h.tx.contentModulePublication.create).not.toHaveBeenCalled()
+    })
+  })
 })

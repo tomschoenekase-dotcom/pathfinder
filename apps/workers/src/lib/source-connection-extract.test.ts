@@ -371,4 +371,34 @@ describe('deterministic source extraction', () => {
       ),
     ).toMatchObject({ issues: ['HTML_DEPTH_LIMIT'] })
   })
+  it('refuses hostile unterminated-tag input in bounded time', () => {
+    const hostile = '<a'.repeat(4_900) + 'x'.repeat(900_000)
+    const started = performance.now()
+    const result = extractSourceConnection(htmlConfig, hostile, 'text/html')
+    expect(result.status).toBe('REVIEW_REQUIRED')
+    expect(performance.now() - started).toBeLessThan(1_500)
+  })
+
+  it('does not pollute prototypes through JSON pointer keys', () => {
+    const jsonConfig = SourceConnectionConfigSchema.parse({
+      ...htmlConfig,
+      mappings: [
+        {
+          type: 'json_feed',
+          kind: 'description',
+          itemsPointer: '/__proto__/items',
+          idPointer: '/id',
+          titlePointer: '/title',
+          textPointer: '/constructor/prototype/text',
+          dateFormat: 'iso',
+        },
+      ],
+      validation: { ...htmlConfig.validation, minRecords: 1 },
+    })
+    const body = '{"__proto__":{"items":[{"id":"a","title":"t","text":"x"}]}}'
+    expect(extractSourceConnection(jsonConfig, body, 'application/json').status).toBe(
+      'REVIEW_REQUIRED',
+    )
+    expect(({} as Record<string, unknown>).items).toBeUndefined()
+  })
 })

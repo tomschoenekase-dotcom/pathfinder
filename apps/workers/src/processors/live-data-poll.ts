@@ -179,6 +179,16 @@ export async function processLiveDataPoll(
     if (connector.provider === SOURCE_CONNECTION_PROVIDER) {
       const result = await processSourceConnectionPoll(payload, connector, dependencies)
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      // JobRecord has no outcome column; the connector row carries the diagnostic.
+      logger.info({
+        action: 'workers.live-data-poll.source-connection-completed',
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        connectorId: scope.connectorId,
+        mode: payload.mode,
+        outcome: result.outcome,
+        ...(result.errorCategory ? { errorCategory: result.errorCategory } : {}),
+      })
       return result
     }
     if (payload.mode === 'manual') {

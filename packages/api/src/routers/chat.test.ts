@@ -2054,12 +2054,14 @@ describe('chat router', () => {
 
         await caller.chat.send({ ...sendInput, message: 'How long is the wait for the coaster?' })
 
-        expect(liveDataConnectorFindMany).toHaveBeenCalledOnce()
-        expect(liveDataConnectorFindMany.mock.calls[0]![0].where).toEqual({
-          tenantId: TENANT_ID,
-          venueId: VENUE_ID,
-          state: 'ACTIVE',
-        })
+        // One legacy live-data read plus one provider-scoped source-connection read.
+        expect(liveDataConnectorFindMany).toHaveBeenCalledTimes(2)
+        expect(liveDataConnectorFindMany.mock.calls.map(([call]) => call.where)).toEqual(
+          expect.arrayContaining([
+            { tenantId: TENANT_ID, venueId: VENUE_ID, state: 'ACTIVE' },
+            { tenantId: TENANT_ID, venueId: VENUE_ID, provider: 'source_connection_v1' },
+          ]),
+        )
         const prompt = getConcatenatedSystemPrompt()
         expect(prompt).toContain('LIVE VENUE DATA')
         expect(prompt).toContain('"waitMinutes":"0 minutes"')
@@ -2084,6 +2086,24 @@ describe('chat router', () => {
         const prompt = getConcatenatedSystemPrompt()
         expect(prompt).toContain('NOT_CURRENTLY_AVAILABLE')
         expect(prompt).not.toContain('waitMinutes')
+      })
+
+      it('keeps live-data notices when only the source-connection read fails', async () => {
+        setupHappyPath('That information is not currently available.', venueRow)
+        liveDataConnectorFindMany.mockImplementation(async ({ where }) => {
+          if (where.provider === 'source_connection_v1') throw new Error('source read unavailable')
+          return [
+            liveRow({
+              freshnessBudgetSeconds: 15,
+              consecutiveFailures: 3,
+              lastErrorCategory: 'timeout',
+            }),
+          ]
+        })
+
+        await caller.chat.send({ ...sendInput, message: 'How long is the wait for the coaster?' })
+
+        expect(getConcatenatedSystemPrompt()).toContain('NOT_CURRENTLY_AVAILABLE')
       })
 
       it('degrades to no live data when the stored-row read fails, without failing the turn', async () => {

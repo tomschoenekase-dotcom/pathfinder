@@ -1520,23 +1520,27 @@ const chatReadRouter = router({
       ...(venue.customInstruction ? { customInstruction: venue.customInstruction } : {}),
     })
     // Latest STORED observations only: guest turns never call a live-data provider. A read failure
-    // degrades to "no live facts", so the guide cannot state a value it could not verify.
+    // degrades to "no live facts", so the guide cannot state a value it could not verify. Each
+    // reader degrades on its own: a source-connection failure must not drop live-data notices.
     const liveDataPrompt = await Promise.all([
       loadGuestLiveDataContext(ctx.db, {
         tenantId: venue.tenantId,
         venueId: venue.id,
-      }).then((result) => result.prompt),
+      })
+        .then((result) => result.prompt)
+        .catch(() => {
+          logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+          return ''
+        }),
       loadGuestSourceConnections(ctx.db, {
         tenantId: venue.tenantId,
         venueId: venue.id,
         query: trimmedInput,
-      }),
-    ])
-      .then((results) => results.filter(Boolean).join('\n\n'))
-      .catch(() => {
-        logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+      }).catch(() => {
+        logger.warn({ action: 'guest-source-connections-unavailable', venueId: venue.id })
         return ''
-      })
+      }),
+    ]).then((results) => results.filter(Boolean).join('\n\n'))
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const preparePrompt = () =>
       buildVenueSystemPromptParts({

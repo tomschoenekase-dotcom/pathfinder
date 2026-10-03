@@ -45,7 +45,9 @@ when the venue provides one that fits the supported adapter.
 - Expired, malformed, out-of-policy and unavailable facts are withheld. The guest receives an
   uncertainty instruction and the approved source link. A disappearing closure never means open.
 - Manual publications take precedence. A changed publication head stops an automatic source
-  update from overwriting that content. Review the conflict before restoring source ownership.
+  update from overwriting that content. That item stays human-owned: this version has no action
+  that hands it back to the source. A source item that leaves the page and later returns is
+  republished only while the connector still owns its latest revision and publication.
 
 ## Architecture and security
 

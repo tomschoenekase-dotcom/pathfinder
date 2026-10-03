@@ -27,6 +27,23 @@ const store = vi.hoisted(() => ({
   loadScopes: [] as Array<Record<string, unknown>>,
 }))
 
+const src = vi.hoisted(() => ({
+  ActionError: class SourceConnectionActionError extends Error {
+    readonly code = 'INVALID_INPUT'
+  },
+  validate: vi.fn(),
+  claimPoll: vi.fn(),
+  claimRequest: vi.fn(),
+  bytes: vi.fn(),
+  failure: vi.fn(),
+  diagnostic: vi.fn(),
+  preview: vi.fn(),
+  cache: vi.fn(),
+  publish: vi.fn(),
+  observation: vi.fn(),
+  fetch: vi.fn(),
+}))
+
 const mocks = vi.hoisted(() => ({
   writeJob: vi.fn(),
   updateJob: vi.fn(),
@@ -47,6 +64,17 @@ vi.mock('@pathfinder/jobs', () => ({
   enqueueLiveDataPoll: mocks.enqueue,
 }))
 vi.mock('@pathfinder/db', () => ({
+  validateSourceConnectionConfig: src.validate,
+  SourceConnectionActionError: src.ActionError,
+  claimSourceConnectionPollSlot: src.claimPoll,
+  claimSourceConnectionRequest: src.claimRequest,
+  recordSourceConnectionBytes: src.bytes,
+  recordSourceConnectionPollFailure: src.failure,
+  recordSourceConnectionDiagnostic: src.diagnostic,
+  recordSourceConnectionPreviewAction: src.preview,
+  recordSourceConnectionCache: src.cache,
+  publishSourceConnectionSnapshot: src.publish,
+  db: { liveDataObservation: { findFirst: src.observation } },
   writeJobRecord: mocks.writeJob,
   updateJobRecord: mocks.updateJob,
   listDueLiveDataConnectors: mocks.listDue,
@@ -103,11 +131,13 @@ vi.mock('@pathfinder/db', () => ({
     store.tests.push(scope)
   }),
 }))
+vi.mock('../lib/source-connection-fetch', () => ({ fetchSourceConnection: src.fetch }))
 vi.mock('../lib/job-execution', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/job-execution')>()),
   recordJobFailure: mocks.recordFailure,
 }))
 
+import { SourceConnectionConfigSchema } from '@pathfinder/contracts/source-connections'
 import type { LiveDataFetchOutcome } from '../lib/live-data-fetch'
 import { processLiveDataPoll, processLiveDataPollScheduler } from './live-data-poll'
 
@@ -179,6 +209,12 @@ describe('live data poll processor', () => {
     mocks.writeJob.mockResolvedValue('job_record_1')
     mocks.updateJob.mockResolvedValue(undefined)
     mocks.recordFailure.mockResolvedValue(undefined)
+    src.validate.mockResolvedValue(undefined)
+    src.claimPoll.mockResolvedValue(true)
+    src.claimRequest.mockResolvedValue(true)
+    src.failure.mockResolvedValue(true)
+    src.diagnostic.mockResolvedValue(true)
+    src.observation.mockResolvedValue(null)
   })
 
   it('fetches once, normalizes, stores the latest observation, and writes a JobRecord', async () => {
@@ -439,5 +475,119 @@ describe('live data poll scheduler', () => {
     mocks.listDue.mockResolvedValue([])
     await processLiveDataPollScheduler(undefined, { now: () => T0 })
     expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
+
+  describe('source_connection_v1 early failures (outer job)', () => {
+    const sourceUrl = 'https://source.example.org/feed'
+    beforeEach(() => {
+      mocks.writeJob.mockResolvedValue('job_record_1')
+    })
+    function sourceConnector(overrides: Record<string, unknown> = {}) {
+      const config = SourceConnectionConfigSchema.parse({
+        version: 1,
+        sourceUrl,
+        allowedUrls: [sourceUrl],
+        mappings: [
+          {
+            type: 'json_feed',
+            kind: 'event',
+            itemsPointer: '/items',
+            idPointer: '/id',
+            titlePointer: '/title',
+            textPointer: '/text',
+            dateFormat: 'iso',
+          },
+        ],
+        timezone: 'America/Chicago',
+        refreshIntervalSeconds: 300,
+        freshnessSeconds: 3600,
+        validation: {
+          minRecords: 1,
+          maxRecords: 10,
+          maxChangedFraction: 0.25,
+          maxRequestsPerDay: 2,
+        },
+        publicationPolicy: 'review_required',
+      })
+      return connector({
+        provider: 'source_connection_v1',
+        kind: 'GENERIC_JSON',
+        endpointUrl: sourceUrl,
+        mapping: config,
+        ...overrides,
+      })
+    }
+    const setSource = (c: Connector) =>
+      store.connectors.set('conn_1', c as unknown as Record<string, unknown>)
+
+    it('completes the job and records invalid_config when the stored mapping is malformed', async () => {
+      setSource(sourceConnector({ mapping: { version: 1 } }))
+      const result = await processLiveDataPoll(payload(), undefined, { now: () => T0 })
+      expect(result).toEqual({ outcome: 'invalid-config', errorCategory: 'invalid_config' })
+      expect(mocks.updateJob).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+      expect(src.diagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant_a',
+          venueId: 'venue_1',
+          connectorId: 'conn_1',
+          errorCategory: 'invalid_config',
+          nextPollAt: new Date(T0.getTime() + 60_000),
+        }),
+      )
+      expect(src.fetch).not.toHaveBeenCalled()
+    })
+
+    it('completes the job and records origin_invalid when the origin was revoked', async () => {
+      setSource(sourceConnector())
+      src.validate.mockRejectedValueOnce(new src.ActionError('refused'))
+      const result = await processLiveDataPoll(payload(), undefined, { now: () => T0 })
+      expect(result).toEqual({ outcome: 'unauthorized-origin', errorCategory: 'origin_invalid' })
+      expect(mocks.updateJob).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+      expect(src.failure).toHaveBeenCalledWith(
+        expect.objectContaining({ connectorId: 'conn_1', errorCategory: 'origin_invalid' }),
+      )
+      expect(src.fetch).not.toHaveBeenCalled()
+    })
+
+    it('fails the job (not a revoked origin) when validation hits an internal error', async () => {
+      setSource(sourceConnector())
+      src.validate.mockRejectedValueOnce(new Error('connection refused'))
+      await expect(
+        processLiveDataPoll(payload(), undefined, { now: () => T0 }),
+      ).rejects.toBeDefined()
+      expect(src.failure).not.toHaveBeenCalled()
+      expect(src.diagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCategory: 'internal_error' }),
+      )
+      expect(mocks.recordFailure).toHaveBeenCalled()
+    })
+
+    it('completes the job, keeps the bytes and records redirect_forbidden', async () => {
+      setSource(sourceConnector())
+      src.fetch.mockResolvedValueOnce({
+        status: 'fetched',
+        body: Buffer.from('{}'),
+        contentType: 'application/json',
+        finalUrl: 'https://other.example.org/feed',
+        requestCount: 1,
+        bytesTransferred: 77,
+      })
+      const result = await processLiveDataPoll(payload({ mode: 'test' }), undefined, {
+        now: () => T0,
+      })
+      expect(result).toEqual({ outcome: 'forbidden-redirect', errorCategory: 'redirect_forbidden' })
+      expect(mocks.updateJob).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+      expect(src.bytes).toHaveBeenCalledWith(expect.objectContaining({ bytes: 77 }))
+      expect(src.preview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preview: expect.objectContaining({
+            status: 'REVIEW_REQUIRED',
+            issues: ['redirect_forbidden'],
+            cost: { fetches: 1, bytes: 77 },
+          }),
+        }),
+      )
+      expect(JSON.stringify(src.preview.mock.calls)).not.toContain('other.example.org')
+    })
   })
 })

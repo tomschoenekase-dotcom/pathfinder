@@ -84,6 +84,12 @@ function sourceProblem(category: string) {
     fetch_timeout: 'Source took too long to respond; refresh will retry',
     daily_budget_exhausted: 'Daily request limit reached; checks will resume tomorrow',
     invalid_config: 'Source setup needs repair',
+    origin_invalid:
+      'The source address is no longer approved for this venue; re-approve it in venue sources',
+    redirect_forbidden:
+      'The source redirected to an address that is not on the approved list; add that address or fix the source URL',
+    internal_error: 'Checking the source failed on our side; it will be retried',
+    cache_invalid: 'Saved comparison data was unusable; the next check will fetch the full page',
     review_required: 'Extracted changes need review',
     unsupported_content_type: 'The source format is unsupported',
   }
@@ -517,7 +523,7 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                     {preview.issues.length ? (
                       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
                         {preview.issues.map((issue, index) => (
-                          <li key={`${index}-${issue}`}>{issue}</li>
+                          <li key={`${index}-${issue}`}>{sourceProblem(issue)}</li>
                         ))}
                       </ul>
                     ) : null}
@@ -529,7 +535,9 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                           <p>{record.text}</p>
                           <p className="text-xs">
                             {record.startDate ?? 'No start date'}
-                            {record.endDate ? ` to ${record.endDate}` : ''}
+                            {record.endDate && record.endDate !== record.startDate
+                              ? ` to ${record.endDate}`
+                              : ''}
                             {record.cancelled ? ' · Cancelled' : ''}
                           </p>
                           {record.showtimes.length ? (

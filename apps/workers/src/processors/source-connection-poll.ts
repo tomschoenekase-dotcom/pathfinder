@@ -13,8 +13,10 @@ import {
   publishSourceConnectionSnapshot,
   recordSourceConnectionPollFailure,
   recordSourceConnectionBytes,
+  recordSourceConnectionDiagnostic,
   recordSourceConnectionCache,
   recordSourceConnectionPreviewAction,
+  SourceConnectionActionError,
   validateSourceConnectionConfig,
 } from '@pathfinder/db'
 import type { LiveDataPollJobPayload } from '@pathfinder/jobs'
@@ -37,6 +39,12 @@ export type SourceConnectionPollDependencies = {
     validators: { etag?: string; lastModified?: string },
     deps: SourceConnectionFetchDependencies,
   ) => Promise<SourceConnectionFetchOutcome>
+}
+
+type SourceCost = { fetches: number; bytes: number }
+
+function isValidationRefusal(error: unknown): boolean {
+  return error instanceof SourceConnectionActionError && error.code === 'INVALID_INPUT'
 }
 
 function readCache(
@@ -67,18 +75,81 @@ export async function processSourceConnectionPoll(
   }
   const now = dependencies.now?.() ?? new Date()
   const parsed = SourceConnectionConfigSchema.safeParse(connector.mapping)
-  if (!parsed.success || connector.endpointUrl !== parsed.data.sourceUrl)
-    return { outcome: 'invalid-config', errorCategory: 'schema_invalid' }
+  if (!parsed.success || connector.endpointUrl !== parsed.data.sourceUrl) {
+    // No trustworthy config hash exists, so only the connector-level diagnostic is possible.
+    await recordSourceConnectionDiagnostic({
+      ...scope,
+      now,
+      errorCategory: 'invalid_config',
+      preview: payload.mode === 'test',
+      nextPollAt: new Date(now.getTime() + Math.max(connector.pollIntervalSeconds, 60) * 1000),
+    })
+    return { outcome: 'invalid-config', errorCategory: 'invalid_config' }
+  }
   const config = parsed.data
   const configHash = sourceConnectionConfigHash(config)
+  const retryAt = (from: Date) => new Date(from.getTime() + config.refreshIntervalSeconds * 1000)
+  // Records a hash-fenced diagnostic; falls back to the connector-level one when the fence
+  // refuses it (for example the connector is not ACTIVE or the config changed).
+  const recordEarlyFailure = async (errorCategory: string, at: Date, cost?: SourceCost) => {
+    if (payload.mode === 'test') {
+      try {
+        await recordSourceConnectionPreviewAction({
+          ...scope,
+          expectedConfigHash: configHash,
+          now: at,
+          preview: {
+            configHash,
+            contentHash: sourceConnectionSnapshotHash([]),
+            status: 'REVIEW_REQUIRED',
+            records: [],
+            issues: [errorCategory],
+            observedAt: at.toISOString(),
+            cost: cost ?? { fetches: 0, bytes: 0 },
+          },
+        })
+        return
+      } catch {
+        await recordSourceConnectionDiagnostic({ ...scope, now: at, errorCategory, preview: true })
+        return
+      }
+    }
+    const recorded = await recordSourceConnectionPollFailure({
+      ...scope,
+      expectedConfigHash: configHash,
+      now: at,
+      nextPollAt: retryAt(at),
+      errorCategory,
+    })
+    if (!recorded)
+      await recordSourceConnectionDiagnostic({
+        ...scope,
+        now: at,
+        errorCategory,
+        nextPollAt: retryAt(at),
+      })
+  }
   try {
     await validateSourceConnectionConfig({
       tenantId: scope.tenantId,
       venueId: scope.venueId,
       config,
     })
-  } catch {
-    return { outcome: 'unauthorized-origin', errorCategory: 'origin_invalid' }
+  } catch (error) {
+    // Only a validation refusal means the origin is no longer authorised. Anything else
+    // (database outage, bug) must not be reported as a revoked origin.
+    if (isValidationRefusal(error)) {
+      await recordEarlyFailure('origin_invalid', now)
+      return { outcome: 'unauthorized-origin', errorCategory: 'origin_invalid' }
+    }
+    await recordSourceConnectionDiagnostic({
+      ...scope,
+      now,
+      errorCategory: 'internal_error',
+      preview: payload.mode === 'test',
+      nextPollAt: retryAt(now),
+    }).catch(() => false)
+    throw error
   }
   if (payload.mode !== 'test') {
     if (
@@ -148,8 +219,14 @@ export async function processSourceConnectionPoll(
     }
     return { outcome: 'failed', errorCategory: fetched.errorCategory }
   }
-  if (fetched.finalUrl !== config.sourceUrl && !config.allowedUrls.includes(fetched.finalUrl))
-    return { outcome: 'forbidden-redirect', errorCategory: 'origin_invalid' }
+  if (fetched.finalUrl !== config.sourceUrl && !config.allowedUrls.includes(fetched.finalUrl)) {
+    // The final URL is deliberately not stored; the category alone says it left the approved list.
+    await recordEarlyFailure('redirect_forbidden', completedAt, {
+      fetches: fetched.requestCount,
+      bytes: fetched.bytesTransferred,
+    })
+    return { outcome: 'forbidden-redirect', errorCategory: 'redirect_forbidden' }
+  }
   const saveCache = (contentHash: string) =>
     recordSourceConnectionCache({
       ...scope,

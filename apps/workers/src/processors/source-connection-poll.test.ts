@@ -9,6 +9,11 @@ import {
 } from '@pathfinder/contracts/source-connections-node'
 
 const mocks = vi.hoisted(() => ({
+  ActionError: class SourceConnectionActionError extends Error {
+    constructor(public readonly code: string) {
+      super('refused')
+    }
+  },
   claimPoll: vi.fn(),
   claimRequest: vi.fn(),
   publish: vi.fn(),
@@ -16,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   bytes: vi.fn(),
   cache: vi.fn(),
   preview: vi.fn(),
+  diagnostic: vi.fn(),
   validate: vi.fn(),
   prior: vi.fn(),
   extract: vi.fn(),
@@ -28,7 +34,9 @@ vi.mock('@pathfinder/db', () => ({
   recordSourceConnectionBytes: mocks.bytes,
   recordSourceConnectionCache: mocks.cache,
   recordSourceConnectionPreviewAction: mocks.preview,
+  recordSourceConnectionDiagnostic: mocks.diagnostic,
   validateSourceConnectionConfig: mocks.validate,
+  SourceConnectionActionError: mocks.ActionError,
   db: { liveDataObservation: { findFirst: mocks.prior } },
 }))
 vi.mock('../lib/source-connection-extract', () => ({ extractSourceConnection: mocks.extract }))
@@ -136,6 +144,8 @@ const fetched: SourceConnectionFetchOutcome = {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.claimPoll.mockResolvedValue(true)
+  mocks.diagnostic.mockResolvedValue(true)
+  mocks.failure.mockResolvedValue(true)
   mocks.claimRequest.mockResolvedValue(true)
   mocks.prior.mockResolvedValue(null)
   mocks.publish.mockResolvedValue({ status: 'PUBLISHED' })
@@ -291,5 +301,86 @@ describe('source connection cached worker', () => {
     ).toBe('review-required')
     expect(fetch.mock.calls[0]?.[1]).toEqual({})
     expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  describe('early failure diagnostics', () => {
+    it('records invalid_config at connector level for scheduled and test runs', async () => {
+      const h = fixture()
+      const bad = { ...(h.connector as object), mapping: { version: 1 } } as never
+      expect(await processSourceConnectionPoll(h.payload, bad, { now: () => now })).toEqual({
+        outcome: 'invalid-config',
+        errorCategory: 'invalid_config',
+      })
+      expect(mocks.diagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          errorCategory: 'invalid_config',
+          preview: false,
+          nextPollAt: new Date(now.getTime() + 300_000),
+        }),
+      )
+      await processSourceConnectionPoll({ ...h.payload, mode: 'test' }, bad, { now: () => now })
+      expect(mocks.diagnostic).toHaveBeenLastCalledWith(
+        expect.objectContaining({ errorCategory: 'invalid_config', preview: true }),
+      )
+    })
+    it('records origin_invalid only for validation refusals and rethrows other errors', async () => {
+      const h = fixture()
+      mocks.validate.mockRejectedValueOnce(new mocks.ActionError('INVALID_INPUT'))
+      await processSourceConnectionPoll(h.payload, h.connector, { now: () => now })
+      expect(mocks.failure).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCategory: 'origin_invalid' }),
+      )
+      mocks.validate.mockRejectedValueOnce(new Error('connection refused'))
+      await expect(
+        processSourceConnectionPoll(h.payload, h.connector, { now: () => now }),
+      ).rejects.toThrow('connection refused')
+      expect(mocks.diagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCategory: 'internal_error' }),
+      )
+      expect(mocks.failure).toHaveBeenCalledTimes(1)
+    })
+    it('records a REVIEW_REQUIRED preview for a refused origin in test mode', async () => {
+      const h = fixture()
+      mocks.validate.mockRejectedValueOnce(new mocks.ActionError('INVALID_INPUT'))
+      await processSourceConnectionPoll({ ...h.payload, mode: 'test' }, h.connector, {
+        now: () => now,
+      })
+      expect(mocks.preview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preview: expect.objectContaining({
+            status: 'REVIEW_REQUIRED',
+            issues: ['origin_invalid'],
+          }),
+        }),
+      )
+    })
+    it('records redirect_forbidden with the bytes already fetched', async () => {
+      const h = fixture()
+      const fetch = vi.fn(async () => ({
+        ...fetched,
+        finalUrl: 'https://elsewhere.example.org/feed',
+      }))
+      const result = await processSourceConnectionPoll(h.payload, h.connector, {
+        now: () => now,
+        fetch,
+      })
+      expect(result).toEqual({ outcome: 'forbidden-redirect', errorCategory: 'redirect_forbidden' })
+      expect(mocks.bytes).toHaveBeenCalledWith(expect.objectContaining({ bytes: 42 }))
+      expect(mocks.failure).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCategory: 'redirect_forbidden' }),
+      )
+      await processSourceConnectionPoll({ ...h.payload, mode: 'test' }, h.connector, {
+        now: () => now,
+        fetch,
+      })
+      expect(mocks.preview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preview: expect.objectContaining({
+            issues: ['redirect_forbidden'],
+            cost: { fetches: 1, bytes: 42 },
+          }),
+        }),
+      )
+      expect(JSON.stringify(mocks.preview.mock.calls)).not.toContain('elsewhere')
+    })
   })
 })

@@ -173,7 +173,7 @@ export async function publishSourceConnectionSnapshot(
     let changed = false
     for (const record of input.snapshot.records) {
       const moduleId = stableId(input.connectorId, record.id)
-      const former = oldPublications.get(record.id)
+      let former = oldPublications.get(record.id)
       const knowledge = await tx.venueKnowledgeEntry.findFirst({
         where: { tenantId: input.tenantId, venueId: input.venueId, contentModuleId: moduleId },
         select: {
@@ -187,9 +187,44 @@ export async function publishSourceConnectionSnapshot(
         },
       })
       if (knowledge && knowledge.sourceType !== 'UNIVERSAL_CONTENT') continue
+      if (knowledge && !former) {
+        // A record that left an earlier snapshot keeps its ledger entry. Re-adopt it only while
+        // this connector still owns the current head and latest revision; human edits and
+        // withdrawals change the head and keep the module human-owned.
+        const actorId = `source-connection:${input.connectorId}`
+        const head = await tx.contentModulePublication.findFirst({
+          where: { tenantId: input.tenantId, venueId: input.venueId, moduleId },
+          orderBy: { eventOrder: 'desc' },
+          select: { id: true, revisionId: true, action: true, actorId: true },
+        })
+        const latest = await tx.contentModuleRevision.findFirst({
+          where: { tenantId: input.tenantId, venueId: input.venueId, moduleId },
+          orderBy: { version: 'desc' },
+          select: { id: true, createdBy: true },
+        })
+        if (
+          !head ||
+          !head.revisionId ||
+          head.action !== 'PUBLISH' ||
+          head.actorId !== actorId ||
+          head.id !== knowledge.contentPublicationId ||
+          head.revisionId !== knowledge.contentRevisionId ||
+          latest?.id !== head.revisionId ||
+          latest.createdBy !== actorId
+        )
+          continue
+        former = {
+          recordId: record.id,
+          moduleId,
+          revisionId: head.revisionId,
+          publicationId: head.id,
+          knowledgeEntryId: knowledge.id,
+        }
+      }
       if (
         knowledge &&
         former &&
+        oldById.has(record.id) &&
         (knowledge.title !== oldById.get(record.id)?.title.slice(0, 200) ||
           knowledge.content !== recordContent(oldById.get(record.id)!))
       ) {

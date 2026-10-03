@@ -11,6 +11,11 @@ const summarySelect = {
   updatedAt: true,
   lastSuccessAt: true,
   lastErrorCategory: true,
+  lastErrorAt: true,
+  consecutiveFailures: true,
+  lastTestAt: true,
+  lastTestOutcome: true,
+  lastTestErrorCategory: true,
 } as const
 
 function summary(row: {
@@ -20,6 +25,11 @@ function summary(row: {
   updatedAt: Date
   lastSuccessAt: Date | null
   lastErrorCategory: string | null
+  lastErrorAt: Date | null
+  consecutiveFailures: number
+  lastTestAt: Date | null
+  lastTestOutcome: string | null
+  lastTestErrorCategory: string | null
 }) {
   return {
     connectorId: row.id,
@@ -28,6 +38,11 @@ function summary(row: {
     updatedAt: row.updatedAt.toISOString(),
     lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
     lastErrorCategory: row.lastErrorCategory,
+    lastErrorAt: row.lastErrorAt?.toISOString() ?? null,
+    consecutiveFailures: row.consecutiveFailures,
+    lastTestAt: row.lastTestAt?.toISOString() ?? null,
+    lastTestOutcome: row.lastTestOutcome,
+    lastTestErrorCategory: row.lastTestErrorCategory,
   }
 }
 

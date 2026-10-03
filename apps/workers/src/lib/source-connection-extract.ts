@@ -285,8 +285,19 @@ function field(root: Node, spec: HtmlField): string | undefined {
 function parseHtml(body: string): Node {
   if (Buffer.byteLength(body, 'utf8') > SOURCE_CONNECTION_LIMITS.maxBodyBytes)
     refuse('BODY_TOO_LARGE')
-  const tags = body.match(/</gu)?.length ?? 0
-  if (tags > 5_000 || /<[a-z][^>]{1024,}>/iu.test(body)) refuse('HTML_COMPLEXITY_LIMIT')
+  // Linear scan: a backtracking regex over unterminated tags is quadratic on hostile input.
+  let tags = 0
+  let close = -2
+  for (let at = body.indexOf('<'); at >= 0; at = body.indexOf('<', at + 1)) {
+    tags += 1
+    if (tags > 5_000) refuse('HTML_COMPLEXITY_LIMIT')
+    const next = body.charCodeAt(at + 1)
+    if ((next | 0x20) >= 0x61 && (next | 0x20) <= 0x7a) {
+      if (close !== -1 && close < at) close = body.indexOf('>', at + 1)
+      else if (close === -2) close = body.indexOf('>', at + 1)
+      if (close >= 0 && close - at - 2 >= 1024) refuse('HTML_COMPLEXITY_LIMIT')
+    }
+  }
   return parse(body)
 }
 
