@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { OPERATOR_MCP_INPUTS, OPERATOR_MCP_OUTPUTS } from '@pathfinder/contracts/operator-mcp'
+import { sourceConnectionPreviewHash } from '@pathfinder/db'
+import { sourceConnectionSnapshotHash } from '@pathfinder/contracts/source-connections-node'
 import { sourceConnectionReadTools } from './source-connections'
 import { sourceConnectionKind } from '../kinds/source-connections'
 import { resolveAutonomy } from '../autonomy'
@@ -26,7 +28,12 @@ function fixture() {
     state: 'DISABLED',
     updatedAt: NOW,
     lastSuccessAt: null,
-    lastErrorCategory: null,
+    lastErrorCategory: 'timeout',
+    lastErrorAt: NOW,
+    consecutiveFailures: 2,
+    lastTestAt: NOW,
+    lastTestOutcome: 'OK',
+    lastTestErrorCategory: null,
     mapping: { version: 1 },
     lastTestPreview: null,
     observation: null,
@@ -82,6 +89,61 @@ describe('source connection operator tools', () => {
         }),
       )
     }
+  })
+  it('returns results that satisfy the strict published output schemas', async () => {
+    const { context } = fixture()
+    const [list, get] = sourceConnectionReadTools
+    const listed = OPERATOR_MCP_OUTPUTS['venues.list_source_connections'].parse(
+      await list!.handler({ tenantId: input.tenantId, venueId: input.venueId }, context),
+    )
+    expect(listed.complete).toBe(true)
+    expect(listed.connections[0]).toMatchObject({
+      health: 'draft',
+      lastErrorMeaning: expect.stringContaining('took too long to respond'),
+    })
+    const got = OPERATOR_MCP_OUTPUTS['venues.get_source_connection'].parse(
+      await get!.handler(input, context),
+    )
+    expect(got).toMatchObject({
+      preview: null,
+      approval: null,
+      snapshot: null,
+      detailOmitted: false,
+    })
+  })
+  it('lifts preview details and omits oversized raw JSON without failing validation', async () => {
+    const { context, database } = fixture()
+    const hash = sourceConnectionSnapshotHash([])
+    const body = {
+      configHash: hash,
+      contentHash: hash,
+      records: [],
+      issues: ['record_count_drift'],
+      status: 'REVIEW_REQUIRED' as const,
+      observedAt: NOW.toISOString(),
+      cost: { fetches: 1, bytes: 10 },
+    }
+    const previewHash = sourceConnectionPreviewHash(body)
+    const base = (await database.liveDataConnector.findFirst()) as Record<string, unknown>
+    database.liveDataConnector.findFirst.mockResolvedValue({
+      ...base,
+      lastTestPreview: {
+        ...body,
+        previewId: 'preview_a',
+        previewHash,
+        padding: 'x'.repeat(600_000),
+      },
+    })
+    const got = OPERATOR_MCP_OUTPUTS['venues.get_source_connection'].parse(
+      await sourceConnectionReadTools[1]!.handler(input, context),
+    )
+    expect(got.preview).toMatchObject({
+      previewId: 'preview_a',
+      previewHash,
+      issues: [{ code: 'record_count_drift' }],
+    })
+    expect(got.previewJson).toBeNull()
+    expect(got.detailOmitted).toBe(true)
   })
   it.each(['tenant', 'venue'])(
     'refuses cross-%s read before touching connection rows',
@@ -153,6 +215,27 @@ describe('source connection operator tools', () => {
       }),
     )
     expect(result.result.action).toBe('preview')
+    expect(result.result.next).toContain('previewHash')
+  })
+  it('shows the stored preview and real policy on the approval page', async () => {
+    const { database } = fixture()
+    const changes = await sourceConnectionKind.pendingChanges!(
+      sourceConnectionKind.parse({
+        ...input,
+        action: 'approve',
+        operationId,
+        expectedUpdatedAt: NOW.toISOString(),
+        previewId: 'preview_a',
+        previewHash: 'a'.repeat(64),
+      }),
+      database as never,
+    )
+    expect(changes.map((change) => change.field)).toEqual([
+      'Connection',
+      'Stored preview',
+      'Publication policy',
+    ])
+    expect(changes[2]!.after).toContain('Unknown policy')
   })
   it('holds ambiguous refresh outcomes instead of blindly repeating external work', async () => {
     const { context } = fixture()

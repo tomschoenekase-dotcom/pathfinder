@@ -70,6 +70,7 @@
     "./live-data": "./src/live-data.ts",
     "./live-data-network": "./src/live-data-network.ts",
     "./source-connections": "./src/source-connections.ts",
+    "./source-connection-problems": "./src/source-connection-problems.ts",
     "./source-connections-node": "./src/source-connections-node.ts"
   },
   "types": "./src/index.ts",

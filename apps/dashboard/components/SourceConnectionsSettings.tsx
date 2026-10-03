@@ -3,6 +3,7 @@
 import { ZodError } from 'zod'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import { describeSourceConnectionProblem } from '@pathfinder/contracts/source-connection-problems'
 import {
   SourceConnectionConfigSchema,
   type SourceConnectionConfig,
@@ -78,31 +79,89 @@ function errorText(error: unknown) {
     return 'The full configuration is not valid JSON. Correct it or clear it to use the simple fields.'
   return error instanceof Error ? error.message : 'The source action failed.'
 }
-function sourceProblem(category: string) {
-  const wording: Record<string, string> = {
-    network_error: 'Source could not be reached; refresh will retry',
-    fetch_timeout: 'Source took too long to respond; refresh will retry',
-    daily_budget_exhausted: 'Daily request limit reached; checks will resume tomorrow',
-    invalid_config: 'Source setup needs repair',
-    origin_invalid:
-      'The source address is no longer approved for this venue; re-approve it in venue sources',
-    redirect_forbidden:
-      'The source redirected to an address that is not on the approved list; add that address or fix the source URL',
-    internal_error: 'Checking the source failed on our side; it will be retried',
-    cache_invalid: 'Saved comparison data was unusable; the next check will fetch the full page',
-    review_required: 'Extracted changes need review',
-    unsupported_content_type: 'The source format is unsupported',
-  }
-  return wording[category] ?? category.replaceAll('_', ' ')
-}
 function asIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : value
 }
 function when(value: Date | string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : 'never'
+  return value
+    ? new Date(value).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+      })
+    : 'never'
 }
-function scheduleWhen(value: string, timezone: string | undefined) {
-  return new Date(value).toLocaleString(undefined, { timeZone: timezone ?? 'UTC' })
+function calendarDay(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return value
+  const date = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date)
+}
+function kindSummary(kind: string, type: string) {
+  const noun =
+    kind === 'event'
+      ? 'Events'
+      : kind === 'showtime'
+        ? 'Showtimes'
+        : kind === 'closure'
+          ? 'Closures'
+          : 'Descriptions'
+  return `${noun} from ${type === 'html' ? 'a web page' : 'a data feed'}`
+}
+const field = {
+  html: {
+    records: 'article',
+    id: 'h3',
+    title: 'h3',
+    text: 'p',
+    start: 'time.start',
+    end: 'time.end',
+    showtime: 'span.start',
+    showtimeEnd: 'span.end',
+    link: 'a',
+  },
+  json_feed: {
+    records: '/items',
+    id: '/id',
+    title: '/title',
+    text: '/text',
+    start: '/start_date',
+    end: '/end_date',
+    showtime: '/starts',
+    showtimeEnd: '/ends',
+    link: '/url',
+  },
+} as const
+/** One showing in the venue's own time zone, e.g. "Sat, Oct 10, 10:00 AM – 11:00 AM CDT". */
+function showingWhen(startAt: string, endAt: string, timezone: string | undefined) {
+  const timeZone = timezone ?? 'UTC'
+  const day = (value: string) =>
+    new Date(value).toLocaleDateString(undefined, {
+      timeZone,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
+  const time = (value: string, zone: boolean) =>
+    new Date(value).toLocaleTimeString(undefined, {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      ...(zone ? { timeZoneName: 'short' as const } : {}),
+    })
+  const endDay = day(endAt)
+  return `${day(startAt)}, ${time(startAt, false)} – ${
+    endDay === day(startAt) ? '' : `${endDay}, `
+  }${time(endAt, true)}`
 }
 function previewOf(value: unknown): Preview | null {
   if (!value || typeof value !== 'object') return null
@@ -294,6 +353,38 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
     })
   }
 
+  function resetForm() {
+    setEditing(null)
+    setName('')
+    setSourceUrl('')
+    setLinkedUrls('')
+    setTimezone('America/Chicago')
+    setRefreshMinutes(60)
+    setFreshnessMinutes(180)
+    setPolicy('review_required')
+    setAdapter('html')
+    setKind('event')
+    setRecordPath('article')
+    setIdPath('h3')
+    setTitlePath('h3')
+    setTextPath('p')
+    setStartPath('')
+    setEndPath('')
+    setShowtimePath('')
+    setShowtimeEndPath('')
+    setLinkPath('')
+    setDateAttribute('text')
+    setTimeAttribute('text')
+    setPageDatePath('')
+    setDateFormat('iso')
+    setMinRecords(1)
+    setMaxRecords(50)
+    setMaxChangedFraction(0.5)
+    setMaxRequestsPerDay(24)
+    setAdvanced(false)
+    setAdvancedJson('')
+  }
+
   function loadForEdit(source: SourceView) {
     if (!source.config) return
     const config = source.config
@@ -399,7 +490,7 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
         } else {
           await client.sourceConnections.createDraft.mutate({ venueId, name: name.trim(), config })
         }
-        setEditing(null)
+        resetForm()
       },
       editing
         ? 'Draft updated. Preview the new mapping before approval.'
@@ -470,17 +561,16 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                     {source.state === 'ACTIVE'
                       ? 'Running'
                       : source.state === 'DISABLED'
-                        ? 'Paused'
-                        : 'Needs repair'}{' '}
-                    · {source.approved ? 'approved' : 'not approved'}
+                        ? source.approved
+                          ? 'Paused'
+                          : 'Draft'
+                        : 'Needs repair'}
                   </p>
                 </div>
                 {source.config ? (
                   <p className="mt-2 text-xs text-pf-deep/70">
                     {source.config.mappings
-                      .map(
-                        (mapping) => `${mapping.kind} ${mapping.type === 'html' ? 'HTML' : 'JSON'}`,
-                      )
+                      .map((mapping) => kindSummary(mapping.kind, mapping.type))
                       .join(', ')}{' '}
                     · refresh every {source.config.refreshIntervalSeconds / 60} min · fresh for{' '}
                     {source.config.freshnessSeconds / 60} min · {source.config.timezone} · up to{' '}
@@ -491,7 +581,11 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                   Last success: {when(source.lastSuccessAt)}. Last attempt:{' '}
                   {when(source.lastAttemptAt)}.
                   {source.lastErrorCategory
-                    ? ` Last problem: ${sourceProblem(source.lastErrorCategory)} (${source.consecutiveFailures} consecutive).`
+                    ? ` Last problem: ${describeSourceConnectionProblem(source.lastErrorCategory)}${
+                        source.consecutiveFailures > 0
+                          ? ` (${source.consecutiveFailures} failed check${source.consecutiveFailures === 1 ? '' : 's'} in a row)`
+                          : ''
+                      }`
                     : ''}
                 </p>
                 {preview ? (
@@ -508,22 +602,32 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                           : 'needs changes'}
                     </p>
                     <p className="mt-1 text-xs text-pf-deep/70">
-                      Checked {when(preview.observedAt)} · {preview.records.length} extracted
-                      records
-                      {preview.cost
-                        ? ` · ${preview.cost.fetches} fetch, ${preview.cost.bytes} bytes`
-                        : ''}
+                      Checked {when(preview.observedAt)} · {preview.records.length}{' '}
+                      {preview.records.length === 1 ? 'record' : 'records'} found
                     </p>
                     <p className="mt-1 text-xs text-pf-deep/70">
-                      Deterministic extraction · 0 LLM tokens · $0 LLM cost · network cost unpriced
-                      {preview.usage
-                        ? ` · ${preview.usage.requests}/${source.config?.validation.maxRequestsPerDay} requests used on ${preview.usage.day} · ${preview.usage.bytes} bytes`
-                        : ''}
+                      Read automatically · no AI usage · network cost not priced
                     </p>
+                    {preview.cost || preview.usage ? (
+                      <p className="mt-1 text-[11px] text-pf-deep/70">
+                        {[
+                          preview.cost
+                            ? `${preview.cost.fetches} fetch, ${preview.cost.bytes} bytes`
+                            : null,
+                          preview.usage
+                            ? `${preview.usage.requests}/${source.config?.validation.maxRequestsPerDay} requests used on ${preview.usage.day}, ${preview.usage.bytes} bytes`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    ) : null}
                     {preview.issues.length ? (
                       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
                         {preview.issues.map((issue, index) => (
-                          <li key={`${index}-${issue}`}>{sourceProblem(issue)}</li>
+                          <li key={`${index}-${issue}`}>
+                            {describeSourceConnectionProblem(issue)}
+                          </li>
                         ))}
                       </ul>
                     ) : null}
@@ -534,9 +638,9 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                           <span className="text-xs">({record.kind})</span>
                           <p>{record.text}</p>
                           <p className="text-xs">
-                            {record.startDate ?? 'No start date'}
+                            {record.startDate ? calendarDay(record.startDate) : 'No start date'}
                             {record.endDate && record.endDate !== record.startDate
-                              ? ` to ${record.endDate}`
+                              ? ` to ${calendarDay(record.endDate)}`
                               : ''}
                             {record.cancelled ? ' · Cancelled' : ''}
                           </p>
@@ -544,9 +648,11 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                             <ul className="mt-1 text-xs">
                               {record.showtimes.map((showtime) => (
                                 <li key={showtime.startAt}>
-                                  {scheduleWhen(showtime.startAt, source.config?.timezone)} to{' '}
-                                  {scheduleWhen(showtime.endAt, source.config?.timezone)} (
-                                  {source.config?.timezone})
+                                  {showingWhen(
+                                    showtime.startAt,
+                                    showtime.endAt,
+                                    source.config?.timezone,
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -573,8 +679,9 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                 ) : null}
                 {source.previewErrorCategory ? (
                   <p role="status" className="mt-3 text-sm text-amber-900">
-                    Latest preview problem: {sourceProblem(source.previewErrorCategory)}. Review the
-                    setup and preview it again.
+                    Latest preview problem:{' '}
+                    {describeSourceConnectionProblem(source.previewErrorCategory)} Review the setup
+                    and preview it again.
                   </p>
                 ) : null}
                 {source.snapshot ? (
@@ -593,6 +700,15 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                     type="button"
                     className={buttonClass}
                     disabled={busy || !source.config || source.state === 'ACTIVE'}
+                    title={
+                      busy
+                        ? undefined
+                        : !source.config
+                          ? 'The saved setup is unreadable, so it cannot be edited'
+                          : source.state === 'ACTIVE'
+                            ? 'Pause the source to edit it'
+                            : undefined
+                    }
                     onClick={() => loadForEdit(source)}
                   >
                     Edit setup
@@ -601,6 +717,15 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                     type="button"
                     className={buttonClass}
                     disabled={busy || !source.config || pendingPreview?.id === source.id}
+                    title={
+                      busy
+                        ? undefined
+                        : !source.config
+                          ? 'The saved setup is unreadable, so it cannot be previewed'
+                          : pendingPreview?.id === source.id
+                            ? 'A check is already in progress'
+                            : undefined
+                    }
                     onClick={() =>
                       void run(async () => {
                         await client.sourceConnections.requestPreview.mutate({
@@ -628,6 +753,17 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                       preview.status !== 'VALID' ||
                       source.config?.approval?.approvedPreviewHash === preview.previewHash
                     }
+                    title={
+                      busy
+                        ? undefined
+                        : !preview
+                          ? 'Preview the source first'
+                          : source.config?.approval?.approvedPreviewHash === preview.previewHash
+                            ? 'This preview is already approved'
+                            : preview.status !== 'VALID'
+                              ? 'This preview needs changes before it can be approved'
+                              : undefined
+                    }
                     onClick={() =>
                       void run(
                         () =>
@@ -648,6 +784,11 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                     type="button"
                     className={buttonClass}
                     disabled={busy || (source.state !== 'ACTIVE' && !source.approved)}
+                    title={
+                      !busy && source.state !== 'ACTIVE' && !source.approved
+                        ? 'Approve a preview before running this source'
+                        : undefined
+                    }
                     onClick={() =>
                       void run(
                         () =>
@@ -676,6 +817,17 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                       source.state !== 'ACTIVE' ||
                       !source.approved ||
                       pendingPreview?.id === source.id
+                    }
+                    title={
+                      busy
+                        ? undefined
+                        : !source.approved
+                          ? 'Approve a preview first'
+                          : source.state !== 'ACTIVE'
+                            ? 'Resume the source to refresh it'
+                            : pendingPreview?.id === source.id
+                              ? 'A check is already in progress'
+                              : undefined
                     }
                     onClick={() =>
                       void run(async () => {
@@ -727,15 +879,25 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <label className="text-sm font-semibold text-pf-deep">
-            Time zone
-            <input
-              className={inputClass}
-              required
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-            />
-          </label>
+          <div>
+            <label className="text-sm font-semibold text-pf-deep">
+              Time zone
+              <input
+                className={inputClass}
+                required
+                value={timezone}
+                placeholder="e.g. America/Chicago"
+                aria-describedby="source-timezone-hint"
+                onChange={(event) => setTimezone(event.target.value)}
+              />
+            </label>
+            <span
+              id="source-timezone-hint"
+              className="mt-1 block text-xs font-normal text-pf-deep/70"
+            >
+              e.g. America/Chicago
+            </span>
+          </div>
           <label className="text-sm font-semibold text-pf-deep sm:col-span-2">
             Public source URL
             <input
@@ -790,7 +952,7 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
             </select>
           </label>
           <label className="text-sm font-semibold text-pf-deep">
-            Adapter
+            Source type
             <select
               className={inputClass}
               value={adapter}
@@ -809,8 +971,8 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                 setLinkPath('')
               }}
             >
-              <option value="html">HTML selectors</option>
-              <option value="json_feed">JSON feed paths</option>
+              <option value="html">Web page</option>
+              <option value="json_feed">Data feed (JSON)</option>
             </select>
           </label>
           <label className="text-sm font-semibold text-pf-deep">
@@ -840,24 +1002,27 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
           </label>
         </div>
         <p className="text-xs leading-5 text-pf-deep/70">
-          HTML fields use simple selectors such as h3 or time.start. JSON fields use paths such as
-          /title. Showtimes need both start and end values; links must match an approved URL.
+          For a web page, name the part of the page that holds each field, such as h3 or time.start.
+          For a data feed, use paths such as /title. Showtimes need both start and end values; links
+          must match an approved URL.
         </p>
         <fieldset className="grid gap-4 sm:grid-cols-2">
           <legend className="mb-3 text-sm font-semibold text-pf-deep">
-            {adapter === 'html' ? 'Deterministic CSS selectors' : 'JSON pointers into each record'}
+            {adapter === 'html'
+              ? 'Where to find each field on the page'
+              : 'Where to find each field in the feed'}
           </legend>
           {[
-            ['Records', recordPath, setRecordPath],
-            ['ID', idPath, setIdPath],
-            ['Title', titlePath, setTitlePath],
-            ['Description', textPath, setTextPath],
-            ['Start date (optional)', startPath, setStartPath],
-            ['End date (optional)', endPath, setEndPath],
-            ['Showtime start (optional)', showtimePath, setShowtimePath],
-            ['Showtime end (optional)', showtimeEndPath, setShowtimeEndPath],
-            ['Link (optional)', linkPath, setLinkPath],
-          ].map(([label, value, setter]) => (
+            ['Records', recordPath, setRecordPath, 'records'],
+            ['ID', idPath, setIdPath, 'id'],
+            ['Title', titlePath, setTitlePath, 'title'],
+            ['Description', textPath, setTextPath, 'text'],
+            ['Start date (optional)', startPath, setStartPath, 'start'],
+            ['End date (optional)', endPath, setEndPath, 'end'],
+            ['Showtime start (optional)', showtimePath, setShowtimePath, 'showtime'],
+            ['Showtime end (optional)', showtimeEndPath, setShowtimeEndPath, 'showtimeEnd'],
+            ['Link (optional)', linkPath, setLinkPath, 'link'],
+          ].map(([label, value, setter, key]) => (
             <label key={label as string} className="text-sm font-semibold text-pf-deep">
               {label as string}
               <input
@@ -865,7 +1030,7 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
                 required={!String(label).includes('optional')}
                 value={value as string}
                 onChange={(event) => (setter as (value: string) => void)(event.target.value)}
-                placeholder={adapter === 'html' ? 'article .title' : '/items'}
+                placeholder={field[adapter][key as keyof typeof field.html]}
               />
             </label>
           ))}
@@ -976,12 +1141,7 @@ export function SourceConnectionsSettings({ venueId }: { venueId: string }) {
             {editing ? 'Save draft changes' : 'Add draft'}
           </button>
           {editing ? (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={busy}
-              onClick={() => setEditing(null)}
-            >
+            <button type="button" className={buttonClass} disabled={busy} onClick={resetForm}>
               Cancel edit
             </button>
           ) : null}

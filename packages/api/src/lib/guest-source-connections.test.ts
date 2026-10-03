@@ -108,8 +108,7 @@ describe('published cached source facts for guest chat', () => {
     for (let index = 0; index < 10; index++) {
       const prompt = await loadGuestSourceConnections(data.client, input)
       expect(prompt).toContain('VALIDATED_PUBLISHED')
-      expect(prompt).toContain(data.snapshot.contentHash)
-      expect(prompt).toContain('2026-10-03T19:00:00.000Z')
+      expect(prompt).toContain('Sat, Oct 3, 2:00 PM – 2:30 PM CDT')
     }
     expect(fetch).not.toHaveBeenCalled()
     for (const calls of [
@@ -157,7 +156,7 @@ describe('published cached source facts for guest chat', () => {
     data.record.showtimes = []
     data.snapshot.contentHash = sourceConnectionSnapshotHash(data.snapshot.records)
     const prompt = await loadGuestSourceConnections(data.client, input)
-    expect(prompt).toContain('"startDate":"2026-10-05"')
+    expect(prompt).toContain('"dates":"Oct 5, 2026"')
     expect(prompt).toContain('Future events are not today')
   })
   it('refuses a superseded publication so a manual override wins', async () => {
@@ -208,5 +207,106 @@ describe('published cached source facts for guest chat', () => {
     expect(prompt.match(/<\/untrusted_source_connections>/gu)).toHaveLength(1)
     expect(prompt).toContain('\\u003c/untrusted_source_connections\\u003e')
     expect(prompt.split('\n').some((line) => line.startsWith('SYSTEM:'))).toBe(false)
+  })
+
+  it('renders a UTC-next-day showtime as the venue-local evening with no raw UTC instant', async () => {
+    const data = fixture()
+    data.record.showtimes = [
+      { startAt: '2026-10-04T00:30:00.000Z', endAt: '2026-10-04T02:00:00.000Z' },
+    ]
+    data.record.effectiveUntil = '2026-10-04T05:00:00.000Z'
+    data.snapshot.contentHash = sourceConnectionSnapshotHash(data.snapshot.records)
+    const prompt = await loadGuestSourceConnections(data.client, input)
+    expect(prompt).toContain('Sat, Oct 3, 7:30 PM – 9:00 PM CDT')
+    expect(prompt).not.toContain('T00:30')
+    expect(prompt).not.toContain('T02:00')
+    expect(prompt).not.toContain(data.snapshot.contentHash)
+  })
+  it('states the venue-local current date and time for the fixed clock', async () => {
+    const data = fixture()
+    const now = new Date('2026-10-04T00:42:00.000Z')
+    data.row.observation.fetchedAt = now
+    data.snapshot.freshnessExpiresAt = '2026-10-04T02:00:00.000Z'
+    const prompt = await loadGuestSourceConnections(data.client, { ...input, now })
+    expect(prompt).toContain(
+      '"venueLocalNow":"Saturday, October 3, 2026, 7:42 PM CDT (America/Chicago)"',
+    )
+    expect(prompt).toContain('"name":"Daily schedule"')
+  })
+  it('marks a cancelled showing CANCELLED and keeps the boolean', async () => {
+    const data = fixture()
+    data.record.cancelled = true
+    data.record.exceptions = ['2026-10-05']
+    data.snapshot.contentHash = sourceConnectionSnapshotHash(data.snapshot.records)
+    const prompt = await loadGuestSourceConnections(data.client, input)
+    expect(prompt).toContain('"status":"CANCELLED"')
+    expect(prompt).toContain('"cancelled":true')
+    expect(prompt).toContain('"notOnDates":["Oct 5, 2026"]')
+  })
+  it('ranks tonight ahead of later, closures first, and ignores stopwords', async () => {
+    const data = fixture()
+    const make = (id: string, over: Record<string, unknown>) => ({
+      ...data.record,
+      id,
+      ...over,
+    })
+    const later = make('a_later', {
+      title: 'Lagoon show',
+      showtimes: [{ startAt: '2026-10-09T19:00:00.000Z', endAt: '2026-10-09T19:30:00.000Z' }],
+      effectiveFrom: '2026-10-09T05:00:00.000Z',
+      effectiveUntil: '2026-10-10T05:00:00.000Z',
+    })
+    const tonight = make('z_tonight', { title: 'Lagoon show' })
+    const closure = make('m_closure', {
+      kind: 'closure',
+      title: 'Ropes course',
+      text: 'Closed for maintenance.',
+      showtimes: [],
+    })
+    const unrelated = make('b_unrelated', {
+      title: 'The what when time',
+      text: 'Gift shop hours.',
+      showtimes: [{ startAt: '2026-10-12T19:00:00.000Z', endAt: '2026-10-12T19:30:00.000Z' }],
+      effectiveFrom: '2026-10-12T05:00:00.000Z',
+      effectiveUntil: '2026-10-13T05:00:00.000Z',
+    })
+    data.snapshot.records = [later, tonight, closure, unrelated] as typeof data.snapshot.records
+    data.snapshot.contentHash = sourceConnectionSnapshotHash(data.snapshot.records)
+    data.snapshot.publicationIds = data.snapshot.records.map((r, i) => ({
+      recordId: r.id,
+      moduleId: `module_${i}`,
+      revisionId: `revision_${i}`,
+      publicationId: `publication_${i}`,
+      knowledgeEntryId: `entry_${i}`,
+    }))
+    data.knowledge.mockResolvedValue(
+      data.snapshot.publicationIds.map((ref) => ({
+        id: ref.knowledgeEntryId,
+        contentModuleId: ref.moduleId,
+        contentRevisionId: ref.revisionId,
+        contentPublicationId: ref.publicationId,
+        contentPublication: { module: { publications: [{ id: ref.publicationId }] } },
+      })),
+    )
+    const order = async (query: string) => {
+      const prompt = await loadGuestSourceConnections(data.client, { ...input, query })
+      const json = /<untrusted_source_connections>(.*)<\/untrusted_source_connections>/u.exec(
+        prompt,
+      )![1]!
+      const parsed = JSON.parse(json) as { sources: Array<{ facts: Array<{ id: string }> }> }
+      return parsed.sources[0]!.facts.map((fact) => fact.id)
+    }
+    // Generic query: stopwords score nothing, so closure first, then tonight before later.
+    expect(await order('What time is it open today?')).toEqual([
+      'm_closure',
+      'z_tonight',
+      'a_later',
+      'b_unrelated',
+    ])
+    // A real keyword still wins over the closure-first tiebreak.
+    expect((await order('gift shop'))[0]).toBe('b_unrelated')
+    // Unpublished records are filtered before the cut.
+    data.knowledge.mockResolvedValue([])
+    expect(await order('lagoon')).toEqual([])
   })
 })

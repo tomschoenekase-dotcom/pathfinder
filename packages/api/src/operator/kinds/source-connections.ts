@@ -1,6 +1,10 @@
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
-import { SOURCE_CONNECTION_PROVIDER } from '@pathfinder/contracts/source-connections'
+import {
+  SOURCE_CONNECTION_PROVIDER,
+  SourceConnectionConfigSchema,
+} from '@pathfinder/contracts/source-connections'
+import { readSourceConnectionPreview } from '@pathfinder/db'
 import {
   approveSourceConnectionPreview,
   createSourceConnectionDraft,
@@ -21,6 +25,20 @@ const scope = (args: Args, context: OperatorKindContext) => ({
   connectorId: args.connectorId!,
   database: context.database,
 })
+const NEXT: Record<Args['action'], string> = {
+  create:
+    'Draft created. Next: propose action preview with this connectorId and its updatedAt (read venues.get_source_connection).',
+  update:
+    'Draft updated. Next: propose action preview again, because the old preview no longer matches.',
+  preview:
+    'Preview requested. Wait for the worker, then read venues.get_source_connection for preview.previewId and preview.previewHash.',
+  approve:
+    'Preview reviewed and the connection is active. Refreshes follow the publication policy; read venues.get_source_connection to confirm.',
+  pause: 'Paused. Read venues.get_source_connection to confirm health and the new updatedAt.',
+  resume: 'Resumed. Read venues.get_source_connection to confirm health and the new updatedAt.',
+  refresh:
+    'Refresh requested. Read venues.get_source_connection to see the outcome and the new updatedAt.',
+}
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
 
 export const sourceConnectionKind: OperatorProposalKind<Args> = {
@@ -57,12 +75,47 @@ export const sourceConnectionKind: OperatorProposalKind<Args> = {
       ...(args.config ? [`Exact configuration: ${JSON.stringify(args.config)}`] : []),
       ...(args.previewHash
         ? [
-            `Approve preview ${args.previewId}: ${args.previewHash}. Valid updates will follow the reviewed publication policy.`,
+            `Review preview ${args.previewId}: ${args.previewHash}. Later updates follow the connection's publication policy, shown under the changes.`,
           ]
         : []),
       'Website content is untrusted. Mapping or policy changes require a fresh preview and approval.',
     ],
   }),
+  pendingChanges: async (args, database) => {
+    if (args.action !== 'approve') return []
+    const row = await database.liveDataConnector.findFirst({
+      where: {
+        id: args.connectorId!,
+        tenantId: args.tenantId,
+        venueId: args.venueId,
+        provider: SOURCE_CONNECTION_PROVIDER,
+      },
+      select: { name: true, mapping: true, lastTestPreview: true },
+    })
+    if (!row) return []
+    const config = SourceConnectionConfigSchema.safeParse(row.mapping)
+    const preview = readSourceConnectionPreview(row.lastTestPreview)
+    const policy = !config.success
+      ? 'Unknown policy: do not approve until the setup is repaired.'
+      : config.data.publicationPolicy === 'auto_verified'
+        ? 'Later valid updates publish automatically.'
+        : 'Later changes wait for review.'
+    return [
+      { field: 'Connection', before: 'Draft', after: row.name },
+      {
+        field: 'Stored preview',
+        before: 'none',
+        after: preview
+          ? `${preview.records.length} records, ${preview.issues.length} issues${
+              preview.previewId === args.previewId && preview.previewHash === args.previewHash
+                ? ''
+                : ' (does not match the preview named in this proposal)'
+            }`
+          : 'No readable preview is stored',
+      },
+      { field: 'Publication policy', before: 'Not yet active', after: policy },
+    ]
+  },
   snapshot: async (args, context) =>
     args.action === 'create' ? null : json(await getSourceConnection(scope(args, context))),
   apply: async (args, context) => {
@@ -109,7 +162,10 @@ export const sourceConnectionKind: OperatorProposalKind<Args> = {
         result = await requestSourceConnectionRefresh(common)
         break
     }
-    return { result: { action: args.action, outcome: json(result) }, after: json(result) }
+    return {
+      result: { action: args.action, outcome: json(result), next: NEXT[args.action] },
+      after: json(result),
+    }
   },
   reconcile: async (args, context) => {
     if (args.action !== 'create') return { state: 'unknown' }
@@ -127,7 +183,10 @@ export const sourceConnectionKind: OperatorProposalKind<Args> = {
     if (!row) return { state: 'not_applied' }
     return {
       state: 'applied',
-      outcome: { result: { action: 'create', connectorId: row.id }, after: json(row) },
+      outcome: {
+        result: { action: 'create', connectorId: row.id, next: NEXT.create },
+        after: json(row),
+      },
     }
   },
 }

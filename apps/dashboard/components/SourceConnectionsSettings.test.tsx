@@ -143,6 +143,9 @@ describe('SourceConnectionsSettings', () => {
     const card = await screen.findByTestId('source-connection-source_1')
     expect(within(card).getByText('Public program')).toBeTruthy()
     expect(within(card).getByText(/1 fetch, 800 bytes/u)).toBeTruthy()
+    expect(within(card).getByText('Draft')).toBeTruthy()
+    expect(within(card).getByText(/Mon, Oct 5, 2026/u)).toBeTruthy()
+    expect(within(card).getByText(/Read automatically · no AI usage/u)).toBeTruthy()
     fireEvent.click(within(card).getByRole('button', { name: 'Approve preview' }))
     await waitFor(() =>
       expect(mocks.approvePreview).toHaveBeenCalledWith({
@@ -164,7 +167,7 @@ describe('SourceConnectionsSettings', () => {
           configHash: 'b'.repeat(64),
           status: 'REVIEW_REQUIRED',
           observedAt: '2026-10-03T20:05:00.000Z',
-          issues: ['Date could not be interpreted'],
+          issues: ['RECORD_COUNT_DRIFT'],
           cost: { fetches: 1, bytes: 800 },
           records: [],
         },
@@ -172,7 +175,10 @@ describe('SourceConnectionsSettings', () => {
     ])
     render(<SourceConnectionsSettings venueId="venue_1" />)
     const card = await screen.findByTestId('source-connection-source_1')
-    expect(within(card).getByText('Date could not be interpreted')).toBeTruthy()
+    expect(
+      within(card).getByText('The page now has far more or far fewer items than expected.'),
+    ).toBeTruthy()
+    expect(within(card).queryByText(/RECORD COUNT DRIFT/u)).toBeNull()
     expect(
       (within(card).getByRole('button', { name: 'Approve preview' }) as HTMLButtonElement).disabled,
     ).toBe(true)
@@ -211,10 +217,10 @@ describe('SourceConnectionsSettings', () => {
     )
   })
 
-  it('resets selectors to JSON pointers when the adapter changes', async () => {
+  it('resets selectors to JSON pointers when the source type changes', async () => {
     render(<SourceConnectionsSettings venueId="venue_1" />)
     await screen.findByText('No approved web sources are set up for this venue.')
-    fireEvent.change(screen.getByLabelText('Adapter'), { target: { value: 'json_feed' } })
+    fireEvent.change(screen.getByLabelText('Source type'), { target: { value: 'json_feed' } })
     expect((screen.getByLabelText('Records') as HTMLInputElement).value).toBe('/items')
     expect((screen.getByLabelText('ID') as HTMLInputElement).value).toBe('/id')
   })
@@ -226,7 +232,7 @@ describe('SourceConnectionsSettings', () => {
     fireEvent.change(screen.getByLabelText('Public source URL'), {
       target: { value: 'https://example.org/feed' },
     })
-    fireEvent.change(screen.getByLabelText('Adapter'), { target: { value: adapter } })
+    fireEvent.change(screen.getByLabelText('Source type'), { target: { value: adapter } })
     fireEvent.change(screen.getByLabelText('Information kind'), { target: { value: 'showtime' } })
     fireEvent.change(screen.getByLabelText('Showtime start (optional)'), {
       target: { value: adapter === 'html' ? 'time.start' : '/starts' },
@@ -300,5 +306,38 @@ describe('SourceConnectionsSettings', () => {
         }),
       ),
     )
+  })
+
+  it('shows plain sentences for fetch codes and labels paused sources by approval', async () => {
+    mocks.list.mockResolvedValue([
+      source({ lastErrorCategory: 'dns_failure', consecutiveFailures: 3 }),
+      source({ id: 'source_2', approved: true }),
+    ])
+    render(<SourceConnectionsSettings venueId="venue_1" />)
+    const draft = await screen.findByTestId('source-connection-source_1')
+    expect(within(draft).getByText('Draft')).toBeTruthy()
+    expect(draft.textContent).toContain('The source address could not be found.')
+    expect(draft.textContent).toContain('3 failed checks in a row')
+    expect(draft.textContent).toContain('Events from a web page')
+    const edit = within(draft).getByRole('button', { name: 'Refresh now' }) as HTMLButtonElement
+    expect(edit.title).toBe('Approve a preview first')
+    expect(
+      within(screen.getByTestId('source-connection-source_2')).getByText('Paused'),
+    ).toBeTruthy()
+  })
+
+  it('resets the form after adding a draft so it cannot be submitted twice', async () => {
+    render(<SourceConnectionsSettings venueId="venue_1" />)
+    await screen.findByText('No approved web sources are set up for this venue.')
+    fireEvent.change(screen.getByLabelText('Source name'), { target: { value: 'Public feed' } })
+    fireEvent.change(screen.getByLabelText('Public source URL'), {
+      target: { value: 'https://example.org/feed' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add draft' }))
+    await waitFor(() => expect(mocks.createDraft).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect((screen.getByLabelText('Source name') as HTMLInputElement).value).toBe(''),
+    )
+    expect((screen.getByLabelText('Public source URL') as HTMLInputElement).value).toBe('')
   })
 })

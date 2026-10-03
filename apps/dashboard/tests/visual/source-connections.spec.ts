@@ -34,19 +34,19 @@ test('source setup, exact review and refresh controls work at four widths', asyn
   await source.getByRole('button', { name: 'Preview source', exact: true }).click()
   await expect(source.getByText('Saturday public program', { exact: true })).toBeVisible()
   await expect(source.getByText(/1 fetch, 1240 bytes/)).toBeVisible()
-  await expect(source.getByText(/America\/Chicago\)/)).toBeVisible()
+  await expect(source.getByText(/Sat, Oct 10, 10:00\sAM – 11:00\sAM CDT/)).toBeVisible()
   await expect(
     source.getByRole('link', { name: 'https://example.org/program', exact: true }),
   ).toBeVisible()
   await source.getByRole('button', { name: 'Approve preview', exact: true }).click()
-  await expect(source.getByText('Running · approved', { exact: true })).toBeVisible()
+  await expect(source.getByText('Running', { exact: true })).toBeVisible()
   await expect(source.getByRole('button', { name: 'Approve preview', exact: true })).toBeDisabled()
   await source.getByRole('button', { name: 'Pause', exact: true }).click()
-  await expect(source.getByText('Paused · approved', { exact: true })).toBeVisible()
+  await expect(source.getByText('Paused', { exact: true })).toBeVisible()
   await expect(source.getByRole('button', { name: 'Refresh now', exact: true })).toBeDisabled()
   await source.getByRole('button', { name: 'Resume', exact: true }).click()
   await source.getByRole('button', { name: 'Refresh now', exact: true }).click()
-  await expect(source.getByText(/Source could not be reached; refresh will retry/)).toBeVisible()
+  await expect(source.getByText(/The source could not be reached/)).toBeVisible()
   for (const viewport of [
     { width: 390, height: 844 },
     { width: 820, height: 1180 },
