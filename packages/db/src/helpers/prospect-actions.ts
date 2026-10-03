@@ -1897,6 +1897,15 @@ export async function approveProspectImportAction(
       if (!csvManifest.stagingComplete || stagedRows !== csvManifest.sourceRows) {
         throw new ProspectActionError('CONFLICT', 'CSV staging has not finished')
       }
+      const failedRows = await tx.prospectImportRow.count({
+        where: { importId: input.importId, status: 'FAILED' },
+      })
+      if (failedRows) {
+        throw new ProspectActionError(
+          'CONFLICT',
+          `${failedRows} CSV rows failed validation; correct and restage the source file`,
+        )
+      }
     }
     const unresolvedDuplicates = await tx.prospectImportRow.count({
       where: { importId: input.importId, status: 'DUPLICATE_REVIEW' },

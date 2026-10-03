@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto'
 
-import { Prisma } from '@prisma/client'
-
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { ProspectActionError, type ProspectActor } from './prospect-actions'
@@ -461,7 +459,7 @@ export async function previewProspectOrganizationMergeAction(
   try {
     return await client.$transaction(
       (tx) => inventory(tx, input.sourceOrganizationId, input.targetOrganizationId),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: 'Serializable' },
     )
   } catch (error) {
     if ((error as { code?: string }).code === 'P2034') {
@@ -680,7 +678,7 @@ export async function mergeProspectOrganizationsAction(
         return { receipt, replayed: false }
       },
       {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        isolationLevel: 'Serializable',
         maxWait: 10_000,
         timeout: 60_000,
       },
