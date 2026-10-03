@@ -67,7 +67,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v22')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v23')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -715,6 +715,33 @@ describe('buildVenueSystemPrompt', () => {
     expect(staticPart).not.toContain('Elephant Enclosure')
     expect(dynamicPart).toContain('Elephant Enclosure')
     expect(dynamicPart).toContain('MOST RELEVANT PLACES FOR THIS QUERY')
+  })
+
+  it('keeps the cacheable venue prefix stable when the featured place changes', () => {
+    const first = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      featuredPlace: { name: 'Elephant Enclosure', blurb: 'Keeper talk at noon.' },
+      userLat: null,
+      userLng: null,
+    })
+    const second = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      featuredPlace: { name: 'Bird House', blurb: 'Walk-through aviary.' },
+      userLat: null,
+      userLng: null,
+    })
+
+    expect(first.staticPart).toBe(second.staticPart)
+    expect(first.staticPart).not.toContain('Featured highlight:')
+    expect(first.dynamicPart).toContain(
+      'Featured highlight: Elephant Enclosure - Keeper talk at noon.',
+    )
+    expect(second.dynamicPart).toContain('Featured highlight: Bird House - Walk-through aviary.')
+    expect(first.dynamicPart.match(/Featured highlight:/g)).toHaveLength(1)
+    expect(second.dynamicPart.match(/Featured highlight:/g)).toHaveLength(1)
+    expect(second.dynamicPart).not.toContain('Keeper talk at noon.')
   })
 
   it('buildVenueSystemPrompt remains equivalent to concatenated prompt parts', () => {
