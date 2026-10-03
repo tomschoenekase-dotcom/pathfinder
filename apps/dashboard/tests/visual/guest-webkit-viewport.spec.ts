@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 
 const visitorBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.0.1:3000'
 
+test.use({ hasTouch: true })
+
 test('focused guest composer remains reachable when the viewport shrinks', async ({
   page,
 }, testInfo) => {

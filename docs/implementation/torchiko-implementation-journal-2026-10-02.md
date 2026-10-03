@@ -648,3 +648,22 @@ The first local candidate assessment could not spawn pnpm because `pnpm exec` di
 `npm_execpath` on this Windows host. The existing `pnpm verify:release` entrypoint corrected the
 launch. Its continuing assessment is superseded by the dependency correction; a new exact-revision
 clean candidate assessment is required. CI red cycles used: 1 of the authorized maximum 4.
+
+### Exact-head CI cycle 2 — exercise the phone touch path (2026-10-03)
+
+`bf9434f136167234395362707ddbb37b9eac0606`: visitor-launch and railway-iac PASS; ci FAIL
+at the visual suite, 185 PASS / 39 intentional skips / one FAIL. The phone viewport proxy
+called `tap()` without `hasTouch`; the browser refused the operation after geometry passed.
+Enabled touch support only for that spec, retaining the actual tap, focus, geometry, draft-clear
+and runtime-error assertions. Three unchanged-assertion repeats PASS, 6.2 seconds,
+`../qa/release-phone-touch-context-repeat.log`. CI red cycles used: 2 of 4.
+
+Local candidate build first FAIL at the dashboard's 4 GB Node heap. With local
+`NODE_OPTIONS=--max-old-space-size=6144`, full build PASS and client-bundle secret scan PASS.
+All prior candidate gates through test PASS. The ongoing visual assessment is superseded by
+this source correction; it cannot admit a different SHA. No check was skipped or weakened.
+Read-only six-service switch receipts are in `../qa/release-switches-before-*.json`:
+outbound workers and schedulers false; provisioning/notification flags absent (default false);
+worker routines false; production dashboard OAuth true, staging false, preserved unchanged.
+No hosted application/configuration/database mutation has occurred. PR40 description updated
+through the authenticated browser after the connector refused metadata writes; no access changed.
