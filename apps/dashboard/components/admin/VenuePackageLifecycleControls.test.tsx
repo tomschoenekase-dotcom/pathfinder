@@ -269,6 +269,10 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     fireEvent.click(approve)
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledTimes(1))
     const firstKey = mocks.approve.mock.calls[0]?.[0].commandKey
+    // The component fences clicks while the first request is in flight (busy state is cleared in
+    // `finally`). Wait for the rejected request to settle before retrying; clicking the still
+    // disabled button raced with state flush on slow CI workers.
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(approve)
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledTimes(2))
     expect(mocks.approve.mock.calls[1]?.[0].commandKey).toBe(firstKey)

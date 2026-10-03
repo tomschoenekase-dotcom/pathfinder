@@ -39,7 +39,9 @@ const OPERATOR_HUMAN_ROUTES = [
   '/api/operator/arm',
   '/api/operator/consent',
   '/api/operator/approve',
+  '/api/operator/decide',
   '/api/operator/autonomy',
+  '/api/operator/job-grants',
   '/api/operator/revoke',
 ]
 const OPERATOR_HUMAN_PREFIXES = ['/approve/']

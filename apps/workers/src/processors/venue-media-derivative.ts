@@ -8,7 +8,7 @@ import {
 } from '@aws-sdk/client-s3'
 import sharp from 'sharp'
 
-import { currentDeploymentStorageKey } from '@pathfinder/api/deployment-storage-key'
+import { currentDeploymentStorageKey } from '@pathfinder/config/deployment-storage-key'
 import { db, withTenantIsolationBypass, writeAuditLogStrict } from '@pathfinder/db'
 import type { VenueMediaDerivativeJobPayload } from '@pathfinder/jobs'
 

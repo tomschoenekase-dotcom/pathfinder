@@ -115,6 +115,7 @@ const listDrafts: OperatorReadTool = {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: input.limit + 1,
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+      include: { providerDraftAccount: { select: { provider: true } } },
     })
     const page = rows.slice(0, input.limit)
     const eligibility = await eligibilityForContacts(
@@ -126,6 +127,10 @@ const listDrafts: OperatorReadTool = {
         const eligible = draft.contactId ? eligibility.get(draft.contactId) : undefined
         return {
           draftId: draft.id,
+          gmailDraftId:
+            draft.providerDraftAccount?.provider === 'GMAIL' ? draft.providerDraftId : null,
+          gmailDraftMailboxId:
+            draft.providerDraftAccount?.provider === 'GMAIL' ? draft.providerDraftAccountId : null,
           memberId: draft.memberId,
           campaignId: draft.campaignId,
           organizationId: draft.organizationId,

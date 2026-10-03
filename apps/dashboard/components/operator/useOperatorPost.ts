@@ -34,6 +34,15 @@ const ERROR_TEXT: Record<string, string> = {
   AUTONOMY_LOCKED: 'That capability always asks and cannot be switched.',
   INVALID_REQUEST: 'The request was not valid.',
   PLAN_STEP: 'Decide the whole plan, not one step.',
+  REQUEST_EXPIRED: 'This approval request expired. Ask for it again in the chat.',
+  REQUEST_USED: 'This approval request was already used.',
+  REQUEST_INVALIDATED: 'The proposal changed after it was requested. Ask for it again in the chat.',
+  FORBIDDEN_ACTOR: 'This account is not allowed to do that.',
+  KIND_NOT_GRANTABLE: 'That action cannot be granted.',
+  CLIENT_NOT_FOUND: 'That connected app is not active.',
+  SCOPE_NOT_FOUND: 'That client or venue was not found.',
+  NO_MATCHING_GRANT: 'No active job grant you created covers this change. It remains pending.',
+  INVALID: 'One of the limits is out of range.',
 }
 
 export function errorText(code: string | undefined) {

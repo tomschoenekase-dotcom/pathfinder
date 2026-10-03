@@ -13,7 +13,7 @@ const MAX_EXPANDED_BYTES = 150 * 1024 * 1024
 const MAX_SHEETS = 100
 const MAX_ROWS = 100_000
 const MAX_COLUMNS = 100
-const MAX_CELL_CHARACTERS = 10_000
+const MAX_CELL_CHARACTERS = 100_000
 const MAX_ROW_BYTES = 256 * 1024
 // Keep each duplicate-check transaction short on a remote production database.
 const STAGE_BATCH_ROWS = 10
@@ -21,6 +21,10 @@ const STAGE_BATCH_ROWS = 10
 const FIELD_KEYS = new Set([
   'venueName',
   'organizationName',
+  'existingOrganizationId',
+  'existingVenueId',
+  'addressLine1',
+  'postalCode',
   'venueType',
   'venueSubtype',
   'city',
@@ -46,6 +50,14 @@ const FIELD_KEYS = new Set([
   'sourceUrls',
   'notes',
   'territory',
+  'gmailMessageId',
+  'gmailThreadId',
+  'gmailDraftId',
+  'mailboxAddress',
+  'claimedSentAt',
+  'claimedDeliveryState',
+  'claimedDraftState',
+  'claimedRelationshipState',
 ])
 
 function inputJson(value: unknown): object | unknown[] {
@@ -115,15 +127,15 @@ function sheetShape(sheet: XLSX.WorkSheet) {
     raw: false,
   })[0]
   const columns = (header ?? []).map((value, index) => {
-    const label = String(value ?? `column_${index + 1}`)
-      .trim()
-      .slice(0, 300)
+    const rawLabel = String(value ?? `column_${index + 1}`)
+    if (rawLabel.length > 300) throw new Error('Workbook column name exceeds the character limit')
+    const label = rawLabel.trim()
     return label || `column_${index + 1}`
   })
   return { rows, columns }
 }
 
-function inertCell(value: unknown): string | number | boolean | null {
+export function inertCell(value: unknown): string | number | boolean | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'boolean' || typeof value === 'number') return value
   const text = String(value)
@@ -165,7 +177,7 @@ export function quarantinedSourceRowFailure(sheetName: string, originalRowNumber
   }
 }
 
-function normalizedRow(
+export function normalizedRow(
   source: Record<string, string | number | boolean | null>,
   mappingValue: unknown,
   sheetName: string,
@@ -178,7 +190,8 @@ function normalizedRow(
   for (const [field, column] of Object.entries(mapping)) {
     if (!FIELD_KEYS.has(field) || typeof column !== 'string') continue
     const value = source[column]
-    if (value === null || value === undefined || value === '') continue
+    // A blank (or whitespace-only) cell is "no value", never a value that could erase a stored one.
+    if (value === null || value === undefined || String(value).trim() === '') continue
     if (field === 'sourceUrls') {
       output[field] = String(value)
         .split('|')
@@ -275,7 +288,10 @@ export async function stageProspectImportSource(
         try {
           if (Object.keys(raw).length > MAX_COLUMNS) throw new Error('row exceeds the column limit')
           const sourceValues = Object.fromEntries(
-            Object.entries(raw).map(([column, value]) => [column.slice(0, 300), inertCell(value)]),
+            Object.entries(raw).map(([column, value]) => {
+              if (column.length > 300) throw new Error('column name exceeds the character limit')
+              return [column, inertCell(value)]
+            }),
           )
           if (Buffer.byteLength(JSON.stringify(sourceValues), 'utf8') > MAX_ROW_BYTES) {
             throw new Error('row exceeds the encoded-size limit')

@@ -662,6 +662,7 @@ vi.mock('@pathfinder/jobs', () => ({
   enqueueAgentRun: vi.fn(),
   enqueueEmbedKnowledgeEntry: vi.fn(),
   enqueueEmbedPlace: vi.fn(),
+  enqueueLiveDataPoll: vi.fn(),
 }))
 
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn() }))
@@ -695,12 +696,14 @@ import { engagementQuestionRouter } from './routers/engagement-question'
 import { intakeRouter } from './routers/intake'
 import { intakeUploadRouter } from './routers/intake-upload'
 import { knowledgeRouter } from './routers/knowledge'
+import { liveDataRouter } from './routers/live-data'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
 import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
+import { venueRecommendationRouter } from './routers/venue-recommendation'
 import {
   venuePackageCreateRouter,
   venuePackageLifecycleRouter,
@@ -719,12 +722,14 @@ const testRouter = router({
   intake: intakeRouter,
   intakeUpload: intakeUploadRouter,
   knowledge: knowledgeRouter,
+  liveData: liveDataRouter,
   operationalUpdate: operationalUpdateRouter,
   place: placeRouter,
   portal: portalRouter,
   support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
+  venueRecommendation: venueRecommendationRouter,
   venuePackageCreate: venuePackageCreateRouter,
   venuePackageLifecycle: venuePackageLifecycleRouter,
   venuePackageRead: venuePackageReadRouter,

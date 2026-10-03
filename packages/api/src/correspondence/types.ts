@@ -79,6 +79,11 @@ export type NormalizedProviderMessage = Readonly<{
     sizeBytes: number
     downloadPolicy: 'METADATA_ONLY'
   }>[]
+  /**
+   * Set when the provider message is a delivery-status report (bounce or mailer-daemon notice).
+   * It is evidence for operator review only: never a reply and never verified delivery state.
+   */
+  deliveryStatusNotice?: true
 }>
 
 export type ProviderSyncPage = Readonly<{

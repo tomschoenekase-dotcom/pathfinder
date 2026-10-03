@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { findApprovedPlan, parseBillingCatalog } from './catalog'
+import { findApprovedPlan, liveSaleBlocker, parseBillingCatalog } from './catalog'
 
 const catalogJson = JSON.stringify({
   catalogVersion: 1,
@@ -88,5 +88,70 @@ describe('billing catalog', () => {
         forNewSale: true,
       }),
     ).toThrow(/not available/u)
+  })
+})
+
+describe('live-mode sale guard', () => {
+  const livePlan = {
+    key: 'torchiko_venue_monthly',
+    version: 1,
+    displayName: 'Torchiko venue guide',
+    description: 'Monthly venue guide subscription.',
+    providerMode: 'live',
+    stripeProductId: 'prod_live1',
+    stripePriceId: 'price_live1',
+    currency: 'usd',
+    interval: 'month',
+    unitAmount: 1500,
+    newSalesEnabled: true,
+  }
+  const parse = (plan: Record<string, unknown>) =>
+    parseBillingCatalog(JSON.stringify({ catalogVersion: 1, plans: [plan] }))
+  const approval = { approvedAt: '2026-10-02T00:00:00Z', approvalReference: 'owner-approval-1' }
+
+  it('refuses a live plan with no recorded owner approval', () => {
+    expect(() => parse(livePlan)).toThrow(/explicit recorded owner approval/u)
+  })
+
+  it.each([
+    ['display name', { displayName: 'Torchiko pilot test fixture' }],
+    ['description', { description: 'Not for live sales' }],
+    ['metadata', { metadata: { purpose: 'sandbox fixture' } }],
+  ])('refuses a live plan labelled as a fixture via its %s even when approved', (_label, extra) => {
+    expect(() => parse({ ...livePlan, ...extra, liveApproval: approval })).toThrow(
+      /test fixture cannot be used for live Checkout/u,
+    )
+  })
+
+  it('allows an approved, unlabelled live plan and resolves it for a new sale', () => {
+    const catalog = parse({ ...livePlan, liveApproval: approval })
+    expect(
+      findApprovedPlan({
+        catalog,
+        key: livePlan.key,
+        providerMode: 'live',
+        venueCount: 1,
+        forNewSale: true,
+      }).stripePriceId,
+    ).toBe('price_live1')
+  })
+
+  it('re-checks the guard on a hand-built catalog and never blocks test mode', () => {
+    const catalog = parse({ ...livePlan, liveApproval: approval })
+    const unapproved = {
+      ...catalog,
+      plans: catalog.plans.map((plan) => ({ ...plan, liveApproval: undefined })),
+    }
+    expect(() =>
+      findApprovedPlan({
+        catalog: unapproved,
+        key: livePlan.key,
+        providerMode: 'live',
+        venueCount: 1,
+        forNewSale: true,
+      }),
+    ).toThrow(/not available/u)
+    const fixture = parseBillingCatalog(catalogJson).plans[0]!
+    expect(liveSaleBlocker(fixture)).toBeNull()
   })
 })

@@ -7,11 +7,12 @@ const mocks = vi.hoisted(() => ({
   portal: vi.fn(),
   cancellation: vi.fn(),
   addOnInterest: vi.fn(),
+  parseEnv: vi.fn(),
 }))
 
 vi.mock('@pathfinder/billing', () => ({
   BillingServiceError: class BillingServiceError extends Error {},
-  parseBillingEnvironment: () => ({ STRIPE_MODE: 'test' }),
+  parseBillingEnvironment: mocks.parseEnv,
   createStripeClient: () => ({}),
   StripeBillingProvider: class {},
   getTenantBillingOverview: mocks.overview,
@@ -27,7 +28,7 @@ import type { TRPCContext } from '../context'
 import { billingRouter } from './billing'
 
 const testRouter = router({ billing: billingRouter })
-function context(role: 'OWNER' | 'STAFF' = 'OWNER'): TRPCContext {
+function context(role: 'OWNER' | 'MANAGER' | 'STAFF' = 'OWNER'): TRPCContext {
   return {
     db: { tenantFeatureFlag: { findUnique: mocks.flag } } as unknown as TRPCContext['db'],
     headers: new Headers(),
@@ -38,6 +39,7 @@ function context(role: 'OWNER' | 'STAFF' = 'OWNER'): TRPCContext {
 describe('billing tenant API boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.parseEnv.mockReturnValue({ STRIPE_MODE: 'test' })
     mocks.flag.mockResolvedValue({ enabled: true })
     mocks.overview.mockResolvedValue({ enabled: true, account: null })
     mocks.checkout.mockResolvedValue({ url: 'https://checkout.test/session' })
@@ -158,5 +160,73 @@ describe('billing tenant API boundary', () => {
         tenantId: 'tenant-b',
       } as never),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  describe('clientState', () => {
+    const readyOverview = {
+      enabled: true,
+      capabilities: { checkout: false, portal: false, cancellation: false },
+      catalog: [],
+      access: null,
+      account: null,
+    }
+
+    it('forbids STAFF before any billing read', async () => {
+      await expect(
+        testRouter.createCaller(context('STAFF')).billing.clientState(),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(mocks.flag).not.toHaveBeenCalled()
+      expect(mocks.overview).not.toHaveBeenCalled()
+    })
+
+    it('reads only the authenticated tenant for a manager', async () => {
+      mocks.overview.mockResolvedValue(readyOverview)
+      const result = await testRouter.createCaller(context('MANAGER')).billing.clientState()
+      expect(result).toMatchObject({ state: 'no_setup', reason: 'no_billing_account' })
+      expect(mocks.overview).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a' }))
+      expect(mocks.flag).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId_flagKey: { tenantId: 'tenant-a', flagKey: 'billing-ui-v1' } },
+        }),
+      )
+    })
+
+    it('ignores browser-supplied tenant input and uses the session tenant', async () => {
+      mocks.overview.mockResolvedValue(readyOverview)
+      await testRouter
+        .createCaller(context())
+        .billing.clientState({ tenantId: 'tenant-b' } as never)
+      expect(mocks.overview).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a' }))
+      expect(mocks.flag).toHaveBeenCalledTimes(1)
+      expect(mocks.flag.mock.calls[0]?.[0].where.tenantId_flagKey.tenantId).toBe('tenant-a')
+    })
+
+    it('reports no setup, not an error, when the tenant pilot flag is off', async () => {
+      mocks.flag.mockResolvedValue(null)
+      mocks.overview.mockResolvedValue(readyOverview)
+      const result = await testRouter.createCaller(context()).billing.clientState()
+      expect(result).toMatchObject({ state: 'no_setup', reason: 'billing_not_enabled' })
+    })
+
+    it('returns an explicit configuration error instead of a payment state', async () => {
+      mocks.parseEnv.mockImplementation(() => {
+        throw new Error('invalid environment')
+      })
+      const result = await testRouter.createCaller(context()).billing.clientState()
+      expect(result).toMatchObject({
+        state: 'error',
+        errorKind: 'configuration',
+        nextAction: 'retry',
+        plan: null,
+        amountDue: null,
+      })
+      expect(mocks.overview).not.toHaveBeenCalled()
+    })
+
+    it('returns an explicit retrieval error when the read fails', async () => {
+      mocks.overview.mockRejectedValue(new Error('database unavailable'))
+      const result = await testRouter.createCaller(context()).billing.clientState()
+      expect(result).toMatchObject({ state: 'error', errorKind: 'retrieval', plan: null })
+    })
   })
 })

@@ -14,7 +14,11 @@ import {
   requestTenantCancellation,
 } from '@pathfinder/billing'
 
+import { logger } from '@pathfinder/config'
+
 import { router } from '../core'
+import { billingErrorState, deriveClientBillingState } from '../lib/billing-state'
+import { clientBillingStateResponseSchema } from '../schemas/billing-state'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
@@ -52,6 +56,55 @@ async function requireTenantFlag(
 }
 
 export const billingRouter = router({
+  /**
+   * Explicit client billing state. MANAGER or stricter: STAFF receives FORBIDDEN and no financial
+   * data. Retrieval and configuration failures are returned as the `error` state; they are never
+   * converted into "no subscription", "paid" or a zero balance.
+   */
+  clientState: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .output(clientBillingStateResponseSchema)
+    .query(async ({ ctx }) => {
+      const tenantId = ctx.session.activeTenantId
+      // The tenant release flag is read outside the try block: a failure there propagates as a
+      // tRPC error (the browser maps any thrown error to its own retryable error state).
+      const flag = await ctx.db?.tenantFeatureFlag.findUnique({
+        where: { tenantId_flagKey: { tenantId, flagKey: 'billing-ui-v1' } },
+        select: { enabled: true },
+      })
+      let environment: ReturnType<typeof parseBillingEnvironment>
+      try {
+        environment = parseBillingEnvironment()
+      } catch (error) {
+        logger.error({
+          action: 'billing.client_state.configuration_error',
+          error: 'Billing environment configuration is invalid',
+          tenantId,
+          errorName: error instanceof Error ? error.name : 'unknown',
+        })
+        return billingErrorState('configuration')
+      }
+      try {
+        const overview = await getTenantBillingOverview({
+          tenantId,
+          client: ctx.db,
+          environment,
+        })
+        return deriveClientBillingState({
+          overview: { ...overview, enabled: overview.enabled && Boolean(flag?.enabled) },
+          role: ctx.session.role,
+        })
+      } catch (error) {
+        logger.error({
+          action: 'billing.client_state.retrieval_error',
+          error: 'Billing state could not be retrieved',
+          tenantId,
+          errorName: error instanceof Error ? error.name : 'unknown',
+        })
+        return billingErrorState('retrieval')
+      }
+    }),
+
   overview: tenantProcedure.query(async ({ ctx }) => {
     const tenantId = ctx.session.activeTenantId
     await requireTenantFlag(ctx, tenantId, 'billing-ui-v1')

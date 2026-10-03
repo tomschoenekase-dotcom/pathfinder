@@ -133,4 +133,27 @@ describe('operational update router adapters', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1' }, take: 500 }),
     )
   })
+
+  it('returns the computed lifecycle and flags an active-but-expired notice', async () => {
+    const stale = {
+      ...update,
+      status: 'PUBLISHED',
+      isActive: true,
+      startsAt: new Date('2020-07-01T00:00:00.000Z'),
+      expiresAt: new Date('2020-07-31T00:00:00.000Z'),
+    }
+    findMany.mockResolvedValue([stale])
+    const [row] = await testRouter.createCaller(context('STAFF')).operationalUpdate.list()
+    expect(row).toMatchObject({
+      isActive: true,
+      lifecycle: 'EXPIRED',
+      guestVisibleNow: false,
+      isActiveButExpired: true,
+    })
+    expect(row?.lifecycleLabel).toMatch(/expired/i)
+    findFirst.mockResolvedValue(stale)
+    await expect(
+      testRouter.createCaller(context('STAFF')).operationalUpdate.getById({ id: update.id }),
+    ).resolves.toMatchObject({ lifecycle: 'EXPIRED', guestVisibleNow: false })
+  })
 })

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 566,
-    "sha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
+    "count": 585,
+    "sha256": "7fa5b1de0e6d21c43b14c73ad6481aca130624fa0d7e54f381631a3093f76ac3",
+    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release. The October 2 review adds admin.operatorJobGrants and admin.operatorDecisionRequest as authenticated dashboard reads; both remain unbound to agent tools. The current-mail review adds admin.getGmailReconciliation and admin.requestGmailReconciliation in the scoped mailbox router; platform-admin and CRM entitlement checks remain required, and both routes remain explicitly unbound to agent-operation tools. Separate operator MCP controls do not imply a direct binding here. Thread and message reads were subsequently extracted unchanged into adminProspectCrmThreadsRouter; their guards, input predicates and operation bindings remain unchanged.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-      "sha256": "6498002252bb04870be19c24b3d59ea7d3a0c319602252c06c90d0e44e5f149b"
+      "operationInventorySha256": "7fa5b1de0e6d21c43b14c73ad6481aca130624fa0d7e54f381631a3093f76ac3",
+      "sha256": "46683c997968da3adee445b4cba8eeab0327bba396b3c7ce9dc77a2ffe506453"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -674,6 +674,14 @@
       "evidence": "packages/api/src/public-interest-disposable.integration.test.ts"
     },
     {
+      "id": "guest-preview",
+      "pattern": "^guestPreviewRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The public query renders one exact, read-only release or package draft for a holder of a signed, expiring, tenant, venue and version-bound link. The operator mints links through venues.get_preview_link; the query itself is not an agent tool, accepts no tenant authority from input, and returns only guest-visible content.",
+      "evidence": "packages/api/src/routers/guest-preview.test.ts"
+    },
+    {
       "id": "company-brain",
       "pattern": "CompanyBrain",
       "agentCoverage": "partial",
@@ -760,6 +768,14 @@
       "developerCoverage": "full",
       "decision": "Agents may inspect a count-only, policy-unresolved retention preview; offboarding finalization, policy approval, revocation, deletion, anonymization, and provider-side actions remain restricted.",
       "evidence": "docs/retention-disposition-preview.md"
+    },
+    {
+      "id": "live-data-connectors",
+      "pattern": "^liveDataRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Venue live-data connectors (read-only pull feeds with a closed field mapping) are configured and enabled by an authenticated human manager or owner, server-side, with audit. The policy query is read-only and reports open-web browsing as permanently off. No agent tool can create, point, enable or test a connector, because an endpoint is outbound network authority.",
+      "evidence": "docs/implementation/live-data-and-open-web-policy.md"
     },
     {
       "id": "operator-approvals",

@@ -41,6 +41,12 @@ const secondThreadId = `mail-thread-second-${suffix}`
 const otherThreadId = `mail-thread-other-${suffix}`
 const messageId = `mail-message-${suffix}`
 const secondMessageId = `mail-message-second-${suffix}`
+const sentMessageId = `mail-sent-${suffix}`
+const campaignId = `mail-campaign-${suffix}`
+const memberId = `mail-member-${suffix}`
+const localDraftId = `mail-local-draft-${suffix}`
+const linkedDraftId = `mail-linked-draft-${suffix}`
+const replyReviewId = randomUUID()
 const receiptId = `mail-event-${suffix}`
 const secondReceiptId = `mail-event-second-${suffix}`
 const activityId = `mail-activity-${suffix}`
@@ -70,7 +76,7 @@ function grant(): VerifiedOperatorGrant {
 async function call(name: OperatorReadToolName, args: Record<string, unknown>, tenant = tenantId) {
   const result = await registry.callTool(
     name,
-    { tenantId: tenant, ...args },
+    name === 'crm.list_drafts' ? args : { tenantId: tenant, ...args },
     {
       config,
       database: testDatabase,
@@ -130,7 +136,7 @@ describe.skipIf(!enabled)(
               await database.correspondenceProviderAccount.create({
                 data: {
                   id: providerAccountId,
-                  provider: 'FAKE',
+                  provider: 'GMAIL',
                   externalAccountId: `ext-${suffix}`,
                   mailboxAddress: `mail-${suffix}@example.com`,
                   displayName: 'Example operator mailbox',
@@ -233,6 +239,85 @@ describe.skipIf(!enabled)(
                   occurredAt: now,
                 },
               })
+              await database.prospectEmailMessage.create({
+                data: {
+                  id: sentMessageId,
+                  threadId: secondThreadId,
+                  organizationId,
+                  direction: 'OUTBOUND',
+                  status: 'SENT',
+                  providerAccountId,
+                  providerMessageId: `gmail-sent-${suffix}`,
+                  fromAddress: `mail-${suffix}@example.com`,
+                  toAddresses: [`person-${suffix}@example.com`],
+                  subject: 'Sent, not delivered',
+                  bodyRetentionState: 'NOT_STORED',
+                  occurredAt: now,
+                },
+              })
+              await database.prospectInboundReplyReview.create({
+                data: {
+                  id: replyReviewId,
+                  operationId: randomUUID(),
+                  messageId,
+                  organizationId,
+                  disposition: 'NOT_INTERESTED',
+                  reason: 'Synthetic decline fixture',
+                  reviewerId: 'seed',
+                  revision: 1,
+                  inputHash: randomBytes(32).toString('hex'),
+                },
+              })
+              await database.prospectEmailMessage.update({
+                where: { id: messageId },
+                data: {
+                  inboundReplyDisposition: 'NOT_INTERESTED',
+                  inboundReplyReviewId: replyReviewId,
+                  inboundReplyReviewedAt: now,
+                  inboundReplyReviewerId: 'seed',
+                },
+              })
+              await database.prospectOrganization.update({
+                where: { id: organizationId },
+                data: { opportunity: { update: { stage: 'LOST' } } },
+              })
+              await database.prospectOutreachCampaign.create({
+                data: {
+                  id: campaignId,
+                  name: 'Example campaign',
+                  cohortSnapshot: {},
+                  playbookVersion: 'test',
+                  createdBy: 'seed',
+                  updatedBy: 'seed',
+                },
+              })
+              await database.prospectCampaignMember.create({
+                data: { id: memberId, campaignId, organizationId },
+              })
+              for (const [id, version, providerDraftId] of [
+                [localDraftId, 1, null],
+                [linkedDraftId, 2, `gmail-draft-${suffix}`],
+              ] as const) {
+                await database.prospectOutreachDraft.create({
+                  data: {
+                    id,
+                    campaignId,
+                    memberId,
+                    organizationId,
+                    version,
+                    status: 'NEEDS_REVIEW',
+                    toEmail: `person-${suffix}@example.com`,
+                    subject: 'Example draft',
+                    textBody: 'Draft text',
+                    contentHash: randomBytes(32).toString('hex'),
+                    groundingSnapshot: {},
+                    generatedByType: 'HUMAN',
+                    generatedById: 'seed',
+                    providerDraftAccountId: providerDraftId ? providerAccountId : null,
+                    providerDraftId,
+                  },
+                })
+              }
               await database.prospectActivity.create({
                 data: {
                   id: activityId,
@@ -347,6 +432,51 @@ describe.skipIf(!enabled)(
       await expect(
         call('crm.list_mail_messages', { threadId: `missing-${suffix}` }),
       ).rejects.toBeInstanceOf(OperatorNotFoundError)
+    })
+
+    it('keeps relationship, local draft, sent and delivery states independent with real provider IDs only', async () => {
+      const threads = await call('crm.list_mail_threads', { limit: 25 })
+      expect(threads.items.find((item: any) => item.threadId === secondThreadId)).toMatchObject({
+        gmailThreads: [
+          { gmailMailboxId: providerAccountId, gmailThreadId: `provider-thread-second-${suffix}` },
+        ],
+        gmailThreadsTruncated: false,
+      })
+      const sent = await call('crm.list_mail_messages', { threadId: secondThreadId })
+      expect(sent.items).toMatchObject([
+        {
+          messageId: sentMessageId,
+          status: 'SENT',
+          gmailMailboxId: providerAccountId,
+          gmailMessageId: `gmail-sent-${suffix}`,
+          gmailThreadId: `provider-thread-second-${suffix}`,
+          verifiedDeliveredAt: null,
+        },
+      ])
+      const drafts = await call('crm.list_drafts', { organizationId })
+      expect(drafts.items.find((draft: any) => draft.draftId === localDraftId)).toMatchObject({
+        status: 'NEEDS_REVIEW',
+        gmailDraftId: null,
+        gmailDraftMailboxId: null,
+      })
+      expect(drafts.items.find((draft: any) => draft.draftId === linkedDraftId)).toMatchObject({
+        status: 'NEEDS_REVIEW',
+        gmailDraftId: `gmail-draft-${suffix}`,
+        gmailDraftMailboxId: providerAccountId,
+      })
+      const organization = await testDatabase.prospectOrganization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { opportunity: { select: { stage: true } } },
+      })
+      expect(organization.opportunity?.stage).toBe('LOST')
+      expect(
+        (
+          await testDatabase.prospectEmailMessage.findUniqueOrThrow({
+            where: { id: messageId },
+            select: { inboundReplyDisposition: true },
+          })
+        ).inboundReplyDisposition,
+      ).toBe('NOT_INTERESTED')
     })
   },
 )

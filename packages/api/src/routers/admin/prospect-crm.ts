@@ -12,9 +12,11 @@ import { adminProspectCrmOutreachRouter } from './prospect-crm-outreach'
 import { adminProspectCrmSavedViewsRouter } from './prospect-crm-saved-views'
 import { adminProspectCrmSizeProposalsRouter } from './prospect-crm-size-proposals'
 import { adminProspectCrmTerritoriesRouter } from './prospect-crm-territories'
+import { adminProspectCrmThreadsRouter } from './prospect-crm-threads'
 
 export const adminProspectCrmRouter = mergeRouters(
   adminProspectCrmCoreRouter,
+  adminProspectCrmThreadsRouter,
   adminProspectCrmDirectoryRouter,
   adminProspectCrmMutationsRouter,
   adminProspectCrmTerritoriesRouter,

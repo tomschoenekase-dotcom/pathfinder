@@ -31,3 +31,30 @@ equal pieces of current truth. A positive-interest review updates the existing f
 event title and context for that exact message; other dispositions receive equally explicit copy.
 The review itself does not send email, suppress a contact, change opportunity stage, or authorize a
 follow-up. Those remain separate governed actions.
+
+## Client notification replies
+
+An email reply to a client notification (an information request sent by the client-notification
+worker) is linked to its support request without ever guessing a tenant:
+
+- Each queued notification email is claimed with a freshly minted RFC `Message-ID`
+  (`<ci.<random>@<sending domain>>`) that is stored on the intent and sent as the `Message-ID` header.
+- A reply is matched only by strong identifiers: that id in `In-Reply-To`/`References`, the
+  `Message-ID` of a reply that was already linked (a chain), or the provider thread of a linked reply.
+  Subject and sender are never used to find a thread.
+- Once identifiers fix one request, the sender must be the exact recipient the notification went to.
+  Otherwise the message is quarantined (`SENDER_MISMATCH`).
+- Tenant, venue and request come from the matched outbound record only. Identifiers that point at
+  more than one request are quarantined (`AMBIGUOUS_THREAD`); no identifier match is `UNKNOWN_THREAD`;
+  oversized, truncated or malformed messages are quarantined without storing any content.
+- Quarantine rows (`client_inbound_quarantines`) have no tenant and hold identifiers, hashes and sizes
+  only. Linked replies (`client_inbound_replies`) hold a bounded preview of the new text, a body hash
+  and a sender hash; the full message stays in the mailbox.
+- A linked reply moves a `WAITING_FOR_CLIENT` request to `IN_REVIEW` through the existing transition
+  graph (audit event `INBOUND_EMAIL_REPLY_LINKED`). It creates no support message, answers no question,
+  and completes nothing. Any other status is left unchanged.
+- Delivery is idempotent on provider + mailbox + provider message id. Operators read linked replies
+  with `support.list_replies`.
+
+`createInboundCorrespondenceService` accepts an optional `clientReplyLinker`, offered only inbound
+messages that no prospect thread claimed. The Gmail sync worker passes one; it sends nothing.

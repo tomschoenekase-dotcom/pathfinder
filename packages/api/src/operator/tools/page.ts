@@ -9,8 +9,8 @@ export function pageResult<T>(items: T[], nextCursor: string | null) {
 /** A cursor that points outside the caller's own result set (foreign, stale or invented). */
 export class OperatorInvalidCursorError extends Error {
   readonly code = 'INVALID_CURSOR'
-  constructor() {
-    super('Cursor does not belong to this query')
+  constructor(message = 'This cursor belongs to a different query; restart without a cursor.') {
+    super(message)
   }
 }
 

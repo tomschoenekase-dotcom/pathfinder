@@ -17,6 +17,8 @@ export const AUDIT_EVENT_TYPES = [
   'plan.transition',
   'proposal.recovery',
   'autonomy.change',
+  'decision.request',
+  'job_grant.change',
 ] as const
 
 export type AuditFilterValues = {

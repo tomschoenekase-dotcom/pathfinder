@@ -50,6 +50,8 @@ const suffix = randomUUID().replaceAll('-', '').slice(0, 10)
 const clientId = `opc_camp_${suffix}`
 const admin = { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' } as const
 let grant: VerifiedOperatorGrant
+let originalCrmPolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
+let crmPolicySnapshotTaken = false
 
 const service = () => ({
   config,
@@ -159,9 +161,38 @@ describe.skipIf(!enabled)(
         tenantIds: [],
         capabilities: [...OperatorCapability.options],
       }
+      originalCrmPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'crm:propose' },
+      })
+      crmPolicySnapshotTaken = true
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: 'crm:propose' },
+        create: { capability: 'crm:propose', mode: 'ASK', updatedByUserId: 'user_owner' },
+        update: { mode: 'ASK', allowedKinds: [], updatedByUserId: 'user_owner' },
+      })
     })
 
     afterAll(async () => {
+      if (crmPolicySnapshotTaken) {
+        if (originalCrmPolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: 'crm:propose' },
+            create: {
+              capability: 'crm:propose',
+              mode: originalCrmPolicy.mode,
+              allowedKinds: originalCrmPolicy.allowedKinds,
+              updatedByUserId: originalCrmPolicy.updatedByUserId,
+            },
+            update: {
+              mode: originalCrmPolicy.mode,
+              allowedKinds: originalCrmPolicy.allowedKinds,
+              updatedByUserId: originalCrmPolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
+        }
+      }
       delete process.env.OPERATOR_CAMPAIGN_RELEASE_ENABLED
       await db.prospectDeliveryControl.updateMany({
         where: { id: 'global' },

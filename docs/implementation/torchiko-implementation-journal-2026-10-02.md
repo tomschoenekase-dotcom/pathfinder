@@ -1,0 +1,747 @@
+# Torchiko implementation journal — packet r001 (2026-10-02)
+
+> **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
+
+Historical local command receipts below are evidence, not execution instructions.
+
+Branch `claude/exciting-einstein-bl59qp`, based on `origin/master` `26a9e7e` (same tree as deployed production
+`9f726af`) plus the operator-program journal commits `c58bf0a`, `08276b1`. Environment: cloud container, no hosted
+database, no Stripe/Clerk/Gmail send credentials, Chromium only (no Playwright WebKit), no physical device.
+Result vocabulary: PASS / FAIL / NOT RUN / BLOCKED. "Implemented" never means "verified on a provider/device".
+
+## Baseline and safety (G0)
+
+- Repo instructions read (CLAUDE.md; no AGENTS.md). Incident boundary `docs/database-incident-stop.md` read: production
+  incident ACTIVE by default; no hosted DB access used in this run.
+- Operator production release `9f726af` with migration 255: recorded complete in
+  `torchiko-operator-checkpoints.md` (2026-10-01 entries, three-service acceptance PASS). This satisfies the W13
+  prerequisite; CI changes were made only afterwards.
+- Environment issues: `cdn.sheetjs.com` blocked by network policy (local-only substitute `xlsx@0.18.5`, never
+  committed); GitHub push 403 (Claude GitHub App/access missing) — all commits local; git bundle sent to the owner.
+- Local baseline before changes: `apps/web` vitest 70 files / 534 tests, 1 failure needing `pnpm characters:sync`
+  (environmental), then green.
+
+## Workstream log
+
+| Lane                  | Commit(s)            | Outcome                                                                             |
+| --------------------- | -------------------- | ----------------------------------------------------------------------------------- |
+| W01 mobile chat       | `8e9c6b6`, `f3e75c7` | One viewport model; send dismisses keyboard; single-line hint; device protocol      |
+| W02 cursors           | `c2c3a22`            | Query-bound opaque cursors on every operator list; honest `complete`                |
+| W02 operator page     | `4470a6e`, `5809015` | Root cause: server page used a value from a `'use client'` module; per-panel errors |
+| W02/W06 look-and-feel | `dca1ae1`            | Same defect class on the client portal page; repo-wide boundary test                |
+| W02 unknown create    | `6d18ea2`            | Pre-persistence failures reported as not-recorded; provider reconciliation by op id |
+| W06 notices (A15)     | `51129cd`            | Shared lifecycle; isActive never means live; idempotent end                         |
+| W09 billing           | `36f5337`, `b3e4ad8` | Explicit 14-state model; webhook tenant-mismatch, ordering, grace, fixture guards   |
+| W13 CI                | `c5155e6`            | Fail-safe dependency-aware plan; master flake fixed; always-resolving gate          |
+| W15 business prep     | `f3e75c7`            | CityPASS drafts (unsent), NYC research plan                                         |
+| Docs safety           | `c86d1ac`            | Required historical/incident markers                                                |
+
+Later lanes (W03, W04, W05, W07/W11, W08, W10) are recorded in the final handoff.
+
+## Key findings with evidence
+
+1. **Visitor blank band (IMG_0341).** `useChatViewportHeight` (55c3bb6) "verified" the pinned shell with
+   `getBoundingClientRect`; iOS WebKit reports fixed-element rects in visual-viewport coordinates, so the pan was
+   added twice. Removed the measurement loop; the shell follows `visualViewport` directly. Details and references in
+   `torchiko-keyboard-device-protocol.md`.
+2. **Clipped hint (IMG_0342).** WebKit wraps a textarea placeholder; replaced with a composer-drawn single-line hint.
+3. **`/admin/operator` outage.** Commit 3917966 (2026-10-01) made `OperatorAdminView` a client module while the server
+   page still called `OPERATOR_TABS.find(...)` on it → throws on every server render. `/look-and-feel` dotted into
+   `BRANDING_REVIEW_SUBJECTS` from a client module (same class). Both fixed; test fails on the old shapes.
+   Production log confirmation: NOT RUN (needs log access).
+4. **Unknown customer create `36b36c4b-…`.** Caller-supplied operation ids; failures before the proposal insert were
+   labelled `outcome: unknown` → `get_operation` NOT_FOUND. Now `NOT_RECORDED` (no effect, safe resend); real
+   unknowns reconcile via Clerk metadata. Production reconciliation: BLOCKED (owner-approved read-only checks in
+   `unknown-customer-create-reconciliation.md`).
+5. **Billing blank page.** Panel returned `null` when disabled; every error collapsed to "not available". Now explicit
+   states with retry; config/retrieval failure is never shown as no subscription.
+6. **Master CI red on release merge.** Flaky `VenuePackageLifecycleControls` retry test (fenced click); test waits for
+   re-enable. Operator branch also failed docs-safety test (missing markers) — fixed.
+
+## Acceptance status (this run)
+
+See the final handoff for the complete A01–A29 / M / B / L / CI / H / P / S table.
+
+## Outreach (2026-10-02)
+
+Acceptance row A04 (grounded outreach draft): the context pack is now built.
+
+**What changed.** New read-only operator tool `crm.get_outreach_context` (capability `crm:read`, scope `platform`,
+like the other CRM reads). Input: `organizationId`, optional `contactId`, optional `venueId`. Output is a bounded,
+deterministic pack (`outreach-context-v1`): account and venue facts, the chosen contact with its draft/release
+eligibility and suppression ledger entry, correspondence counts plus up to 5 recent message previews and 3 prior
+drafts, up to 5 recorded notes, up to 10 source-evidence items with public https URL, research date and freshness,
+up to 5 legacy research URLs, a fixed list of claims marked supported/unsupported, per-section
+`total/returned/cap/truncated`, `limits.complete`, `limits.truncatedSections` and a source fingerprint.
+No model call, no Gmail/network access, no send, no write, no migration (read model over existing tables).
+
+**Files.** `packages/contracts/src/operator-mcp.ts` (tool name, input, output, catalog seed);
+`packages/api/src/operator/outreach-context.ts` (pure builder); `packages/api/src/operator/tools/crm-outreach-context.ts`
+(loader + registration, exported `loadOutreachContext`); `tools/index.ts`; manual text and `docs/operator/manual.md`;
+tests (unit, contract list, reads list, disposable integration).
+
+**Design decisions.**
+
+- Contactability reuses the shared rule (`eligibilityForContacts` -> `evaluateProspectContactEligibility`, purpose
+  `draft`, including an address blocked on another record). Any draft reason makes `drafting.allowed=false`;
+  not-verified for release is only a warning. A requested contact is never overridden; auto selection takes the first
+  draftable live contact (venue match first, then id) from a bounded 30-contact scan and says when it was bounded.
+- When drafting is not allowed the pack withholds notes, evidence, legacy sources and message text, and omits the
+  address. Message text of a person who may not be contacted is withheld even when drafting to someone else is allowed.
+- Free text is untrusted-marked and address-redacted; source URLs must be public https (no credentials, localhost,
+  private hosts); otherwise `urlWithheld` is set. Freshness: fresh <= 90 days, aging <= 365, stale beyond, unknown
+  when no research date is stored (undated evidence is not citable).
+- Tenant scope: prospect tables are platform-wide, so a prospect linked to a customer tenant (conversion or active
+  relationship) outside the grant reads as NOT_FOUND, like any out-of-scope target. A contact or venue of another
+  account is NOT_FOUND. Unknown arguments are rejected (strict schema).
+- Tool and property names avoid send/charge/delete/autonomy/approved (`releaseEligible`, not a send word).
+- Determinism: no clock reads inside the builder (uses the call's `now`), sorted keys, stable ordering with id
+  tiebreakers. The fingerprint hashes record ids and versions, not time.
+
+**Commands and results.** Disposable DB `pathfinder_disposable_einstein_outreach` (the `pathfinder_disposable_`
+prefix is required by the migration script and the test guard; migration needs `PATHFINDER_DISPOSABLE_DATABASE_URL`).
+
+- `pnpm install --frozen-lockfile`, `prisma generate`: PASS.
+- `tsc --noEmit` in packages/api and packages/contracts: PASS.
+- `pnpm lint` packages/contracts: PASS. packages/api: FAIL on one pre-existing unused import in
+  `operator-company-reports-billing.disposable.integration.test.ts` (not touched here); my files lint clean.
+- Contracts `pnpm test`: 73 files / 729 tests PASS.
+- API `pnpm test`: 310 files passed, 1 failed (`venue-qr-pdf` timeout under full-suite load; passes alone, 6/6).
+- Unit `outreach-context.test.ts`: 23 PASS.
+- `RUN_OPERATOR_DB_INTEGRATION=1 vitest run src/operator --pool=forks --maxWorkers=1`: 42 of 43 files pass; the one
+  failure was a 10s `beforeAll` hook timeout in `operator-discovery` under load; rerun alone with a longer hook
+  timeout: 8/8 PASS. New `operator-outreach-context.disposable.integration.test.ts`: 10/10 PASS (healthy pack, suppressed
+  contact, unsubscribed-only account with ledger, address blocked on an archived alias, do-not-contact account, missing
+  venue/contact/evidence, truncation of evidence/notes/messages, determinism and fingerprint change, cross-tenant,
+  cross-account, missing capability, strict args and no writes).
+- `pnpm test:scripts`: 18 failures = the 14 known admission pins plus 4 in `ci-plan-workflow-wiring.test.mjs`, which
+  fail identically on the clean base commit (checked with a stash) and are unrelated.
+- NOT RUN: full-repo `pnpm typecheck`/`pnpm test` for other packages (only contracts and api touched).
+
+## Outreach continuation (2026-10-02)
+
+Reviewed the existing A04 commit and fixed an authorization defect: the first 50 active customer
+relationships cannot establish authority for the complete account. The loader now checks every
+active relationship; a 51-relationship cross-tenant regression proves refusal. Recent research dates
+do not establish recent news, and estimated size does not establish attendance; both claims remain
+unsupported until independently verified. No network, model, mailbox or mutation was added.
+
+The broad run also exposed portable-test defects. The dashboard boundary test now uses
+`fileURLToPath`, and the billing month fixture uses local noon. The CI workflow contract normalizes
+CRLF before matching YAML. Removed one unused test import. Product timezone behavior and the
+staging admission script and its tests are unchanged.
+
+Commands run from this lane root, with the handoff's synthetic local CI environment, disposable
+database `pathfinder_disposable_einstein_outreach`, Redis index 3. Logs are retained in the lane's
+external `qa` folder. Each shell must set this environment; it does not persist across invocations.
+
+| Exact command                                                                                                                                                                                                                              | Result                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                                                           | PASS                                                                                                                                                                                                                                |
+| `pnpm typecheck`                                                                                                                                                                                                                           | PASS, all 27 Turbo tasks                                                                                                                                                                                                            |
+| `pnpm lint`                                                                                                                                                                                                                                | Initial FAIL: unused `OperatorNotFoundError` test import; removed; rerun PASS, 15 tasks, existing warnings only                                                                                                                     |
+| `pnpm test`                                                                                                                                                                                                                                | Initial FAIL: two dashboard portable-test defects; next shell FAIL from missing dummy worker configuration; final configured rerun: all 27 Turbo tasks PASS, command exits FAIL solely for the 14 frozen admission-pin script tests |
+| `pnpm test:scripts`                                                                                                                                                                                                                        | Initial FAIL 18 (14 pins + 4 CRLF workflow-parser failures); final invocation inside `pnpm test`: 620 tests, 605 PASS, 14 FAIL, 1 skipped                                                                                           |
+| `pnpm --dir apps/dashboard exec vitest run lib/server-client-boundary.test.ts components/billing/BillingStateView.test.tsx --pool=forks --maxWorkers=1`                                                                                    | PASS, 339 tests                                                                                                                                                                                                                     |
+| `RUN_OPERATOR_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator/outreach-context.test.ts src/operator/tools/operator-outreach-context.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000` | PASS, 23 unit + 11 DB tests                                                                                                                                                                                                         |
+
+Final workspace test counts: config 108, contracts 729, AI 179, auth 76, intake-engine 15,
+character-factory 14, jobs 98, UI 43, DB 2293, analytics 4, billing 87, API 3364, web 547,
+workers 707, dashboard 2096 PASS. Guarded integration skips in this unit run are not DB proof;
+the dbint lane owns the exhaustive integration inventory. Hosted/provider/device checks NOT RUN.
+
+## W12 authenticated chat approvals and bounded job grants (2026-10-02)
+
+### Design (written from the existing operator code)
+
+Existing: `approveAndApplyProposal` / `rejectProposal` (packages/api/src/operator/proposals.ts) are called only by
+`POST /api/operator/approve`, behind `guardOperatorMutation` (Clerk session, PLATFORM_ADMIN + operator allowlist,
+exact-origin check, strict reverification). The approval POST is bound to the proposal `argsHash`; apply re-checks the
+preview digest and target version. The MCP connection (bearer token) only reaches `createProposal`/reads/controls via
+`registry.callTool`. Autonomy (`OperatorAutonomyPolicy`) is per-capability and owner-set; proposals carry
+`autoApproved`.
+
+A25 chat approvals (new `decisions.ts`, table `operator_decision_requests`):
+
+- Chat side, `operator.request_decision {proposalId}` (control tool, `operator:plan`): own pending standalone proposals
+  only (other grant / out-of-grant tenant = NOT_FOUND, plan step = refused). Records a ticket snapshotting argsHash,
+  previewDigest and targetVersion, TTL 10 minutes, and returns a link. Repeating the call renders the decision. It
+  never approves, rejects or applies.
+- Human side, `decideRequest` is called only by `POST /api/operator/decide` after the same guard as approve. Order:
+  allowlist, ticket exists, status/expiry, input argsHash equals ticket, proposal still PENDING with the same
+  argsHash/previewDigest/targetVersion (else ticket INVALIDATED), then ONE compare-and-set REQUESTED->DECIDED (single
+  use), then the existing approve/reject service. Replay, race and stale page all fail before touching the proposal.
+- CSRF/replay: Clerk session + exact Origin + strict reverification + single-use ticket + argsHash body binding.
+- Audit: `decision.request` events REQUESTED / DECIDED:approve|reject / EXPIRED / INVALIDATED, plus the existing
+  proposal.transition rows. No operator tool imports `decideRequest` (static test).
+- Plans: not covered (plans keep the approval page). Reuse, not fork: decisions call the existing services.
+
+A26 bounded job grants (new `job-grants.ts`, table `operator_job_grants`, column `operator_proposals.job_grant_id`):
+
+- Grant = name, operator connection (OAuth client), one tenant (+ optional venue), exact kinds, maxExecutions (1..100),
+  optional maxAmountCents (only for kinds that declare `jobGrant.amountCents`), required expiry (default 24 h, 5 min..7 d),
+  revocable. Counters are stored as REMAINING budget so a use is one conditional UPDATE (no overspend under races).
+- Created/revoked only by `POST /api/operator/job-grants` behind the same human guard; no operator tool reaches it.
+  An audit of the first implementation found that `createProposal` also _spent_ matching grants during MCP calls.
+  That path was removed. The grant creator must use **Apply with my job grant** on the pending proposal's approval
+  page; the guarded `apply` action matches kind/tenant/venue/connection server-side and binds the shown args hash.
+- Default deny: a kind must set `jobGrant` itself; always-ask kinds and locked capabilities are refused. Only
+  `appearance.update` opts in this lane; mail, invites, billing and all always-ask kinds stay non-grantable.
+- Use: an authenticated creator explicitly spends one use to approve and apply the pending proposal, with
+  `job_grant_id` recorded and audit outcome `JOB_GRANT_APPROVED` (args: jobGrantId). Revoked before apply = FAILED
+  `JOB_GRANT_REVOKED`. Exhausted/expired/revoked/other scope/other kind = refusal; proposal stays PENDING.
+- This lane does not provide scheduled autonomous use. The job grant is a bounded human-triggered option; MCP
+  connections cannot mint, spend, or consume one.
+- A claimed use is spent even if the change later goes stale or fails (conservative).
+- Migration `20261002110000_add_operator_decisions_and_job_grants` (additive; both tables PLATFORM*TABLES; CHECK
+  constraints on bounds). Disposable DB must be named `pathfinder_disposable*_`for the suites to run (not`pathfinder*einstein*_`), so this lane used `pathfinder_disposable_einstein_w12`.
+
+### W12 verification (local disposable services, Redis DB 2)
+
+- PASS — `pnpm install` (lockfile unchanged).
+- PASS — `pnpm typecheck --concurrency=2` after the security refactor (27/27 tasks). An earlier uncapped run was interrupted during the database package build because concurrent lane Turbo runs exhausted host memory.
+- PASS — from `packages/api`, with `RUN_OPERATOR_DB_INTEGRATION=1`, `DATABASE_URL` and `DIRECT_DATABASE_URL` set to local `pathfinder_disposable_einstein_w12`, and `REDIS_URL=redis://127.0.0.1:36379/2`: `npx vitest run src/operator/operator-authority.disposable.integration.test.ts src/operator/operator-execution.disposable.integration.test.ts src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` (4 files, 60 tests).
+- PASS — from `packages/api`, `pnpm exec vitest run src/operator/operator-decisions-grants.test.ts --pool=forks --maxWorkers=1` (45 tests). An earlier combined command with `operator.adversarial.test.ts` skipped that file's 26 DB cases because the DB flag was absent.
+- PASS — from `packages/api`, `pnpm exec vitest run src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` with the local DB env and `RUN_OPERATOR_DB_INTEGRATION=1` after the security refactor (21 tests). The matching-grant case goes through `registry.callTool('appearance.propose_update', ...)` and proves the grant remains unspent until the signed-in route uses it.
+- PASS — from `apps/dashboard`, `pnpm exec vitest run 'app/api/operator/operator-decision-grant-routes.test.ts' 'app/(admin)/admin/operator/page.test.tsx' --pool=forks --maxWorkers=1` (51 tests) and `pnpm exec vitest run components/operator/OperatorScreens.accessibility.test.tsx --pool=forks --maxWorkers=1` (24 tests; jsdom navigation diagnostics on an unrelated anchor).
+- FAIL — `pnpm lint --concurrency=2` due to one pre-existing unused import in `operator-company-reports-billing.disposable.integration.test.ts`; focused ESLint on all changed TS/TSX files PASS. The parallel outreach lane fixes that import for integration.
+- FAIL then PASS — `pnpm test` stopped in `packages/db` at two stale expectations for the new platform tables and new migration; both expectations were updated. `pnpm --dir packages/db test` then PASS (320 files, 2,293 tests; 62 files/137 DB cases skipped by design).
+- FAIL — `pnpm test:scripts`: 14 expected staging migration-admission pin failures plus one tool-coverage count/digest mismatch caused by the new admin procedures. The integrator must refresh the tool-coverage inventory after all lanes merge; staging pins remain untouched.
+- FAIL (invocation only) — root `npx vitest run packages/api/src/operator/operator-decisions-grants.disposable.integration.test.ts --pool=forks --maxWorkers=1` read the workspace file as a Vite config; repeating with `--config packages/api/vitest.config.ts` from root missed `packages/api/vitest.setup.ts`. The package-directory invocation above is the working command.
+- NOT RUN — rendered browser check of the grant approval page (no provider-dark fixture for the guarded component); this is a release candidate verification item.
+
+## Inbound (2026-10-02)
+
+- A06/A12: inbound Gmail sync offers otherwise-unmatched inbound messages to a client-notification reply linker. A fresh outbound RFC Message-ID anchors matching; recipient equality is required after identifier resolution. Linked replies store a bounded untrusted preview and hashes, move only `WAITING_FOR_CLIENT` requests to `IN_REVIEW`, and are readable through `support.list_replies`. Unknown, ambiguous, mismatched, malformed and oversized messages remain quarantined. Migration `20261002111000_add_client_inbound_replies` is additive; no hosted migration or email was run.
+- Scope: prospect-thread matching runs first. Client replies never become a support message, answer a question, complete work, or authorize another action. Follow-up for integration: the A23 support-request routine stop rule must also check `clientInboundReply` because inbound email replies do not create `supportMessage`.
+- Environment for database checks: `DATABASE_URL` and `DIRECT_DATABASE_URL` pointed at local `pathfinder_disposable_einstein_inbound` on `127.0.0.1:35432`; Redis index 4; provider keys were dummy CI values. Logs stayed in the lane root outside the repository.
+- `pnpm install` — PASS.
+- `PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 pnpm db:migrate:disposable --database pathfinder_disposable_einstein_inbound --confirm-database pathfinder_disposable_einstein_inbound` with `PATHFINDER_DISPOSABLE_DATABASE_URL` set to that local database — PASS, 260 migrations present, none pending. The first invocation without `PATHFINDER_DISPOSABLE_DATABASE_URL` was refused as designed.
+- `pnpm typecheck --concurrency=2` — PASS, 27/27 tasks. An earlier unconstrained `pnpm typecheck` was interrupted during shared-machine memory contention and is NOT RUN to completion.
+- `pnpm lint --concurrency=2` — PASS, 15/15 tasks after removing one pre-existing unused import in an API integration test. First run FAIL on that import.
+- `pnpm test` with the packet's dummy CI env — FAIL, 26/27 Turbo tasks passed; dashboard had one Windows/local-date fixture failure. The first attempt without CI env also failed four worker suite startup checks for absent dummy Clerk values. `pnpm exec vitest run lib/server-client-boundary.test.ts components/billing/BillingStateView.test.tsx --pool=forks --maxWorkers=1` from `apps/dashboard` — PASS, 339/339 after portable path and local-noon fixture fixes. Final integrated `pnpm test` remains the merger's gate.
+- `RUN_CLIENT_INBOUND_REPLY_DB_INTEGRATION=1 pnpm exec vitest run src/helpers/client-inbound-replies-disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/db` — PASS, 7/7 including cross-tenant refusal and concurrent duplicate delivery.
+- `pnpm test:scripts` — FAIL, 620 tests: 599 PASS, 20 FAIL, 1 skipped. Four CI YAML CRLF parser failures and two stale current-truth inventory counts require integration updates; the other 14 are the known staging migration-admission pins. The pin script and its tests were not edited. No live provider or hosted database checks were run.
+- Follow-up safety fix: each RFC and provider-thread anchor lookup now reads one row past its 20-row bound and quarantines overflow as `AMBIGUOUS_THREAD`. This prevents a truncated result from hiding a different tenant or request. `pnpm exec tsc --noEmit -p tsconfig.json` from `packages/db` — PASS; `RUN_CLIENT_INBOUND_REPLY_DB_INTEGRATION=1 pnpm exec vitest run src/helpers/client-inbound-replies-disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/db` against the same disposable DB — PASS, 8/8; `pnpm exec eslint --config ../config/eslint/base.js src/helpers/client-inbound-replies.ts src/helpers/client-inbound-replies-disposable.integration.test.ts` — PASS. An initial bare `pnpm exec eslint` invocation was NOT RUN because this package requires its explicit shared config; no lint findings were reported.
+
+## Routines (2026-10-02)
+
+- A23: routines now check tenant suspension, customer churn, venue offboarding, request closure or client reply, reminder count and end date before materializing a run. A stop disables and audits the routine. A period budget reserves a per-run estimate atomically and refuses a run as `BUDGET_EXCEEDED` before creating effects. The budget ledger has a database overspend check; a mid-period currency change cannot reinterpret prior spend. The worker records a JobRecord. Migration `20261002112000_add_routine_stop_rules_and_budgets` is additive.
+- Tenant-scoped routine proposals refuse `PROSPECT_CONTACT` stop subjects before any global CRM read: the platform prospect table has no proven tenant relation. A previously stored subject of that kind stops safely as `SUBJECT_MISSING`. Forbidden-path unit and database tests cover this. Integration follow-up: A06/A12 email replies are recorded in `clientInboundReply`, so the support-request stop rule must check that table after both lanes merge; this lane currently checks portal `supportMessage` replies.
+- Database checks used local `pathfinder_disposable_einstein_routines` on `127.0.0.1:35432` and Redis index 5; all provider keys were dummy CI values. Logs stayed in the lane root outside the repository. No hosted migration, provider request, send or money action ran.
+- `pnpm install` — PASS. `PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 pnpm db:migrate:disposable --database pathfinder_disposable_einstein_routines --confirm-database pathfinder_disposable_einstein_routines` with `PATHFINDER_DISPOSABLE_DATABASE_URL` set to that local database — PASS, 260 migrations present and none pending.
+- `pnpm typecheck --concurrency=2` — PASS, 27/27 tasks. `pnpm lint --concurrency=2` — PASS, 15/15 tasks.
+- `pnpm exec vitest run src/helpers/agent-routine-guards.test.ts src/helpers/agent-routine-actions.test.ts --pool=forks --maxWorkers=1` from `packages/db` — PASS, 34/34. `pnpm exec vitest run src/operator/kinds/reports-routines.test.ts --pool=forks --maxWorkers=1` from `packages/api` — PASS, 31/31.
+- `RUN_AGENT_ROUTINE_GUARDS_DB_INTEGRATION=1 pnpm exec vitest run src/helpers/agent-routine-guards.disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/db` — PASS, 24/24 after updating legacy global-contact expectations. `RUN_OPERATOR_DB_INTEGRATION=1 pnpm exec vitest run src/operator/kinds/reports-routines.disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/api` — PASS, 4/4.
+- `pnpm test` with dummy CI env — FAIL, one real new tenant-registry expected-list omission in the DB package; fixed. `pnpm exec vitest run src/middleware/tenant-isolation.test.ts --pool=forks --maxWorkers=1` — PASS, 347/347. `pnpm test` from `packages/db` — PASS, 321 files/2319 tests; 63 files/161 tests intentionally skipped without DB flags. Final integrated full `pnpm test` remains the merger's gate.
+- `pnpm test:scripts` — FAIL, 620 tests: 600 PASS, 19 FAIL, 1 skipped. Four Windows CI YAML CRLF parser failures and one stale current-truth migration count require integration updates. Fourteen are the known staging migration-admission pins. The pin script and its tests were not edited.
+
+## Offboard (2026-10-02)
+
+A24 now has an off-by-default `offboarding.propose_execution` kind and additive migration
+`20261002113000_add_offboarding_execution`. A reviewed plan covering every customer venue can be
+proposed; a human platform approver must apply it. The executor records step receipts, stops at the
+first failure, resumes settled steps idempotently, and records billing and identity-provider work for
+a person. It closes public venues, stops scheduled work, revokes only the connection categories the
+plan selected, marks customer and local membership rows inactive, and writes a data manifest. It
+never calls live providers or deletes data. Reinstatement restores public venues and local membership
+rows while listing credentials, schedules, billing, and identity-provider access as manual work.
+
+Review repairs: a CONNECTIONS step previously revoked all three categories when only one was
+selected; the runner now restricts each mutation to its selected target. Shared operator grant
+narrowing now uses an exact-array compare-and-set with reread/retry so simultaneous customer
+offboardings cannot restore each other's scope. A failed first step with no settled receipt now
+resolves as UNKNOWN because it may have partially changed data. Before a resumed plan is marked
+complete, the executor verifies the selected local effects still hold; a reopened venue, for
+example, leaves the execution in progress with a partial-application error. Choosing either guest
+links or widgets closes the shared venue availability, including guest chat, QR, and embeds; the
+preview discloses this coupled effect. Local SUSPENDED/REMOVED fields are
+not an app-wide access gate: Clerk organization sessions and some app reads remain reachable until
+a person removes identity-provider access. This is an explicit release limitation, not a claim of
+completed access revocation.
+
+Checks (local disposable `pathfinder_disposable_einstein_offboard`, Redis DB 6):
+
+- PASS — `pnpm install` (lockfile unchanged).
+- PASS — `pnpm exec vitest run src/operator/kinds/offboarding-execution.disposable.integration.test.ts --pool=forks --maxWorkers=1` from `packages/api`, with local DB env and `RUN_OPERATOR_DB_INTEGRATION=1` (15 tests; first attempt failed three new fixtures because their synthetic secret prefixes exceeded the schema length, corrected and rerun).
+- PASS — `pnpm exec vitest run src/helpers/offboarding-execution-policy.test.ts src/helpers/offboarding-execution-migration-contract.test.ts --pool=forks --maxWorkers=1` from `packages/db` (27 tests).
+- PASS — `pnpm verify:raw-sql` (262 operations) after registering the tenant/plan advisory lock and removing a computed method call.
+- PASS — `pnpm typecheck --concurrency=2` (27/27); `pnpm --dir packages/api exec tsc --noEmit` after the final drift guard.
+- PASS — `pnpm --dir packages/db test` (322 files, 2324 tests; 62 files and 137 tests skipped).
+- PASS — `pnpm --dir packages/api test` (310 files, 3341 tests; 86 files and 325 tests skipped). The first run found stale embedded manual text; the corrected rerun passed.
+- FAIL — `pnpm lint --concurrency=2` on a pre-existing unused `OperatorNotFoundError` import in `packages/api/src/operator/kinds/operator-company-reports-billing.disposable.integration.test.ts`; the outreach lane removes it on integration.
+- PASS — focused `pnpm exec eslint --config packages/config/eslint/base.js` over the new offboarding API/DB files and embedded manual text.
+- FAIL — `pnpm test:scripts` (599 PASS, 20 FAIL): 14 known frozen staging migration-admission pins plus four CI job inventory assertions and two current-truth/security inventory assertions on this isolated lane. The integration lane owns the changed inventory/current-truth assertions; the staging pins remain intentionally untouched.
+
+## Dbint (2026-10-02)
+
+- Finished the six inherited DB test edits and current API/worker fixtures. Two approved forward-only migrations now make JavaScript capability ordering locale-independent in the evidence trigger and admit `CLIENT_REPORTED` voice usage without reclassifying it as provider-observed. Updated the readiness endpoint to the actual latest migration. No hosted migration, send, provider call, or staging-admission pin edit occurred.
+- Design: preserve every credential allowlist and operation/activation/revocation evidence gate; keep client-reported voice usage distinct from observed billing. The migration contract tests compare the credential trigger body and constrain the voice guard replacement. Local test resources were own loopback PostgreSQL/Redis/MinIO/ClamAV with synthetic credentials only.
+- Evidence root `$B = C:\Users\tomsc\MachineWorkspaces\torchiko\20261002-einstein-dbint`; exhaustive per-file final status, initial fail/skip, classification, and log are in `$B\logs\integration-suite-summary.tsv` (170/170 baseline integration files PASS). Five additional lane feature DB files and the direct Redis script are covered by integration lanes/root, giving 176 final tracked files.
+- `pnpm install --frozen-lockfile` — PASS (`$B\logs\pnpm-install.log`).
+- `& 'C:\Program Files\Git\bin\bash.exe' /c/Users/tomsc/MachineWorkspaces/torchiko/20261002-einstein-dbint/batch-integration.sh packages/db db-batch-all` and same script with `packages/api api-batch-all`, `apps/workers workers-batch-all-rerun`, `packages/jobs jobs-batch-all`, `packages/billing billing-batch-all`, `apps/dashboard dashboard-batch-all` — initial FAIL/SKIP from shared DB state, exact-name guards, and missing local services; original logs `$B\logs\*-batch-all.log`. Every initially failing/skipped file was rerun serially with an isolated database or service and is PASS in the TSV; no guarded skip is counted as proof.
+- `& 'C:\Program Files\Git\bin\bash.exe' /c/Users/tomsc/MachineWorkspaces/torchiko/20261002-einstein-dbint/run-named-cases.sh packages/db /c/Users/tomsc/MachineWorkspaces/torchiko/20261002-einstein-dbint/logs/named-packages-db.cases named-db` and same script for `packages/api` with `named-packages-api.cases named-api` — initial FAIL on credential locale sort, stale truncate/contract/timing fixtures, and missing disposition roles; corrected and fresh reruns PASS. Exact file commands and logs are in `$B\run-named-cases.sh`, `$B\logs\named-*-summary.tsv`, and TSV.
+- `pnpm --filter @pathfinder/db typecheck`, `pnpm --filter @pathfinder/api typecheck`, `pnpm --filter @pathfinder/workers typecheck` — PASS (`$B\logs\typecheck-{db,api,workers}.log`).
+- `pnpm --filter @pathfinder/db lint`, `pnpm --filter @pathfinder/workers lint` — PASS. `pnpm --filter @pathfinder/api lint` — FAIL on another lane's unused import in `operator-company-reports-billing.disposable.integration.test.ts`; integrator fixed it separately and reports full lint PASS. Logs `$B\logs\lint-{db,api,workers}.log`.
+- `node --test scripts/disposable-redis-integration.test.mjs` — PASS 13/13 (`$B\logs\script-disposable-redis.log`). `RUN_VENUE_PACKAGE_DUPLICATE_MIGRATION_INTEGRATION=1 PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 PATHFINDER_DISPOSABLE_DATABASE=pathfinder_disposable_dbint_legacy_migration PATHFINDER_DISPOSABLE_DATABASE_URL=postgresql://postgres:<synthetic>@127.0.0.1:35432/pathfinder_disposable_dbint_legacy_migration node --test scripts/venue-package-duplicate-analysis-migration.integration.test.mjs` — PASS (`$B\logs\script-venue-package-legacy-migration.log`).
+- `node --test scripts/operations-readiness-migration.test.mjs` — FAIL: frozen 255-migration endpoint assertion conflicts with the approved forward migrations; pin left unchanged (`$B\logs\operations-readiness-migration-contract.log`). This is among the 14 known admission-pin failures to report, not a runtime readiness failure; guarded readiness suite PASS (`$B\logs\worker-readiness-local-updated.log`).
+- Full lane `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:scripts` — NOT RUN as duplicate global work; integrator is running them on the merged exact head. Scoped unit suite — NOT RUN in lane; integrator reports full unit PASS. The full DB suite proof here includes all 170 baseline files, both mutually exclusive disposition modes, and both bridge-runner cases.
+- Remaining decisions: venue timezone migration and doc-name replacement await Tom. Release/rollback remains an integrator proposal only; no deploy or rollback executed.
+
+## Integration and W14 continuation (2026-10-02)
+
+All six lane branches were reviewed and merged. Follow-up review removed MCP-triggered grant consumption, denied truncated outreach/inbound ownership evidence, refused unscoped prospect routines, corrected offboarding target scope and concurrent grant narrowing, and added a final live-state check before offboarding completion. W12 grant use remains human-triggered; identity-provider offboarding remains manual.
+
+Cross-lane fix: linked inbound email now stops the matching support reminder by exact tenant, venue, request and receipt time. W14 moved shared deployment storage policy into config while retaining the API compatibility export: production worker files importing `@pathfinder/api` fell from 11 to 10 (measured with `rg -l '@pathfinder/api' apps/workers/src -g '*.ts' -g '!*.test.ts'`). No whole-codebase cleanup claim.
+
+The integrator reviewed and explicitly approved local migration `20261002114000_fix_external_credential_capability_collation` under the lane brief. It changes only the existing evidence function's canonical sort to C collation; original FAIL and fresh-DB PASS evidence is in the DB integration entry. A second reviewed forward migration, `20261002115000_allow_client_reported_voice_usage`, admits the already-used CLIENT_REPORTED value without reclassifying historical or provider-observed usage. All 265 migrations were applied to a fresh local database; no hosted migration, admission-pin, venue-timezone or existing documentation-name change occurred.
+
+Full workspace phase: PASS 10,547 tests. All 176 final-tree integration files have PASS evidence across baseline lane/root/targeted runs (not one final-head run). Follow-up source 57b90ac0: `pnpm typecheck --concurrency=2` PASS, `pnpm lint --concurrency=2` PASS, `pnpm --dir packages/db exec vitest run src/helpers/operational-health.test.ts --pool=forks --maxWorkers=1` PASS 14.
+
+Serial proof source: `a7fb150280fc49c44c7433d949d7f728b304a360` plus final documentation. Local artifacts are in sibling `../qa/`: `final-checks.ps1`, `local-test-env.ps1`, `final-results.tsv`, and `final-<check>.log`. Environment was dot-sourced with `-Lane finish_final2`, using only synthetic loopback credentials. Attempt 1 receipts remain in `../qa/attempt1/`: its full test failed a CRLF-sensitive migration assertion, and its operator sweep failed merged manual drift and the 120-tool catalog bound. Corrected focused reruns passed 6 migration-contract, 24 catalog-contract and 22 operator tests; the catalog is now bounded by the 123 declared names. Final rerun includes both reviewed schema fixes and current fixture contracts.
+
+| Exact command                                                                                                                                                                                                                                                                                                        | Result                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                                                                                                                                     | PASS                                                                                       |
+| `pnpm --dir packages/db exec prisma generate`                                                                                                                                                                                                                                                                        | PASS                                                                                       |
+| `docker exec einstein-pg psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE pathfinder_disposable_einstein_finish_final2'`                                                                                                                                                                                      | PASS                                                                                       |
+| `PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 pnpm db:migrate:disposable --database pathfinder_disposable_einstein_finish_final2 --confirm-database pathfinder_disposable_einstein_finish_final2`                                                                                                                        | PASS — 265                                                                                 |
+| `pnpm typecheck --concurrency=2`                                                                                                                                                                                                                                                                                     | PASS — Tasks: 27 successful, 27 total                                                      |
+| `pnpm lint --concurrency=2`                                                                                                                                                                                                                                                                                          | PASS — Tasks: 15 successful, 15 total; existing warnings remain                            |
+| `pnpm test`                                                                                                                                                                                                                                                                                                          | FAIL — Tasks: 27 successful, 27 total; ℹ tests 620; ℹ pass 605; ℹ fail 14; ℹ skipped 1     |
+| `pnpm test:scripts`                                                                                                                                                                                                                                                                                                  | FAIL — corrected final rerun: 620 tests / 607 PASS / 12 FAIL / 1 SKIP                      |
+| `pnpm verify:tenant-registry`                                                                                                                                                                                                                                                                                        | PASS — 294 models                                                                          |
+| `pnpm verify:tenant-bypasses`                                                                                                                                                                                                                                                                                        | PASS — 463 calls / 163 files                                                               |
+| `pnpm verify:raw-sql`                                                                                                                                                                                                                                                                                                | PASS — 262 operations: 152 reads / 110 writes                                              |
+| `pnpm verify:tenant-procedures`                                                                                                                                                                                                                                                                                      | PASS                                                                                       |
+| `RUN_OPERATOR_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator --pool=forks --maxWorkers=1 --hookTimeout=120000`                                                                                                                                                                                | PASS — Test Files 47 passed (47); Tests 636 passed (636)                                   |
+| `RUN_CLIENT_INBOUND_REPLY_DB_INTEGRATION=1 RUN_AGENT_ROUTINE_GUARDS_DB_INTEGRATION=1 pnpm --dir packages/db exec vitest run src/helpers/client-inbound-replies-disposable.integration.test.ts src/helpers/agent-routine-guards.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000`      | PASS — Test Files 2 passed (2); Tests 33 passed (33)                                       |
+| `pnpm --dir packages/db exec vitest run src/helpers/agent-routine-guards.test.ts src/helpers/agent-routine-actions.test.ts --pool=forks --maxWorkers=1`                                                                                                                                                              | PASS — 35                                                                                  |
+| `pnpm --dir packages/config exec vitest run src/deployment-storage-key.test.ts --pool=forks --maxWorkers=1`; matching API compatibility test at `src/lib/deployment-storage-key.test.ts`                                                                                                                             | PASS — 4 + 4                                                                               |
+| `node --test scripts/ci-plan-workflow-wiring.test.mjs`; `node --test scripts/torchiko.test.mjs`                                                                                                                                                                                                                      | PASS — 8 + 17; CRLF portability and reviewed two new dashboard-only admin queries          |
+| `pnpm --dir apps/dashboard exec playwright test tests/visual/guest-visit.spec.ts --config=playwright.visual.config.ts --workers=1 --reporter=line --output=C:/Users/tomsc/MachineWorkspaces/torchiko/20261002-einstein-finish/qa/guest-visit-rerun-results` with `PLAYWRIGHT_VISITOR_BASE_URL=http://127.0.0.1:3310` | PASS — 6/6; actual output retained in integration sibling `qa`, phone screenshot inspected |
+| Real iPhone/WebKit, Stripe sandbox, guarded W12 page browser render, hosted/provider smoke                                                                                                                                                                                                                           | NOT RUN                                                                                    |
+
+Original 14 failure names below: 12 frozen pins remain FAIL; two documentation-safety checks now PASS. Final admin procedure inventory and canonical command documentation corrections removed two additional integration failures. No pin test was edited.
+
+- FAIL — maintenance source verification requires the admitted 255-row endpoint and refuses 252 before function reads
+- PASS — every retained historical database instruction is prominently deactivated
+- PASS — September 30 approval is exact-scope, guarded, and preserves the ACTIVE incident default
+- FAIL — operations readiness pins the reviewed 255 migration endpoint
+- FAIL — MCP appearance and operator OAuth are the exact admitted 252-to-255 suffix
+- FAIL — the admitted 255 endpoint preserves the 252 predecessor and rejects a 253-row ledger
+- FAIL — 248 guest-disposition predecessor remains frozen and accepts only the reviewed suffix
+- FAIL — the reviewed 255 endpoint retains every frozen predecessor and the historical 252 prefix
+- FAIL — repository migration manifest retains observed predecessors and the reviewed 255 suffix
+- FAIL — ledger accepts exact LF or CRLF Prisma checksums without weakening the normalized manifest freeze
+- FAIL — ledger accepts only exact reviewed migration boundaries
+- FAIL — exact previous staging release advances only through the reviewed migration suffix
+- FAIL — exact 236, 247, 248, 249, 250, 252 and 207 ledgers advance to 255 while complete 255 is a no-op
+- FAIL — unreviewed 237-246 boundaries and failed or divergent suffix rows remain refused
+
+Release/rollback is a proposal only in the final handoff. Final non-force push and exact-head CI receipt are recorded after this local verification; no deploy or provider action is authorized by these results.
+
+## Safari and capable CRM continuation (2026-10-02)
+
+The six-lane delivery at `ba0465b6` remains integrated. Follow-up commits `74e682c6`, `e0fe8e5c`, `f2ff5344`, `754a5b21` and `bde5dbab` add routine policy defaults, corrected public-route inventory, fresh default-policy proof, WebKit touch/contrast fixes and native CSV staging. Integration commit `5c9896e4` completes MCP transport metadata, audit redaction, stable commit arguments, routine quota behavior, consent/settings/manual copy and CI coverage. No migration or provider switch was added.
+
+Routine CRM edits, imports, private draft venues and appearance now apply without another human approval unless an explicit ASK policy says otherwise. Capabilities, tenant scope, owner consent, revocation and always-reviewed effects remain authoritative. Routine actions use burst throttling without the previous 120/hour approval fallback; mixed/non-routine plans retain their existing budget. Host subscription limits and tool confirmations are separate.
+
+CSV staging accepts the host's native file parameter or inline UTF-8 CSV, with a 100 KB/500-row/50-column bound. Public DNS is pinned for HTTPS, redirects are revalidated, DNS time counts against the whole download deadline, and private/IP-literal URLs are refused. Exact duplicates skip; ambiguous matches block. Durable completion and row-count checks prevent partial imports from committing. Replays recover by grant and operation identity; completed signed-file replay needs no new download. Corrected bytes require a new operation ID. Commit arguments contain their own stable ID, and the worker's final counts determine what was created.
+
+The WebKit failure was reproduced before the fix: a viewport shift moved the delayed click off Send. Single-touch release now submits once while guarding swipe/cancel and compatibility clicks; mouse/keyboard behavior remains. Hover opacity also caused 4.43:1 contrast and was removed. A physical iPhone keyboard remains untested.
+
+Evidence root is the integration worktree's sibling `../qa`; browser evidence is in `../../20261002-einstein-w12`, with exact commands in `webkit-guest-receipt.md`. All integration DB suites below ran serially on loopback disposable PostgreSQL/Redis with synthetic configuration.
+
+| Exact command / proof                                                                                                                                                                                                                                                                                                                                                  | Result                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                                                                                                                                                                                       | PASS; `crm-safari-install.log`                                                                                                                                                                              |
+| `pnpm typecheck --concurrency=2`; `pnpm lint --concurrency=2`                                                                                                                                                                                                                                                                                                          | PASS, 27 and 15 tasks; `crm-safari-final-{typecheck,lint}.log`                                                                                                                                              |
+| `pnpm --dir packages/api typecheck`; `pnpm --dir packages/api lint` after final fixture/network edits                                                                                                                                                                                                                                                                  | PASS; `crm-safari-settled-{api-typecheck,api-lint}.log`                                                                                                                                                     |
+| `pnpm exec turbo run test --concurrency=1`                                                                                                                                                                                                                                                                                                                             | PASS, 27/27 tasks and 10,565 tests; `crm-safari-settled-workspace-serial.log`                                                                                                                               |
+| `pnpm test`; `pnpm test:scripts`                                                                                                                                                                                                                                                                                                                                       | FAIL only at frozen pins: workspace 27/27 PASS; scripts 620 total / 607 PASS / 12 FAIL / 1 SKIP in both commands. Failure names exactly match the prior frozen set; `crm-safari-settled-{test,scripts}.log` |
+| `pnpm verify:public-surfaces`; `pnpm verify:tenant-registry`; `pnpm verify:tenant-bypasses`; `pnpm verify:raw-sql`; `pnpm verify:tenant-procedures`                                                                                                                                                                                                                    | PASS; `crm-safari-{public-surfaces,tenant-registry,tenant-bypasses,raw-sql,tenant-procedures}.log`                                                                                                          |
+| `docker exec einstein-pg psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE pathfinder_disposable_einstein_crm_safari_settled'`                                                                                                                                                                                                                                   | PASS; `crm-safari-settled-create-db.log`                                                                                                                                                                    |
+| `. ../qa/local-test-env.ps1 -Lane crm_safari_settled`; `$env:PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS='1'; pnpm db:migrate:disposable --database pathfinder_disposable_einstein_crm_safari_settled --confirm-database pathfinder_disposable_einstein_crm_safari_settled`                                                                                                 | PASS, all 265 migrations on a new DB; `crm-safari-settled-migrate.log`                                                                                                                                      |
+| `$env:RUN_OPERATOR_DB_INTEGRATION='1'; $env:RUN_CRM_CSV_IMPORT_DB_INTEGRATION='1'; pnpm --dir packages/api exec vitest run src/operator --pool=forks --maxWorkers=1 --hookTimeout=120000`                                                                                                                                                                              | PASS, 51 files / 662 tests; `crm-safari-settled-operator-db.log`; includes authenticated stage/commit/replay, 20/7/13 duplicate proof and 13 attachment boundary tests                                      |
+| With `. ../qa/local-test-env.ps1 -Lane crm_safari_final`, `$env:RUN_PROSPECT_CRM_DB_INTEGRATION='1'; $env:RUN_PROSPECT_PACKAGE_DB_INTEGRATION='1'; pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts src/helpers/prospect-package-commit-disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000` | PASS, 2/2; `crm-safari-final-crm-db.log`                                                                                                                                                                    |
+| `pnpm --dir apps/dashboard exec vitest run components/IntakeProposalWorkspace.test.tsx components/admin/SemanticUpdatePreview.test.tsx --maxWorkers=1`                                                                                                                                                                                                                 | PASS, 42/42 unchanged; `crm-safari-dashboard-rerun.log`                                                                                                                                                     |
+| `pnpm --dir apps/dashboard exec playwright test --config playwright.guest-webkit.config.ts --reporter=line` with `PLAYWRIGHT_VISITOR_BASE_URL=http://127.0.0.1:3010` and `TORCHIKO_VISUAL_ARTIFACT_DIR=C:/Users/tomsc/MachineWorkspaces/torchiko/20261002-einstein-w12/webkit-proof-final`                                                                             | PASS, 27 executed / 8 intentional project skips; phone 320/390, landscape, tablet and desktop                                                                                                               |
+| `pnpm --dir apps/web exec vitest run components/ChatWindow.test.tsx`                                                                                                                                                                                                                                                                                                   | PASS, 41/41 in lane; final workspace covers it again                                                                                                                                                        |
+| `node --test scripts/migration-documentation-safety.test.mjs scripts/torchiko.test.mjs` after formatting the handoff/journal                                                                                                                                                                                                                                           | PASS, 25/25; `crm-safari-document-checks.log`                                                                                                                                                               |
+| Physical iPhone/iOS keyboard/VoiceOver, native upload against a deployed v1 server, hosted release, external sends and provider effects                                                                                                                                                                                                                                | NOT RUN                                                                                                                                                                                                     |
+
+Original FAIL evidence is preserved: `crm-safari-test.log` found the omitted CSV control inventory; `crm-safari-operator-db.log` found three old implicit-ASK fixture assumptions. `crm-safari-final-test.log` had two dashboard element-wait failures that passed unchanged in the 42-test isolated rerun. `crm-safari-final-operator-db.log` had 40 failures and `crm-safari-verified-operator-db.log` had four, exposing suites dependent on another suite leaving ASK policies behind. Each approval suite now explicitly sets and restores its policy; discovery/default-policy tests independently prove missing-row AUTO. No approval, scope, injection, revocation or job-grant assertion was weakened.
+
+The original 14 script failures remain classified by name in the preceding journal section: 12 frozen admission pins FAIL, two documentation-safety checks PASS. Protected migration scripts/tests are unchanged from `415134988fb9696160d764f79e2d01a317d6ed4f`. No admission-pin fix was attempted.
+
+A single user-authorized read-only operator context check confirmed a reachable platform-scoped connection with 18 capabilities and no missing capabilities, running release `9f726afd101cc3a3cb3c96d9504e06adc9618642` / catalog v0. It does not yet run this branch's v1 attachment/default-policy implementation. Prior head `ba0465b6` CI failed at public-surface inventory; the two guarded route inventory entries are corrected and the local gate passes. Final non-force push and exact-head GitHub check results are retained in `../CODEX-CONTINUATION.md` and `../qa/ci-crm-safari-exact-head.json`.
+
+Release and rollback remain proposals only in the handoff: separately admit migrations 256–265, rehearse a backup restore, require physical-device and authenticated native-import acceptance, and refresh the host tool catalog after an approved release. Pause import writers and reconcile/cancel incomplete CSV staging before rolling back to code without the completion guard; retain audit/import receipts and created prospect records. No deploy, hosted migration, email/invite, provider mutation, branch-protection change, timezone migration or pending documentation-name replacement was performed.
+
+## Import recovery and review continuation (2026-10-02)
+
+User added mailbox synchronization, independent email state, complete MCP import/merge/recovery and 35,623-character field retention as priorities, followed by an AI review pause. Three Sol lanes own Gmail sync, email-state metadata and location-aware merges; integration owns import retention/recovery and final proof. No live provider calls or release actions are authorized in this pass.
+
+Root implementation: exact paged owner-only `crm.get_import_field`; MCP source mapping/resume bound to file/mapping hashes and guarded against active leases; canonical mapping compare-and-set; import phase/count/error diagnostics; per-field original/staged/committed-evidence lengths and SHA-256 with explicit unknown/mismatch states; CSV retention failure blocks readiness; 65,536-character CSV cells within 100,000 total bytes, 100,000-character browser/worker source cells, 256 KiB row bound. Chat operation reads expose the approval-page description and preview digest with the decision/recovery next step. Catalog v2/server 1.2/manual v5. Imported Gmail state claims remain separate from verified provider delivery.
+
+Focused commands and evidence (local logs under sibling `qa/crm-current-*`):
+
+- PASS `pnpm --dir packages/api exec vitest run src/operator/tools/crm-csv-import.test.ts src/operator/tools/crm-import-retention.test.ts src/operator/tools/crm-import-resume.test.ts src/operator/tools/crm-imports-and-notes.test.ts src/operator/tools/operator-reads.test.ts --pool=forks --maxWorkers=1`: 47 tests at that revision. Expanded focused run later had 51 PASS/1 FAIL for manual-text synchronization; regenerating from the manual and rerunning `operator-reads.test.ts` gave 14 PASS. New exact-field and preview tests passed in the expanded run. Integrated final run is recorded below when complete.
+- PASS `RUN_CRM_CSV_IMPORT_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator/tools/crm-csv-import.disposable.integration.test.ts --pool=forks --maxWorkers=1`: 7 tests, including exact 35,623-character canonical notes and source-evidence readback. A further source-mapping/resume DB case was added afterward and awaits integrated proof.
+- PASS `pnpm --dir packages/db exec vitest run src/helpers/prospect-actions.test.ts src/helpers/prospect-import-hardening.test.ts --pool=forks --maxWorkers=1`: 22 tests.
+- PASS `pnpm --dir packages/contracts exec vitest run src/operator-mcp.test.ts`: 24 tests.
+- PASS scoped API ESLint for new import/preview modules; earlier API typecheck PASS, final integrated typecheck still pending at this checkpoint.
+- FAIL exact-head prior CI `397d452237f3d61b271341e04efecc6e53c9bd7d`: main job stopped at core rendering; visitor-launch PASS. Local Chromium reproduction found the core test measuring the inner 44px composer wrapper against the outer 56px requirement. Corrected only the selector to the outer field, retaining size/clipping assertions. PASS `pnpm --dir apps/dashboard exec playwright test tests/visual/core-surfaces.spec.ts --config playwright.visual.config.ts --grep 'Guest PathFinder route planning' --reporter=line`: phone/tablet/desktop 3 PASS; saved phone screenshot visually inspected. Before/after logs and screenshots retained; owned port-3010 server stopped. This failure was separate from the known frozen migration pins.
+- NOT RUN at this checkpoint: new integrated fresh-DB/all-workspace verification, exact new-head CI, hosted provider synchronization, physical iPhone, deployment, hosted migrations.
+
+## Gmail synchronization continuation (2026-10-02)
+
+OAuth now leaves a never-ingested cursor empty; watch renewal only stores its expiration. Initial/manual reconciliation scans from the beginning, recurring reconciliation uses a 24-hour overlap from the last completed run, and notifications use Gmail history after the committed cursor. Each job handles at most ten pages and queues a continuation with the original cursor and first-page history head. The cursor and success timestamp advance only on the terminal page, with a compare-and-set guard against overlapping chains. The worker records safe per-job counts/status in JobRecord; admin UI and platform-scoped MCP controls request and inspect runs by exact job ID. No provider calls or sends were made.
+
+Gmail DRAFT-labeled messages and self-addressed messages without the SENT label are excluded from correspondence sync. Draft resource IDs are not available from the current messages/history client; a separate drafts.list/get integration is needed before claiming Gmail draft synchronization.
+
+The full scan captures Gmail's profile history ID before its first message-list request. A message arriving during pagination remains newer than that committed baseline and can be replayed by incremental history; the existing continuation retains the first page's baseline. OAuth enqueue failure is signaled but the callback still redirects as connected, so the initial job ID is not displayed after redirect. Watch renewal requires a configured Pub/Sub topic and enabled worker; scheduled reconciliation and watch-renewal flags default off. These are release-readiness limitations, not claims of a live Gmail proof.
+
+| Check                                                                                                                                                                                                                                                                                                           | Result                                                                                                           |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `pnpm --dir packages/api exec vitest run src/correspondence/gmail.test.ts src/correspondence/gmail-http-client.test.ts src/correspondence/gmail-oauth.test.ts src/correspondence/inbound-sync.test.ts src/operator/tools/mail-reconciliation.test.ts --maxWorkers=1`                                            | PASS, 62/62; includes draft exclusion and SENT-label history transition                                          |
+| Synthetic local DB/Clerk env; `pnpm --dir apps/workers exec vitest run src/processors/gmail-sync.test.ts --maxWorkers=1`                                                                                                                                                                                        | PASS, 7/7; first attempt without required synthetic env failed at config loading, corrected rerun PASS           |
+| `pnpm --dir apps/dashboard exec vitest run components/admin/ProspectOutreachCenter.test.tsx --maxWorkers=1`                                                                                                                                                                                                     | PASS, 5/5                                                                                                        |
+| `pnpm --dir packages/contracts exec vitest run src/operator-mcp.test.ts --maxWorkers=1`                                                                                                                                                                                                                         | PASS, 24/24; first run lacked expected two catalog entries, corrected rerun PASS                                 |
+| `pnpm --dir packages/{api,contracts,jobs} typecheck`; `pnpm --dir apps/{workers,dashboard} typecheck` (each package separately)                                                                                                                                                                                 | PASS                                                                                                             |
+| `pnpm --dir packages/api exec eslint --config ../config/eslint/base.js src/correspondence/gmail.ts src/correspondence/gmail.test.ts src/correspondence/gmail-http-client.ts src/correspondence/gmail-http-client.test.ts`; focused ESLint for other touched API, worker and dashboard files; `git diff --check` | PASS; an initial API ESLint invocation without the required config failed before linting; corrected command PASS |
+| Full workspace test, serial disposable DB integration, rendered browser check, live Gmail provider                                                                                                                                                                                                              | NOT RUN in this lane; integrator owns combined checks.                                                           |
+
+After the pre-list cursor change, `pnpm --dir packages/api exec vitest run src/correspondence/gmail-http-client.test.ts src/correspondence/gmail.test.ts src/correspondence/inbound-sync.test.ts --maxWorkers=1` PASS, 55/55 including the ordered-fetch race regression. `pnpm --dir packages/api typecheck` PASS after correcting the new test mock's Fetch parameter type (first run FAIL TS2322); focused ESLint PASS.
+
+OAuth completion now attempts watch renewal and initial reconciliation independently. The callback redirects with `gmail=connected&sync=queued` only when both jobs queue, or `gmail=connected&sync=queue-failed` when either queue attempt fails; its sanitized operational signal cannot turn a completed OAuth connection into a false OAuth failure. `pnpm --dir apps/dashboard exec vitest run app/api/integrations/gmail/oauth/callback/route.test.ts --maxWorkers=1` PASS, 4/4 including a rejected watch enqueue that still queues reconciliation. `pnpm --dir apps/dashboard typecheck` PASS; focused ESLint with `--config ../../packages/config/eslint/nextjs.js` PASS. An initial lint command used a nonexistent `next.js` config and failed before linting; the corrected command passed. Provider calls and live jobs were NOT RUN.
+
+## CRM current-mail and import integration review (2026-10-02)
+
+User continuation prioritizes Gmail synchronization, independent relationship/draft/delivery states, complete MCP imports, exact field retention, safe canonical merges and a reviewable pause. No live services were accessed. The museum screenshot shown during browser verification was an existing local synthetic fixture; no new route-planning feature, guest redesign or deployment was introduced.
+
+Root integrated inbound `0c0590c4`, mapping `5b76aae4`, Gmail `b3298e26`/`7b7f1bbe`/`a6f71d10`/`cb407f0e`, and merge `1c5bc447`. Local additive schema designs were explicitly approved by the integrator: paired Gmail draft reference fields (`20261002120000`) and archived source/target merge receipt (`20261002121000`). Both await release admission; frozen migration pins are untouched.
+
+Root added resumable source mapping with expected hashes and active-lease checks, native CSV staging retention verification, exact paginated field inspection, truthful import phase/count/recovery projections and chat proposal descriptions bound to approval digests. A 35,623-character provenance value has focused local round-trip evidence; final integrated proof follows below. Gmail imported status claims remain UNVERIFIED_IMPORT, not provider delivery evidence. Gmail native draft resources remain NOT IMPLEMENTED.
+
+Review corrections: rejected overlong source headers instead of slicing them; selected-sheet totals only; legacy drafts do not falsely suggest CSV recovery; expected commit queue IDs are labelled expectedJobId; terminal imports cannot resume staging. Split mailbox admin procedures below the 400-line boundary. Security-reviewed bypass inventory adds three platform-admin mailbox reads bound to exact account/job identity and one worker cursor reset bound to exact provider account (467 calls total).
+
+Pre-integration checks (logs `../qa/crm-current-*`): PASS `pnpm install --frozen-lockfile`; PASS `pnpm verify:tenant-bypasses`; PASS `node --test scripts/admin-router-modularity.test.mjs` (2 tests after adding the two new reviewed admin procedure names); PASS `pnpm --dir packages/contracts exec vitest run src/operator-mcp.test.ts --pool=forks --maxWorkers=1` (24 after correcting new merge catalog expectations); PASS `pnpm --dir packages/api exec vitest run src/operator/tools/operator-reads.test.ts src/operator/tools/operations-preview.test.ts src/operator/tools/crm-merges.test.ts --pool=forks --maxWorkers=1` (20).
+
+Initial `pnpm typecheck --concurrency=2` FAIL: stale generated Prisma client after schema merge and one partial test-fixture cast. Regenerated with `pnpm --dir packages/db exec prisma generate` and made the partial mock cast explicit; final full rerun is recorded below. Initial admin inventory and two merge-catalog expectation tests failed before their reviewed inventory corrections; those failures remain in the local logs.
+
+W12 focused receipt: contracts/db/api typecheck and lint PASS; `pnpm --dir packages/db exec vitest run src/helpers/prospect-organization-merge-actions.test.ts src/helpers/prospect-import-hardening.test.ts` 11 PASS; CRM disposable file 5 PASS, operator canonical readback 1 PASS, operator kinds 29 PASS and owner-scope denial 4 PASS. Exact flags/commands and the local 266-migration lane receipt are in `../qa/w12-merge-receipt.md`. Final integration contains both additive migrations, so it must migrate 267 on a new local database.
+
+CSV location follow-up: within-file identity now includes country, street, postal code and explicit parent IDs; an existing same-name/city CRM row is never auto-skipped when any supplied country/street/postal value needs review. In dbint, `docker exec einstein-pg psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE pathfinder_disposable_einstein_dbint_csv267"` PASS; `. ../../20261002-einstein-finish/qa/local-test-env.ps1 -Lane dbint_csv267; $env:PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS='1'; pnpm db:migrate:disposable --database pathfinder_disposable_einstein_dbint_csv267 --confirm-database pathfinder_disposable_einstein_dbint_csv267` PASS, 267 migrations. With the same local env and `RUN_CRM_CSV_IMPORT_DB_INTEGRATION=1`, `pnpm --dir packages/api exec vitest run src/operator/tools/crm-csv-import.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000 --testTimeout=120000` PASS, 10/10 including 20/7/13, differing street review and distinct explicit-parent locations. Initial run FAIL: the existing 20-row test hit Vitest's 5-second default and a new assertion expected VALID instead of WARNING; corrected. Second run FAIL: the existing fixed file/mapping hash fixture collided with the first run's durable import; randomized those synthetic hashes for repeatability. `pnpm --dir packages/db db:generate` PASS; `pnpm --dir packages/api typecheck` PASS after the initial stale-generated-client FAIL; focused ESLint and `git diff --check` PASS. Live import/provider use NOT RUN.
+
+### Final CRM verification corrections
+
+Production proof source `50967da98c700a1da2bf112f3df02423ab2ffcc8`: install/generate PASS, 267 fresh disposable migrations PASS, full typecheck 27/27 PASS, lint 15/15 PASS, operator 58 files/690 tests PASS. Explicit stop-stage and case-insensitive location safeguards were integrated from `134bb717`; focused CRM DB 7/7 passed again in the combined tree.
+
+Initial grouped CRM DB invocation FAIL (8 PASS, 2 FAIL): canonicalization/outreach fixtures each create a fixed unique mailbox already present from operator tests. Each was rerun serially in its own newly migrated local DB, PASS 1/1. Inbound/routine/budget group PASS 41/41. Attachment/onboarding group initially FAIL (1 PASS, 1 FAIL): onboarding asserts global empty table counts; isolated new-DB onboarding PASS 1/1. Admin/copy group initially FAIL (2 PASS, 1 FAIL): agent-copy asserts global zero send batches/outbox; isolated new-DB copy PASS 1/1. These were test-environment collisions, with no product-code workaround or fixture deletion. Logs preserve all attempts.
+
+Initial serial workspace invocation FAIL on the exact platform table expectation: production registry includes `ProspectOrganizationMerge`, while the middleware unit list lacked it. Commit `446026ec` updates that single test expectation; `pnpm --dir packages/db exec vitest run src/middleware/tenant-isolation.test.ts --pool=forks --maxWorkers=1` PASS 351/351. Production code and the prior fresh DB proof are unchanged. The full serial workspace rerun follows this correction.
+
+Exact reproducible commands and flags are recorded in `../qa/crm-current-final-checks.ps1`, then `crm-current-final-resume-checks.ps1`, `crm-current-final-resume2-checks.ps1`, `crm-current-final-resume3-checks.ps1`, and `crm-current-final-resume4-checks.ps1`. The append-only `crm-current-final-results.tsv` records exit codes/timestamps; per-check logs are `crm-current-final-<check>.log`. All DB URLs are synthetic loopback PostgreSQL port 35432, Redis index 7. Fresh isolated DB suffixes are `crm_current_final`, `crm_current_canonical`, `crm_current_outreach`, `crm_current_onboarding`, and `crm_current_registry`; each received all 267 migrations through the disposable guard.
+
+Second serial workspace attempt FAIL in API (3,469 total active tests: 3,466 PASS / 3 FAIL): the reviewed operation inventory still described 583 procedures rather than 585, and two admin test mocks lacked the new merge-lineage reads. Commit `70cd32ba` updates the reviewed inventory and test fixtures. Both new mailbox admin procedures remain unbound to agent-operation tools; the separate scoped MCP tools do not imply an unrestricted route binding. `pnpm verify:agent-tools` PASS; targeted admin/coverage tests PASS 19/19; focused API ESLint PASS. The corrected complete workspace run is in `crm-current-final-workspace-verified.log`, invoked by `crm-current-final-resume5-checks.ps1`; earlier failed logs remain intact.
+
+Third workspace attempt reached 26/27 successful tasks, then FAIL on the dashboard's direct-query boundary: two new Gmail status reads omitted the shared deadline wrapper. Commit `545b8889` adds bounded reads, transport signals, per-account cancellation and stale-result suppression. Initial focused test FAIL exposed a missing required parent signal in the first patch; corrected focused run `pnpm --dir apps/dashboard exec vitest run admin-query-boundary.test.ts components/admin/ProspectOutreachCenter.test.tsx --pool=forks --maxWorkers=1` PASS 6/6, and focused dashboard ESLint PASS. No guest layout changed.
+
+Standalone `pnpm test:scripts` (`crm-current-pre-final-scripts.log`) FAIL: 620 total, 603 PASS, 16 FAIL, 1 SKIP. Twelve failures are the frozen admission set. Four additional failures identified a 457-line admin CRM module requiring extraction, prohibited runtime Prisma namespace access in the merge helper, stale current-state migration/security counts, and stale 583-versus-585 operation expectations. These require source or reviewed inventory corrections; no threshold or admission pin is relaxed. Final corrected results follow below.
+
+Gmail failure-path review: `7b74be93` places mailbox/config/provider setup inside the existing failure catch, so setup errors mark durable push receipts retryable and publish a sanitized signal. `pnpm --dir apps/workers exec vitest run src/processors/gmail-sync.test.ts --pool=forks --maxWorkers=1` PASS 9/9; worker typecheck and focused lint PASS after local Prisma regeneration. `1e8f89b2` refreshes measured current-state and operation inventories; the targeted dynamic-facts and mounted-router script tests each PASS 1/1. No live Gmail call occurred.
+
+Final review fixes: `337d8a85` refuses FAILED native CSV rows in both operator authorization and canonical approval, and uses the literal serializable isolation level instead of runtime Prisma namespace access. Focused API kind tests PASS 38/38, CRM disposable tests PASS 8/8 with `--testTimeout=30000`, DB/API typecheck/lint PASS, and `pnpm verify:raw-sql` PASS (262 operations). The first CRM rerun hit four default five-second timeouts under contention; the bounded 30-second rerun passed all eight, including the new failed-row test. `798ecd91` extracts unchanged thread reads, reducing the admin core from 457 to 367 lines; modularity PASS 2/2, admin/pagination PASS 20/20, API typecheck/lint PASS. Root reviewed and moved the two existing bypass entries to their new file and refreshed the defining-router digest: total authority remains 467 calls, now in 165 files. The first post-extraction inventory check failed before these explicit location updates. Corrected `node --test scripts/admin-router-modularity.test.mjs scripts/current-truth-docs.test.mjs scripts/torchiko.test.mjs` PASS 24/24.
+
+The final combined run is frozen at `4c7fc81d` with exact full SHA in `../qa/crm-current-sealed-source-head.txt`. `../qa/crm-current-sealed-checks.ps1` records every command, uses a new `pathfinder_disposable_einstein_crm_sealed` database, and writes the append-only check results to `crm-current-sealed-results.tsv`. No production source changes are planned while that run executes; the final result table and exact-head CI receipt follow before delivery.
+
+Read-only answer to the model/caching question: `packages/ai/src/model-registry.ts` still maps `guest-chat-luna` to `gpt-6-luna`; no 6.1 migration or live configuration change was made. `openai-text.ts` consumes `input_tokens_details.cached_tokens` but assigns `cacheCreationInputTokens: 0` in both ordinary and streaming paths; request construction relies on implicit caching. Current [OpenAI prompt-caching guidance](https://developers.openai.com/api/docs/guides/prompt-caching) reports cache writes separately for current model families. Review cache-write usage/cost accounting and stable-prefix controls in the next pass; live cache-hit rates and saved model overrides were NOT READ. This finding is recorded rather than changing the frozen candidate during its final tests.
+
+### Sealed candidate verification
+
+CRM production source: `4c7fc81dc925cd50fa0b93686a554bbcd63453eb`. Commands below ran from the integration worktree using `. ../qa/local-test-env.ps1 -Lane crm_sealed -RedisIndex 7`; migration authorization was local `PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1`. Subsequent authorized cache work is recorded below with separate proof.
+
+| Exact command                                                                                                                                                                                           | Result                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                                                                                                                        | PASS                                                                                                                                                                                                                                                                                                                |
+| `pnpm --dir packages/db exec prisma generate`                                                                                                                                                           | PASS                                                                                                                                                                                                                                                                                                                |
+| `pnpm db:migrate:disposable --database pathfinder_disposable_einstein_crm_sealed --confirm-database pathfinder_disposable_einstein_crm_sealed`                                                          | PASS, 267 migrations on a new local database                                                                                                                                                                                                                                                                        |
+| `pnpm typecheck --concurrency=2`                                                                                                                                                                        | PASS, 27 tasks                                                                                                                                                                                                                                                                                                      |
+| `pnpm lint --concurrency=2`                                                                                                                                                                             | PASS, 15 tasks                                                                                                                                                                                                                                                                                                      |
+| `pnpm verify:public-surfaces`; `pnpm verify:tenant-registry`; `pnpm verify:tenant-bypasses`; `pnpm verify:raw-sql`; `pnpm verify:tenant-procedures`; `pnpm verify:agent-tools`                          | PASS each; 295 models, 467 bypass calls in 165 files, 262 raw-SQL operations, 131 tenant procedures, 585 mounted operations                                                                                                                                                                                         |
+| `RUN_OPERATOR_DB_INTEGRATION=1 RUN_CRM_CSV_IMPORT_DB_INTEGRATION=1 pnpm --dir packages/api exec vitest run src/operator --pool=forks --maxWorkers=1 --hookTimeout=120000 --testTimeout=30000`           | PASS, 58 files / 693 tests                                                                                                                                                                                                                                                                                          |
+| `RUN_PROSPECT_CRM_DB_INTEGRATION=1 pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000 --testTimeout=30000` | PASS, 8 tests                                                                                                                                                                                                                                                                                                       |
+| `pnpm test` (integration opt-in flags cleared)                                                                                                                                                          | FAIL: one deterministic PDF render test exceeded the default 5-second limit at 5,599ms under parallel workspace load; assertions did not fail. Commit `231309aa` gives only that correctness test 30 seconds; isolated PDF rerun PASS 6/6. Full rerun is combined with the subsequently requested cache work below. |
+| `pnpm test:scripts`                                                                                                                                                                                     | FAIL only at the 12 frozen admission pins: 620 total / 607 PASS / 12 FAIL / 1 SKIP                                                                                                                                                                                                                                  |
+| Live Gmail/hosted migration/provider actions, physical iPhone/VoiceOver, Stripe sandbox, deployed attachment smoke                                                                                      | NOT RUN                                                                                                                                                                                                                                                                                                             |
+
+Tom subsequently requested implementing prompt caching and asked to switch to a 6.1 model. Official current pages list GPT-6.1 Sol and GPT-6 Luna, with standard uncached input/output rates 20 times higher for Sol; a model-preference clarification was requested while cache work proceeds. No live model setting, API call or spend was changed. The previously recorded cache-accounting gap is now in the authorized implementation scope; final code/results follow below rather than treating the earlier candidate as the complete delivery.
+
+### Authorized prompt caching continuation
+
+Final combined source: `94bb24da48b1c7493b78b6b343d62a00cfb86976`. No dependency, schema or provider setting changed in this continuation. The CRM disposable proof above remains applicable to unchanged CRM production code.
+
+- `52463d0b`: supported OpenAI requests use explicit caching. Marked stable system blocks become ordered developer input blocks with a breakpoint after the last marked block; dynamic content follows. Supported requests without a marked prefix use explicit-only mode without a breakpoint, avoiding implicit writes of volatile suffixes. Older OpenAI models and DeepSeek preserve the prior request shape. Ordinary and streamed usage separates ordinary input, cache reads and cache writes, rejects impossible counts, and refuses missing write accounting when a breakpoint was requested. `pnpm --dir packages/ai exec vitest run src/openai-text.test.ts src/routed-generation.test.ts --pool=forks --maxWorkers=1` PASS 36/36; AI typecheck and scoped ESLint PASS.
+- `3f557197`: regression proves the existing request budget reserves the cache-write premium without loosening spend guards. AI budget tests PASS 7/7; AI typecheck/lint PASS.
+- `5b0896ac`: per-question featured-place data moves from the static prefix to the dynamic untrusted-data block, preserving escaping and content. Changing that highlight now preserves the static prefix. The reviewed prompt contract advances v22 to v23 with hash `ad11cda17558ddeb1fbc04b2f7eaba08d4d1822c54b09734d4219be6099e3802`; only current evaluation fixtures were updated, historical evidence retained. Focused API tests PASS 54/54; DB evaluation tests PASS 11/11; contracts/DB/API typecheck and scoped lint PASS. Initial manifest/hash and test-coordinate failures were corrected before commit. Old evaluation prompt identities intentionally differ and need release review.
+
+Caching targets repeated input prefixes, not CRM writes or stale answer reuse. `store: false` remains. Provider cache writes can cost more than ordinary input; savings require reuse and are not guaranteed. No live request, hit-rate, latency or savings measurement occurred. References: [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol). Guest routing remains Luna while the explicit model-tier clarification is pending; no live override was inspected.
+
+Final combined commands and outcomes are indexed in `../qa/cache-final-results.tsv`, full source SHA in `cache-final-source-head.txt`, and logs in `cache-final-*.log`; exact runner is `cache-final-checks.ps1`. Results follow after completion.
+
+Independent read-only Sol review found no material cache accounting or prompt-boundary defect. Release check: explicit-cache responses must include `cache_write_tokens`, including zero-write cases; missing detail fails closed rather than undercounting cost. This availability edge has unit coverage but no live provider proof because live calls were outside scope. Stable prefix variants still reflect venue settings, alerts, language and guide mode, so reuse is conditional.
+
+Model decision resolved: Tom said, "6.1 Luna isn't in api yet. Just stick with 6 Luna." Keep `guest-chat-luna` on `gpt-6-luna`; no model migration or price-tier change. This supersedes the pending preference above. Continue final cache validation and the review pause handoff.
+
+Combined full typecheck PASS (27 tasks) and lint PASS (15 tasks) on `94bb24da`. First serial workspace run FAIL solely at `venue-launch-asset.test.ts`: exact-byte multi-format rendering took 5,313ms against the default 5,000ms; API had 3,470 PASS and 373 opt-in skips, with no failed correctness assertion. Test-only `08a4651a` grants this render correctness test 30 seconds without changing its fixture or assertions; focused rerun PASS 1/1. Full workspace/script/boundary continuation uses `cache-final-resume-checks.ps1`, recording its exact source SHA and outcomes separately; the original failed log is retained.
+
+### Review-first pause requested by Tom
+
+Tom explicitly asked to stop spending time on final CI before Opus review. The local broad runner was interrupted before any push or new CI dispatch. No exact-head CI was started for this continuation; the remote branch still has the earlier delivery, and the new review candidate is local.
+
+- `pnpm typecheck --concurrency=2`: PASS, 27 tasks at combined production source `94bb24da`.
+- `pnpm lint --concurrency=2`: PASS, 15 tasks at the same source.
+- `pnpm exec turbo run test --concurrency=1`: first attempt FAIL at the isolated render timeout described above; corrected rerun INTERRUPTED at Tom's request after API PASS 321 files / 3,471 tests (91 files / 373 opt-in tests skipped). Full workspace completion is NOT RUN to completion; no green whole-workspace claim.
+- Final combined `pnpm test`, new script rerun and six boundary reruns: NOT RUN after the interruption. Prior sealed CRM standalone scripts remain 607 PASS / 12 frozen pin FAIL / 1 SKIP; prior six boundaries PASS. All frozen files remain unchanged against the starting baseline.
+- Latest code commit: `e45c41b36497d095186229e02908a5d5805d7651`, including test-only `08a4651a`; this delivery adds documentation only. Root working files are committed for local review. Push and exact-head CI: DEFERRED until after Opus review, per the latest instruction.
+
+Next: Opus reads the external `OPUS-REVIEW-HANDOFF.md`, reviews and fixes the local candidate, then runs proportionate final checks and a single push/CI cycle. Release/rollback remains the earlier unexecuted proposal. No live action was performed.
+
+## Opus review and fixes (2026-10-02)
+
+Reviewed local candidate `28e41244` (Opus plus three bounded review agents: CSV import, merges/approvals, Gmail). Commits `11264e0e` through the final head listed in `../qa/opus-final2-source-head.txt` and `git log 28e41244..HEAD`. No push, deploy, hosted database, provider call, send, invite or frozen-pin edit. No migration added.
+
+What changed: see final handoff section 14. Additions after that section was written: merges now settle open duplicate suggestions on the source (`1f0add94`), and `crm.get_mail_reconciliation` reports read-only provider draft counts (`2f963d50`).
+
+Environment: `../qa/local-test-env.ps1` synthetic values; PostgreSQL 16/pgvector `127.0.0.1:35432`; Redis `127.0.0.1:36379`.
+
+| Command                                                                                                                                                                                                                                        | Result                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --dir packages/ai exec vitest run src/openai-text.test.ts`                                                                                                                                                                               | PASS 18/18                                                                                                                                                                                                                                                        |
+| `pnpm --dir apps/web exec vitest run components/ChatWindow.test.tsx components/VenueChatExperience.test.tsx`                                                                                                                                   | PASS 111/111                                                                                                                                                                                                                                                      |
+| WebKit pre-hydration probe (fill before mount, read after), 4 page loads                                                                                                                                                                       | before fix 0/4 kept text; after fix 4/4                                                                                                                                                                                                                           |
+| `pnpm --dir apps/dashboard exec playwright test --config playwright.guest-webkit.config.ts` against `next dev --port 3010`                                                                                                                     | 25 PASS / 2 FAIL / 8 skips. Text-path failure fixed by the hydration change. Route/composer test is a dev-server timeout: PASS with `--timeout=240000`. Character-fallback status check failed on a different project each run (flake; not touched); NOT RESOLVED |
+| `pnpm typecheck --concurrency=2`; `pnpm lint --concurrency=2` (after the first five commits)                                                                                                                                                   | PASS 27 / 15 tasks                                                                                                                                                                                                                                                |
+| `pnpm verify:{public-surfaces,tenant-registry,tenant-bypasses,raw-sql,tenant-procedures}`                                                                                                                                                      | PASS all five                                                                                                                                                                                                                                                     |
+| `..\qa\opus-final-checks.ps1`: fresh `pathfinder_disposable_einstein_opus_final`, `pnpm db:migrate:disposable`                                                                                                                                 | PASS, 267 migrations                                                                                                                                                                                                                                              |
+| Same script: `pnpm --dir packages/api exec vitest run src/operator src/correspondence/prisma-provider-draft-store.disposable.integration.test.ts --pool=forks --maxWorkers=1 --hookTimeout=120000 --testTimeout=120000` (operator + CSV flags) | PASS 59 files / 702 tests                                                                                                                                                                                                                                         |
+| Same script: CRM DB suites (prospect-crm, canonicalization, package-commit)                                                                                                                                                                    | FAIL 1 / PASS 10: canonicalization fixture reuses a fixed mailbox address already created by the operator sweep (known fixture isolation). Isolated on fresh `pathfinder_disposable_einstein_opus_canonical`: PASS 1/1                                            |
+| Same script: `pnpm exec turbo run test --concurrency=1`                                                                                                                                                                                        | FAIL at one PDF cleanup wait under load (`waitFor` 1 s default); isolated PASS 3x 4/4; bounded to 10 s in `21c1ef08`. Turbo stopped before web/dashboard/workers                                                                                                  |
+| `pnpm exec turbo run test --concurrency=1 --continue --filter=@pathfinder/{api,web,dashboard,workers}` on `21c1ef08`                                                                                                                           | PASS: api 3,487 (379 opt-in skips), dashboard 2,152, workers 719, web 550                                                                                                                                                                                         |
+| Earlier packages in the same workspace run                                                                                                                                                                                                     | PASS: db 2,367, contracts 730, ai 197, config 112, jobs 98, billing 87, auth 76, ui 43, intake 15, character-factory 14, analytics 4                                                                                                                              |
+| `pnpm test:scripts` (first run)                                                                                                                                                                                                                | 606 PASS / 13 FAIL / 1 SKIP: 12 frozen pins plus documentation safety on the new Gmail proposal's SQL block                                                                                                                                                       |
+| `pnpm test:scripts` on `21c1ef08` after making the proposal non-executable                                                                                                                                                                     | 607 PASS / 12 FAIL / 1 SKIP; the 12 are the frozen admission pins                                                                                                                                                                                                 |
+| Merge DB + unit after `1f0add94`: `pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts src/helpers/prospect-organization-merge-actions.test.ts` (fresh final DB)                                    | PASS 14/14                                                                                                                                                                                                                                                        |
+| `pnpm --dir packages/api exec vitest run src/operator/tools/crm-merges.test.ts src/operator/tools/crm-merges.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts`                                  | PASS 36/36                                                                                                                                                                                                                                                        |
+| `pnpm --dir packages/api exec vitest run src/operator/tools/mail-reconciliation.test.ts src/operator/tools/operator-reads.test.ts`; contracts suite                                                                                            | PASS 18/18; PASS 730/730                                                                                                                                                                                                                                          |
+| On `2f963d50`: `pnpm typecheck --concurrency=2`; `pnpm lint --concurrency=2`; five `pnpm verify:*` boundaries; `pnpm --dir packages/db exec vitest run`                                                                                        | PASS 27 tasks; PASS 15 tasks; PASS 5/5; PASS 2,367 (179 opt-in skips). Logs `../qa/opus-final3-*.log`                                                                                                                                                             |
+| Physical iPhone, live Gmail, Stripe sandbox, hosted smoke, exact-head CI                                                                                                                                                                       | NOT RUN                                                                                                                                                                                                                                                           |
+
+Agent-reported targeted runs (their own disposable DBs `..._opus_import`, `..._opus_merge`, `..._opus_gmail`) are superseded by the serial sweep above. The Gmail worker still imports `@pathfinder/api/correspondence`, an existing reviewed worker exception; the file count did not grow.
+
+### Authorized production release continuation (2026-10-03)
+
+The owner authorized finishing PR40, non-force push/CI repair, reviewed admission of exactly
+256–267, gated staging and protected production promotion. Provider effects and current model
+settings must remain unchanged. The attached objective is the current authority; earlier
+review-first pause and release proposals remain historical evidence.
+
+Starting local source `d5585dd9`; PR40 remote `397d4522`; staging base `9f726afd`.
+The requested runbooks are present at `docs/operator/staging-runbook-migration-255.md` and
+`docs/distribution/operator-runbook.md`. The three-service workflow and preservation rules remain.
+
+Local changes in progress: isolated synthetic canonicalization mailbox; sorted supplied-mapping
+identity with legacy receipt replay; dashboard native draft counts using the same validated
+payload as MCP; merge inventory reuse within one authorization context. Reauthorization refreshes
+the inventory, and domain apply still rechecks in its own serializable transaction. Registry
+order remains the hash order. No migration was added.
+
+Production WebKit reproduction failed at the missing-character fallback status, after correcting
+local harness setup (resource IDs, fixture prerender exclusion and auth middleware). The screenshot
+shows the brand fallback beside the incorrect Ready-to-help status. A child layout effect reports
+an already-failed SSR image before the parent's mount flag becomes active. Removed that flag
+check; keyed component ownership still isolates callbacks from previous characters.
+The regression test simulates a child-layout failure and passed with the other seven stage cases.
+The production component harness changes only local generated files and is never deployable.
+
+`pnpm install --frozen-lockfile` PASS; Prisma generation PASS; focused API merge/mail tests PASS
+10/10; first `pnpm --dir apps/web build` PASS; `pnpm lint --concurrency=2` PASS 15 tasks with
+the existing VoiceControl hook warning. Initial typecheck FAIL on a nullable manifest access in
+this continuation; corrected, rerun pending. Character stage regression PASS 8/8.
+Full workspace, script/security and fresh serial operator/CRM proof are still running via
+`../qa/release-phase1-checks.ps1`; exact exits/times remain in `release-phase1-results.tsv`.
+The fixed production build and repeated production WebKit proof are pending.
+
+Read-only Railway SSH observed staging at 255 migrations. The existing disposable 267 database
+has 297 public tables. The reviewed suffix manifest is
+`cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00`.
+Operational-health's latest-migration identity was stale at 265; corrected to the existing 267th
+migration so an upgraded ledger is not falsely reported as drift.
+No push, hosted migration, backup attestation, deployment, email or provider action occurred yet.
+Import-lineage indexes and Gmail draft message/thread IDs remain migration follow-ups.
+
+### Release continuation — admission and local runtime (2026-10-03 08:10 UTC)
+
+Extended the frozen endpoint to exactly 267 migrations and 297 public tables. The former
+255/280 endpoint is now a frozen predecessor with its original normalized manifest hash.
+Every earlier predecessor check and refusal remains; tests cover all partial 256–266 ledgers
+and checksum/status/name drift for every new suffix row. The staging image approval token
+now matches the endpoint. Source-maintenance verification requires the exact current ledger;
+its separate stale-plan refusal remains unchanged. Focused tests caught the stale image token,
+which was corrected. Full script and serial workspace verification are still running.
+
+Read-only production SSH confirmed PostgreSQL 17.6, 255 active migrations, 256 physical rows
+including one historical rollback, 280 public tables, no unfinished active migration, invalid
+public index or unvalidated public constraint. No hosted writes or backup proof are claimed.
+Fresh local DB creation failed because Docker Desktop stopped responding. Startup diagnostics
+identified inaccessible zero-byte runtime sockets; these were archived with dated names and
+Desktop restarted without touching containers, data, configuration or credentials. The fresh
+migrated operator/CRM suites and both backup/restore rehearsals remain pending runtime recovery.
+
+### Release local proof complete (2026-10-03 08:45 UTC)
+
+Docker recovered without a reset. Twenty orphan shell loops from prior timeout fixtures were
+consuming CPU; only exact matching loops with exited parents were stopped. Assertions, deadlines
+and refusal cases were retained. Local PostgreSQL 17.6 is ready for the separate backup rehearsals.
+
+The canonicalization fixture uses a unique whitespace representation of the existing approved
+company sender: production trimming still resolves the approved sender, while raw fixture
+identity is independent of earlier suites. No company sender gate was changed.
+
+- `node node_modules/turbo/bin/turbo run test --concurrency=1 --continue -- --pool=forks --maxWorkers=1`:
+  PASS, 27/27 tasks, `../qa/release-workspace-serial-final.log`. The preceding attempt failed one
+  contracts worker RPC timeout under orphan-process load; the complete repeat passed.
+- `pnpm typecheck --concurrency=2`: PASS, 27/27, `../qa/release-typecheck-final.log`.
+- `pnpm test:scripts`: PASS, 621 tests plus one expected skip,
+  `../qa/release-scripts-admitted267-corrected.log`. Documentation follow-up PASS 9/9.
+- Fresh `pathfinder_disposable_einstein_release_20261003`, existing disposable migration entrypoint:
+  PASS, all 267 migrations, `../qa/release-fresh-db-migrate.log`.
+- Serial operator sweep with operator/CSV integration flags: PASS, 59 files / 705 tests,
+  `../qa/release-operator-db-fresh.log`; corrected serial CRM sweep PASS, 4 files / 16 tests,
+  `../qa/release-crm-db-corrected.log`. Canonicalization repeated on the same DB PASS 1/1.
+- Fixed production WebKit proof: first 14/15 PASS, one tablet accessibility timeout; unchanged
+  tablet checks repeated PASS 3/3. Generated harness restored; evidence moved outside source to
+  `../qa/release-generated-artifacts-20261003`. Source auth and fixture exclusion remain intact.
+- Frozen install, lint and six boundary gates previously PASS in this continuation.
+
+Production read-only PG17 client connection PASS through existing authenticated Railway injection;
+this proves neither backup nor deploy readiness. No hosted writes, migrations, push, deployment,
+provider effects or acceptance claims yet. Next: clean committed candidate assessment and exact-head
+CI, then release-bound post-drain backup, private restore/rehearsal and staged protected promotion.
+
+### Exact-head CI cycle 1 — build dependency boundary (2026-10-03)
+
+Non-force push `fe95d8cb3eec6cdf341ad001f08a97464e649721` reached PR40. Required `ci` failed
+at `pnpm audit:prod` on GHSA-vfj7-8cjw-p6xm (`braces` through Tailwind); `railway-iac` passed.
+The advisory has no patched release. No advisory was suppressed and no audit policy changed.
+Both apps imported Tailwind only in PostCSS build configuration and a TypeScript config type.
+Tailwind, Autoprefixer and the direct PostCSS build tool now belong to devDependencies. Versions
+remain pinned. Frozen install PASS; unchanged `pnpm audit:prod` PASS, 561 production dependencies.
+Existing web standalone traced files contain no Tailwind/braces dependency; the clean candidate
+build and dashboard trace check remain required before this correction is released. The development
+dependency remains affected; this scope removes its production dependency exposure, not an upstream
+patch claim. Keep build inputs trusted and record the upstream fix as a follow-up.
+
+The first local candidate assessment could not spawn pnpm because `pnpm exec` did not set
+`npm_execpath` on this Windows host. The existing `pnpm verify:release` entrypoint corrected the
+launch. Its continuing assessment is superseded by the dependency correction; a new exact-revision
+clean candidate assessment is required. CI red cycles used: 1 of the authorized maximum 4.
+
+### Exact-head CI cycle 2 — exercise the phone touch path (2026-10-03)
+
+`bf9434f136167234395362707ddbb37b9eac0606`: visitor-launch and railway-iac PASS; ci FAIL
+at the visual suite, 185 PASS / 39 intentional skips / one FAIL. The phone viewport proxy
+called `tap()` without `hasTouch`; the browser refused the operation after geometry passed.
+Enabled touch support only for that spec, retaining the actual tap, focus, geometry, draft-clear
+and runtime-error assertions. Three unchanged-assertion repeats PASS, 6.2 seconds,
+`../qa/release-phone-touch-context-repeat.log`. CI red cycles used: 2 of 4.
+
+Local candidate build first FAIL at the dashboard's 4 GB Node heap. With local
+`NODE_OPTIONS=--max-old-space-size=6144`, full build PASS and client-bundle secret scan PASS.
+All prior candidate gates through test PASS. The ongoing visual assessment is superseded by
+this source correction; it cannot admit a different SHA. No check was skipped or weakened.
+Read-only six-service switch receipts are in `../qa/release-switches-before-*.json`:
+outbound workers and schedulers false; provisioning/notification flags absent (default false);
+worker routines false; production dashboard OAuth true, staging false, preserved unchanged.
+No hosted application/configuration/database mutation has occurred. PR40 description updated
+through the authenticated browser after the connector refused metadata writes; no access changed.
+
+### Release candidate correction — Send contrast during state changes (2026-10-03)
+
+`f56ecb9bed457c48e266c5d6c84a5a2d0e827335` clean candidate assessment finished NOT READY:
+23 gates PASS; visual suite FAIL, 182 PASS / 39 intentional skips / four contrast failures.
+The voice-error and missing-character cases failed at tablet and desktop widths. Their functional
+assertions passed; enabled Send text crossed below 4.5:1 while its disabled colors interpolated to
+the enabled palette, even with reduced motion requested. Failed traces and the full report remain
+in `artifacts/mobile-visual/2026-10-03T09-26-39.858Z-bbac61e2` and
+`../qa/release-candidate-f56ecb9b.log`; they do not establish candidate readiness.
+
+Send now transitions only its shadow, with transitions disabled for reduced motion. Text and
+background colors change together immediately. No test, contrast threshold or assertion changed.
+`pnpm --filter @pathfinder/dashboard exec playwright test --config playwright.visual.config.ts tests/visual/accessibility-depth.spec.ts --grep 'voice failure|missing character media' --repeat-each=5`
+PASS 30/30 across phone, tablet and desktop, `../qa/release-send-contrast-repeat.log`.
+Actual browser interaction at 820x1180 and 390x844 verified enabling Send, its local mock action
+clearing the draft, keyboard navigation and readable layout; screenshots remain in external QA.
+The dedicated local port 3108 server was stopped and the temporary browser viewport reset.
+The new exact clean candidate assessment and CI remain required. CI red cycles observed remain 2/4;
+the f56 assessment failure is local and its hosted CI was still running at this checkpoint.
+
+Fresh f56 production-build traces PASS: web 33 files, dashboard 206 files; zero CSS build-tool
+references or physical Tailwind/Autoprefixer/braces packages in either standalone runtime.
+Receipt: `../qa/release-css-runtime-boundary-f56ecb9b.json`. Read-only staging preflight PASS:
+255 active/physical migrations, 280 public tables, canonical weekly-digest fingerprint, zero invalid
+indexes or unvalidated constraints. This pre-drain observation is not a backup or release admission.
+All six application services still serve baseline `9f726afd101cc3a3cb3c96d9504e06adc9618642`.
+Authenticated Railway API confirmed staging autodeploy disabled and production enabled on all three;
+the settings are preserved. No hosted mutation, backup, restore, migration or deployment has occurred.
+
+Existing production `/admin/operator` failed before this release with the bounded diagnostic
+`OPERATOR_TABS.find is not a function`. The candidate already contains the shared server-safe tab
+definition and boundary regression; post-release browser proof remains required. Production's
+dashboard browser session is authenticated; staging requires owner sign-in, requested separately.
+
+### CI build resource correction (2026-10-03)
+
+Exact candidate `52a22ad14f19393ee8f8ae74d29be9df76c6ce11` local release assessment
+PASS 27/27, including visual 186 PASS / 39 intentional skips and visitor launch 204 PASS.
+Hosted CI run `37114089515` failed at browser bundle build: actionable red cycle 3/4.
+The preceding f56 run was superseded/cancelled and its required aggregate failed;
+it is not green evidence. No cancelled run is used for admission.
+
+The code-only verifier correctly withheld build output, so the CI error alone did not
+establish cause. An external diagnostic using the same sequential canary builds proved:
+web PASS at 4096 MiB; dashboard compiled, then type validation exhausted its heap (exit 134).
+Receipt: `../qa/release-bundle-build-default-heap-diagnostic-correct-launch.json`.
+An initial wrong pnpm launcher failed before building; its separate artifacts are retained.
+
+A clean Git archive of 52 was built with the unchanged pinned Node 20 Dockerfile, independently
+reproducing dashboard type-validation heap exhaustion. Command:
+`docker build --file ../qa/release-docker-source-52/Dockerfile --tag torchiko-pr40-dashboard-52-source-heap4096 --progress plain ../qa/release-docker-source-52`.
+FAIL, `../qa/release-dashboard-docker-52-source-heap4096.log`.
+The initial local worktree-context build was stopped during transfer and is NOT RUN to completion.
+
+The dashboard Docker builder and CI bundle-verification step now use a 6144 MiB Node heap.
+The runner stage retains its existing runtime configuration. Type validation, secret canaries,
+checks and assertions remain enabled. Existing workflow/container/auth/dependency/secret-output
+contracts PASS 27/27, `../qa/release-build-heap-contracts.log`.
+Corrected Docker and full bundle-verifier results are recorded below after completion.
+
+Prepared owner `58fd3bc8a197517442e0354d6312c96828d0de4b` remains unpublished and is superseded
+by 52's CI failure. Its finalizer PASS does not authorize publication after that failure.
+All hosted applications still serve 9f; no hosted configuration, backup, migration or deploy occurred.
+
+`NODE_OPTIONS=--max-old-space-size=6144 pnpm verify:client-bundles` PASS after correction:
+20 server-only canaries and hardcoded credential patterns across 786 browser-deliverable files,
+2 applications. Receipt `../qa/release-client-bundles-heap6144-correction.log`.
+
+`pnpm test:scripts` PASS 621 tests / one existing intentional skip, zero failures;
+receipt `../qa/release-scripts-build-heap-correction.log`.
+
+Corrected clean source-only Node20 dashboard image build PASS (exit0):
+`docker build --file ../qa/release-docker-source-52-heap6144/Dockerfile --tag torchiko-pr40-dashboard-52-source-heap6144 --progress plain ../qa/release-docker-source-52-heap6144`.
+Receipt `../qa/release-dashboard-docker-52-source-heap6144.log`.
+A Node-only run of the resulting runner image confirmed Node20 and absent runtime NODE_OPTIONS;
+receipt `../qa/release-dashboard-docker-heap6144-runtime.json`. Build allowance stays build-only.
+The fourth hosted CI attempt remains required; no release admission is claimed before exact-head green.

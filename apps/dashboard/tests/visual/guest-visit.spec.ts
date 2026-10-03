@@ -21,7 +21,7 @@ async function assertOpenLayout(page: Page) {
   await save.scrollIntoViewIfNeeded()
   await expect(save).toBeVisible()
 
-  const composer = page.getByPlaceholder('Ask anything about this place...')
+  const composer = page.getByRole('textbox', { name: 'Ask a question', exact: true })
   await composer.scrollIntoViewIfNeeded()
   await expect(composer).toBeVisible()
   const composerLayout = await composer.evaluate((element) => {

@@ -17,10 +17,10 @@ describe('BillingWorkspace', () => {
   it('shows the Stripe panel only when the billing capability is available', () => {
     const { rerender } = render(<BillingWorkspace enabled={false} />)
     expect(screen.getByRole('heading', { name: 'Billing' })).toBeTruthy()
-    expect(screen.getByText(/not available for this organization/i)).toBeTruthy()
+    expect(screen.getByText(/not shown for this organization/i)).toBeTruthy()
     expect(screen.queryByText('Stripe account details')).toBeNull()
 
-    rerender(<BillingWorkspace enabled />)
+    rerender(<BillingWorkspace />)
     expect(screen.getByText('Stripe account details')).toBeTruthy()
   })
 })

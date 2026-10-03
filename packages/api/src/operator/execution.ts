@@ -8,8 +8,12 @@ import {
   kindByName,
   loadGrant,
   OPERATOR_APPLY_LEASE_MS,
+  OPERATOR_FAILED_NO_EFFECT,
+  OPERATOR_OUTCOME_UNKNOWN,
+  OPERATOR_PARTIALLY_APPLIED,
   type OperatorApplyContext,
   type OperatorDecisionDependencies,
+  type OperatorUnknownResolution,
 } from './proposals'
 
 type ProposalRow = NonNullable<
@@ -158,6 +162,107 @@ export async function reconcileProposal(
   return unknown()
 }
 
+const RESOLVABLE_FAILURES: ReadonlySet<string> = new Set([
+  OPERATOR_OUTCOME_UNKNOWN,
+  OPERATOR_PARTIALLY_APPLIED,
+])
+
+/**
+ * Settles an operation recorded as OUTCOME_UNKNOWN (or re-checks a PARTIALLY_APPLIED one) by
+ * asking its kind to look, read-only, at canonical and provider state. It never repeats an effect:
+ *  - provably complete    -> APPLIED, with the receipt that proves it;
+ *  - some steps took hold -> FAILED / PARTIALLY_APPLIED, with a plain-language account of which;
+ *  - nothing took hold    -> FAILED / FAILED_NO_EFFECT, which proves a new operation is safe;
+ *  - cannot be told       -> left OUTCOME_UNKNOWN for a person.
+ * Concurrent resolvers are serialised by the fence token.
+ */
+export async function resolveUnknownProposal(
+  proposalId: string,
+  dependencies: OperatorDecisionDependencies,
+  input: RecoveryInput,
+): Promise<ProposalRow> {
+  const database = dependencies.database ?? db
+  const current = await database.operatorProposal.findUnique({ where: { id: proposalId } })
+  if (!current) throw new Error('Proposal not found')
+  if (
+    current.status !== 'FAILED' ||
+    current.planId !== null ||
+    !RESOLVABLE_FAILURES.has(current.failureCode ?? '')
+  ) {
+    return current
+  }
+  const kind = kindByName(dependencies.kinds, current.kind)
+  if (!kind?.resolveUnknown) return current
+  const taken = await database.operatorProposal.updateMany({
+    where: {
+      id: current.id,
+      status: 'FAILED',
+      failureCode: current.failureCode,
+      fenceToken: current.fenceToken,
+    },
+    data: { fenceToken: { increment: 1 } },
+  })
+  const reread = async () =>
+    (await database.operatorProposal.findUnique({ where: { id: proposalId } }))!
+  if (taken.count !== 1) return reread()
+  const row = await reread()
+  const approver = row.decidedByUserId ?? ''
+  const grant = await loadGrant(database, row.grantId, input.now, dependencies.allowedUserIds)
+  let verdict: OperatorUnknownResolution = { state: 'unknown' }
+  if (grant) {
+    const context: OperatorApplyContext = {
+      database,
+      grant,
+      now: input.now,
+      actor: { type: 'HUMAN', id: approver, role: 'PLATFORM_ADMIN' },
+      proposalId: row.id,
+      operationId: row.operationId,
+    }
+    try {
+      verdict = await kind.resolveUnknown(kind.parse(row.args), context)
+    } catch {
+      // A resolver that cannot decide is undecided, never "no effect".
+    }
+  }
+  const fenced = { id: row.id, status: 'FAILED' as const, fenceToken: row.fenceToken }
+  if (verdict.state === 'applied') {
+    await database.operatorProposal.updateMany({
+      where: fenced,
+      data: {
+        status: 'APPLIED',
+        failureCode: null,
+        result: { ...verdict.outcome.result, reconciled: true } as object,
+        afterSnapshot: verdict.outcome.after as object,
+        appliedAt: row.applyStartedAt ?? input.now,
+        leaseExpiresAt: null,
+      },
+    })
+    await audit(database, row, input.requestId, 'RESOLVED_APPLIED')
+  } else if (verdict.state === 'partially_applied') {
+    await database.operatorProposal.updateMany({
+      where: fenced,
+      data: {
+        failureCode: OPERATOR_PARTIALLY_APPLIED,
+        result: { ...verdict.result, summary: verdict.summary, reconciled: true } as object,
+      },
+    })
+    await audit(database, row, input.requestId, 'RESOLVED_PARTIALLY_APPLIED')
+  } else if (verdict.state === 'no_effect') {
+    await database.operatorProposal.updateMany({
+      where: fenced,
+      data: {
+        failureCode: OPERATOR_FAILED_NO_EFFECT,
+        applyStartedAt: null,
+        result: { summary: verdict.summary, reconciled: true } as object,
+      },
+    })
+    await audit(database, row, input.requestId, 'RESOLVED_NO_EFFECT')
+  } else {
+    await audit(database, row, input.requestId, 'RESOLVE_STILL_UNKNOWN')
+  }
+  return reread()
+}
+
 /**
  * Brings an interrupted operation forward without ever repeating an effect. For a standalone
  * proposal that is reconcile-then-reapply when the apply never began. For a plan it takes over the
@@ -172,8 +277,17 @@ export async function recoverOperation(
   const plan = await database.operatorPlan.findUnique({ where: { id } })
   if (plan) return recoverPlan(plan, dependencies, input)
   const row = await database.operatorProposal.findUnique({ where: { id } })
-  if (!row || row.status !== 'APPROVED' || row.planId !== null) return
+  if (!row || row.planId !== null) return
+  if (row.status === 'FAILED') {
+    await resolveUnknownProposal(row.id, dependencies, input)
+    return
+  }
+  if (row.status !== 'APPROVED') return
   const settled = await reconcileProposal(row.id, dependencies, input)
+  if (settled.status === 'FAILED') {
+    await resolveUnknownProposal(settled.id, dependencies, input)
+    return
+  }
   // Released with no effect, or approved and never claimed: apply it now under the original approval.
   if (settled.status === 'APPROVED' && settled.applyClaimedAt === null) {
     await applyApprovedProposal(

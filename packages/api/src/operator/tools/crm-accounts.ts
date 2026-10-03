@@ -351,8 +351,15 @@ const getAccountContext: OperatorReadTool = {
   name: 'crm.get_account_context',
   capability: 'crm:read',
   async handler(raw, context) {
-    const { organizationId } = OPERATOR_MCP_INPUTS['crm.get_account_context'].parse(raw)
+    const { organizationId: requestedOrganizationId } =
+      OPERATOR_MCP_INPUTS['crm.get_account_context'].parse(raw)
     const database = context.database
+    const requested = await database.prospectOrganization.findUnique({
+      where: { id: requestedOrganizationId },
+      select: { mergedIntoOrganizationId: true },
+    })
+    if (!requested) throw new OperatorNotFoundError()
+    const organizationId = requested.mergedIntoOrganizationId ?? requestedOrganizationId
     const row = await database.prospectOrganization.findUnique({
       where: { id: organizationId },
       select: {
@@ -364,10 +371,12 @@ const getAccountContext: OperatorReadTool = {
         organizationType: true,
         headquartersCity: true,
         headquartersRegion: true,
+        headquartersCountry: true,
         relationshipTier: true,
         notes: true,
         archivedAt: true,
         updatedAt: true,
+        tagAssignments: { select: { tag: { select: { label: true, archivedAt: true } } } },
         opportunity: {
           select: {
             stage: true,
@@ -404,6 +413,40 @@ const getAccountContext: OperatorReadTool = {
       },
     })
     if (!row) throw new OperatorNotFoundError()
+    const mergedSources = await database.prospectOrganizationMerge.findMany({
+      where: { targetOrganizationId: organizationId },
+      select: {
+        sourceOrganizationId: true,
+        createdAt: true,
+        sourceSnapshot: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 26,
+    })
+    const mergeLineage = await Promise.all(
+      mergedSources.slice(0, 25).map(async (merge) => ({
+        sourceOrganizationId: merge.sourceOrganizationId,
+        mergedAt: merge.createdAt.toISOString(),
+        sourceOpportunityStage:
+          typeof merge.sourceSnapshot === 'object' &&
+          merge.sourceSnapshot !== null &&
+          !Array.isArray(merge.sourceSnapshot) &&
+          'opportunity' in merge.sourceSnapshot &&
+          typeof merge.sourceSnapshot.opportunity === 'object' &&
+          merge.sourceSnapshot.opportunity !== null &&
+          !Array.isArray(merge.sourceSnapshot.opportunity) &&
+          'stage' in merge.sourceSnapshot.opportunity &&
+          typeof merge.sourceSnapshot.opportunity.stage === 'string'
+            ? merge.sourceSnapshot.opportunity.stage
+            : null,
+        retainedActivities: await database.prospectActivity.count({
+          where: { organizationId: merge.sourceOrganizationId },
+        }),
+        retainedEvidence: await database.prospectSourceEvidence.count({
+          where: { organizationId: merge.sourceOrganizationId },
+        }),
+      })),
+    )
 
     const [
       venueCount,
@@ -512,9 +555,16 @@ const getAccountContext: OperatorReadTool = {
         type: cut(row.organizationType, 80),
         city: cut(row.headquartersCity, 120),
         region: cut(row.headquartersRegion, 120),
+        country: cut(row.headquartersCountry, 80),
         relationshipTier: row.relationshipTier,
         archived: row.archivedAt !== null,
         version: operatorOrganizationVersion(activityCount),
+        updatedAt: row.updatedAt.toISOString(),
+        tags: row.tagAssignments
+          .filter((assignment) => assignment.tag.archivedAt === null)
+          .map((assignment) => cut(assignment.tag.label, 100)!)
+          .sort((a, b) => a.localeCompare(b))
+          .slice(0, 30),
         note: row.notes ? operatorUntrustedText(redactAddresses(row.notes)) : null,
       },
       opportunity: {
@@ -582,6 +632,12 @@ const getAccountContext: OperatorReadTool = {
         threads: thread.threadCount,
         lastOutboundAt: iso(thread.outbound.last ?? thread.activity.lastOutreachSentAt),
         lastInboundAt: iso(thread.inbound.last ?? thread.activity.lastReplyReceivedAt),
+      },
+      mergeLineage: {
+        redirectedFromOrganizationId:
+          requestedOrganizationId === organizationId ? null : requestedOrganizationId,
+        sources: mergeLineage,
+        truncated: mergedSources.length > 25,
       },
       truncated: {
         venues: venueCount > CONTEXT_VENUES,
@@ -724,6 +780,94 @@ const listNotes: OperatorReadTool = {
   },
 }
 
+/** The longest note text one `crm.get_note` call returns, matching the output contract. */
+const FULL_NOTE_MAX_CHARS = 20_000
+
+const getNote: OperatorReadTool = {
+  name: 'crm.get_note',
+  capability: 'crm:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['crm.get_note'].parse(raw)
+    const database = context.database
+    const org = await database.prospectOrganization.findUnique({
+      where: { id: input.organizationId },
+      select: { id: true, notes: true },
+    })
+    if (!org) throw new OperatorNotFoundError()
+    const full = (value: string) => ({
+      // Address-shaped strings are withheld exactly as in every other note read.
+      text: operatorUntrustedText(redactAddresses(value), FULL_NOTE_MAX_CHARS),
+      length: value.length,
+    })
+    if (input.noteId !== undefined) {
+      const note = await database.prospectActivity.findFirst({
+        where: {
+          id: input.noteId,
+          organizationId: input.organizationId,
+          type: 'NOTE_ADDED',
+          summary: NOTE_SUMMARY,
+        },
+        select: { id: true, occurredAt: true, detail: true, summary: true },
+      })
+      if (!note) throw new OperatorNotFoundError()
+      const body = full(note.detail ?? note.summary)
+      return {
+        organizationId: input.organizationId,
+        source: 'activity' as const,
+        noteId: note.id,
+        contactId: null,
+        occurredAt: note.occurredAt.toISOString(),
+        ...body,
+      }
+    }
+    if (input.contactId !== undefined) {
+      const contact = await database.prospectContact.findFirst({
+        where: { id: input.contactId, organizationId: input.organizationId },
+        select: { notes: true, email: true, ...CONTACT_NOTE_FLAGS },
+      })
+      if (!contact) throw new OperatorNotFoundError()
+      const blocked = await blockedAddressesAnywhere(database, contact.email ? [contact.email] : [])
+      // A suppressed contact's free text stays private along with its address.
+      const readable =
+        operatorContactView(contact as unknown as SnapshotContactInput, blocked).contactable &&
+        Boolean(contact.notes)
+      return {
+        organizationId: input.organizationId,
+        source: 'contact' as const,
+        noteId: null,
+        contactId: contact.id,
+        occurredAt: null,
+        ...(readable ? full(contact.notes!) : { text: null, length: 0 }),
+      }
+    }
+    return {
+      organizationId: input.organizationId,
+      source: 'embedded' as const,
+      noteId: null,
+      contactId: null,
+      occurredAt: null,
+      ...(org.notes && org.notes.trim() ? full(org.notes) : { text: null, length: 0 }),
+    }
+  },
+}
+
+/** Contact fields the contactable rule reads. */
+const CONTACT_NOTE_FLAGS = {
+  id: true,
+  venueId: true,
+  fullName: true,
+  title: true,
+  phone: true,
+  emailReadiness: true,
+  permissionState: true,
+  doNotContact: true,
+  suppressionReason: true,
+  suppressedAt: true,
+  unsubscribedAt: true,
+  complainedAt: true,
+  lastHardBounceAt: true,
+} as const
+
 /** Activity kinds that come from an import or research, not from anything a person did. */
 const MACHINE_ACTIVITY_TYPES = [
   'IMPORTED',
@@ -852,4 +996,5 @@ export const crmAccountReadTools: readonly OperatorReadTool[] = [
   getAccountContext,
   listContacts,
   listNotes,
+  getNote,
 ]

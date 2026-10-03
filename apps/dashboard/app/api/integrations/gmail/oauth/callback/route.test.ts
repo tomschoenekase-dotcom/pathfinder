@@ -45,13 +45,60 @@ describe('Gmail OAuth callback redirect', () => {
 
     expect(response.status).toBe(303)
     expect(response.headers.get('location')).toBe(
-      'https://app.torchiko.com/admin/prospects/outreach?gmail=connected',
+      'https://app.torchiko.com/admin/prospects/outreach?gmail=connected&sync=queued',
     )
     expect(mocks.complete).toHaveBeenCalledWith({
       state: 'state-1',
       code: 'code-1',
       requestedBy: 'admin-user',
     })
+  })
+
+  it('attempts initial reconciliation when watch queuing fails and reports the queue failure separately', async () => {
+    mocks.enqueueGmailSync
+      .mockRejectedValueOnce(new Error('synthetic watch queue failure'))
+      .mockResolvedValueOnce('reconciliation-job')
+    const request = new NextRequest(
+      'https://app.torchiko.com/api/integrations/gmail/oauth/callback?state=state-1&code=code-1',
+    )
+
+    const response = await GET(request)
+
+    expect(mocks.enqueueGmailSync).toHaveBeenCalledTimes(2)
+    expect(mocks.enqueueGmailSync).toHaveBeenNthCalledWith(1, {
+      providerAccountId: 'account-1',
+      trigger: 'WATCH_RENEWAL',
+    })
+    expect(mocks.enqueueGmailSync).toHaveBeenNthCalledWith(2, {
+      providerAccountId: 'account-1',
+      trigger: 'SCHEDULED_RECONCILIATION',
+    })
+    expect(mocks.publishCrmOperationalSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          linkedObjectId: 'account-1',
+          summary: 'Gmail connected, but watch renewal could not be queued.',
+        }),
+      }),
+    )
+    expect(response.headers.get('location')).toBe(
+      'https://app.torchiko.com/admin/prospects/outreach?gmail=connected&sync=queue-failed',
+    )
+  })
+
+  it('keeps the OAuth connection result truthful when the failure signal is unavailable', async () => {
+    mocks.enqueueGmailSync.mockRejectedValueOnce(new Error('synthetic queue failure'))
+    mocks.publishCrmOperationalSignal.mockRejectedValueOnce(new Error('synthetic signal failure'))
+    const request = new NextRequest(
+      'https://app.torchiko.com/api/integrations/gmail/oauth/callback?state=state-1&code=code-1',
+    )
+
+    const response = await GET(request)
+
+    expect(response.headers.get('location')).toBe(
+      'https://app.torchiko.com/admin/prospects/outreach?gmail=connected&sync=queue-failed',
+    )
+    expect(mocks.enqueueGmailSync).toHaveBeenCalledTimes(2)
   })
 
   it('returns a failed result on the public app origin for an invalid callback', async () => {

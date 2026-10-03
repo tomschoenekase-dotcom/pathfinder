@@ -9,6 +9,7 @@ import {
   createProspectCampaignAction,
   db,
   linkProspectConversionAction,
+  PROSPECT_OUTREACH_COMPANY_SENDER,
   recordProspectSendFailureAction,
   recordProspectSuppressionAction,
   releaseProspectSendBatchAction,
@@ -28,6 +29,13 @@ describe.skipIf(!enabled)('canonical CRM disposable safety', () => {
   it('supports multi-location conversion, immutable release, exclusive claims, ambiguity and suppression', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)
+      // Raw mailbox identity is unique per run; the release policy intentionally
+      // trims whitespace and still requires the reviewed company sender.
+      const mailboxPadding = [...randomUUID().replaceAll('-', '')]
+        .map((digit) => Number.parseInt(digit, 16).toString(2).padStart(4, '0'))
+        .join('')
+        .replaceAll('0', ' ')
+        .replaceAll('1', '\t')
       const actor = {
         type: 'HUMAN' as const,
         id: `crm-operator-${suffix}`,
@@ -135,7 +143,7 @@ describe.skipIf(!enabled)('canonical CRM disposable safety', () => {
         data: {
           provider: 'GMAIL',
           externalAccountId: `gmail-${suffix}`,
-          mailboxAddress: 'tomschoenekase@torchiko.com',
+          mailboxAddress: `${mailboxPadding}${PROSPECT_OUTREACH_COMPANY_SENDER}`,
           connectionStatus: 'CONNECTED',
           capabilities: ['SEND', 'RECEIVE', 'RECONCILE'],
           credentialReferenceId: `encrypted-credential-ref-${suffix}`,

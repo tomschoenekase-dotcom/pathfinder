@@ -14,7 +14,7 @@ export const PROSPECT_IMPORT_BATCH_MAX = 250
 export const PROSPECT_IMPORT_COMMIT_BATCH_MAX = 100
 export const PROSPECT_IMPORT_ROW_MAX = 100_000
 export const PROSPECT_IMPORT_COLUMN_MAX = 100
-export const PROSPECT_IMPORT_CELL_CHARACTER_MAX = 10_000
+export const PROSPECT_IMPORT_CELL_CHARACTER_MAX = 100_000
 export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
@@ -26,6 +26,7 @@ export type ProspectActionErrorCode =
   | 'INVALID_INPUT'
   | 'UNSAFE_MERGE'
   | 'SUPPRESSED'
+  | 'DUPLICATE_REVIEW'
 
 export class ProspectActionError extends Error {
   constructor(
@@ -37,10 +38,111 @@ export class ProspectActionError extends Error {
   }
 }
 
+export type ProspectDuplicateMatch = {
+  organizationId: string
+  canonicalName: string
+  matchedOn: Array<'name' | 'domain' | 'email'>
+}
+
+/** A create that stopped because an exact name, domain or contact-address match already exists. */
+export class ProspectDuplicateReviewError extends ProspectActionError {
+  constructor(
+    message: string,
+    readonly matches: ProspectDuplicateMatch[],
+  ) {
+    super('DUPLICATE_REVIEW', message)
+  }
+}
+
+/**
+ * The one duplicate check for creating a prospect, shared by the admin Add prospect action and the
+ * operator. Exact normalized name, exact domain or an exact contact address on any live account
+ * is a match. A match is never overridden here: a person reviews it.
+ */
+export async function findProspectDuplicateMatches(
+  tx: Pick<ProspectTransactionClient, 'prospectOrganization'>,
+  input: {
+    normalizedName: string
+    normalizedDomain: string | null
+    normalizedEmail: string | null
+  },
+): Promise<ProspectDuplicateMatch[]> {
+  const { normalizedName, normalizedDomain, normalizedEmail } = input
+  const rows = await tx.prospectOrganization.findMany({
+    where: {
+      archivedAt: null,
+      OR: [
+        { normalizedName },
+        ...(normalizedDomain ? [{ normalizedDomain }] : []),
+        ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
+      ],
+    },
+    select: {
+      id: true,
+      canonicalName: true,
+      normalizedName: true,
+      normalizedDomain: true,
+      ...(normalizedEmail
+        ? { contacts: { where: { normalizedEmail }, select: { id: true }, take: 1 } }
+        : {}),
+    },
+    orderBy: { id: 'asc' },
+    take: 10,
+  })
+  return rows.map((row) => {
+    const matchedOn: ProspectDuplicateMatch['matchedOn'] = []
+    if (row.normalizedName === normalizedName) matchedOn.push('name')
+    if (normalizedDomain && row.normalizedDomain === normalizedDomain) matchedOn.push('domain')
+    const contacts = (row as { contacts?: Array<{ id: string }> }).contacts
+    if (normalizedEmail && contacts && contacts.length > 0) matchedOn.push('email')
+    return { organizationId: row.id, canonicalName: row.canonicalName, matchedOn }
+  })
+}
+
 function requireActor(actor: ProspectActor): void {
   if (actor.type !== 'HUMAN' || actor.role !== 'PLATFORM_ADMIN' || !actor.id) {
     throw new ProspectActionError('INVALID_INPUT', 'A human platform administrator is required')
   }
+}
+
+const PROSPECT_LOCATION_FIELDS = [
+  'city',
+  'region',
+  'country',
+  'addressLine1',
+  'postalCode',
+] as const
+type ProspectLocation = Partial<
+  Record<(typeof PROSPECT_LOCATION_FIELDS)[number], string | null | undefined>
+>
+
+/**
+ * Comparison key for one location part. Case, accents, punctuation and whitespace runs never
+ * split one place into two venues. Unlike normalizeProspectName it keeps every token, so a
+ * region such as "CO" is not mistaken for a legal suffix and dropped.
+ */
+function prospectLocationKey(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+/** Every location part the row supplies matches the venue; parts the row omits are ignored. */
+function suppliedLocationMatches(venue: ProspectLocation, row: ProspectLocation): boolean {
+  return PROSPECT_LOCATION_FIELDS.every((field) => {
+    const wanted = prospectLocationKey(row[field])
+    return !wanted || prospectLocationKey(venue[field]) === wanted
+  })
+}
+
+/** The full location is the same place, including parts both sides leave empty. */
+function sameProspectLocation(venue: ProspectLocation, row: ProspectLocation): boolean {
+  return PROSPECT_LOCATION_FIELDS.every(
+    (field) => prospectLocationKey(venue[field]) === prospectLocationKey(row[field]),
+  )
 }
 
 function jsonValue(value: unknown): object | unknown[] {
@@ -111,6 +213,8 @@ export type CreateProspectInput = {
         notes?: string | undefined
       }
     | undefined
+  /** Namespaced idempotency receipt written to the creation activity (operator use). */
+  receiptKey?: string | undefined
   actor: ProspectActor
 }
 
@@ -122,7 +226,7 @@ export async function createProspectAction(
   return client.$transaction((tx) => createProspectInTransaction(input, tx))
 }
 
-async function createProspectInTransaction(
+export async function createProspectInTransaction(
   input: CreateProspectInput,
   tx: ProspectTransactionClient,
 ) {
@@ -134,17 +238,10 @@ async function createProspectInTransaction(
   const normalizedDomain = normalizeProspectDomain(input.organization.website)
   const normalizedEmail = normalizeProspectEmail(input.contact?.email)
 
-  const matches = await tx.prospectOrganization.findMany({
-    where: {
-      archivedAt: null,
-      OR: [
-        { normalizedName },
-        ...(normalizedDomain ? [{ normalizedDomain }] : []),
-        ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
-      ],
-    },
-    select: { id: true, canonicalName: true, normalizedName: true, normalizedDomain: true },
-    take: 10,
+  const matches = await findProspectDuplicateMatches(tx, {
+    normalizedName,
+    normalizedDomain,
+    normalizedEmail,
   })
   if (matches.length) {
     throw new ProspectActionError(
@@ -277,6 +374,7 @@ async function createProspectInTransaction(
       evidence: { source: input.organization.source ?? 'manual' },
       actorId: input.actor.id,
       occurredAt: now,
+      ...(input.receiptKey ? { externalReceiptKey: input.receiptKey } : {}),
     },
   })
   await writeAuditLogStrict(
@@ -917,6 +1015,9 @@ export async function linkProspectConversionAction(
 }
 
 export type ProspectImportNormalizedRow = {
+  /** Explicit CRM identity from a reviewed source column; never inferred from a name. */
+  existingOrganizationId?: string | undefined
+  existingVenueId?: string | undefined
   organizationName?: string | undefined
   venueName: string
   venueType?: string | undefined
@@ -924,6 +1025,16 @@ export type ProspectImportNormalizedRow = {
   city?: string | undefined
   region?: string | undefined
   country?: string | undefined
+  addressLine1?: string | undefined
+  postalCode?: string | undefined
+  gmailMessageId?: string | undefined
+  gmailThreadId?: string | undefined
+  gmailDraftId?: string | undefined
+  mailboxAddress?: string | undefined
+  claimedSentAt?: string | undefined
+  claimedDeliveryState?: string | undefined
+  claimedDraftState?: string | undefined
+  claimedRelationshipState?: string | undefined
   website?: string | undefined
   generalEmail?: string | undefined
   contactName?: string | undefined
@@ -968,6 +1079,7 @@ export async function beginProspectImportAction(
   if (!/^[a-f0-9]{64}$/.test(input.fileHash) || !/^[a-f0-9]{64}$/.test(input.mappingHash)) {
     throw new ProspectActionError('INVALID_INPUT', 'Import hashes must be SHA-256 values')
   }
+  assertProspectImportMappingSafe(input.mapping)
   if (input.fileSize <= 0 || input.fileSize > 25 * 1024 * 1024) {
     throw new ProspectActionError('INVALID_INPUT', 'Spreadsheet must be between 1 byte and 25 MB')
   }
@@ -1094,6 +1206,8 @@ export async function reserveProspectImportUploadAction(
 export async function configureProspectImportMappingAction(
   input: {
     importId: string
+    expectedFileHash?: string | undefined
+    expectedMappingHash?: string | undefined
     mappingHash: string
     mapping: Record<string, unknown>
     selectedSheets: string[]
@@ -1108,12 +1222,21 @@ export async function configureProspectImportMappingAction(
   if (!input.selectedSheets.length || input.selectedSheets.length > 100) {
     throw new ProspectActionError('INVALID_INPUT', 'Select between 1 and 100 inspected sheets')
   }
+  assertProspectImportMappingSafe(input.mapping)
   return client.$transaction(async (tx) => {
     const prospectImport = await tx.prospectImport.findUnique({
       where: { id: input.importId },
       include: { sheets: { select: { sheetName: true } } },
     })
     if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    if (
+      (input.expectedFileHash !== undefined &&
+        prospectImport.fileHash !== input.expectedFileHash) ||
+      (input.expectedMappingHash !== undefined &&
+        prospectImport.mappingHash !== input.expectedMappingHash)
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Import file or mapping changed')
+    }
     if (prospectImport.status !== 'DRAFT' || prospectImport.progressCursor !== 'INSPECTED') {
       throw new ProspectActionError('CONFLICT', 'Workbook inspection is not ready for mapping')
     }
@@ -1138,8 +1261,13 @@ export async function configureProspectImportMappingAction(
       where: { importId: input.importId, sheetName: { in: input.selectedSheets } },
       data: { selected: true },
     })
-    const saved = await tx.prospectImport.update({
-      where: { id: input.importId },
+    const changed = await tx.prospectImport.updateMany({
+      where: {
+        id: input.importId,
+        status: 'DRAFT',
+        progressCursor: 'INSPECTED',
+        mappingHash: prospectImport.mappingHash,
+      },
       data: {
         mappingHash: input.mappingHash,
         importIdentityHash,
@@ -1147,6 +1275,9 @@ export async function configureProspectImportMappingAction(
         progressCursor: 'MAPPED',
       },
     })
+    if (changed.count !== 1)
+      throw new ProspectActionError('CONFLICT', 'Import mapping changed concurrently')
+    const saved = await tx.prospectImport.findUniqueOrThrow({ where: { id: input.importId } })
     await writeAuditLogStrict(
       {
         actorId: input.actor.id,
@@ -1167,6 +1298,82 @@ type StageImportRow = {
   originalRowNumber: number
   sourceValues: Record<string, unknown>
   normalizedValues: ProspectImportNormalizedRow
+}
+
+/**
+ * A spreadsheet cell is data. Text that begins like a spreadsheet formula (= + - @) is kept as
+ * inert text and flagged so nobody opens it as a formula; it is never evaluated here, and report
+ * exports prefix it. A phone number may legitimately start with +, so only = and @ flag there.
+ */
+const FORMULA_LEADING = /^[=+\-@]/u
+const PHONE_FORMULA_LEADING = /^[=@]/u
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u
+// eslint-disable-next-line no-control-regex
+const NUL_CHARACTER = /\u0000/u
+
+/** A valid calendar date written as YYYY-MM-DD or a full ISO timestamp, else null. */
+export function parseProspectImportDate(value: string | null | undefined): Date | null {
+  const text = value?.trim()
+  if (!text) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ][0-9:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/u.exec(text)
+  if (!match) return null
+  const parsed = new Date(text.length === 10 ? `${text}T00:00:00.000Z` : text.replace(' ', 'T'))
+  if (Number.isNaN(parsed.getTime())) return null
+  // Reject rollover such as 2026-02-31, which Date would silently move to March.
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const check = new Date(Date.UTC(year, month - 1, day))
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * A source column named like the company priority narrative is free text. It must never be mapped
+ * into the CRM priority, which is a controlled enum set by people.
+ */
+export function assertProspectImportMappingSafe(mapping: Record<string, unknown>): void {
+  for (const [field, column] of Object.entries(mapping)) {
+    if (field !== 'outreachPriority' || typeof column !== 'string') continue
+    if (/^company[\s_-]*priority$/iu.test(column.trim())) {
+      throw new ProspectActionError(
+        'INVALID_INPUT',
+        'The company priority column is narrative text and cannot be mapped to the CRM priority',
+      )
+    }
+  }
+}
+
+function inspectImportText(
+  normalizedValues: ProspectImportNormalizedRow,
+  warnings: string[],
+  errors: string[],
+) {
+  const formulaFields = new Set<string>()
+  let badEncoding = false
+  let unsafeCharacter = false
+  const visit = (field: string, text: string) => {
+    if (NUL_CHARACTER.test(text)) unsafeCharacter = true
+    else if (CONTROL_CHARACTERS.test(text)) badEncoding = true
+    if (text.includes('\uFFFD')) badEncoding = true
+    const pattern = field === 'phone' ? PHONE_FORMULA_LEADING : FORMULA_LEADING
+    if (pattern.test(text.trimStart())) formulaFields.add(field)
+  }
+  for (const [field, value] of Object.entries(normalizedValues)) {
+    if (typeof value === 'string') visit(field, value)
+    else if (Array.isArray(value))
+      for (const item of value) if (typeof item === 'string') visit(field, item)
+  }
+  if (unsafeCharacter) errors.push('invalid-character')
+  if (badEncoding) warnings.push('encoding-suspect')
+  if (formulaFields.size) warnings.push('formula-like-text')
 }
 
 function validateImportRow(row: StageImportRow): {
@@ -1192,6 +1399,29 @@ function validateImportRow(row: StageImportRow): {
   if (emailCandidate && !normalizedEmail) warnings.push('email-invalid')
   if (!row.normalizedValues.website) warnings.push('website-missing')
   if (!row.normalizedValues.sourceUrls?.length) warnings.push('source-url-missing')
+  if (
+    row.normalizedValues.researchDate &&
+    !parseProspectImportDate(row.normalizedValues.researchDate)
+  ) {
+    warnings.push('research-date-invalid')
+  }
+  if (
+    row.normalizedValues.claimedDeliveryState &&
+    !['UNKNOWN', 'SENT', 'DELIVERED', 'BOUNCED'].includes(
+      row.normalizedValues.claimedDeliveryState.trim().toUpperCase(),
+    )
+  ) {
+    errors.push('claimed-delivery-state-invalid')
+  }
+  if (
+    row.normalizedValues.claimedDraftState &&
+    !['UNKNOWN', 'DRAFT', 'REVIEWED', 'QUEUED', 'SENT'].includes(
+      row.normalizedValues.claimedDraftState.trim().toUpperCase(),
+    )
+  ) {
+    errors.push('claimed-draft-state-invalid')
+  }
+  inspectImportText(row.normalizedValues, warnings, errors)
   return {
     normalized: {
       ...row.normalizedValues,
@@ -1267,6 +1497,8 @@ export async function stageProspectImportRowsAction(
         confidence: number
         reasons: string[]
       }>
+      targetOrganizationId: string | null
+      targetVenueId: string | null
     }>
     let staged = 0
     for (const row of input.rows) {
@@ -1287,7 +1519,64 @@ export async function stageProspectImportRowsAction(
       const existing = existingByKey.get(key)
       if (existing?.status === 'IMPORTED') continue
       const checked = validateImportRow(row)
-      const candidates = checked.errors.length
+      const explicitOrganizationId = checked.normalized.existingOrganizationId?.trim() || null
+      const explicitVenueId = checked.normalized.existingVenueId?.trim() || null
+      if (explicitVenueId && !explicitOrganizationId) {
+        checked.errors.push('existing-venue-requires-organization')
+      }
+      const explicitOrganization = explicitOrganizationId
+        ? await tx.prospectOrganization.findFirst({
+            where: { id: explicitOrganizationId, archivedAt: null },
+          })
+        : null
+      if (explicitOrganizationId && !explicitOrganization) {
+        checked.errors.push('existing-organization-not-found')
+      }
+      const explicitVenue = explicitVenueId
+        ? await tx.prospectVenue.findFirst({
+            where: {
+              id: explicitVenueId,
+              organizationId: explicitOrganizationId!,
+              archivedAt: null,
+            },
+          })
+        : null
+      if (explicitVenueId && !explicitVenue) checked.errors.push('existing-venue-not-found')
+      if (explicitVenue && !suppliedLocationMatches(explicitVenue, checked.normalized)) {
+        checked.errors.push('existing-venue-location-mismatch')
+      }
+      // Location parts are compared by key in code, not with SQL equality, so case and
+      // whitespace variants of one address resolve to the same existing venue.
+      const matchingVenues =
+        explicitOrganization && !explicitVenueId && checked.errors.length === 0
+          ? (
+              await tx.prospectVenue.findMany({
+                where: {
+                  organizationId: explicitOrganization.id,
+                  archivedAt: null,
+                  normalizedName: checked.normalized.normalizedVenueName,
+                },
+                select: {
+                  id: true,
+                  city: true,
+                  region: true,
+                  country: true,
+                  addressLine1: true,
+                  postalCode: true,
+                },
+                orderBy: { createdAt: 'asc' },
+                take: 500,
+              })
+            ).filter((venue) => suppliedLocationMatches(venue, checked.normalized))
+          : []
+      const ambiguousLocation =
+        matchingVenues.length > 1 ||
+        (matchingVenues.length > 0 &&
+          (!checked.normalized.city ||
+            (!checked.normalized.addressLine1 && !checked.normalized.postalCode)))
+      if (ambiguousLocation) checked.warnings.push('existing-venue-location-needs-review')
+      const targetVenueId = explicitVenue?.id ?? (ambiguousLocation ? null : matchingVenues[0]?.id) ?? null
+      const candidates = checked.errors.length || explicitOrganization
         ? []
         : await tx.prospectOrganization.findMany({
             where: {
@@ -1301,7 +1590,9 @@ export async function stageProspectImportRowsAction(
                   venues: {
                     some: {
                       normalizedName: checked.normalized.normalizedVenueName,
-                      ...(checked.normalized.city ? { city: checked.normalized.city } : {}),
+                      ...(checked.normalized.city
+                        ? { city: { equals: checked.normalized.city, mode: 'insensitive' as const } }
+                        : {}),
                     },
                   },
                 },
@@ -1325,7 +1616,8 @@ export async function stageProspectImportRowsAction(
           const venueMatch = candidate.venues.some(
             (venue) =>
               venue.normalizedName === checked.normalized.normalizedVenueName &&
-              (!checked.normalized.city || venue.city === checked.normalized.city),
+              (!prospectLocationKey(checked.normalized.city) ||
+                prospectLocationKey(venue.city) === prospectLocationKey(checked.normalized.city)),
           )
           const scored = scoreProspectDuplicate({
             organizationName:
@@ -1349,6 +1641,14 @@ export async function stageProspectImportRowsAction(
         })
         .filter((match) => match.confidence > 0)
         .sort((a, b) => b.confidence - a.confidence)
+      if (ambiguousLocation && explicitOrganization) {
+        duplicateMatches.unshift({
+          organizationId: explicitOrganization.id,
+          canonicalName: explicitOrganization.canonicalName,
+          confidence: 1,
+          reasons: ['existing-venue-location-needs-review'],
+        })
+      }
       const status: 'FAILED' | 'DUPLICATE_REVIEW' | 'WARNING' | 'VALID' = checked.errors.length
         ? 'FAILED'
         : duplicateMatches.length
@@ -1367,6 +1667,8 @@ export async function stageProspectImportRowsAction(
         warnings: checked.warnings,
         errors: checked.errors,
         duplicateMatches,
+        targetOrganizationId: explicitOrganization?.id ?? null,
+        targetVenueId,
       }
       if (existing) {
         await tx.prospectImportRow.update({
@@ -1379,6 +1681,13 @@ export async function stageProspectImportRowsAction(
             warnings: checked.warnings,
             errors: checked.errors,
             duplicateMatches,
+            decision: null,
+            decisionNote: null,
+            decisionBy: null,
+            decisionAt: null,
+            targetOrganizationId: rowData.targetOrganizationId,
+            targetVenueId: rowData.targetVenueId,
+            targetContactId: null,
             errorCode: null,
             errorMessage: null,
           },
@@ -1429,6 +1738,7 @@ export async function resumeIncompleteProspectImportDryRunAction(
     const unfinishedCursor =
       before.progressCursor === 'MAPPED' || /^\d+:\d+$/u.test(before.progressCursor ?? '')
     if (
+      (before.jobClaimExpiresAt !== null && before.jobClaimExpiresAt > new Date()) ||
       !before.sourceObjectKey ||
       !before.sourceObjectVersion ||
       !unfinishedCursor ||
@@ -1447,6 +1757,7 @@ export async function resumeIncompleteProspectImportDryRunAction(
         cancelRequestedAt: null,
         approvedAt: null,
         importedRows: 0,
+        OR: [{ jobClaimExpiresAt: null }, { jobClaimExpiresAt: { lte: new Date() } }],
       },
       data: { status: 'DRAFT', progressCursor: 'MAPPED' },
     })
@@ -1598,6 +1909,26 @@ export async function approveProspectImportAction(
     }
     if (prospectImport.sourceObjectKey && prospectImport.progressCursor !== 'DRY_RUN_READY') {
       throw new ProspectActionError('CONFLICT', 'Workbook staging has not finished')
+    }
+    const csvManifest = prospectImport.packageManifest as {
+      mcpCsv?: boolean
+      stagingComplete?: boolean
+      sourceRows?: number
+    } | null
+    if (csvManifest?.mcpCsv) {
+      const stagedRows = await tx.prospectImportRow.count({ where: { importId: input.importId } })
+      if (!csvManifest.stagingComplete || stagedRows !== csvManifest.sourceRows) {
+        throw new ProspectActionError('CONFLICT', 'CSV staging has not finished')
+      }
+      const failedRows = await tx.prospectImportRow.count({
+        where: { importId: input.importId, status: 'FAILED' },
+      })
+      if (failedRows) {
+        throw new ProspectActionError(
+          'CONFLICT',
+          `${failedRows} CSV rows failed validation; correct and restage the source file`,
+        )
+      }
     }
     const unresolvedDuplicates = await tx.prospectImportRow.count({
       where: { importId: input.importId, status: 'DUPLICATE_REVIEW' },
@@ -1903,7 +2234,7 @@ async function importOneProspectRow(
           sourceUrl: value.sourceUrls?.[0] ?? null,
           capturedValue: jsonValue(row.sourceValues),
           importRowId: row.id,
-          researchedAt: value.researchDate ? new Date(value.researchDate) : null,
+          researchedAt: parseProspectImportDate(value.researchDate),
           createdBy: actor.id,
         },
       })
@@ -1955,13 +2286,23 @@ async function importOneProspectRow(
       update: { name: territoryName, updatedBy: actor.id },
     })
     const importSource = `spreadsheet-import:${importId}`
-    let organization = await tx.prospectOrganization.findFirst({
-      where: {
-        source: importSource,
-        normalizedName: value.normalizedOrganizationName,
-        archivedAt: null,
-      },
-    })
+    let organization = row.targetOrganizationId
+      ? await tx.prospectOrganization.findFirst({
+          where: { id: row.targetOrganizationId, archivedAt: null },
+        })
+      : await tx.prospectOrganization.findFirst({
+          where: {
+            source: importSource,
+            normalizedName: value.normalizedOrganizationName,
+            archivedAt: null,
+          },
+        })
+    if (row.targetOrganizationId && !organization) {
+      throw new ProspectActionError(
+        'CONFLICT',
+        'Explicit organization target changed or disappeared',
+      )
+    }
     if (!organization) {
       organization = await tx.prospectOrganization.create({
         data: {
@@ -2001,14 +2342,29 @@ async function importOneProspectRow(
         },
       })
     }
-    let venue = await tx.prospectVenue.findFirst({
-      where: {
-        organizationId: organization.id,
-        normalizedName: value.normalizedVenueName,
-        city: value.city ?? null,
-        archivedAt: null,
-      },
-    })
+    let venue = row.targetVenueId
+      ? await tx.prospectVenue.findFirst({
+          where: { id: row.targetVenueId, organizationId: organization.id, archivedAt: null },
+        })
+      : // Same organization and venue name is one place only when the whole location matches
+        // by key: other locations stay separate, case and whitespace variants do not split.
+        ((
+          await tx.prospectVenue.findMany({
+            where: {
+              organizationId: organization.id,
+              normalizedName: value.normalizedVenueName,
+              archivedAt: null,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: 500,
+          })
+        ).find((candidate) => sameProspectLocation(candidate, value)) ?? null)
+    if (row.targetVenueId && !venue) {
+      throw new ProspectActionError('CONFLICT', 'Explicit venue target changed or disappeared')
+    }
+    if (row.targetVenueId && venue && !suppliedLocationMatches(venue, value)) {
+      throw new ProspectActionError('CONFLICT', 'Explicit venue location changed after review')
+    }
     if (!venue) {
       venue = await tx.prospectVenue.create({
         data: {
@@ -2022,6 +2378,8 @@ async function importOneProspectRow(
           city: value.city ?? null,
           region: value.region ?? null,
           country: value.country ?? null,
+          addressLine1: value.addressLine1 ?? null,
+          postalCode: value.postalCode ?? null,
           estimatedSize: value.venueSize ?? null,
           fitAttributes: {
             ownerSize: value.ownerSize ?? null,
@@ -2078,7 +2436,7 @@ async function importOneProspectRow(
         sourceUrl: value.sourceUrls?.[0] ?? null,
         capturedValue: jsonValue(row.sourceValues),
         importRowId: row.id,
-        researchedAt: value.researchDate ? new Date(value.researchDate) : null,
+        researchedAt: parseProspectImportDate(value.researchDate),
         createdBy: actor.id,
       },
     })

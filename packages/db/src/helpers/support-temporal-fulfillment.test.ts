@@ -90,7 +90,7 @@ describe('support temporal fulfillment', () => {
           startsAt: { lte: asOf },
           expiresAt: { gt: asOf },
         }),
-        orderBy: [{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
+        orderBy: [{ priority: 'desc' }, { severity: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
         take: 20,
       }),
     )

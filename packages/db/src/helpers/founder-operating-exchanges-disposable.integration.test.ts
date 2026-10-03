@@ -126,7 +126,8 @@ describe.skipIf(!enabled)('founder operating conversation disposable lifecycle',
       db.founderOperatingExchange.delete({ where: { id: created.exchange.id } }),
     ).rejects.toThrow(/append-only/iu)
     await expect(
-      db.$executeRawUnsafe('TRUNCATE TABLE "founder_operating_exchanges"'),
+      // CASCADE reaches the append-only trigger even when a directive references the exchange.
+      db.$executeRawUnsafe('TRUNCATE TABLE "founder_operating_exchanges" CASCADE'),
     ).rejects.toThrow(/append-only/iu)
 
     const audits = await db.auditLog.findMany({

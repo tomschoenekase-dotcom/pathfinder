@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 
 import { db } from '../client'
 import { lockContentVersionEntity } from './content-version-context'
+import {
+  LIVE_OPERATIONAL_UPDATE_ORDER_BY,
+  liveOperationalUpdateWindowWhere,
+} from '@pathfinder/contracts/operational-update-lifecycle'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from './operational-update-actions'
 import {
   readSupportFulfillmentSources,
@@ -135,10 +139,7 @@ export async function readSupportTemporalFulfillment(
     where: {
       tenantId: input.tenantId,
       venueId: input.venueId,
-      status: 'PUBLISHED',
-      isActive: true,
-      startsAt: { lte: asOf },
-      expiresAt: { gt: asOf },
+      ...liveOperationalUpdateWindowWhere(asOf),
       OR: [{ placeId: null }, { place: { visibility: 'PUBLIC' } }],
     },
     select: {
@@ -156,7 +157,7 @@ export async function readSupportTemporalFulfillment(
       expiresAt: true,
       place: { select: { id: true, tenantId: true, venueId: true, name: true, visibility: true } },
     },
-    orderBy: [{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
+    orderBy: LIVE_OPERATIONAL_UPDATE_ORDER_BY,
     take: MAX_GUEST_OPERATIONAL_UPDATES,
   })
   const visibleById = new Map(visible.map((item) => [item.id, item]))

@@ -8,20 +8,34 @@ import {
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB,
+  VENUE_SOURCE_CAPTURE_PROCESS_JOB,
   type IntakeV1SourceProcessingJobPayload,
+  type VenueSourceCaptureJobPayload,
 } from '@pathfinder/jobs'
 import { isFeatureEnabled } from '@pathfinder/config'
 
-import { queueSafeJobProcessor } from './lib/job-execution'
+import { getJobExecutionMetadata, queueSafeJobProcessor } from './lib/job-execution'
 import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 import {
   processIntakeV1SourceProcessingJob,
   reconcileIntakeV1SourceProcessingJobs,
 } from './processors/intake-v1-source-processing'
+import { processVenueSourceCaptureJob } from './processors/venue-source-capture'
 
 export async function handleIntakeV1WebsiteResearch(
-  job: Job<IntakeV1SourceProcessingJobPayload | Record<string, never>>,
+  job: Job<
+    IntakeV1SourceProcessingJobPayload | VenueSourceCaptureJobPayload | Record<string, never>
+  >,
 ) {
+  if (job.name === VENUE_SOURCE_CAPTURE_PROCESS_JOB) {
+    // Operator-requested venue source capture shares this isolated runtime and its flag. The job
+    // carries only opaque scope IDs; the processor re-reads the source and the authorized hosts.
+    if (!isFeatureEnabled('intakeV1WebsiteResearchWorker')) return 'disabled'
+    return processVenueSourceCaptureJob(
+      job.data as VenueSourceCaptureJobPayload,
+      getJobExecutionMetadata(job),
+    )
+  }
   if (
     job.name !== INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB &&
     job.name !== INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB

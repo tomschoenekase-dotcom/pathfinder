@@ -167,7 +167,7 @@ export function websiteIntakeEngineeringCostUnits(input: {
   return input.attemptedFetches + Math.ceil(input.observedBodyBytes / 100_000)
 }
 
-type AdmittedUrl = { canonicalUrl: string; hostname: string }
+export type AdmittedUrl = { canonicalUrl: string; hostname: string }
 
 type DiscoveryDisposition = WebsiteSourceDiscovery['items'][number]['disposition']
 
@@ -282,7 +282,7 @@ function normalizeHostname(hostname: string) {
   return ascii
 }
 
-function normalizeAllowedHosts(hosts: readonly string[]) {
+export function normalizeAllowedHosts(hosts: readonly string[]) {
   const normalized = new Set<string>()
   for (const host of hosts) {
     const bracketedIpv6 = host.startsWith('[') && host.endsWith(']')
@@ -301,7 +301,11 @@ function normalizeAllowedHosts(hosts: readonly string[]) {
   return normalized
 }
 
-function canonicalizeUrl(raw: string, base: string | undefined, allowedHosts: ReadonlySet<string>) {
+export function canonicalizeUrl(
+  raw: string,
+  base: string | undefined,
+  allowedHosts: ReadonlySet<string>,
+) {
   let url: URL
   try {
     url = base ? new URL(raw, base) : new URL(raw)
@@ -428,7 +432,7 @@ export function isPublicWebsiteAddress(address: string) {
   return false
 }
 
-function isPrivateHostname(hostname: string) {
+export function isPrivateHostname(hostname: string) {
   return (
     hostname === 'localhost' ||
     hostname.endsWith('.localhost') ||
@@ -439,7 +443,7 @@ function isPrivateHostname(hostname: string) {
   )
 }
 
-async function resolvePublicAddresses(
+export async function resolvePublicAddresses(
   admitted: AdmittedUrl,
   resolver: WebsiteIntakeDependencies['resolveHostname'],
 ) {
@@ -458,7 +462,7 @@ async function resolvePublicAddresses(
   return [...new Set(addresses)].sort()
 }
 
-function responseBody(response: WebsiteIntakeFetchResponse, maxBytes: number) {
+export function responseBody(response: WebsiteIntakeFetchResponse, maxBytes: number) {
   const body =
     typeof response.body === 'string'
       ? Buffer.from(response.body, 'utf8')
@@ -469,7 +473,7 @@ function responseBody(response: WebsiteIntakeFetchResponse, maxBytes: number) {
   return body
 }
 
-function header(response: WebsiteIntakeFetchResponse, name: string) {
+export function header(response: WebsiteIntakeFetchResponse, name: string) {
   const found = Object.entries(response.headers).find(([key]) => key.toLowerCase() === name)
   return found?.[1]
 }

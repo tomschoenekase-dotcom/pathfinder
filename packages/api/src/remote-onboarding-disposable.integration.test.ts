@@ -89,7 +89,12 @@ import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { venuePackageRouter } from './routers/venue-package'
-import { _setVoiceProviderAdapterForTesting, voiceRouter } from './routers/voice'
+import {
+  _setVoiceProviderAdapterForTesting,
+  _setVoiceSdpExchangeForTesting,
+  _setVoiceHangupForTesting,
+  voiceRouter,
+} from './routers/voice'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
 let disposableStorage: S3Client | null = null
@@ -161,6 +166,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
     disposableStorage?.destroy()
     _setAnthropicClientForTesting(null)
     _setVoiceProviderAdapterForTesting(null)
+    _setVoiceSdpExchangeForTesting(null)
+    _setVoiceHangupForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
     await db.$disconnect()
   })
@@ -1175,7 +1182,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         data: {
           tenantId,
           venueId,
-          capability: 'voice',
+          capability: 'premium-voice',
           effect: 'GRANT',
           kind: 'ADMIN',
           settings: {},
@@ -1204,10 +1211,17 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         provider: 'openai',
         authorizeSession: voiceAuthorize,
       } as RealtimeVoiceProviderAdapter)
+      _setVoiceSdpExchangeForTesting(
+        vi.fn().mockResolvedValue({
+          sdpAnswer: 'v=0\r\nprovider-dark-answer',
+          callId: 'provider-dark-call',
+        }),
+      )
+      _setVoiceHangupForTesting(vi.fn().mockResolvedValue(undefined))
 
       await expect(
         publicCaller.voice.availability({ venueId, anonymousToken }),
-      ).resolves.toMatchObject({ enabled: true, premiumAvailable: false })
+      ).resolves.toMatchObject({ enabled: true, premiumAvailable: true })
       const voiceSession = await publicCaller.voice.start({
         venueId,
         anonymousToken,
@@ -1215,10 +1229,10 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         tier: 'ECONOMY',
       })
       expect(voiceSession).toMatchObject({
-        clientSecret: 'provider-dark-ephemeral-secret',
         provider: 'openai',
         model: 'gpt-realtime-2.1-mini',
       })
+      expect(voiceSession).not.toHaveProperty('clientSecret')
       expect(voiceAuthorize).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: 'provider-dark-not-a-credential',
@@ -1237,6 +1251,14 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         providerSessionId: 'provider-dark-voice-session',
       })
       expect(JSON.stringify(persistedReadyVoice)).not.toContain('provider-dark-ephemeral-secret')
+      await expect(
+        publicCaller.voice.connect({
+          venueId,
+          anonymousToken,
+          voiceSessionId: voiceSession.voiceSessionId,
+          sdpOffer: 'v=0\r\nprovider-dark-offer',
+        }),
+      ).resolves.toEqual({ sdpAnswer: 'v=0\r\nprovider-dark-answer' })
       await expect(
         publicCaller.voice.connected({
           venueId,

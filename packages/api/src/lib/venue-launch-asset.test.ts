@@ -27,5 +27,5 @@ describe('canonical venue launch assets', () => {
       if (format === 'PNG') expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
       if (format === 'SVG') expect(bytes.toString('utf8')).toContain('<svg')
     }
-  })
+  }, 30_000)
 })

@@ -88,6 +88,29 @@ describe('diffSnapshots', () => {
 })
 
 describe('loadOperatorReview', () => {
+  it('reads only displayed columns so a database missing newer lease/fence columns still renders', async () => {
+    const { database } = fakeDatabase([proposal()])
+    await loadOperatorReview('p1', database, kinds)
+    const newer = [
+      'applyStartedAt',
+      'leaseExpiresAt',
+      'fenceToken',
+      'attempt',
+      'previewDigest',
+      'policyRevision',
+    ]
+    const proposalCall = (database.operatorProposal.findUnique as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, boolean> }
+    const planCall = (database.operatorPlan.findUnique as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, boolean> }
+    expect(proposalCall.select).toBeDefined()
+    expect(planCall.select).toBeDefined()
+    for (const column of newer) {
+      expect(proposalCall.select).not.toHaveProperty(column)
+      expect(planCall.select).not.toHaveProperty(column)
+    }
+  })
+
   it('names the client and venue and looks venues up under their tenant', async () => {
     const { database, venueFind } = fakeDatabase([proposal()])
     const review = await loadOperatorReview('p1', database, kinds)
@@ -115,6 +138,54 @@ describe('loadOperatorReview', () => {
       changeMode: 'applied',
       changes: [{ field: 'chatTheme', before: 'light', after: 'dark' }],
     })
+  })
+
+  it('shows the server-computed difference for a pending proposal whose kind can compute one', async () => {
+    const pendingChanges = vi.fn(async () => [
+      { field: '1. update k1 · body', before: 'old', after: 'new' },
+    ])
+    const withDiff = new Map([
+      [
+        'venues.propose_content_changeset',
+        {
+          kind: 'venues.content-changeset',
+          parse: (raw: unknown) => raw,
+          describe: () => ({ title: 'Change venue content', lines: ['1. UPDATE k1'] }),
+          pendingChanges,
+        },
+      ],
+    ]) as unknown as OperatorKindRegistry
+    const { database } = fakeDatabase([
+      proposal({ tool: 'venues.propose_content_changeset', kind: 'venues.content-changeset' }),
+    ])
+    const review = await loadOperatorReview('p1', database, withDiff)
+    expect(pendingChanges).toHaveBeenCalledTimes(1)
+    expect(review!.steps[0]).toMatchObject({
+      changeMode: 'pending',
+      changes: [{ field: '1. update k1 · body', before: 'old', after: 'new' }],
+    })
+  })
+
+  it('still shows the exact arguments when the diff cannot be computed', async () => {
+    const failing = new Map([
+      [
+        'venues.propose_content_changeset',
+        {
+          kind: 'venues.content-changeset',
+          parse: (raw: unknown) => raw,
+          describe: () => ({ title: 'Change venue content', lines: [] }),
+          pendingChanges: async () => {
+            throw new Error('database unavailable')
+          },
+        },
+      ],
+    ]) as unknown as OperatorKindRegistry
+    const { database } = fakeDatabase([
+      proposal({ tool: 'venues.propose_content_changeset', args: { ops: [] } }),
+    ])
+    const review = await loadOperatorReview('p1', database, failing)
+    expect(review!.steps[0]).toMatchObject({ changeMode: null, changes: [] })
+    expect(review!.steps[0]!.args).toContain('"ops"')
   })
 
   it('shows what a revert will restore from the original before snapshot', async () => {

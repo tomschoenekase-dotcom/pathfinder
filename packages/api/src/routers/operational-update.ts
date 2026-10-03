@@ -7,6 +7,7 @@ import {
   updateOperationalUpdateAction,
   type OperationalUpdateHumanActor,
 } from '@pathfinder/db'
+import { computeOperationalUpdateLifecycle } from '@pathfinder/contracts/operational-update-lifecycle'
 import { TRPCError } from '@trpc/server'
 
 import {
@@ -30,6 +31,20 @@ function actor(session: {
   }
 }
 
+/** Raw fields plus the computed lifecycle: `isActive` alone never means "live now". */
+function withLifecycle<
+  T extends { status: string; isActive: boolean; startsAt: Date; expiresAt: Date },
+>(row: T, now = new Date()) {
+  const computed = computeOperationalUpdateLifecycle(row, now)
+  return {
+    ...row,
+    lifecycle: computed.lifecycle,
+    guestVisibleNow: computed.guestVisibleNow,
+    isActiveButExpired: computed.isActiveButExpired,
+    lifecycleLabel: computed.label,
+  }
+}
+
 function mapActionError(error: unknown): never {
   if (!(error instanceof OperationalUpdateActionError)) throw error
   throw new TRPCError({
@@ -45,14 +60,16 @@ function mapActionError(error: unknown): never {
 }
 
 export const operationalUpdateRouter = router({
-  list: tenantProcedure.query(({ ctx }) =>
-    ctx.db.operationalUpdate.findMany({
+  list: tenantProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.operationalUpdate.findMany({
       where: { tenantId: ctx.session.activeTenantId },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: 500,
       select: operationalUpdateActionSelect,
-    }),
-  ),
+    })
+    const now = new Date()
+    return rows.map((row) => withLifecycle(row, now))
+  }),
 
   getById: tenantProcedure
     .input(OperationalUpdateLifecycleInput.pick({ id: true }))
@@ -63,7 +80,7 @@ export const operationalUpdateRouter = router({
       })
       if (!update)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Operational update not found' })
-      return update
+      return withLifecycle(update)
     }),
 
   create: tenantProcedure

@@ -48,6 +48,8 @@ const MINUTE = 60_000
 
 let grant: VerifiedOperatorGrant
 let revocableGrant: VerifiedOperatorGrant
+let originalVenuePolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
+let venuePolicySnapshotTaken = false
 
 async function makeGrant(): Promise<VerifiedOperatorGrant> {
   const row = await db.operatorGrant.create({
@@ -129,9 +131,38 @@ describe.skipIf(!enabled)(
       })
       grant = await makeGrant()
       revocableGrant = await makeGrant()
+      originalVenuePolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'venues:propose' },
+      })
+      venuePolicySnapshotTaken = true
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: 'venues:propose' },
+        create: { capability: 'venues:propose', mode: 'ASK', updatedByUserId: 'user_owner' },
+        update: { mode: 'ASK', allowedKinds: [], updatedByUserId: 'user_owner' },
+      })
     })
 
     afterAll(async () => {
+      if (venuePolicySnapshotTaken) {
+        if (originalVenuePolicy) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability: 'venues:propose' },
+            create: {
+              capability: 'venues:propose',
+              mode: originalVenuePolicy.mode,
+              allowedKinds: originalVenuePolicy.allowedKinds,
+              updatedByUserId: originalVenuePolicy.updatedByUserId,
+            },
+            update: {
+              mode: originalVenuePolicy.mode,
+              allowedKinds: originalVenuePolicy.allowedKinds,
+              updatedByUserId: originalVenuePolicy.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'venues:propose' } })
+        }
+      }
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId } }),
       )

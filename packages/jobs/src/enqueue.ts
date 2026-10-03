@@ -36,6 +36,7 @@ import {
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  VENUE_SOURCE_CAPTURE_PROCESS_JOB,
   INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
   INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
@@ -44,6 +45,8 @@ import {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  SEND_CLIENT_NOTIFICATION_EMAIL_JOB,
+  SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF,
   SEND_PROSPECT_OUTREACH_JOB,
   SEND_PROSPECT_OUTREACH_RETRY_BACKOFF,
   MEDIA_INGESTION_PROCESS_JOB,
@@ -51,6 +54,8 @@ import {
   MEDIA_INGESTION_RETRY_BACKOFF,
   OPERATIONAL_QUEUE_NAMES,
   VOICE_SESSION_HANGUP_JOB,
+  LIVE_DATA_POLL_QUEUE,
+  LIVE_DATA_POLL_PROCESS_JOB,
   VOICE_SESSION_RECOVERY_QUEUE,
   PROSPECT_IMPORT_COMMIT_JOB,
   PROSPECT_IMPORT_INSPECT_JOB,
@@ -81,6 +86,7 @@ import type {
   EmbedPlaceJobPayload,
   GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
+  SendClientNotificationEmailJobPayload,
   SendProspectOutreachJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
@@ -93,9 +99,11 @@ import type {
   GmailSyncJobPayload,
   IntakeUploadVerificationJobPayload,
   IntakeV1SourceProcessingJobPayload,
+  VenueSourceCaptureJobPayload,
   IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
   VoiceSessionHangupJobPayload,
+  LiveDataPollJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -292,6 +300,15 @@ const sendWelcomeEmailJobOptions: JobsOptions = {
   removeOnFail: 5000,
 }
 
+// Only infrastructure failures before the provider call are retried by the queue. Once the
+// provider may have been reached, the processor records the outcome and never throws.
+const sendClientNotificationEmailJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
 const sendProspectOutreachJobOptions: JobsOptions = {
   attempts: 4,
   backoff: { type: SEND_PROSPECT_OUTREACH_RETRY_BACKOFF },
@@ -369,16 +386,18 @@ export async function enqueueProspectImportInspection(
 
 export async function enqueueProspectImportStaging(
   payload: ProspectImportStagingJobPayload,
-): Promise<void> {
+): Promise<string> {
   if (!payload.importId || payload.importId.length > 191)
     throw new Error('Valid import ID required')
+  const jobId = `prospect-import-stage-${payload.importId}-${Date.now()}`
   await getQueue(PROSPECT_IMPORT_QUEUE).add(PROSPECT_IMPORT_STAGE_JOB, payload, {
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
-    jobId: `prospect-import-stage-${payload.importId}-${Date.now()}`,
+    jobId,
     removeOnComplete: 100,
     removeOnFail: 500,
   })
+  return jobId
 }
 
 /** Agent execution is default-off. The caller must pass the explicit runtime
@@ -620,6 +639,44 @@ export async function enqueueIntakeV1SourceProcessing(dispatchId: string): Promi
   logger.info({ action: 'jobs.intake-v1-source-processing.enqueued' })
 }
 
+const VENUE_SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,191}$/u
+
+function venueSourceCaptureJobId(sourceId: string): string {
+  return `venue-source-capture-${createHash('sha256')
+    .update(JSON.stringify(['pathfinder-venue-source-capture-v1', sourceId]))
+    .digest('hex')
+    .slice(0, 48)}`
+}
+
+/**
+ * Queues the capture of one requested source. The job ID is derived from the source, so enqueueing
+ * again (an interrupted apply being retried) never creates a second capture.
+ */
+export async function enqueueVenueSourceCapture(
+  payload: VenueSourceCaptureJobPayload,
+): Promise<void> {
+  for (const value of [payload.tenantId, payload.venueId, payload.sourceId]) {
+    if (typeof value !== 'string' || !VENUE_SOURCE_ID_PATTERN.test(value)) {
+      throw new Error('Venue source capture IDs must be opaque identifiers')
+    }
+  }
+  const body: VenueSourceCaptureJobPayload = {
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    sourceId: payload.sourceId,
+  }
+  await getQueue(INTAKE_V1_SOURCE_PROCESSING_QUEUE).add(VENUE_SOURCE_CAPTURE_PROCESS_JOB, body, {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 10_000 },
+    // The durable source row is the retry and audit state; a retained terminal queue job under
+    // this stable ID would swallow a later re-enqueue, so terminal records are removed.
+    removeOnComplete: true,
+    removeOnFail: true,
+    jobId: venueSourceCaptureJobId(payload.sourceId),
+  })
+  logger.info({ action: 'jobs.venue-source-capture.enqueued' })
+}
+
 export async function enqueueIntakeV1FileExtraction(dispatchId: string): Promise<void> {
   validateIntakeV1FileExtractionDispatchId(dispatchId)
   const payload: IntakeV1FileExtractionJobPayload = { dispatchId }
@@ -758,6 +815,38 @@ export async function enqueueVoiceSessionHangup(input: {
   logger.info({ action: 'jobs.voice-session.hangup-enqueued' })
 }
 
+const LIVE_DATA_ID = /^[A-Za-z0-9_-]{1,191}$/u
+
+/**
+ * Enqueues one connector poll. Scheduled polls are de-duplicated per connector per 15-second
+ * bucket and test polls per connector per 30-second bucket, so repeated scheduler ticks or
+ * operator clicks cannot multiply provider calls. The worker still claims the slot in Postgres.
+ */
+export async function enqueueLiveDataPoll(
+  payload: LiveDataPollJobPayload,
+  now: Date = new Date(),
+): Promise<void> {
+  for (const value of [payload.tenantId, payload.venueId, payload.connectorId]) {
+    if (!LIVE_DATA_ID.test(value)) throw new Error('Live data poll identity is invalid')
+  }
+  const bucketSeconds = payload.mode === 'test' ? 30 : 15
+  const bucket = Math.floor(now.getTime() / (bucketSeconds * 1000))
+  await getQueue(LIVE_DATA_POLL_QUEUE).add(LIVE_DATA_POLL_PROCESS_JOB, payload, {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 5_000 },
+    removeOnComplete: 200,
+    removeOnFail: 500,
+    jobId: `live-data-poll-${payload.mode}-${payload.connectorId}-${bucket}`,
+  })
+  logger.info({
+    action: 'jobs.live-data-poll.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    connectorId: payload.connectorId,
+    mode: payload.mode,
+  })
+}
+
 export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promise<void> {
   await getQueue(DAILY_ROLLUP_QUEUE).add(DAILY_ROLLUP_PROCESS_JOB, payload, {
     ...dailyRollupJobOptions,
@@ -853,6 +942,44 @@ export async function enqueueWelcomeEmail(
   })
 }
 
+/**
+ * Queues one client-notification email. The job ID is derived from the intent and its generation,
+ * so enqueueing the same email twice is one job and a requeued email gets a fresh one.
+ */
+export async function enqueueClientNotificationEmail(
+  payload: SendClientNotificationEmailJobPayload,
+): Promise<void> {
+  if (
+    !payload.tenantId ||
+    payload.tenantId.length > 191 ||
+    !payload.intentId ||
+    payload.intentId.length > 191 ||
+    !Number.isInteger(payload.generation) ||
+    payload.generation < 1
+  )
+    throw new Error('Valid client notification email identity is required')
+  const identity = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'pathfinder-client-notification-email-v1',
+        payload.tenantId,
+        payload.intentId,
+        payload.generation,
+      ]),
+    )
+    .digest('hex')
+  await getQueue(SEND_EMAIL_QUEUE).add(SEND_CLIENT_NOTIFICATION_EMAIL_JOB, payload, {
+    ...sendClientNotificationEmailJobOptions,
+    jobId: `send-client-notification-email-${identity}`,
+  })
+  logger.info({
+    action: 'jobs.send-client-notification-email.enqueued',
+    tenantId: payload.tenantId,
+    intentId: payload.intentId,
+    generation: payload.generation,
+  })
+}
+
 export async function enqueueProspectOutreach(
   payload: SendProspectOutreachJobPayload,
 ): Promise<void> {
@@ -868,18 +995,34 @@ export async function enqueueProspectOutreach(
   logger.info({ action: 'jobs.send-prospect-outbox.enqueued', outboxId: payload.outboxId })
 }
 
-export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<void> {
+export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<string> {
   if (!payload.providerAccountId || payload.providerAccountId.length > 191) {
     throw new Error('Valid Gmail provider account identity is required')
   }
+  if (payload.pageToken && payload.pageToken.length > 2048) {
+    throw new Error('Gmail continuation token exceeds the bounded queue payload')
+  }
+  if (
+    payload.pageToken &&
+    (payload.baselineCursor === undefined || !payload.mode || !payload.targetCursor)
+  ) {
+    throw new Error('Gmail continuation requires its original cursor, mode and history head')
+  }
+  if (payload.after && (payload.after.length > 32 || !Number.isFinite(Date.parse(payload.after)))) {
+    throw new Error('Gmail reconciliation boundary is invalid')
+  }
   const receipt =
     payload.receiptId ??
+    payload.requestId ??
     (payload.trigger === 'WATCH_RENEWAL'
       ? `watch-day-${Math.floor(Date.now() / 86_400_000)}`
       : `reconcile-window-${Math.floor(Date.now() / 900_000)}`)
   const identity = createHash('sha256')
-    .update(`torchiko-gmail-sync-v1:${payload.providerAccountId}:${payload.trigger}:${receipt}`)
+    .update(
+      `torchiko-gmail-sync-v2:${payload.providerAccountId}:${payload.trigger}:${receipt}:${payload.pageToken ?? ''}`,
+    )
     .digest('hex')
+  const jobId = `gmail-sync-${identity}`
   await getQueue(GMAIL_SYNC_QUEUE).add(
     payload.trigger === 'WATCH_RENEWAL'
       ? GMAIL_SYNC_WATCH_RENEWAL_JOB
@@ -890,12 +1033,13 @@ export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<vo
     {
       attempts: 8,
       backoff: { type: 'exponential', delay: 30_000 },
-      jobId: `gmail-sync-${identity}`,
+      jobId,
       removeOnComplete: 100,
       removeOnFail: 500,
     },
   )
   logger.info({ action: 'jobs.gmail-sync.enqueued', providerAccountId: payload.providerAccountId })
+  return jobId
 }
 
 export async function enqueueIntakeUploadVerification(
