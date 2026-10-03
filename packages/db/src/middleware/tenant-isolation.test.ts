@@ -303,6 +303,7 @@ describe('tenantIsolationMiddleware', () => {
       'CompanyMeetingTranscriptArtifact',
       'ProspectDeliveryControl',
       'ProspectOrganization',
+      'ProspectOrganizationMerge',
       'ProspectResearchJob',
       'ProspectResearchAttempt',
       'ProspectVenue',
