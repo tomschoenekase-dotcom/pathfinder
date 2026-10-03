@@ -351,8 +351,15 @@ const getAccountContext: OperatorReadTool = {
   name: 'crm.get_account_context',
   capability: 'crm:read',
   async handler(raw, context) {
-    const { organizationId } = OPERATOR_MCP_INPUTS['crm.get_account_context'].parse(raw)
+    const { organizationId: requestedOrganizationId } =
+      OPERATOR_MCP_INPUTS['crm.get_account_context'].parse(raw)
     const database = context.database
+    const requested = await database.prospectOrganization.findUnique({
+      where: { id: requestedOrganizationId },
+      select: { mergedIntoOrganizationId: true },
+    })
+    if (!requested) throw new OperatorNotFoundError()
+    const organizationId = requested.mergedIntoOrganizationId ?? requestedOrganizationId
     const row = await database.prospectOrganization.findUnique({
       where: { id: organizationId },
       select: {
@@ -406,6 +413,40 @@ const getAccountContext: OperatorReadTool = {
       },
     })
     if (!row) throw new OperatorNotFoundError()
+    const mergedSources = await database.prospectOrganizationMerge.findMany({
+      where: { targetOrganizationId: organizationId },
+      select: {
+        sourceOrganizationId: true,
+        createdAt: true,
+        sourceSnapshot: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 26,
+    })
+    const mergeLineage = await Promise.all(
+      mergedSources.slice(0, 25).map(async (merge) => ({
+        sourceOrganizationId: merge.sourceOrganizationId,
+        mergedAt: merge.createdAt.toISOString(),
+        sourceOpportunityStage:
+          typeof merge.sourceSnapshot === 'object' &&
+          merge.sourceSnapshot !== null &&
+          !Array.isArray(merge.sourceSnapshot) &&
+          'opportunity' in merge.sourceSnapshot &&
+          typeof merge.sourceSnapshot.opportunity === 'object' &&
+          merge.sourceSnapshot.opportunity !== null &&
+          !Array.isArray(merge.sourceSnapshot.opportunity) &&
+          'stage' in merge.sourceSnapshot.opportunity &&
+          typeof merge.sourceSnapshot.opportunity.stage === 'string'
+            ? merge.sourceSnapshot.opportunity.stage
+            : null,
+        retainedActivities: await database.prospectActivity.count({
+          where: { organizationId: merge.sourceOrganizationId },
+        }),
+        retainedEvidence: await database.prospectSourceEvidence.count({
+          where: { organizationId: merge.sourceOrganizationId },
+        }),
+      })),
+    )
 
     const [
       venueCount,
@@ -591,6 +632,12 @@ const getAccountContext: OperatorReadTool = {
         threads: thread.threadCount,
         lastOutboundAt: iso(thread.outbound.last ?? thread.activity.lastOutreachSentAt),
         lastInboundAt: iso(thread.inbound.last ?? thread.activity.lastReplyReceivedAt),
+      },
+      mergeLineage: {
+        redirectedFromOrganizationId:
+          requestedOrganizationId === organizationId ? null : requestedOrganizationId,
+        sources: mergeLineage,
+        truncated: mergedSources.length > 25,
       },
       truncated: {
         venues: venueCount > CONTEXT_VENUES,

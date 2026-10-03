@@ -975,6 +975,9 @@ export async function linkProspectConversionAction(
 }
 
 export type ProspectImportNormalizedRow = {
+  /** Explicit CRM identity from a reviewed source column; never inferred from a name. */
+  existingOrganizationId?: string | undefined
+  existingVenueId?: string | undefined
   organizationName?: string | undefined
   venueName: string
   venueType?: string | undefined
@@ -982,6 +985,16 @@ export type ProspectImportNormalizedRow = {
   city?: string | undefined
   region?: string | undefined
   country?: string | undefined
+  addressLine1?: string | undefined
+  postalCode?: string | undefined
+  gmailMessageId?: string | undefined
+  gmailThreadId?: string | undefined
+  gmailDraftId?: string | undefined
+  mailboxAddress?: string | undefined
+  claimedSentAt?: string | undefined
+  claimedDeliveryState?: string | undefined
+  claimedDraftState?: string | undefined
+  claimedRelationshipState?: string | undefined
   website?: string | undefined
   generalEmail?: string | undefined
   contactName?: string | undefined
@@ -1352,6 +1365,22 @@ function validateImportRow(row: StageImportRow): {
   ) {
     warnings.push('research-date-invalid')
   }
+  if (
+    row.normalizedValues.claimedDeliveryState &&
+    !['UNKNOWN', 'SENT', 'DELIVERED', 'BOUNCED'].includes(
+      row.normalizedValues.claimedDeliveryState.trim().toUpperCase(),
+    )
+  ) {
+    errors.push('claimed-delivery-state-invalid')
+  }
+  if (
+    row.normalizedValues.claimedDraftState &&
+    !['UNKNOWN', 'DRAFT', 'REVIEWED', 'QUEUED', 'SENT'].includes(
+      row.normalizedValues.claimedDraftState.trim().toUpperCase(),
+    )
+  ) {
+    errors.push('claimed-draft-state-invalid')
+  }
   inspectImportText(row.normalizedValues, warnings, errors)
   return {
     normalized: {
@@ -1428,6 +1457,8 @@ export async function stageProspectImportRowsAction(
         confidence: number
         reasons: string[]
       }>
+      targetOrganizationId: string | null
+      targetVenueId: string | null
     }>
     let staged = 0
     for (const row of input.rows) {
@@ -1448,7 +1479,78 @@ export async function stageProspectImportRowsAction(
       const existing = existingByKey.get(key)
       if (existing?.status === 'IMPORTED') continue
       const checked = validateImportRow(row)
-      const candidates = checked.errors.length
+      const explicitOrganizationId = checked.normalized.existingOrganizationId?.trim() || null
+      const explicitVenueId = checked.normalized.existingVenueId?.trim() || null
+      if (explicitVenueId && !explicitOrganizationId) {
+        checked.errors.push('existing-venue-requires-organization')
+      }
+      const explicitOrganization = explicitOrganizationId
+        ? await tx.prospectOrganization.findFirst({
+            where: { id: explicitOrganizationId, archivedAt: null },
+          })
+        : null
+      if (explicitOrganizationId && !explicitOrganization) {
+        checked.errors.push('existing-organization-not-found')
+      }
+      const explicitVenue = explicitVenueId
+        ? await tx.prospectVenue.findFirst({
+            where: {
+              id: explicitVenueId,
+              organizationId: explicitOrganizationId!,
+              archivedAt: null,
+            },
+          })
+        : null
+      if (explicitVenueId && !explicitVenue) checked.errors.push('existing-venue-not-found')
+      if (
+        explicitVenue &&
+        ((checked.normalized.city &&
+          normalizeProspectName(explicitVenue.city ?? '') !==
+            normalizeProspectName(checked.normalized.city)) ||
+          (checked.normalized.region &&
+            normalizeProspectName(explicitVenue.region ?? '') !==
+              normalizeProspectName(checked.normalized.region)) ||
+          (checked.normalized.country &&
+            normalizeProspectName(explicitVenue.country ?? '') !==
+              normalizeProspectName(checked.normalized.country)) ||
+          (checked.normalized.addressLine1 &&
+            normalizeProspectName(explicitVenue.addressLine1 ?? '') !==
+              normalizeProspectName(checked.normalized.addressLine1)) ||
+          (checked.normalized.postalCode &&
+            normalizeProspectName(explicitVenue.postalCode ?? '') !==
+              normalizeProspectName(checked.normalized.postalCode)))
+      ) {
+        checked.errors.push('existing-venue-location-mismatch')
+      }
+      const matchingVenues =
+        explicitOrganization && !explicitVenueId && checked.errors.length === 0
+          ? await tx.prospectVenue.findMany({
+              where: {
+                organizationId: explicitOrganization.id,
+                archivedAt: null,
+                normalizedName: checked.normalized.normalizedVenueName,
+                ...(checked.normalized.city ? { city: checked.normalized.city } : {}),
+                ...(checked.normalized.region ? { region: checked.normalized.region } : {}),
+                ...(checked.normalized.country ? { country: checked.normalized.country } : {}),
+                ...(checked.normalized.addressLine1
+                  ? { addressLine1: checked.normalized.addressLine1 }
+                  : {}),
+                ...(checked.normalized.postalCode
+                  ? { postalCode: checked.normalized.postalCode }
+                  : {}),
+              },
+              select: { id: true },
+              take: 2,
+            })
+          : []
+      const ambiguousLocation =
+        matchingVenues.length > 1 ||
+        (matchingVenues.length > 0 &&
+          (!checked.normalized.city ||
+            (!checked.normalized.addressLine1 && !checked.normalized.postalCode)))
+      if (ambiguousLocation) checked.warnings.push('existing-venue-location-needs-review')
+      const targetVenueId = explicitVenue?.id ?? (ambiguousLocation ? null : matchingVenues[0]?.id) ?? null
+      const candidates = checked.errors.length || explicitOrganization
         ? []
         : await tx.prospectOrganization.findMany({
             where: {
@@ -1510,6 +1612,14 @@ export async function stageProspectImportRowsAction(
         })
         .filter((match) => match.confidence > 0)
         .sort((a, b) => b.confidence - a.confidence)
+      if (ambiguousLocation && explicitOrganization) {
+        duplicateMatches.unshift({
+          organizationId: explicitOrganization.id,
+          canonicalName: explicitOrganization.canonicalName,
+          confidence: 1,
+          reasons: ['existing-venue-location-needs-review'],
+        })
+      }
       const status: 'FAILED' | 'DUPLICATE_REVIEW' | 'WARNING' | 'VALID' = checked.errors.length
         ? 'FAILED'
         : duplicateMatches.length
@@ -1528,6 +1638,8 @@ export async function stageProspectImportRowsAction(
         warnings: checked.warnings,
         errors: checked.errors,
         duplicateMatches,
+        targetOrganizationId: explicitOrganization?.id ?? null,
+        targetVenueId,
       }
       if (existing) {
         await tx.prospectImportRow.update({
@@ -1540,6 +1652,13 @@ export async function stageProspectImportRowsAction(
             warnings: checked.warnings,
             errors: checked.errors,
             duplicateMatches,
+            decision: null,
+            decisionNote: null,
+            decisionBy: null,
+            decisionAt: null,
+            targetOrganizationId: rowData.targetOrganizationId,
+            targetVenueId: rowData.targetVenueId,
+            targetContactId: null,
             errorCode: null,
             errorMessage: null,
           },
@@ -2129,13 +2248,23 @@ async function importOneProspectRow(
       update: { name: territoryName, updatedBy: actor.id },
     })
     const importSource = `spreadsheet-import:${importId}`
-    let organization = await tx.prospectOrganization.findFirst({
-      where: {
-        source: importSource,
-        normalizedName: value.normalizedOrganizationName,
-        archivedAt: null,
-      },
-    })
+    let organization = row.targetOrganizationId
+      ? await tx.prospectOrganization.findFirst({
+          where: { id: row.targetOrganizationId, archivedAt: null },
+        })
+      : await tx.prospectOrganization.findFirst({
+          where: {
+            source: importSource,
+            normalizedName: value.normalizedOrganizationName,
+            archivedAt: null,
+          },
+        })
+    if (row.targetOrganizationId && !organization) {
+      throw new ProspectActionError(
+        'CONFLICT',
+        'Explicit organization target changed or disappeared',
+      )
+    }
     if (!organization) {
       organization = await tx.prospectOrganization.create({
         data: {
@@ -2175,14 +2304,43 @@ async function importOneProspectRow(
         },
       })
     }
-    let venue = await tx.prospectVenue.findFirst({
-      where: {
-        organizationId: organization.id,
-        normalizedName: value.normalizedVenueName,
-        city: value.city ?? null,
-        archivedAt: null,
-      },
-    })
+    let venue = row.targetVenueId
+      ? await tx.prospectVenue.findFirst({
+          where: { id: row.targetVenueId, organizationId: organization.id, archivedAt: null },
+        })
+      : await tx.prospectVenue.findFirst({
+          where: {
+            organizationId: organization.id,
+            normalizedName: value.normalizedVenueName,
+            city: value.city ?? null,
+            region: value.region ?? null,
+            country: value.country ?? null,
+            addressLine1: value.addressLine1 ?? null,
+            postalCode: value.postalCode ?? null,
+            archivedAt: null,
+          },
+        })
+    if (row.targetVenueId && !venue) {
+      throw new ProspectActionError('CONFLICT', 'Explicit venue target changed or disappeared')
+    }
+    if (
+      row.targetVenueId &&
+      venue &&
+      ((value.city &&
+        normalizeProspectName(venue.city ?? '') !== normalizeProspectName(value.city)) ||
+        (value.region &&
+          normalizeProspectName(venue.region ?? '') !== normalizeProspectName(value.region)) ||
+        (value.country &&
+          normalizeProspectName(venue.country ?? '') !== normalizeProspectName(value.country)) ||
+        (value.addressLine1 &&
+          normalizeProspectName(venue.addressLine1 ?? '') !==
+            normalizeProspectName(value.addressLine1)) ||
+        (value.postalCode &&
+          normalizeProspectName(venue.postalCode ?? '') !==
+            normalizeProspectName(value.postalCode)))
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Explicit venue location changed after review')
+    }
     if (!venue) {
       venue = await tx.prospectVenue.create({
         data: {
@@ -2196,6 +2354,8 @@ async function importOneProspectRow(
           city: value.city ?? null,
           region: value.region ?? null,
           country: value.country ?? null,
+          addressLine1: value.addressLine1 ?? null,
+          postalCode: value.postalCode ?? null,
           estimatedSize: value.venueSize ?? null,
           fitAttributes: {
             ownerSize: value.ownerSize ?? null,

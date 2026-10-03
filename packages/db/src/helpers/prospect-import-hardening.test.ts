@@ -52,6 +52,45 @@ const row = (n: number, source: Record<string, unknown>, normalized: Record<stri
 })
 
 describe('spreadsheet import safety', () => {
+  it('keeps claimed Gmail state as unverified source data and rejects invented states', async () => {
+    const { client, created } = stageClient()
+    await stageProspectImportRowsAction(
+      {
+        importId: 'import-1',
+        rows: [
+          row(
+            2,
+            { Gmail: 'thread-example', Delivery: 'delivered' },
+            {
+              gmailThreadId: 'thread-example',
+              claimedDeliveryState: 'delivered',
+              claimedDraftState: 'reviewed',
+            },
+          ),
+          row(
+            3,
+            { Gmail: 'thread-other', Delivery: 'opened' },
+            {
+              gmailThreadId: 'thread-other',
+              claimedDeliveryState: 'opened',
+            },
+          ),
+        ],
+        actor,
+      },
+      client as never,
+    )
+    expect((created[0] as Record<string, unknown>).status).not.toBe('FAILED')
+    expect((created[0] as Record<string, unknown>).normalizedValues).toMatchObject({
+      gmailThreadId: 'thread-example',
+      claimedDeliveryState: 'delivered',
+    })
+    expect((created[1] as Record<string, unknown>).status).toBe('FAILED')
+    expect((created[1] as Record<string, unknown>).errors).toContain(
+      'claimed-delivery-state-invalid',
+    )
+  })
+
   it('stores a formula-looking cell as inert text and flags it, never evaluating it', async () => {
     const { client, created } = stageClient()
     await stageProspectImportRowsAction(

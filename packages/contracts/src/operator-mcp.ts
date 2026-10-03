@@ -196,6 +196,7 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'crm.propose_account_archive',
   // Rewrites how history is read across accounts: an exact reviewed decision, never a policy.
   'crm.propose_duplicate_resolution',
+  'crm.propose_organization_merge',
   // Changes who is emailed for a person: a person decides each address change.
   'crm.propose_contact_address_change',
   // Each of these is a human gate on outbound mail. Policy never stands in for the person.
@@ -273,6 +274,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.list_imports',
   'crm.get_import',
   'crm.get_import_field',
+  'crm.preview_organization_merge',
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
@@ -334,6 +336,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_prospect_create',
   'crm.propose_import_commit',
   'crm.propose_duplicate_resolution',
+  'crm.propose_organization_merge',
   'crm.propose_campaign_create',
   'crm.propose_draft_review',
   'crm.propose_batch_stage',
@@ -742,6 +745,12 @@ export const OPERATOR_MCP_INPUTS = {
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
+  'crm.preview_organization_merge': readInput({
+    sourceOrganizationId: Identifier,
+    targetOrganizationId: Identifier,
+  }).refine((value) => value.sourceOrganizationId !== value.targetOrganizationId, {
+    message: 'Merge source and target must differ',
+  }),
   'crm.check_can_contact': readInput({
     email: Email,
     /**
@@ -1146,6 +1155,14 @@ export const OPERATOR_MCP_INPUTS = {
     note: z.string().trim().min(1).max(1_000),
   }).refine((value) => value.organizationId !== value.otherOrganizationId, {
     message: 'A duplicate pair needs two different accounts',
+  }),
+  'crm.propose_organization_merge': writeInput({
+    sourceOrganizationId: Identifier,
+    targetOrganizationId: Identifier,
+    expectedPlanHash: Sha256Hex,
+    note: z.string().trim().min(1).max(2_000),
+  }).refine((value) => value.sourceOrganizationId !== value.targetOrganizationId, {
+    message: 'Merge source and target must differ',
   }),
   'support.propose_internal_note': writeInput({
     ...venueScope,
@@ -2081,6 +2098,25 @@ const OperatorAccountContext = z
         lastInboundAt: IsoDateTime.nullable(),
       })
       .strict(),
+    mergeLineage: z
+      .object({
+        redirectedFromOrganizationId: Identifier.nullable(),
+        sources: z
+          .array(
+            z
+              .object({
+                sourceOrganizationId: Identifier,
+                mergedAt: IsoDateTime,
+                sourceOpportunityStage: z.string().max(40).nullable(),
+                retainedActivities: z.number().int().nonnegative(),
+                retainedEvidence: z.number().int().nonnegative(),
+              })
+              .strict(),
+          )
+          .max(25),
+        truncated: z.boolean(),
+      })
+      .strict(),
     /** Which lists above were cut to fit; page the dedicated tools for the rest. */
     truncated: z
       .object({
@@ -2917,12 +2953,25 @@ export const OPERATOR_MCP_OUTPUTS = {
       nextOffset: z.number().int().nonnegative().nullable(),
     })
     .strict(),
+  'crm.preview_organization_merge': z
+    .object({
+      sourceOrganizationId: Identifier,
+      targetOrganizationId: Identifier,
+      planHash: Sha256Hex,
+      sourceName: z.string(),
+      targetName: z.string(),
+      counts: z.record(z.number().int().nonnegative()),
+      blockers: z.array(z.string()),
+      sourceOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
+      targetOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
+    })
+    .strict(),
   'crm.get_import': z
     .object({
       import: OperatorImportSummary.extend({
         progress: z
           .object({
-            jobId: z.string().nullable(),
+            expectedJobId: z.string().nullable(),
             workerOwner: z.string().nullable(),
             phase: z.string(),
             errorCode: z.string().max(120).nullable(),
@@ -2936,6 +2985,7 @@ export const OPERATOR_MCP_OUTPUTS = {
                 'RESUME_SOURCE_STAGING',
                 'MAP_SOURCE_COLUMNS',
                 'REVIEW_LEGACY_DRAFT',
+                'CHECK_COMMIT_QUEUE',
                 'RETRY_CSV_STAGE_WITH_SAME_OPERATION',
                 'REVIEW_DUPLICATES',
                 'INSPECT_ROW_ERRORS',
@@ -3881,6 +3931,7 @@ export const OPERATOR_MCP_OUTPUTS = {
     .strict(),
   'crm.propose_import_commit': OperatorWriteResult,
   'crm.propose_duplicate_resolution': OperatorWriteResult,
+  'crm.propose_organization_merge': OperatorWriteResult,
   'crm.propose_campaign_create': OperatorWriteResult,
   'crm.propose_draft_review': OperatorWriteResult,
   'crm.propose_batch_stage': OperatorWriteResult,
@@ -4460,6 +4511,13 @@ const seeds: readonly Seed[] = [
     'platform',
   ],
   [
+    'crm.preview_organization_merge',
+    'Preview account merge',
+    `Inventory an exact source and target CRM account, including contacts and outreach history, collision blockers and a plan hash. Review the complete result before proposing a merge.${READ}`,
+    'crm:read',
+    'platform',
+  ],
+  [
     'support.get_request',
     'Get support request',
     `Read one support request: status, the version writes expect, message counts, the newest message, the exact linked work by id, the completion fulfillment digest, and notification receipts.${READ}`,
@@ -4734,6 +4792,14 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.duplicate-resolution',
+  ],
+  [
+    'crm.propose_organization_merge',
+    'Propose account merge',
+    `Propose archiving one reviewed duplicate CRM account into a canonical target, bound to the exact merge preview hash. Contacts, venues and outreach history move in one transaction; the source opportunity and its stage history remain queryable through the merge receipt. Conflicts block without partial changes. This action always waits for a person.${PROPOSE}`,
+    'crm:propose',
+    'platform',
+    'crm.organization-merge',
   ],
   [
     'support.propose_internal_note',

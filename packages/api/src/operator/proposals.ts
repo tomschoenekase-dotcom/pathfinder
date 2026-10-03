@@ -33,6 +33,8 @@ export type OperatorKindContext = Readonly<{
   database: OperatorDatabase
   grant: VerifiedOperatorGrant
   now: Date
+  /** Current owner allowlist; platform-wide CRM writes fail closed when absent. */
+  allowedUserIds?: ReadonlySet<string>
 }>
 
 export type OperatorApplyContext = OperatorKindContext &
@@ -383,7 +385,12 @@ export async function createProposal(
   const kind = service.kinds.get(tool)
   if (!kind) throw new OperatorProposalError('UNKNOWN_KIND', 'Unknown proposal kind')
   const args = kind.parse(rawArgs) as Record<string, unknown> & { operationId: string }
-  const context = { database, grant: service.grant, now: service.now }
+  const context = {
+    database,
+    grant: service.grant,
+    now: service.now,
+    allowedUserIds: service.config.allowedUserIds,
+  }
   const argsHash = proposalArgsHash(tool, args)
 
   // Everything up to and including the INSERT happens before any effect. If it fails, no row
@@ -803,6 +810,7 @@ export async function applyApprovedProposal(
     database,
     grant,
     now: input.now,
+    allowedUserIds: dependencies.allowedUserIds,
     actor: { type: 'HUMAN', id: input.actorUserId, role: 'PLATFORM_ADMIN' },
     proposalId: row.id,
     operationId: row.operationId,

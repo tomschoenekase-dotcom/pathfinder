@@ -20,6 +20,7 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'crm.account-archive',
   // Changes how history is read across two accounts; an exact reviewed decision each time.
   'crm.duplicate-resolution',
+  'crm.organization-merge',
   // Changes who is emailed for a person.
   'crm.contact-address-change',
   // Every human gate on outbound mail: policy never stands in for the person.

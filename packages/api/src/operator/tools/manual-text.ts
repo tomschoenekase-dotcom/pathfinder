@@ -263,4 +263,10 @@ export const OPERATOR_MANUAL_TEXT = [
   '',
   'Imports support `gmailMessageId`, `gmailThreadId`, `gmailDraftId`, `mailboxAddress`, `claimedSentAt`, `claimedDeliveryState`, `claimedDraftState` and `claimedRelationshipState`. They remain unverified source claims and cannot manufacture canonical delivery events. The browser and MCP mapping surfaces also accept `existingOrganizationId`, `existingVenueId`, `addressLine1` and `postalCode`; identity validation and the dry run determine whether a row can link or needs review.',
   '',
+  '## Reviewed account merges',
+  '',
+  '`crm.preview_organization_merge` requires a platform-wide owner grant and returns exact source/target IDs, plan hash, relation counts and blockers. `crm.propose_organization_merge` always requires human approval of that hash. Application rechecks the plan in a serializable transaction, archives the source, moves safe mutable contacts, locations and outbound history, and records a durable receipt with counts and the original account/opportunity snapshot. Replay returns the same receipt. It never deduplicates contacts merely because they share a domain.',
+  '',
+  'Immutable activity, source evidence and stage history remain on the original source ID. `crm.get_account_context` redirects an archived source to its canonical target and exposes source IDs/counts in `mergeLineage`. Use those source IDs with `crm.list_notes` and `crm.get_outreach_context` to inspect retained evidence; the admin account read also includes retained history. Active outreach, inbound/review/onboarding history, tenant-linked context, identity collisions and incompatible stop states require separate resolution and block this bounded merge. A duplicate-resolution decision alone is not a merge.',
+  '',
 ].join('\n')

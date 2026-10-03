@@ -96,6 +96,7 @@ const EXPECTED_TOOLS = [
   'crm.list_imports',
   'crm.get_import',
   'crm.get_import_field',
+  'crm.preview_organization_merge',
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',

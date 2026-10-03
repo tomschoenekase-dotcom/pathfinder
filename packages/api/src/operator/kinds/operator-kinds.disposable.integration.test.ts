@@ -278,6 +278,7 @@ describe.skipIf(!enabled)(
           'crm.propose_contact_create',
           'crm.propose_contact_update',
           'crm.propose_duplicate_resolution',
+          'crm.propose_organization_merge',
           'crm.propose_followup_update',
           'crm.propose_note',
           'support.propose_completion',

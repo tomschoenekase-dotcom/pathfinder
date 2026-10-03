@@ -216,6 +216,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_imports',
         'crm.get_import',
         'crm.get_import_field',
+        'crm.preview_organization_merge',
         'crm.stage_csv_import',
         'crm.resume_import',
         'crm.get_campaign',

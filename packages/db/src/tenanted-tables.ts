@@ -233,6 +233,7 @@ export const PLATFORM_TABLES = [
   'CompanyMeetingTranscriptArtifact',
   'ProspectDeliveryControl',
   'ProspectOrganization',
+  'ProspectOrganizationMerge',
   // Prospect research is platform acquisition work. Jobs and immutable attempts are scoped through
   // their exact platform-owned organization relation and never inherit customer tenant authority.
   'ProspectResearchJob',

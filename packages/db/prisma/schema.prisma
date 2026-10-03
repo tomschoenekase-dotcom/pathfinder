@@ -8315,11 +8315,18 @@ model ProspectOrganization {
   /// Deprecated compatibility projection. Normalized ProspectTag associations are canonical.
   tags                       Json                                @default("[]")
   archivedAt                 DateTime?                           @map("archived_at")
+  mergedIntoOrganizationId   String?                             @map("merged_into_organization_id")
+  mergedAt                   DateTime?                           @map("merged_at")
+  mergedBy                   String?                             @map("merged_by")
   createdBy                  String                              @map("created_by")
   updatedBy                  String                              @map("updated_by")
   createdAt                  DateTime                            @default(now()) @map("created_at")
   updatedAt                  DateTime                            @updatedAt @map("updated_at")
   territory                  ProspectTerritory?                  @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  mergedInto                 ProspectOrganization?               @relation("ProspectOrganizationMergeRedirect", fields: [mergedIntoOrganizationId], references: [id], onDelete: Restrict)
+  mergedSources              ProspectOrganization[]              @relation("ProspectOrganizationMergeRedirect")
+  mergeAsSource              ProspectOrganizationMerge?          @relation("ProspectOrganizationMergeSource")
+  mergesAsTarget             ProspectOrganizationMerge[]         @relation("ProspectOrganizationMergeTarget")
   venues                     ProspectVenue[]
   contacts                   ProspectContact[]
   opportunity                ProspectOpportunity?
@@ -8355,7 +8362,27 @@ model ProspectOrganization {
   @@index([territoryId, archivedAt])
   @@index([ownerId, archivedAt])
   @@index([relationshipTier, archivedAt])
+  @@index([mergedIntoOrganizationId])
   @@map("prospect_organizations")
+}
+
+/// One irreversible, reviewed canonicalization of an archived duplicate source into an active target.
+/// The source row and its original opportunity remain for audit; the receipt binds the exact review.
+model ProspectOrganizationMerge {
+  id                   String               @id @default(cuid())
+  sourceOrganizationId String               @unique @map("source_organization_id")
+  targetOrganizationId String               @map("target_organization_id")
+  planHash             String               @map("plan_hash") @db.Char(64)
+  sourceSnapshot       Json                 @map("source_snapshot")
+  movedCounts          Json                 @map("moved_counts")
+  note                 String               @db.VarChar(2000)
+  actorId              String               @map("actor_id") @db.VarChar(191)
+  createdAt            DateTime             @default(now()) @map("created_at")
+  source               ProspectOrganization @relation("ProspectOrganizationMergeSource", fields: [sourceOrganizationId], references: [id], onDelete: Restrict)
+  target               ProspectOrganization @relation("ProspectOrganizationMergeTarget", fields: [targetOrganizationId], references: [id], onDelete: Restrict)
+
+  @@index([targetOrganizationId, createdAt])
+  @@map("prospect_organization_merges")
 }
 
 /// Durable current research state. Attempt history is append-only below.
