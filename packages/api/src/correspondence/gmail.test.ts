@@ -310,6 +310,40 @@ describe('Gmail correspondence provider', () => {
     }
   })
 
+  it('flags delivery-status notices so a threaded bounce is never treated as a reply', async () => {
+    const messages = [
+      gmailMessage({ id: 'reply' }),
+      gmailMessage({
+        id: 'gmail-bounce',
+        headers: {
+          from: 'Mail Delivery Subsystem <mailer-daemon@googlemail.com>',
+          to: mailbox.mailboxAddress,
+          'x-failed-recipients': 'person@example.test',
+          'in-reply-to': '<send@torchiko.com>',
+        },
+      }),
+      gmailMessage({
+        id: 'rfc-report',
+        headers: {
+          from: 'Relay <relay@example.org>',
+          to: mailbox.mailboxAddress,
+          'content-type': 'multipart/report; report-type="delivery-status"; boundary="b"',
+        },
+      }),
+    ]
+    const { provider } = setup({
+      listMessages: vi.fn(async () => ({ messages, historyId: '103' })),
+    })
+    const page = await provider.reconcile({ mailbox, after: new Date(0), pageSize: 100 })
+    expect(
+      page.messages.map((message) => [message.message.externalId, message.deliveryStatusNotice]),
+    ).toEqual([
+      ['reply', undefined],
+      ['gmail-bounce', true],
+      ['rfc-report', true],
+    ])
+  })
+
   it('supports watch renewal, reconciliation, and provider lookup without live Google calls', async () => {
     const { client, provider } = setup({
       findByRfcMessageId: vi.fn(async () => [

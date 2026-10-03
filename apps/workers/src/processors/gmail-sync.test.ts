@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   writeJobRecord: vi.fn(),
   updateJobRecord: vi.fn(),
   updateJobPayload: vi.fn(),
+  reconcileDrafts: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -43,6 +44,9 @@ vi.mock('@pathfinder/api/correspondence', async (importOriginal) => {
     createGmailOAuthRuntime: vi.fn(() => ({ credentials: {} })),
     createGmailCorrespondenceProvider: vi.fn(() => ({})),
     createPrismaInboundCorrespondenceStore: vi.fn(() => ({})),
+    createGmailDraftReader: vi.fn(() => ({})),
+    createPrismaProviderDraftReferenceStore: vi.fn(() => ({})),
+    reconcileGmailProviderDrafts: mocks.reconcileDrafts,
     createInboundCorrespondenceService: vi.fn(() => ({
       synchronize: mocks.synchronize,
       renewWatch: mocks.renewWatch,
@@ -74,6 +78,98 @@ describe('Gmail sync worker', () => {
     mocks.publish.mockResolvedValue({ published: true })
     mocks.enqueue.mockResolvedValue('gmail-sync-continuation')
     mocks.writeJobRecord.mockResolvedValue('job-record-1')
+    mocks.reconcileDrafts.mockResolvedValue({
+      complete: true,
+      providerDraftsSeen: 2,
+      referencedLocalDrafts: 1,
+      referencesConfirmedPresent: 1,
+      referencesReleasedAsAbsent: 0,
+      unreferencedProviderDrafts: 1,
+    })
+  })
+
+  it('reconciles native drafts only after a completed reconciliation and records counts', async () => {
+    mocks.synchronize.mockResolvedValue({
+      mode: 'FULL_RECONCILIATION',
+      processed: 1,
+      complete: true,
+    })
+    await processGmailSyncJob(
+      { providerAccountId: 'account-1', trigger: 'SCHEDULED_RECONCILIATION', requestId: 'r-1' },
+      { bullJobId: 'gmail-sync-b', attemptNumber: 1, maxAttempts: 8 },
+    )
+    expect(mocks.reconcileDrafts).toHaveBeenCalledTimes(1)
+    expect(mocks.reconcileDrafts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mailbox: expect.objectContaining({ providerAccountId: 'account-1' }),
+      }),
+    )
+    expect(mocks.updateJobPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          payload: expect.objectContaining({
+            providerDrafts: expect.objectContaining({ unreferencedProviderDrafts: 1 }),
+          }),
+        },
+      }),
+    )
+
+    vi.clearAllMocks()
+    mocks.synchronize.mockResolvedValue({
+      mode: 'FULL_RECONCILIATION',
+      processed: 100,
+      complete: false,
+      nextPageToken: 'page-2',
+      baselineCursor: null,
+      targetCursor: 'head',
+    })
+    await processGmailSyncJob({
+      providerAccountId: 'account-1',
+      trigger: 'SCHEDULED_RECONCILIATION',
+    })
+    expect(mocks.reconcileDrafts).not.toHaveBeenCalled()
+
+    mocks.synchronize.mockResolvedValue({ mode: 'INCREMENTAL', processed: 1, complete: true })
+    await processGmailSyncJob({
+      providerAccountId: 'account-1',
+      trigger: 'PUBSUB_NOTIFICATION',
+      receiptId: 'receipt-1',
+    })
+    expect(mocks.reconcileDrafts).not.toHaveBeenCalled()
+  })
+
+  it('leaves a manual reconciliation retryable when draft reconciliation fails', async () => {
+    mocks.synchronize.mockResolvedValue({
+      mode: 'FULL_RECONCILIATION',
+      processed: 1,
+      complete: true,
+    })
+    mocks.reconcileDrafts.mockRejectedValueOnce(
+      new CorrespondenceProviderError('RATE_LIMITED', 'slow down'),
+    )
+    await expect(
+      processGmailSyncJob(
+        { providerAccountId: 'account-1', trigger: 'SCHEDULED_RECONCILIATION', requestId: 'r-2' },
+        { bullJobId: 'gmail-sync-c', attemptNumber: 1, maxAttempts: 8 },
+      ),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' })
+    expect(mocks.updateJobRecord).not.toHaveBeenCalledWith('job-record-1', { status: 'COMPLETE' })
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ summary: 'Gmail synchronization failed (RATE_LIMITED).' }),
+      }),
+    )
+  })
+
+  it('keeps reconciling other mailboxes when one mailbox fails, then fails the fan-out', async () => {
+    mocks.findMany.mockResolvedValue([{ id: 'account-1' }, { id: 'account-2' }])
+    mocks.synchronize
+      .mockRejectedValueOnce(new CorrespondenceProviderError('TRANSIENT', 'unavailable'))
+      .mockResolvedValueOnce({ mode: 'FULL_RECONCILIATION', processed: 0, complete: true })
+    await expect(
+      processGmailSyncJob({ providerAccountId: '*', trigger: 'SCHEDULED_RECONCILIATION' }),
+    ).rejects.toThrow('1 of 2 accounts')
+    expect(mocks.synchronize).toHaveBeenCalledTimes(2)
   })
 
   it('marks a durable Pub/Sub receipt only after synchronization succeeds', async () => {
@@ -148,6 +244,48 @@ describe('Gmail sync worker', () => {
       data: { syncCursor: null },
     })
     expect(mocks.synchronize).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds the expired-cursor resync to the last committed sync with overlap', async () => {
+    mocks.findUnique.mockResolvedValueOnce({
+      id: 'account-1',
+      provider: 'GMAIL',
+      credentialReferenceId: 'credential-1',
+      connectionStatus: 'CONNECTED',
+      externalAccountId: 'example@example.test',
+      mailboxAddress: 'example@example.test',
+      lastReconciliationAt: null,
+      lastSuccessfulSyncAt: new Date('2026-10-02T12:00:00Z'),
+    })
+    mocks.synchronize
+      .mockRejectedValueOnce(
+        new CorrespondenceProviderError('HISTORY_CURSOR_EXPIRED', 'cursor expired'),
+      )
+      .mockResolvedValueOnce({
+        mode: 'FULL_RECONCILIATION',
+        processed: 100,
+        complete: false,
+        nextPageToken: 'resync-2',
+        baselineCursor: null,
+        targetCursor: 'head',
+      })
+    await processGmailSyncJob({
+      providerAccountId: 'account-1',
+      trigger: 'PUBSUB_NOTIFICATION',
+      receiptId: 'receipt-1',
+    })
+    expect(mocks.synchronize).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerAccountId: 'account-1' }),
+      { mode: 'FULL_RECONCILIATION', after: new Date('2026-10-01T12:00:00Z') },
+    )
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: 'SCHEDULED_RECONCILIATION',
+        pageToken: 'resync-2',
+        after: '2026-10-01T12:00:00.000Z',
+      }),
+    )
+    expect(mocks.updateMany).not.toHaveBeenCalled()
   })
 
   it('renews watches using the configured exact Pub/Sub topic', async () => {

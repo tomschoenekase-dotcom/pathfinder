@@ -473,6 +473,42 @@ describe('inbound correspondence synchronization', () => {
   })
 })
 
+describe('delivery-status notices', () => {
+  it('quarantines a bounce matched to a prospect thread without reply, followup or client effects', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    const bounce = message({
+      from: [{ email: 'mailer-daemon@example.test' }],
+      deliveryStatusNotice: true,
+    })
+    provider.state.messages.set('provider-message-1', bounce)
+    const fixture = createStore({ candidates: [candidate()] })
+    const clientReplyLinker = vi.fn()
+    const service = createInboundCorrespondenceService({
+      provider,
+      store: fixture.store,
+      clientReplyLinker,
+    })
+
+    const result = await service.receiveNotification({
+      mailbox,
+      externalReceiptId: 'notification-bounce',
+      message: bounce.message,
+    })
+
+    expect(result.state).toBe('QUARANTINED')
+    expect(fixture.calls.quarantines).toEqual([
+      expect.objectContaining({
+        reason: 'DELIVERY_STATUS_NOTICE',
+        candidateThreadIds: ['thread-1'],
+      }),
+    ])
+    expect(fixture.calls.replies).toEqual([])
+    expect(fixture.calls.holds).toEqual([])
+    expect(fixture.events).not.toContain('message-upserted')
+    expect(clientReplyLinker).not.toHaveBeenCalled()
+  })
+})
+
 describe('client reply linking hook', () => {
   const run = async (
     linked: { state: string },

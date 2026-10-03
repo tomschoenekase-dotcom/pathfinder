@@ -52,6 +52,7 @@ export type InboundQuarantineReason =
   | 'PROVIDER_MESSAGE_NOT_FOUND'
   | 'INVALID_MESSAGE_SCOPE'
   | 'UNSAFE_OR_OVERSIZED_MESSAGE'
+  | 'DELIVERY_STATUS_NOTICE'
 
 export type InboundCorrespondenceStore = Readonly<{
   /** Must commit before processing begins. Uniqueness is provider + account + mailbox + receipt ID. */
@@ -201,6 +202,18 @@ export function createInboundCorrespondenceService(input: {
     const message = normalizedForPersistence(messageInput)
     const candidates = await store.findThreadCandidates(message)
     const match = chooseThreadMatch(candidates)
+    if (message.deliveryStatusNotice) {
+      // A bounce is neither a reply nor proof of non-delivery for one exact recipient. Hold it
+      // for review with its candidate threads; no reply, followup or client effects apply.
+      await store.quarantine({
+        receiptId,
+        reason: 'DELIVERY_STATUS_NOTICE',
+        message,
+        candidateThreadIds: [...new Set(candidates.map((item) => item.canonicalThreadId))].sort(),
+        occurredAt: now(),
+      })
+      return { state: 'QUARANTINED' as const, match }
+    }
     if (
       match.state === 'UNKNOWN' &&
       message.direction === 'INBOUND' &&

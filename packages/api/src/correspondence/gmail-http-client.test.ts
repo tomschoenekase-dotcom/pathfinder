@@ -358,6 +358,121 @@ describe('createGmailApiClient', () => {
     )
   })
 
+  it('skips history messages that vanished before hydration instead of failing the page', async () => {
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/history?')) {
+        return json({
+          historyId: '110',
+          history: [
+            { messagesAdded: [{ message: { id: 'superseded-draft-revision' } }] },
+            { messagesAdded: [{ message: { id: 'kept' } }] },
+          ],
+        })
+      }
+      if (url.includes('/messages/superseded-draft-revision')) return json({}, 404)
+      if (url.includes('/messages/kept')) return json(message('kept'))
+      throw new Error(`unexpected Gmail request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request })
+    const page = await client.listHistory({
+      accessToken: 'token',
+      mailboxAddress: 'outreach@torchiko.com',
+      startHistoryId: '100',
+      pageSize: 100,
+    })
+    expect(page.historyId).toBe('110')
+    expect(page.messages.map((entry) => entry.id)).toEqual(['kept'])
+  })
+
+  it('hydrates every message on a history page instead of truncating at 100', async () => {
+    const ids = Array.from({ length: 130 }, (_, index) => `m${index}`)
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/history?')) {
+        return json({
+          historyId: '120',
+          history: [{ messagesAdded: ids.map((id) => ({ message: { id } })) }],
+        })
+      }
+      const id = /\/messages\/([^?]+)\?/u.exec(url)?.[1]
+      if (id) return json(message(id))
+      throw new Error(`unexpected Gmail request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request })
+    const page = await client.listHistory({
+      accessToken: 'token',
+      mailboxAddress: 'outreach@torchiko.com',
+      startHistoryId: '100',
+      pageSize: 100,
+    })
+    expect(page.messages).toHaveLength(130)
+  })
+
+  it('still fails a page on a non-404 hydration error so the cursor is not committed', async () => {
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/history?')) {
+        return json({ historyId: '111', history: [{ messagesAdded: [{ message: { id: 'x' } }] }] })
+      }
+      return json({}, 503)
+    })
+    const client = createGmailApiClient({ fetch: request })
+    await expect(
+      client.listHistory({
+        accessToken: 'token',
+        mailboxAddress: 'outreach@torchiko.com',
+        startHistoryId: '100',
+        pageSize: 100,
+      }),
+    ).rejects.toMatchObject({ kind: 'TRANSIENT' })
+  })
+
+  it('lists and reads native draft resources read-only with bounded pages', async () => {
+    const requests: { url: string; method: string }[] = []
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      requests.push({ url, method: init?.method ?? 'GET' })
+      if (url.includes('/drafts?')) {
+        return json({
+          drafts: [{ id: 'r-1', message: { id: 'dm-1', threadId: 'dt-1' } }],
+          nextPageToken: 'drafts-page-2',
+        })
+      }
+      if (url.endsWith('/drafts/r-1?format=minimal')) {
+        return json({ id: 'r-1', message: { id: 'dm-1', threadId: 'dt-1', labelIds: ['DRAFT'] } })
+      }
+      if (url.endsWith('/drafts/gone?format=minimal')) return json({}, 404)
+      throw new Error(`unexpected Gmail request ${url}`)
+    })
+    const client = createGmailApiClient({ fetch: request, apiBaseUrl: 'https://gmail.test/v1' })
+    const page = await client.listDrafts({
+      accessToken: 'token',
+      mailboxAddress: 'outreach@torchiko.com',
+      pageSize: 500,
+    })
+    expect(page).toEqual({
+      drafts: [{ id: 'r-1', messageId: 'dm-1', threadId: 'dt-1' }],
+      nextPageToken: 'drafts-page-2',
+    })
+    expect(new URL(requests[0]!.url).searchParams.get('maxResults')).toBe('100')
+    await expect(
+      client.getDraft({
+        accessToken: 'token',
+        mailboxAddress: 'outreach@torchiko.com',
+        draftId: 'r-1',
+      }),
+    ).resolves.toEqual({ id: 'r-1', messageId: 'dm-1', threadId: 'dt-1', labelIds: ['DRAFT'] })
+    await expect(
+      client.getDraft({
+        accessToken: 'token',
+        mailboxAddress: 'outreach@torchiko.com',
+        draftId: 'gone',
+      }),
+    ).rejects.toMatchObject({ kind: 'NOT_FOUND' })
+    expect(requests.every((entry) => entry.method === 'GET')).toBe(true)
+  })
+
   it('captures the full-scan history baseline before listing messages', async () => {
     const requests: string[] = []
     let newMessageArrived = false

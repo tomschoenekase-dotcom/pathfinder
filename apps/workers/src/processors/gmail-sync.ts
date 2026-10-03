@@ -4,8 +4,12 @@ import {
   createGmailApiClient,
   createGmailCorrespondenceProvider,
   createGmailOAuthRuntime,
+  createGmailDraftReader,
   createInboundCorrespondenceService,
   createPrismaInboundCorrespondenceStore,
+  createPrismaProviderDraftReferenceStore,
+  reconcileGmailProviderDrafts,
+  type ProviderDraftReconciliationResult,
   type ProviderMailboxRef,
 } from '@pathfinder/api/correspondence'
 import {
@@ -34,9 +38,14 @@ function configuration() {
   return { clientId, clientSecret, redirectUri, integrationEncryptionKey }
 }
 
-async function mailboxFor(
-  providerAccountId: string,
-): Promise<ProviderMailboxRef & { lastReconciliationAt: Date | null }> {
+const RECONCILIATION_OVERLAP_MS = 86_400_000
+
+async function mailboxFor(providerAccountId: string): Promise<
+  ProviderMailboxRef & {
+    lastReconciliationAt: Date | null
+    lastSuccessfulSyncAt: Date | null
+  }
+> {
   const account = await withTenantIsolationBypass(() =>
     db.correspondenceProviderAccount.findUnique({ where: { id: providerAccountId } }),
   )
@@ -53,6 +62,7 @@ async function mailboxFor(
     mailboxAddress: account.mailboxAddress,
     credentialRef: account.credentialReferenceId,
     lastReconciliationAt: account.lastReconciliationAt,
+    lastSuccessfulSyncAt: account.lastSuccessfulSyncAt ?? null,
   }
 }
 
@@ -82,8 +92,18 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
         orderBy: { id: 'asc' },
       }),
     )
+    // One failing mailbox must not starve the others; each failure already left its own
+    // job/receipt evidence and operational signal. The fan-out still fails so it is retried.
+    let failed = 0
     for (const account of accounts) {
-      await processGmailSyncJob({ providerAccountId: account.id, trigger: payload.trigger })
+      try {
+        await processGmailSyncJob({ providerAccountId: account.id, trigger: payload.trigger })
+      } catch {
+        failed += 1
+      }
+    }
+    if (failed > 0) {
+      throw new Error(`Gmail synchronization failed for ${failed} of ${accounts.length} accounts`)
     }
     return { accountsProcessed: accounts.length }
   }
@@ -94,14 +114,24 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
       : payload.trigger === 'SCHEDULED_RECONCILIATION' &&
           !payload.requestId &&
           mailbox.lastReconciliationAt
-        ? new Date(Math.max(0, mailbox.lastReconciliationAt.getTime() - 86_400_000))
+        ? new Date(Math.max(0, mailbox.lastReconciliationAt.getTime() - RECONCILIATION_OVERLAP_MS))
         : new Date(0)
     if (!Number.isFinite(after.getTime())) throw new Error('Invalid Gmail reconciliation boundary')
     const runtime = createGmailOAuthRuntime({ configuration: configuration() })
+    const client = createGmailApiClient()
     const provider = createGmailCorrespondenceProvider({
       credentials: runtime.credentials,
-      client: createGmailApiClient(),
+      client,
     })
+    // Native draft resources are reconciled read-only after a completed mailbox reconciliation.
+    const reconcileDrafts = async (): Promise<ProviderDraftReconciliationResult | null> =>
+      payload.trigger === 'SCHEDULED_RECONCILIATION'
+        ? reconcileGmailProviderDrafts({
+            mailbox,
+            reader: createGmailDraftReader({ credentials: runtime.credentials, client }),
+            store: createPrismaProviderDraftReferenceStore(),
+          })
+        : null
     const service = createInboundCorrespondenceService({
       provider,
       store: createPrismaInboundCorrespondenceStore(),
@@ -140,10 +170,11 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
         })
         return { ...result, nextJobId }
       }
+      const providerDrafts = await reconcileDrafts()
       if (payload.receiptId) {
         await markNotificationReceipt(payload.receiptId, true)
       }
-      return result
+      return { ...result, providerDrafts }
     } catch (error) {
       if (
         !(error instanceof CorrespondenceProviderError) ||
@@ -159,9 +190,14 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
           data: { syncCursor: null },
         }),
       )
+      // Everything before the last committed cursor was already ingested, so the resync is
+      // bounded to that point (with overlap) instead of rescanning the whole mailbox.
+      const resyncAfter = mailbox.lastSuccessfulSyncAt
+        ? new Date(Math.max(0, mailbox.lastSuccessfulSyncAt.getTime() - RECONCILIATION_OVERLAP_MS))
+        : new Date(0)
       const result = await service.synchronize(mailbox, {
         mode: 'FULL_RECONCILIATION',
-        after: new Date(0),
+        after: resyncAfter,
       })
       if (!result.complete) {
         if (!result.nextPageToken) throw new Error('Gmail continuation token is missing')
@@ -169,17 +205,18 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
           ...payload,
           trigger: 'SCHEDULED_RECONCILIATION',
           pageToken: result.nextPageToken,
-          after: new Date(0).toISOString(),
+          after: resyncAfter.toISOString(),
           baselineCursor: result.baselineCursor,
           mode: result.mode,
           targetCursor: result.targetCursor,
         })
         return { ...result, nextJobId }
       }
+      const providerDrafts = await reconcileDrafts()
       if (payload.receiptId) {
         await markNotificationReceipt(payload.receiptId, true)
       }
-      return result
+      return { ...result, providerDrafts }
     }
   } catch (error) {
     const errorCode =
@@ -229,6 +266,11 @@ export async function processGmailSyncJob(
               complete: 'complete' in result ? result.complete : true,
               nextJobId: 'nextJobId' in result ? result.nextJobId : null,
               accountsProcessed: 'accountsProcessed' in result ? result.accountsProcessed : 1,
+              // Counts only; provider draft IDs and content are never copied into job payloads.
+              providerDrafts:
+                'providerDrafts' in result && result.providerDrafts
+                  ? { ...result.providerDrafts }
+                  : null,
             },
           },
         }),

@@ -56,6 +56,9 @@ function quarantineDetail(reason: InboundQuarantineReason) {
   if (reason === 'PROVIDER_MESSAGE_NOT_FOUND') {
     return 'Provider message was not available for retrieval.'
   }
+  if (reason === 'DELIVERY_STATUS_NOTICE') {
+    return 'A delivery-status notice was held for review; it is not a reply or verified bounce.'
+  }
   if (reason === 'INVALID_MESSAGE_SCOPE') {
     return 'Inbound correspondence failed mailbox scope validation.'
   }

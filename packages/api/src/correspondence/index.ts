@@ -24,6 +24,17 @@ export {
   type GmailCredentialLeaseProvider,
 } from './gmail'
 export { createGmailApiClient } from './gmail-http-client'
+export {
+  createGmailDraftReader,
+  reconcileGmailProviderDrafts,
+  type GmailApiDraftRef,
+  type GmailDraftApiClient,
+  type ProviderDraftReader,
+  type ProviderDraftReconciliationResult,
+  type ProviderDraftReferenceStore,
+  type ProviderDraftRef,
+} from './gmail-drafts'
+export { createPrismaProviderDraftReferenceStore } from './prisma-provider-draft-store'
 export { createGmailOAuthRuntime, type GmailOAuthConfiguration } from './gmail-oauth'
 export {
   parseGmailPushEnvelope,
