@@ -75,7 +75,7 @@ export const normalizedProspectImportRow = z
     researchConfidence: z.string().max(100).optional(),
     researchDate: z.string().max(100).optional(),
     sourceUrls: z.array(z.string().max(2000)).max(20).optional(),
-    notes: z.string().max(10000).optional(),
+    notes: z.string().max(100_000).optional(),
     territory: z.string().max(200).optional(),
   })
   .strict()

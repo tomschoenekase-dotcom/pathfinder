@@ -215,7 +215,9 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_duplicates',
         'crm.list_imports',
         'crm.get_import',
+        'crm.get_import_field',
         'crm.stage_csv_import',
+        'crm.resume_import',
         'crm.get_campaign',
         'crm.list_drafts',
         'crm.get_outreach_batch',
@@ -256,7 +258,9 @@ describe('OPERATOR_READ_TOOLS', () => {
       const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
       if (isControl) {
         expect(tool.capability).toBe(
-          tool.name === 'crm.stage_csv_import' ? 'crm:propose' : 'operator:plan',
+          ['crm.stage_csv_import', 'crm.resume_import'].includes(tool.name)
+            ? 'crm:propose'
+            : 'operator:plan',
         )
       } else {
         expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)

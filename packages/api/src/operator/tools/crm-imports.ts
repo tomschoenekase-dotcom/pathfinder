@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
+import { importFieldRetention } from './crm-import-retention'
 import { redactAddresses } from '../crm-projection'
 import { computeImportPlan } from '../crm-import-plan'
 import { OperatorNotFoundError } from '../grants'
@@ -136,12 +137,20 @@ const getImport: OperatorReadTool = {
       where: { id: input.importId },
       select: {
         ...importSummarySelect,
+        mapping: true,
+        packageManifest: true,
+        progressCursor: true,
+        reconciliation: true,
+        jobClaimPhase: true,
+        jobClaimOwner: true,
+        jobClaimExpiresAt: true,
+        sourceObjectKey: true,
         validRows: true,
         warningRows: true,
         sheets: {
           orderBy: { sheetIndex: 'asc' },
           take: 100,
-          select: { sheetName: true, detectedRows: true, selected: true },
+          select: { sheetName: true, detectedRows: true, selected: true, columns: true },
         },
       },
     })
@@ -179,14 +188,66 @@ const getImport: OperatorReadTool = {
           importedVenueId: true,
           importedContactId: true,
           processedAt: true,
+          sourceValues: true,
+          normalizedValues: true,
+          sourceEvidence: { select: { capturedValue: true }, take: 1 },
         },
       }),
     ])
     const { counts, rowTotal } = plan
     const page = rows.slice(0, input.limit)
+    const manifest = row.packageManifest as {
+      mcpCsv?: boolean
+      stagingComplete?: boolean
+      stagingError?: string
+      sourceRows?: number
+    } | null
+    const reconciliation = row.reconciliation as { error?: string } | null
+    const unfinishedCsv = Boolean(manifest?.mcpCsv && !manifest.stagingComplete)
+    const sourceMapped =
+      row.progressCursor === 'MAPPED' || /^\d+:\d+$/u.test(row.progressCursor ?? '')
     return {
       import: {
         ...summaryView(row),
+        progress: {
+          workerOwner: row.jobClaimOwner ?? null,
+          jobId: ['APPROVED', 'PROCESSING', 'PARTIAL', 'COMPLETE'].includes(row.status)
+            ? `prospect-import-${row.id}`
+            : null,
+          phase:
+            row.jobClaimPhase ??
+            (unfinishedCsv
+              ? 'STAGING'
+              : row.status === 'DRAFT'
+                ? sourceMapped
+                  ? 'STAGING'
+                  : 'MAPPING_REQUIRED'
+                : row.status),
+          errorCode:
+            typeof reconciliation?.error === 'string'
+              ? cut(reconciliation.error, 120)
+              : (manifest?.stagingError ?? null),
+          cursor: row.progressCursor ?? null,
+          processed: counts.IMPORTED + counts.FAILED + counts.SKIPPED + counts.QUARANTINED,
+          staged: rowTotal,
+          total: Math.max(
+            manifest?.sourceRows ?? row.totalRows,
+            row.sheets.reduce((sum, sheet) => sum + sheet.detectedRows, 0),
+          ),
+          leaseExpiresAt: iso(row.jobClaimExpiresAt),
+          recovery:
+            row.status === 'DRAFT' || unfinishedCsv
+              ? row.sourceObjectKey
+                ? sourceMapped
+                  ? 'RESUME_SOURCE_STAGING'
+                  : 'MAP_SOURCE_COLUMNS'
+                : 'RETRY_CSV_STAGE_WITH_SAME_OPERATION'
+              : counts.DUPLICATE_REVIEW > 0
+                ? 'REVIEW_DUPLICATES'
+                : counts.FAILED > 0
+                  ? 'INSPECT_ROW_ERRORS'
+                  : null,
+        },
         validRows: row.validRows,
         warningRows: row.warningRows,
         planHash: plan.planHash,
@@ -195,6 +256,11 @@ const getImport: OperatorReadTool = {
           sheetName: cut(sheet.sheetName, 300),
           detectedRows: sheet.detectedRows,
           selected: sheet.selected,
+          columns: Array.isArray(sheet.columns)
+            ? sheet.columns
+                .filter((value): value is string => typeof value === 'string')
+                .slice(0, 100)
+            : [],
         })),
       },
       dispositions: {
@@ -220,6 +286,14 @@ const getImport: OperatorReadTool = {
             venueId: entry.importedVenueId,
             contactId: entry.importedContactId,
           },
+          fieldRetention: importFieldRetention({
+            source: entry.sourceValues,
+            normalized: entry.normalizedValues,
+            mapping: row.mapping,
+            manifest: row.packageManifest,
+            rowNumber: entry.originalRowNumber,
+            evidence: entry.sourceEvidence ?? [],
+          }),
           processedAt: iso(entry.processedAt),
         })),
         rows.length > input.limit ? page.at(-1)!.id : null,

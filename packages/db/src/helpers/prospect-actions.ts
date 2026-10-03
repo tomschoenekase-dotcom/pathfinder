@@ -14,7 +14,7 @@ export const PROSPECT_IMPORT_BATCH_MAX = 250
 export const PROSPECT_IMPORT_COMMIT_BATCH_MAX = 100
 export const PROSPECT_IMPORT_ROW_MAX = 100_000
 export const PROSPECT_IMPORT_COLUMN_MAX = 100
-export const PROSPECT_IMPORT_CELL_CHARACTER_MAX = 10_000
+export const PROSPECT_IMPORT_CELL_CHARACTER_MAX = 100_000
 export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
@@ -1153,6 +1153,8 @@ export async function reserveProspectImportUploadAction(
 export async function configureProspectImportMappingAction(
   input: {
     importId: string
+    expectedFileHash?: string | undefined
+    expectedMappingHash?: string | undefined
     mappingHash: string
     mapping: Record<string, unknown>
     selectedSheets: string[]
@@ -1174,6 +1176,14 @@ export async function configureProspectImportMappingAction(
       include: { sheets: { select: { sheetName: true } } },
     })
     if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    if (
+      (input.expectedFileHash !== undefined &&
+        prospectImport.fileHash !== input.expectedFileHash) ||
+      (input.expectedMappingHash !== undefined &&
+        prospectImport.mappingHash !== input.expectedMappingHash)
+    ) {
+      throw new ProspectActionError('CONFLICT', 'Import file or mapping changed')
+    }
     if (prospectImport.status !== 'DRAFT' || prospectImport.progressCursor !== 'INSPECTED') {
       throw new ProspectActionError('CONFLICT', 'Workbook inspection is not ready for mapping')
     }
@@ -1198,8 +1208,13 @@ export async function configureProspectImportMappingAction(
       where: { importId: input.importId, sheetName: { in: input.selectedSheets } },
       data: { selected: true },
     })
-    const saved = await tx.prospectImport.update({
-      where: { id: input.importId },
+    const changed = await tx.prospectImport.updateMany({
+      where: {
+        id: input.importId,
+        status: 'DRAFT',
+        progressCursor: 'INSPECTED',
+        mappingHash: prospectImport.mappingHash,
+      },
       data: {
         mappingHash: input.mappingHash,
         importIdentityHash,
@@ -1207,6 +1222,9 @@ export async function configureProspectImportMappingAction(
         progressCursor: 'MAPPED',
       },
     })
+    if (changed.count !== 1)
+      throw new ProspectActionError('CONFLICT', 'Import mapping changed concurrently')
+    const saved = await tx.prospectImport.findUniqueOrThrow({ where: { id: input.importId } })
     await writeAuditLogStrict(
       {
         actorId: input.actor.id,
@@ -1572,6 +1590,7 @@ export async function resumeIncompleteProspectImportDryRunAction(
     const unfinishedCursor =
       before.progressCursor === 'MAPPED' || /^\d+:\d+$/u.test(before.progressCursor ?? '')
     if (
+      (before.jobClaimExpiresAt !== null && before.jobClaimExpiresAt > new Date()) ||
       !before.sourceObjectKey ||
       !before.sourceObjectVersion ||
       !unfinishedCursor ||
@@ -1590,6 +1609,7 @@ export async function resumeIncompleteProspectImportDryRunAction(
         cancelRequestedAt: null,
         approvedAt: null,
         importedRows: 0,
+        OR: [{ jobClaimExpiresAt: null }, { jobClaimExpiresAt: { lte: new Date() } }],
       },
       data: { status: 'DRAFT', progressCursor: 'MAPPED' },
     })

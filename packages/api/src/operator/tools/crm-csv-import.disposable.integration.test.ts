@@ -11,6 +11,8 @@ import {
 } from '@pathfinder/db'
 
 import type { OperatorCallContext } from '../registry'
+import { resumeImport } from './crm-import-resume'
+import { crmImportReadTools } from './crm-imports'
 import { parseBoundedCsv, stageCsvImport } from './crm-csv-import'
 
 const enabled =
@@ -38,6 +40,107 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
     }) as unknown as OperatorCallContext
 
   afterAll(async () => db.$disconnect())
+
+  it('configures the same inspected source draft through MCP and resumes without a second import', async () => {
+    const saved = await db.prospectImport.create({
+      data: {
+        fileName: 'synthetic.csv',
+        fileType: 'csv',
+        fileSize: 30,
+        fileHash: 'a'.repeat(64),
+        mappingHash: 'b'.repeat(64),
+        importIdentityHash: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''),
+        mapping: {},
+        createdBy: owner,
+        status: 'DRAFT',
+        progressCursor: 'INSPECTED',
+        sourceObjectKey: 'synthetic/local-only.csv',
+        sourceObjectVersion: 'v1',
+        sourceObjectGeneration: randomUUID(),
+        sheets: {
+          create: {
+            sheetName: 'Data',
+            sheetIndex: 0,
+            columns: ['Venue', 'Research'],
+            detectedRows: 1,
+          },
+        },
+      },
+    })
+    const result = await resumeImport(
+      {
+        importId: saved.id,
+        fileHash: saved.fileHash,
+        mappingHash: saved.mappingHash,
+        mapping: { venueName: 'Venue', notes: 'Research' },
+        selectedSheets: ['Data'],
+      },
+      context(true),
+      async () => 'synthetic-staging-job',
+    )
+    expect(result).toMatchObject({
+      queued: true,
+      jobId: 'synthetic-staging-job',
+      importId: saved.id,
+    })
+    const mapped = await db.prospectImport.findUniqueOrThrow({ where: { id: saved.id } })
+    expect(mapped.progressCursor).toBe('MAPPED')
+    expect(mapped.mapping).toEqual({ venueName: 'Venue', notes: 'Research' })
+    expect(mapped.mappingHash).not.toBe(saved.mappingHash)
+    await db.prospectImport.update({
+      where: { id: saved.id },
+      data: { jobClaimExpiresAt: new Date(Date.now() + 60_000) },
+    })
+    const running = await resumeImport(
+      { importId: saved.id, fileHash: mapped.fileHash, mappingHash: mapped.mappingHash },
+      context(true),
+      async () => {
+        throw new Error('Must not queue an active import')
+      },
+    )
+    expect(running).toMatchObject({ queued: false, state: 'RUNNING' })
+  })
+
+  it('retains and verifies a 35,623-character provenance field through staging and commit', async () => {
+    const provenance = 'Evidence '.repeat(3958).padEnd(35_623, '.')
+    const input = {
+      operationId: randomUUID(),
+      csvText: `Venue Name,Research\nLong Field ${suffix},${provenance}`,
+    }
+    const staged = await stageCsvImport(input, context(true))
+    expect(staged.blocked).toBe(false)
+    const getImport = crmImportReadTools.find((tool) => tool.name === 'crm.get_import')!
+    const before = (await getImport.handler({ importId: staged.importId }, context(true))) as {
+      rows: { items: Array<{ fieldRetention: Array<Record<string, unknown>> }> }
+    }
+    expect(
+      before.rows.items[0]?.fieldRetention.find((field) => field.column === 'Research'),
+    ).toMatchObject({
+      sourceCharacters: 35_623,
+      storedCharacters: 35_623,
+      sourceRetention: 'VERIFIED',
+      normalizationChanged: false,
+    })
+    await approveProspectImportAction({ importId: staged.importId, actor })
+    await commitProspectImportBatchAction({ importId: staged.importId, limit: 100, actor })
+    const imported = await db.prospectImportRow.findFirstOrThrow({
+      where: { importId: staged.importId },
+    })
+    const venue = await db.prospectVenue.findUniqueOrThrow({
+      where: { id: imported.importedVenueId! },
+    })
+    expect(venue.notes).toBe(provenance)
+    const after = (await getImport.handler(
+      { importId: staged.importId },
+      context(true),
+    )) as typeof before
+    expect(
+      after.rows.items[0]?.fieldRetention.find((field) => field.column === 'Research'),
+    ).toMatchObject({
+      committedEvidenceCharacters: 35_623,
+      committedEvidenceRetention: 'VERIFIED',
+    })
+  })
 
   it('imports 13 of 20 synthetic venues, skips 7 exact existing records and replays safely', async () => {
     for (let index = 1; index <= 7; index++) {

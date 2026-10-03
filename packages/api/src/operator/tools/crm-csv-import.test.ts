@@ -117,7 +117,7 @@ describe('bounded CSV parsing', () => {
         `${Array.from({ length: 51 }, (_, i) => `H${i}`).join(',')}\n${Array(51).fill('x').join(',')}`,
       ),
     ).toThrow('header')
-    expect(() => parseBoundedCsv(`Venue Name\n${'x'.repeat(10_001)}`)).toThrow('cell')
+    expect(() => parseBoundedCsv(`Venue Name\n${'x'.repeat(65_537)}`)).toThrow('cell')
     expect(() => parseBoundedCsv(`Venue Name\n${'💡'.repeat(25_000)}`)).toThrow('byte limit')
   })
 })

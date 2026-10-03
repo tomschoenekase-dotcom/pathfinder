@@ -13,7 +13,7 @@ const MAX_EXPANDED_BYTES = 150 * 1024 * 1024
 const MAX_SHEETS = 100
 const MAX_ROWS = 100_000
 const MAX_COLUMNS = 100
-const MAX_CELL_CHARACTERS = 10_000
+const MAX_CELL_CHARACTERS = 100_000
 const MAX_ROW_BYTES = 256 * 1024
 // Keep each duplicate-check transaction short on a remote production database.
 const STAGE_BATCH_ROWS = 10

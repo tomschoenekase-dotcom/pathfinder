@@ -11,17 +11,31 @@ import {
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
+import { sourceCellDigests } from './crm-import-retention'
 import { computeImportPlan } from '../crm-import-plan'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
 
 const MAX_CSV_BYTES = 100_000
 const MAX_ROWS = 500
 const MAX_COLUMNS = 50
-const MAX_CELL_CHARS = 10_000
+const MAX_CELL_CHARS = 65_536
 const SHEET = 'MCP CSV'
 
-const FIELDS = new Set([
+export const CSV_IMPORT_FIELDS = new Set([
   'venueName',
+  'gmailMessageId',
+  'gmailThreadId',
+  'gmailDraftId',
+  'mailboxAddress',
+  'claimedSentAt',
+  'claimedDeliveryState',
+  'claimedDraftState',
+  'claimedRelationshipState',
+
+  'existingOrganizationId',
+  'existingVenueId',
+  'addressLine1',
+  'postalCode',
   'organizationName',
   'venueType',
   'venueSubtype',
@@ -40,6 +54,28 @@ const FIELDS = new Set([
   'territory',
 ])
 const ALIASES: Record<string, string> = {
+  address: 'addressLine1',
+  streetaddress: 'addressLine1',
+  addressline1: 'addressLine1',
+  zip: 'postalCode',
+  zipcode: 'postalCode',
+  postalcode: 'postalCode',
+  organizationid: 'existingOrganizationId',
+  existingorganizationid: 'existingOrganizationId',
+  venueid: 'existingVenueId',
+  existingvenueid: 'existingVenueId',
+  accountid: 'existingOrganizationId',
+  research: 'notes',
+  provenance: 'notes',
+  researchprovenance: 'notes',
+  gmailmessageid: 'gmailMessageId',
+  gmailthreadid: 'gmailThreadId',
+  gmaildraftid: 'gmailDraftId',
+  mailboxaddress: 'mailboxAddress',
+  claimedsentat: 'claimedSentAt',
+  claimeddeliverystate: 'claimedDeliveryState',
+  claimeddraftstate: 'claimedDraftState',
+  claimedrelationshipstate: 'claimedRelationshipState',
   venue: 'venueName',
   venuename: 'venueName',
   name: 'venueName',
@@ -156,7 +192,7 @@ function mappingFor(headers: string[], supplied?: Record<string, string>) {
     if (field && !mapping[field]) mapping[field] = header
   }
   for (const [field, header] of Object.entries(supplied ?? {})) {
-    if (!FIELDS.has(field) || !headers.includes(header))
+    if (!CSV_IMPORT_FIELDS.has(field) || !headers.includes(header))
       throw new CsvImportError('INVALID_CSV', 'Mapping names an unknown field or column')
     mapping[field] = header
   }
@@ -356,6 +392,12 @@ export async function stageCsvImport(
   const csv = input.csvText ?? (await download(input.file!))
   const parsed = parseBoundedCsv(csv)
   const mapping = mappingFor(parsed.headers, input.mapping)
+  const retentionDigests = parsed.rows.map((cells, index) => ({
+    row: index + 2,
+    fields: sourceCellDigests(
+      Object.fromEntries(parsed.headers.map((header, column) => [header, cells[column] ?? ''])),
+    ),
+  }))
   const fileHash = sha256(csv)
   const mappingHash = sha256(
     JSON.stringify(Object.entries(mapping).sort(([a], [b]) => a.localeCompare(b))),
@@ -390,6 +432,7 @@ export async function stageCsvImport(
               suppliedMappingHash,
               suppliedFileIdHash,
               sourceRows: parsed.rows.length,
+              retentionDigests,
               stagingComplete: false,
             },
             createdBy: actor.id,
@@ -477,10 +520,25 @@ export async function stageCsvImport(
           id: true,
           status: true,
           normalizedValues: true,
+          sourceValues: true,
           duplicateMatches: true,
           originalRowNumber: true,
         },
       })
+      for (const row of rows) {
+        const expected = retentionDigests.find((entry) => entry.row === row.originalRowNumber)
+        if (
+          !expected ||
+          JSON.stringify(
+            sourceCellDigests(row.sourceValues as Record<string, unknown>).sort((a, b) =>
+              a.column.localeCompare(b.column),
+            ),
+          ) !==
+            JSON.stringify([...expected.fields].sort((a, b) => a.column.localeCompare(b.column)))
+        ) {
+          throw new Error('CSV source field retention mismatch')
+        }
+      }
       const seen = new Map<string, string>()
       for (const row of rows) {
         const value = row.normalizedValues as {
@@ -559,12 +617,34 @@ export async function stageCsvImport(
             suppliedMappingHash,
             suppliedFileIdHash,
             sourceRows: parsed.rows.length,
+            retentionDigests,
             stagingComplete: true,
           },
         },
       })
       if (completed.count !== 1) throw new Error('CSV import changed during staging')
-    } catch {
+    } catch (error) {
+      await database.prospectImport.updateMany({
+        where: {
+          id: prospectImport.id,
+          status: { in: ['DRAFT', 'DRY_RUN_READY'] },
+          packageManifest: { path: ['stagingComplete'], equals: false },
+        },
+        data: {
+          packageManifest: {
+            mcpCsv: true,
+            suppliedMappingHash,
+            suppliedFileIdHash,
+            sourceRows: parsed.rows.length,
+            retentionDigests,
+            stagingComplete: false,
+            stagingError:
+              error instanceof Error && error.message === 'CSV source field retention mismatch'
+                ? 'FIELD_RETENTION_MISMATCH'
+                : 'STAGING_FAILED',
+          },
+        },
+      })
       // A partial row set remains gated by the persisted completion marker. Do not
       // demote a concurrent same-operation stager that may just have completed it.
       return receipt(database, prospectImport.id, Boolean(existing))
