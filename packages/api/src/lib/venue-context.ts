@@ -379,7 +379,7 @@ export function buildVenueSystemPromptParts(params: {
 Venue name: ${venueName}
 
 About this venue:
-${venueDescription}${guideNotesSection}${featuredPlaceSection}${alertsSection}${universalContentSection}`)
+${venueDescription}${guideNotesSection}${alertsSection}${universalContentSection}`)
 
   const staticPart = `You are the configured ${roleDescription} for the venue described below.
 
@@ -416,7 +416,7 @@ ${responseDepthInstruction(venue.responseDepth, responseIntent)}
 ${languageRule}`
 
   const dynamicVenueData = untrustedDataBlock(`MOST RELEVANT PLACES FOR THIS QUERY:
-${placesSection}${identityAmbiguityData}${knowledgeSection}`)
+${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSection}`)
 
   const identityClarificationRule =
     params.placeIdentityAmbiguity || params.placeIdentityDiscoveryIncomplete
