@@ -327,6 +327,37 @@ describe('createGmailApiClient', () => {
     expect(page.messages[0]).toMatchObject({ id: 'm1', textBody: 'hello' })
   })
 
+  it('hydrates a SENT label transition when an existing Gmail draft is sent', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({
+          historyId: '103',
+          history: [
+            {
+              labelsAdded: [
+                { message: { id: 'sent-draft' }, labelIds: ['SENT'] },
+                { message: { id: 'other' }, labelIds: ['IMPORTANT'] },
+              ],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(json({ ...message('sent-draft'), labelIds: ['SENT'] }))
+    const client = createGmailApiClient({ fetch: request })
+
+    const page = await client.listHistory({
+      accessToken: 'token',
+      mailboxAddress: 'outreach@torchiko.com',
+      startHistoryId: '100',
+      pageSize: 100,
+    })
+    expect(page.messages.map((entry) => entry.id)).toEqual(['sent-draft'])
+    expect(new URL(String(request.mock.calls[0]?.[0])).searchParams.getAll('historyTypes')).toEqual(
+      ['messageAdded', 'labelAdded'],
+    )
+  })
+
   it('classifies a missing history cursor separately from a missing message', async () => {
     let canceled = false
     const body = new ReadableStream({

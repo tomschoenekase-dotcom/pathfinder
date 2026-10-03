@@ -285,6 +285,31 @@ describe('Gmail correspondence provider', () => {
     } satisfies Partial<CorrespondenceProviderError>)
   })
 
+  it('never promotes a Gmail draft or unverified self-addressed message into sent correspondence', async () => {
+    const selfHeaders = { from: mailbox.mailboxAddress, to: 'person@example.test' }
+    const messages = [
+      gmailMessage({ id: 'inbound' }),
+      gmailMessage({ id: 'draft', labelIds: ['DRAFT'], headers: selfHeaders }),
+      gmailMessage({ id: 'self-unverified', labelIds: ['INBOX'], headers: selfHeaders }),
+      gmailMessage({ id: 'sent', labelIds: ['SENT'], headers: selfHeaders }),
+    ]
+    const { provider } = setup({
+      listMessages: vi.fn(async () => ({ messages, historyId: '103' })),
+      listHistory: vi.fn(async () => ({ messages, historyId: '104' })),
+    })
+    const [full, incremental] = await Promise.all([
+      provider.reconcile({ mailbox, after: new Date(0), pageSize: 100 }),
+      provider.syncIncremental({ mailbox, cursor: '100', pageSize: 100 }),
+    ])
+    for (const page of [full, incremental]) {
+      expect(page.messages.map((message) => message.message.externalId)).toEqual([
+        'inbound',
+        'sent',
+      ])
+      expect(page.messages[1]?.direction).toBe('OUTBOUND')
+    }
+  })
+
   it('supports watch renewal, reconciliation, and provider lookup without live Google calls', async () => {
     const { client, provider } = setup({
       findByRfcMessageId: vi.fn(async () => [

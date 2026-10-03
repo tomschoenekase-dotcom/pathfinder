@@ -292,13 +292,27 @@ export function createGmailApiClient(
         historyTypes: 'messageAdded',
         ...(args.pageToken ? { pageToken: args.pageToken } : {}),
       })
+      // Sending an existing Gmail draft may only add its SENT label. Fetch that transition
+      // too; the provider layer filters DRAFT and requires SENT for self-addressed mail.
+      query.append('historyTypes', 'labelAdded')
       const response = await call({ ...args, path: `history?${query}`, history: true })
       const ids = (Array.isArray(response.history) ? response.history : []).flatMap((entry) => {
         const row = object(entry)
-        return (Array.isArray(row.messagesAdded) ? row.messagesAdded : []).flatMap((added) => {
-          const message = object(object(added).message)
-          return typeof message.id === 'string' ? [message.id] : []
-        })
+        const addedMessages = (Array.isArray(row.messagesAdded) ? row.messagesAdded : []).flatMap(
+          (added) => {
+            const message = object(object(added).message)
+            return typeof message.id === 'string' ? [message.id] : []
+          },
+        )
+        const newlySent = (Array.isArray(row.labelsAdded) ? row.labelsAdded : []).flatMap(
+          (added) => {
+            const event = object(added)
+            if (!Array.isArray(event.labelIds) || !event.labelIds.includes('SENT')) return []
+            const message = object(event.message)
+            return typeof message.id === 'string' ? [message.id] : []
+          },
+        )
+        return [...addedMessages, ...newlySent]
       })
       return {
         messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
