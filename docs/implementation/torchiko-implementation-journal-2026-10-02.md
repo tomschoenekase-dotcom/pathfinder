@@ -630,3 +630,21 @@ Production read-only PG17 client connection PASS through existing authenticated 
 this proves neither backup nor deploy readiness. No hosted writes, migrations, push, deployment,
 provider effects or acceptance claims yet. Next: clean committed candidate assessment and exact-head
 CI, then release-bound post-drain backup, private restore/rehearsal and staged protected promotion.
+
+### Exact-head CI cycle 1 — build dependency boundary (2026-10-03)
+
+Non-force push `fe95d8cb3eec6cdf341ad001f08a97464e649721` reached PR40. Required `ci` failed
+at `pnpm audit:prod` on GHSA-vfj7-8cjw-p6xm (`braces` through Tailwind); `railway-iac` passed.
+The advisory has no patched release. No advisory was suppressed and no audit policy changed.
+Both apps imported Tailwind only in PostCSS build configuration and a TypeScript config type.
+Tailwind, Autoprefixer and the direct PostCSS build tool now belong to devDependencies. Versions
+remain pinned. Frozen install PASS; unchanged `pnpm audit:prod` PASS, 561 production dependencies.
+Existing web standalone traced files contain no Tailwind/braces dependency; the clean candidate
+build and dashboard trace check remain required before this correction is released. The development
+dependency remains affected; this scope removes its production dependency exposure, not an upstream
+patch claim. Keep build inputs trusted and record the upstream fix as a follow-up.
+
+The first local candidate assessment could not spawn pnpm because `pnpm exec` did not set
+`npm_execpath` on this Windows host. The existing `pnpm verify:release` entrypoint corrected the
+launch. Its continuing assessment is superseded by the dependency correction; a new exact-revision
+clean candidate assessment is required. CI red cycles used: 1 of the authorized maximum 4.
