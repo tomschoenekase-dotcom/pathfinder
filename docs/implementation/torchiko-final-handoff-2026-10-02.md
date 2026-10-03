@@ -213,3 +213,21 @@ Tom requested Opus review before another CI cycle. The broad local rerun was sto
 Combined production typecheck PASS (27 tasks), lint PASS (15 tasks), focused cache/prompt/budget checks PASS. The corrected API rerun PASS 3,471 tests with 373 opt-in skips. Full workspace rerun was interrupted before completion; subsequent `pnpm test` and boundary reruns are NOT RUN. Earlier sealed CRM proof remains 693 operator DB tests plus eight CRM DB tests PASS, six boundaries PASS, scripts 607 PASS / 12 frozen pin FAIL / one SKIP. No frozen pin was edited.
 
 Opus should review the local committed candidate and fixes before spending another final CI cycle. Keep GPT-6 Luna per Tom. Outstanding live/device checks, native Gmail drafts, held approvals and the unexecuted release/rollback proposal remain as documented above.
+
+## 14. Opus review and fixes (2026-10-02)
+
+Reviewed local candidate `28e41244`; fixes are ten local commits through `2f963d50` plus this documentation. Nothing was pushed, deployed, migrated on a hosted database, sent or invited. No migration was added and no frozen admission pin was edited.
+
+Defects fixed (each with focused tests):
+
+- Guest chat on iPhone: text typed before the page finished loading was wiped by hydration (reproduced 4/4 in WebKit, kept 4/4 after the fix). A touch release on a disabled Send button could still trigger Stop. A quick double tap on Send stopped the answer it had just started.
+- Prompt caching: a GPT-6 Luna response without `cache_write_tokens` failed after the answer may already have streamed. Unusable cache counts now bill uncertain input at the cache-write upper bound; legacy and DeepSeek shapes keep ordinary-input billing. The request shape matches OpenAI's published explicit-caching API; live hit rates and savings are still NOT RUN.
+- CSV import: blank or all-empty rows failed the file or blocked approval; spacing/case variants of an address created a second venue at commit; legal-suffix normalization erased short regions; summary counters were stale. The 35,623-character field has no truncation path.
+- Merges: a pair a person had confirmed distinct could still be merged; unsettled imports could keep writing to the archived source; serialization conflicts were not retried; open duplicate suggestions stayed on the archived source (the merged pair is now confirmed, others follow the survivor or are superseded); `UNSAFE_MERGE` was reported as an unknown tool failure; always-ask kinds now refuse apply when approved by policy or job grant.
+- Gmail: removed messages (every draft edit) stuck incremental sync; pages silently dropped IDs beyond 100; bounces were recorded as prospect replies (now quarantined as `DELIVERY_STATUS_NOTICE`, never as verified bounce or delivery); expired-cursor resync rescanned the whole mailbox; one failing mailbox stopped the rest. SENT still never implies DELIVERED.
+- Native Gmail drafts: read-only `drafts.list/get` reconciliation now runs after each reconciliation job. A linked reference is cleared only after a complete listing plus a confirmed 404, with an audit row; local draft state never becomes sent. `crm.get_mail_reconciliation` reports the counts only. Storing draft message/thread IDs and absent/last-seen state needs a migration: `docs/implementation/gmail-native-drafts-proposal.md`.
+- CI did not run the merge, decision/grant or provider-draft DB suites; they are now wired in with a 120 s per-test timeout.
+
+Still open: physical iPhone/VoiceOver, live Gmail (bounce header shapes, draft-to-sent ID behaviour), dashboard display of draft counts, unindexed import-lineage lookups, mapping-hash key order, and the 12 frozen pin failures. Venue timezone and the existing document-name replacement still await Tom's yes.
+
+Results and exact commands are in the journal section "Opus review and fixes (2026-10-02)". The release and rollback proposal in section 8 is unchanged and NOT executed. Before release, add these to staging acceptance: early typing on a cold phone load, bounce quarantine on a real mailbox, and the native draft reconciliation counts.
