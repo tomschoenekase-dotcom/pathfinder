@@ -10,7 +10,7 @@ import {
   type LiveDataKind,
   type LiveDataMapping,
 } from '@pathfinder/contracts/live-data'
-import { writeAuditLogStrict } from '@pathfinder/db'
+import { lockVenueContentMutation, writeAuditLogStrict } from '@pathfinder/db'
 import { enqueueLiveDataPoll } from '@pathfinder/jobs'
 
 import { router } from '../core'
@@ -206,7 +206,11 @@ export const liveDataRouter = router({
 
   list: tenantProcedure.input(ListLiveDataConnectorsInput).query(async ({ ctx, input }) => {
     const rows = await ctx.db.liveDataConnector.findMany({
-      where: { tenantId: ctx.session.activeTenantId, venueId: input.venueId },
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        venueId: input.venueId,
+        provider: { not: 'source_connection_v1' },
+      },
       select: connectorSelect,
       orderBy: { resourceLabel: 'asc' },
       take: LIVE_DATA_LIMITS.maxConnectorsPerVenue,
@@ -220,6 +224,12 @@ export const liveDataRouter = router({
     .input(CreateLiveDataConnectorInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
+      if (input.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Use source connection review for this provider.',
+        })
+      }
       assertMapping(input.kind, input.mapping)
       const endpoint = assertEndpoint(input.endpointUrl)
 
@@ -229,19 +239,22 @@ export const liveDataRouter = router({
       })
       if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found.' })
 
-      const [venueCount, tenantCount] = await Promise.all([
-        ctx.db.liveDataConnector.count({ where: { tenantId, venueId: input.venueId } }),
-        ctx.db.liveDataConnector.count({ where: { tenantId } }),
-      ])
-      if (
-        venueCount >= LIVE_DATA_LIMITS.maxConnectorsPerVenue ||
-        tenantCount >= LIVE_DATA_LIMITS.maxConnectorsPerTenant
-      ) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Live data connector limit reached.' })
-      }
-
       try {
         return await ctx.db.$transaction(async (tx) => {
+          await lockVenueContentMutation(tx, { tenantId, venueId: 'live-data-connector-capacity' })
+          const [venueCount, tenantCount] = await Promise.all([
+            tx.liveDataConnector.count({ where: { tenantId, venueId: input.venueId } }),
+            tx.liveDataConnector.count({ where: { tenantId } }),
+          ])
+          if (
+            venueCount >= LIVE_DATA_LIMITS.maxConnectorsPerVenue ||
+            tenantCount >= LIVE_DATA_LIMITS.maxConnectorsPerTenant
+          ) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Live data connector limit reached.',
+            })
+          }
           // Created DISABLED: nothing is fetched until a manager has tested and enabled it.
           const created = await tx.liveDataConnector.create({
             data: {
@@ -307,6 +320,7 @@ export const liveDataRouter = router({
         select: {
           id: true,
           venueId: true,
+          provider: true,
           kind: true,
           mapping: true,
           endpointUrl: true,
@@ -315,6 +329,18 @@ export const liveDataRouter = router({
         },
       })
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Connector not found.' })
+      if (existing.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Use source connection review to change this source.',
+        })
+      }
+      if (input.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Use source connection review for this provider.',
+        })
+      }
 
       const kind = ENUM_TO_KIND[existing.kind]
       if (input.mapping) assertMapping(kind, input.mapping)
@@ -381,9 +407,15 @@ export const liveDataRouter = router({
       const tenantId = ctx.session.activeTenantId
       const existing = await ctx.db.liveDataConnector.findFirst({
         where: { id: input.connectorId, tenantId },
-        select: { id: true, venueId: true, state: true },
+        select: { id: true, venueId: true, state: true, provider: true },
       })
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Connector not found.' })
+      if (existing.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Use source connection review to resume this source.',
+        })
+      }
       await ctx.db.$transaction(async (tx) => {
         await tx.liveDataConnector.updateMany({
           where: { id: existing.id, tenantId },
@@ -419,9 +451,15 @@ export const liveDataRouter = router({
       const tenantId = ctx.session.activeTenantId
       const existing = await ctx.db.liveDataConnector.findFirst({
         where: { id: input.connectorId, tenantId },
-        select: { id: true, venueId: true, state: true },
+        select: { id: true, venueId: true, state: true, provider: true },
       })
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Connector not found.' })
+      if (existing.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Use source connection review to pause this source.',
+        })
+      }
       await ctx.db.$transaction(async (tx) => {
         await tx.liveDataConnector.updateMany({
           where: { id: existing.id, tenantId },
@@ -451,9 +489,15 @@ export const liveDataRouter = router({
       const tenantId = ctx.session.activeTenantId
       const existing = await ctx.db.liveDataConnector.findFirst({
         where: { id: input.connectorId, tenantId },
-        select: { id: true, venueId: true, lastTestAt: true },
+        select: { id: true, venueId: true, lastTestAt: true, provider: true },
       })
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Connector not found.' })
+      if (existing.provider === 'source_connection_v1') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Use source connection preview to test this source.',
+        })
+      }
       const now = new Date()
       if (
         existing.lastTestAt &&

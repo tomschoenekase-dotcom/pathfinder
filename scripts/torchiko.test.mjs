@@ -126,14 +126,14 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
-  assert.equal(report.operations.total, 585)
+  assert.equal(report.operations.total, 594)
   assert.equal(report.operations.classified, report.operations.total)
   assert.equal(report.operations.unclassified.length, 0)
   assert.equal(report.operations.ambiguous.length, 0)
   assert.equal(report.operations.unresolved.length, 0)
   assert.equal(report.operations.reviewedInventory.matches, true)
-  assert.equal(report.operations.counts.byKind.query, 258)
-  assert.equal(report.operations.counts.byKind.mutation, 327)
+  assert.equal(report.operations.counts.byKind.query, 260)
+  assert.equal(report.operations.counts.byKind.mutation, 334)
   for (const operation of ['admin.operatorJobGrants', 'admin.operatorDecisionRequest']) {
     assert.ok(report.operations.bindings.unbound.includes(operation))
   }

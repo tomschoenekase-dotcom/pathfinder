@@ -73,6 +73,7 @@ import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
 import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-configuration'
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { loadGuestLiveDataContext } from '../lib/guest-live-data'
+import { loadGuestSourceConnections } from '../lib/guest-source-connections'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1520,11 +1521,18 @@ const chatReadRouter = router({
     })
     // Latest STORED observations only: guest turns never call a live-data provider. A read failure
     // degrades to "no live facts", so the guide cannot state a value it could not verify.
-    const liveDataPrompt = await loadGuestLiveDataContext(ctx.db, {
-      tenantId: venue.tenantId,
-      venueId: venue.id,
-    })
-      .then((result) => result.prompt)
+    const liveDataPrompt = await Promise.all([
+      loadGuestLiveDataContext(ctx.db, {
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+      }).then((result) => result.prompt),
+      loadGuestSourceConnections(ctx.db, {
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        query: trimmedInput,
+      }),
+    ])
+      .then((results) => results.filter(Boolean).join('\n\n'))
       .catch(() => {
         logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
         return ''

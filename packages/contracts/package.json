@@ -68,7 +68,9 @@
     "./venue-qr-print": "./src/venue-qr-print.ts",
     "./venue-access-artifacts": "./src/venue-access-artifacts.ts",
     "./live-data": "./src/live-data.ts",
-    "./live-data-network": "./src/live-data-network.ts"
+    "./live-data-network": "./src/live-data-network.ts",
+    "./source-connections": "./src/source-connections.ts",
+    "./source-connections-node": "./src/source-connections-node.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

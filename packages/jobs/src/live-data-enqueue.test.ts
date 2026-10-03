@@ -57,6 +57,25 @@ describe('enqueueLiveDataPoll', () => {
     expect(mocks.add.mock.calls[0]![2].jobId).not.toBe(mocks.add.mock.calls[1]![2].jobId)
   })
 
+  it('deduplicates manual clicks separately and namespaces connector IDs by tenant and venue', async () => {
+    const now = new Date('2026-10-02T18:00:01Z')
+    await enqueueLiveDataPoll({ ...payload, mode: 'manual' }, now)
+    await enqueueLiveDataPoll({ ...payload, mode: 'manual' }, new Date(now.getTime() + 1000))
+    await enqueueLiveDataPoll({ ...payload, tenantId: 'tenant_other', mode: 'manual' }, now)
+    await enqueueLiveDataPoll({ ...payload, venueId: 'venue_other', mode: 'manual' }, now)
+    const ids = mocks.add.mock.calls.map((call) => call[2].jobId)
+    expect(ids[0]).toBe(ids[1])
+    expect(new Set(ids)).toHaveProperty('size', 3)
+    expect(ids[0]).toContain('tenant_1-venue_1-manual')
+  })
+
+  it('rejects an unknown refresh mode before opening the queue', async () => {
+    await expect(enqueueLiveDataPoll({ ...payload, mode: 'burst' as never })).rejects.toThrow(
+      'mode is invalid',
+    )
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['tenantId', 'tenant:1'],
     ['venueId', ''],

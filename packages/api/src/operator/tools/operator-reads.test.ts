@@ -191,6 +191,8 @@ describe('OPERATOR_READ_TOOLS', () => {
         'operator.get_attention',
         'venues.list_sources',
         'venues.get_source',
+        'venues.list_source_connections',
+        'venues.get_source_connection',
         'venues.list_content',
         'venues.get_content',
         'venues.preview_content_changeset',

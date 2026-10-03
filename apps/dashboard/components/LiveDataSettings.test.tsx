@@ -16,8 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 // The real provider client is stable for the life of the route; the mock must be too.
 const stableClient = vi.hoisted(() => ({ current: null as unknown }))
+const sourceList = vi.hoisted(() => vi.fn().mockResolvedValue([]))
 vi.mock('../lib/trpc', () => ({ useTRPCClient: () => stableClient.current }))
 stableClient.current = {
+  sourceConnections: { list: { query: sourceList } },
   liveData: {
     policy: { query: mocks.policy },
     list: { query: mocks.list },

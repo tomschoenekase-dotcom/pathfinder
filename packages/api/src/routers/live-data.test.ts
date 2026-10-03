@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   writeAuditLogStrict: vi.fn(),
+  lockVenueContentMutation: vi.fn(),
   enqueueLiveDataPoll: vi.fn(),
   isFeatureEnabled: vi.fn(() => false),
 }))
 
 vi.mock('@pathfinder/db', () => ({
   writeAuditLogStrict: mocks.writeAuditLogStrict,
+  lockVenueContentMutation: mocks.lockVenueContentMutation,
 }))
 vi.mock('@pathfinder/jobs', () => ({ enqueueLiveDataPoll: mocks.enqueueLiveDataPoll }))
 vi.mock('@pathfinder/config', async (importOriginal) => ({
@@ -52,6 +54,7 @@ const createInput = {
 function makeDb() {
   const tx = {
     liveDataConnector: {
+      count: vi.fn().mockResolvedValue(0),
       create: vi.fn().mockResolvedValue({ id: 'conn_new' }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
@@ -60,7 +63,7 @@ function makeDb() {
   const db = {
     venue: { findFirst: vi.fn().mockResolvedValue({ id: VENUE }) },
     liveDataConnector: {
-      count: vi.fn().mockResolvedValue(0),
+      count: tx.liveDataConnector.count,
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue({
         id: CONNECTOR,
@@ -99,6 +102,13 @@ describe('liveData router', () => {
   })
 
   describe('create', () => {
+    it('reserves the source connection provider for the review workflow', async () => {
+      const { db } = makeDb()
+      await expect(
+        caller('MANAGER', db).liveData.create({ ...createInput, provider: 'source_connection_v1' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(db.liveDataConnector.findFirst).not.toHaveBeenCalled()
+    })
     it('forbids STAFF and writes nothing', async () => {
       const { db } = makeDb()
       await expect(caller('STAFF', db).liveData.create(createInput)).rejects.toMatchObject({
@@ -115,6 +125,11 @@ describe('liveData router', () => {
       expect(db.venue.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: VENUE, tenantId: TENANT } }),
       )
+      expect(mocks.lockVenueContentMutation).toHaveBeenCalledWith(tx, {
+        tenantId: TENANT,
+        venueId: 'live-data-connector-capacity',
+      })
+      expect(tx.liveDataConnector.count).toHaveBeenCalledWith({ where: { tenantId: TENANT } })
       expect(tx.liveDataConnector.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -221,6 +236,19 @@ describe('liveData router', () => {
       })
     })
 
+    it('enforces the per-tenant connector cap inside the capacity lock', async () => {
+      const { db, tx } = makeDb()
+      tx.liveDataConnector.count.mockResolvedValueOnce(0).mockResolvedValueOnce(100)
+      await expect(caller('MANAGER', db).liveData.create(createInput)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(mocks.lockVenueContentMutation).toHaveBeenCalledWith(tx, {
+        tenantId: TENANT,
+        venueId: 'live-data-connector-capacity',
+      })
+      expect(tx.liveDataConnector.create).not.toHaveBeenCalled()
+    })
+
     it('enforces the per-venue connector cap', async () => {
       const { db } = makeDb()
       db.liveDataConnector.count.mockResolvedValue(20)
@@ -254,6 +282,24 @@ describe('liveData router', () => {
   })
 
   describe('update', () => {
+    it('blocks legacy edits and provider spoofing of source connections', async () => {
+      const { db, tx } = makeDb()
+      db.liveDataConnector.findFirst.mockResolvedValueOnce({
+        id: CONNECTOR,
+        venueId: VENUE,
+        provider: 'source_connection_v1',
+      })
+      await expect(
+        caller('MANAGER', db).liveData.update({ connectorId: CONNECTOR, name: 'Changed' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      await expect(
+        caller('MANAGER', db).liveData.update({
+          connectorId: CONNECTOR,
+          provider: 'source_connection_v1',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(tx.liveDataConnector.updateMany).not.toHaveBeenCalled()
+    })
     it('clears the stored observation when the mapping changes and audits the change', async () => {
       const { db, tx } = makeDb()
       await caller('MANAGER', db).liveData.update({
@@ -294,6 +340,22 @@ describe('liveData router', () => {
   })
 
   describe('enable / disable', () => {
+    it.each(['enable', 'disable', 'test'] as const)(
+      'blocks legacy %s for source connections',
+      async (name) => {
+        const { db, tx } = makeDb()
+        db.liveDataConnector.findFirst.mockResolvedValue({
+          id: CONNECTOR,
+          venueId: VENUE,
+          provider: 'source_connection_v1',
+        })
+        await expect(
+          caller('MANAGER', db).liveData[name]({ connectorId: CONNECTOR }),
+        ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        expect(tx.liveDataConnector.updateMany).not.toHaveBeenCalled()
+        expect(mocks.enqueueLiveDataPoll).not.toHaveBeenCalled()
+      },
+    )
     it('disable stops scheduling, is tenant fenced, and is audited', async () => {
       const { db, tx } = makeDb()
       await expect(
@@ -417,7 +479,9 @@ describe('liveData router', () => {
       ])
       const rows = await caller('STAFF', db).liveData.list({ venueId: VENUE })
       expect(db.liveDataConnector.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { tenantId: TENANT, venueId: VENUE } }),
+        expect.objectContaining({
+          where: { tenantId: TENANT, venueId: VENUE, provider: { not: 'source_connection_v1' } },
+        }),
       )
       expect(rows[0]).toMatchObject({
         kind: 'sports_score',

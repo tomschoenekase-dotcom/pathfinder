@@ -27,6 +27,7 @@ import {
   enqueueLiveDataPoll,
   type LiveDataPollJobPayload,
 } from '@pathfinder/jobs'
+import { SOURCE_CONNECTION_PROVIDER } from '@pathfinder/contracts/source-connections'
 
 import {
   normalizeJobExecutionMetadata,
@@ -39,6 +40,7 @@ import {
   type LiveDataFetchDependencies,
   type LiveDataFetchOutcome,
 } from '../lib/live-data-fetch'
+import { processSourceConnectionPoll } from './source-connection-poll'
 
 const ID = /^[A-Za-z0-9_-]{1,191}$/u
 const MAX_FETCH_ATTEMPTS = 2
@@ -68,7 +70,7 @@ function parsePayload(payload: LiveDataPollJobPayload): LiveDataPollJobPayload {
     !ID.test(payload.tenantId) ||
     !ID.test(payload.venueId) ||
     !ID.test(payload.connectorId) ||
-    (payload.mode !== 'scheduled' && payload.mode !== 'test')
+    (payload.mode !== 'scheduled' && payload.mode !== 'test' && payload.mode !== 'manual')
   ) {
     throw new Error('Live data poll payload is invalid.')
   }
@@ -173,6 +175,15 @@ export async function processLiveDataPoll(
     if (!connector) {
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       return { outcome: 'connector-not-found' as const }
+    }
+    if (connector.provider === SOURCE_CONNECTION_PROVIDER) {
+      const result = await processSourceConnectionPoll(payload, connector, dependencies)
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return result
+    }
+    if (payload.mode === 'manual') {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return { outcome: 'manual-unsupported' as const }
     }
     // A disabled connector never reaches the network on the scheduled path.
     if (payload.mode === 'scheduled') {

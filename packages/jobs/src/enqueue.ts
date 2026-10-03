@@ -829,14 +829,17 @@ export async function enqueueLiveDataPoll(
   for (const value of [payload.tenantId, payload.venueId, payload.connectorId]) {
     if (!LIVE_DATA_ID.test(value)) throw new Error('Live data poll identity is invalid')
   }
-  const bucketSeconds = payload.mode === 'test' ? 30 : 15
+  if (!['scheduled', 'test', 'manual'].includes(payload.mode)) {
+    throw new Error('Live data poll mode is invalid')
+  }
+  const bucketSeconds = payload.mode === 'scheduled' ? 15 : 30
   const bucket = Math.floor(now.getTime() / (bucketSeconds * 1000))
   await getQueue(LIVE_DATA_POLL_QUEUE).add(LIVE_DATA_POLL_PROCESS_JOB, payload, {
     attempts: 2,
     backoff: { type: 'exponential', delay: 5_000 },
     removeOnComplete: 200,
     removeOnFail: 500,
-    jobId: `live-data-poll-${payload.mode}-${payload.connectorId}-${bucket}`,
+    jobId: `live-data-poll-${payload.tenantId}-${payload.venueId}-${payload.mode}-${payload.connectorId}-${bucket}`,
   })
   logger.info({
     action: 'jobs.live-data-poll.enqueued',

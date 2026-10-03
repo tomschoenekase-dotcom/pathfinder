@@ -1681,3 +1681,21 @@ export type {
   OffboardingGateInput,
   OffboardingGateResult,
 } from './helpers/offboarding-execution-policy'
+export {
+  SourceConnectionActionError,
+  approveSourceConnectionPreviewAction,
+  claimSourceConnectionPollSlot,
+  claimSourceConnectionRequest,
+  createSourceConnectionDraftAction,
+  recordSourceConnectionBytes,
+  recordSourceConnectionCache,
+  recordSourceConnectionPreviewAction,
+  recordSourceConnectionPollFailure,
+  readSourceConnectionPreview,
+  setSourceConnectionStateAction,
+  sourceConnectionPreviewHash,
+  updateSourceConnectionDraftAction,
+  validateSourceConnectionConfig,
+} from './helpers/source-connections'
+export type { SourceConnectionPreview } from './helpers/source-connections'
+export { publishSourceConnectionSnapshot } from './helpers/source-connection-publication'

@@ -12,6 +12,7 @@ import {
 
 import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
+import { SourceConnectionsSettings } from './SourceConnectionsSettings'
 
 const LIVE_DATA_LOAD_TIMEOUT_MS = 15_000
 
@@ -559,6 +560,7 @@ export function LiveDataSettings({ venueId }: { venueId: string }) {
           Add live source
         </button>
       </form>
+      <SourceConnectionsSettings venueId={venueId} />
     </section>
   )
 }

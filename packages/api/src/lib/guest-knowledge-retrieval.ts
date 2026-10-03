@@ -111,6 +111,7 @@ export type GuestKnowledgeRow = {
   contentRevisionId?: string | null
   contentPublicationId?: string | null
   contentRevision?: {
+    createdBy?: string
     effectiveFrom: Date | null
     effectiveUntil: Date | null
     operationalFact: { expiresAt: Date | null } | null
@@ -265,6 +266,7 @@ function selectShape() {
     contentPublicationId: true,
     contentRevision: {
       select: {
+        createdBy: true,
         effectiveFrom: true,
         effectiveUntil: true,
         operationalFact: { select: { expiresAt: true } },
@@ -350,15 +352,26 @@ export async function retrieveGuestKnowledge(params: {
     tenantId: params.tenantId,
     venueId: params.venueId,
     isEnabled: true,
+    // Connected-source facts have an additional approval/freshness fence. The cached source
+    // reader owns that check; lexical or embedding hits must never bypass it.
+    sourceType: { not: 'SOURCE_CONNECTION' },
     ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
-    AND: [publicationAuthority, adoptionAuthority],
+    AND: [
+      publicationAuthority,
+      adoptionAuthority,
+      {
+        OR: [
+          { contentRevision: { is: null } },
+          { contentRevision: { is: { NOT: { createdBy: { startsWith: 'source-connection:' } } } } },
+        ],
+      },
+    ],
   }
   const strictWhere = concepts.length
     ? {
         ...scope,
         AND: [
-          publicationAuthority,
-          adoptionAuthority,
+          ...scope.AND,
           ...concepts.map((group) => ({
             OR: group.map(textClause).flatMap((clause) => clause.OR),
           })),
@@ -402,6 +415,11 @@ export async function retrieveGuestKnowledge(params: {
   ])
   const activatedLegacyIds = new Set(activated.map((row) => row.adoption.legacyKnowledgeEntryId))
   const hasCurrentPublicationAuthority = (row: GuestKnowledgeRow) => {
+    if (
+      row.sourceType === 'SOURCE_CONNECTION' ||
+      row.contentRevision?.createdBy?.startsWith('source-connection:')
+    )
+      return false
     if (!row.contentModuleId) return true
     const latest = row.contentPublication?.module.publications[0]
     return Boolean(

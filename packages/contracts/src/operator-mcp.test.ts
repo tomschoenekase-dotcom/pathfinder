@@ -64,6 +64,8 @@ const EXPECTED_TOOLS = [
   'venues.list_sessions',
   'venues.get_answer_evidence',
   'venues.list_sources',
+  'venues.list_source_connections',
+  'venues.get_source_connection',
   'venues.get_source',
   'venues.list_content',
   'venues.get_content',
@@ -169,6 +171,7 @@ const EXPECTED_TOOLS = [
   'crm.log_outreach_sent',
   'venues.propose_create',
   'venues.propose_source',
+  'venues.propose_source_connection',
   'venues.propose_knowledge',
   'venues.propose_content_changeset',
   'venues.propose_publish',
@@ -366,6 +369,7 @@ describe('operator MCP catalog', () => {
       'support.propose_create_request',
       'support.propose_client_reply',
       'venues.propose_source',
+      'venues.propose_source_connection',
       'venues.propose_content_changeset',
     ])
   })

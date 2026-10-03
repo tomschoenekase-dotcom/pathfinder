@@ -42,6 +42,7 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'support.client-reply',
   // Starts outbound requests to an outside website, and edits what guests may be told.
   'venues.source',
+  'venues.source-connection',
   'venues.content-changeset',
 ])
 

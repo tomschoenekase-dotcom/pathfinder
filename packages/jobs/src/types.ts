@@ -153,8 +153,8 @@ export type LiveDataPollJobPayload = {
   tenantId: string
   venueId: string
   connectorId: string
-  /** "test" is operator-initiated and never writes an observation. */
-  mode: 'scheduled' | 'test'
+  /** "test" is preview-only; "manual" is a source-connection refresh with its own DB claim. */
+  mode: 'scheduled' | 'test' | 'manual'
 }
 
 /** Carries only exact durable identity. Source, rights, variant, and output policy are reloaded. */

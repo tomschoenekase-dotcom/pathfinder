@@ -7,6 +7,7 @@ import {
 } from '@pathfinder/contracts/live-data'
 
 import type { TRPCContext } from '../context'
+import { SOURCE_CONNECTION_PROVIDER } from '@pathfinder/contracts/source-connections'
 
 /**
  * Guest-path read of venue live data. It reads ONLY the latest stored observation for ACTIVE
@@ -54,22 +55,24 @@ export async function loadGuestLiveDataContext(
     orderBy: { resourceLabel: 'asc' },
     take: LIVE_DATA_LIMITS.maxConnectorsPerVenue,
   })
-  const results = rows.map((row) =>
-    buildLiveDataResult({
-      connector: {
-        venueId: row.venueId,
-        resourceId: row.resourceId,
-        resourceLabel: row.resourceLabel,
-        provider: row.provider,
-        kind: KIND[row.kind] ?? 'generic_json',
-        timezone: row.timezone,
-        freshnessBudgetSeconds: row.freshnessBudgetSeconds,
-        lastErrorCategory: row.lastErrorCategory,
-        consecutiveFailures: row.consecutiveFailures,
-      },
-      observation: row.observation,
-      now,
-    }),
-  )
+  const results = rows
+    .filter((row) => row.provider !== SOURCE_CONNECTION_PROVIDER)
+    .map((row) =>
+      buildLiveDataResult({
+        connector: {
+          venueId: row.venueId,
+          resourceId: row.resourceId,
+          resourceLabel: row.resourceLabel,
+          provider: row.provider,
+          kind: KIND[row.kind] ?? 'generic_json',
+          timezone: row.timezone,
+          freshnessBudgetSeconds: row.freshnessBudgetSeconds,
+          lastErrorCategory: row.lastErrorCategory,
+          consecutiveFailures: row.consecutiveFailures,
+        },
+        observation: row.observation,
+        now,
+      }),
+    )
   return { prompt: renderLiveDataPrompt(results), results }
 }

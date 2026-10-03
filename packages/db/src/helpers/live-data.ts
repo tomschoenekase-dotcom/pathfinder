@@ -50,6 +50,7 @@ const connectorPollSelect = {
   endpointUrl: true,
   endpointHost: true,
   mapping: true,
+  lastTestPreview: true,
   pollIntervalSeconds: true,
   freshnessBudgetSeconds: true,
   state: true,

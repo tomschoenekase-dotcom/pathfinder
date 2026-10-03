@@ -19,6 +19,7 @@ import { venuesContentChangesetKind } from './venues-content-changeset'
 import { venuesKnowledgeKind } from './venues-knowledge'
 import { venuesPublishKind } from './venues-publish'
 import { venuesSourceKind } from './venues-source'
+import { sourceConnectionKind } from './source-connections'
 
 /**
  * Every proposal kind the operator can create. Add a kind by writing one file next to
@@ -36,6 +37,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesKnowledgeKind,
   venuesContentChangesetKind,
   venuesSourceKind,
+  sourceConnectionKind,
   venuesPublishKind,
   ...CRM_MAINTENANCE_KINDS,
   ...CRM_PROSPECT_ADMIN_KINDS,

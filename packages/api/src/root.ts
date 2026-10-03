@@ -9,6 +9,7 @@ import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { liveDataRouter } from './routers/live-data'
+import { sourceConnectionsRouter } from './routers/source-connections'
 import { intakeRouter } from './routers/intake'
 import { intakeUploadRouter } from './routers/intake-upload'
 import { operationalUpdateRouter } from './routers/operational-update'
@@ -37,6 +38,7 @@ export const appRouter = router({
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   liveData: liveDataRouter,
+  sourceConnections: sourceConnectionsRouter,
   intake: intakeRouter,
   intakeUpload: intakeUploadRouter,
   operationalUpdate: operationalUpdateRouter,
