@@ -63,6 +63,31 @@ describe('server-owned prospect workbook inspection', () => {
 })
 
 describe('spreadsheet cells are data', () => {
+  it('preserves explicit CRM identity and location columns for reviewed linking', () => {
+    const row = normalizedRow(
+      {
+        Venue: 'Example Venue',
+        OrgId: 'org-example',
+        VenueId: 'venue-example',
+        Street: '123 Example St',
+        ZIP: '60600',
+      },
+      {
+        venueName: 'Venue',
+        existingOrganizationId: 'OrgId',
+        existingVenueId: 'VenueId',
+        addressLine1: 'Street',
+        postalCode: 'ZIP',
+      },
+      'Sheet 1',
+    )
+    expect(row).toMatchObject({
+      existingOrganizationId: 'org-example',
+      existingVenueId: 'venue-example',
+      addressLine1: '123 Example St',
+      postalCode: '60600',
+    })
+  })
   it('keeps a formula-looking cell as text and never evaluates it', () => {
     for (const cell of ['=1+1', '+SUM(A1)', '-2+3', '@HYPERLINK("x")']) {
       expect(inertCell(cell)).toBe(cell)

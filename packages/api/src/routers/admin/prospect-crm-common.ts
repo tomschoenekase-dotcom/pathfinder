@@ -51,6 +51,10 @@ export function mapProspectActionError(error: unknown): never {
 export const normalizedProspectImportRow = z
   .object({
     organizationName: z.string().max(300).optional(),
+    existingOrganizationId: z.string().max(191).optional(),
+    existingVenueId: z.string().max(191).optional(),
+    addressLine1: z.string().max(1000).optional(),
+    postalCode: z.string().max(100).optional(),
     venueName: z.string().max(300),
     venueType: z.string().max(200).optional(),
     venueSubtype: z.string().max(200).optional(),
