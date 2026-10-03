@@ -1025,6 +1025,55 @@ describe('ChatWindow mobile send and composer hint', () => {
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
 
+  it('does not let a quick second tap stop the answer it just started', () => {
+    phone()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const onSend = vi.fn()
+      const onStopResponse = vi.fn()
+      const props = { messages: [], onSend, onStopResponse }
+      const { rerender } = render(<ChatWindow {...props} isLoading={false} />)
+      const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+      fireEvent.change(composer, { target: { value: 'Where is the cafe?' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Send message' }), { detail: 0 })
+      expect(onSend).toHaveBeenCalledOnce()
+
+      rerender(<ChatWindow {...props} isLoading />)
+      const stop = screen.getByRole('button', { name: 'Stop response' })
+      vi.advanceTimersByTime(200)
+      fireEvent.click(stop, { detail: 0 })
+      expect(onStopResponse).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(700)
+      fireEvent.click(stop, { detail: 0 })
+      expect(onStopResponse).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores a touch release on a disabled send button', () => {
+    phone()
+    const onStopResponse = vi.fn()
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={vi.fn()}
+        onStopResponse={onStopResponse}
+        isLoading
+        isOnline={false}
+      />,
+    )
+    const button = screen.getByRole('button') as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.touchStart(button, {
+      touches: [{ identifier: 4, clientX: 20, clientY: 20 }],
+      changedTouches: [{ identifier: 4, clientX: 20, clientY: 20 }],
+    })
+    fireEvent.touchEnd(button, { changedTouches: [{ identifier: 4, clientX: 20, clientY: 20 }] })
+    expect(onStopResponse).not.toHaveBeenCalled()
+  })
+
   it('keeps the keyboard for whitespace, an IME confirmation and a rejected send', () => {
     phone()
     const onSend = vi.fn().mockReturnValue(false)

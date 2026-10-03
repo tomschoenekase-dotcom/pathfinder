@@ -66,6 +66,8 @@ type ChatWindowProps = {
   locationAware?: boolean
 }
 
+const STOP_AFTER_SEND_GUARD_MS = 600
+
 export function ChatWindow({
   messages,
   onSend,
@@ -129,11 +131,24 @@ export function ChatWindow({
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const sendTouchStartRef = useRef<{ id: number; x: number; y: number } | null>(null)
   const lastSendTouchEndAtRef = useRef(0)
+  const lastSubmitAtRef = useRef(0)
   const wasLoadingRef = useRef(isLoading)
   const announcementWasLoadingRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
+
+  useEffect(() => {
+    // On a slow phone the server-rendered composer is usable before hydration.
+    // Keep anything the guest already typed instead of resetting it to state.
+    const typedBeforeHydration = composerRef.current?.value ?? ''
+    if (!typedBeforeHydration || typedBeforeHydration === draft) return
+    setDraft(typedBeforeHydration)
+    rememberDraft(typedBeforeHydration)
+    onDraftChange?.(typedBeforeHydration)
+    // Mount-only: later renders are controlled by state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const previousScope = draftScopeRef.current
@@ -246,6 +261,17 @@ export function ChatWindow({
     }
   }, [isLoading, messages])
 
+  function activateSendButton() {
+    if (!isLoading) {
+      submit()
+      return
+    }
+    // Send becomes Stop as soon as a question is accepted. A quick double tap
+    // aimed at Send must not cancel the answer it just started.
+    if (Date.now() - lastSubmitAtRef.current < STOP_AFTER_SEND_GUARD_MS) return
+    onStopResponse?.()
+  }
+
   function submit() {
     const nextMessage = draft.trim()
 
@@ -259,6 +285,7 @@ export function ChatWindow({
 
     setDraft('')
     rememberDraft('')
+    lastSubmitAtRef.current = Date.now()
     followLatestRef.current = true
     // On a phone the send itself dismisses the software keyboard, in this same interaction, so
     // the composer settles back down while the answer loads; nothing refocuses it afterwards.
@@ -545,7 +572,8 @@ export function ChatWindow({
                 (candidate) => candidate.identifier === start?.id,
               )
               sendTouchStartRef.current = null
-              if (!start || !touch) return
+              // Touch events still reach a disabled button; only clicks are blocked.
+              if (!start || !touch || event.currentTarget.disabled) return
               // Even a swipe can produce a delayed compatibility click in some
               // engines; do not let that turn a cancelled gesture into a send.
               lastSendTouchEndAtRef.current = Date.now()
@@ -556,13 +584,11 @@ export function ChatWindow({
               // release and the synthetic click. Act on release, then suppress
               // that click so a single tap cannot submit twice.
               event.preventDefault()
-              if (isLoading) onStopResponse?.()
-              else submit()
+              activateSendButton()
             }}
             onClick={(event) => {
               if (event.detail > 0 && Date.now() - lastSendTouchEndAtRef.current < 750) return
-              if (isLoading) onStopResponse?.()
-              else submit()
+              activateSendButton()
             }}
           >
             {isLoading && onStopResponse ? (
