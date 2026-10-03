@@ -137,6 +137,21 @@ describe('crm.get_import', () => {
     expect(out.import.mappingHash).toBe('e'.repeat(64))
   })
 
+  it('counts only selected source sheets in progress totals', async () => {
+    const out = await run(
+      getImport,
+      { importId: 'import-1' },
+      importFake(rows, {
+        totalRows: 10,
+        sheets: [
+          { sheetName: 'Selected', detectedRows: 10, selected: true },
+          { sheetName: 'Ignored', detectedRows: 990, selected: false },
+        ],
+      }),
+    )
+    expect(out.import.progress.total).toBe(10)
+  })
+
   it('says so when the rows do not add up to the recorded total', async () => {
     const out = await run(getImport, { importId: 'import-1' }, importFake(rows, { totalRows: 9 }))
     expect(out.dispositions.rowTotal).toBe(7)

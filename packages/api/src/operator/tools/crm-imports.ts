@@ -264,7 +264,9 @@ const getImport: OperatorReadTool = {
           staged: rowTotal,
           total: Math.max(
             manifest?.sourceRows ?? row.totalRows,
-            row.sheets.reduce((sum, sheet) => sum + sheet.detectedRows, 0),
+            row.sheets
+              .filter((sheet) => sheet.selected || !row.sheets.some((entry) => entry.selected))
+              .reduce((sum, sheet) => sum + sheet.detectedRows, 0),
           ),
           leaseExpiresAt: iso(row.jobClaimExpiresAt),
           recovery:
@@ -273,7 +275,9 @@ const getImport: OperatorReadTool = {
                 ? sourceMapped
                   ? 'RESUME_SOURCE_STAGING'
                   : 'MAP_SOURCE_COLUMNS'
-                : 'RETRY_CSV_STAGE_WITH_SAME_OPERATION'
+                : manifest?.mcpCsv
+                  ? 'RETRY_CSV_STAGE_WITH_SAME_OPERATION'
+                  : 'REVIEW_LEGACY_DRAFT'
               : counts.DUPLICATE_REVIEW > 0
                 ? 'REVIEW_DUPLICATES'
                 : counts.FAILED > 0

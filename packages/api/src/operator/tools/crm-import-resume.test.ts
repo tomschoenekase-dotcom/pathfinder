@@ -15,6 +15,7 @@ vi.mock('@pathfinder/jobs', () => ({ enqueueProspectImportStaging: vi.fn() }))
 const input = { importId: 'import-1', fileHash: 'a'.repeat(64), mappingHash: 'b'.repeat(64) }
 const row = {
   id: input.importId,
+  status: 'DRAFT',
   fileHash: input.fileHash,
   mappingHash: input.mappingHash,
   jobClaimExpiresAt: null,

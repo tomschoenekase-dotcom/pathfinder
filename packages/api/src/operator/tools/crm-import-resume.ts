@@ -25,6 +25,11 @@ export async function resumeImport(
       'ARGS_HASH_MISMATCH',
       'Import file or mapping changed; read crm.get_import again',
     )
+  if (!['DRAFT', 'DRY_RUN_READY'].includes(row.status))
+    throw new OperatorProposalError(
+      'NOT_PENDING',
+      'Only an incomplete draft import can resume staging',
+    )
   if (row.jobClaimExpiresAt && row.jobClaimExpiresAt > new Date())
     return { importId: row.id, queued: false, jobId: null, state: 'RUNNING' as const }
   if (input.mapping && input.selectedSheets) {

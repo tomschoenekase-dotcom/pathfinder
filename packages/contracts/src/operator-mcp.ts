@@ -2924,6 +2924,7 @@ export const OPERATOR_MCP_OUTPUTS = {
               .enum([
                 'RESUME_SOURCE_STAGING',
                 'MAP_SOURCE_COLUMNS',
+                'REVIEW_LEGACY_DRAFT',
                 'RETRY_CSV_STAGE_WITH_SAME_OPERATION',
                 'REVIEW_DUPLICATES',
                 'INSPECT_ROW_ERRORS',

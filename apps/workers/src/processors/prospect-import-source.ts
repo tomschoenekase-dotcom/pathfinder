@@ -123,9 +123,9 @@ function sheetShape(sheet: XLSX.WorkSheet) {
     raw: false,
   })[0]
   const columns = (header ?? []).map((value, index) => {
-    const label = String(value ?? `column_${index + 1}`)
-      .trim()
-      .slice(0, 300)
+    const rawLabel = String(value ?? `column_${index + 1}`)
+    if (rawLabel.length > 300) throw new Error('Workbook column name exceeds the character limit')
+    const label = rawLabel.trim()
     return label || `column_${index + 1}`
   })
   return { rows, columns }
@@ -284,7 +284,10 @@ export async function stageProspectImportSource(
         try {
           if (Object.keys(raw).length > MAX_COLUMNS) throw new Error('row exceeds the column limit')
           const sourceValues = Object.fromEntries(
-            Object.entries(raw).map(([column, value]) => [column.slice(0, 300), inertCell(value)]),
+            Object.entries(raw).map(([column, value]) => {
+              if (column.length > 300) throw new Error('column name exceeds the character limit')
+              return [column, inertCell(value)]
+            }),
           )
           if (Buffer.byteLength(JSON.stringify(sourceValues), 'utf8') > MAX_ROW_BYTES) {
             throw new Error('row exceeds the encoded-size limit')

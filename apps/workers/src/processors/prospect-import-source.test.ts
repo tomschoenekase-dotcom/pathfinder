@@ -46,6 +46,13 @@ describe('server-owned prospect workbook inspection', () => {
     expect(inspected.expanded).toBeGreaterThan(bytes.byteLength)
   }, 30_000)
 
+  it('rejects oversized source headers rather than silently renaming them', async () => {
+    await expect(
+      inspectProspectWorkbookBytes(Buffer.from(`${'x'.repeat(301)}\nvalue`), 'csv'),
+    ).rejects.toThrow('column name')
+    expect(inertCell('x'.repeat(35_623))).toHaveLength(35_623)
+  })
+
   it('rejects a CSV beyond the 100,000-row server limit', async () => {
     const lines = ['venue_name']
     for (let index = 0; index < 100_001; index += 1) lines.push(`Venue ${index}`)
