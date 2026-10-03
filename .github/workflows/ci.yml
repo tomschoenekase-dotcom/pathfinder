@@ -409,6 +409,7 @@ jobs:
       - name: Run pnpm turbo run typecheck
         if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
+          NODE_OPTIONS: --max-old-space-size=6144
           PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         # Unquoted on purpose: the plan emits validated `--filter=<workspace>` words only.
         run: pnpm turbo run typecheck $PLAN_TURBO_FILTERS

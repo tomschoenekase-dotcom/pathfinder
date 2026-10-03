@@ -2,7 +2,7 @@
   "$schema": "https://schema.railway.app/railway.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pnpm install --frozen-lockfile && pnpm --filter @pathfinder/dashboard build"
+    "buildCommand": "pnpm install --frozen-lockfile && NODE_OPTIONS=--max-old-space-size=6144 pnpm --filter @pathfinder/dashboard build"
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",

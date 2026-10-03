@@ -46,6 +46,26 @@ If production fails, pause import/merge writers and restore the previously admit
 SHA from its verified release record. Keep additive data and receipts; never run a destructive
 down migration. App rollback cannot reverse merges or provider effects.
 
+Rollback after the 267 migration has a constraint. The 9f staging predeploy accepts only its own
+255-row ledger, so redeploying 9f's web fails predeploy once staging holds 267 rows, and a plain
+revert of the PR40 merge fails the same way. Rollback therefore uses the prepared branch
+`codex/pr40-staging-rollback-9f-on-267`: 9f application code with this release's 267 schema,
+migrations, tenant registry and admission script, deployed code-only (hold 0, migration opt-in 0).
+Admit its exact SHA through the same checks before relying on it.
+
+Roll back in this order and stop at the first failure:
+
+1. Pause the workers.
+2. Record the BullMQ waiting, active and delayed counts.
+3. Set the import and merge writers off.
+4. Reset `PATHFINDER_RELEASE_SHA` on all three services to the rollback SHA, or remove it.
+5. Deploy web, then require health and the exact SHA.
+6. Deploy the dashboard, then the workers, requiring the exact SHA after each.
+7. Keep provider switches unchanged.
+
+Prefer redeploying a recorded deployment over a rebuild. Production also builds the dashboard
+through the compatibility configurations, which now set the 6 GiB heap for the build only.
+
 Exact candidate/deployment SHAs, backup IDs, migration ledgers, acceptance receipts and rollback
 command will be recorded in the release handoff and journal after execution. Until then, hosted
 release, physical iPhone, live Gmail bounce/draft behavior and Stripe sandbox are NOT RUN.
