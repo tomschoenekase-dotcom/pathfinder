@@ -18,7 +18,7 @@ import {
   OperatorScopeTooLargeError,
 } from './grants'
 import { verifyOperatorAccessToken, type VerifiedOperatorGrant } from './oauth'
-import { OperatorProposalError } from './proposals'
+import { OPERATOR_KIND_REFUSAL_CODES, OperatorProposalError } from './proposals'
 import {
   createOperatorRegistry,
   defaultVenueRead,
@@ -145,19 +145,18 @@ function toolResult(structured: unknown, isError = false) {
 }
 
 /** Refusals a kind raises at propose time that the Dot should see by name. */
-const KIND_REFUSAL_CODES = new Set([
-  'DO_NOT_CONTACT_LOCKED',
-  'SENT_AT_IN_FUTURE',
-  'INVALID_URL',
-  'RECEIPT_CONFLICT',
-  'ADDRESS_SUPPRESSED',
-  'CONTENT_CHANGED',
-  'ESCALATION_UNACKNOWLEDGED',
-  'RELEASE_LIMIT',
-  'RELEASE_DISABLED',
-])
+const KIND_REFUSAL_CODES = OPERATOR_KIND_REFUSAL_CODES
 
-function errorCode(error: unknown): string {
+/** Structured, non-sensitive detail a kind attaches to its refusal (current state, matches). */
+function refusalDetails(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== 'object' || !('details' in error)) return {}
+  const details = (error as { details: unknown }).details
+  if (!details || typeof details !== 'object') return {}
+  const code = errorCode(error)
+  return KIND_REFUSAL_CODES.has(code) ? { details } : {}
+}
+
+export function errorCode(error: unknown): string {
   if (error instanceof OperatorNotFoundError) return 'NOT_FOUND'
   if (error instanceof OperatorCapabilityError) return 'CAPABILITY_DENIED'
   if (error instanceof OperatorUnknownToolError) return 'UNKNOWN_TOOL'
@@ -170,7 +169,9 @@ function errorCode(error: unknown): string {
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code: unknown }).code)
       : ''
-  if (KIND_REFUSAL_CODES.has(code)) return code
+  if (OPERATOR_KIND_REFUSAL_CODES.has(code)) return code
+  if (['INVALID_CSV', 'FETCH_FAILED', 'SCOPE_REQUIRED', 'OPERATION_CONFLICT'].includes(code))
+    return code
   return 'TOOL_FAILED'
 }
 
@@ -181,6 +182,24 @@ type ErrorGuidance = Readonly<{
 }>
 
 const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
+  INVALID_CSV: {
+    retryable: false,
+    nextAction: 'Correct the CSV format, mapping or size. No import rows were staged by this call.',
+  },
+  FETCH_FAILED: {
+    retryable: true,
+    nextAction:
+      'Supply a fresh authorized CSV attachment link or csvText and retry with the same operationId.',
+  },
+  SCOPE_REQUIRED: {
+    retryable: false,
+    nextAction: 'CSV imports require an owner-authorized platform-wide CRM connection.',
+  },
+  OPERATION_CONFLICT: {
+    retryable: false,
+    nextAction:
+      'This operationId belongs to a different file or mapping. Recover the original import before starting distinct work.',
+  },
   NOT_FOUND: {
     retryable: false,
     nextAction:
@@ -220,6 +239,25 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
     retryAfterSeconds: 60,
     nextAction: 'Wait, then repeat the same call.',
   },
+  NOT_RECORDED: {
+    retryable: true,
+    nextAction:
+      'Nothing was recorded and nothing was changed, so there is no operation to look up. It is safe to send the same request again with the same operationId.',
+  },
+  DISABLED: {
+    retryable: false,
+    nextAction:
+      'This action is switched off on this deployment. Nothing was recorded or changed. Ask the owner to enable it.',
+  },
+  SLUG_TAKEN: {
+    retryable: false,
+    nextAction: 'Nothing was changed. Choose a different slug and propose again.',
+  },
+  UNRECONCILED_PRIOR_OPERATION: {
+    retryable: false,
+    nextAction:
+      'An earlier operation for this same customer has an unconfirmed outcome. Call operator.recover_operation with that earlier operationId until it settles. Do not send a new operationId; that could create a second customer.',
+  },
   STALE: {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
@@ -228,18 +266,59 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
     retryable: false,
     nextAction: 'Read the target again and propose again with the new version.',
   },
+  DUPLICATE_REVIEW: {
+    retryable: false,
+    nextAction:
+      'A matching account already exists (see details.matches). Do not create another: use the existing account, or ask a person to review the duplicate. Never retry with a new operationId.',
+  },
+  IMPORT_NOT_READY: {
+    retryable: false,
+    nextAction:
+      'Read crm.get_import. The import must finish staging, have no unresolved duplicate rows, and match the hashes you read. Stage CSV attachments with crm.stage_csv_import; review uncertain duplicate rows in the admin app.',
+  },
+  OWNER_NOT_FOUND: {
+    retryable: false,
+    nextAction:
+      'No user in the directory has that id or address. Ask which person is meant; never guess an owner.',
+  },
+  CHANGESET_INVALID: {
+    retryable: false,
+    nextAction:
+      'Read the rows with venues.list_content and venues.get_content, run venues.preview_content_changeset to see each problem, then propose a corrected changeset.',
+  },
+  SOURCE_HOST_NOT_AUTHORIZED: {
+    retryable: false,
+    nextAction:
+      'Only hosts the venue has authorized as website origins can be captured. Ask a person to add the origin, then propose again. Nothing was fetched.',
+  },
+  SOURCE_LIMIT: {
+    retryable: true,
+    retryAfterSeconds: 120,
+    nextAction: 'Read venues.list_sources and wait for a capture to finish, then propose again.',
+  },
+  SOURCE_ALREADY_PENDING: {
+    retryable: false,
+    nextAction: 'Read venues.list_sources; this URL is already queued. Do not request it again.',
+  },
 }
 
 /** The structured error a caller sees: stable code, retryability, request id and a safe next step. */
-function errorBody(
+export function errorBody(
   code: string,
   name: string,
   requestId: string,
   extra: Record<string, unknown> = {},
 ) {
   const effect = getOperatorToolDefinition(name)?.effect
-  const write = effect === 'proposal'
-  const known = ERROR_GUIDANCE[code]
+  const write = effect !== undefined && effect !== 'read'
+  const known =
+    name === 'crm.stage_csv_import' && code === 'TOOL_FAILED'
+      ? {
+          retryable: false,
+          nextAction:
+            'The staging outcome is unknown. Repeat crm.stage_csv_import with the same operationId and original file or csvText to recover its durable import receipt. Do not create a new operationId for the same import.',
+        }
+      : ERROR_GUIDANCE[code]
   // A failed write call may still have recorded the proposal, so the same operationId is the
   // only safe way to find out. A new operationId could repeat the effect.
   const unknownWrite = write && code === 'TOOL_FAILED'
@@ -265,7 +344,13 @@ function errorBody(
       : { retryAfterSeconds: guidance.retryAfterSeconds }),
     requestId,
     nextAction: guidance.nextAction,
-    ...(unknownWrite ? { outcome: 'unknown' } : {}),
+    // A write refused before any record existed provably changed nothing.
+    ...(unknownWrite
+      ? { outcome: 'unknown' }
+      : write && code !== 'TOOL_FAILED'
+        ? { outcome: 'none' }
+        : {}),
+    ...(code === 'NOT_RECORDED' ? { operationRecorded: false } : {}),
     ...extra,
   }
 }
@@ -366,9 +451,9 @@ export async function handleOperatorMcpRequest(
               result: {
                 protocolVersion: version,
                 capabilities: { tools: { listChanged: false } },
-                serverInfo: { name: 'torchiko-operator', version: '1.0.0' },
+                serverInfo: { name: 'torchiko-operator', version: '1.2.0' },
                 instructions:
-                  'Call operator.get_manual first and follow it. Every write is a proposal; show Tom the approveUrl when a result is PENDING.',
+                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit.',
               },
             },
             requestId,
@@ -396,6 +481,7 @@ export async function handleOperatorMcpRequest(
                   inputSchema: tool.inputSchema,
                   outputSchema: tool.outputSchema,
                   annotations: tool.annotations,
+                  ...(tool._meta ? { _meta: tool._meta } : {}),
                 })),
               },
             },
@@ -507,9 +593,25 @@ async function callTool(
       result: toolResult(
         code === 'INVALID_ARGUMENTS' && error instanceof z.ZodError
           ? errorBody(code, name, context.requestId, {
-              issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
+              issues: error.issues.map((issue) => ({
+                path: issue.path,
+                code: issue.code,
+                // Only our own refinement text is echoed; built-in messages can quote input.
+                ...(issue.code === 'custom' ? { message: issue.message } : {}),
+              })),
             })
-          : errorBody(code, name, context.requestId),
+          : errorBody(
+              code,
+              name,
+              context.requestId,
+              name === 'operator.get_operation' && code === 'NOT_FOUND'
+                ? {
+                    operationRecorded: false,
+                    nextAction:
+                      'No operation with this operationId is recorded for this connection. A write that returned an error with outcome "none" or "operationRecorded: false" changed nothing and may be sent again with the same operationId. If the original call returned a different error, read the target before sending anything.',
+                  }
+                : refusalDetails(error),
+            ),
         true,
       ),
     }

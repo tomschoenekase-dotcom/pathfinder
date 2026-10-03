@@ -5,11 +5,76 @@ on:
     branches: ['**']
   pull_request:
     branches: [master]
+  # Merge queues and manual runs always execute the full suite (see the plan job).
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Supersede stale runs on development branches only. Master, the staging release branch, the
+# production promotion pull request and merge queues are never cancelled by a later push.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' && github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/codex/pathfinder-v2-staging' && github.head_ref != 'codex/pathfinder-v2-staging' }}
+
 jobs:
+  # Dependency-aware change plan (docs/implementation/ci-optimization.md). Every uncertainty and
+  # every release-bearing event resolves to the full suite; an output is only ever skipped when it
+  # is exactly 'false'. Required checks keep their names and always resolve through ci-required.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.plan.outputs.mode || steps.force.outputs.mode }}
+      run_visitor_launch: ${{ steps.plan.outputs.run_visitor_launch || steps.force.outputs.run_visitor_launch }}
+      run_database_integration: ${{ steps.plan.outputs.run_database_integration || steps.force.outputs.run_database_integration }}
+      run_browser_gates: ${{ steps.plan.outputs.run_browser_gates || steps.force.outputs.run_browser_gates }}
+      run_workspace_graph: ${{ steps.plan.outputs.run_workspace_graph || steps.force.outputs.run_workspace_graph }}
+      turbo_filters: ${{ steps.plan.outputs.turbo_filters || steps.force.outputs.turbo_filters }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 20
+          # setup-node v5 enables package-manager caching from package.json `packageManager`, which
+          # needs pnpm on PATH. The classifier is plain node with no dependencies, so opt out.
+          package-manager-cache: false
+      - name: Classify the complete change set
+        id: plan
+        if: ${{ !((github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master')) }}
+        continue-on-error: true
+        env:
+          PLAN_EVENT: ${{ github.event_name }}
+          PLAN_REF: ${{ github.ref }}
+          PLAN_HEAD_REF: ${{ github.head_ref }}
+          PLAN_BASE_REF: ${{ github.base_ref }}
+          PLAN_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node scripts/ci-change-plan.mjs \
+            --event "$PLAN_EVENT" \
+            --ref "$PLAN_REF" \
+            --head-ref "$PLAN_HEAD_REF" \
+            --base-ref "$PLAN_BASE_REF" \
+            --base-sha "${PLAN_PR_BASE_SHA:-none}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Force the full suite for release-bearing runs
+        id: force
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master') }}
+        run: |
+          {
+            echo 'mode=full'
+            echo 'run_visitor_launch=true'
+            echo 'run_database_integration=true'
+            echo 'run_browser_gates=true'
+            echo 'run_workspace_graph=true'
+            echo 'turbo_filters='
+          } >> "$GITHUB_OUTPUT"
+
   railway-iac:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -31,6 +96,9 @@ jobs:
         run: node --test scripts/railway-iac-readiness.test.mjs
 
   visitor-launch:
+    needs: plan
+    # Skipped only when the plan proves no browser surface is affected (explicit 'false').
+    if: ${{ !cancelled() && needs.plan.outputs.run_visitor_launch != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -68,6 +136,10 @@ jobs:
         run: pnpm --dir apps/dashboard test:visitor-launch-browser
 
   ci:
+    needs: plan
+    # Always runs (never skipped): cheap policy checks and script tests apply to every change.
+    # Heavy gates inside it are skipped only on an explicit 'false' from the plan.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -135,6 +207,7 @@ jobs:
       - run: pnpm verify:docker-context:effective
       - run: pnpm --dir packages/db db:generate
       - name: Apply migrations through the disposable-target guard
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: |
           set -o pipefail
           migration_log="$(mktemp)"
@@ -154,16 +227,25 @@ jobs:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
       - name: Verify operator OAuth, grants, proposals and approvals on disposable PostgreSQL
-        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator.adversarial.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts --pool=forks --maxWorkers=1
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator.adversarial.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts src/operator/operator-routine-default.disposable.integration.test.ts src/operator/tools/crm-csv-import.disposable.integration.test.ts src/operator/tools/crm-merges.disposable.integration.test.ts src/operator/operator-decisions-grants.disposable.integration.test.ts src/correspondence/prisma-provider-draft-store.disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
         env:
           RUN_OPERATOR_DB_INTEGRATION: '1'
+          RUN_CRM_CSV_IMPORT_DB_INTEGRATION: '1'
+      - name: Verify CRM account merge plans and source preservation on disposable PostgreSQL
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
+        env:
+          RUN_PROSPECT_CRM_DB_INTEGRATION: '1'
       - name: Verify client MCP credential and venue appearance lifecycle
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/mcp/mcp-venue-appearance-disposable.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_MCP_VENUE_APPEARANCE_DB_INTEGRATION: '1'
           MCP_WRITE_TOOLS_ENABLED: 'true'
           AGENT_BRIDGE_HTTP_ENABLED: 'true'
       - name: Start disposable S3-compatible storage
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: |
           docker run --name pathfinder-disposable-media-ci --detach \
             --publish 127.0.0.1:59000:9000 \
@@ -177,6 +259,7 @@ jobs:
           docker logs pathfinder-disposable-media-ci
           exit 1
       - name: Verify disposable media storage contract
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/lib/media-storage.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_MEDIA_STORAGE_INTEGRATION: '1'
@@ -186,82 +269,100 @@ jobs:
           STORAGE_ACCESS_KEY_ID: synthetic-access
           STORAGE_SECRET_ACCESS_KEY: synthetic-secret
       - name: Remove disposable S3-compatible storage
-        if: always()
+        if: ${{ always() && needs.plan.outputs.run_database_integration != 'false' }}
         run: docker rm --force pathfinder-disposable-media-ci
       - name: Prove authoritative upload worker against fresh disposable infrastructure
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm test:intake-upload-verification:disposable
       - name: Verify embedding database concurrency and recovery
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_EMBEDDING_DB_INTEGRATION: '1'
       - name: Verify analysis and report execution fencing under contention
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/generation-execution-claims.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_GENERATION_EXECUTION_DB_INTEGRATION: '1'
       - name: Verify durable generation request dispatch leasing
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/generation-request-dispatches.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_GENERATION_DISPATCH_DB_INTEGRATION: '1'
       - name: Verify durable generation API request idempotency
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/routers/admin/generation-request.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_GENERATION_REQUEST_DB_INTEGRATION: '1'
       - name: Verify expired generation recovery discovery
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/generation-recovery.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_GENERATION_RECOVERY_DB_INTEGRATION: '1'
       - name: Verify generation recovery enqueue deduplication
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/jobs exec vitest run src/generation-recovery.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RAILWAY_ENVIRONMENT: preview
           RUN_GENERATION_RECOVERY_REDIS_INTEGRATION: '1'
           PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_disposable_generation_recovery
       - name: Verify generation dispatch enqueue deduplication
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/jobs exec vitest run src/generation-dispatch.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RAILWAY_ENVIRONMENT: preview
           RUN_GENERATION_DISPATCH_REDIS_INTEGRATION: '1'
           PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_disposable_generation_dispatch
       - name: Verify terminal job redrive fencing
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm test:redis:terminal-redrive
         env:
           PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
           PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify cross-replica media admission
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm test:redis:media-admission
         env:
           PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
           PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify complete live queue observability
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm test:redis:queue-observability
         env:
           PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
           PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify embedding freshness audit isolation
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_EMBEDDING_DB_INTEGRATION: '1'
       - name: Verify daily rollup logical uniqueness under contention
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/daily-rollup-uniqueness.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_ROLLUP_DB_INTEGRATION: '1'
       - name: Verify atomic venue content import rollback
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/routers/venue-import.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_VENUE_IMPORT_DB_INTEGRATION: '1'
       - name: Verify content history capture, isolation, and revert
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/routers/content-history.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_CONTENT_HISTORY_DB_INTEGRATION: '1'
       - name: Verify venue-package atomic mutation, provenance, and rollback
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/routers/venue-package.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_VENUE_PACKAGE_DB_INTEGRATION: '1'
       - name: Verify venue-package semantic duplicate isolation
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/venue-package-semantic-duplicates.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_VENUE_PACKAGE_SEMANTIC_DB_INTEGRATION: '1'
       - name: Verify venue-package semantic migration from legacy state
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: node --test scripts/venue-package-duplicate-analysis-migration.integration.test.mjs
         env:
           RUN_VENUE_PACKAGE_DUPLICATE_MIGRATION_INTEGRATION: '1'
@@ -269,14 +370,17 @@ jobs:
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
           PATHFINDER_DISPOSABLE_DATABASE: pathfinder_disposable_ci
       - name: Verify Clerk webhook receipt concurrency and rollback
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/membership-sync.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
       - name: Synchronize reviewed character assets
         run: pnpm characters:sync
       - name: Install the pinned Chromium runtime for visual smoke tests
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
       - name: Verify phone, tablet, and desktop core-product rendering
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         run: |
           set -o pipefail
           visual_log="$(mktemp)"
@@ -291,17 +395,54 @@ jobs:
             exit 1
           fi
       - name: Build and verify browser bundles contain no server secrets
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
+        env:
+          # Match the dashboard Docker builder; all build/type/secret checks remain enabled.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         run: pnpm test:browser-foundation
       - name: Verify Packet 2 automated accessibility contracts
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         run: pnpm test:accessibility
-      - run: pnpm turbo run typecheck
+      - name: Run pnpm turbo run typecheck
+        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        env:
+          PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
+        # Unquoted on purpose: the plan emits validated `--filter=<workspace>` words only.
+        run: pnpm turbo run typecheck $PLAN_TURBO_FILTERS
       - name: Prove billing command races and recovery on disposable PostgreSQL
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         env:
           RUN_BILLING_COMMAND_DB_INTEGRATION: '1'
         run: pnpm --filter @pathfinder/billing exec vitest run src/agent-commands-disposable.integration.test.ts
-      - run: pnpm turbo run lint
+      - name: Run pnpm turbo run lint
+        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        env:
+          PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
+        run: pnpm turbo run lint $PLAN_TURBO_FILTERS
       - name: Verify workspace test graph
+        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        env:
+          PATHFINDER_CI_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         run: node scripts/run-ci-workspace-tests.mjs
       - run: pnpm test:scripts
+
+  # Always-running aggregate for branch protection. It fails if any required job failed, was
+  # cancelled or was skipped without an explicit plan exclusion, so a skipped job can never leave
+  # a required check silently green. Selective success is never release approval.
+  ci-required:
+    needs: [plan, ci, railway-iac, visitor-launch]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Evaluate required job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci-required-gate.mjs

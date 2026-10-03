@@ -4,45 +4,62 @@ import { useEffect, useState } from 'react'
 
 /** The keyboard counts as open once the visual viewport is this much shorter than the baseline. */
 export const KEYBOARD_MIN_SHRINK = 80
-/** After focus leaves the field, the pan is undone only once the viewport is this close to baseline. */
+/** After focus leaves the field, leftover document scroll is cleared once this close to baseline. */
 export const KEYBOARD_RESTORE_TOLERANCE = 20
-/** A measured gap smaller than this (in CSS px) counts as aligned. */
-export const ALIGN_TOLERANCE = 1
-/** Corrections applied per viewport event before the shell is left where it is. */
-export const MAX_ALIGN_PASSES = 3
 /** The transcript counts as "following the latest message" within this distance of its end. */
 export const FOLLOW_LATEST_SLACK = 80
-/** Frames to wait for React to commit an applied offset before measuring. */
-export const MAX_COMMIT_WAITS = 4
-
-type ViewportRect = { height: number; offsetTop: number; offsetLeft: number }
 
 /**
- * Mobile keyboards can shrink the visual viewport without changing CSS dvh. The shell is
- * `position: fixed`, which is placed in LAYOUT-viewport coordinates, and `visualViewport.offsetTop`
- * is ALSO measured from the layout viewport's top edge. So the shell is pinned to the visual
- * viewport's rectangle directly: `top = offsetTop`, `height = viewport.height`. Nothing about the
- * document's own scroll position belongs in that arithmetic (an earlier version subtracted
- * `scrollY`, which shifted the shell up by exactly the scroll iOS applies to reveal the field and
- * left the composer far above the keyboard).
+ * Where the chat shell should sit, in layout-viewport CSS pixels. `undefined` means the shell's
+ * stylesheet default (`position: fixed; inset: 0`) already matches what the visitor can see.
+ */
+export type ChatViewportRect = {
+  height: number
+  offsetTop: number
+  offsetLeft: number
+  /** A software keyboard is (very probably) covering part of the screen. Styling only. */
+  keyboardOpen: boolean
+}
+
+/**
+ * One layout model for the visitor chat on phones: **the shell is the visual viewport.**
  *
- * That geometry is then checked against what the browser actually rendered: the shell's measured
- * top is compared with the visual viewport's top and any residual is corrected, a bounded number of
- * times per event. The check makes the layout independent of which browser reports which coordinate
- * frame, and it is idempotent: a settled shell measures zero residual and nothing moves.
+ * The shell is `position: fixed`, which places it in layout-viewport coordinates, and
+ * `visualViewport.offsetTop/offsetLeft` are, by specification, the visual viewport's offset from
+ * that same layout-viewport origin (MDN VisualViewport; WICG `fixed-to-keyboard` example). So the
+ * shell's rectangle is read straight from the visual viewport — `top = offsetTop`,
+ * `left = offsetLeft`, `height = height` — on every visual-viewport resize/scroll. Nothing else
+ * compensates for the keyboard: no document scroll arithmetic, no padding, no transform, no
+ * measured "correction".
  *
- * Keyboard detection compares against a stable baseline (the largest visual viewport height seen
- * while no text field is focused, reset on orientation change), not `window.innerHeight`, because
- * recent iOS Safari can shrink `innerHeight` together with the visual viewport.
+ * Why there is deliberately no measurement step: an earlier version compared the shell's
+ * `getBoundingClientRect().top` with `offsetTop` and "corrected" the difference. Chrome reports
+ * client rects of fixed elements relative to the layout viewport, but iOS WebKit reports them
+ * relative to the *visual* viewport. On an iPhone that check therefore saw a residual equal to the
+ * whole pan and added it a second time, leaving a blank band above a shell pushed down onto the
+ * keyboard (evidence IMG_0341). Desktop/Playwright Chromium could never reproduce it.
  *
- * While a textarea is focused this hook never scrolls the document, so it cannot undo the scroll
- * Safari uses to reveal the field. Any leftover scroll is cleared only after focus leaves and the
- * viewport is back near its baseline. If the transcript was following the latest message when the
- * viewport changed height, it is re-pinned to its end afterwards, so recent conversation stays
- * visible above the composer both when the keyboard opens and when it closes.
+ * The rectangle is followed whether or not a field is focused, so a pan iOS leaves behind after
+ * the keyboard closes (reported on iOS 26: `offsetTop` not returning to 0) still yields a visible,
+ * correctly placed shell; once the viewport is back near its baseline and nothing is being edited,
+ * leftover document scroll is cleared so the pan can settle to zero. While a field is focused the
+ * hook never scrolls the document, so it cannot fight the scroll Safari uses to reveal the caret.
+ *
+ * Keyboard detection (used only for compact styling and for dismiss-on-send) compares against a
+ * stable baseline — the largest unzoomed visual viewport height seen while nothing is being edited,
+ * reset on orientation change — because recent iOS Safari shrinks `innerHeight` with the keyboard.
+ *
+ * Pinch zoom is a reading action: while `scale !== 1` the shell keeps its stylesheet geometry.
+ *
+ * If the transcript was following the latest message when the viewport changed height, it is
+ * re-pinned to its end after layout, so recent conversation stays visible above the composer when
+ * the keyboard opens and when it closes; a reader who scrolled up is left where they are.
+ *
+ * Inside an iframe the visual viewport is the frame's own and does not see the host's keyboard;
+ * the hook then simply leaves the stylesheet geometry in place (see docs/implementation).
  */
 export function useChatViewportHeight() {
-  const [viewportRect, setViewportRect] = useState<ViewportRect | undefined>()
+  const [viewportRect, setViewportRect] = useState<ChatViewportRect | undefined>()
 
   useEffect(() => {
     const viewport = window.visualViewport
@@ -51,17 +68,8 @@ export function useChatViewportHeight() {
     let baselineHeight = 0
     let lastWidth = viewport.width ?? window.innerWidth
     let frame: number | undefined
-    let alignPasses = 0
-    let commitWaits = 0
-    let lastMeasuredTop: number | null = null
-    let lastDelta = 0
     let pinTranscript = false
-    // What is currently applied, so decisions never depend on side effects inside a state updater.
-    let applied: ViewportRect | undefined
-    const apply = (next: ViewportRect | undefined) => {
-      applied = next
-      setViewportRect(next)
-    }
+    let applied: ChatViewportRect | undefined
 
     const conversation = () =>
       document.querySelector<HTMLElement>('[data-chat-shell] [data-chat-conversation]')
@@ -71,158 +79,70 @@ export function useChatViewportHeight() {
       return node.scrollHeight - node.scrollTop - node.clientHeight <= FOLLOW_LATEST_SLACK
     }
 
-    /**
-     * Runs after the layout commits: re-pin the transcript, then verify the geometry. It only
-     * measures once the offset it last applied is the one the shell actually carries (React may not
-     * have committed it yet), and it only keeps correcting while each correction demonstrably moves
-     * the shell by the amount asked. A measurement that does not respond to the correction is not
-     * about this element's position at all, so the plain visual-viewport geometry is restored
-     * instead of chasing it.
-     */
-    const settle = () => {
-      frame = undefined
+    const update = () => {
       if (!active) return
-      if (pinTranscript) {
-        const node = conversation()
-        if (node) node.scrollTop = node.scrollHeight
-        pinTranscript = false
-      }
-      const shell = document.querySelector<HTMLElement>('[data-chat-shell][data-keyboard-open]')
-      if (!shell || !applied) return
-      const committed = Number.parseFloat(shell.style.getPropertyValue('--chat-keyboard-offset-y'))
-      if (Number.isFinite(committed) && committed !== applied.offsetTop) {
-        // The offset we applied is not rendered yet: wait a frame rather than measure stale layout.
-        if (commitWaits < MAX_COMMIT_WAITS && typeof requestAnimationFrame === 'function') {
-          commitWaits += 1
-          frame = requestAnimationFrame(settle)
-        }
-        return
-      }
-      commitWaits = 0
-      const rect = shell.getBoundingClientRect()
-      if (
-        lastMeasuredTop !== null &&
-        lastDelta !== 0 &&
-        Math.abs(rect.top - lastMeasuredTop - lastDelta) > ALIGN_TOLERANCE + 1
-      ) {
-        // The correction did not move the shell: stop, and return to the geometric default.
-        lastMeasuredTop = null
-        lastDelta = 0
-        alignPasses = MAX_ALIGN_PASSES
-        const geometric = {
-          ...applied,
-          offsetTop: Math.max(0, Math.round(viewport.offsetTop)),
-          offsetLeft: Math.round(viewport.offsetLeft),
-        }
-        if (
-          geometric.offsetTop !== applied.offsetTop ||
-          geometric.offsetLeft !== applied.offsetLeft
-        ) {
-          apply(geometric)
-        }
-        return
-      }
-      const residualTop = Math.round(viewport.offsetTop - rect.top)
-      const residualLeft = Math.round(viewport.offsetLeft - rect.left)
-      if (Math.abs(residualTop) < ALIGN_TOLERANCE && Math.abs(residualLeft) < ALIGN_TOLERANCE) {
-        alignPasses = 0
-        lastMeasuredTop = null
-        lastDelta = 0
-        return
-      }
-      // A residual larger than the viewport is a measurement from another frame, not a nudge.
-      if (
-        alignPasses >= MAX_ALIGN_PASSES ||
-        Math.abs(residualTop) > viewport.height ||
-        Math.abs(residualLeft) > viewport.width
-      ) {
-        return
-      }
-      alignPasses += 1
-      lastMeasuredTop = rect.top
-      lastDelta = residualTop
-      apply({
-        ...applied,
-        offsetTop: Math.max(0, applied.offsetTop + residualTop),
-        offsetLeft: applied.offsetLeft + residualLeft,
-      })
-      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(settle)
-    }
-
-    const update = (fromRetry = false) => {
-      if (!active) return
-      const focused = document.activeElement
-      const editing = focused instanceof HTMLTextAreaElement
+      const editing = isEditableField(document.activeElement)
       const width = viewport.width ?? window.innerWidth
-      if (width !== lastWidth && viewport.scale === 1) {
+      const unzoomed = Math.abs(viewport.scale - 1) < 0.01
+      if (width !== lastWidth && unzoomed) {
         // Orientation (or window) change: the old baseline no longer describes this layout.
         lastWidth = width
         baselineHeight = 0
       }
-      if (!editing && viewport.scale === 1 && viewport.height > baselineHeight) {
+      if (!editing && unzoomed && viewport.height > baselineHeight) {
         baselineHeight = viewport.height
       }
       const baseline = baselineHeight || window.innerHeight
-      // Pinch zoom is a reading action; do not reflow the chat for it.
-      const keyboardOpen =
-        editing && viewport.scale === 1 && viewport.height < baseline - KEYBOARD_MIN_SHRINK
-      const nextViewportRect: ViewportRect | undefined = keyboardOpen
-        ? {
-            height: Math.round(viewport.height),
-            // Layout-viewport coordinates on both sides: no document-scroll term.
-            offsetTop: Math.max(0, Math.round(viewport.offsetTop)),
-            offsetLeft: Math.round(viewport.offsetLeft),
-          }
-        : undefined
+      const keyboardOpen = editing && unzoomed && viewport.height < baseline - KEYBOARD_MIN_SHRINK
+
+      const offsetTop = Math.max(0, Math.round(viewport.offsetTop))
+      const offsetLeft = Math.round(viewport.offsetLeft)
+      const height = Math.round(viewport.height)
+      const matchesStylesheet =
+        offsetTop === 0 && offsetLeft === 0 && height >= Math.round(window.innerHeight)
+      const next: ChatViewportRect | undefined =
+        !unzoomed || (matchesStylesheet && !keyboardOpen)
+          ? undefined
+          : { height, offsetTop, offsetLeft, keyboardOpen }
+
       if (
         !editing &&
+        unzoomed &&
         Math.abs(viewport.height - baseline) <= KEYBOARD_RESTORE_TOLERANCE &&
         (window.scrollY !== 0 || window.scrollX !== 0)
       ) {
+        // Keyboard gone: release any scroll Safari applied to reveal the field.
         window.scrollTo(0, 0)
       }
-      const unchanged =
-        nextViewportRect === undefined
-          ? applied === undefined
-          : applied?.height === nextViewportRect.height &&
-            applied.offsetTop === nextViewportRect.offsetTop &&
-            applied.offsetLeft === nextViewportRect.offsetLeft
-      if (!unchanged) {
-        // A real viewport change: remember whether the reader was following the latest message.
-        if (!fromRetry && applied?.height !== nextViewportRect?.height) {
-          pinTranscript = pinTranscript || followingLatest()
-        }
-        alignPasses = 0
-        commitWaits = 0
-        lastMeasuredTop = null
-        lastDelta = 0
-        apply(nextViewportRect)
+
+      if (sameRect(applied, next)) return
+      if ((applied?.height ?? null) !== (next?.height ?? null)) {
+        // A real height change: remember whether the reader was following the latest message.
+        pinTranscript = pinTranscript || followingLatest()
       }
-      if ((keyboardOpen || pinTranscript) && typeof requestAnimationFrame === 'function') {
+      applied = next
+      setViewportRect(next)
+      if (pinTranscript && typeof requestAnimationFrame === 'function') {
         if (frame !== undefined) cancelAnimationFrame(frame)
         frame = requestAnimationFrame(() => {
           frame = undefined
-          const field = document.activeElement
-          if (
-            keyboardOpen &&
-            !fromRetry &&
-            active &&
-            field instanceof HTMLTextAreaElement &&
-            field.getBoundingClientRect().bottom > viewport.offsetTop + viewport.height
-          ) {
-            // Keep the caret visible: the field still ends below the visible area, measure again.
-            update(true)
-          }
-          settle()
+          if (!active || !pinTranscript) return
+          pinTranscript = false
+          const node = conversation()
+          if (node) node.scrollTop = node.scrollHeight
         })
       }
     }
+
     const onChange = () => update()
+    // Focus changes are reported before the browser updates the viewport; read after them.
     const afterFocus = () => queueMicrotask(onChange)
     viewport.addEventListener('resize', onChange)
     viewport.addEventListener('scroll', onChange)
     window.addEventListener('resize', onChange)
-    window.addEventListener('scroll', onChange)
+    window.addEventListener('orientationchange', onChange)
+    window.addEventListener('pageshow', onChange)
+    document.addEventListener('visibilitychange', onChange)
     document.addEventListener('focusin', afterFocus)
     document.addEventListener('focusout', afterFocus)
     update()
@@ -232,11 +152,49 @@ export function useChatViewportHeight() {
       viewport.removeEventListener('resize', onChange)
       viewport.removeEventListener('scroll', onChange)
       window.removeEventListener('resize', onChange)
-      window.removeEventListener('scroll', onChange)
+      window.removeEventListener('orientationchange', onChange)
+      window.removeEventListener('pageshow', onChange)
+      document.removeEventListener('visibilitychange', onChange)
       document.removeEventListener('focusin', afterFocus)
       document.removeEventListener('focusout', afterFocus)
     }
   }, [])
 
   return viewportRect
+}
+
+function sameRect(a: ChatViewportRect | undefined, b: ChatViewportRect | undefined) {
+  if (a === undefined || b === undefined) return a === b
+  return (
+    a.height === b.height &&
+    a.offsetTop === b.offsetTop &&
+    a.offsetLeft === b.offsetLeft &&
+    a.keyboardOpen === b.keyboardOpen
+  )
+}
+
+function isEditableField(element: Element | null) {
+  if (element instanceof HTMLTextAreaElement) return true
+  if (element instanceof HTMLInputElement) {
+    return !['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'file', 'color'].includes(
+      element.type,
+    )
+  }
+  return element instanceof HTMLElement && element.isContentEditable === true
+}
+
+/**
+ * Whether submitting should dismiss the software keyboard. True when the chat shell has detected
+ * an open keyboard, or — where the shell cannot measure it (an embedding iframe) — when the only
+ * input is a coarse touch pointer with no hover, i.e. a phone. A desktop, or an iPad with a
+ * trackpad/hardware keyboard, keeps focus in the composer.
+ */
+export function shouldDismissKeyboardOnSubmit(field: HTMLElement | null) {
+  if (!field) return false
+  if (field.closest('[data-chat-shell][data-keyboard-open]')) return true
+  if (typeof window.matchMedia !== 'function') return false
+  return (
+    window.matchMedia('(hover: none) and (pointer: coarse)').matches &&
+    !window.matchMedia('(any-pointer: fine)').matches
+  )
 }

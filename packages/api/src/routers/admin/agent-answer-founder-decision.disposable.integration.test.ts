@@ -51,6 +51,12 @@ describe.skipIf(!enabled)('answered founder question promotion disposable lifecy
           venueId,
           agentIdentityId: identityId,
           question: 'Should routine support wait for founder approval?',
+          status: 'PENDING',
+        },
+      })
+      await db.agentQuestion.update({
+        where: { id: firstQuestion.id },
+        data: {
           status: 'ANSWERED',
           answer: 'Routine support may proceed autonomously when policy permits it.',
           answeredById: operatorId,
@@ -98,6 +104,12 @@ describe.skipIf(!enabled)('answered founder question promotion disposable lifecy
           venueId,
           agentIdentityId: identityId,
           question: 'Should routine support remain autonomous after review?',
+          status: 'PENDING',
+        },
+      })
+      await db.agentQuestion.update({
+        where: { id: secondQuestion.id },
+        data: {
           status: 'ANSWERED',
           answer: 'Routine support should remain autonomous, with material exceptions escalated.',
           answeredById: operatorId,

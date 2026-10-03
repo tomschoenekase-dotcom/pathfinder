@@ -207,6 +207,8 @@ describe('operational update domain actions', () => {
         preview: {
           lifecycle: 'DRAFT',
           guestVisibleNow: false,
+          isActiveButExpired: false,
+          lifecycleLabel: 'Draft (visitors do not see it)',
           startsAt: startsAt.toISOString(),
           expiresAt: expiresAt.toISOString(),
         },
@@ -401,7 +403,59 @@ describe('operational update domain actions', () => {
       },
       data: { isActive: false },
     })
-    expect(result.preview).toMatchObject({ lifecycle: 'INACTIVE', guestVisibleNow: false })
+    expect(result.preview).toMatchObject({ lifecycle: 'ENDED', guestVisibleNow: false })
+  })
+
+  it('re-ending an ended notice returns the existing state without writes or audit', async () => {
+    const ended = { ...published, isActive: false }
+    findFirst.mockResolvedValueOnce(ended)
+    const result = await expireOperationalUpdateAction(
+      { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt, now },
+      client,
+    )
+    expect(result.update).toBe(ended)
+    expect(result.preview).toMatchObject({ lifecycle: 'ENDED', guestVisibleNow: false })
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(writeAudit).not.toHaveBeenCalled()
+  })
+
+  it('ends an active-but-expired notice so it stops reading as active', async () => {
+    const stale = {
+      ...published,
+      startsAt: new Date('2020-07-01'),
+      expiresAt: new Date('2020-07-31'),
+    }
+    findFirst.mockResolvedValueOnce(stale).mockResolvedValueOnce({ ...stale, isActive: false })
+    updateMany.mockResolvedValue({ count: 1 })
+    expect(buildOperationalUpdatePreview(stale, now)).toMatchObject({
+      lifecycle: 'EXPIRED',
+      isActiveButExpired: true,
+      guestVisibleNow: false,
+    })
+    const result = await expireOperationalUpdateAction(
+      { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt, now },
+      client,
+    )
+    expect(result.preview.lifecycle).toBe('ENDED')
+    expect(writeAudit).toHaveBeenCalledOnce()
+  })
+
+  it('go-live on an already live notice is idempotent and never reopens an ended one', async () => {
+    findFirst.mockResolvedValueOnce(published)
+    const again = await scheduleOperationalUpdateAction(
+      { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt, now },
+      client,
+    )
+    expect(again.update).toBe(published)
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(writeAudit).not.toHaveBeenCalled()
+    findFirst.mockResolvedValueOnce({ ...published, isActive: false })
+    await expect(
+      scheduleOperationalUpdateAction(
+        { tenantId: 'tenant_1', actor, id: 'update_1', expectedUpdatedAt, now },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('reports future scheduled and naturally expired preview states', () => {

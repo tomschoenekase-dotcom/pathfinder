@@ -87,6 +87,10 @@ export const appearanceUpdateKind: OperatorProposalKind<AppearanceArgs> = {
   kind: 'appearance.update',
   tool: 'appearance.propose_update',
   capability: 'appearance:propose',
+  // The one kind that opts in to bounded job grants: a reversible, internal look-and-feel change
+  // with no recipient, no cost and no external effect. Every kind that mails, invites or bills
+  // stays non-grantable (and the always-ask kinds are refused by the grant service regardless).
+  jobGrant: {},
   parse: (raw) => input.parse(raw),
   target: (args) => ({ tenantId: args.tenantId, venueId: args.venueId }),
   authorize: (args, context: OperatorKindContext) =>

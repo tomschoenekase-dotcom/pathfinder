@@ -38,6 +38,13 @@ export type IntakeV1SourceProcessingJobPayload = {
   dispatchId: string
 }
 
+/** Carries only opaque scope IDs of a requested venue source; the URL and bounds are re-read. */
+export type VenueSourceCaptureJobPayload = {
+  tenantId: string
+  venueId: string
+  sourceId: string
+}
+
 /** Carries only a durable file-extraction dispatch identity; authority is re-read. */
 export type IntakeV1FileExtractionJobPayload = {
   dispatchId: string
@@ -81,6 +88,16 @@ export type SendWelcomeEmailJobPayload = {
   orgName: string
 }
 
+/**
+ * Carries only durable identity. The worker reloads the frozen intent, so the job holds no
+ * address, question text or link. `generation` changes each time a failed email is queued again.
+ */
+export type SendClientNotificationEmailJobPayload = {
+  tenantId: string
+  intentId: string
+  generation: number
+}
+
 /** Carries only durable identity. The worker reloads the frozen approved snapshot. */
 export type SendProspectOutreachJobPayload = {
   outboxId: string
@@ -104,6 +121,12 @@ export type GmailSyncJobPayload = {
   providerAccountId: string
   trigger: 'PUBSUB_NOTIFICATION' | 'SCHEDULED_RECONCILIATION' | 'WATCH_RENEWAL'
   receiptId?: string
+  requestId?: string
+  pageToken?: string
+  after?: string
+  baselineCursor?: string | null
+  mode?: 'FULL_RECONCILIATION' | 'INCREMENTAL'
+  targetCursor?: string
 }
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
@@ -120,6 +143,18 @@ export type IntakeUploadVerificationJobPayload = {
   venueId: string
   uploadId: string
   observedUpdatedAt: string
+}
+
+/**
+ * Carries only exact durable identity. The worker reloads the endpoint, mapping, and state, so a
+ * stale or forged job can never supply a URL or tenant authority.
+ */
+export type LiveDataPollJobPayload = {
+  tenantId: string
+  venueId: string
+  connectorId: string
+  /** "test" is operator-initiated and never writes an observation. */
+  mode: 'scheduled' | 'test'
 }
 
 /** Carries only exact durable identity. Source, rights, variant, and output policy are reloaded. */

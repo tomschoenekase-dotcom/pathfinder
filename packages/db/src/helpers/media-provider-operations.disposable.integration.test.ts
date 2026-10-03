@@ -11,6 +11,8 @@ import {
   markMediaProviderOperationDispatched,
   prepareMediaProviderOperation,
   recordMediaProviderOperationOutput,
+  releaseMediaProviderOperation,
+  settleMediaProviderOperationAccounting,
 } from './media-provider-operations'
 
 function isDisposableDatabase() {
@@ -88,12 +90,18 @@ integrationDescribe('media provider operation receipts (disposable PostgreSQL)',
         usage: { inputTokens: 10, outputTokens: 2 },
       },
     )
-    await confirmMediaProviderOperationCleanup({
+    revision = await confirmMediaProviderOperationCleanup({
       id: prepared.id,
       tenantId,
       leaseToken: claim!.leaseToken,
       revision,
     })
+    // Confirmed cleanup alone keeps the lease: accounting is still PENDING and release refuses
+    // until it settles, so no other worker can re-dispatch before the budget is settled.
+    const fence = { id: prepared.id, tenantId, leaseToken: claim!.leaseToken }
+    expect(await releaseMediaProviderOperation({ ...fence, revision })).toBe(false)
+    revision = await settleMediaProviderOperationAccounting({ ...fence, revision }, 'SETTLED')
+    expect(await releaseMediaProviderOperation({ ...fence, revision })).toBe(true)
     const retained = await withTenantIsolationBypass(() =>
       db.mediaProviderOperation.findFirstOrThrow({ where: { id: prepared.id, tenantId } }),
     )

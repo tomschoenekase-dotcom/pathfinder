@@ -63,10 +63,16 @@ import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/g
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { buildGuestRecommendationDecision } from '../lib/venue-recommendation-context'
+import {
+  enforceRecommendationDisclosure,
+  renderRecommendationPromptBlock,
+} from '../lib/venue-recommendation-prompt'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
 import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-configuration'
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
+import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -89,6 +95,10 @@ import {
 import { captureConversationLearning } from '../lib/capture-conversation-learning'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
+import {
+  LIVE_OPERATIONAL_UPDATE_ORDER_BY,
+  liveOperationalUpdateWindowWhere,
+} from '@pathfinder/contracts/operational-update-lifecycle'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { publicProcedure } from '../trpc'
 
@@ -1056,10 +1066,7 @@ const chatReadRouter = router({
         where: {
           venueId: input.venueId,
           tenantId: venue.tenantId,
-          status: 'PUBLISHED',
-          isActive: true,
-          startsAt: { lte: operationalNow },
-          expiresAt: { gt: operationalNow },
+          ...liveOperationalUpdateWindowWhere(operationalNow),
           ...(includeSecondLayer
             ? {}
             : {
@@ -1076,7 +1083,7 @@ const chatReadRouter = router({
           redirectTo: true,
           place: { select: { name: true } },
         },
-        orderBy: [{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
+        orderBy: LIVE_OPERATIONAL_UPDATE_ORDER_BY,
         take: MAX_GUEST_OPERATIONAL_UPDATES,
       }),
       ctx.db.tenant.findUnique({
@@ -1474,6 +1481,33 @@ const chatReadRouter = router({
     const allowAiInventedQuestion = engagementGatePassed && engagementMode === 'CURIOUS'
 
     const promptAssemblyStartedAt = performance.now()
+    // Venue recommendations are OFF unless the venue has an enabled policy. A failure here must
+    // never break the guest answer, so it degrades to "no recommendation context".
+    let recommendationDecision: Awaited<ReturnType<typeof buildGuestRecommendationDecision>> = null
+    if (ctx.experienceScope === 'PUBLIC') {
+      try {
+        const priorUserMessages = [...historyDesc]
+          .sort((left, right) => left.sessionSequence - right.sessionSequence)
+          .filter((row) => row.role === 'user')
+          .map((row) => row.content)
+        // The current message is already persisted in history; evaluate it separately.
+        if (priorUserMessages.at(-1) === trimmedInput) priorUserMessages.pop()
+        recommendationDecision = await buildGuestRecommendationDecision({
+          client: ctx.db,
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          venueName: venue.name,
+          sessionId: session.id,
+          message: trimmedInput,
+          priorUserMessages,
+        })
+      } catch {
+        logger.warn({ action: 'venue-recommendation-unavailable', venueId: venue.id })
+      }
+    }
+    const recommendationContext = recommendationDecision
+      ? renderRecommendationPromptBlock(recommendationDecision, venue.name)
+      : undefined
     // Published universal content is materialized into the scoped knowledge search index.
     // Avoid injecting every module into the prompt; only query-relevant projections belong here.
     const publishedUniversalContent: EffectivePublishedUniversalContent[] = []
@@ -1484,10 +1518,22 @@ const chatReadRouter = router({
       formality: (venue.customFormality ?? -1) / 100,
       ...(venue.customInstruction ? { customInstruction: venue.customInstruction } : {}),
     })
+    // Latest STORED observations only: guest turns never call a live-data provider. A read failure
+    // degrades to "no live facts", so the guide cannot state a value it could not verify.
+    const liveDataPrompt = await loadGuestLiveDataContext(ctx.db, {
+      tenantId: venue.tenantId,
+      venueId: venue.id,
+    })
+      .then((result) => result.prompt)
+      .catch(() => {
+        logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+        return ''
+      })
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const preparePrompt = () =>
       buildVenueSystemPromptParts({
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
+        ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
           ...venue,
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
@@ -1502,6 +1548,7 @@ const chatReadRouter = router({
         knowledgeEntries: relevantKnowledgeEntries,
         activeUpdates,
         publishedUniversalContent,
+        ...(recommendationContext ? { recommendationContext } : {}),
         userLat: liveLocation?.lat ?? null,
         userLng: liveLocation?.lng ?? null,
         featuredPlace,
@@ -1537,6 +1584,8 @@ const chatReadRouter = router({
     //    while every attempt is recorded best-effort for cost and reliability evidence.
     let assistantResponse: string
     let engagementAskedThisTurn = false
+    let recommendationShownInResponse = false
+    let recommendationDisclosureAppended = false
     let fallbackFailureCode: GuestChatFallbackCode | null = null
     let fallbackWasRouteExhaustion = false
     let generationRouteConfigurationVersion: string | undefined
@@ -1754,6 +1803,22 @@ const chatReadRouter = router({
       // Brevity belongs in generation guidance. Do not discard later sentences:
       // a restriction or exception may change the meaning of an earlier answer.
       assistantResponse = strippedResponse.trim()
+      if (recommendationDecision) {
+        // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
+        const disclosure = enforceRecommendationDisclosure(
+          assistantResponse,
+          recommendationDecision,
+        )
+        if (disclosure.disclosureAppended && streamProjection) {
+          await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
+            providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+            requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+          })
+        }
+        assistantResponse = disclosure.response
+        recommendationShownInResponse = disclosure.shownInResponse
+        recommendationDisclosureAppended = disclosure.disclosureAppended
+      }
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
@@ -2101,6 +2166,67 @@ const chatReadRouter = router({
         })
       } catch {
         // Response analytics are best-effort and must not break guest chat.
+      }
+
+      // Server-only recommendation ledger, written after the turn committed. `candidate` means an
+      // eligible item existed; `shown` means the answer actually surfaced the featured item.
+      if (recommendationDecision && !fallbackFailureCode) {
+        const decision = recommendationDecision
+        const ledger: Array<{
+          eventType: 'recommendation.candidate' | 'recommendation.shown' | 'recommendation.declined'
+          metadata: Record<string, unknown>
+        }> = []
+        if (
+          decision.mode !== 'direct' &&
+          decision.intent === 'refreshment' &&
+          decision.candidateIds.length > 0
+        ) {
+          ledger.push({
+            eventType: 'recommendation.candidate',
+            metadata: {
+              policyId: decision.policyId,
+              policyVersion: decision.policyVersion,
+              candidateItemIds: decision.candidateIds,
+              featuredItemId: decision.shown?.itemId ?? null,
+              noShowReason: decision.noShowReason,
+            },
+          })
+        }
+        if (recommendationShownInResponse && decision.shown) {
+          ledger.push({
+            eventType: 'recommendation.shown',
+            metadata: {
+              itemId: decision.shown.itemId,
+              itemVersion: decision.shown.itemVersion,
+              policyId: decision.policyId,
+              policyVersion: decision.policyVersion,
+              candidateCount: decision.candidateIds.length,
+              candidateItemIds: decision.candidateIds,
+              tieBreakDecided: decision.tieBreakDecided,
+              disclosureAppended: recommendationDisclosureAppended,
+            },
+          })
+        }
+        if (decision.declinedNow) {
+          ledger.push({
+            eventType: 'recommendation.declined',
+            metadata: { policyId: decision.policyId, policyVersion: decision.policyVersion },
+          })
+        }
+        for (const entry of ledger) {
+          try {
+            await emitEvent({
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              sessionId: session.id,
+              userMessageId,
+              eventType: entry.eventType,
+              metadata: entry.metadata,
+            })
+          } catch {
+            // Recommendation analytics are best-effort and must not break guest chat.
+          }
+        }
       }
 
       if (selectedEngagementQuestion || allowAiInventedQuestion) {

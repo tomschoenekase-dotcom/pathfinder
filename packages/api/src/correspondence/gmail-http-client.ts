@@ -1,9 +1,12 @@
 import { GmailApiError, type GmailApiClient, type GmailApiMessage } from './gmail'
+import type { GmailApiDraftRef, GmailDraftApiClient } from './gmail-drafts'
 
 type Fetch = typeof fetch
 type Json = Record<string, unknown>
 const GMAIL_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 const GMAIL_REQUEST_TIMEOUT_MS = 30_000
+const GMAIL_HYDRATION_MAX_IDS = 1_000
+const GMAIL_HYDRATION_CONCURRENCY = 10
 
 async function readBoundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
   const declared = response.headers.get('content-length')
@@ -174,9 +177,19 @@ function errorKind(status: number, history: boolean) {
   return 'PERMANENT' as const
 }
 
+function draftRef(value: unknown): GmailApiDraftRef {
+  const draft = object(value)
+  const message = object(draft.message)
+  return {
+    id: required(draft.id, 'draft ID'),
+    messageId: required(message.id, 'draft message ID'),
+    threadId: required(message.threadId, 'draft thread ID'),
+  }
+}
+
 export function createGmailApiClient(
   input: { fetch?: Fetch; apiBaseUrl?: string; requestTimeoutMs?: number } = {},
-): GmailApiClient {
+): GmailApiClient & GmailDraftApiClient {
   const transport = input.fetch ?? fetch
   const base = input.apiBaseUrl ?? 'https://gmail.googleapis.com/gmail/v1'
   const timeoutMs = boundedTimeout(input.requestTimeoutMs)
@@ -250,10 +263,42 @@ export function createGmailApiClient(
         path: `messages/${encodeURIComponent(messageId)}?format=full`,
       }),
     )
-  const hydrate = async (accessToken: string, mailboxAddress: string, ids: readonly string[]) =>
-    Promise.all(
-      [...new Set(ids)].slice(0, 100).map((id) => getMessage(accessToken, mailboxAddress, id)),
-    )
+  const hydrate = async (
+    accessToken: string,
+    mailboxAddress: string,
+    ids: readonly string[],
+    options: { skipVanished?: boolean } = {},
+  ) => {
+    const unique = [...new Set(ids)]
+    // Refuse rather than truncate: a silently dropped message must never sit behind a cursor
+    // that the caller is about to commit.
+    if (unique.length > GMAIL_HYDRATION_MAX_IDS) {
+      throw new GmailApiError('PERMANENT', 'Gmail page referenced too many messages to hydrate')
+    }
+    const hydrated: GmailApiMessage[] = []
+    for (let start = 0; start < unique.length; start += GMAIL_HYDRATION_CONCURRENCY) {
+      const batch = await Promise.all(
+        unique.slice(start, start + GMAIL_HYDRATION_CONCURRENCY).map(async (id) => {
+          try {
+            return await getMessage(accessToken, mailboxAddress, id)
+          } catch (error) {
+            // History and listings name messages that may be gone by hydration time: superseded
+            // draft revisions, deleted or expunged mail. Their absence is not a sync failure.
+            if (
+              options.skipVanished &&
+              error instanceof GmailApiError &&
+              error.kind === 'NOT_FOUND'
+            ) {
+              return null
+            }
+            throw error
+          }
+        }),
+      )
+      for (const message of batch) if (message) hydrated.push(message)
+    }
+    return hydrated
+  }
 
   return {
     async sendMessage(args) {
@@ -292,16 +337,32 @@ export function createGmailApiClient(
         historyTypes: 'messageAdded',
         ...(args.pageToken ? { pageToken: args.pageToken } : {}),
       })
+      // Sending an existing Gmail draft may only add its SENT label. Fetch that transition
+      // too; the provider layer filters DRAFT and requires SENT for self-addressed mail.
+      query.append('historyTypes', 'labelAdded')
       const response = await call({ ...args, path: `history?${query}`, history: true })
       const ids = (Array.isArray(response.history) ? response.history : []).flatMap((entry) => {
         const row = object(entry)
-        return (Array.isArray(row.messagesAdded) ? row.messagesAdded : []).flatMap((added) => {
-          const message = object(object(added).message)
-          return typeof message.id === 'string' ? [message.id] : []
-        })
+        const addedMessages = (Array.isArray(row.messagesAdded) ? row.messagesAdded : []).flatMap(
+          (added) => {
+            const message = object(object(added).message)
+            return typeof message.id === 'string' ? [message.id] : []
+          },
+        )
+        const newlySent = (Array.isArray(row.labelsAdded) ? row.labelsAdded : []).flatMap(
+          (added) => {
+            const event = object(added)
+            if (!Array.isArray(event.labelIds) || !event.labelIds.includes('SENT')) return []
+            const message = object(event.message)
+            return typeof message.id === 'string' ? [message.id] : []
+          },
+        )
+        return [...addedMessages, ...newlySent]
       })
       return {
-        messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
+        messages: await hydrate(args.accessToken, args.mailboxAddress, ids, {
+          skipVanished: true,
+        }),
         historyId: required(response.historyId, 'history ID'),
         ...(typeof response.nextPageToken === 'string'
           ? { nextPageToken: response.nextPageToken }
@@ -309,6 +370,9 @@ export function createGmailApiClient(
       }
     },
     async listMessages(args) {
+      // Capture the history baseline before listing. Mail arriving during this page (or a
+      // later page) must be replayable after the full scan, even if pagination omits it.
+      const profile = await call({ ...args, path: 'profile' })
       const query = new URLSearchParams({
         maxResults: String(Math.min(args.pageSize, 100)),
         q: `after:${Math.floor(args.after.getTime() / 1_000)}`,
@@ -319,9 +383,10 @@ export function createGmailApiClient(
         const message = object(item)
         return typeof message.id === 'string' ? [message.id] : []
       })
-      const profile = await call({ ...args, path: 'profile' })
       return {
-        messages: await hydrate(args.accessToken, args.mailboxAddress, ids),
+        messages: await hydrate(args.accessToken, args.mailboxAddress, ids, {
+          skipVanished: true,
+        }),
         historyId: required(profile.historyId, 'history ID'),
         ...(typeof response.nextPageToken === 'string'
           ? { nextPageToken: response.nextPageToken }
@@ -389,6 +454,34 @@ export function createGmailApiClient(
           ),
         })),
       )
+    },
+    async listDrafts(args) {
+      const query = new URLSearchParams({
+        maxResults: String(Math.max(1, Math.min(args.pageSize, 100))),
+        ...(args.pageToken ? { pageToken: args.pageToken } : {}),
+      })
+      // Read-only draft resource listing. IDs only; bodies are never fetched here.
+      const response = await call({ ...args, path: `drafts?${query}` })
+      return {
+        drafts: (Array.isArray(response.drafts) ? response.drafts : []).map(draftRef),
+        ...(typeof response.nextPageToken === 'string' && response.nextPageToken
+          ? { nextPageToken: response.nextPageToken }
+          : {}),
+      }
+    },
+    async getDraft(args) {
+      const response = await call({
+        ...args,
+        path: `drafts/${encodeURIComponent(args.draftId)}?format=minimal`,
+      })
+      const draft = draftRef(response)
+      const labels = object(response.message).labelIds
+      return {
+        ...draft,
+        labelIds: Array.isArray(labels)
+          ? labels.filter((item): item is string => typeof item === 'string')
+          : [],
+      }
     },
     async getProfile(args) {
       const response = await call({ ...args, path: 'profile' })

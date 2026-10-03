@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import XLSX = require('xlsx')
 
-import { inspectProspectWorkbookBytes, quarantinedSourceRowFailure } from './prospect-import-source'
+import {
+  inertCell,
+  inspectProspectWorkbookBytes,
+  normalizedRow,
+  quarantinedSourceRowFailure,
+} from './prospect-import-source'
 
 describe('server-owned prospect workbook inspection', () => {
   it('builds code-only quarantine evidence without exception or row content', () => {
@@ -41,6 +46,13 @@ describe('server-owned prospect workbook inspection', () => {
     expect(inspected.expanded).toBeGreaterThan(bytes.byteLength)
   }, 30_000)
 
+  it('rejects oversized source headers rather than silently renaming them', async () => {
+    await expect(
+      inspectProspectWorkbookBytes(Buffer.from(`${'x'.repeat(301)}\nvalue`), 'csv'),
+    ).rejects.toThrow('column name')
+    expect(inertCell('x'.repeat(35_623))).toHaveLength(35_623)
+  })
+
   it('rejects a CSV beyond the 100,000-row server limit', async () => {
     const lines = ['venue_name']
     for (let index = 0; index < 100_001; index += 1) lines.push(`Venue ${index}`)
@@ -48,4 +60,83 @@ describe('server-owned prospect workbook inspection', () => {
       inspectProspectWorkbookBytes(Buffer.from(lines.join('\n'), 'utf8'), 'csv'),
     ).rejects.toThrow('total row limit')
   }, 30_000)
+})
+
+describe('spreadsheet cells are data', () => {
+  it('preserves explicit CRM identity and location columns for reviewed linking', () => {
+    const row = normalizedRow(
+      {
+        Venue: 'Example Venue',
+        OrgId: 'org-example',
+        VenueId: 'venue-example',
+        Street: '123 Example St',
+        ZIP: '60600',
+      },
+      {
+        venueName: 'Venue',
+        existingOrganizationId: 'OrgId',
+        existingVenueId: 'VenueId',
+        addressLine1: 'Street',
+        postalCode: 'ZIP',
+      },
+      'Sheet 1',
+    )
+    expect(row).toMatchObject({
+      existingOrganizationId: 'org-example',
+      existingVenueId: 'venue-example',
+      addressLine1: '123 Example St',
+      postalCode: '60600',
+    })
+  })
+  it('keeps a formula-looking cell as text and never evaluates it', () => {
+    for (const cell of ['=1+1', '+SUM(A1)', '-2+3', '@HYPERLINK("x")']) {
+      expect(inertCell(cell)).toBe(cell)
+    }
+    const row = normalizedRow(
+      { Venue: '=HYPERLINK("https://evil.example","x")', Notes: '@cmd' },
+      { venueName: 'Venue', notes: 'Notes' },
+      'Sheet 1',
+    )
+    expect(row.venueName).toBe('=HYPERLINK("https://evil.example","x")')
+    expect(row.notes).toBe('@cmd')
+  })
+
+  it('reads a workbook formula cell as its cached text, never as a formula', () => {
+    const sheet = XLSX.utils.aoa_to_sheet([['Venue', 'Notes']])
+    sheet.A2 = { t: 's', v: '=1+1' }
+    sheet.B2 = { t: 'n', v: 4, f: 'SUM(1,3)' }
+    sheet['!ref'] = 'A1:B2'
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Data')
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const parsed = XLSX.read(buffer, { type: 'buffer', cellFormula: false, dense: true })
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(parsed.Sheets.Data!, {
+      defval: null,
+      raw: false,
+    })
+    expect(rows[0]!.Venue).toBe('=1+1')
+    // The formula text is dropped (cellFormula: false); only the cached value is read.
+    expect(rows[0]!.Notes).toBe('4')
+  })
+
+  it('omits blank cells so a blank can never erase a stored value', () => {
+    const row = normalizedRow(
+      { Venue: 'Sample Venue', City: '', Website: null, Notes: '   ' },
+      { venueName: 'Venue', city: 'City', website: 'Website', notes: 'Notes' },
+      'Sheet 1',
+    )
+    expect(row).not.toHaveProperty('city')
+    expect(row).not.toHaveProperty('website')
+    expect(row).not.toHaveProperty('notes')
+  })
+
+  it('ignores a company priority column that is not a mapped field', () => {
+    const row = normalizedRow(
+      { Venue: 'Sample Venue', company_priority: 'Top priority for the founder this quarter' },
+      { venueName: 'Venue', company_priority: 'company_priority' },
+      'Sheet 1',
+    )
+    expect(row).not.toHaveProperty('company_priority')
+    expect(row).not.toHaveProperty('outreachPriority')
+  })
 })

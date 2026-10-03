@@ -3,85 +3,59 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ overview: vi.fn() }))
+const mocks = vi.hoisted(() => ({ clientState: vi.fn(), portal: vi.fn() }))
 
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     billing: {
-      overview: { query: mocks.overview },
-      createCheckout: { mutate: vi.fn() },
-      createPortal: { mutate: vi.fn() },
+      clientState: { query: mocks.clientState },
+      createPortal: { mutate: mocks.portal },
       requestCancellation: { mutate: vi.fn() },
-      recordAddOnInterest: { mutate: vi.fn() },
     },
   }),
-}))
-vi.mock('./ClientBillingView', () => ({
-  ClientBillingView: ({
-    onRequestCancellation,
-    onRetryCheckout,
-  }: {
-    onRequestCancellation?: () => void
-    onRetryCheckout?: () => void
-  }) =>
-    onRetryCheckout ? (
-      <button type="button" onClick={onRetryCheckout}>
-        Update payment details
-      </button>
-    ) : onRequestCancellation ? (
-      <button type="button" onClick={onRequestCancellation}>
-        Cancel subscription
-      </button>
-    ) : (
-      <p role="status">Loading billing</p>
-    ),
 }))
 
 import { ClientBillingPanel } from './ClientBillingPanel'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const overview = {
-  enabled: true,
-  account: {
-    commercialAgreements: [
-      {
-        isBase: true,
-        billingMode: 'STRIPE_SUBSCRIPTION',
-        status: 'ACTIVE',
-        internalPlanKey: 'torchiko-pilot',
-        internalPlanVersion: 1,
-        agreedAmountMinor: 2500,
-        currency: 'usd',
-        billingInterval: 'MONTHLY',
-        cancelAtPeriodEnd: false,
-        currentPeriodEndsAt: new Date('2026-09-20T12:00:00Z'),
-        accessEndsAt: null,
-        venuePriceBreakdownComplete: true,
-        coveredVenues: [],
-      },
-    ],
-    paidThroughAt: null,
-    invoiceProjections: [],
-    customerRequests: [],
-    reconciliationHealth: 'HEALTHY',
+const state = {
+  state: 'active',
+  nextAction: 'manage_billing',
+  asOf: new Date('2026-10-02T12:00:00Z'),
+  lastReliableUpdateAt: new Date('2026-10-01T12:00:00Z'),
+  reason: null,
+  errorKind: null,
+  accessState: 'ACTIVE',
+  syncHealth: 'CURRENT',
+  plan: {
+    name: 'Torchiko Pilot',
+    interval: 'month',
+    intervalCount: 1,
+    price: { amountMinor: 2500n, currency: 'usd' },
   },
-  access: { state: 'ACTIVE', reason: 'Subscription active' },
-  catalog: [{ key: 'torchiko-pilot', version: 1, displayName: 'Torchiko Pilot' }],
-  capabilities: { checkout: false, portal: false, cancellation: true },
-  hasStripeCustomer: true,
-  currentCheckoutUrl: null,
-  addOnCatalog: [],
-  venues: [],
+  period: {
+    currentPeriodEndsAt: new Date('2026-11-01T12:00:00Z'),
+    paidThroughAt: null,
+    graceEndsAt: null,
+    accessEndsAt: null,
+    expired: false,
+  },
+  amountDue: null,
+  coveredVenues: [],
+  invoices: [],
+  actions: { canStartCheckout: false, checkoutUrl: null, canManageBilling: true, canCancel: true },
 }
 
-describe('ClientBillingPanel cancellation dialog accessibility', () => {
+describe('ClientBillingPanel', () => {
   afterEach(() => {
     cleanup()
     document.body.style.overflow = ''
+    mocks.clientState.mockReset()
+    mocks.portal.mockReset()
   })
 
-  it('contains focus, closes on Escape, and returns focus to its opener', async () => {
-    mocks.overview.mockResolvedValue(overview)
+  it('contains focus in the cancellation dialog, closes on Escape, and returns focus', async () => {
+    mocks.clientState.mockResolvedValue(state)
     render(<ClientBillingPanel />)
     const opener = await screen.findByRole('button', { name: 'Cancel subscription' })
     opener.focus()
@@ -101,12 +75,14 @@ describe('ClientBillingPanel cancellation dialog accessibility', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
-  it('uses a cancellable transport for the billing overview and aborts it on unmount', async () => {
+  it('uses a cancellable transport for the billing read and aborts it on unmount', async () => {
     let signal: AbortSignal | undefined
-    mocks.overview.mockImplementationOnce((_input: unknown, options: { signal: AbortSignal }) => {
-      signal = options.signal
-      return new Promise(() => undefined)
-    })
+    mocks.clientState.mockImplementationOnce(
+      (_input: unknown, options: { signal: AbortSignal }) => {
+        signal = options.signal
+        return new Promise(() => undefined)
+      },
+    )
     const rendered = render(<ClientBillingPanel />)
 
     await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
@@ -117,41 +93,61 @@ describe('ClientBillingPanel cancellation dialog accessibility', () => {
     expect(signal?.aborted).toBe(true)
   })
 
-  it('shows a retry instead of a blank Payment page when the overview fails', async () => {
-    mocks.overview.mockReset()
-    mocks.overview.mockRejectedValueOnce(new Error('Temporary read failure'))
-    mocks.overview.mockResolvedValueOnce(overview)
+  it('never renders a blank page: a no-setup tenant sees an explicit message', async () => {
+    mocks.clientState.mockResolvedValue({
+      ...state,
+      state: 'no_setup',
+      nextAction: 'contact_support',
+      reason: 'no_billing_account',
+      plan: null,
+      period: null,
+      lastReliableUpdateAt: null,
+    })
+    const { container } = render(<ClientBillingPanel />)
+    expect(
+      await screen.findByRole('heading', { name: 'Your Torchiko team has not set up billing yet' }),
+    ).toBeTruthy()
+    expect(container.textContent).toContain('No payment has been requested through this page')
+  })
+
+  it('shows a retry, not a blank or empty state, when the request fails', async () => {
+    mocks.clientState.mockRejectedValueOnce(new Error('Temporary read failure'))
+    mocks.clientState.mockResolvedValueOnce(state)
     render(<ClientBillingPanel />)
 
     expect(
-      await screen.findByRole('heading', { name: 'Payment details are unavailable' }),
+      await screen.findByRole('heading', { name: 'We could not load your billing status' }),
     ).toBeTruthy()
+    expect(screen.queryByText(/no subscription|nothing is due/i)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    await waitFor(() => expect(mocks.overview).toHaveBeenCalledTimes(2))
-    await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: 'Payment details are unavailable' })).toBeNull(),
-    )
+    await waitFor(() => expect(mocks.clientState).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('heading', { name: 'Your subscription is active' })).toBeTruthy()
   })
 
-  it('offers Portal recovery only when a Stripe Customer exists', async () => {
-    mocks.overview.mockReset()
-    const pastDue = {
-      ...overview,
-      account: {
-        ...overview.account,
-        commercialAgreements: [{ ...overview.account.commercialAgreements[0], status: 'PAST_DUE' }],
-      },
-      capabilities: { ...overview.capabilities, portal: true, cancellation: false },
-      hasStripeCustomer: false,
-    }
-    mocks.overview.mockResolvedValueOnce(pastDue)
-    const first = render(<ClientBillingPanel />)
-    await waitFor(() => expect(mocks.overview).toHaveBeenCalledTimes(1))
-    expect(screen.queryByRole('button', { name: 'Update payment details' })).toBeNull()
-    first.unmount()
-
-    mocks.overview.mockResolvedValueOnce({ ...pastDue, hasStripeCustomer: true })
+  it('renders a server-returned error state with retry', async () => {
+    mocks.clientState.mockResolvedValue({ ...state, state: 'error', errorKind: 'configuration' })
     render(<ClientBillingPanel />)
-    expect(await screen.findByRole('button', { name: 'Update payment details' })).toBeTruthy()
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('not configured correctly')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+  })
+
+  it('maps a FORBIDDEN response to the forbidden state', async () => {
+    mocks.clientState.mockRejectedValue(
+      Object.assign(new Error('no'), { data: { code: 'FORBIDDEN' } }),
+    )
+    render(<ClientBillingPanel />)
+    expect(
+      await screen.findByRole('heading', { name: 'Billing is visible to managers and owners' }),
+    ).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('shows a visible error if opening billing management fails', async () => {
+    mocks.clientState.mockResolvedValue(state)
+    mocks.portal.mockRejectedValue(new Error('Portal unavailable'))
+    render(<ClientBillingPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage billing' }))
+    expect((await screen.findAllByRole('alert'))[0]?.textContent).toContain('Portal unavailable')
   })
 })

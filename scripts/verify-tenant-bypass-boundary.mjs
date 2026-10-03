@@ -48,6 +48,9 @@ const approvedCallCounts = new Map([
   // Durable provider identities are tenant-scoped; each mutation is ID/lease/revision-fenced.
   ['packages/db/src/helpers/media-provider-operations.ts', 5],
   ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
+  // Platform live-data scheduler discovers a bounded set of opaque due connector IDs; each poll
+  // job re-enters one exact tenant+venue+connector scope and never serves guest content.
+  ['packages/db/src/helpers/live-data.ts', 1],
   // Platform recovery scans only bounded authoritative upload identities; each
   // job then re-enters one exact tenant+venue+upload scope before mutation.
   ['apps/workers/src/processors/intake-upload-verification.ts', 1],
@@ -75,7 +78,7 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
-  ['apps/workers/src/processors/gmail-sync.ts', 4],
+  ['apps/workers/src/processors/gmail-sync.ts', 5],
   // Platform maintenance scans a bounded set of STALE summaries, then each
   // canonical refresh re-enters one exact tenant+organization scope.
   ['apps/workers/src/processors/account-summary-refresh.ts', 1],
@@ -253,7 +256,10 @@ const approvedCallCounts = new Map([
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 4],
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 2],
+  // Existing platform-admin thread/message reads, extracted unchanged from CRM core.
+  // Exact organization/thread predicates and bounded cursors retain their original scope.
+  ['packages/api/src/routers/admin/prospect-crm-threads.ts', 2],
   // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
   ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
@@ -277,6 +283,7 @@ const approvedCallCounts = new Map([
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
   ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  ['packages/api/src/routers/admin/prospect-crm-mailbox.ts', 3],
   // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
   // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
   ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],
@@ -304,6 +311,9 @@ const approvedCallCounts = new Map([
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
   ['packages/api/src/correspondence/prisma-inbound-store.ts', 11],
+  // One read-only anchor resolution that selects identifiers to find the owning tenant of an
+  // inbound client reply; every later write is bound to that resolved tenant.
+  ['packages/db/src/helpers/client-inbound-replies.ts', 1],
   // Capability-checked platform CRM agent tools have no tenant authority or send capability.
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
@@ -730,18 +740,37 @@ for (const [fileName, addition] of r2ApprovedDelta) {
 }
 const r2ApprovedTotal = [...approvedCallCounts.values()].reduce((sum, count) => sum + count, 0)
 const packet5ApprovedDelta = 4
+// W10 live-data scheduler discovery (packages/db/src/helpers/live-data.ts): exactly one reviewed call.
+const liveDataApprovedDelta = 1
+if (approvedCallCounts.get('packages/db/src/helpers/live-data.ts') !== liveDataApprovedDelta) {
+  throw new Error('Live data scheduler bypass delta differs')
+}
+// Inbound client reply linking (packages/db/src/helpers/client-inbound-replies.ts): exactly one
+// reviewed read-only anchor resolution; every write after it is bound to the resolved tenant.
+const inboundReplyApprovedDelta = 1
 if (
-  approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !==
-  3 + 1
+  approvedCallCounts.get('packages/db/src/helpers/client-inbound-replies.ts') !==
+  inboundReplyApprovedDelta
 ) {
+  throw new Error('Inbound client reply bypass delta differs')
+}
+if (approvedCallCounts.get('packages/api/src/routers/admin/product-entitlements.ts') !== 3 + 1) {
   throw new Error('Packet 5 venue voice usage bypass delta differs')
 }
 if (approvedCallCounts.get('packages/db/src/helpers/voice-session-recovery.ts') !== 1 + 3) {
   throw new Error('Packet 5 voice-session recovery bypass delta differs')
 }
+// Gmail reconciliation: three admin mailbox reads and one worker cursor-recovery write.
+// Admin calls require platform admin and bind account/job identity; the worker uses one exact account.
+const gmailReconciliationApprovedDelta = 4
 if (
   r2ApprovedTotal !==
-  453 + [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) + packet5ApprovedDelta
+  453 +
+    [...r2ApprovedDelta.values()].reduce((sum, count) => sum + count, 0) +
+    packet5ApprovedDelta +
+    liveDataApprovedDelta +
+    inboundReplyApprovedDelta +
+    gmailReconciliationApprovedDelta
 ) {
   throw new Error('R2 and Packet 5 tenant bypass approved total differs from reviewed deltas')
 }

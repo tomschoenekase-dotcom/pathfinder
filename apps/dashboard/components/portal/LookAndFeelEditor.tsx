@@ -32,10 +32,9 @@ import {
   portalTextLink,
 } from './PortalPrimitives'
 
-export const BRANDING_REVIEW_SUBJECTS = {
-  logo: 'New logo for the visitor guide',
-  background: 'New background photo for the visitor guide',
-} as const
+import { BRANDING_REVIEW_SUBJECTS } from './branding-review-subjects'
+
+export { BRANDING_REVIEW_SUBJECTS }
 
 type AssetRole = keyof typeof BRANDING_REVIEW_SUBJECTS
 

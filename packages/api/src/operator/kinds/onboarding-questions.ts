@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import {
+  ClientNotificationError,
+  createClientNotificationIntent,
   createClientOnboardingQuestionAction,
   expireAgentQuestionIfDue,
   OnboardingQuestionActionError,
@@ -10,6 +12,12 @@ import {
 import type { OperatorDatabase } from '../audit'
 import { operatorUntrustedText, redactAddresses } from '../crm-projection'
 import { assertTenantInGrant, assertVenueInGrant, OperatorNotFoundError } from '../grants'
+import {
+  dispatchNotificationEmail,
+  dispatchQueuedForRequest,
+  prepareNotificationEmail,
+  type NotificationEmailLabel,
+} from '../notifications'
 import {
   OperatorStaleError,
   type OperatorApplyContext,
@@ -54,13 +62,26 @@ const version = (items: { questionId: string; expectedUpdatedAt: string }[]) =>
     )
     .digest('hex')
 
-function outcome(links: { id: string; agentQuestionId: string; supportRequestId: string }[]) {
+function outcome(
+  links: { id: string; agentQuestionId: string; supportRequestId: string }[],
+  notification?: { intentId: string; email: NotificationEmailLabel },
+) {
   const items = links.map((link) => ({
     linkId: link.id,
     questionId: link.agentQuestionId,
     requestId: link.supportRequestId,
   }))
-  return { result: { items, portalOnly: true, workAuthorized: false }, after: { items } }
+  return {
+    result: {
+      items,
+      // The portal post is immediate; the email follows only where the deployment allows it.
+      portalOnly: false,
+      portalPosted: true,
+      ...(notification ? { notification: { ...notification, portal: 'portal_posted' } } : {}),
+      workAuthorized: false,
+    },
+    after: { items },
+  }
 }
 
 /** One reviewed group; each question retains its canonical support conversation and receipt. */
@@ -108,7 +129,7 @@ export const onboardingQuestionsKind: OperatorProposalKind<Args> = {
     )
   },
   describe: (args) => ({
-    title: `Route ${args.questions.length} onboarding question(s) to the customer portal`,
+    title: `Route ${args.questions.length} onboarding question(s) to the customer portal and, where the deployment allows it, to their verified email`,
     lines: [
       `venue ${args.venueId}`,
       `recipient ${args.recipientUserId}`,
@@ -128,15 +149,20 @@ export const onboardingQuestionsKind: OperatorProposalKind<Args> = {
       question: operatorUntrustedText(redactAddresses(q.question), 2000),
     })),
   }),
-  apply: async (args, context: OperatorApplyContext) =>
-    context.database
+  apply: async (args, context: OperatorApplyContext) => {
+    // The identity lookup runs before the transaction, never inside it.
+    const mail = await prepareNotificationEmail(args.recipientUserId)
+    const text = new Map(
+      (await questions(args, context.database)).map((row) => [row.id, row.question]),
+    )
+    const applied = await context.database
       .$transaction(
         async (tx) => {
           // Reuse the canonical action in this transaction so a failed question rolls back the entire group.
           const client = {
             $transaction: (work: (transaction: typeof tx) => Promise<unknown>) => work(tx),
           } as Pick<OperatorDatabase, '$transaction'>
-          const links = []
+          const links: { id: string; agentQuestionId: string; supportRequestId: string }[] = []
           for (const question of args.questions) {
             const saved = await createClientOnboardingQuestionAction(
               {
@@ -159,7 +185,54 @@ export const onboardingQuestionsKind: OperatorProposalKind<Args> = {
             )
             links.push(saved.link)
           }
-          return outcome(links)
+          // One intent for the whole approved group, anchored on its first conversation. Each
+          // question keeps its own conversation, and the email links to every one of them.
+          const first = args.questions[0]!
+          const opening = await tx.supportMessage.findFirst({
+            where: {
+              tenantId: args.tenantId,
+              submissionRequestId: onboardingQuestionOperationId(
+                context.proposalId,
+                first.questionId,
+              ),
+            },
+            select: { id: true },
+          })
+          if (!opening)
+            throw new OperatorStaleError('Onboarding questions changed; refresh the group')
+          const { intent } = await createClientNotificationIntent(tx, {
+            tenantId: args.tenantId,
+            venueId: args.venueId,
+            supportRequestId: links[0]!.supportRequestId,
+            supportMessageId: opening.id,
+            requestVersion: 1,
+            questionIds: args.questions.map((question) => question.questionId),
+            recipientUserId: args.recipientUserId,
+            recipientEmail: mail.recipientEmail,
+            emailRequested: true,
+            emailEnabled: mail.emailEnabled,
+            content: {
+              version: 1,
+              subject:
+                args.questions.length === 1
+                  ? 'One question to finish setting up your Torchiko guide'
+                  : `${args.questions.length} questions to finish setting up your Torchiko guide`,
+              intro:
+                'Torchiko needs a few answers from you to finish setting up your venue guide. Each question below opens its own conversation in your dashboard.',
+              items: args.questions.map((question, index) => ({
+                text: operatorUntrustedText(
+                  redactAddresses(text.get(question.questionId) ?? question.subject),
+                  2000,
+                ).text,
+                why: question.why,
+                effect: question.effect,
+                requestId: links[index]!.supportRequestId,
+                questionId: question.questionId,
+              })),
+            },
+            actor: { actorId: context.actor.id, auditRole: 'PLATFORM_ADMIN' },
+          })
+          return { links, intent }
         },
         { timeout: 30_000 },
       )
@@ -184,8 +257,14 @@ export const onboardingQuestionsKind: OperatorProposalKind<Args> = {
         ) {
           throw new OperatorStaleError('Onboarding questions changed; refresh the group')
         }
+        if (error instanceof ClientNotificationError && error.code === 'NOT_FOUND') {
+          throw new OperatorStaleError('Onboarding questions changed; refresh the group')
+        }
         throw error
-      }),
+      })
+    const email = await dispatchNotificationEmail(context.database, applied.intent)
+    return outcome(applied.links, { intentId: applied.intent.id, email })
+  },
   reconcile: async (args, context) => {
     const links = await context.database.onboardingQuestionLink.findMany({
       where: {
@@ -201,6 +280,20 @@ export const onboardingQuestionsKind: OperatorProposalKind<Args> = {
     })
     if (links.length === 0) return { state: 'not_applied' }
     if (links.length !== args.questions.length) return { state: 'unknown' }
-    return { state: 'applied', outcome: outcome(links) }
+    // The group committed. If the apply was cut off before its email was handed to the queue,
+    // do that now; the job is keyed by intent and generation, so this can never send twice.
+    const email = await dispatchQueuedForRequest(context.database, {
+      tenantId: args.tenantId,
+      supportRequestId: links[0]!.supportRequestId,
+    })
+    const intent = await context.database.clientNotificationIntent.findFirst({
+      where: { tenantId: args.tenantId, supportRequestId: links[0]!.supportRequestId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    })
+    return {
+      state: 'applied',
+      outcome: outcome(links, intent && email ? { intentId: intent.id, email } : undefined),
+    }
   },
 }

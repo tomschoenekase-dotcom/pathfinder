@@ -91,8 +91,9 @@ export default async function OperatorAuthorizePage({
         </p>
       ) : null}
       <p className="mt-2 text-sm text-slate-600">
-        Every change it makes is a proposal. Nothing applies without your approval unless you turn
-        on autonomy for that capability.
+        Authorized routine CRM edits, imports, draft venues and appearance changes can apply without
+        another approval. Existing Ask first settings still apply. External actions and other
+        reviewed changes keep their separate approval steps.
       </p>
       <ConsentForm
         params={params}

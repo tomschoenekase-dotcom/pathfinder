@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-255-20261001',
+  approval: 'torchiko-staging-lineage-to-267-20261003',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 255,
+  migrationCount: 267,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -177,10 +177,16 @@ const EXPECTED = Object.freeze({
   crmReceiptPredecessorFinalMigration: '20261001090000_add_operator_oauth',
   crmReceiptPredecessorManifestHash:
     '5cd8553c554dc8c728ac44fb3d5f5ace0644560025d7fe4b46e7b2c6af1f9cb0',
-  finalMigration: '20261001100000_crm_receipt_and_execution_foundations',
-  manifestHash: '36de18c960796e92e67699fe84958d80a88ba958fbf9b282c88a8236415ae5a0',
-  // Exact additive 255 endpoint (three new tables); preserves the frozen 254 source prefix.
-  finalPublicTableCount: 280,
+  operatorFoundationPredecessorCount: 255,
+  operatorFoundationPredecessorPublicTableCount: 280,
+  operatorFoundationPredecessorFinalMigration:
+    '20261001100000_crm_receipt_and_execution_foundations',
+  operatorFoundationPredecessorManifestHash:
+    '36de18c960796e92e67699fe84958d80a88ba958fbf9b282c88a8236415ae5a0',
+  finalMigration: '20261002121000_prospect_organization_merge',
+  manifestHash: 'cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00',
+  // Exact reviewed 256-267 suffix adds seventeen tables; every prior prefix stays frozen.
+  finalPublicTableCount: 297,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -608,6 +614,17 @@ export function assertFrozenManifest(manifest) {
     crmReceiptPredecessorHash !== EXPECTED.crmReceiptPredecessorManifestHash
   )
     fail('CRM receipt predecessor manifest changed')
+  const operatorFoundationPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.operatorFoundationPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (
+    manifest.names[EXPECTED.operatorFoundationPredecessorCount - 1] !==
+      EXPECTED.operatorFoundationPredecessorFinalMigration ||
+    operatorFoundationPredecessorHash !== EXPECTED.operatorFoundationPredecessorManifestHash
+  )
+    fail('operator foundation predecessor manifest changed')
   const fullHash = manifestHash(
     manifest.names.map((name) => `${name} ${manifest.checksums.get(name)}`),
   )
@@ -662,6 +679,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.distributionPredecessorCount &&
     rows.length !== EXPECTED.operatorOAuthPredecessorCount &&
     rows.length !== EXPECTED.crmReceiptPredecessorCount &&
+    rows.length !== EXPECTED.operatorFoundationPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -751,6 +769,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.distributionPredecessorCount) return 'distribution-predecessor'
   if (rows.length === EXPECTED.operatorOAuthPredecessorCount) return 'operator-oauth-predecessor'
   if (rows.length === EXPECTED.crmReceiptPredecessorCount) return 'crm-receipt-predecessor'
+  if (rows.length === EXPECTED.operatorFoundationPredecessorCount)
+    return 'operator-foundations-predecessor'
   return 'complete'
 }
 
@@ -1051,6 +1071,7 @@ export function expectedPublicTableCount(state) {
     'distribution-predecessor': EXPECTED.distributionPredecessorPublicTableCount,
     'operator-oauth-predecessor': EXPECTED.operatorOAuthPredecessorPublicTableCount,
     'crm-receipt-predecessor': EXPECTED.crmReceiptPredecessorPublicTableCount,
+    'operator-foundations-predecessor': EXPECTED.operatorFoundationPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

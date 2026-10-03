@@ -20,6 +20,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('INTERNAL_POLICY_TOKEN'),
     value: canary('INTERNAL_POLICY_TOKEN'),
   },
+  GUEST_PREVIEW_SIGNING_SECRET: {
+    marker: canary('GUEST_PREVIEW_SIGNING_SECRET'),
+    value: canary('GUEST_PREVIEW_SIGNING_SECRET'),
+  },
   CLERK_SECRET_KEY: {
     marker: canary('CLERK_SECRET_KEY'),
     value: `sk_test_${canary('CLERK_SECRET_KEY')}`,

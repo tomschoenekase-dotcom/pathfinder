@@ -313,6 +313,8 @@ export function operatorContactView(
     flags: operatorContactFlags(contact),
     // The address exists in the output only for a contactable person.
     email: contactable ? contact.email : null,
+    // The phone follows the same rule, so a suppressed person's details stay private.
+    phone: contactable ? truncate(contact.phone, 40) : null,
   }
 }
 

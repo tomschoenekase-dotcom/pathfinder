@@ -258,14 +258,14 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
       expect(evidence).toEqual([
         expect.objectContaining({
           sourceKind: 'WEBSITE',
-          locator: `${rootUrl}#title`,
-          normalizedHash: sha256('synthetic conservatory'),
+          locator: `${detailUrl}#greenhouse`,
+          normalizedHash: sha256('the greenhouse entrance is step-free.'),
           capturedAt: observedAt,
         }),
         expect.objectContaining({
           sourceKind: 'WEBSITE',
-          locator: `${detailUrl}#greenhouse`,
-          normalizedHash: sha256('the greenhouse entrance is step-free.'),
+          locator: `${rootUrl}#title`,
+          normalizedHash: sha256('synthetic conservatory'),
           capturedAt: observedAt,
         }),
       ])

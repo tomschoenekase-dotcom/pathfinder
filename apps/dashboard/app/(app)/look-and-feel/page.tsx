@@ -1,10 +1,8 @@
 import { auth } from '@pathfinder/auth/server'
 import { redirect } from 'next/navigation'
 
-import {
-  LookAndFeelEditor,
-  BRANDING_REVIEW_SUBJECTS,
-} from '../../../components/portal/LookAndFeelEditor'
+import { LookAndFeelEditor } from '../../../components/portal/LookAndFeelEditor'
+import { BRANDING_REVIEW_SUBJECTS } from '../../../components/portal/branding-review-subjects'
 import { buildGuestChatUrl, resolveGuestWebOrigin } from '../../../lib/guest-chat-url'
 import { isManagerRole } from '../../../lib/portal-capabilities'
 import { createDashboardCaller } from '../../../lib/server-caller'

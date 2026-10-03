@@ -50,10 +50,12 @@ import { OperatorAudit } from './OperatorAudit'
 import { OperatorAutonomy } from './OperatorAutonomy'
 import { OperatorConnections } from './OperatorConnections'
 import { OperatorInbox } from './OperatorInbox'
+import { OperatorJobGrants } from './OperatorJobGrants'
 import type {
   OperatorAuditRowView,
   OperatorAutonomyRow,
   OperatorConnectionRow,
+  OperatorJobGrantPanel,
   OperatorReviewItemView,
 } from './types'
 
@@ -221,6 +223,57 @@ const auditRows: OperatorAuditRowView[] = [
   },
 ]
 
+const jobGrantPanel: OperatorJobGrantPanel = {
+  grants: [
+    {
+      id: 'jg_active',
+      name: 'Weekly look refresh',
+      clientId: 'opc_1',
+      clientName: 'Example Assistant',
+      tenantId: 'tenant_a',
+      tenantName: 'Harbor Museum',
+      venueId: null,
+      kinds: ['appearance.update'],
+      maxExecutions: 5,
+      remainingExecutions: 3,
+      maxAmountCents: null,
+      remainingAmountCents: null,
+      expiresAt: new Date('2026-10-01T15:00:00Z'),
+      revokedAt: null,
+      createdAt: new Date('2026-09-30T14:00:00Z'),
+      status: 'active',
+    },
+    {
+      id: 'jg_used',
+      name: 'Old job',
+      clientId: 'opc_1',
+      clientName: 'Example Assistant',
+      tenantId: 'tenant_a',
+      tenantName: 'Harbor Museum',
+      venueId: 'venue_1',
+      kinds: ['appearance.update'],
+      maxExecutions: 1,
+      remainingExecutions: 0,
+      maxAmountCents: null,
+      remainingAmountCents: null,
+      expiresAt: new Date('2026-10-01T15:00:00Z'),
+      revokedAt: null,
+      createdAt: new Date('2026-09-29T14:00:00Z'),
+      status: 'exhausted',
+    },
+  ],
+  clients: [{ id: 'opc_1', name: 'Example Assistant' }],
+  tenants: [{ id: 'tenant_a', name: 'Harbor Museum' }],
+  kinds: [
+    {
+      kind: 'appearance.update',
+      tool: 'appearance.propose_update',
+      capability: 'appearance:propose',
+      carriesAmount: false,
+    },
+  ],
+}
+
 const noFilters = { eventType: '', outcome: '', tool: '', days: '' }
 
 function shell(tab: OperatorTabId | null, inboxCount: number | null, content: React.ReactNode) {
@@ -234,7 +287,12 @@ function shell(tab: OperatorTabId | null, inboxCount: number | null, content: Re
 }
 
 const approvePanel = (item: OperatorReviewItemView) => (
-  <ApproveInvoker id={item.id} argsHash={item.argsHash} label={item.title} />
+  <ApproveInvoker
+    id={item.id}
+    argsHash={item.argsHash}
+    label={item.title}
+    grantable={item.type === 'proposal' && item.steps[0]?.tool === 'appearance.propose_update'}
+  />
 )
 
 const screens: Record<string, React.ReactElement> = {
@@ -246,6 +304,7 @@ const screens: Record<string, React.ReactElement> = {
     null,
     <OperatorConnections rows={connections} now={now} />,
   ),
+  'admin-job-grants': shell('grants', null, <OperatorJobGrants panel={jobGrantPanel} now={now} />),
   'admin-audit': shell(
     'audit',
     null,
@@ -263,6 +322,22 @@ const screens: Record<string, React.ReactElement> = {
       item={appearance}
       expiry="expires in 2 days (Oct 3, 14:20 UTC)"
       panel={approvePanel(appearance)}
+    />
+  ),
+  'approve-chat-request': (
+    <OperatorApproveView
+      item={appearance}
+      expiry="expires in 2 days (Oct 3, 14:20 UTC)"
+      notice="Requested from the chat. Your decision here is final for this request."
+      panel={
+        <ApproveInvoker
+          id={appearance.id}
+          argsHash={appearance.argsHash}
+          label={appearance.title}
+          decisionRequestId="req_1"
+          grantable
+        />
+      }
     />
   ),
   'approve-plan': (
@@ -398,6 +473,64 @@ describe('operator screens', () => {
       }),
     )
     vi.unstubAllGlobals()
+  })
+
+  it('a chat approval request posts the decision to the single-use route, never the direct one', async () => {
+    vi.stubGlobal('fetch', async (path: string, init: RequestInit) => {
+      mocks.post(path, JSON.parse(String(init.body)))
+      return { json: async () => ({ id: 'x', status: 'APPLIED' }) }
+    })
+    render(screens['approve-chat-request']!)
+    expect(screen.getByText(/Requested from the chat/u)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Approve/u }))
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith('/api/operator/decide', {
+        decisionRequestId: 'req_1',
+        argsHash: appearance.argsHash,
+        decision: 'approve',
+      }),
+    )
+    expect(mocks.post).not.toHaveBeenCalledWith('/api/operator/approve', expect.anything())
+    vi.unstubAllGlobals()
+  })
+
+  it('job grants: lists status and remaining uses, revokes only active grants, and creates within the form bounds', async () => {
+    vi.stubGlobal('fetch', async (path: string, init: RequestInit) => {
+      mocks.post(path, JSON.parse(String(init.body)))
+      return { json: async () => ({ created: true }) }
+    })
+    render(screens['admin-job-grants']!)
+    expect(screen.getByText('3 of 5 uses left')).toBeTruthy()
+    expect(screen.getByText('Used up')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Revoke Weekly look refresh' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Revoke Old job' })).toBeNull()
+
+    const create = screen.getByRole('button', { name: 'Create grant' }) as HTMLButtonElement
+    expect(create.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Nightly look job' } })
+    fireEvent.change(screen.getByLabelText('Connected app'), { target: { value: 'opc_1' } })
+    fireEvent.change(screen.getByLabelText('Client'), { target: { value: 'tenant_a' } })
+    fireEvent.click(screen.getByLabelText('appearance.update'))
+    expect(create.disabled).toBe(false)
+    fireEvent.click(create)
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith('/api/operator/job-grants', {
+        action: 'create',
+        name: 'Nightly look job',
+        clientId: 'opc_1',
+        tenantId: 'tenant_a',
+        kinds: ['appearance.update'],
+        maxExecutions: 5,
+        expiresInMinutes: 1440,
+      }),
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('job grants: with nothing grantable the form is replaced by an explanation', () => {
+    render(<OperatorJobGrants panel={{ ...jobGrantPanel, kinds: [] }} now={now} />)
+    expect(screen.getByText(/nothing to create/u)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create grant' })).toBeNull()
   })
 
   it('the connections tab links to arming and only active grants can be revoked', () => {

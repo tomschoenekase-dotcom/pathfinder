@@ -17,6 +17,7 @@ export type {
   TochiTenantFlagKey,
 } from './feature-flags'
 export { haversineDistanceMeters } from './geo'
+export { readGuestPreviewSigningSecret } from './guest-preview-secret'
 export {
   DEFAULT_GLOBAL_AI_CONTROL,
   GLOBAL_AI_CONTROL_KEY,

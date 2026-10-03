@@ -6,6 +6,7 @@ const publicUrl = 'https://guide.torchiko.com/miniaturemuseum/chat?source=qr'
 const qr = generateVenueQrPng(publicUrl)
 
 describe('renderVenueQrPdf', () => {
+  // Two concurrent font-rasterized renders can exceed Vitest's 5s default under workspace contention.
   it('writes deterministic single-page Letter PDFs around the canonical QR PNG', async () => {
     const input = { venueName: 'Museum of World Cultures', publicUrl, qrPngBytes: qr.bytes }
     const [first, second] = await Promise.all([renderVenueQrPdf(input), renderVenueQrPdf(input)])
@@ -22,7 +23,7 @@ describe('renderVenueQrPdf', () => {
     expect(first.indexOf(Buffer.from(qr.bytes.subarray(41, qr.bytes.length - 16)))).toBeGreaterThan(
       -1,
     )
-  })
+  }, 30_000)
 
   it('renders the current Miniature Museum guide URL', async () => {
     const pdf = await renderVenueQrPdf({

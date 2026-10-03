@@ -340,6 +340,11 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 ### 8.1 `apps/web` — the guest chat app (the real product)
 
 - Routes: `/` (landing), `/{venueSlug}` (venue intro), `/{venueSlug}/chat` (the chat).
+- `/{venueSlug}/preview?token=...` is a private, read-only preview of one exact native release or package
+  draft. It is a server component (no route handler) that accepts only an HMAC-signed, expiring,
+  tenant, venue and version-bound token (`GUEST_PREVIEW_SIGNING_SECRET`, minted by the operator tool
+  `venues.get_preview_link`), shows only guest-visible content, is never cached or indexed, and leaves the public
+  route refusing draft and inactive venues. Every refusal is the same not-found page.
 - The chat page (`app/[venueSlug]/chat/page.tsx`) is a client component orchestrating: venue load,
   history restore (via `sessionStorage` anonymous token), geolocation, session ensure, language
   selection, sending messages, and firing analytics events (`session.started/ended`,

@@ -212,6 +212,90 @@ test('repeated keyboard open and dismiss cycles land on the same layout every ti
   expect(opened[0]!.gap).toBeLessThanOrEqual(24)
 })
 
+test('a valid send on a phone dismisses the keyboard and the composer returns to the bottom', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.use.isMobile, 'touch-only phone behaviour')
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+  const shell = page.locator('[data-fixture="visitor-chat"] > div')
+  const composer = page.getByRole('textbox')
+  const viewportHeight = page.viewportSize()!.height
+  const setVisualViewport = (height: number, offsetTop: number) =>
+    page.evaluate(
+      ({ height, offsetTop }) => {
+        const define = (key: string, value: number) =>
+          Object.defineProperty(window.visualViewport!, key, { configurable: true, value })
+        define('height', height)
+        define('offsetTop', offsetTop)
+        window.visualViewport!.dispatchEvent(new Event('resize'))
+      },
+      { height, offsetTop },
+    )
+  // Report the moment focus leaves the composer, relative to the submit keystroke.
+  await page.evaluate(() => {
+    const field = document.querySelector('[data-chat-shell] textarea')!
+    delete (window as unknown as { __blurAt?: number }).__blurAt
+    field.addEventListener('blur', () => {
+      ;(window as unknown as { __blurAt?: number }).__blurAt = performance.now()
+    })
+  })
+  await composer.tap()
+  await setVisualViewport(Math.round(viewportHeight * 0.55), 120)
+  await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
+  await composer.fill('Where are the restrooms?')
+  const sentAt = await page.evaluate(() => performance.now())
+  await composer.press('Enter')
+  const blurAt = await page.evaluate(() => (window as unknown as { __blurAt?: number }).__blurAt)
+  expect(blurAt, 'the submit itself dismisses the keyboard').toBeDefined()
+  expect(blurAt! - sentAt).toBeLessThan(250)
+  await expect(composer).not.toBeFocused()
+  // The browser hides the keyboard; the shell returns to the full layout at the bottom.
+  await setVisualViewport(viewportHeight, 0)
+  await expect(shell).not.toHaveAttribute('data-keyboard-open', 'true')
+  await expect(shell).not.toHaveAttribute('data-viewport-pinned', 'true')
+  const restored = (await shell.boundingBox())!
+  expect(restored.y).toBe(0)
+  expect(Math.round(restored.height)).toBe(viewportHeight)
+  const composerBox = (await composer.boundingBox())!
+  expect(composerBox.y + composerBox.height).toBeGreaterThan(viewportHeight * 0.75)
+  // Nothing refocuses it while or after the answer arrives.
+  await page.waitForTimeout(1_500)
+  await expect(composer).not.toBeFocused()
+  await expectViewportIntegrity(page)
+})
+
+test('the empty composer hint is one clean line at narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+  const composer = page.getByRole('textbox')
+  const hint = page
+    .locator('[data-chat-shell] textarea')
+    .locator('xpath=preceding-sibling::span[1]')
+  await expect(hint).toBeVisible()
+  const geometry = await hint.evaluate((node) => {
+    const style = getComputedStyle(node)
+    return {
+      height: node.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(style.lineHeight),
+      whiteSpace: style.whiteSpace,
+    }
+  })
+  expect(geometry.whiteSpace).toBe('nowrap')
+  expect(Math.round(geometry.height)).toBe(geometry.lineHeight)
+  const hintBox = (await hint.boundingBox())!
+  const fieldBox = (await composer.boundingBox())!
+  expect(hintBox.y).toBeGreaterThanOrEqual(fieldBox.y)
+  expect(hintBox.y + hintBox.height).toBeLessThanOrEqual(fieldBox.y + fieldBox.height)
+  await composer.fill('x')
+  await expect(hint).toHaveCount(0)
+})
+
 test('keyboard detection survives innerHeight shrinking with the visual viewport', async ({
   page,
 }) => {

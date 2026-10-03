@@ -52,6 +52,8 @@ export const ANALYTICS_ENRICHMENT_RETRY_BACKOFF = 'analytics-enrichment-retry'
 export const SEND_EMAIL_QUEUE = queueName('send-email')
 export const SEND_WELCOME_EMAIL_JOB = 'send-welcome-email'
 export const SEND_WELCOME_EMAIL_RETRY_BACKOFF = 'send-welcome-email-retry'
+export const SEND_CLIENT_NOTIFICATION_EMAIL_JOB = 'send-client-notification-email'
+export const SEND_CLIENT_NOTIFICATION_EMAIL_RETRY_BACKOFF = 'send-client-notification-email-retry'
 export const SEND_PROSPECT_OUTREACH_JOB = 'send-prospect-outreach'
 export const SEND_PROSPECT_OUTREACH_RETRY_BACKOFF = 'send-prospect-outreach-retry'
 export const OPERATIONAL_EVENT_DELIVERY_QUEUE = queueName('operational-event-delivery')
@@ -122,10 +124,21 @@ export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
 export const INTAKE_V1_SOURCE_PROCESSING_QUEUE = queueName('intake-v1-source-processing')
 export const INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB = 'intake-v1-source-processing-process'
 export const INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB = 'intake-v1-source-processing-recovery'
+/**
+ * Operator-requested venue source capture rides the same isolated website-fetch runtime and queue
+ * as intake website research, so it inherits that runtime's flag and network policy. The payload
+ * carries only opaque scope IDs; the worker re-reads the source and the venue's authorized hosts.
+ */
+export const VENUE_SOURCE_CAPTURE_PROCESS_JOB = 'venue-source-capture-process'
 
 export const INTAKE_V1_FILE_EXTRACTION_QUEUE = queueName('intake-v1-file-extraction')
 export const INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB = 'intake-v1-file-extraction-process'
 export const INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB = 'intake-v1-file-extraction-recovery'
+
+/** Pull-mode venue live data. Jobs carry opaque tenant/venue/connector IDs only. */
+export const LIVE_DATA_POLL_QUEUE = queueName('live-data-poll')
+export const LIVE_DATA_POLL_PROCESS_JOB = 'live-data-poll-process'
+export const LIVE_DATA_POLL_SCHEDULER_JOB = 'live-data-poll-scheduler'
 
 export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
 export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
@@ -164,4 +177,5 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
   INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
+  LIVE_DATA_POLL_QUEUE,
 ] as const)

@@ -249,7 +249,7 @@ describe.skipIf(!enabled)(
         const applied = await database.operatorProposal.findFirstOrThrow({
           where: { id: view.proposalId, targetTenantId: tenantId },
         })
-        expect(applied.result).toMatchObject({ portalOnly: true, workAuthorized: false })
+        expect(applied.result).toMatchObject({ portalPosted: true, workAuthorized: false })
         expect((applied.beforeSnapshot as any).questions[0].question.untrusted).toBe(true)
         expect(
           (

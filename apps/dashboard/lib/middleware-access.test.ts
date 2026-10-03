@@ -197,7 +197,9 @@ describe('dashboard middleware access policy', () => {
     '/oauth/authorize',
     '/api/operator/consent',
     '/api/operator/approve',
+    '/api/operator/decide',
     '/api/operator/autonomy',
+    '/api/operator/job-grants',
     '/api/operator/revoke',
     '/api/operator/mcpx',
     '/oauth/tokens',
@@ -210,7 +212,9 @@ describe('dashboard middleware access policy', () => {
     '/approve/proposal_1',
     '/api/operator/consent',
     '/api/operator/approve',
+    '/api/operator/decide',
     '/api/operator/autonomy',
+    '/api/operator/job-grants',
     '/api/operator/revoke',
   ])('requires a signed-in platform admin, but no organization, for %s', (pathname) => {
     expect(isOperatorHumanPath(pathname)).toBe(true)

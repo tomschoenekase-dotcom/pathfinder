@@ -1,6 +1,7 @@
 import { db } from '@pathfinder/db'
 
 import { redactOperatorArgs, type OperatorDatabase } from './audit'
+import { listJobGrantableKinds, listJobGrants } from './job-grants'
 import { createOperatorRegistry } from './registry'
 import type { OperatorKindRegistry } from './proposals'
 
@@ -31,10 +32,11 @@ export type OperatorReviewStep = {
   venueName: string | null
   /**
    * `applied`: before → after recorded when the change was applied. `restore`: what an undo will
-   * put back (now → restored). Pending changes have no snapshot yet; the lines describe them and
-   * the target's version is checked again at approval.
+   * put back (now → restored). `pending`: the server-computed difference a still-pending proposal
+   * of a kind that can compute one would make (current → proposed). Other pending changes have no
+   * snapshot yet; the lines describe them and the target's version is checked again at approval.
    */
-  changeMode: 'applied' | 'restore' | null
+  changeMode: 'applied' | 'restore' | 'pending' | null
   changes: OperatorFieldChange[]
   args: string
   failureCode: string | null
@@ -126,9 +128,61 @@ async function resolveNames(database: OperatorDatabase, targets: readonly Target
   return { tenantNames, venueNames }
 }
 
-type ProposalRow = NonNullable<
-  Awaited<ReturnType<OperatorDatabase['operatorProposal']['findUnique']>>
->
+/**
+ * Explicit column lists for the review reads. These pages must keep rendering while a newer
+ * migration (lease, fence, attempt, preview digest, policy revision) has not reached a given
+ * database, so they never select columns they do not display. A bare findUnique/findMany selects
+ * every modelled column and fails the whole read with a missing-column error otherwise.
+ */
+export const OPERATOR_PROPOSAL_REVIEW_SELECT = {
+  id: true,
+  clientId: true,
+  kind: true,
+  tool: true,
+  args: true,
+  argsHash: true,
+  status: true,
+  planId: true,
+  planStepIndex: true,
+  revertOfId: true,
+  targetTenantId: true,
+  targetVenueId: true,
+  beforeSnapshot: true,
+  afterSnapshot: true,
+  failureCode: true,
+  expiresAt: true,
+  createdAt: true,
+} as const
+
+export const OPERATOR_PLAN_REVIEW_SELECT = {
+  id: true,
+  clientId: true,
+  title: true,
+  status: true,
+  argsHash: true,
+  createdAt: true,
+  expiresAt: true,
+} as const
+
+type ProposalRow = {
+  id: string
+  clientId: string
+  kind: string
+  tool: string
+  args: unknown
+  argsHash: string
+  status: string
+  planId: string | null
+  planStepIndex: number | null
+  revertOfId: string | null
+  targetTenantId: string | null
+  targetVenueId: string | null
+  beforeSnapshot: unknown
+  afterSnapshot: unknown
+  failureCode: string | null
+  expiresAt: Date
+  createdAt: Date
+}
 
 async function buildSteps(
   rows: readonly ProposalRow[],
@@ -137,55 +191,73 @@ async function buildSteps(
 ): Promise<OperatorReviewStep[]> {
   const revertIds = rows.flatMap((row) => (row.revertOfId ? [row.revertOfId] : []))
   const originals = revertIds.length
-    ? await database.operatorProposal.findMany({ where: { id: { in: revertIds } } })
+    ? await database.operatorProposal.findMany({
+        where: { id: { in: revertIds } },
+        select: OPERATOR_PROPOSAL_REVIEW_SELECT,
+      })
     : []
   const originalById = new Map(originals.map((row) => [row.id, row]))
   const { tenantNames, venueNames } = await resolveNames(
     database,
     rows.map((row) => ({ tenantId: row.targetTenantId, venueId: row.targetVenueId })),
   )
-  return rows.map((row) => {
-    const original = row.revertOfId ? originalById.get(row.revertOfId) : undefined
-    let title: string
-    let lines: string[]
-    let changeMode: OperatorReviewStep['changeMode'] = null
-    let changes: OperatorFieldChange[] = []
-    if (row.kind === 'operator.revert') {
-      const undone = original ? describeStep(kinds, original.tool, original.args) : null
-      title = undone ? `Undo: ${undone.title}` : 'Undo an applied change'
-      lines = ['Restores the values from before the original change was applied.']
-      if (original) {
-        // The original's beforeSnapshot is what comes back; its afterSnapshot is what is live now.
-        changeMode = 'restore'
-        changes = diffSnapshots(original.afterSnapshot, original.beforeSnapshot)
+  return Promise.all(
+    rows.map(async (row) => {
+      const original = row.revertOfId ? originalById.get(row.revertOfId) : undefined
+      let title: string
+      let lines: string[]
+      let changeMode: OperatorReviewStep['changeMode'] = null
+      let changes: OperatorFieldChange[] = []
+      if (row.kind === 'operator.revert') {
+        const undone = original ? describeStep(kinds, original.tool, original.args) : null
+        title = undone ? `Undo: ${undone.title}` : 'Undo an applied change'
+        lines = ['Restores the values from before the original change was applied.']
+        if (original) {
+          // The original's beforeSnapshot is what comes back; its afterSnapshot is what is live now.
+          changeMode = 'restore'
+          changes = diffSnapshots(original.afterSnapshot, original.beforeSnapshot)
+        }
+      } else {
+        const described = describeStep(kinds, row.tool, row.args)
+        title = described.title
+        lines = described.lines
+        if (row.beforeSnapshot !== null && row.afterSnapshot !== null) {
+          changeMode = 'applied'
+          changes = diffSnapshots(row.beforeSnapshot, row.afterSnapshot)
+        } else if (row.status === 'PENDING') {
+          const kind = kinds.get(row.tool)
+          if (kind?.pendingChanges) {
+            try {
+              const computed = await kind.pendingChanges(kind.parse(row.args), database)
+              if (computed.length > 0) {
+                changeMode = 'pending'
+                changes = computed.map((entry) => ({ ...entry }))
+              }
+            } catch {
+              // The exact arguments still show in full; the diff is a convenience, never a gate.
+            }
+          }
+        }
       }
-    } else {
-      const described = describeStep(kinds, row.tool, row.args)
-      title = described.title
-      lines = described.lines
-      if (row.beforeSnapshot !== null && row.afterSnapshot !== null) {
-        changeMode = 'applied'
-        changes = diffSnapshots(row.beforeSnapshot, row.afterSnapshot)
+      return {
+        index: row.planStepIndex ?? 0,
+        proposalId: row.id,
+        tool: row.tool,
+        status: row.status,
+        title,
+        lines,
+        tenantName: row.targetTenantId ? (tenantNames.get(row.targetTenantId) ?? null) : null,
+        venueName:
+          row.targetTenantId && row.targetVenueId
+            ? (venueNames.get(`${row.targetTenantId}:${row.targetVenueId}`) ?? null)
+            : null,
+        changeMode,
+        changes,
+        args: boundedArgs(row.args),
+        failureCode: row.failureCode,
       }
-    }
-    return {
-      index: row.planStepIndex ?? 0,
-      proposalId: row.id,
-      tool: row.tool,
-      status: row.status,
-      title,
-      lines,
-      tenantName: row.targetTenantId ? (tenantNames.get(row.targetTenantId) ?? null) : null,
-      venueName:
-        row.targetTenantId && row.targetVenueId
-          ? (venueNames.get(`${row.targetTenantId}:${row.targetVenueId}`) ?? null)
-          : null,
-      changeMode,
-      changes,
-      args: boundedArgs(row.args),
-      failureCode: row.failureCode,
-    }
-  })
+    }),
+  )
 }
 
 async function clientNames(database: OperatorDatabase, clientIds: readonly string[]) {
@@ -205,11 +277,15 @@ export async function loadOperatorReview(
   database: OperatorDatabase = db,
   kinds: OperatorKindRegistry = createOperatorRegistry().kinds,
 ): Promise<OperatorReviewItem | null> {
-  const plan = await database.operatorPlan.findUnique({ where: { id } })
+  const plan = await database.operatorPlan.findUnique({
+    where: { id },
+    select: OPERATOR_PLAN_REVIEW_SELECT,
+  })
   if (plan) {
     const rows = await database.operatorProposal.findMany({
       where: { planId: plan.id },
       orderBy: { planStepIndex: 'asc' },
+      select: OPERATOR_PROPOSAL_REVIEW_SELECT,
     })
     const names = await clientNames(database, [plan.clientId])
     return {
@@ -224,7 +300,10 @@ export async function loadOperatorReview(
       steps: await buildSteps(rows, kinds, database),
     }
   }
-  const row = await database.operatorProposal.findUnique({ where: { id } })
+  const row = await database.operatorProposal.findUnique({
+    where: { id },
+    select: OPERATOR_PROPOSAL_REVIEW_SELECT,
+  })
   if (!row || row.planId !== null) return null
   const steps = await buildSteps([row], kinds, database)
   const names = await clientNames(database, [row.clientId])
@@ -331,6 +410,42 @@ export async function listOperatorConnections(
       scope: `${grant.allTenants ? 'All clients' : `${grant.tenantIds.length} client(s)`}, ${grant.capabilities.length} capabilities`,
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Job grants
+// ---------------------------------------------------------------------------
+
+/** Everything the job-grant panel shows: current grants plus the choices the create form offers. */
+export async function loadJobGrantPanel(
+  now: Date,
+  database: OperatorDatabase = db,
+  kinds: OperatorKindRegistry = createOperatorRegistry().kinds,
+) {
+  const [grants, clients, tenants] = await Promise.all([
+    listJobGrants(now, database),
+    database.operatorOAuthClient.findMany({
+      where: {
+        revokedAt: null,
+        consentedAt: { not: null },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: LIST_LIMIT,
+      select: { id: true, clientName: true },
+    }),
+    database.tenant.findMany({
+      orderBy: { name: 'asc' },
+      take: 200,
+      select: { id: true, name: true },
+    }),
+  ])
+  return {
+    grants,
+    clients: clients.map((client) => ({ id: client.id, name: client.clientName })),
+    tenants,
+    kinds: listJobGrantableKinds(kinds),
+  }
 }
 
 // ---------------------------------------------------------------------------

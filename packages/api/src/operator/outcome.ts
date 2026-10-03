@@ -18,6 +18,9 @@ const PRE_EFFECT_FAILURE_CODES: ReadonlySet<string> = new Set([
   'SUPPRESSED',
   'INVALID_INPUT',
   'RELEASE_DISABLED',
+  'DUPLICATE_REVIEW',
+  'IMPORT_NOT_READY',
+  'OWNER_NOT_FOUND',
 ])
 
 type EffectInput = Readonly<{
@@ -35,6 +38,10 @@ export function proposalEffect(row: EffectInput): OperatorEffect {
     case 'APPLIED':
       return 'applied'
     case 'FAILED':
+      // First-class settled and held states, recorded by apply failure handling or reconciliation.
+      if (row.failureCode === 'OUTCOME_UNKNOWN') return 'unknown'
+      if (row.failureCode === 'PARTIALLY_APPLIED') return 'partial'
+      if (row.failureCode === 'FAILED_NO_EFFECT') return 'none'
       // Rows written with execution phases say exactly whether a domain write could have begun.
       // Older rows (attempt 0) fall back to the failure codes only pre-write checks produce.
       if (row.attempt !== undefined && row.attempt > 0) {

@@ -17,7 +17,34 @@ const restrictedProductionMarker =
 const restrictedProductionRecords = new Set([
   'production-cutover-20260930.md',
   'production-cutover-20261001.md',
+  'production-cutover-20261003.md',
 ])
+
+test('October 3 PR40 exception retains exact suffix, preservation and protected promotion gates', async () => {
+  const approval = await readFile(new URL('production-cutover-20261003.md', docsRoot), 'utf8')
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  assert.match(approval, /255 finished migrations and 280 public tables/)
+  assert.match(approval, /267 finished migrations and 297 public tables/)
+  assert.match(approval, /20261002090000_add_live_data_connectors/)
+  assert.match(approval, /20261002121000_prospect_organization_merge/)
+  assert.match(approval, /cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00/)
+  assert.match(approval, /36de18c960796e92e67699fe84958d80a88ba958fbf9b282c88a8236415ae5a0/)
+  assert.match(approval, /incident remains ACTIVE by default/)
+  assert.match(approval, /Drain writers before the release-bound backup/)
+  assert.match(approval, /local PostgreSQL 17/)
+  assert.match(approval, /ownership and privileges/)
+  assert.match(approval, /original-column hashes/)
+  assert.match(approval, /No seed, reset, restore over production or staging/)
+  assert.match(approval, /verified-held exit 2/)
+  assert.match(approval, /protected promotion gate/)
+  assert.match(approval, /existing production migration entrypoint/)
+  assert.match(approval, /never run a destructive[\s\S]*down migration/)
+  assert.match(stop, /production-cutover-20261003\.md/)
+  assert.match(workflow, /production-cutover-20261003\.md/)
+  assert.deepEqual(findUnsafeInstructions(approval), [])
+})
 
 const unsafeInstructionPatterns = [
   ['production migration script', /\bdb:migrate:prod\b/i],
@@ -238,6 +265,7 @@ test('September 30 approval is exact-scope, guarded, and preserves the ACTIVE in
   )
   paths.add('production-cutover-20260930.md')
   paths.add('production-cutover-20261001.md')
+  paths.add('production-cutover-20261003.md')
   const productionMentionFiles = []
   const canonicalInvocationFiles = []
   for (const path of paths) {
@@ -249,7 +277,7 @@ test('September 30 approval is exact-scope, guarded, and preserves the ACTIVE in
   assert.deepEqual(canonicalInvocationFiles, ['production-cutover-20260930.md'])
   for (const [path, source] of productionMentionFiles) {
     if (path === 'production-cutover-20260930.md') continue
-    if (path === 'production-cutover-20261001.md') {
+    if (path === 'production-cutover-20261001.md' || path === 'production-cutover-20261003.md') {
       assert.equal(hasLeadingMarker(source, restrictedProductionMarker), true)
       continue
     }

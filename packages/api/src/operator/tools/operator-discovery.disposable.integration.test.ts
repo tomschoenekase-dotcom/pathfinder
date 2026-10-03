@@ -107,8 +107,13 @@ describe.skipIf(!enabled)(
     let campaignId = ''
     const memberIds: string[] = []
     const orgIds: string[] = []
+    let previousCrmPolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
 
     beforeAll(async () => {
+      previousCrmPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'crm:propose' },
+      })
+      await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
       await db.operatorOAuthClient.create({
         data: {
           id: clientId,
@@ -213,6 +218,19 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      if (previousCrmPolicy) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability: 'crm:propose' },
+          create: previousCrmPolicy,
+          update: {
+            mode: previousCrmPolicy.mode,
+            allowedKinds: previousCrmPolicy.allowedKinds,
+            updatedByUserId: previousCrmPolicy.updatedByUserId,
+          },
+        })
+      } else {
+        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
+      }
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } }),
       )
@@ -227,10 +245,13 @@ describe.skipIf(!enabled)(
       )
       expect(limited.tools).toHaveLength(OPERATOR_MCP_TOOLS.length)
       const byName = new Map<string, any>(limited.tools.map((tool: any) => [tool.name, tool]))
-      // Declared but unbuilt tools are shown as such rather than hidden.
-      for (const name of ['venues.propose_source']) {
-        expect(byName.get(name)?.implemented, name).toBe(false)
-        expect(byName.get(name)?.approvalMode, name).toBeNull()
+      // Every declared tool is built, including the source, content, release and preview tools.
+      for (const name of [
+        'venues.propose_source',
+        'venues.list_sources',
+        'venues.get_preview_link',
+      ]) {
+        expect(byName.get(name)?.implemented, name).toBe(true)
       }
       expect(byName.get('operator.get_context')).toMatchObject({
         implemented: true,
@@ -243,8 +264,10 @@ describe.skipIf(!enabled)(
       expect(byName.get('crm.propose_stage_change')).toMatchObject({
         implemented: true,
         authorized: false,
-        approvalMode: 'ask',
+        approvalMode: 'auto',
       })
+      // The owner policy defaults to auto for this routine kind, even though this grant lacks
+      // crm:propose. Authorization and approval policy are separate facts.
       expect(limited.grant.tenantIds).toEqual([tenantA])
       expect(limited.scopeNotes.join(' ')).toMatch(/platform-wide CRM/u)
       expect(limited.scopeNotes.join(' ')).toMatch(/lacks capabilities/u)
@@ -338,36 +361,45 @@ describe.skipIf(!enabled)(
     })
 
     it('operator.get_operation recovers a past write from its operationId and hides other grants', async () => {
-      const operationId = randomUUID()
-      const written = await registry.callTool(
-        'crm.propose_stage_change',
-        { organizationId: orgIds[0], expectedVersion: 1, stage: 'RESEARCHED', operationId },
-        {
-          config,
-          database: db,
-          grant: grant(),
-          now: new Date(),
-          requestId: randomUUID(),
-          venueRead: defaultVenueRead(db),
-        },
-      )
-      const found = await call('operator.get_operation', { originalOperationId: operationId })
-      expect(found).toMatchObject({
-        proposalId: (written as any).proposalId,
-        operationId,
-        status: 'PENDING',
-        effect: 'none',
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: 'crm:propose' },
+        create: { capability: 'crm:propose', mode: 'ASK', updatedByUserId: 'test-fixture' },
+        update: { mode: 'ASK', allowedKinds: [], updatedByUserId: 'test-fixture' },
       })
-      await expect(
-        call(
-          'operator.get_operation',
-          { originalOperationId: operationId },
-          grant({ grantId: otherGrantId }),
-        ),
-      ).rejects.toBeInstanceOf(OperatorNotFoundError)
-      await expect(
-        call('operator.get_operation', { originalOperationId: randomUUID() }),
-      ).rejects.toBeInstanceOf(OperatorNotFoundError)
+      try {
+        const operationId = randomUUID()
+        const written = await registry.callTool(
+          'crm.propose_stage_change',
+          { organizationId: orgIds[0], expectedVersion: 1, stage: 'RESEARCHED', operationId },
+          {
+            config,
+            database: db,
+            grant: grant(),
+            now: new Date(),
+            requestId: randomUUID(),
+            venueRead: defaultVenueRead(db),
+          },
+        )
+        const found = await call('operator.get_operation', { originalOperationId: operationId })
+        expect(found).toMatchObject({
+          proposalId: (written as any).proposalId,
+          operationId,
+          status: 'PENDING',
+          effect: 'none',
+        })
+        await expect(
+          call(
+            'operator.get_operation',
+            { originalOperationId: operationId },
+            grant({ grantId: otherGrantId }),
+          ),
+        ).rejects.toBeInstanceOf(OperatorNotFoundError)
+        await expect(
+          call('operator.get_operation', { originalOperationId: randomUUID() }),
+        ).rejects.toBeInstanceOf(OperatorNotFoundError)
+      } finally {
+        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:propose' } })
+      }
     })
 
     it('reports partial and unknown effects from recorded step state, not from plan status', async () => {
