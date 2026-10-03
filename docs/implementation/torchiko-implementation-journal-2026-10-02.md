@@ -701,3 +701,47 @@ Existing production `/admin/operator` failed before this release with the bounde
 `OPERATOR_TABS.find is not a function`. The candidate already contains the shared server-safe tab
 definition and boundary regression; post-release browser proof remains required. Production's
 dashboard browser session is authenticated; staging requires owner sign-in, requested separately.
+
+### CI build resource correction (2026-10-03)
+
+Exact candidate `52a22ad14f19393ee8f8ae74d29be9df76c6ce11` local release assessment
+PASS 27/27, including visual 186 PASS / 39 intentional skips and visitor launch 204 PASS.
+Hosted CI run `37114089515` failed at browser bundle build: actionable red cycle 3/4.
+The preceding f56 run was superseded/cancelled and its required aggregate failed;
+it is not green evidence. No cancelled run is used for admission.
+
+The code-only verifier correctly withheld build output, so the CI error alone did not
+establish cause. An external diagnostic using the same sequential canary builds proved:
+web PASS at 4096 MiB; dashboard compiled, then type validation exhausted its heap (exit 134).
+Receipt: `../qa/release-bundle-build-default-heap-diagnostic-correct-launch.json`.
+An initial wrong pnpm launcher failed before building; its separate artifacts are retained.
+
+A clean Git archive of 52 was built with the unchanged pinned Node 20 Dockerfile, independently
+reproducing dashboard type-validation heap exhaustion. Command:
+`docker build --file ../qa/release-docker-source-52/Dockerfile --tag torchiko-pr40-dashboard-52-source-heap4096 --progress plain ../qa/release-docker-source-52`.
+FAIL, `../qa/release-dashboard-docker-52-source-heap4096.log`.
+The initial local worktree-context build was stopped during transfer and is NOT RUN to completion.
+
+The dashboard Docker builder and CI bundle-verification step now use a 6144 MiB Node heap.
+The runner stage retains its existing runtime configuration. Type validation, secret canaries,
+checks and assertions remain enabled. Existing workflow/container/auth/dependency/secret-output
+contracts PASS 27/27, `../qa/release-build-heap-contracts.log`.
+Corrected Docker and full bundle-verifier results are recorded below after completion.
+
+Prepared owner `58fd3bc8a197517442e0354d6312c96828d0de4b` remains unpublished and is superseded
+by 52's CI failure. Its finalizer PASS does not authorize publication after that failure.
+All hosted applications still serve 9f; no hosted configuration, backup, migration or deploy occurred.
+
+`NODE_OPTIONS=--max-old-space-size=6144 pnpm verify:client-bundles` PASS after correction:
+20 server-only canaries and hardcoded credential patterns across 786 browser-deliverable files,
+2 applications. Receipt `../qa/release-client-bundles-heap6144-correction.log`.
+
+`pnpm test:scripts` PASS 621 tests / one existing intentional skip, zero failures;
+receipt `../qa/release-scripts-build-heap-correction.log`.
+
+Corrected clean source-only Node20 dashboard image build PASS (exit0):
+`docker build --file ../qa/release-docker-source-52-heap6144/Dockerfile --tag torchiko-pr40-dashboard-52-source-heap6144 --progress plain ../qa/release-docker-source-52-heap6144`.
+Receipt `../qa/release-dashboard-docker-52-source-heap6144.log`.
+A Node-only run of the resulting runner image confirmed Node20 and absent runtime NODE_OPTIONS;
+receipt `../qa/release-dashboard-docker-heap6144-runtime.json`. Build allowance stays build-only.
+The fourth hosted CI attempt remains required; no release admission is claimed before exact-head green.

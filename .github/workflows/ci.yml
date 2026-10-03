@@ -396,6 +396,9 @@ jobs:
           fi
       - name: Build and verify browser bundles contain no server secrets
         if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
+        env:
+          # Match the dashboard Docker builder; all build/type/secret checks remain enabled.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
         if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
