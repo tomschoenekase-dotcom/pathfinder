@@ -155,5 +155,9 @@ describe('ProspectOutreachCenter', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: 'Check result' }))
     expect(await screen.findByText(/3 messages handled in this job/iu)).toBeTruthy()
+    expect(mocks.getReconciliation).toHaveBeenCalledWith(
+      { providerAccountId: 'account-1', jobId: `gmail-sync-${'a'.repeat(64)}` },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 })

@@ -32,6 +32,7 @@ export function ProspectOutreachCenter({
   const requestSequence = useRef(0)
   const activeRequest = useRef<AbortController | null>(null)
   const reconciliationRequestIds = useRef<Record<string, string>>({})
+  const reconciliationReads = useRef<Record<string, AbortController>>({})
 
   const load = useCallback(async () => {
     const sequence = ++requestSequence.current
@@ -86,24 +87,48 @@ export function ProspectOutreachCenter({
       requestSequence.current += 1
       activeRequest.current?.abort()
       activeRequest.current = null
+      for (const read of Object.values(reconciliationReads.current)) read.abort()
+      reconciliationReads.current = {}
     }
   }, [fixture, load])
 
   async function checkReconciliation(providerAccountId: string, jobId: string) {
+    reconciliationReads.current[providerAccountId]?.abort()
+    const controller = new AbortController()
+    reconciliationReads.current[providerAccountId] = controller
     try {
-      const result = await client.admin.getGmailReconciliation.query({ providerAccountId, jobId })
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: OUTREACH_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getGmailReconciliation.query({ providerAccountId, jobId }, { signal }),
+      })
       if (result.status === 'COMPLETE' && result.complete === false && result.nextJobId) {
-        const continuation = await client.admin.getGmailReconciliation.query({
-          providerAccountId,
-          jobId: result.nextJobId,
+        const nextJobId = result.nextJobId
+        const continuation = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: OUTREACH_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getGmailReconciliation.query(
+              { providerAccountId, jobId: nextJobId },
+              { signal },
+            ),
         })
+        if (controller.signal.aborted) return
         setReconciliation((current) => ({ ...current, [providerAccountId]: continuation }))
       } else {
+        if (controller.signal.aborted) return
         setReconciliation((current) => ({ ...current, [providerAccountId]: result }))
       }
       if (result.status === 'COMPLETE' || result.status === 'FAILED') await load()
     } catch {
-      setError('Gmail reconciliation status could not be confirmed. Retry the status check.')
+      if (!controller.signal.aborted) {
+        setError('Gmail reconciliation status could not be confirmed. Retry the status check.')
+      }
+    } finally {
+      if (reconciliationReads.current[providerAccountId] === controller) {
+        delete reconciliationReads.current[providerAccountId]
+      }
     }
   }
 
