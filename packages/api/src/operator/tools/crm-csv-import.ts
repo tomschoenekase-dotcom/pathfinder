@@ -546,6 +546,11 @@ export async function stageCsvImport(
           normalizedVenueName?: string
           city?: string
           region?: string
+          country?: string
+          addressLine1?: string
+          postalCode?: string
+          existingOrganizationId?: string
+          existingVenueId?: string
           normalizedDomain?: string | null
         }
         const identity = JSON.stringify([
@@ -553,6 +558,11 @@ export async function stageCsvImport(
           value.normalizedVenueName,
           value.city?.toLowerCase() ?? null,
           value.region?.toLowerCase() ?? null,
+          value.country?.toLowerCase() ?? null,
+          value.addressLine1?.toLowerCase() ?? null,
+          value.postalCode?.toLowerCase() ?? null,
+          value.existingOrganizationId ?? null,
+          value.existingVenueId ?? null,
         ])
         const canonical = JSON.stringify(
           Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
@@ -569,6 +579,9 @@ export async function stageCsvImport(
           matches.length === 1 &&
           Boolean(value.city) &&
           !value.region &&
+          !value.country &&
+          !value.addressLine1 &&
+          !value.postalCode &&
           matches[0]?.reasons?.includes('normalized-organization-name') &&
           matches[0]?.reasons?.includes('normalized-venue-name') &&
           (!value.normalizedDomain || matches[0]?.reasons?.includes('exact-domain'))

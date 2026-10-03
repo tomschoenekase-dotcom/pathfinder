@@ -47,8 +47,8 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
         fileName: 'synthetic.csv',
         fileType: 'csv',
         fileSize: 30,
-        fileHash: 'a'.repeat(64),
-        mappingHash: 'b'.repeat(64),
+        fileHash: randomUUID().replaceAll('-', '').repeat(2),
+        mappingHash: randomUUID().replaceAll('-', '').repeat(2),
         importIdentityHash: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''),
         mapping: {},
         createdBy: owner,
@@ -237,6 +237,58 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
         context(true),
       ),
     ).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' })
+  })
+
+  it('keeps a differing street address reviewable instead of skipping a same-name venue', async () => {
+    const name = `Street Review ${suffix}`
+    await createProspectAction({
+      organization: { canonicalName: name },
+      venue: { name, city: 'Chicago' },
+      actor,
+    })
+    const staged = await stageCsvImport(
+      {
+        operationId: randomUUID(),
+        csvText: `Venue Name,City,Address\n${name},Chicago,200 Different Street`,
+      },
+      context(true),
+    )
+    const row = await db.prospectImportRow.findFirstOrThrow({
+      where: { importId: staged.importId },
+    })
+    expect(staged.skippedDuplicates).toBe(0)
+    expect(row.status).toBe('DUPLICATE_REVIEW')
+    expect(staged).toMatchObject({ blocked: true, unresolvedDuplicates: 1 })
+  })
+
+  it('keeps distinct addressed locations under one explicit organization as separate rows', async () => {
+    const name = `Two Streets ${suffix}`
+    const created = await createProspectAction({
+      organization: { canonicalName: name },
+      actor,
+    })
+    const staged = await stageCsvImport(
+      {
+        operationId: randomUUID(),
+        csvText: [
+          'Venue Name,City,Address,Existing Organization ID',
+          `${name},Chicago,100 First Street,${created.organization.id}`,
+          `${name},Chicago,200 Second Street,${created.organization.id}`,
+        ].join('\n'),
+      },
+      context(true),
+    )
+    const rows = await db.prospectImportRow.findMany({
+      where: { importId: staged.importId },
+      orderBy: { originalRowNumber: 'asc' },
+    })
+    expect(staged).toMatchObject({
+      blocked: false,
+      skippedDuplicates: 0,
+      unresolvedDuplicates: 0,
+      importableRows: 2,
+    })
+    expect(rows.every((row) => row.status === 'VALID' || row.status === 'WARNING')).toBe(true)
   })
 
   it('blocks malformed rows and uncertain duplicates while refusing a limited grant', async () => {
