@@ -291,6 +291,63 @@ describe.skipIf(!enabled)('operator CSV import (disposable database)', () => {
     expect(rows.every((row) => row.status === 'VALID' || row.status === 'WARNING')).toBe(true)
   })
 
+  it('treats case and whitespace variants of one address as one location, in file and in the CRM', async () => {
+    const name = `Spacing Venue ${suffix}`
+    const created = await createProspectAction({
+      organization: { canonicalName: `Spacing Parent ${suffix}` },
+      venue: { name, city: 'Chicago' },
+      actor,
+    })
+    await db.prospectVenue.update({
+      where: { id: created.venue!.id },
+      data: { addressLine1: '100 First Street', postalCode: '60601' },
+    })
+    const orgId = created.organization.id
+    const staged = await stageCsvImport(
+      {
+        operationId: randomUUID(),
+        csvText: [
+          'Venue Name,City,Address,Zip,Existing Organization ID',
+          `${name},chicago,100  first   STREET,60601,${orgId}`,
+          `${name},Chicago,100 First Street,60601,${orgId}`,
+          `${name},Chicago,200 Second Street,60601,${orgId}`,
+          ',,,,',
+          '',
+        ].join('\r\n'),
+      },
+      context(true),
+    )
+    expect(staged).toMatchObject({
+      totalRows: 3,
+      skippedDuplicates: 1,
+      unresolvedDuplicates: 0,
+      malformedRows: 0,
+      importableRows: 2,
+      blocked: false,
+    })
+    const rows = await db.prospectImportRow.findMany({
+      where: { importId: staged.importId },
+      orderBy: { originalRowNumber: 'asc' },
+    })
+    // The spacing variant resolves to the existing venue; the other street stays separate.
+    expect(rows.map((row) => row.originalRowNumber)).toEqual([2, 3, 4])
+    expect(rows[0]!.targetVenueId).toBe(created.venue!.id)
+    expect(rows[1]!.status).toBe('SKIPPED')
+    expect(rows[2]!.targetVenueId).toBeNull()
+    const summary = await db.prospectImport.findUniqueOrThrow({ where: { id: staged.importId } })
+    expect(summary.duplicateRows).toBe(0)
+    await approveProspectImportAction({ importId: staged.importId, actor })
+    await commitProspectImportBatchAction({ importId: staged.importId, limit: 100, actor })
+    const venues = await db.prospectVenue.findMany({
+      where: { organizationId: orgId, archivedAt: null },
+      select: { id: true, addressLine1: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    expect(venues).toHaveLength(2)
+    expect(venues[0]!.id).toBe(created.venue!.id)
+    expect(venues[1]!.addressLine1).toBe('200 Second Street')
+  })
+
   it('blocks malformed rows and uncertain duplicates while refusing a limited grant', async () => {
     const csvText = `Venue Name,City\n,Chicago\nUncertain ${suffix},Chicago`
     await expect(

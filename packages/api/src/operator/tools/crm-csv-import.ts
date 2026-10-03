@@ -120,8 +120,16 @@ export class CsvImportError extends Error {
   }
 }
 
-/** RFC 4180 quoting and embedded newlines, with no formula evaluation or automatic coercion. */
-export function parseBoundedCsv(csv: string): { headers: string[]; rows: string[][] } {
+/**
+ * RFC 4180 quoting and embedded newlines, with no formula evaluation or automatic coercion.
+ * Blank records (an empty line or only empty cells, as spreadsheet exports often append) are
+ * dropped; `rowNumbers` keeps each remaining row's 1-based record number, header included.
+ */
+export function parseBoundedCsv(csv: string): {
+  headers: string[]
+  rows: string[][]
+  rowNumbers: number[]
+} {
   if (Buffer.byteLength(csv, 'utf8') > MAX_CSV_BYTES)
     throw new CsvImportError('INVALID_CSV', 'CSV exceeds the byte limit')
   const records: string[][] = []
@@ -176,12 +184,28 @@ export function parseBoundedCsv(csv: string): { headers: string[]; rows: string[
   if (new Set(headers.map((value) => value.toLowerCase())).size !== headers.length) {
     throw new CsvImportError('INVALID_CSV', 'CSV headers must be distinct')
   }
-  if (!records.length) throw new CsvImportError('INVALID_CSV', 'CSV has no data rows')
-  for (const entry of records) {
+  const rows: string[][] = []
+  const rowNumbers: number[] = []
+  records.forEach((entry, index) => {
+    if (entry.every((value) => value.trim() === '')) return
     if (entry.length !== headers.length)
       throw new CsvImportError('INVALID_CSV', 'CSV row width differs from header')
-  }
-  return { headers, rows: records }
+    rows.push(entry)
+    rowNumbers.push(index + 2)
+  })
+  if (!rows.length) throw new CsvImportError('INVALID_CSV', 'CSV has no data rows')
+  return { headers, rows, rowNumbers }
+}
+
+/** Location comparison key: case, accents, punctuation and whitespace runs never split a place. */
+function locationKey(value: string | undefined): string | null {
+  const key = (value ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+  return key || null
 }
 
 function mappingFor(headers: string[], supplied?: Record<string, string>) {
@@ -393,7 +417,7 @@ export async function stageCsvImport(
   const parsed = parseBoundedCsv(csv)
   const mapping = mappingFor(parsed.headers, input.mapping)
   const retentionDigests = parsed.rows.map((cells, index) => ({
-    row: index + 2,
+    row: parsed.rowNumbers[index]!,
     fields: sourceCellDigests(
       Object.fromEntries(parsed.headers.map((header, column) => [header, cells[column] ?? ''])),
     ),
@@ -503,7 +527,7 @@ export async function stageCsvImport(
           )
           return {
             sheetName: SHEET,
-            originalRowNumber: offset + index + 2,
+            originalRowNumber: parsed.rowNumbers[offset + index]!,
             sourceValues,
             normalizedValues: normalizedValues(sourceValues, mapping),
           }
@@ -556,16 +580,25 @@ export async function stageCsvImport(
         const identity = JSON.stringify([
           value.normalizedOrganizationName,
           value.normalizedVenueName,
-          value.city?.toLowerCase() ?? null,
-          value.region?.toLowerCase() ?? null,
-          value.country?.toLowerCase() ?? null,
-          value.addressLine1?.toLowerCase() ?? null,
-          value.postalCode?.toLowerCase() ?? null,
-          value.existingOrganizationId ?? null,
-          value.existingVenueId ?? null,
+          locationKey(value.city),
+          locationKey(value.region),
+          locationKey(value.country),
+          locationKey(value.addressLine1),
+          locationKey(value.postalCode),
+          value.existingOrganizationId?.trim() || null,
+          value.existingVenueId?.trim() || null,
         ])
+        // Location parts compare by key, so a case or spacing variant of one address is an
+        // exact repeat rather than a second venue or an open review.
         const canonical = JSON.stringify(
-          Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
+          Object.entries({
+            ...value,
+            city: locationKey(value.city),
+            region: locationKey(value.region),
+            country: locationKey(value.country),
+            addressLine1: locationKey(value.addressLine1),
+            postalCode: locationKey(value.postalCode),
+          }).sort(([a], [b]) => a.localeCompare(b)),
         )
         const earlier = seen.get(identity)
         const exactWithinFile = earlier === canonical
@@ -621,10 +654,24 @@ export async function stageCsvImport(
         where: { importId: prospectImport.id },
       })
       if (stagedCount !== parsed.rows.length) throw new Error('Incomplete CSV row staging')
+      // The duplicate pass above moves rows between statuses after the last staging batch
+      // wrote the summary counters; refresh them so list views match the receipt.
+      const statusCounts = await database.prospectImportRow.groupBy({
+        by: ['status'],
+        where: { importId: prospectImport.id },
+        _count: { _all: true },
+      })
+      const countOf = (status: string) =>
+        statusCounts.find((entry) => entry.status === status)?._count._all ?? 0
       const completed = await database.prospectImport.updateMany({
         where: { id: prospectImport.id, status: { in: ['DRAFT', 'DRY_RUN_READY'] } },
         data: {
           status: 'DRY_RUN_READY',
+          totalRows: stagedCount,
+          validRows: countOf('VALID'),
+          warningRows: countOf('WARNING'),
+          duplicateRows: countOf('DUPLICATE_REVIEW'),
+          failedRows: countOf('FAILED'),
           packageManifest: {
             mcpCsv: true,
             suppliedMappingHash,

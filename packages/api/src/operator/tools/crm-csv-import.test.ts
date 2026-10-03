@@ -79,7 +79,32 @@ describe('bounded CSV parsing', () => {
     ).toEqual({
       headers: ['Venue Name', 'Notes'],
       rows: [['Example, Hall', 'First "quoted" line\nSecond line']],
+      rowNumbers: [2],
     })
+  })
+
+  it('drops blank and all-empty records from spreadsheet exports but keeps source row numbers', () => {
+    expect(
+      parseBoundedCsv(
+        'Venue Name,City\r\nFirst Hall,Chicago\r\n\r\n,\r\nSecond Hall, \r\n,,\r\n\r\n',
+      ),
+    ).toEqual({
+      headers: ['Venue Name', 'City'],
+      rows: [
+        ['First Hall', 'Chicago'],
+        ['Second Hall', ' '],
+      ],
+      rowNumbers: [2, 5],
+    })
+    // A record of only a quoted newline is blank; a row with any content is kept.
+    expect(parseBoundedCsv('Venue Name,Notes\n"\n",\n" ",kept\n').rowNumbers).toEqual([3])
+    expect(() => parseBoundedCsv('Venue Name,City\n,\n\n')).toThrow('no data rows')
+  })
+
+  it('keeps formula-like cells as inert text without evaluation or coercion', () => {
+    expect(parseBoundedCsv('Venue Name,Phone\n"=HYPERLINK(""x"")",+1 555 0100\n').rows).toEqual([
+      ['=HYPERLINK("x")', '+1 555 0100'],
+    ])
   })
 
   it('rejects malformed quoting and mismatched row widths', () => {

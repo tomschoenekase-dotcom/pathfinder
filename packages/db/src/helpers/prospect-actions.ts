@@ -105,6 +105,46 @@ function requireActor(actor: ProspectActor): void {
   }
 }
 
+const PROSPECT_LOCATION_FIELDS = [
+  'city',
+  'region',
+  'country',
+  'addressLine1',
+  'postalCode',
+] as const
+type ProspectLocation = Partial<
+  Record<(typeof PROSPECT_LOCATION_FIELDS)[number], string | null | undefined>
+>
+
+/**
+ * Comparison key for one location part. Case, accents, punctuation and whitespace runs never
+ * split one place into two venues. Unlike normalizeProspectName it keeps every token, so a
+ * region such as "CO" is not mistaken for a legal suffix and dropped.
+ */
+function prospectLocationKey(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+/** Every location part the row supplies matches the venue; parts the row omits are ignored. */
+function suppliedLocationMatches(venue: ProspectLocation, row: ProspectLocation): boolean {
+  return PROSPECT_LOCATION_FIELDS.every((field) => {
+    const wanted = prospectLocationKey(row[field])
+    return !wanted || prospectLocationKey(venue[field]) === wanted
+  })
+}
+
+/** The full location is the same place, including parts both sides leave empty. */
+function sameProspectLocation(venue: ProspectLocation, row: ProspectLocation): boolean {
+  return PROSPECT_LOCATION_FIELDS.every(
+    (field) => prospectLocationKey(venue[field]) === prospectLocationKey(row[field]),
+  )
+}
+
 function jsonValue(value: unknown): object | unknown[] {
   return JSON.parse(JSON.stringify(value)) as object | unknown[]
 }
@@ -1502,52 +1542,32 @@ export async function stageProspectImportRowsAction(
           })
         : null
       if (explicitVenueId && !explicitVenue) checked.errors.push('existing-venue-not-found')
-      if (
-        explicitVenue &&
-        ((checked.normalized.city &&
-          normalizeProspectName(explicitVenue.city ?? '') !==
-            normalizeProspectName(checked.normalized.city)) ||
-          (checked.normalized.region &&
-            normalizeProspectName(explicitVenue.region ?? '') !==
-              normalizeProspectName(checked.normalized.region)) ||
-          (checked.normalized.country &&
-            normalizeProspectName(explicitVenue.country ?? '') !==
-              normalizeProspectName(checked.normalized.country)) ||
-          (checked.normalized.addressLine1 &&
-            normalizeProspectName(explicitVenue.addressLine1 ?? '') !==
-              normalizeProspectName(checked.normalized.addressLine1)) ||
-          (checked.normalized.postalCode &&
-            normalizeProspectName(explicitVenue.postalCode ?? '') !==
-              normalizeProspectName(checked.normalized.postalCode)))
-      ) {
+      if (explicitVenue && !suppliedLocationMatches(explicitVenue, checked.normalized)) {
         checked.errors.push('existing-venue-location-mismatch')
       }
+      // Location parts are compared by key in code, not with SQL equality, so case and
+      // whitespace variants of one address resolve to the same existing venue.
       const matchingVenues =
         explicitOrganization && !explicitVenueId && checked.errors.length === 0
-          ? await tx.prospectVenue.findMany({
-              where: {
-                organizationId: explicitOrganization.id,
-                archivedAt: null,
-                normalizedName: checked.normalized.normalizedVenueName,
-                ...(checked.normalized.city
-                  ? { city: { equals: checked.normalized.city, mode: 'insensitive' as const } }
-                  : {}),
-                ...(checked.normalized.region
-                  ? { region: { equals: checked.normalized.region, mode: 'insensitive' as const } }
-                  : {}),
-                ...(checked.normalized.country
-                  ? { country: { equals: checked.normalized.country, mode: 'insensitive' as const } }
-                  : {}),
-                ...(checked.normalized.addressLine1
-                  ? { addressLine1: { equals: checked.normalized.addressLine1, mode: 'insensitive' as const } }
-                  : {}),
-                ...(checked.normalized.postalCode
-                  ? { postalCode: { equals: checked.normalized.postalCode, mode: 'insensitive' as const } }
-                  : {}),
-              },
-              select: { id: true },
-              take: 2,
-            })
+          ? (
+              await tx.prospectVenue.findMany({
+                where: {
+                  organizationId: explicitOrganization.id,
+                  archivedAt: null,
+                  normalizedName: checked.normalized.normalizedVenueName,
+                },
+                select: {
+                  id: true,
+                  city: true,
+                  region: true,
+                  country: true,
+                  addressLine1: true,
+                  postalCode: true,
+                },
+                orderBy: { createdAt: 'asc' },
+                take: 500,
+              })
+            ).filter((venue) => suppliedLocationMatches(venue, checked.normalized))
           : []
       const ambiguousLocation =
         matchingVenues.length > 1 ||
@@ -1570,7 +1590,9 @@ export async function stageProspectImportRowsAction(
                   venues: {
                     some: {
                       normalizedName: checked.normalized.normalizedVenueName,
-                      ...(checked.normalized.city ? { city: checked.normalized.city } : {}),
+                      ...(checked.normalized.city
+                        ? { city: { equals: checked.normalized.city, mode: 'insensitive' as const } }
+                        : {}),
                     },
                   },
                 },
@@ -1594,7 +1616,8 @@ export async function stageProspectImportRowsAction(
           const venueMatch = candidate.venues.some(
             (venue) =>
               venue.normalizedName === checked.normalized.normalizedVenueName &&
-              (!checked.normalized.city || venue.city === checked.normalized.city),
+              (!prospectLocationKey(checked.normalized.city) ||
+                prospectLocationKey(venue.city) === prospectLocationKey(checked.normalized.city)),
           )
           const scored = scoreProspectDuplicate({
             organizationName:
@@ -2323,39 +2346,23 @@ async function importOneProspectRow(
       ? await tx.prospectVenue.findFirst({
           where: { id: row.targetVenueId, organizationId: organization.id, archivedAt: null },
         })
-      : await tx.prospectVenue.findFirst({
-          where: {
-            organizationId: organization.id,
-            normalizedName: value.normalizedVenueName,
-            city: value.city ? { equals: value.city, mode: 'insensitive' } : null,
-            region: value.region ? { equals: value.region, mode: 'insensitive' } : null,
-            country: value.country ? { equals: value.country, mode: 'insensitive' } : null,
-            addressLine1: value.addressLine1
-              ? { equals: value.addressLine1, mode: 'insensitive' }
-              : null,
-            postalCode: value.postalCode ? { equals: value.postalCode, mode: 'insensitive' } : null,
-            archivedAt: null,
-          },
-        })
+      : // Same organization and venue name is one place only when the whole location matches
+        // by key: other locations stay separate, case and whitespace variants do not split.
+        ((
+          await tx.prospectVenue.findMany({
+            where: {
+              organizationId: organization.id,
+              normalizedName: value.normalizedVenueName,
+              archivedAt: null,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: 500,
+          })
+        ).find((candidate) => sameProspectLocation(candidate, value)) ?? null)
     if (row.targetVenueId && !venue) {
       throw new ProspectActionError('CONFLICT', 'Explicit venue target changed or disappeared')
     }
-    if (
-      row.targetVenueId &&
-      venue &&
-      ((value.city &&
-        normalizeProspectName(venue.city ?? '') !== normalizeProspectName(value.city)) ||
-        (value.region &&
-          normalizeProspectName(venue.region ?? '') !== normalizeProspectName(value.region)) ||
-        (value.country &&
-          normalizeProspectName(venue.country ?? '') !== normalizeProspectName(value.country)) ||
-        (value.addressLine1 &&
-          normalizeProspectName(venue.addressLine1 ?? '') !==
-            normalizeProspectName(value.addressLine1)) ||
-        (value.postalCode &&
-          normalizeProspectName(venue.postalCode ?? '') !==
-            normalizeProspectName(value.postalCode)))
-    ) {
+    if (row.targetVenueId && venue && !suppliedLocationMatches(venue, value)) {
       throw new ProspectActionError('CONFLICT', 'Explicit venue location changed after review')
     }
     if (!venue) {
