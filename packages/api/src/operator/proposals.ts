@@ -12,7 +12,12 @@ import { ZodError } from 'zod'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
-import { OPERATOR_ROUTINE_AUTO_KINDS, readPolicyRevision, resolveAutonomy } from './autonomy'
+import {
+  isAlwaysAskKind,
+  OPERATOR_ROUTINE_AUTO_KINDS,
+  readPolicyRevision,
+  resolveAutonomy,
+} from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import {
   assertGrantCapability,
@@ -113,6 +118,8 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SOURCE_HOST_NOT_AUTHORIZED',
   'SOURCE_LIMIT',
   'SOURCE_ALREADY_PENDING',
+  // A CRM account merge whose reviewed plan has unresolved blockers (they ride as `details`).
+  'UNSAFE_MERGE',
   // Offboarding execution: the plan is not reviewed, does not cover every venue, a paid arrangement
   // may be live, or an earlier execution was reinstated.
   'PLAN_NOT_APPROVED',
@@ -740,6 +747,7 @@ function isAtomicRefusal(error: unknown) {
       'APPROVAL_REQUIRED',
       'RELEASE_DISABLED',
       'DUPLICATE_REVIEW',
+      'UNSAFE_MERGE',
     ].includes(String(code))
   )
 }
@@ -805,6 +813,18 @@ export async function applyApprovedProposal(
         input.actorUserId,
       )
     }
+  }
+  // Defence in depth: an always-ask kind is applied only after a person's own decision. Policy
+  // (auto) and job-grant approvals can never stand in for one, whatever path produced the row.
+  if ((row.autoApproved || row.jobGrantId) && isAlwaysAskKind(row.kind)) {
+    return finish(
+      database,
+      row,
+      'FAILED',
+      { failureCode: 'APPROVAL_REQUIRED' },
+      input.requestId,
+      input.actorUserId,
+    )
   }
   const context: OperatorApplyContext = {
     database,

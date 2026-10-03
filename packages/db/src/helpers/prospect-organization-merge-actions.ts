@@ -380,6 +380,57 @@ async function inventory(
   ])
   counts.prospectDuplicateCandidate = candidateA + candidateB
   counts.prospectOrganizationTag = sourceTags.length
+  // A person who recorded this exact pair as distinct accounts made a stop decision; a merge must
+  // never silently override it. The pair is stored once in canonical (sorted) order.
+  const [pairA, pairB] =
+    sourceOrganizationId < targetOrganizationId
+      ? [sourceOrganizationId, targetOrganizationId]
+      : [targetOrganizationId, sourceOrganizationId]
+  const pairReview = await tx.prospectDuplicateCandidate.findUnique({
+    where: { organizationAId_organizationBId: { organizationAId: pairA, organizationBId: pairB } },
+    select: { id: true, status: true },
+  })
+  hash.update(JSON.stringify(['pairReview', pairReview]))
+  if (pairReview?.status === 'CONFIRMED_DISTINCT') {
+    blockers.push(`duplicate-pair-confirmed-distinct:${pairReview.id}`)
+  }
+  // Import lineage keeps raw organization IDs. An import that can still commit rows would write
+  // new contacts, evidence or drafts onto the archived source after the merge.
+  const unsettledImportStatuses = [
+    'DRAFT',
+    'DRY_RUN_READY',
+    'APPROVED',
+    'PROCESSING',
+    'PARTIAL',
+  ] as const
+  const [importSourceRecords, importRows] = await Promise.all([
+    tx.prospectImportSourceRecord.findMany({
+      where: {
+        canonicalOrganizationId: sourceOrganizationId,
+        import: { status: { in: [...unsettledImportStatuses] } },
+      },
+      select: { importId: true },
+      distinct: ['importId'],
+      orderBy: { importId: 'asc' },
+    }),
+    tx.prospectImportRow.findMany({
+      where: {
+        targetOrganizationId: sourceOrganizationId,
+        processedAt: null,
+        import: { status: { in: [...unsettledImportStatuses] } },
+      },
+      select: { importId: true },
+      distinct: ['importId'],
+      orderBy: { importId: 'asc' },
+    }),
+  ])
+  const unsettledImports = [
+    ...new Set([...importSourceRecords, ...importRows].map((row) => row.importId)),
+  ].sort()
+  hash.update(JSON.stringify(['unsettledImports', unsettledImports]))
+  if (unsettledImports.length) {
+    blockers.push(`unsettled-import-lineage:${unsettledImports.join(',')}`)
+  }
   const sourceMeetings = await tx.companyMeeting.findMany({
     where: { organizationId: sourceOrganizationId },
     select: { id: true, updatedAt: true },
@@ -456,16 +507,31 @@ export async function previewProspectOrganizationMergeAction(
   input: { sourceOrganizationId: string; targetOrganizationId: string },
   client: MergeClient = db,
 ): Promise<ProspectOrganizationMergePlan> {
-  try {
-    return await client.$transaction(
+  return withSerializableRetry(() =>
+    client.$transaction(
       (tx) => inventory(tx, input.sourceOrganizationId, input.targetOrganizationId),
-      { isolationLevel: 'Serializable' },
-    )
-  } catch (error) {
-    if ((error as { code?: string }).code === 'P2034') {
-      throw new ProspectActionError('CONFLICT', 'Accounts changed during merge; review again')
+      // The inventory reads every relation; Prisma's 5s interactive default is too tight for it.
+      { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 60_000 },
+    ),
+  )
+}
+
+/** Serialization failures are retried a bounded number of times; each attempt re-reads the plan. */
+const PROSPECT_MERGE_SERIALIZABLE_ATTEMPTS = 3
+
+async function withSerializableRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      const code = (error as { code?: string }).code
+      // P2034 is a serialization/write conflict; P2002 is a concurrent receipt for the same source.
+      // Both roll back fully, and the next attempt sees the winner (replay) or a stale plan.
+      if (code !== 'P2034' && code !== 'P2002') throw error
+      if (attempt >= PROSPECT_MERGE_SERIALIZABLE_ATTEMPTS) {
+        throw new ProspectActionError('CONFLICT', 'Accounts changed during merge; review again')
+      }
     }
-    throw error
   }
 }
 
@@ -488,8 +554,8 @@ export async function mergeProspectOrganizationsAction(
   if (!/^[a-f0-9]{64}$/u.test(input.expectedPlanHash)) {
     throw new ProspectActionError('INVALID_INPUT', 'Expected merge plan hash is invalid')
   }
-  try {
-    return await client.$transaction(
+  return withSerializableRetry(() =>
+    client.$transaction(
       async (tx) => {
         const replay = await tx.prospectOrganizationMerge.findUnique({
           where: { sourceOrganizationId: input.sourceOrganizationId },
@@ -682,11 +748,6 @@ export async function mergeProspectOrganizationsAction(
         maxWait: 10_000,
         timeout: 60_000,
       },
-    )
-  } catch (error) {
-    if ((error as { code?: string }).code === 'P2034') {
-      throw new ProspectActionError('CONFLICT', 'Accounts changed during merge; review again')
-    }
-    throw error
-  }
+    ),
+  )
 }

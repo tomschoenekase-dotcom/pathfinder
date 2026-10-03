@@ -952,6 +952,37 @@ describe.skipIf(!enabled)(
         await db.operatorJobGrant.update({ where: { id: job.id }, data: { revokedAt: new Date() } })
       })
 
+      it('an always-ask kind is never applied on a policy or job-grant approval (defence in depth)', async () => {
+        const job = await createJobGrant(owner({ maxExecutions: 1 }), dependencies)
+        for (const forged of [
+          { autoApproved: true },
+          { autoApproved: false, jobGrantId: job.id },
+        ]) {
+          const view = await proposeAppearance()
+          const before = await venueTitle()
+          // A row that somehow reached APPROVED for an always-ask kind without a person's decision.
+          await db.operatorProposal.update({
+            where: { id: view.proposalId },
+            data: {
+              kind: 'crm.organization-merge',
+              status: 'APPROVED',
+              decidedByUserId: 'user_owner',
+              decidedAt: new Date(),
+              ...forged,
+            },
+          })
+          const settled = await applyApprovedProposal(
+            view.proposalId,
+            { actorUserId: 'user_owner', requestId: randomUUID(), now: new Date() },
+            dependencies,
+          )
+          expect(settled).toMatchObject({ status: 'FAILED', failureCode: 'APPROVAL_REQUIRED' })
+          expect(settled.applyStartedAt).toBeNull()
+          expect(await venueTitle()).toEqual(before)
+        }
+        await db.operatorJobGrant.update({ where: { id: job.id }, data: { revokedAt: new Date() } })
+      })
+
       it('the database refuses out-of-range bounds', async () => {
         await expect(
           db.operatorJobGrant.create({

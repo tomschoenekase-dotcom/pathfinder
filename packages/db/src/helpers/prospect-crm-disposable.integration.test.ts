@@ -897,4 +897,124 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
       ).toBe(1)
     })
   }, 30_000)
+
+  it('refuses a merge of a pair a person confirmed distinct, or while an import can still write to the source', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const source = await createProspectAction({
+        organization: { canonicalName: `Example Distinct North ${suffix}` },
+        actor,
+      })
+      const target = await createProspectAction({
+        organization: { canonicalName: `Example Distinct ${suffix}` },
+        actor,
+      })
+      const [organizationAId, organizationBId] = [
+        source.organization.id,
+        target.organization.id,
+      ].sort() as [string, string]
+      const review = await db.prospectDuplicateCandidate.create({
+        data: {
+          organizationAId,
+          organizationBId,
+          status: 'CONFIRMED_DISTINCT',
+          confidence: 1,
+          reviewedBy: actor.id,
+          reviewedAt: new Date(),
+        },
+      })
+      const ids = {
+        sourceOrganizationId: source.organization.id,
+        targetOrganizationId: target.organization.id,
+      }
+      const distinct = await previewProspectOrganizationMergeAction(ids)
+      expect(distinct.blockers).toContain(`duplicate-pair-confirmed-distinct:${review.id}`)
+      await expect(
+        mergeProspectOrganizationsAction({
+          ...ids,
+          expectedPlanHash: distinct.planHash,
+          note: 'Must not override a recorded distinct decision',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'UNSAFE_MERGE' })
+
+      // The person later reopens the pair; only then does the import lineage blocker remain.
+      await db.prospectDuplicateCandidate.update({
+        where: { id: review.id },
+        data: { status: 'OPEN' },
+      })
+      const prospectImport = await db.prospectImport.create({
+        data: {
+          fileName: `example-${suffix}.json`,
+          fileType: 'application/json',
+          fileSize: 10,
+          fileHash: hash(`file-${suffix}`),
+          mappingHash: hash(`mapping-${suffix}`),
+          importIdentityHash: hash(`identity-${suffix}`),
+          mapping: {},
+          status: 'PROCESSING',
+          createdBy: actor.id,
+        },
+      })
+      await db.prospectImportSourceRecord.create({
+        data: {
+          importId: prospectImport.id,
+          sourceSystem: 'example',
+          sourceWorkbookHash: hash(`workbook-${suffix}`),
+          recordKind: 'ORGANIZATION',
+          externalRecordId: `org-${suffix}`,
+          recordHash: hash(`record-${suffix}`),
+          rawPayload: {},
+          normalizedPayload: {},
+          sourceStatus: 'READY',
+          processingStatus: 'COMPLETE',
+          canonicalOrganizationId: source.organization.id,
+        },
+      })
+      const inFlight = await previewProspectOrganizationMergeAction(ids)
+      expect(inFlight.blockers).toEqual([`unsettled-import-lineage:${prospectImport.id}`])
+      expect(inFlight.planHash).not.toBe(distinct.planHash)
+      await expect(
+        mergeProspectOrganizationsAction({
+          ...ids,
+          expectedPlanHash: inFlight.planHash,
+          note: 'Must wait for the import to settle',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'UNSAFE_MERGE' })
+
+      await db.prospectImport.update({
+        where: { id: prospectImport.id },
+        data: { status: 'COMPLETE', completedAt: new Date() },
+      })
+      const settled = await previewProspectOrganizationMergeAction(ids)
+      expect(settled.blockers).toEqual([])
+      // A preview read before the import settled is stale once it has.
+      await expect(
+        mergeProspectOrganizationsAction({
+          ...ids,
+          expectedPlanHash: inFlight.planHash,
+          note: 'Stale plan',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const applied = await mergeProspectOrganizationsAction({
+        ...ids,
+        expectedPlanHash: settled.planHash,
+        note: 'Reviewed after the import settled',
+        actor,
+      })
+      expect(applied.replayed).toBe(false)
+      expect(
+        await db.auditLog.count({
+          where: { action: 'admin.prospect_organization.merged', targetId: applied.receipt.id },
+        }),
+      ).toBe(1)
+    })
+  }, 30_000)
 })

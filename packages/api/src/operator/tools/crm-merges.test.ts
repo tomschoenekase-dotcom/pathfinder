@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { errorBody, errorCode } from '../http'
 import { crmOrganizationMergeKind } from '../kinds/crm-organization-merge'
 import { crmMergeReadTools } from './crm-merges'
 
@@ -40,5 +41,30 @@ describe('platform-wide organization merge scope', () => {
       } as never),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(findUnique).not.toHaveBeenCalled()
+  })
+})
+
+describe('an unsafe merge plan is a named refusal with its blockers', () => {
+  it('reports UNSAFE_MERGE and the blockers instead of an unclassified tool failure', async () => {
+    const plan = {
+      sourceOrganizationId: args.sourceOrganizationId,
+      targetOrganizationId: args.targetOrganizationId,
+      planHash: args.expectedPlanHash,
+      sourceName: 'Example North',
+      targetName: 'Example',
+      counts: {},
+      blockers: ['duplicate-pair-confirmed-distinct:pair_1'],
+      sourceOpportunity: null,
+      targetOpportunity: null,
+    }
+    const error = await crmOrganizationMergeKind.authorize!(args, {
+      grant: { allTenants: true, userId: 'owner' },
+      allowedUserIds: new Set(['owner']),
+      database: { $transaction: vi.fn(async () => plan) },
+    } as never).catch((caught: unknown) => caught)
+    expect(errorCode(error)).toBe('UNSAFE_MERGE')
+    expect(errorBody('UNSAFE_MERGE', 'crm.propose_organization_merge', 'req_1')).toMatchObject({
+      error: 'UNSAFE_MERGE',
+    })
   })
 })
