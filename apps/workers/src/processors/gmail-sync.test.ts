@@ -91,6 +91,48 @@ describe('Gmail sync worker', () => {
     )
   })
 
+  it.each(['missing credential', 'missing runtime configuration'])(
+    'marks a durable Pub/Sub receipt retryable when setup fails: %s',
+    async (failure) => {
+      if (failure === 'missing credential') {
+        mocks.findUnique.mockResolvedValueOnce({
+          id: 'account-1',
+          provider: 'GMAIL',
+          credentialReferenceId: null,
+          connectionStatus: 'CONNECTED',
+        })
+      } else {
+        delete process.env.GOOGLE_OAUTH_CLIENT_ID
+      }
+      await expect(
+        processGmailSyncJob({
+          providerAccountId: 'account-1',
+          trigger: 'PUBSUB_NOTIFICATION',
+          receiptId: 'receipt-1',
+        }),
+      ).rejects.toThrow()
+      expect(mocks.synchronize).not.toHaveBeenCalled()
+      expect(mocks.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'receipt-1' },
+          data: expect.objectContaining({
+            status: 'RETRYABLE',
+            processingError: 'Gmail synchronization failed.',
+          }),
+        }),
+      )
+      expect(mocks.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            signal: 'gmail_sync_failed',
+            linkedObjectId: 'account-1',
+            summary: 'Gmail synchronization failed (GMAIL_SYNC_FAILED).',
+          }),
+        }),
+      )
+    },
+  )
+
   it('falls back to full reconciliation after an expired Gmail history cursor', async () => {
     mocks.synchronize
       .mockRejectedValueOnce(

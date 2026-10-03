@@ -87,29 +87,29 @@ async function synchronizeGmail(payload: GmailSyncJobPayload) {
     }
     return { accountsProcessed: accounts.length }
   }
-  const mailbox = await mailboxFor(payload.providerAccountId)
-  const after = payload.after
-    ? new Date(payload.after)
-    : payload.trigger === 'SCHEDULED_RECONCILIATION' &&
-        !payload.requestId &&
-        mailbox.lastReconciliationAt
-      ? new Date(Math.max(0, mailbox.lastReconciliationAt.getTime() - 86_400_000))
-      : new Date(0)
-  if (!Number.isFinite(after.getTime())) throw new Error('Invalid Gmail reconciliation boundary')
-  const runtime = createGmailOAuthRuntime({ configuration: configuration() })
-  const provider = createGmailCorrespondenceProvider({
-    credentials: runtime.credentials,
-    client: createGmailApiClient(),
-  })
-  const service = createInboundCorrespondenceService({
-    provider,
-    store: createPrismaInboundCorrespondenceStore(),
-    // Passive second matcher: a message no prospect thread claims may answer a client
-    // notification. It links by platform-minted identifiers only and sends nothing.
-    clientReplyLinker: createClientReplyLinker({ quarantineUnknown: false }),
-  })
-
   try {
+    const mailbox = await mailboxFor(payload.providerAccountId)
+    const after = payload.after
+      ? new Date(payload.after)
+      : payload.trigger === 'SCHEDULED_RECONCILIATION' &&
+          !payload.requestId &&
+          mailbox.lastReconciliationAt
+        ? new Date(Math.max(0, mailbox.lastReconciliationAt.getTime() - 86_400_000))
+        : new Date(0)
+    if (!Number.isFinite(after.getTime())) throw new Error('Invalid Gmail reconciliation boundary')
+    const runtime = createGmailOAuthRuntime({ configuration: configuration() })
+    const provider = createGmailCorrespondenceProvider({
+      credentials: runtime.credentials,
+      client: createGmailApiClient(),
+    })
+    const service = createInboundCorrespondenceService({
+      provider,
+      store: createPrismaInboundCorrespondenceStore(),
+      // Passive second matcher: a message no prospect thread claims may answer a client
+      // notification. It links by platform-minted identifiers only and sends nothing.
+      clientReplyLinker: createClientReplyLinker({ quarantineUnknown: false }),
+    })
+
     if (payload.trigger === 'WATCH_RENEWAL') {
       const topic = process.env.GMAIL_PUBSUB_TOPIC
       if (!topic) throw new Error('GMAIL_PUBSUB_TOPIC is not configured')
