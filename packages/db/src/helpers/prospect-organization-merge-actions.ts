@@ -82,6 +82,65 @@ export type ProspectOrganizationMergePlan = {
   targetOpportunity: { id: string; stage: string } | null
 }
 
+type OpenDuplicateCandidateStep = {
+  id: string
+  action: 'confirm' | 'redirect' | 'supersede'
+  organizationAId: string
+  organizationBId: string
+  supersededBy: string | null
+}
+
+/**
+ * Open duplicate suggestions that name the merge source. The merged pair itself becomes the
+ * person's confirmed decision; any other suggestion follows the surviving account, or is
+ * superseded when that pair is already tracked. Reviewed rows stay as history of the source.
+ */
+async function openDuplicateCandidateSteps(
+  tx: MergeTx,
+  sourceOrganizationId: string,
+  targetOrganizationId: string,
+): Promise<OpenDuplicateCandidateStep[]> {
+  const open = await tx.prospectDuplicateCandidate.findMany({
+    where: {
+      status: 'OPEN',
+      OR: [{ organizationAId: sourceOrganizationId }, { organizationBId: sourceOrganizationId }],
+    },
+    select: { id: true, organizationAId: true, organizationBId: true },
+    orderBy: { id: 'asc' },
+  })
+  const steps: OpenDuplicateCandidateStep[] = []
+  for (const candidate of open) {
+    const other =
+      candidate.organizationAId === sourceOrganizationId
+        ? candidate.organizationBId
+        : candidate.organizationAId
+    if (other === targetOrganizationId) {
+      steps.push({ ...candidate, action: 'confirm', supersededBy: null })
+      continue
+    }
+    const [organizationAId, organizationBId] =
+      targetOrganizationId < other ? [targetOrganizationId, other] : [other, targetOrganizationId]
+    const existing = await tx.prospectDuplicateCandidate.findUnique({
+      where: { organizationAId_organizationBId: { organizationAId, organizationBId } },
+      select: { id: true },
+    })
+    // Two source suggestions can map to one surviving pair only if they name the same other
+    // account, which the unique pair rules out; an earlier redirect never collides here.
+    steps.push(
+      existing
+        ? { ...candidate, action: 'supersede', supersededBy: existing.id }
+        : {
+            id: candidate.id,
+            action: 'redirect',
+            organizationAId,
+            organizationBId,
+            supersededBy: null,
+          },
+    )
+  }
+  return steps
+}
+
 async function inventory(
   tx: MergeTx,
   sourceOrganizationId: string,
@@ -391,6 +450,12 @@ async function inventory(
     select: { id: true, status: true },
   })
   hash.update(JSON.stringify(['pairReview', pairReview]))
+  hash.update(
+    JSON.stringify([
+      'openDuplicateCandidates',
+      await openDuplicateCandidateSteps(tx, sourceOrganizationId, targetOrganizationId),
+    ]),
+  )
   if (pairReview?.status === 'CONFIRMED_DISTINCT') {
     blockers.push(`duplicate-pair-confirmed-distinct:${pairReview.id}`)
   }
@@ -692,6 +757,32 @@ export async function mergeProspectOrganizationsAction(
           data: { aliases: [...names], updatedBy: input.actor.id },
         })
         const mergedAt = new Date()
+        const duplicateSteps = await openDuplicateCandidateSteps(tx, source.id, target.id)
+        const duplicateCounts = { confirm: 0, redirect: 0, supersede: 0 }
+        for (const step of duplicateSteps) {
+          const updated = await tx.prospectDuplicateCandidate.updateMany({
+            where: { id: step.id, status: 'OPEN' },
+            data:
+              step.action === 'redirect'
+                ? { organizationAId: step.organizationAId, organizationBId: step.organizationBId }
+                : {
+                    status: step.action === 'confirm' ? 'CONFIRMED_DUPLICATE' : 'DISMISSED',
+                    resolutionNote:
+                      step.action === 'confirm'
+                        ? 'Confirmed by the reviewed account merge'
+                        : `Superseded by ${step.supersededBy} after the reviewed account merge`,
+                    reviewedBy: input.actor.id,
+                    reviewedAt: mergedAt,
+                  },
+          })
+          if (updated.count !== 1) {
+            throw new ProspectActionError('CONFLICT', 'Duplicate review changed during merge')
+          }
+          duplicateCounts[step.action] += 1
+        }
+        movedCounts.duplicateCandidatesConfirmed = duplicateCounts.confirm
+        movedCounts.duplicateCandidatesRedirected = duplicateCounts.redirect
+        movedCounts.duplicateCandidatesSuperseded = duplicateCounts.supersede
         await tx.prospectOrganization.update({
           where: { id: source.id },
           data: {

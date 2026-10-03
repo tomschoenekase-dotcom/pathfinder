@@ -1017,4 +1017,84 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
       ).toBe(1)
     })
   }, 30_000)
+
+  it('settles open duplicate suggestions that name the merged account', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        id: `prospect-operator-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const create = async (name: string) =>
+        (
+          await createProspectAction({
+            organization: { canonicalName: `Example ${name} ${suffix}` },
+            actor,
+          })
+        ).organization.id
+      const [source, target, redirected, alreadyTracked, reviewed] = await Promise.all([
+        create('Merge Source'),
+        create('Merge Target'),
+        create('Lakeside Annex'),
+        create('Harbor Hall'),
+        create('Old Review'),
+      ])
+      const pair = (a: string, b: string) => (a < b ? [a, b] : [b, a]) as [string, string]
+      const candidate = (a: string, b: string, status: 'OPEN' | 'CONFIRMED_DISTINCT' = 'OPEN') => {
+        const [organizationAId, organizationBId] = pair(a, b)
+        return db.prospectDuplicateCandidate.create({
+          data: { organizationAId, organizationBId, status, confidence: 0.8 },
+        })
+      }
+      const mergedPair = await candidate(source, target)
+      const toRedirect = await candidate(source, redirected)
+      const toSupersede = await candidate(source, alreadyTracked)
+      const existingTargetPair = await candidate(target, alreadyTracked)
+      const history = await candidate(source, reviewed, 'CONFIRMED_DISTINCT')
+
+      const ids = { sourceOrganizationId: source, targetOrganizationId: target }
+      const preview = await previewProspectOrganizationMergeAction(ids)
+      expect(preview.blockers).toEqual([])
+      const applied = await mergeProspectOrganizationsAction({
+        ...ids,
+        expectedPlanHash: preview.planHash,
+        note: 'Same venue entered twice',
+        actor,
+      })
+      expect(applied.receipt.movedCounts).toMatchObject({
+        duplicateCandidatesConfirmed: 1,
+        duplicateCandidatesRedirected: 1,
+        duplicateCandidatesSuperseded: 1,
+      })
+
+      const read = (id: string) =>
+        db.prospectDuplicateCandidate.findUniqueOrThrow({ where: { id } })
+      expect(await read(mergedPair.id)).toMatchObject({
+        status: 'CONFIRMED_DUPLICATE',
+        reviewedBy: actor.id,
+      })
+      const [redirectedA, redirectedB] = pair(target, redirected)
+      expect(await read(toRedirect.id)).toMatchObject({
+        status: 'OPEN',
+        organizationAId: redirectedA,
+        organizationBId: redirectedB,
+      })
+      expect(await read(toSupersede.id)).toMatchObject({
+        status: 'DISMISSED',
+        resolutionNote: expect.stringContaining(existingTargetPair.id),
+      })
+      expect((await read(existingTargetPair.id)).status).toBe('OPEN')
+      expect(await read(history.id)).toMatchObject({
+        status: 'CONFIRMED_DISTINCT',
+        organizationAId: history.organizationAId,
+        organizationBId: history.organizationBId,
+      })
+      expect(
+        await db.prospectDuplicateCandidate.count({
+          where: { status: 'OPEN', OR: [{ organizationAId: source }, { organizationBId: source }] },
+        }),
+      ).toBe(0)
+    })
+  }, 120_000)
 })
