@@ -141,11 +141,6 @@ describe('OpenAI Responses prompt cache accounting', () => {
     {
       input_tokens: 10,
       output_tokens: 1,
-      input_tokens_details: { cached_tokens: 8, cache_write_tokens: 3 },
-    },
-    {
-      input_tokens: 10,
-      output_tokens: 1,
       input_tokens_details: { cached_tokens: -1, cache_write_tokens: 0 },
     },
     {
@@ -154,8 +149,7 @@ describe('OpenAI Responses prompt cache accounting', () => {
       input_tokens_details: { cached_tokens: 0, cache_write_tokens: 1.5 },
     },
     { input_tokens: Number.MAX_SAFE_INTEGER + 1, output_tokens: 1 },
-    { input_tokens: 10, output_tokens: 1, input_tokens_details: { cached_tokens: 0 } },
-  ])('rejects invalid or incomplete explicit-cache usage %#', async (invalidUsage) => {
+  ])('rejects malformed explicit-cache usage %#', async (invalidUsage) => {
     setOpenAiResponsesClientForTesting({
       responses: {
         create: vi.fn().mockResolvedValue({ output_text: 'Done', usage: invalidUsage }),
@@ -165,21 +159,89 @@ describe('OpenAI Responses prompt cache accounting', () => {
   })
 
   it.each([
-    {
-      input_tokens: 10,
-      output_tokens: 1,
-      input_tokens_details: { cached_tokens: 8, cache_write_tokens: 3 },
+    [
+      'missing write detail',
+      { input_tokens: 10, output_tokens: 1, input_tokens_details: { cached_tokens: 4 } },
+      { inputTokens: 0, cacheReadInputTokens: 4, cacheCreationInputTokens: 6 },
+    ],
+    [
+      'missing details object',
+      { input_tokens: 10, output_tokens: 1 },
+      { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 10 },
+    ],
+    [
+      'writes exceeding uncached input',
+      {
+        input_tokens: 10,
+        output_tokens: 1,
+        input_tokens_details: { cached_tokens: 8, cache_write_tokens: 3 },
+      },
+      { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 10 },
+    ],
+    [
+      'reads exceeding input',
+      {
+        input_tokens: 10,
+        output_tokens: 1,
+        input_tokens_details: { cached_tokens: 11, cache_write_tokens: 0 },
+      },
+      { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 10 },
+    ],
+  ])(
+    'keeps the answer and bills the upper bound for %s on explicit caching',
+    async (_label, uncertainUsage, expected) => {
+      setOpenAiResponsesClientForTesting({
+        responses: {
+          create: vi.fn().mockResolvedValue({ output_text: 'Done', usage: uncertainUsage }),
+        },
+      })
+      const result = await createOpenAiTextResponse(request('gpt-6-luna', [stable]))
+      expect(result.text).toBe('Done')
+      expect(result.usage).toEqual({ ...expected, outputTokens: 1 })
     },
-    { input_tokens: 10, output_tokens: 1, input_tokens_details: { cached_tokens: 0 } },
-    null,
-  ])('rejects invalid or missing streamed explicit-cache usage %#', async (invalidUsage) => {
+  )
+
+  it('keeps a streamed answer when terminal cache-write detail is missing', async () => {
+    const onTextDelta = vi.fn()
+    setOpenAiResponsesClientForTesting({
+      responses: {
+        create: vi.fn().mockResolvedValue({
+          async *[Symbol.asyncIterator]() {
+            yield { type: 'response.output_text.delta', delta: 'Done' }
+            yield {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output_text: 'Done',
+                usage: {
+                  input_tokens: 10,
+                  output_tokens: 1,
+                  input_tokens_details: { cached_tokens: 0 },
+                },
+              },
+            }
+          },
+        }),
+      },
+    })
+    const result = await createOpenAiTextStream({ ...request('gpt-6-luna', [stable]), onTextDelta })
+    expect(onTextDelta).toHaveBeenCalledWith('Done')
+    expect(result.usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 10,
+    })
+  })
+
+  it('rejects a stream that never reports usage', async () => {
     setOpenAiResponsesClientForTesting({
       responses: {
         create: vi.fn().mockResolvedValue({
           async *[Symbol.asyncIterator]() {
             yield {
               type: 'response.completed',
-              response: { status: 'completed', output_text: 'Done', usage: invalidUsage },
+              response: { status: 'completed', output_text: 'Done', usage: null },
             }
           },
         }),
@@ -188,6 +250,31 @@ describe('OpenAI Responses prompt cache accounting', () => {
     await expect(
       createOpenAiTextStream({ ...request('gpt-6-luna', [stable]), onTextDelta: vi.fn() }),
     ).rejects.toThrow()
+  })
+
+  it('bills contradictory legacy cache detail as ordinary input', async () => {
+    setOpenAiResponsesClientForTesting(
+      {
+        responses: {
+          create: vi.fn().mockResolvedValue({
+            output_text: 'Done',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 1,
+              input_tokens_details: { cached_tokens: 12, cache_write_tokens: 5 },
+            },
+          }),
+        },
+      },
+      'deepseek',
+    )
+    const result = await createOpenAiTextResponse(request('deepseek-flash', [stable], 'deepseek'))
+    expect(result.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    })
   })
 
   it('keeps missing cache-write detail compatible with the legacy path', async () => {

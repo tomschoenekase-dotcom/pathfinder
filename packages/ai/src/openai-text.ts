@@ -151,22 +151,34 @@ function tokenUsage(
   usage: NonNullable<z.infer<typeof openAiResponseSchema>['usage']>,
   explicitCache: boolean,
 ): AiTokenUsage {
-  if (explicitCache && usage.input_tokens_details?.cache_write_tokens === undefined) {
-    throw new Error('OpenAI explicit cache write token usage is missing')
+  const cachedTokens = usage.input_tokens_details?.cached_tokens ?? 0
+  // Legacy request shapes keep the previous meaning: any reported write is
+  // billed as ordinary input, because some providers price writes at zero.
+  const cacheWriteTokens = explicitCache ? usage.input_tokens_details?.cache_write_tokens : 0
+  const consistent =
+    cachedTokens <= usage.input_tokens &&
+    (cacheWriteTokens ?? 0) <= usage.input_tokens - cachedTokens
+  if (!consistent || (explicitCache && cacheWriteTokens === undefined)) {
+    // The answer already exists (and may already be streamed to a guest), so
+    // unusable cache detail must not fail it. Bill every uncertain input token
+    // at the dearest rate the request could incur: cache writes for explicit
+    // caching (priced at least as ordinary input), ordinary input otherwise
+    // (some providers price writes at zero). Contradictory reads earn no discount.
+    const cacheReadInputTokens = consistent ? cachedTokens : 0
+    const uncertain = usage.input_tokens - cacheReadInputTokens
+    return {
+      inputTokens: explicitCache ? 0 : uncertain,
+      outputTokens: usage.output_tokens,
+      cacheCreationInputTokens: explicitCache ? uncertain : 0,
+      cacheReadInputTokens,
+    }
   }
-  const cacheReadInputTokens = usage.input_tokens_details?.cached_tokens ?? 0
-  const cacheCreationInputTokens = usage.input_tokens_details?.cache_write_tokens ?? 0
-  if (
-    cacheReadInputTokens > usage.input_tokens ||
-    cacheCreationInputTokens > usage.input_tokens - cacheReadInputTokens
-  ) {
-    throw new Error('OpenAI cache token counts exceed total input tokens')
-  }
+  const cacheCreationInputTokens = cacheWriteTokens ?? 0
   return {
-    inputTokens: usage.input_tokens - cacheReadInputTokens - cacheCreationInputTokens,
+    inputTokens: usage.input_tokens - cachedTokens - cacheCreationInputTokens,
     outputTokens: usage.output_tokens,
     cacheCreationInputTokens,
-    cacheReadInputTokens,
+    cacheReadInputTokens: cachedTokens,
   }
 }
 
