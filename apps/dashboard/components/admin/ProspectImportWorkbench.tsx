@@ -17,6 +17,10 @@ import { inspectXlsxArchive, XlsxArchivePreflightError } from '../../lib/xlsx-ar
 const FIELD_DEFINITIONS = [
   ['venueName', 'Venue name', true, 'venue_name'],
   ['organizationName', 'Parent organization', false, 'owner_name'],
+  ['existingOrganizationId', 'Existing organization ID', false, 'existing_organization_id'],
+  ['existingVenueId', 'Existing venue ID', false, 'existing_venue_id'],
+  ['addressLine1', 'Street address', false, 'address_line_1'],
+  ['postalCode', 'Postal code', false, 'postal_code'],
   ['venueType', 'Venue type', false, 'venue_type'],
   ['venueSubtype', 'Venue subtype', false, 'venue_subtype'],
   ['city', 'City', false, 'city'],
@@ -62,6 +66,10 @@ type SheetMeta = { name: string; index: number; rows: number; columns: string[] 
 type NormalizedRow = {
   venueName: string
   organizationName?: string | undefined
+  existingOrganizationId?: string | undefined
+  existingVenueId?: string | undefined
+  addressLine1?: string | undefined
+  postalCode?: string | undefined
   venueType?: string | undefined
   venueSubtype?: string | undefined
   city?: string | undefined
@@ -148,6 +156,12 @@ function mappedRow(
   return {
     venueName: get('venueName') ?? '',
     ...(get('organizationName') ? { organizationName: get('organizationName') } : {}),
+    ...(get('existingOrganizationId')
+      ? { existingOrganizationId: get('existingOrganizationId') }
+      : {}),
+    ...(get('existingVenueId') ? { existingVenueId: get('existingVenueId') } : {}),
+    ...(get('addressLine1') ? { addressLine1: get('addressLine1') } : {}),
+    ...(get('postalCode') ? { postalCode: get('postalCode') } : {}),
     ...(get('venueType') ? { venueType: get('venueType') } : {}),
     ...(get('venueSubtype') ? { venueSubtype: get('venueSubtype') } : {}),
     ...(get('city') ? { city: get('city') } : {}),

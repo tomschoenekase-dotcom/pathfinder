@@ -21,6 +21,10 @@ const STAGE_BATCH_ROWS = 10
 const FIELD_KEYS = new Set([
   'venueName',
   'organizationName',
+  'existingOrganizationId',
+  'existingVenueId',
+  'addressLine1',
+  'postalCode',
   'venueType',
   'venueSubtype',
   'city',
