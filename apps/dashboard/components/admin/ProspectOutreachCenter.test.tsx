@@ -1,20 +1,26 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const mocks = vi.hoisted(() => {
   const campaigns = vi.fn()
   const readiness = vi.fn()
+  const requestReconciliation = vi.fn()
+  const getReconciliation = vi.fn()
   return {
     campaigns,
     readiness,
+    requestReconciliation,
+    getReconciliation,
     client: {
       admin: {
         listProspectCampaigns: { query: campaigns },
         getProspectOutreachReadiness: { query: readiness },
+        requestGmailReconciliation: { mutate: requestReconciliation },
+        getGmailReconciliation: { query: getReconciliation },
       },
     },
   }
@@ -106,5 +112,48 @@ describe('ProspectOutreachCenter', () => {
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.queryByText(/secret provider detail/i)).toBeNull()
     expect(screen.queryByText('No campaigns yet')).toBeNull()
+  })
+
+  it('queues one mailbox reconciliation and shows its recorded result without provider secrets', async () => {
+    mocks.readiness.mockResolvedValue({
+      ...readiness(),
+      accounts: [
+        {
+          id: 'account-1',
+          mailboxAddress: 'example@example.test',
+          connectionStatus: 'CONNECTED',
+          deliveryEnabled: false,
+          pausedAt: null,
+          lastSuccessfulSyncAt: null,
+          lastReconciliationAt: null,
+          watchExpiration: null,
+          healthErrorCode: null,
+          healthErrorSummary: null,
+        },
+      ],
+    })
+    mocks.requestReconciliation.mockResolvedValue({
+      jobId: `gmail-sync-${'a'.repeat(64)}`,
+      status: 'QUEUED',
+    })
+    mocks.getReconciliation.mockResolvedValue({
+      jobId: `gmail-sync-${'a'.repeat(64)}`,
+      status: 'COMPLETE',
+      processed: 3,
+      complete: true,
+      nextJobId: null,
+      errorCode: null,
+      completedAt: new Date(),
+    })
+    render(<ProspectOutreachCenter />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconcile mailbox' }))
+    await waitFor(() =>
+      expect(mocks.requestReconciliation).toHaveBeenCalledWith({
+        providerAccountId: 'account-1',
+        requestId: expect.any(String),
+      }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Check result' }))
+    expect(await screen.findByText(/3 messages handled in this job/iu)).toBeTruthy()
   })
 })

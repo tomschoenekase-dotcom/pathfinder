@@ -120,12 +120,42 @@ describe('createGmailOAuthRuntime', () => {
       expect.objectContaining({
         create: expect.objectContaining({
           deliveryEnabled: false,
+          syncCursor: null,
           capabilities: expect.arrayContaining(['CALENDAR_READ', 'MEET_TRANSCRIPTS']),
         }),
-        update: expect.objectContaining({ deliveryEnabled: false }),
+        update: expect.objectContaining({ deliveryEnabled: false, syncCursor: null }),
       }),
     )
     expect(mocks.audit).toHaveBeenCalled()
+  })
+
+  it('keeps an already-ingested cursor when reconnecting the same mailbox', async () => {
+    mocks.findAccount.mockResolvedValue({
+      id: 'mailbox-1',
+      credentialReferenceId: 'old-credential',
+      syncCursor: 'previously-ingested',
+      lastSuccessfulSyncAt: new Date('2026-10-01T00:00:00Z'),
+    })
+    const transport = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes('oauth2.googleapis.com')
+        ? new Response(
+            JSON.stringify({ access_token: 'short-access', refresh_token: 'durable-refresh' }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({ emailAddress: 'outreach@torchiko.com', historyId: 'new-profile' }),
+            { status: 200 },
+          ),
+    )
+    const runtime = createGmailOAuthRuntime({ configuration, fetch: transport })
+    const state = new URL(await runtime.begin('operator-1')).searchParams.get('state')!
+    await runtime.complete({ state, code: 'code', requestedBy: 'operator-1' })
+    expect(mocks.upsertAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.not.objectContaining({ syncCursor: 'new-profile' }),
+      }),
+    )
+    expect(mocks.upsertAccount.mock.calls[0]?.[0]?.update).not.toHaveProperty('syncCursor')
   })
 
   it('decrypts the refresh token only inside an access-token lease callback', async () => {

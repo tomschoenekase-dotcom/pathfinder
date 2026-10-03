@@ -731,7 +731,7 @@ async function handleGmailSyncQueueJob(job: Job<GmailSyncJobPayload>) {
   ) {
     throw new Error(`Unsupported Gmail sync job: ${job.name}`)
   }
-  await processGmailSyncJob(job.data)
+  await processGmailSyncJob(job.data, getJobExecutionMetadata(job))
 }
 
 async function handleBillingReconciliationQueueJob(job: Job<BillingReconciliationJobPayload>) {

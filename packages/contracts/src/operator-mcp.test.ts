@@ -106,6 +106,8 @@ const EXPECTED_TOOLS = [
   'support.list_messages',
   'support.list_replies',
   'crm.list_mailboxes',
+  'crm.get_mail_reconciliation',
+  'crm.request_mail_reconciliation',
   'crm.list_mail_threads',
   'crm.list_mail_messages',
   'crm.list_mail_receipts',

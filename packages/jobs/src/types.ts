@@ -121,6 +121,12 @@ export type GmailSyncJobPayload = {
   providerAccountId: string
   trigger: 'PUBSUB_NOTIFICATION' | 'SCHEDULED_RECONCILIATION' | 'WATCH_RENEWAL'
   receiptId?: string
+  requestId?: string
+  pageToken?: string
+  after?: string
+  baselineCursor?: string | null
+  mode?: 'FULL_RECONCILIATION' | 'INCREMENTAL'
+  targetCursor?: string
 }
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>

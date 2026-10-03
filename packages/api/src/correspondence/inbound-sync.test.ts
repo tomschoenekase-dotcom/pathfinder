@@ -358,12 +358,67 @@ describe('inbound correspondence synchronization', () => {
     const sync = await service.synchronize(mailbox)
     const watch = await service.renewWatch(mailbox, 'projects/test/topics/gmail')
 
-    expect(sync).toEqual({ mode: 'INCREMENTAL', cursor: 'fake-cursor', processed: 1 })
+    expect(sync).toEqual({
+      mode: 'INCREMENTAL',
+      cursor: 'fake-cursor',
+      processed: 1,
+      complete: true,
+    })
     expect(fixture.calls.cursors).toEqual([
       expect.objectContaining({ cursor: 'fake-cursor', mode: 'INCREMENTAL' }),
     ])
     expect(watch.mailboxId).toBe(mailbox.mailboxId)
     expect(fixture.calls.watches).toHaveLength(1)
+  })
+
+  it('keeps the cursor uncommitted across bounded reconciliation pages until the continuation completes', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    const page = vi.spyOn(provider, 'reconcile').mockImplementation(async (input) => ({
+      messages: [],
+      cursor: 'new-cursor',
+      nextPageToken: input.pageToken ? null : 'second-page',
+      hasMore: !input.pageToken,
+      mode: 'FULL_RECONCILIATION',
+    }))
+    const fixture = createStore({ cursor: 'old-cursor' })
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    const first = await service.synchronize(mailbox, {
+      mode: 'FULL_RECONCILIATION',
+      maxPages: 1,
+    })
+    expect(first).toEqual({
+      mode: 'FULL_RECONCILIATION',
+      cursor: null,
+      processed: 0,
+      complete: false,
+      nextPageToken: 'second-page',
+      baselineCursor: 'old-cursor',
+      targetCursor: 'new-cursor',
+    })
+    expect(fixture.calls.cursors).toHaveLength(0)
+    expect(fixture.calls.health).toHaveLength(0)
+    if (!('nextPageToken' in first) || first.baselineCursor === undefined || !first.targetCursor) {
+      throw new Error('Expected a complete continuation identity')
+    }
+
+    const second = await service.synchronize(mailbox, {
+      mode: 'FULL_RECONCILIATION',
+      pageToken: first.nextPageToken,
+      baselineCursor: first.baselineCursor,
+      targetCursor: first.targetCursor,
+      maxPages: 1,
+    })
+    expect(second).toEqual({
+      mode: 'FULL_RECONCILIATION',
+      cursor: 'new-cursor',
+      processed: 0,
+      complete: true,
+    })
+    expect(page).toHaveBeenNthCalledWith(2, expect.objectContaining({ pageToken: 'second-page' }))
+    expect(fixture.calls.cursors).toEqual([
+      expect.objectContaining({ cursor: 'new-cursor', mode: 'FULL_RECONCILIATION' }),
+    ])
   })
 
   it('retains untrusted-data policy and bounds oversized synchronized content', async () => {

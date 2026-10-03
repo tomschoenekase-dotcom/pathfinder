@@ -228,6 +228,8 @@ describe('OPERATOR_READ_TOOLS', () => {
         'support.list_messages',
         'support.list_replies',
         'crm.list_mailboxes',
+        'crm.get_mail_reconciliation',
+        'crm.request_mail_reconciliation',
         'crm.list_mail_threads',
         'crm.list_mail_messages',
         'crm.list_mail_receipts',
@@ -258,7 +260,9 @@ describe('OPERATOR_READ_TOOLS', () => {
       const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
       if (isControl) {
         expect(tool.capability).toBe(
-          ['crm.stage_csv_import', 'crm.resume_import'].includes(tool.name)
+          ['crm.stage_csv_import', 'crm.resume_import', 'crm.request_mail_reconciliation'].includes(
+            tool.name,
+          )
             ? 'crm:propose'
             : 'operator:plan',
         )
