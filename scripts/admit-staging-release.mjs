@@ -4,6 +4,7 @@ import { admitStagingRelease } from './lib/staging-release-admission.mjs'
 import { parseBoundedTopologyJson } from './lib/staging-topology-admission.mjs'
 import { parseStagingHealthArgs } from './lib/staging-health-admission.mjs'
 import { RAILWAY_CLI_PACKAGE } from './lib/railway-cli-contract.mjs'
+import { railwayRuntimeDiagnostic } from './lib/railway-runtime-diagnostic.mjs'
 
 try {
   const args = process.argv.slice(2)
@@ -36,11 +37,7 @@ try {
           status: child.status,
           code: child.error?.code ?? null,
           signal: child.signal,
-          diagnostic: /unauthorized/iu.test(child.stderr ?? '') ? 'unauthorized'
-            : /no linked project|no project specified/iu.test(child.stderr ?? '') ? 'project-context-missing'
-            : /not found/iu.test(child.stderr ?? '') ? 'resource-not-found'
-            : /unknown|unexpected argument/iu.test(child.stderr ?? '') ? 'invalid-cli-arguments'
-            : 'runtime-query-failed',
+          diagnostic: railwayRuntimeDiagnostic(child),
         })}\n`)
       }
       return { status: child.status, stdout: child.stdout }
