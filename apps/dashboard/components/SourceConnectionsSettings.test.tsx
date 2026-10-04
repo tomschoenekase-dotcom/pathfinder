@@ -110,7 +110,7 @@ describe('SourceConnectionsSettings', () => {
         }),
       ),
     )
-    expect(screen.getByRole('status').textContent).toContain('Preview it before approval')
+    expect((await screen.findByRole('status')).textContent).toContain('Preview it before approval')
   })
 
   it('shows extracted facts and issues, then submits the exact preview identity for approval', async () => {
