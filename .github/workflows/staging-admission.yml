@@ -48,13 +48,14 @@ jobs:
             echo "A staging-scoped Railway token is required for three-service readback."
             exit 1
           fi
-          pnpm dlx @railway/cli@5.45.10 link \
-            --project 8621111a-4ac8-4d88-9566-4627c8a02059 \
-            --environment a7a394fc-aa4e-4a45-bd3c-904419a67818 \
-            --service 9fec9bdb-1915-4bee-8213-f6c3d434baa1 --json > /dev/null
+          # Project tokens resolve their own project/environment for runtime logs.
+          # `link` enumerates account workspaces and cannot use this scoped token.
           topology="$RUNNER_TEMP/torchiko-staging-topology.json"
           for attempt in {1..60}; do
-            if pnpm dlx @railway/cli@5.45.10 status --json > "$topology" && \
+            if pnpm dlx @railway/cli@5.45.10 status \
+              --project 8621111a-4ac8-4d88-9566-4627c8a02059 \
+              --environment a7a394fc-aa4e-4a45-bd3c-904419a67818 \
+              --json > "$topology" && \
               pnpm staging:admit \
               --topology-file "$topology" \
               --url https://staging-web-staging-bbeb.up.railway.app/api/health \
