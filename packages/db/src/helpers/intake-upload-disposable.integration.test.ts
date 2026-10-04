@@ -205,10 +205,10 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
           where: { id: extractionOperationId },
           data: { extractedLineCount: 2 },
         }),
-      ).rejects.toThrow(/append-only/u)
+      ).rejects.toThrow(/append-only/iu)
       await expect(
         db.intakeFileExtractionReceipt.delete({ where: { id: extractionOperationId } }),
-      ).rejects.toThrow(/append-only/u)
+      ).rejects.toThrow(/append-only/iu)
       expect(
         await db.intakePackageHandoff.count({
           where: { tenantId, venueId, runId: upload.intakeRunId! },

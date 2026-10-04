@@ -173,7 +173,7 @@ describe('operator.get_manual', () => {
 })
 
 describe('OPERATOR_READ_TOOLS', () => {
-  it('covers exactly the P4 reads plus the discovery and operation reads, each with a read capability', () => {
+  it('covers the exact reads and controls with their required capabilities', () => {
     const names = OPERATOR_READ_TOOLS.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
@@ -186,6 +186,21 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.list_operational_updates',
         'venues.get_visitor_summary',
         'venues.get_readiness',
+        'venues.list_sessions',
+        'venues.get_answer_evidence',
+        'operator.get_attention',
+        'venues.list_sources',
+        'venues.get_source',
+        'venues.list_source_connections',
+        'venues.get_source_connection',
+        'venues.list_content',
+        'venues.get_content',
+        'venues.preview_content_changeset',
+        'venues.list_releases',
+        'venues.get_release',
+        'venues.get_effective_guest_version',
+        'venues.get_release_preflight',
+        'venues.get_preview_link',
         'support.list',
         'operator.get_manual',
         'customers.list',
@@ -195,16 +210,29 @@ describe('OPERATOR_READ_TOOLS', () => {
         'operator.list_plans',
         'crm.resolve_account',
         'crm.get_account_context',
+        'crm.get_outreach_context',
         'crm.list_contacts',
         'crm.list_notes',
+        'crm.get_note',
         'crm.list_duplicates',
+        'crm.list_imports',
+        'crm.get_import',
+        'crm.get_import_field',
+        'crm.preview_organization_merge',
+        'crm.stage_csv_import',
+        'crm.resume_import',
         'crm.get_campaign',
         'crm.list_drafts',
         'crm.get_outreach_batch',
         'support.get_request',
         'customers.get_onboarding',
+        'customers.list_blocking_questions',
+        'customers.get_blocking_question',
         'support.list_messages',
+        'support.list_replies',
         'crm.list_mailboxes',
+        'crm.get_mail_reconciliation',
+        'crm.request_mail_reconciliation',
         'crm.list_mail_threads',
         'crm.list_mail_messages',
         'crm.list_mail_receipts',
@@ -214,9 +242,12 @@ describe('OPERATOR_READ_TOOLS', () => {
         'company.list_context',
         'reports.list',
         'reports.get_status',
+        'reports.get',
+        'reports.reconcile_generating',
         'billing.get_status',
         'billing.list_invoices',
         'routines.list',
+        'routines.get_run_status',
         'access.list_memberships',
         'offboarding.list_plans',
         'offboarding.list_targets',
@@ -225,12 +256,19 @@ describe('OPERATOR_READ_TOOLS', () => {
         // Orchestration controls ride the same registry path; they need operator:plan, not a read.
         'operator.cancel_operation',
         'operator.recover_operation',
+        'operator.request_decision',
       ].sort(),
     )
     for (const tool of OPERATOR_READ_TOOLS) {
       const isControl = (OPERATOR_CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name)
       if (isControl) {
-        expect(tool.capability).toBe('operator:plan')
+        expect(tool.capability).toBe(
+          ['crm.stage_csv_import', 'crm.resume_import', 'crm.request_mail_reconciliation'].includes(
+            tool.name,
+          )
+            ? 'crm:propose'
+            : 'operator:plan',
+        )
       } else {
         expect(OPERATOR_READ_TOOL_NAMES).toContain(tool.name)
         expect(tool.capability.endsWith(':read')).toBe(true)
@@ -241,11 +279,28 @@ describe('OPERATOR_READ_TOOLS', () => {
 
 describe('separately registered onboarding proposal tools', () => {
   it('has a proposal binding beside the reads without treating it as a read', () => {
-    const proposalTools = ['customers.propose_onboarding_questions']
+    const proposalTools = [
+      'customers.propose_onboarding_questions',
+      'venues.propose_source',
+      'venues.propose_content_changeset',
+    ]
     const registered = createOperatorRegistry().listTools()
     for (const name of proposalTools) {
       expect(registered.find((tool) => tool.name === name)?.effect).toBe('proposal')
       expect(OPERATOR_READ_TOOL_NAMES).not.toContain(name)
     }
+  })
+})
+
+describe('missingCapabilitiesNote', () => {
+  it('stays within the published 300-character scope note and counts what it leaves out', async () => {
+    const { missingCapabilitiesNote } = await import('./context')
+    const many = Array.from({ length: 40 }, (_, index) => `capability-${index}:propose`)
+    const note = missingCapabilitiesNote(many)
+    expect(note.length).toBeLessThanOrEqual(300)
+    expect(note).toMatch(/ and \d+ more\.$/u)
+    expect(missingCapabilitiesNote(['a:read', 'b:read'])).toBe(
+      'This connection lacks capabilities: a:read, b:read.',
+    )
   })
 })

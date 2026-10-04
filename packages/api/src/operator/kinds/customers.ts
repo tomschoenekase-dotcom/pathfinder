@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import {
   createOrganization,
   ensureOrganizationInvitation,
+  findOrganizationsForCreateOperation,
   listPendingOrganizationInvitations,
   validateExistingOrganizationOwner,
 } from '@pathfinder/auth'
@@ -23,10 +24,14 @@ import {
 import type { OperatorDatabase } from '../audit'
 import { assertTenantInGrant, OperatorNotFoundError } from '../grants'
 import {
+  OPERATOR_OUTCOME_UNKNOWN,
+  OPERATOR_PARTIALLY_APPLIED,
   OperatorStaleError,
+  proposalArgsHash,
   type OperatorApplyContext,
   type OperatorKindContext,
   type OperatorProposalKind,
+  type OperatorUnknownResolution,
 } from '../proposals'
 import { isCustomerCreateEnabled, isCustomerInviteEnabled } from './release-gate'
 
@@ -43,6 +48,8 @@ export type CustomerProvider = {
   validateOwner: typeof validateExistingOrganizationOwner
   ensureInvitation: typeof ensureOrganizationInvitation
   listPendingInvitations: typeof listPendingOrganizationInvitations
+  /** Read-only: finds the organization a given create operation may have made. */
+  findOrganizations: typeof findOrganizationsForCreateOperation
 }
 
 // Each import is read at call time, so a module that only partly provides the identity package
@@ -52,6 +59,7 @@ const realProvider: CustomerProvider = {
   validateOwner: (input) => validateExistingOrganizationOwner(input),
   ensureInvitation: (input) => ensureOrganizationInvitation(input),
   listPendingInvitations: (organizationId) => listPendingOrganizationInvitations(organizationId),
+  findOrganizations: (input) => findOrganizationsForCreateOperation(input),
 }
 let provider: CustomerProvider = realProvider
 
@@ -71,6 +79,28 @@ const slugify = (name: string) =>
     .replace(/\s+/gu, '-')
     .replace(/-+/gu, '-')
     .replace(/^-|-$/gu, '')
+
+/** What a customer-create did and did not do, in the words an operator would use. */
+const CREATE_SUMMARY = {
+  created: 'Client created; draft venue created; no invitation sent.',
+  noEffect:
+    'Client not created: nothing was changed at the identity provider or locally; no invitation sent.',
+  noEffectChecked:
+    'Client not created: the identity provider was checked and holds no organization for this operation, and nothing exists locally; no invitation sent.',
+  providerOnly:
+    'Identity-provider organization created; local client record and draft venue not set up; no invitation sent.',
+  clientNoVenue: 'Client created; venue setup failed; no invitation sent.',
+  providerUnconfirmed:
+    'Client creation is unconfirmed: the identity provider may or may not have created the organization, and the local client record and venue are not confirmed; no invitation sent.',
+  finalizeFailed:
+    'Client and draft venue created; recording completion or the CRM link failed; no invitation sent.',
+  priorUnconfirmed:
+    'Client creation was not retried: an earlier attempt is unconfirmed at the identity provider; no invitation sent.',
+  ambiguous:
+    'Client creation is unconfirmed: more than one identity-provider organization could belong to this operation; a person must choose. No invitation sent.',
+  lookupIncomplete:
+    'Client creation is unconfirmed: the identity-provider search was incomplete, so absence could not be proved; no invitation sent.',
+} as const
 
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
@@ -137,9 +167,37 @@ function createdOutcome(
     isActive: made.venue.isActive,
   }
   return {
-    result: { ...state, draft: !made.venue.isActive, invited: false, replayed },
+    result: {
+      ...state,
+      draft: !made.venue.isActive,
+      invited: false,
+      replayed,
+      summary: CREATE_SUMMARY.created,
+    },
     after: state as unknown as JsonValue,
   }
+}
+
+/**
+ * Marks an apply failure with what it proves, so the proposal records "no effect" only when that is
+ * true and carries a plain-language account of the rest.
+ */
+function annotateCreateFailure(
+  error: unknown,
+  phase: 'before_provider' | 'provider' | 'local' | 'finalize',
+) {
+  if (typeof error !== 'object' || error === null) return
+  const target = error as { code?: unknown; provedNoEffect?: boolean; summary?: string }
+  if (target.code === 'RECONCILIATION_REQUIRED') {
+    target.summary = CREATE_SUMMARY.priorUnconfirmed
+    return
+  }
+  if (phase === 'before_provider') {
+    target.provedNoEffect = true
+    target.summary = CREATE_SUMMARY.noEffect
+  } else if (phase === 'provider') target.summary = CREATE_SUMMARY.providerUnconfirmed
+  else if (phase === 'local') target.summary = CREATE_SUMMARY.providerOnly
+  else target.summary = CREATE_SUMMARY.finalizeFailed
 }
 
 export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
@@ -158,6 +216,24 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
         select: { id: true },
       })
       if (!organization) throw new OperatorNotFoundError()
+    }
+    // A prior operation for this same customer whose outcome is unconfirmed may already have made
+    // the identity-provider organization. A new operation would make a second identity, so it is
+    // refused until the earlier one is reconciled.
+    const prior = await context.database.operatorProposal.findFirst({
+      where: {
+        kind: 'customers.create',
+        argsHash: proposalArgsHash('customers.propose_create', args),
+        operationId: { not: args.operationId },
+        status: 'FAILED',
+        failureCode: { in: [OPERATOR_OUTCOME_UNKNOWN, OPERATOR_PARTIALLY_APPLIED] },
+      },
+      select: { id: true },
+    })
+    if (prior) {
+      throw Object.assign(new Error(CREATE_SUMMARY.priorUnconfirmed), {
+        code: 'UNRECONCILED_PRIOR_OPERATION',
+      })
     }
   },
   targetVersion: async (args, context) => slugVersion(context.database, args),
@@ -182,6 +258,9 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
     const database = context.database
     const actor = { type: 'HUMAN', id: context.actor.id, role: 'PLATFORM_ADMIN' } as const
     const identity = { requestId: context.operationId, requestHash: requestHash(args), actor }
+    // Where an interruption would leave the world: before anything outside local bookkeeping,
+    // with the provider call possibly in flight, with the organization confirmed, or finished.
+    let phase: 'before_provider' | 'provider' | 'local' | 'finalize' = 'before_provider'
     try {
       const intent = await beginClientCreateIntentAction(identity, database)
       if (intent.state === 'COMPLETED') {
@@ -207,6 +286,7 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
       let organizationId: string
       let slug: string
       if (intent.state === 'PROVIDER_CONFIRMED') {
+        phase = 'local'
         organizationId = intent.providerOrganizationId
         slug = intent.localSlug
       } else {
@@ -215,6 +295,8 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
           args.slug ?? slugify(args.organizationName),
           args.slug !== undefined,
         )
+        // Conservative: from here the provider call may happen, so a failure is never "no effect".
+        phase = 'provider'
         const started = await startClientCreateProviderAction(
           { ...identity, localSlug: slug },
           database,
@@ -229,8 +311,12 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
           name: args.organizationName,
           slug,
           createdByUserId: context.actor.id,
+          // The operation is the organization's stable identity at the provider, so a later
+          // reconciliation can find it without creating a second one.
+          operationId: context.operationId,
         })
         organizationId = organization.id
+        phase = 'local'
         await confirmClientCreateProviderAction(
           { ...identity, providerOrganizationId: organizationId },
           database,
@@ -259,6 +345,7 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
         },
         database,
       )
+      phase = 'finalize'
       if (!created.venue) throw new Error('The draft venue was not created.')
       if (args.prospectOrganizationId) {
         await linkProspectConversionAction({
@@ -284,11 +371,16 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
       if (!made) throw new Error('The created customer could not be read back.')
       return createdOutcome(made, created.replayed)
     } catch (error) {
-      if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
-        throw new OperatorStaleError(error.message)
-      }
-      if (error instanceof ClientCreateIntentError && error.code === 'CONFLICT') {
-        throw new OperatorStaleError(error.message)
+      annotateCreateFailure(error, phase)
+      // A conflict before the provider call proves nothing changed, so the proposal is stale. After
+      // it, an organization may exist, so the failure must stay an unconfirmed outcome.
+      if (phase === 'before_provider') {
+        if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
+          throw new OperatorStaleError(error.message)
+        }
+        if (error instanceof ClientCreateIntentError && error.code === 'CONFLICT') {
+          throw new OperatorStaleError(error.message)
+        }
       }
       throw error
     }
@@ -315,6 +407,90 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
     }
     return { state: 'unknown' }
   },
+  resolveUnknown: resolveCreateOutcome,
+}
+
+/**
+ * Looks, read-only, at the intent receipt, the local tenant and the provider, and settles an
+ * operation whose outcome was lost. It never calls the create endpoint and never makes a second
+ * identity: the only writes are bookkeeping on this operation's own intent row.
+ */
+async function resolveCreateOutcome(
+  args: CreateArgs,
+  context: OperatorApplyContext,
+): Promise<OperatorUnknownResolution> {
+  const database = context.database
+  const actor = { type: 'HUMAN', id: context.actor.id, role: 'PLATFORM_ADMIN' } as const
+  const identity = { requestId: context.operationId, requestHash: requestHash(args), actor }
+  const intent = await database.clientCreateIntent.findUnique({
+    where: { requestId: context.operationId },
+    select: { status: true, providerOrganizationId: true, createdAt: true },
+  })
+  // The provider call is only reachable after PROVIDER_STARTED is durable, so no intent, or a
+  // merely reserved one, proves the provider was never called.
+  if (!intent || intent.status === 'RESERVED') {
+    return { state: 'no_effect', summary: CREATE_SUMMARY.noEffect }
+  }
+  let organizationId = intent.providerOrganizationId
+  if (!organizationId) {
+    const found = await provider.findOrganizations({
+      operationId: context.operationId,
+      name: args.organizationName,
+      createdByUserId: context.actor.id,
+      createdAfter: intent.createdAt,
+    })
+    const tagged = found.candidates.filter((item) => item.matchedBy === 'operation_metadata')
+    const pool = tagged.length > 0 ? tagged : found.candidates
+    if (pool.length > 1) return { state: 'unknown', summary: CREATE_SUMMARY.ambiguous }
+    if (pool.length === 0) {
+      return found.complete
+        ? { state: 'no_effect', summary: CREATE_SUMMARY.noEffectChecked }
+        : { state: 'unknown', summary: CREATE_SUMMARY.lookupIncomplete }
+    }
+    organizationId = pool[0]!.id
+    // Pin the discovered organization to this operation. The unique claim on the provider
+    // organization also stops any other operation from adopting it.
+    await confirmClientCreateProviderAction(
+      { ...identity, providerOrganizationId: organizationId },
+      database,
+    )
+  }
+  const tenant = await database.tenant.findUnique({
+    where: { id: organizationId },
+    select: { id: true, slug: true, name: true },
+  })
+  const venue = tenant
+    ? await database.venue.findFirst({
+        where: { tenantId: tenant.id },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, slug: true, isActive: true },
+      })
+    : null
+  if (tenant && venue) {
+    if (intent.status !== 'COMPLETED') {
+      await completeClientCreateIntentAction(
+        {
+          ...identity,
+          providerOrganizationId: organizationId,
+          tenantId: tenant.id,
+          venueId: venue.id,
+        },
+        database,
+      )
+    }
+    return { state: 'applied', outcome: createdOutcome({ tenant, venue }, false) }
+  }
+  return {
+    state: 'partially_applied',
+    summary: tenant ? CREATE_SUMMARY.clientNoVenue : CREATE_SUMMARY.providerOnly,
+    result: {
+      organizationId,
+      providerOrganization: 'created',
+      clientCreated: tenant !== null,
+      venueCreated: false,
+      invited: false,
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------

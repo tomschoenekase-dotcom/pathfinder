@@ -1,8 +1,11 @@
+import { deriveSupportCompletionOutcome } from '@pathfinder/contracts'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { readSupportPackageFulfillment, SupportPackageFulfillmentError } from '@pathfinder/db'
 
 import { operatorUntrustedText, redactAddresses } from '../crm-projection'
 import { assertTenantInGrant, buildOperatorReadScope, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
+import { notificationIntentSelect, notificationSummary } from './notification-summary'
 import {
   decodeKeysetCursor,
   encodeKeysetCursor,
@@ -11,6 +14,58 @@ import {
 } from './page'
 
 const PAGE_SIZE = 25
+const LINKED_WORK_CAP = 25
+
+const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const
+type Priority = (typeof PRIORITIES)[number]
+
+/** The operator-side priority recorded when an operator opened the request; otherwise null. */
+function recordedPriority(artifacts: unknown): Priority | null {
+  const value =
+    artifacts && typeof artifacts === 'object'
+      ? (artifacts as { operatorPriority?: unknown }).operatorPriority
+      : null
+  return PRIORITIES.find((priority) => priority === value) ?? null
+}
+
+/**
+ * The completion evidence support.propose_completion takes. It is read from the canonical
+ * fulfillment reader, so it is the same digest the completion check will recompute; a request
+ * whose linked work is not finished reports why instead of a digest.
+ */
+async function readFulfillment(
+  database: Parameters<OperatorReadTool['handler']>[1]['database'],
+  scope: { tenantId: string; venueId: string; requestId: string },
+) {
+  try {
+    const fulfillment = await database.$transaction(
+      (tx) =>
+        readSupportPackageFulfillment(tx as never, {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          supportRequestId: scope.requestId,
+        }),
+      { timeout: 15_000 },
+    )
+    return {
+      state: 'ready' as const,
+      outcome: deriveSupportCompletionOutcome(fulfillment),
+      digest: fulfillment.digest,
+      linkedPackageCount:
+        'linkedPackageCount' in fulfillment ? fulfillment.linkedPackageCount : null,
+      reason: null,
+    }
+  } catch (error) {
+    if (!(error instanceof SupportPackageFulfillmentError)) throw error
+    return {
+      state: 'not_ready' as const,
+      outcome: null,
+      digest: null,
+      linkedPackageCount: null,
+      reason: error.message.slice(0, 300),
+    }
+  }
+}
 
 /**
  * The existing MCP support read is per venue, has no status filter and no tenant-wide form, so
@@ -50,7 +105,15 @@ const supportList: OperatorReadTool = {
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: PAGE_SIZE + 1,
       // Message bodies, participants and artifacts are never selected.
-      select: { id: true, venueId: true, status: true, subject: true, updatedAt: true },
+      // Message bodies and participants are never selected; only the recorded priority is read from artifacts.
+      select: {
+        id: true,
+        venueId: true,
+        status: true,
+        subject: true,
+        updatedAt: true,
+        artifacts: true,
+      },
     })
     const page = rows.slice(0, PAGE_SIZE)
     return pageResult(
@@ -58,8 +121,9 @@ const supportList: OperatorReadTool = {
         requestId: row.id,
         venueId: row.venueId,
         status: row.status,
-        // Support requests store no priority. Report that honestly rather than a defaulted NORMAL.
-        priority: null,
+        // Only a request an operator opened records a priority. Otherwise report null honestly
+        // rather than a defaulted NORMAL.
+        priority: recordedPriority(row.artifacts),
         updatedAt: row.updatedAt.toISOString(),
         subject: operatorUntrustedText(row.subject),
       })),
@@ -83,10 +147,45 @@ const supportGetRequest: OperatorReadTool = {
         _count: {
           select: { packageHandoffs: true, previewFeedback: true, knowledgeChangeProposals: true },
         },
+        packageHandoffs: {
+          where: { supersessionAsPrior: { is: null } },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: LINKED_WORK_CAP,
+          select: { id: true, venuePackageId: true, requestVersion: true },
+        },
+        previewFeedback: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: LINKED_WORK_CAP,
+          select: { id: true, venuePackageId: true },
+        },
+        knowledgeChangeProposals: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: LINKED_WORK_CAP,
+          select: { id: true, status: true },
+        },
+        agentRunLineages: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: LINKED_WORK_CAP,
+          select: { agentRunId: true, linkedRunStatus: true, requestVersion: true },
+        },
+        onboardingQuestionLink: {
+          select: {
+            id: true,
+            agentQuestionId: true,
+            answeredSupportMessageId: true,
+            resumedAt: true,
+          },
+        },
+        participants: {
+          where: { revokedAt: null },
+          orderBy: [{ grantedAt: 'asc' }, { id: 'asc' }],
+          take: LINKED_WORK_CAP,
+          select: { userId: true },
+        },
       },
     })
     if (!request) throw new OperatorNotFoundError()
-    const [total, internalNotes, latest] = await Promise.all([
+    const [total, internalNotes, latest, fulfillment, intents] = await Promise.all([
       database.supportMessage.count({
         where: { supportRequestId: request.id, tenantId: input.tenantId },
       }),
@@ -102,7 +201,19 @@ const supportGetRequest: OperatorReadTool = {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { authorKind: true, visibility: true, createdAt: true },
       }),
+      readFulfillment(database, {
+        tenantId: input.tenantId,
+        venueId: request.venueId,
+        requestId: request.id,
+      }),
+      database.clientNotificationIntent.findMany({
+        where: { tenantId: input.tenantId, supportRequestId: request.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 10,
+        select: notificationIntentSelect,
+      }),
     ])
+    const link = request.onboardingQuestionLink
     return {
       requestId: request.id,
       tenantId: request.tenantId,
@@ -133,6 +244,46 @@ const supportGetRequest: OperatorReadTool = {
         previewFeedback: request._count.previewFeedback,
         knowledgeProposals: request._count.knowledgeChangeProposals,
       },
+      priority: recordedPriority(request.artifacts),
+      work: {
+        packageHandoffs: request.packageHandoffs.map((handoff) => ({
+          handoffId: handoff.id,
+          packageId: handoff.venuePackageId,
+          requestVersion: handoff.requestVersion,
+        })),
+        previewFeedback: request.previewFeedback.map((feedback) => ({
+          feedbackId: feedback.id,
+          packageId: feedback.venuePackageId,
+        })),
+        knowledgeProposals: request.knowledgeChangeProposals.map((proposal) => ({
+          proposalId: proposal.id,
+          status: proposal.status,
+        })),
+        agentRuns: request.agentRunLineages.map((lineage) => ({
+          runId: lineage.agentRunId,
+          status: lineage.linkedRunStatus,
+          requestVersion: lineage.requestVersion,
+        })),
+        onboardingQuestion: link
+          ? {
+              linkId: link.id,
+              questionId: link.agentQuestionId,
+              answered: link.answeredSupportMessageId !== null,
+              resumedAt: link.resumedAt?.toISOString() ?? null,
+            }
+          : null,
+        truncated:
+          request._count.packageHandoffs > LINKED_WORK_CAP ||
+          request._count.previewFeedback > LINKED_WORK_CAP ||
+          request._count.knowledgeChangeProposals > LINKED_WORK_CAP ||
+          request.agentRunLineages.length >= LINKED_WORK_CAP,
+      },
+      fulfillment,
+      access: {
+        requesterUserId: request.requesterUserId,
+        participantUserIds: request.participants.map((participant) => participant.userId),
+      },
+      notifications: intents.map(notificationSummary),
     }
   },
 }
@@ -198,8 +349,69 @@ const supportListMessages: OperatorReadTool = {
   },
 }
 
+const supportListReplies: OperatorReadTool = {
+  name: 'support.list_replies',
+  capability: 'support:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['support.list_replies'].parse(raw)
+    await assertTenantInGrant(context.grant, input.tenantId, context.database)
+    const request = await context.database.supportRequest.findFirst({
+      where: { id: input.requestId, tenantId: input.tenantId },
+      select: { id: true },
+    })
+    if (!request) throw new OperatorNotFoundError()
+    const after = input.cursor === undefined ? null : decodeKeysetCursor(input.cursor)
+    const rows = await context.database.clientInboundReply.findMany({
+      where: {
+        tenantId: input.tenantId,
+        supportRequestId: request.id,
+        ...(after
+          ? {
+              OR: [
+                { receivedAt: { lt: after.at } },
+                { receivedAt: after.at, id: { lt: after.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+      take: input.limit + 1,
+      // Sender hash, provider ids and message ids are never selected.
+      select: {
+        id: true,
+        intentId: true,
+        receivedAt: true,
+        matchEvidence: true,
+        requestEffect: true,
+        bodyBytes: true,
+        bodyPreview: true,
+      },
+    })
+    const page = rows.slice(0, input.limit)
+    return pageResult(
+      page.map((reply) => ({
+        replyId: reply.id,
+        notificationId: reply.intentId,
+        receivedAt: reply.receivedAt.toISOString(),
+        matchEvidence: reply.matchEvidence as (
+          | 'RFC_REFERENCE'
+          | 'REPLY_CHAIN'
+          | 'PROVIDER_THREAD'
+        )[],
+        requestEffect: reply.requestEffect as 'MOVED_TO_IN_REVIEW' | 'NO_CHANGE',
+        bodyBytes: reply.bodyBytes,
+        bodyPreview: operatorUntrustedText(redactAddresses(reply.bodyPreview), 500),
+      })),
+      rows.length > input.limit
+        ? encodeKeysetCursor(page.at(-1)!.receivedAt, page.at(-1)!.id)
+        : null,
+    )
+  },
+}
+
 export const supportReadTools: readonly OperatorReadTool[] = [
   supportList,
   supportGetRequest,
   supportListMessages,
+  supportListReplies,
 ]

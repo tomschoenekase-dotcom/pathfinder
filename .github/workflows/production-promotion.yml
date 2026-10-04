@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: production-promotion-${{ github.event.pull_request.number }}
@@ -31,6 +32,40 @@ jobs:
         with:
           node-version: 20.19.5
           package-manager-cache: false
+
+      - name: Find the latest trusted three-service staging admission
+        id: admission
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/staging-admission.yml/runs?per_page=1" \
+            > "$RUNNER_TEMP/staging-admission-runs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/staging-admission.yml" \
+            > "$RUNNER_TEMP/staging-admission-workflow.json"
+          node scripts/promotion-admission-evidence.mjs select \
+            --runs "$RUNNER_TEMP/staging-admission-runs.json" \
+            --workflow "$RUNNER_TEMP/staging-admission-workflow.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Read the trusted staging admission log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMISSION_RUN_ID: ${{ steps.admission.outputs.run_id }}
+        run: |
+          gh run view "$ADMISSION_RUN_ID" --log --repo "$GITHUB_REPOSITORY" \
+            > "$RUNNER_TEMP/staging-admission.log"
+
+      - name: Require the exact PR revision on all staging services
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/promotion-admission-evidence.mjs verify \
+            --runs "$RUNNER_TEMP/staging-admission-runs.json" \
+            --workflow "$RUNNER_TEMP/staging-admission-workflow.json" \
+            --log "$RUNNER_TEMP/staging-admission.log" \
+            --release-sha "$RELEASE_SHA" \
+            --repository "$GITHUB_REPOSITORY"
 
       - name: Require the exact PR revision to be healthy in staging
         env:

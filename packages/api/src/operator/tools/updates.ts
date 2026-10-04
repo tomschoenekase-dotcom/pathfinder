@@ -1,10 +1,23 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
-import { buildOperationalUpdatePreview } from '@pathfinder/db'
+import { computeOperationalUpdateLifecycle } from '@pathfinder/contracts/operational-update-lifecycle'
 
 import { operatorUntrustedText } from '../crm-projection'
 import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
 import { decodeKeysetCursor, encodeKeysetCursor, pageResult, requireCursorInScope } from './page'
+
+function lifecycleFields(
+  row: { status: string; isActive: boolean; startsAt: Date; expiresAt: Date },
+  now: Date,
+) {
+  const computed = computeOperationalUpdateLifecycle(row, now)
+  return {
+    lifecycle: computed.lifecycle,
+    guestVisibleNow: computed.guestVisibleNow,
+    isActiveButExpired: computed.isActiveButExpired,
+    lifecycleLabel: computed.label,
+  }
+}
 
 /** A venue's visitor notices with what visitors see right now and the version writes expect. */
 const listOperationalUpdates: OperatorReadTool = {
@@ -77,7 +90,7 @@ const listOperationalUpdates: OperatorReadTool = {
         expiresAt: row.expiresAt.toISOString(),
         status: row.status,
         isActive: row.isActive,
-        lifecycle: buildOperationalUpdatePreview(row, now).lifecycle,
+        ...lifecycleFields(row, now),
         updatedAt: row.updatedAt.toISOString(),
       })),
       rows.length > input.limit

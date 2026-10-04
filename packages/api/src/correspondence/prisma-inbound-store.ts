@@ -56,6 +56,9 @@ function quarantineDetail(reason: InboundQuarantineReason) {
   if (reason === 'PROVIDER_MESSAGE_NOT_FOUND') {
     return 'Provider message was not available for retrieval.'
   }
+  if (reason === 'DELIVERY_STATUS_NOTICE') {
+    return 'A delivery-status notice was held for review; it is not a reply or verified bounce.'
+  }
   if (reason === 'INVALID_MESSAGE_SCOPE') {
     return 'Inbound correspondence failed mailbox scope validation.'
   }
@@ -372,9 +375,9 @@ export function createPrismaInboundCorrespondenceStore(
       return account?.syncCursor ?? null
     },
     async commitSyncCursor(input) {
-      await withTenantIsolationBypass(() =>
-        db.correspondenceProviderAccount.update({
-          where: { id: input.mailbox.providerAccountId },
+      const committed = await withTenantIsolationBypass(() =>
+        db.correspondenceProviderAccount.updateMany({
+          where: { id: input.mailbox.providerAccountId, syncCursor: input.expectedCursor },
           data: {
             syncCursor: input.cursor,
             lastSuccessfulSyncAt: input.completedAt,
@@ -387,12 +390,16 @@ export function createPrismaInboundCorrespondenceStore(
           },
         }),
       )
+      if (committed.count !== 1)
+        throw new Error('Correspondence cursor changed during synchronization')
     },
     async saveWatch(input) {
       await withTenantIsolationBypass(() =>
         db.correspondenceProviderAccount.update({
           where: { id: input.mailbox.providerAccountId },
-          data: { watchExpiration: input.watch.expiresAt, syncCursor: input.watch.cursor },
+          // A watch cursor is a notification baseline, not proof that old mail was ingested.
+          // In particular, OAuth queues watch renewal before the first full reconciliation.
+          data: { watchExpiration: input.watch.expiresAt },
         }),
       )
     },

@@ -3,18 +3,19 @@
 import { ClientBillingPanel } from '../billing/ClientBillingPanel'
 import { PortalNotice, PortalPage } from './PortalPrimitives'
 
-export function BillingWorkspace({ enabled }: { enabled: boolean }) {
+/** `enabled` exists only for design fixtures; the live page always renders the billing panel. */
+export function BillingWorkspace({ enabled = true }: { enabled?: boolean }) {
   return (
     <PortalPage
       title="Billing"
-      description="Review your Stripe subscription, invoices, and payment details."
+      description="See what you pay Torchiko, what is due, and what to do next."
     >
       {enabled ? (
         <ClientBillingPanel />
       ) : (
         <PortalNotice>
-          Billing details are not available for this organization. Contact Torchiko Support if you
-          have a question about your arrangement.
+          Billing is not shown for this organization. Contact Torchiko Support if you have a
+          question about your arrangement.
         </PortalNotice>
       )}
     </PortalPage>

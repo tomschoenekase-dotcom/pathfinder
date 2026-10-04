@@ -197,7 +197,7 @@ describe.skipIf(!enabled)(
       })
       expect((await approve(end)).status).toBe('APPLIED')
       const ended = (await list({})).items.find((item: any) => item.updateId === draft.updateId)
-      expect(ended).toMatchObject({ lifecycle: 'INACTIVE', isActive: false })
+      expect(ended).toMatchObject({ lifecycle: 'ENDED', isActive: false })
     })
 
     it('creates a notice that is live at once, and a retry returns the same notice', async () => {

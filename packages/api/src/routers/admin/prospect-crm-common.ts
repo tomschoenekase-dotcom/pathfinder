@@ -51,6 +51,10 @@ export function mapProspectActionError(error: unknown): never {
 export const normalizedProspectImportRow = z
   .object({
     organizationName: z.string().max(300).optional(),
+    existingOrganizationId: z.string().max(191).optional(),
+    existingVenueId: z.string().max(191).optional(),
+    addressLine1: z.string().max(1000).optional(),
+    postalCode: z.string().max(100).optional(),
     venueName: z.string().max(300),
     venueType: z.string().max(200).optional(),
     venueSubtype: z.string().max(200).optional(),
@@ -75,7 +79,15 @@ export const normalizedProspectImportRow = z
     researchConfidence: z.string().max(100).optional(),
     researchDate: z.string().max(100).optional(),
     sourceUrls: z.array(z.string().max(2000)).max(20).optional(),
-    notes: z.string().max(10000).optional(),
+    notes: z.string().max(100_000).optional(),
     territory: z.string().max(200).optional(),
+    gmailMessageId: z.string().max(191).optional(),
+    gmailThreadId: z.string().max(191).optional(),
+    gmailDraftId: z.string().max(191).optional(),
+    mailboxAddress: z.string().email().max(320).optional(),
+    claimedSentAt: z.string().max(100).optional(),
+    claimedDeliveryState: z.enum(['UNKNOWN', 'SENT', 'DELIVERED', 'BOUNCED']).optional(),
+    claimedDraftState: z.enum(['UNKNOWN', 'DRAFT', 'REVIEWED', 'QUEUED', 'SENT']).optional(),
+    claimedRelationshipState: z.string().max(200).optional(),
   })
   .strict()

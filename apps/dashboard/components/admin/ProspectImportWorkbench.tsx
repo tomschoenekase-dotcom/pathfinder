@@ -17,6 +17,10 @@ import { inspectXlsxArchive, XlsxArchivePreflightError } from '../../lib/xlsx-ar
 const FIELD_DEFINITIONS = [
   ['venueName', 'Venue name', true, 'venue_name'],
   ['organizationName', 'Parent organization', false, 'owner_name'],
+  ['existingOrganizationId', 'Existing organization ID', false, 'existing_organization_id'],
+  ['existingVenueId', 'Existing venue ID', false, 'existing_venue_id'],
+  ['addressLine1', 'Street address', false, 'address_line_1'],
+  ['postalCode', 'Postal code', false, 'postal_code'],
   ['venueType', 'Venue type', false, 'venue_type'],
   ['venueSubtype', 'Venue subtype', false, 'venue_subtype'],
   ['city', 'City', false, 'city'],
@@ -41,6 +45,19 @@ const FIELD_DEFINITIONS = [
   ['sourceUrls', 'Source URLs', false, 'source_urls'],
   ['notes', 'Notes', false, 'notes'],
   ['territory', 'Territory', false, 'territory'],
+  ['gmailMessageId', 'Gmail message ID (unverified import claim)', false, 'gmail_message_id'],
+  ['gmailThreadId', 'Gmail thread ID (unverified import claim)', false, 'gmail_thread_id'],
+  ['gmailDraftId', 'Gmail draft ID (unverified import claim)', false, 'gmail_draft_id'],
+  ['mailboxAddress', 'Mailbox address (unverified import claim)', false, 'mailbox_address'],
+  ['claimedSentAt', 'Claimed sent time (unverified)', false, 'claimed_sent_at'],
+  ['claimedDeliveryState', 'Claimed delivery state (unverified)', false, 'claimed_delivery_state'],
+  ['claimedDraftState', 'Claimed draft state (unverified)', false, 'claimed_draft_state'],
+  [
+    'claimedRelationshipState',
+    'Claimed relationship state (unverified)',
+    false,
+    'claimed_relationship_state',
+  ],
 ] as const
 
 type FieldKey = (typeof FIELD_DEFINITIONS)[number][0]
@@ -49,6 +66,10 @@ type SheetMeta = { name: string; index: number; rows: number; columns: string[] 
 type NormalizedRow = {
   venueName: string
   organizationName?: string | undefined
+  existingOrganizationId?: string | undefined
+  existingVenueId?: string | undefined
+  addressLine1?: string | undefined
+  postalCode?: string | undefined
   venueType?: string | undefined
   venueSubtype?: string | undefined
   city?: string | undefined
@@ -73,6 +94,14 @@ type NormalizedRow = {
   sourceUrls?: string[] | undefined
   notes?: string | undefined
   territory?: string | undefined
+  gmailMessageId?: string | undefined
+  gmailThreadId?: string | undefined
+  gmailDraftId?: string | undefined
+  mailboxAddress?: string | undefined
+  claimedSentAt?: string | undefined
+  claimedDeliveryState?: 'UNKNOWN' | 'SENT' | 'DELIVERED' | 'BOUNCED' | undefined
+  claimedDraftState?: 'UNKNOWN' | 'DRAFT' | 'REVIEWED' | 'QUEUED' | 'SENT' | undefined
+  claimedRelationshipState?: string | undefined
 }
 type ImportDetail = {
   prospectImport: {
@@ -127,6 +156,12 @@ function mappedRow(
   return {
     venueName: get('venueName') ?? '',
     ...(get('organizationName') ? { organizationName: get('organizationName') } : {}),
+    ...(get('existingOrganizationId')
+      ? { existingOrganizationId: get('existingOrganizationId') }
+      : {}),
+    ...(get('existingVenueId') ? { existingVenueId: get('existingVenueId') } : {}),
+    ...(get('addressLine1') ? { addressLine1: get('addressLine1') } : {}),
+    ...(get('postalCode') ? { postalCode: get('postalCode') } : {}),
     ...(get('venueType') ? { venueType: get('venueType') } : {}),
     ...(get('venueSubtype') ? { venueSubtype: get('venueSubtype') } : {}),
     ...(get('city') ? { city: get('city') } : {}),
@@ -151,6 +186,28 @@ function mappedRow(
     ...(sourceUrls?.length ? { sourceUrls } : {}),
     ...(get('notes') ? { notes: get('notes') } : {}),
     territory: get('territory') ?? sheetName,
+    ...(get('gmailMessageId') ? { gmailMessageId: get('gmailMessageId') } : {}),
+    ...(get('gmailThreadId') ? { gmailThreadId: get('gmailThreadId') } : {}),
+    ...(get('gmailDraftId') ? { gmailDraftId: get('gmailDraftId') } : {}),
+    ...(get('mailboxAddress') ? { mailboxAddress: get('mailboxAddress') } : {}),
+    ...(get('claimedSentAt') ? { claimedSentAt: get('claimedSentAt') } : {}),
+    ...(get('claimedDeliveryState')
+      ? {
+          claimedDeliveryState: get('claimedDeliveryState') as NonNullable<
+            NormalizedRow['claimedDeliveryState']
+          >,
+        }
+      : {}),
+    ...(get('claimedDraftState')
+      ? {
+          claimedDraftState: get('claimedDraftState') as NonNullable<
+            NormalizedRow['claimedDraftState']
+          >,
+        }
+      : {}),
+    ...(get('claimedRelationshipState')
+      ? { claimedRelationshipState: get('claimedRelationshipState') }
+      : {}),
   }
 }
 

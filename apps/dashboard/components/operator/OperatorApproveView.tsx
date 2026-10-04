@@ -22,10 +22,13 @@ export function OperatorApproveView({
   item,
   expiry,
   panel,
+  notice,
 }: {
   item: OperatorReviewItemView
   expiry: string
   panel: ReactNode
+  /** Says where a chat approval request stands, when this page was opened from one. */
+  notice?: string | undefined
 }) {
   const pending = item.status === 'PENDING'
   return (
@@ -46,6 +49,14 @@ export function OperatorApproveView({
             ? `. ${item.steps.length} steps run in order and stop at the first failure.`
             : ''}
         </p>
+        {notice ? (
+          <p
+            role="status"
+            className="mt-3 rounded-lg border border-tk-rule bg-white px-3 py-2 text-sm text-tk-ink"
+          >
+            {notice}
+          </p>
+        ) : null}
         <div className="mt-4">
           <OperatorReviewSteps steps={item.steps} pending={pending} />
         </div>

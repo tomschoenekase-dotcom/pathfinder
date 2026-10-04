@@ -50,6 +50,7 @@ const clientId = `opc_sup_${suffix}`
 let venueId = ''
 let grant: VerifiedOperatorGrant
 let otherGrant: VerifiedOperatorGrant
+let previousSupportPolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
 
 const service = (forGrant = grant) => ({
   config,
@@ -135,6 +136,14 @@ describe.skipIf(!enabled)(
   { timeout: 120_000 },
   () => {
     beforeAll(async () => {
+      previousSupportPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'support:propose' },
+      })
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: 'support:propose' },
+        create: { capability: 'support:propose', mode: 'ASK', updatedByUserId: 'test-fixture' },
+        update: { mode: 'ASK', allowedKinds: [], updatedByUserId: 'test-fixture' },
+      })
       await withTenantIsolationBypass(async () => {
         for (const id of [tenantId, otherTenantId]) {
           await db.tenant.create({ data: { id, name: `Example ${id}`, slug: id } })
@@ -180,6 +189,19 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      if (previousSupportPolicy) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability: 'support:propose' },
+          create: previousSupportPolicy,
+          update: {
+            mode: previousSupportPolicy.mode,
+            allowedKinds: previousSupportPolicy.allowedKinds,
+            updatedByUserId: previousSupportPolicy.updatedByUserId,
+          },
+        })
+      } else {
+        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'support:propose' } })
+      }
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } }),
       )

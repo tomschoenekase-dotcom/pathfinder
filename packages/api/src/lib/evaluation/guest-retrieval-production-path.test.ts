@@ -48,9 +48,18 @@ function matches(row: FixtureRow, where: Record<string, unknown>): boolean {
   )
     return false
   if (where.visibility && row.visibility !== where.visibility) return false
+  const sourceType = where.sourceType as { not?: string } | undefined
+  if (sourceType?.not && row.sourceType === sourceType.not) return false
   const matchesOr = (items: Record<string, unknown>[]) =>
     items.some((item) => {
       if ('contentModuleId' in item) return row.contentModuleId == null
+      if ('contentRevision' in item) {
+        // Mirrors the connected-source fence: no revision, or one not created by a source.
+        const revision = (item.contentRevision as { is: unknown }).is
+        return revision === null
+          ? row.contentRevision == null
+          : !row.contentRevision?.createdBy?.startsWith('source-connection:')
+      }
       return contains(row, item as Record<string, { contains: string }>)
     })
   if (

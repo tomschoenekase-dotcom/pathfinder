@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20", "pnpm"]
 cmds = ["pnpm install --frozen-lockfile"]
 
 [phases.build]
-cmds = ["pnpm --filter @pathfinder/dashboard build"]
+cmds = ["NODE_OPTIONS=--max-old-space-size=6144 pnpm --filter @pathfinder/dashboard build"]
 
 [start]
 cmd = "node apps/dashboard/.next/standalone/server.js"

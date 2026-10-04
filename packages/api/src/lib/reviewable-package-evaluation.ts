@@ -19,6 +19,7 @@ export async function loadReviewableVenuePackageEvaluationPreview(
   db: PackageDb,
   tenantId: string,
   input: { venueId: string; packageId: string },
+  options: { publicAudienceOnly?: boolean } = {},
 ) {
   const pkg = await db.venuePackage.findFirst({
     where: {
@@ -76,12 +77,20 @@ export async function loadReviewableVenuePackageEvaluationPreview(
           lng: true,
           tags: true,
           isActive: true,
+          visibility: true,
         },
       },
       knowledgeEntries: {
         orderBy: [{ title: 'asc' }, { id: 'asc' }],
         take: 501,
-        select: { id: true, title: true, category: true, content: true, isEnabled: true },
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          content: true,
+          isEnabled: true,
+          visibility: true,
+        },
       },
     },
   })
@@ -133,6 +142,38 @@ export async function loadReviewableVenuePackageEvaluationPreview(
     throw error
   }
 
+  // A guest-facing preview must never carry employee-only (second layer) content: drop those rows
+  // from the base and drop any package change that names one, before anything is projected.
+  const publicOnly = options.publicAudienceOnly === true
+  const hiddenPlaceIds = new Set(
+    venue.places.filter((row) => row.visibility !== 'PUBLIC').map((row) => row.id),
+  )
+  const hiddenKnowledgeIds = new Set(
+    venue.knowledgeEntries.filter((row) => row.visibility !== 'PUBLIC').map((row) => row.id),
+  )
+  const projectionStored =
+    publicOnly && stored.schemaVersion === 3
+      ? {
+          ...stored,
+          changes: {
+            ...stored.changes,
+            places: {
+              ...stored.changes.places,
+              change: stored.changes.places.change.filter(({ id }) => !hiddenPlaceIds.has(id)),
+              remove: stored.changes.places.remove.filter(({ id }) => !hiddenPlaceIds.has(id)),
+            },
+            knowledgeEntries: {
+              ...stored.changes.knowledgeEntries,
+              change: stored.changes.knowledgeEntries.change.filter(
+                ({ id }) => !hiddenKnowledgeIds.has(id),
+              ),
+              remove: stored.changes.knowledgeEntries.remove.filter(
+                ({ id }) => !hiddenKnowledgeIds.has(id),
+              ),
+            },
+          },
+        }
+      : stored
   try {
     const status = pkg.status === 'DRAFT' ? 'DRAFT' : 'APPROVED'
     return {
@@ -159,10 +200,14 @@ export async function loadReviewableVenuePackageEvaluationPreview(
           tonePreset: venue.tonePreset,
           tonePresetVersion: venue.tonePresetVersion,
         },
-        places: venue.places,
-        knowledgeEntries: venue.knowledgeEntries,
+        places: publicOnly
+          ? venue.places.filter((row) => row.visibility === 'PUBLIC')
+          : venue.places,
+        knowledgeEntries: publicOnly
+          ? venue.knowledgeEntries.filter((row) => row.visibility === 'PUBLIC')
+          : venue.knowledgeEntries,
         pkg: { id: pkg.id, status, evidenceAt: pkg.approvedAt ?? pkg.createdAt },
-        stored,
+        stored: projectionStored,
       }),
     }
   } catch (error) {

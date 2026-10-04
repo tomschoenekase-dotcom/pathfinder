@@ -36,6 +36,12 @@ operator CRM/business tools and only migration 255, from the verified 254/277 pr
 staging admission before production promotion. It preserves existing production operator OAuth
 configuration and admits no new feature-flag activation. The earlier exceptions remain unchanged.
 
+The separately [approved October 3 exception](production-cutover-20261003.md) covers PR #40 and
+only the twelve reviewed migrations 256–267, from the verified 255/280 predecessor to the 267/297
+endpoint. The final source still requires exact-head CI, three-service staging health, fresh
+post-drain backups, restore rehearsal and preservation proof before protected production promotion.
+Existing provider switches remain at their observed values.
+
 The current staging database may contain restored production lineage, so the historical
 synthetic-only exception does not by itself admit a preserved-data migration. Use the current guarded
 release-specific record and retain the incident's ACTIVE default. Preserve each environment's

@@ -23,6 +23,7 @@ function Target({ step }: { step: ReviewStepView }) {
 const CHANGE_HEADING = {
   applied: 'Changed (before, then after)',
   restore: 'Will be restored (now, then restored)',
+  pending: 'Will change (now, then proposed)',
 } as const
 
 /** The full change for a proposal or each step of a plan. Presentational; no client state. */

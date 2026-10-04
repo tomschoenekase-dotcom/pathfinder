@@ -16,6 +16,22 @@ describe('middleware response boundaries', () => {
     expect(headers?.has('Cache-Control')).toBe(false)
   })
 
+  it('never caches, indexes or frames the private token-bound preview page', () => {
+    const headers = getPageResponseHeaders(
+      new NextRequest('https://guide.example/museum/preview?token=x'),
+    )
+    expect(headers?.get('Cache-Control')).toBe('private, no-store')
+    expect(headers?.get('X-Robots-Tag')).toBe('noindex, nofollow')
+    expect(headers?.get('Content-Security-Policy')).toBe("frame-ancestors 'self'")
+    expect(headers?.get('Referrer-Policy')).toBe('no-referrer')
+    // Only the exact two-segment preview path is treated this way.
+    expect(
+      getPageResponseHeaders(new NextRequest('https://guide.example/museum/chat'))?.has(
+        'Cache-Control',
+      ),
+    ).toBe(false)
+  })
+
   it('lets only the configured client portal frame the data-free appearance preview', () => {
     const portal = { DASHBOARD_URL: 'https://app.staging.torchiko.com', NODE_ENV: 'production' }
     const preview = getPageResponseHeaders(

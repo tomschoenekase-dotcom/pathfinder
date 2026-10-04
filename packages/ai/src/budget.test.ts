@@ -12,6 +12,7 @@ import {
   textAttemptCostCeilingUnits,
   withAiRequestBudgetCeiling,
   AiRequestBudgetCeilingExceededError,
+  NOOP_AI_BUDGET_GATE,
   type AiBudgetGate,
 } from './budget'
 
@@ -58,16 +59,35 @@ describe('AI cost budget ceilings', () => {
     expect(observedAiCostUnits(0.000001)).toBe(100n)
   })
 
-  it('rounds fractional per-token reservation rates upward without changing registry pricing', () => {
+  it('reserves for every input token becoming a premium OpenAI cache write', async () => {
     const spec = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_LUNA)
-    expect(
-      textAttemptCostCeilingUnits({
-        spec,
-        system: [],
-        messages: [{ role: 'user', content: 'hello' }],
-        maxOutputTokens: spec.maxOutputTokens,
+    const reservedUnits = textAttemptCostCeilingUnits({
+      spec,
+      system: [],
+      messages: [{ role: 'user', content: 'hello' }],
+      maxOutputTokens: spec.maxOutputTokens,
+    })
+    // GPT-5.6+ can bill a cache miss as a write at 1.25x ordinary input. The
+    // fractional 0.125 rate rounds upward at the reservation's integer scale.
+    expect(spec.pricingUsdPerMillionTokens.cacheWrite).toBe(0.125)
+    expect(spec.pricingUsdPerMillionTokens.input).toBe(0.1)
+    expect(reservedUnits).toBe(2_625_600n)
+    const ordinaryOnlyUnits = 2_025_600n
+    expect(reservedUnits).toBeGreaterThan(ordinaryOnlyUnits)
+    const gate = withAiRequestBudgetCeiling(NOOP_AI_BUDGET_GATE, ordinaryOnlyUnits)
+    await expect(
+      gate.reserve({
+        invocationId: '11111111-1111-4111-8111-111111111111',
+        attemptNumber: 1,
+        provider: 'openai',
+        model: spec.model,
+        pricingVersion: spec.pricingVersion,
+        reservedUnits,
       }),
-    ).toBe(2_625_600n)
+    ).rejects.toMatchObject({
+      code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+      attemptedUnits: reservedUnits,
+    })
   })
 
   it('produces positive exact ceilings for every registered gateway model', () => {

@@ -47,6 +47,14 @@ const dependencies = { database: db, kinds, allowedUserIds: config.allowedUserId
 const suffix = randomUUID().replaceAll('-', '').slice(0, 10)
 const tenantId = `kind-tenant-${suffix}`
 const clientId = `opc_kinds_${suffix}`
+const askFixtureCapabilities = [
+  'crm:propose',
+  'crm:log',
+  'venues:propose',
+  'customers:propose',
+] as const
+let originalAutonomyPolicies: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findMany>> = []
+let autonomyPoliciesSnapshotTaken = false
 let grant: VerifiedOperatorGrant
 let venueId = ''
 let organizationId = ''
@@ -210,9 +218,43 @@ describe.skipIf(!enabled)(
         data: { campaignId: campaign.id, organizationId, contactId, status: 'SELECTED' },
       })
       memberId = member.id
+      originalAutonomyPolicies = await db.operatorAutonomyPolicy.findMany({
+        where: { capability: { in: [...askFixtureCapabilities] } },
+      })
+      autonomyPoliciesSnapshotTaken = true
+      for (const capability of askFixtureCapabilities) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability },
+          create: { capability, mode: 'ASK', updatedByUserId: 'user_owner' },
+          update: { mode: 'ASK' },
+        })
+      }
     })
 
     afterAll(async () => {
+      if (autonomyPoliciesSnapshotTaken) {
+        for (const capability of askFixtureCapabilities) {
+          const original = originalAutonomyPolicies.find((row) => row.capability === capability)
+          if (original) {
+            await db.operatorAutonomyPolicy.upsert({
+              where: { capability },
+              create: {
+                capability,
+                mode: original.mode,
+                allowedKinds: original.allowedKinds,
+                updatedByUserId: original.updatedByUserId,
+              },
+              update: {
+                mode: original.mode,
+                allowedKinds: original.allowedKinds,
+                updatedByUserId: original.updatedByUserId,
+              },
+            })
+          } else {
+            await db.operatorAutonomyPolicy.deleteMany({ where: { capability } })
+          }
+        }
+      }
       // Leave no embedding work behind: later CI steps lease any pending dispatch in this database.
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId] } } }),
@@ -236,6 +278,7 @@ describe.skipIf(!enabled)(
           'crm.propose_contact_create',
           'crm.propose_contact_update',
           'crm.propose_duplicate_resolution',
+          'crm.propose_organization_merge',
           'crm.propose_followup_update',
           'crm.propose_note',
           'support.propose_completion',
@@ -243,6 +286,7 @@ describe.skipIf(!enabled)(
           'customers.propose_onboarding_questions',
           'customers.propose_create',
           'customers.propose_invite',
+          'offboarding.propose_execution',
           'support.propose_information_request',
           'support.propose_internal_note',
           'crm.propose_outreach_draft',
@@ -253,6 +297,21 @@ describe.skipIf(!enabled)(
           'venues.propose_operational_update',
           'venues.propose_operational_update_schedule',
           'venues.propose_operational_update_end',
+          'reports.propose_generate',
+          'reports.propose_publish',
+          'routines.propose_create',
+          'routines.propose_update',
+          'routines.propose_enable',
+          'routines.propose_disable',
+          'crm.propose_account_update',
+          'crm.propose_contact_address_change',
+          'crm.propose_prospect_create',
+          'crm.propose_import_commit',
+          'support.propose_create_request',
+          'support.propose_client_reply',
+          'venues.propose_source',
+          'venues.propose_source_connection',
+          'venues.propose_content_changeset',
         ].sort(),
       )
     })

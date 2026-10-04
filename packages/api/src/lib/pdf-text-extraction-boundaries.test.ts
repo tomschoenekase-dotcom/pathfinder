@@ -54,7 +54,8 @@ describe('PDF extraction deadline boundaries', () => {
     })
     pdfjs.getDocument.mockReturnValue(source.task)
     const extraction = extractPdfDocumentText(new Uint8Array([1]), { timeoutMs: 100 })
-    await vi.waitFor(() => expect(source.destroy).toHaveBeenCalledOnce())
+    // Under serial workspace load the parser import can exceed waitFor's 1 s default.
+    await vi.waitFor(() => expect(source.destroy).toHaveBeenCalledOnce(), { timeout: 10_000 })
     vi.setSystemTime(200)
     finishCleanup?.()
 

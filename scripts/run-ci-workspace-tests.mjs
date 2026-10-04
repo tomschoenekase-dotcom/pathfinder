@@ -1,13 +1,21 @@
 import { spawn } from 'node:child_process'
 import readline from 'node:readline'
 import { createDiagnosticAnnotation, createDiagnosticTail } from './lib/ci-diagnostic-tail.mjs'
+import { parseTurboFilters } from './lib/ci-turbo-filters.mjs'
 
 const tail = createDiagnosticTail(120)
 const windows = process.platform === 'win32'
 const executable = windows ? process.env.ComSpec || 'cmd.exe' : 'pnpm'
+// Optional scope from the CI change plan; an invalid value falls back to the full graph.
+const { filters } = parseTurboFilters(process.env.PATHFINDER_CI_TURBO_FILTERS)
 const args = windows
-  ? ['/d', '/s', '/c', 'pnpm exec turbo run test --concurrency=2 --output-logs=full']
-  : ['exec', 'turbo', 'run', 'test', '--concurrency=2', '--output-logs=full']
+  ? [
+      '/d',
+      '/s',
+      '/c',
+      ['pnpm exec turbo run test --concurrency=2 --output-logs=full', ...filters].join(' '),
+    ]
+  : ['exec', 'turbo', 'run', 'test', '--concurrency=2', '--output-logs=full', ...filters]
 
 const child = spawn(executable, args, {
   env: process.env,

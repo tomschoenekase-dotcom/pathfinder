@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import type {
   CharacterState,
@@ -50,16 +50,11 @@ function VenueCharacterStageScope({
   motion = 'system',
 }: VenueCharacterStageProps) {
   const [assetFailed, setAssetFailed] = useState(false)
-  const active = useRef(false)
-  useLayoutEffect(() => {
-    active.current = true
-    return () => {
-      active.current = false
-    }
-  }, [])
-  // Stable for the scope, including unsupported-context effects in the presence.
+  // Child layout effects can report an already-failed SSR image before any parent layout
+  // effect runs. The keyed scope owns this state; a callback from an unmounted scope cannot
+  // change the next character, so no mount flag should discard those early failures.
   const reportAssetError = useCallback(() => {
-    if (active.current) setAssetFailed(true)
+    setAssetFailed(true)
   }, [])
   const name = displayName ?? projection.displayName
   const stateLabel = assetFailed

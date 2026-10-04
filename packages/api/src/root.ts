@@ -8,6 +8,8 @@ import { clientAssistantRouter } from './routers/client-assistant'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
+import { liveDataRouter } from './routers/live-data'
+import { sourceConnectionsRouter } from './routers/source-connections'
 import { intakeRouter } from './routers/intake'
 import { intakeUploadRouter } from './routers/intake-upload'
 import { operationalUpdateRouter } from './routers/operational-update'
@@ -17,10 +19,12 @@ import { tenantRouter } from './routers/tenant'
 import { supportRouter } from './routers/support'
 import { venueRouter } from './routers/venue'
 import { venuePackageRouter } from './routers/venue-package'
+import { venueRecommendationRouter } from './routers/venue-recommendation'
 import { voiceRouter } from './routers/voice'
 import { locationRouter } from './routers/location'
 import { widgetRouter } from './routers/widget'
 import { feedbackRouter } from './routers/feedback'
+import { guestPreviewRouter } from './routers/guest-preview'
 import { billingRouter } from './routers/billing'
 import { publicInterestRouter } from './routers/public-interest'
 
@@ -33,6 +37,8 @@ export const appRouter = router({
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
+  liveData: liveDataRouter,
+  sourceConnections: sourceConnectionsRouter,
   intake: intakeRouter,
   intakeUpload: intakeUploadRouter,
   operationalUpdate: operationalUpdateRouter,
@@ -40,10 +46,12 @@ export const appRouter = router({
   tenant: tenantRouter,
   venue: venueRouter,
   venuePackage: venuePackageRouter,
+  venueRecommendation: venueRecommendationRouter,
   voice: voiceRouter,
   location: locationRouter,
   widget: widgetRouter,
   feedback: feedbackRouter,
+  guestPreview: guestPreviewRouter,
   billing: billingRouter,
   place: placeRouter,
   portal: portalRouter,

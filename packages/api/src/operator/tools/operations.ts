@@ -4,7 +4,7 @@ import { OperatorNotFoundError } from '../grants'
 import { claimIsStale } from '../execution'
 import { planEffect, proposalEffect } from '../outcome'
 import { planView } from '../plans'
-import { proposalView, type OperatorWriteView } from '../proposals'
+import { proposalView, previewDigestOf, type OperatorWriteView } from '../proposals'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
 import { pageResult, requireCursorInScope } from './page'
 
@@ -47,10 +47,48 @@ function executionOf(
   return { state, attempt: row.attempt, leaseExpiresAt: iso(row.leaseExpiresAt) }
 }
 
+const NEXT_ACTION_BY_FAILURE: Readonly<Record<string, string>> = {
+  OUTCOME_UNKNOWN:
+    'The outcome is unconfirmed. Call operator.recover_operation with this operationId to reconcile it. Do not send a new operationId for the same change until it reports a settled state.',
+  PARTIALLY_APPLIED:
+    'Part of the change took effect. Do not propose it again; a person must review and finish the remainder.',
+  FAILED_NO_EFFECT:
+    'Nothing was changed. It is safe to propose the change again with a new operationId.',
+}
+
+function summaryOf(result: unknown): string | undefined {
+  const summary =
+    result && typeof result === 'object' ? (result as { summary?: unknown }).summary : undefined
+  return typeof summary === 'string' && summary.length > 0 ? summary.slice(0, 500) : undefined
+}
+
+/** Reuse the exact approval-page description; never return arbitrary stored arguments. */
+function chatPreview(row: ProposalRow, context: OperatorCallContext) {
+  const kind = context.kinds?.get(row.tool as never)
+  if (!kind) return null
+  try {
+    const args = kind.parse(row.args)
+    const described = kind.describe(args)
+    return {
+      title: described.title,
+      lines: [...described.lines],
+      digest: row.previewDigest,
+      matchesCurrentDefinition:
+        row.previewDigest !== null &&
+        row.previewDigest === previewDigestOf(kind, args, row.targetVersion),
+      targetVersion: row.targetVersion,
+    }
+  } catch {
+    // Historical or unresolved plan arguments stay readable without claiming a valid preview.
+    return null
+  }
+}
+
 /** One proposal as the operator reads it back: status plus what is known about its effect. */
 export function proposalOperationView(row: ProposalRow, context: OperatorCallContext) {
   return {
     ...proposalView(row, context.config),
+    preview: chatPreview(row, context),
     operationId: row.operationId,
     tool: row.tool,
     kind: row.kind,
@@ -66,6 +104,22 @@ export function proposalOperationView(row: ProposalRow, context: OperatorCallCon
     planId: row.planId,
     planStepIndex: row.planStepIndex,
     failureCode: row.failureCode,
+    ...(summaryOf(row.result) ? { summary: summaryOf(row.result)! } : {}),
+    ...(row.status === 'PENDING'
+      ? {
+          nextAction:
+            'Read this preview, then call operator.request_decision with proposalId. Show the returned decisionUrl to the owner and poll the same request afterward; approval applies the existing proposal.',
+        }
+      : {}),
+    ...(row.status === 'APPROVED'
+      ? {
+          nextAction:
+            'Read operator.get_operation until finished. If execution.state is needs_recovery, call operator.recover_operation with the original operationId; do not create another proposal.',
+        }
+      : {}),
+    ...(row.status === 'FAILED' && row.failureCode && NEXT_ACTION_BY_FAILURE[row.failureCode]
+      ? { nextAction: NEXT_ACTION_BY_FAILURE[row.failureCode]! }
+      : {}),
   }
 }
 

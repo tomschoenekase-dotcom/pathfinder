@@ -236,7 +236,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
     )
     expect(operatingResponse.status).toBe(200)
     await expect(operatingResponse.json()).resolves.toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
       recentConversation: [],
@@ -249,13 +249,13 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
         canMutatePolicy: false,
       },
       autonomyEvidence: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         state: 'NEGATIVE_EVIDENCE_PRESENT',
         evidenceCoverage: {
           deniedActions: 'AVAILABLE_NOT_POLICY_VIOLATION',
-          rollbackRate: 'UNAVAILABLE_NO_CANONICAL_LINK',
-          policyViolations: 'UNAVAILABLE_NO_CANONICAL_SIGNAL',
-          confidenceCalibration: 'UNAVAILABLE_NO_PREDICTION_OUTCOME_PAIR',
+          rollbackRate: 'AVAILABLE_COMPLETE_WINDOW',
+          policyViolations: 'AVAILABLE_CANONICAL_SIGNAL',
+          confidenceCalibration: 'AVAILABLE_CANONICAL_PREDICTION_OUTCOME_PAIR',
         },
         byAgent: expect.arrayContaining([
           expect.objectContaining({

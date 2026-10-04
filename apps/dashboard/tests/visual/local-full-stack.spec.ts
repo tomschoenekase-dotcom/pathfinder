@@ -183,7 +183,7 @@ async function sendAndCaptureTurn(
     return new URL(response.url()).pathname === '/api/chat-stream' && request.method() === 'POST'
   })
 
-  await page.getByPlaceholder('Ask anything about this place...').fill(message)
+  await page.getByRole('textbox', { name: 'Ask a question', exact: true }).fill(message)
   const startedAt = await page.evaluate(() => performance.now())
   await page.getByRole('button', { name: 'Send message' }).click()
   const firstVisibleWordsMs = await captureFirstVisibleWords(page, priorAssistantCount, startedAt)
@@ -270,7 +270,7 @@ test('visitor guide completes two NDJSON streamed turns and records first visibl
     const log = page.getByRole('log')
     await expect(log).toBeVisible()
     await expect(page.locator('[data-role="assistant"]')).toHaveCount(0)
-    await expect(page.getByPlaceholder('Ask anything about this place...')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Ask a question', exact: true })).toBeVisible()
 
     evidence.push(
       await sendAndCaptureTurn(

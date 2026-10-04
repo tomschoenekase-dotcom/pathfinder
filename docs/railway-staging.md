@@ -293,6 +293,16 @@ The measured V1 processing predecessor `701c47e4a75353922ae18a886dde2ea44caf5190
 
 The measured V1 submission predecessor `1e84eee2bb99912ca7aa44382ed17eb9f4f68a88` retains 224 migrations, 251 public tables, and normalized manifest SHA-256 `8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532`. Its earlier fixture proof remains preserved and the 224-row state is explicitly admitted as a predecessor.
 
+The October 3 source endpoint is exactly 267 migrations and 297 public tables, ending with
+`20261002121000_prospect_organization_merge`, with LF-normalized manifest SHA-256
+`cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00`. The 255/280 endpoint below
+is retained as the frozen `operator-foundations-predecessor`; every earlier prefix remains frozen.
+The approval identifier is `torchiko-staging-lineage-to-267-20261003`; it grants no authority by
+itself. The [October 3 scope](production-cutover-20261003.md) and every live preservation and hold
+gate apply. Partial 256–266 ledgers remain refused, as do all previously unreviewed boundaries.
+
+### Historical October 1 source endpoint
+
 The current source endpoint is 255 migrations and 280 public tables, ending with `20261001100000_crm_receipt_and_execution_foundations`, with LF-normalized manifest SHA-256 `36de18c960796e92e67699fe84958d80a88ba958fbf9b282c88a8236415ae5a0`. The exact 254/277 boundary is the `crm-receipt-predecessor`, ending with `20261001090000_add_operator_oauth` and retaining manifest SHA-256 `5cd8553c554dc8c728ac44fb3d5f5ace0644560025d7fe4b46e7b2c6af1f9cb0`; the 252/269 `operator-oauth-predecessor` and every earlier predecessor remain admitted with their frozen prefixes. The 255th migration is additive: one unique receipt column on prospect activities, fence and lease columns on operator proposals and plans, an allowed-kinds column on operator autonomy policies, and three new platform tables (policy state, admission counters, armings). The approval identifier is `torchiko-staging-lineage-to-255-20261001`; it names the target only and grants nothing, so a person still supplies the one-run opt-in and release-bound backup evidence. Only the complete reviewed suffix is accepted; partial 251- or 253-row ledgers remain refused.
 
 Migration 253 extends client-scoped venue/appearance credential capabilities, activation validation, and the idempotency index without changing existing rows or enabling credentials. Migration 254 adds eight empty operator tables and append-only audit guards without granting authority or changing flags. The [fresh disposable PostgreSQL proof](evidence/migration-252-254-admission-2026-09-30.json) measured all 254 migrations, 277 tables, zero invalid indexes or unvalidated constraints, and a no-pending guarded replay. This proof does not establish populated hosted preservation, backup, restore, deployment, or production readiness.
@@ -870,6 +880,14 @@ staging smoke test. Re-check that production uses production resources and
 migrations using the approved migration/recovery procedure, then deploy web,
 dashboard, and workers from that same SHA. If any code changes after staging
 approval, it is a new release and must return to staging.
+
+The production promotion PR gate reads the latest trusted
+`staging-admission.yml` run and its sanitized admission result from the run
+log. It requires a result no older than 60 minutes with the exact PR SHA on
+web, dashboard, and workers, then checks live web health. The dashboard and
+worker SHAs are admission-time evidence; repeat the read-only Railway topology
+check immediately before manual promotion to catch a deployment changed after
+admission.
 
 ### Required proof
 

@@ -4,14 +4,9 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 
-export const OPERATOR_TABS = [
-  { id: 'inbox', label: 'Inbox' },
-  { id: 'autonomy', label: 'Autonomy' },
-  { id: 'connections', label: 'Connections' },
-  { id: 'audit', label: 'Audit' },
-] as const
+import { OPERATOR_TABS, type OperatorTabId } from './operator-tabs'
 
-export type OperatorTabId = (typeof OPERATOR_TABS)[number]['id']
+export type { OperatorTabId }
 
 /** Page frame: heading, section links (plain links; each tab loads its own data) and content. */
 export function OperatorAdminView({

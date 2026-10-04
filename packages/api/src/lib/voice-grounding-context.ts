@@ -4,6 +4,10 @@ import {
 } from './guest-place-media'
 import { guestVisitRetrievalQuery } from './guest-visit-retrieval-query'
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+import {
+  LIVE_OPERATIONAL_UPDATE_ORDER_BY,
+  liveOperationalUpdateWindowWhere,
+} from '@pathfinder/contracts/operational-update-lifecycle'
 import { projectGuestVisitContext } from './guest-visit-context'
 import type { GuestKnowledgeReader } from './guest-knowledge-retrieval'
 import { guestQueryConcepts, retrieveGuestKnowledge } from './guest-knowledge-retrieval'
@@ -108,13 +112,10 @@ export async function buildVoiceGroundingContext(input: {
           where: {
             tenantId: input.tenantId,
             venueId: input.venueId,
-            status: 'PUBLISHED',
-            isActive: true,
-            startsAt: { lte: input.asOf ?? new Date() },
-            expiresAt: { gt: input.asOf ?? new Date() },
+            ...liveOperationalUpdateWindowWhere(input.asOf ?? new Date()),
             OR: [{ placeId: null }, { place: { visibility: 'PUBLIC' } }],
           },
-          orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+          orderBy: LIVE_OPERATIONAL_UPDATE_ORDER_BY,
           take: 8,
           select: {
             id: true,

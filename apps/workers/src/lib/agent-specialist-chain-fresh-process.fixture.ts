@@ -61,7 +61,11 @@ async function main() {
   ) => {
     const response = await fetch(state.mcpEndpoint, {
       method: 'POST',
-      headers: { authorization: `Bearer ${state.secret}`, 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${state.secret}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: `${state.phase}-${++requestId}`,

@@ -6,8 +6,10 @@ import {
   listOperatorAudit,
   listOperatorConnections,
   listOperatorInbox,
+  loadJobGrantPanel,
   loadOperatorReview,
 } from '../../operator/admin-queries'
+import { readDecisionRequestForPage } from '../../operator/decisions'
 import { readAutonomyPolicies } from '../../operator/autonomy'
 import { resolveOperatorConfig } from '../../operator/config'
 import { adminProcedure } from '../../trpc'
@@ -43,6 +45,8 @@ const auditEventTypes = [
   'plan.transition',
   'proposal.recovery',
   'autonomy.change',
+  'decision.request',
+  'job_grant.change',
 ] as const
 
 export const adminOperatorRouter = router({
@@ -71,6 +75,26 @@ export const adminOperatorRouter = router({
     assertOperatorReady(ctx)
     return listOperatorConnections(new Date())
   }),
+
+  operatorJobGrants: adminProcedure.query(({ ctx }) => {
+    assertOperatorReady(ctx)
+    return loadJobGrantPanel(new Date())
+  }),
+
+  /** One open-or-closed chat approval request, so the approval page can say what state it is in. */
+  operatorDecisionRequest: adminProcedure
+    .input(
+      z
+        .object({
+          id: z.string().trim().min(1).max(191),
+          proposalId: z.string().trim().min(1).max(191),
+        })
+        .strict(),
+    )
+    .query(({ input, ctx }) => {
+      assertOperatorReady(ctx)
+      return readDecisionRequestForPage(input.id, input.proposalId, new Date())
+    }),
 
   operatorInbox: adminProcedure.query(({ ctx }) => {
     assertOperatorReady(ctx)

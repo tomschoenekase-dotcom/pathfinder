@@ -34,6 +34,13 @@ export const ANALYTICS_EVENT_TYPES = [
   'custom_personality_saved',
   'character_chat_started',
   'character_mode_disabled',
+  // Venue-recommendation exposure ledger (server-only). `candidate` records that an eligible
+  // catalog candidate existed for a guest turn, `shown` that the final answer actually surfaced
+  // the featured item, and `declined` that the guest refused further suggestions. Guests must
+  // never be able to forge these, so none are in PUBLIC_ANALYTICS_EVENT_TYPES.
+  'recommendation.candidate',
+  'recommendation.shown',
+  'recommendation.declined',
 ] as const
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number]

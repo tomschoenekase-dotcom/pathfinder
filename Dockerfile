@@ -8,7 +8,8 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
-ENV NODE_OPTIONS=--max-old-space-size=4096
+# Dashboard type validation needs more than 4 GiB; keep this build-only.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 ARG NEXT_PUBLIC_WEB_URL
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_AFTER_SIGN_OUT_URL

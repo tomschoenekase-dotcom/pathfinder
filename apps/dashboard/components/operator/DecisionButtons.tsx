@@ -28,14 +28,19 @@ export function DecisionButtons({
   argsHash,
   size,
   label,
+  decisionRequestId,
 }: {
   id: string
   argsHash: string
   size: 'large' | 'compact'
   /** Names the request for screen readers when several buttons share a page. */
   label: string
+  /** Set when the decision answers a chat approval request: the single-use ticket is spent. */
+  decisionRequestId?: string | undefined
 }) {
-  const submit = useOperatorPost('/api/operator/approve')
+  const submit = useOperatorPost(
+    decisionRequestId ? '/api/operator/decide' : '/api/operator/approve',
+  )
   const router = useRouter()
   const statusId = useId()
   const [message, setMessage] = useState<string | null>(null)
@@ -45,7 +50,9 @@ export function DecisionButtons({
     setBusy(true)
     setMessage(null)
     try {
-      const result = await submit({ id, argsHash, decision })
+      const result = await submit(
+        decisionRequestId ? { decisionRequestId, argsHash, decision } : { id, argsHash, decision },
+      )
       if (typeof result?.status === 'string') {
         setMessage(outcomeText(decision, result.status, result.failureCode))
         router.refresh()

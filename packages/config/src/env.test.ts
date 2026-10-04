@@ -735,6 +735,29 @@ describe('WIDGET_PREVIEW_ORIGINS_JSON', () => {
   })
 })
 
+describe('CLIENT_NOTIFICATION_EMAIL_ENABLED', () => {
+  const base = { ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'staging' }
+
+  it('defaults to disabled and turns on only for the exact value true', () => {
+    expect(envSchema.parse(base).CLIENT_NOTIFICATION_EMAIL_ENABLED).toBe(false)
+    expect(() => envSchema.parse({ ...base, CLIENT_NOTIFICATION_EMAIL_ENABLED: 'yes' })).toThrow()
+  })
+
+  it('refuses to enable without the provider, queue and portal origin it needs', () => {
+    expect(() => envSchema.parse({ ...base, CLIENT_NOTIFICATION_EMAIL_ENABLED: 'true' })).toThrow()
+    expect(
+      envSchema.parse({
+        ...base,
+        CLIENT_NOTIFICATION_EMAIL_ENABLED: 'true',
+        REDIS_URL: 'redis://localhost:6379',
+        RESEND_API_KEY: 're_test',
+        RESEND_FROM_EMAIL: 'noreply@example.com',
+        DASHBOARD_URL: 'https://app.example.com',
+      }).CLIENT_NOTIFICATION_EMAIL_ENABLED,
+    ).toBe(true)
+  })
+})
+
 describe.each(['OPERATOR_CUSTOMER_CREATE_ENABLED', 'OPERATOR_CUSTOMER_INVITE_ENABLED'] as const)(
   '%s',
   (flag) => {

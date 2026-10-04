@@ -76,7 +76,7 @@ test('premium voice visibility stays compact in the composer across mobile and d
 
       const fixture = page.locator('[data-fixture="visitor-chat"]')
       await expect(fixture).toHaveAttribute('data-fixture-voice', voice)
-      const composerField = page.getByRole('textbox').locator('xpath=..')
+      const composerField = page.getByRole('textbox').locator('xpath=../..')
       const mic = page.getByRole('button', { name: 'Start voice conversation' })
 
       if (entitlement === 'entitled') {
@@ -144,7 +144,7 @@ test('real voice availability controls composer mic and Settings eligibility', a
     await expect.poll(() => proceduresCalled).toContain('voice.availability')
     const mic = page.getByRole('button', { name: 'Start voice conversation' })
     await expect(mic).toBeVisible()
-    const composerField = page.getByRole('textbox').locator('xpath=..')
+    const composerField = page.getByRole('textbox').locator('xpath=../..')
     await expect(
       composerField.getByRole('button', { name: 'Start voice conversation' }),
     ).toHaveCount(1)

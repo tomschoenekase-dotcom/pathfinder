@@ -341,6 +341,27 @@ describe('operational-update management', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('list was refreshed')
   })
 
+  it('labels an active-but-expired notice as expired, never Current, and lets it be ended', () => {
+    const rows = [
+      {
+        ...base,
+        id: 'stale',
+        isActive: true,
+        startsAt: '2020-07-01T05:00:00.000Z',
+        expiresAt: '2020-07-08T05:00:00.000Z',
+        title: 'Stale July notice',
+      },
+    ]
+    render(<OperationalUpdatesList initialUpdates={rows} />)
+    expect(
+      within(screen.getByRole('region', { name: 'Current' })).queryByText('Stale July notice'),
+    ).toBeNull()
+    const past = within(screen.getByRole('region', { name: 'Past' }))
+    expect(past.getByText('Stale July notice')).toBeTruthy()
+    expect(past.getByText(/Expired: marked active/)).toBeTruthy()
+    expect(past.getByRole('button', { name: 'Deactivate' })).toBeTruthy()
+  })
+
   it('does not invite a repeated action when mutation succeeds but refresh fails', async () => {
     const rows = [{ ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' }]
     mocks.publish.mockResolvedValueOnce(undefined)

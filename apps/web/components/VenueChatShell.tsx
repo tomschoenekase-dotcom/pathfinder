@@ -331,7 +331,8 @@ export function VenueChatShell(props: {
         dir={languagePresentation.direction}
         className={`${styles.shell} flex flex-col`}
         data-chat-shell
-        data-keyboard-open={viewportHeight !== undefined ? true : undefined}
+        data-viewport-pinned={viewportHeight !== undefined ? true : undefined}
+        data-keyboard-open={viewportHeight?.keyboardOpen ? true : undefined}
         data-text-size={preferences.textSize}
         data-contrast={preferences.highContrast ? 'high' : 'standard'}
         data-speaker-labels={tokens.speakerLabels ? true : undefined}
@@ -341,12 +342,11 @@ export function VenueChatShell(props: {
           {
             backgroundColor: tokens.pageBg,
             height: viewportHeight?.height,
-            '--chat-keyboard-offset-x': `${viewportHeight?.offsetLeft ?? 0}px`,
-            '--chat-keyboard-offset-y': `${viewportHeight?.offsetTop ?? 0}px`,
-            '--chat-keyboard-composer-max':
-              viewportHeight !== undefined
-                ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight.height * 0.2)))}px`
-                : undefined,
+            '--chat-viewport-offset-x': `${viewportHeight?.offsetLeft ?? 0}px`,
+            '--chat-viewport-offset-y': `${viewportHeight?.offsetTop ?? 0}px`,
+            '--chat-keyboard-composer-max': viewportHeight?.keyboardOpen
+              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight.height * 0.2)))}px`
+              : undefined,
             '--chat-text-scale': VISITOR_TEXT_SCALE[preferences.textSize],
             fontFamily: fontFamily(venue.chatFont),
             ...chatAppearanceStyle(palette, tokens, preferences.highContrast),
