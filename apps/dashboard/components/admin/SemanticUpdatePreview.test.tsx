@@ -905,12 +905,21 @@ describe('SemanticUpdatePreview', () => {
     fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
       target: { value: 'Closes at 7 PM.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
-    fireEvent.click(await screen.findByLabelText(/Keep current guidance/))
+    // Settle the preview response and the mounted form's scope-reset effect before choosing.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    })
+    const keepCurrent = screen.getByLabelText(/Keep current guidance/) as HTMLInputElement
+    fireEvent.click(keepCurrent)
     fireEvent.change(screen.getByLabelText('Resolution note'), {
       target: { value: 'Keep verified guidance.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    expect(keepCurrent.checked).toBe(true)
+    const recordResolution = screen.getByRole('button', {
+      name: 'Record resolution',
+    }) as HTMLButtonElement
+    expect(recordResolution.disabled).toBe(false)
+    fireEvent.click(recordResolution)
     const refresh = await screen.findByRole('button', { name: 'Refresh conflict' })
     expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
     expect(
