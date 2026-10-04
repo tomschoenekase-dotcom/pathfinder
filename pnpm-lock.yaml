@@ -109,7 +109,7 @@ importers:
         version: link:../../packages/ui
       '@sentry/nextjs':
         specifier: 10.69.0
-        version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@babel/core@7.29.6)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))
+        version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))
       '@tanstack/react-query':
         specifier: ^5.59.20
         version: 5.99.0(react@19.1.4)
@@ -155,9 +155,6 @@ importers:
       svix:
         specifier: ^1.90.0
         version: 1.90.0
-      tailwindcss:
-        specifier: 3.4.17
-        version: 3.4.17
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
@@ -192,6 +189,9 @@ importers:
       sharp:
         specifier: 0.35.4
         version: 0.35.4(@types/node@24.12.2)
+      tailwindcss:
+        specifier: 3.4.17
+        version: 3.4.17
 
   apps/web:
     dependencies:
@@ -221,7 +221,7 @@ importers:
         version: link:../../packages/ui
       '@sentry/nextjs':
         specifier: 10.69.0
-        version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@babel/core@7.29.6)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))
+        version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))
       '@tanstack/react-query':
         specifier: ^5.59.20
         version: 5.99.0(react@19.1.4)
@@ -255,9 +255,6 @@ importers:
       superjson:
         specifier: ^2.2.2
         version: 2.2.6
-      tailwindcss:
-        specifier: 3.4.17
-        version: 3.4.17
     devDependencies:
       '@testing-library/react':
         specifier: ^16.3.0
@@ -274,6 +271,9 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
+      tailwindcss:
+        specifier: 3.4.17
+        version: 3.4.17
 
   apps/workers:
     dependencies:
@@ -763,6 +763,7 @@ packages:
   '@clerk/clerk-react@5.61.9':
     resolution: {integrity: sha512-PRIodE1QVem/eV3wrjicJJiJ2pkGiZfI6t1vekE/+04cIHciXyvUezQ/468gGPl31xd7BiCNO3uKNM14TXEKZQ==}
     engines: {node: '>=18.17.0'}
+    deprecated: 'This package is no longer supported. Please use @clerk/react instead. See the upgrade guide for more info: https://clerk.com/docs/guides/development/upgrading/upgrade-guides/core-3'
     peerDependencies:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
@@ -790,6 +791,7 @@ packages:
   '@clerk/types@4.101.26':
     resolution: {integrity: sha512-tUeiElAZoXu9Dxom9t6IjkEfsfP7aWSVf5x5mCoHnSr2w+wV4EtEwoLl9vexT5LL0di4qidROSfcrOnorzczIQ==}
     engines: {node: '>=18.17.0'}
+    deprecated: 'This package is no longer supported. Please import types from @clerk/shared/types instead. See the upgrade guide for more info: https://clerk.com/docs/guides/development/upgrading/upgrade-guides/core-3'
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -2607,6 +2609,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -4995,7 +4998,7 @@ packages:
         optional: true
 
   xlsx@https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz:
-    resolution: {integrity: sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA==, tarball: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz}
+    resolution: {tarball: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz}
     version: 0.20.3
     engines: {node: '>=0.8'}
     hasBin: true
@@ -6156,7 +6159,7 @@ snapshots:
     dependencies:
       '@sentry/core': 10.69.0
 
-  '@sentry/nextjs@10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@babel/core@7.29.6)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))':
+  '@sentry/nextjs@10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@15.5.24(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4))(react@19.1.4)(webpack@5.109.2(postcss@8.5.23))':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@rollup/plugin-commonjs': 28.0.1(rollup@4.62.4)
