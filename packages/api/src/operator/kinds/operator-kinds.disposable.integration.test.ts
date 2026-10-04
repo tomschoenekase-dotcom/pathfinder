@@ -310,6 +310,7 @@ describe.skipIf(!enabled)(
           'support.propose_create_request',
           'support.propose_client_reply',
           'venues.propose_source',
+          'venues.propose_source_connection',
           'venues.propose_content_changeset',
         ].sort(),
       )
