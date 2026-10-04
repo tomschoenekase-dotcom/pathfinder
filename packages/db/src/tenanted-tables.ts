@@ -20,6 +20,8 @@ export const TENANTED_TABLES = [
   'Venue',
   'VenueDistribution',
   'VenueWebsiteOrigin',
+  'LiveDataConnector',
+  'LiveDataObservation',
   'VenueBotConfiguration',
   'PersonalityProfile',
   'CustomCharacter',
@@ -85,6 +87,9 @@ export const TENANTED_TABLES = [
   'QuestionCluster',
   'EngagementQuestion',
   'EngagementQuestionResponse',
+  'VenueCatalogItem',
+  'VenueCatalogItemPriority',
+  'VenueRecommendationPolicy',
   'AdminChatlogNote',
   'WeeklyReport',
   'VenueReportConfiguration',
@@ -108,6 +113,7 @@ export const TENANTED_TABLES = [
   'AgentRun',
   'AgentRoutine',
   'AgentRoutineDispatch',
+  'AgentRoutineBudgetUsage',
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',
@@ -125,6 +131,9 @@ export const TENANTED_TABLES = [
   'AgentWorkflowRunBinding',
   'AgentQuestion',
   'OnboardingQuestionLink',
+  'ClientNotificationIntent',
+  'ClientNotificationReceipt',
+  'ClientInboundReply',
   'ApprovalRequest',
   'ApprovalDecision',
   'ApprovalGrant',
@@ -189,6 +198,12 @@ export const TENANTED_TABLES = [
   // prospect records on their other side are platform-owned.
   'ProspectCustomerRelationship',
   'ProspectLocationConversion',
+  // Operator-requested public web sources, frozen as evidence for one venue.
+  'VenueSource',
+  'VenueSourceInput',
+  // What an offboarding execution switched off and what a person must still do.
+  'OffboardingExecution',
+  'OffboardingExecutionStep',
 ] as const
 
 export const PLATFORM_TABLES = [
@@ -218,6 +233,7 @@ export const PLATFORM_TABLES = [
   'CompanyMeetingTranscriptArtifact',
   'ProspectDeliveryControl',
   'ProspectOrganization',
+  'ProspectOrganizationMerge',
   // Prospect research is platform acquisition work. Jobs and immutable attempts are scoped through
   // their exact platform-owned organization relation and never inherit customer tenant authority.
   'ProspectResearchJob',
@@ -261,6 +277,8 @@ export const PLATFORM_TABLES = [
   'EncryptedIntegrationCredential',
   'GmailOAuthAttempt',
   'ProspectInboundQuarantine',
+  // Unmatched inbound client replies have no tenant by construction; identifiers and hashes only.
+  'ClientInboundQuarantine',
   // Provider-dark public acquisition evidence is platform-owned until a separately reviewed
   // conversion creates canonical CRM or customer state.
   'PublicInterestSubmission',
@@ -279,6 +297,10 @@ export const PLATFORM_TABLES = [
   'OperatorAdmissionCounter',
   'OperatorArming',
   'OperatorAuditEvent',
+  // Decision requests and job grants are platform-owned operator state. The target tenant of a job
+  // grant is data matched against each proposal's target, never a tenant-isolation key.
+  'OperatorDecisionRequest',
+  'OperatorJobGrant',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

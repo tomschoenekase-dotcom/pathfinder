@@ -316,6 +316,9 @@ importers:
       ioredis:
         specifier: ^5.8.1
         version: 5.10.1
+      parse5:
+        specifier: ^7.3.0
+        version: 7.3.0
       resend:
         specifier: ^4.0.0
         version: 4.8.0(react-dom@19.1.4(react@19.1.4))(react@19.1.4)

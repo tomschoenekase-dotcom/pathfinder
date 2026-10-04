@@ -190,6 +190,24 @@ function externalRef(mailbox: ProviderMailboxRef, externalId: string): ProviderE
   }
 }
 
+/**
+ * RFC 3464 delivery-status reports and mailer-daemon notices. Gmail threads its own bounce into
+ * the original conversation, so without this a bounce would look like a prospect reply.
+ */
+function isDeliveryStatusNotice(message: GmailApiMessage): boolean {
+  const contentType = (message.headers['content-type'] ?? '').toLowerCase()
+  if (
+    contentType.includes('multipart/report') &&
+    /report-type\s*=\s*"?delivery-status/u.test(contentType)
+  ) {
+    return true
+  }
+  if (message.headers['x-failed-recipients']) return true
+  return parseAddress(message.headers.from).some((address) =>
+    /^(?:mailer-daemon|postmaster)@/iu.test(address.email.trim()),
+  )
+}
+
 function normalize(
   mailbox: ProviderMailboxRef,
   message: GmailApiMessage,
@@ -224,7 +242,17 @@ function normalize(
         sizeBytes: Math.max(0, attachment.sizeBytes),
         downloadPolicy: 'METADATA_ONLY' as const,
       })),
+    ...(isDeliveryStatusNotice(message) ? { deliveryStatusNotice: true as const } : {}),
   }
+}
+
+/** Gmail drafts are separate resources. A From header alone is not delivery evidence. */
+function isRecordedCorrespondence(mailbox: ProviderMailboxRef, message: GmailApiMessage): boolean {
+  if (message.labelIds.includes('DRAFT')) return false
+  const fromMailbox = parseAddress(message.headers.from).some(
+    (address) => address.email.toLowerCase() === mailbox.mailboxAddress.toLowerCase(),
+  )
+  return !fromMailbox || message.labelIds.includes('SENT')
 }
 
 function formatAddress(address: CorrespondenceAddress) {
@@ -350,7 +378,7 @@ function buildRawMessage(message: FrozenCorrespondence) {
   return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8').toString('base64url')
 }
 
-function mapError(error: unknown): never {
+export function mapGmailApiError(error: unknown): never {
   if (!(error instanceof GmailApiError)) throw error
   if (error.acceptance === 'MAY_HAVE_ACCEPTED') {
     throw new CorrespondenceProviderError('AMBIGUOUS_SEND', error.message)
@@ -381,7 +409,7 @@ export function createGmailCorrespondenceProvider(dependencies: {
     try {
       return await lease.withAccessToken(fn)
     } catch (error) {
-      return mapError(error)
+      return mapGmailApiError(error)
     }
   }
 
@@ -443,7 +471,9 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        messages: page.messages
+          .filter((message) => isRecordedCorrespondence(input.mailbox, message))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),
@@ -461,7 +491,9 @@ export function createGmailCorrespondenceProvider(dependencies: {
         }),
       )
       return {
-        messages: page.messages.map((message) => normalize(input.mailbox, message)),
+        messages: page.messages
+          .filter((message) => isRecordedCorrespondence(input.mailbox, message))
+          .map((message) => normalize(input.mailbox, message)),
         cursor: page.historyId,
         nextPageToken: page.nextPageToken ?? null,
         hasMore: Boolean(page.nextPageToken),

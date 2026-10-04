@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 566,
-    "sha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
+    "count": 594,
+    "sha256": "33f38566dbc20c9f72a3d70849186a3dfdf928e06e0e2b7407cf2c16081d5b26",
+    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release. The October 2 review adds admin.operatorJobGrants and admin.operatorDecisionRequest as authenticated dashboard reads; both remain unbound to agent tools. The current-mail review adds admin.getGmailReconciliation and admin.requestGmailReconciliation in the scoped mailbox router; platform-admin and CRM entitlement checks remain required, and both routes remain explicitly unbound to agent-operation tools. Separate operator MCP controls do not imply a direct binding here. Thread and message reads were subsequently extracted unchanged into adminProspectCrmThreadsRouter; their guards, input predicates and operation bindings remain unchanged. The October 3 source-connection review adds nine tenant-scoped procedures: two reads and seven manager mutations. Separate operator MCP bindings reuse their services; the legacy bridge inventory remains explicitly unbound for these operations.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "391752b963c0e581759001128ad4319a4526cbae73deb030c746099fdb27a34d",
-      "sha256": "6498002252bb04870be19c24b3d59ea7d3a0c319602252c06c90d0e44e5f149b"
+      "operationInventorySha256": "33f38566dbc20c9f72a3d70849186a3dfdf928e06e0e2b7407cf2c16081d5b26",
+      "sha256": "e8bbc47ddd1822ffc649dba202c95d415d219ea3bc7b5d4aa5a74e53f4182e2a"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -674,6 +674,14 @@
       "evidence": "packages/api/src/public-interest-disposable.integration.test.ts"
     },
     {
+      "id": "guest-preview",
+      "pattern": "^guestPreviewRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The public query renders one exact, read-only release or package draft for a holder of a signed, expiring, tenant, venue and version-bound link. The operator mints links through venues.get_preview_link; the query itself is not an agent tool, accepts no tenant authority from input, and returns only guest-visible content.",
+      "evidence": "packages/api/src/routers/guest-preview.test.ts"
+    },
+    {
       "id": "company-brain",
       "pattern": "CompanyBrain",
       "agentCoverage": "partial",
@@ -762,12 +770,28 @@
       "evidence": "docs/retention-disposition-preview.md"
     },
     {
+      "id": "live-data-connectors",
+      "pattern": "^liveDataRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Venue live-data connectors (read-only pull feeds with a closed field mapping) are configured and enabled by an authenticated human manager or owner, server-side, with audit. The policy query is read-only and reports open-web browsing as permanently off. No agent tool can create, point, enable or test a connector, because an endpoint is outbound network authority.",
+      "evidence": "docs/implementation/live-data-and-open-web-policy.md"
+    },
+    {
       "id": "operator-approvals",
       "pattern": "^adminOperatorRouter$",
       "agentCoverage": "restricted",
       "developerCoverage": "full",
       "decision": "Read-only platform-admin views of the Dot operator inbox, autonomy policy, connections and redacted audit. Approval, rejection, autonomy changes and revocation are not tRPC operations at all: they are guarded route handlers that need an allowlisted admin and a fresh strict reverification, so no agent can reach them.",
       "evidence": "docs/operator/oauth.md"
+    },
+    {
+      "id": "source-connections",
+      "pattern": "^sourceConnectionsRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Venue managers configure and approve exact source mappings through shared services. The separate operator MCP catalog exposes venue-granted reads and an always-human-approved source connection proposal; these are not bindings in this legacy agent-bridge catalog. Scheduled publication is limited to the approved versioned policy, with no guest fetch or policy bypass.",
+      "evidence": "docs/operator/source-connections.md"
     }
   ]
 }

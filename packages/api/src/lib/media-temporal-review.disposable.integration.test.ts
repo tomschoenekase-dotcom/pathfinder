@@ -21,6 +21,8 @@ describe.skipIf(!enabled)('media temporal review service on disposable PostgreSQ
       const sourceGeneration = randomUUID()
       const uploadAttemptId = randomUUID()
       const sourceSha = 'a'.repeat(64)
+      const effectiveFrom = new Date(Date.now() - 60_000).toISOString()
+      const effectiveUntil = new Date(Date.now() + 86_400_000).toISOString()
       const item = {
         title: 'Temporary entrance hours',
         category: 'ARRIVAL',
@@ -94,8 +96,8 @@ describe.skipIf(!enabled)('media temporal review service on disposable PostgreSQ
         valueHash: createHash('sha256').update(value).digest('hex'),
         authority: 'AUTHORIZED_STAFF' as const,
         consequential: true,
-        effectiveFrom: '2026-09-07T00:00:00.000Z',
-        effectiveUntil: '2026-09-08T00:00:00.000Z',
+        effectiveFrom,
+        effectiveUntil,
         source: {
           sourceId: finding.sourceId,
           sourceSha256: sourceSha,
@@ -314,7 +316,7 @@ describe.skipIf(!enabled)('media temporal review service on disposable PostgreSQ
         }),
       ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
       vi.useFakeTimers()
-      vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'))
+      vi.setSystemTime(new Date(Date.parse(effectiveUntil) + 60_000))
       await expect(
         createMediaTemporalOperationalHandoff({
           client: db,

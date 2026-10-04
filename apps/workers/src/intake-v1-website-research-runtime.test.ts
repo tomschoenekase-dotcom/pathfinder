@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   process: vi.fn(),
   reconcile: vi.fn(),
+  captureSource: vi.fn(),
   enabled: true,
 }))
 
@@ -14,12 +15,19 @@ vi.mock('@pathfinder/jobs', () => ({
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB: 'intake-v1-source-processing-process',
   INTAKE_V1_SOURCE_PROCESSING_QUEUE: 'test-intake-v1-source-processing',
   INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB: 'intake-v1-source-processing-recovery',
+  VENUE_SOURCE_CAPTURE_PROCESS_JOB: 'venue-source-capture-process',
   checkBullMQConnection: vi.fn(),
   closeBullMQConnection: vi.fn(),
   closeJobQueues: vi.fn(),
   getBullMQConnection: vi.fn(),
 }))
-vi.mock('./lib/job-execution', () => ({ queueSafeJobProcessor: vi.fn() }))
+vi.mock('./lib/job-execution', () => ({
+  queueSafeJobProcessor: vi.fn(),
+  getJobExecutionMetadata: () => ({ bullJobId: 'job-1', attemptNumber: 1, maxAttempts: 3 }),
+}))
+vi.mock('./processors/venue-source-capture', () => ({
+  processVenueSourceCaptureJob: mocks.captureSource,
+}))
 vi.mock('./lib/isolated-runtime-readiness', () => ({
   startIsolatedRuntimeReadinessHeartbeat: vi.fn(),
 }))
@@ -52,6 +60,35 @@ describe('V1 website research runtime queue boundary', () => {
       expect.stringMatching(/^intake-v1-research:\d+:1$/u),
       undefined,
     )
+  })
+
+  it('routes a venue source capture to its processor with only opaque scope IDs and the same gate', async () => {
+    const data = { tenantId: 'tenant_1', venueId: 'venue_1', sourceId: 'source_1' }
+    mocks.captureSource.mockResolvedValue('captured')
+    await expect(
+      handleIntakeV1WebsiteResearch({
+        name: 'venue-source-capture-process',
+        data,
+        id: '9',
+      } as never),
+    ).resolves.toBe('captured')
+    expect(mocks.captureSource).toHaveBeenCalledWith(data, {
+      bullJobId: 'job-1',
+      attemptNumber: 1,
+      maxAttempts: 3,
+    })
+    expect(mocks.process).not.toHaveBeenCalled()
+
+    mocks.enabled = false
+    mocks.captureSource.mockClear()
+    await expect(
+      handleIntakeV1WebsiteResearch({
+        name: 'venue-source-capture-process',
+        data,
+        id: '9',
+      } as never),
+    ).resolves.toBe('disabled')
+    expect(mocks.captureSource).not.toHaveBeenCalled()
   })
 
   it('runs the bounded recovery path with the same explicit gate', async () => {

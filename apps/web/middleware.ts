@@ -62,6 +62,12 @@ export function isStandaloneVisitorVoicePath(pathname: string): boolean {
   )
 }
 
+/** The private, token-bound preview page: `/<venueSlug>/preview`. */
+export function isGuestPreviewPath(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean)
+  return segments.length === 2 && segments[1] === 'preview'
+}
+
 export function getEmbedResponseHeaders(
   request: Pick<NextRequest, 'nextUrl'>,
   origins: readonly string[] = [],
@@ -133,6 +139,10 @@ export function getPageResponseHeaders(
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
     ...(pathname.startsWith('/app/') ? { 'X-Robots-Tag': 'noindex, nofollow' } : {}),
+    // A preview link is a short-lived bearer credential: never cache or index its page.
+    ...(isGuestPreviewPath(pathname)
+      ? { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' }
+      : {}),
   })
 }
 

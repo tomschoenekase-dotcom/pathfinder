@@ -85,6 +85,7 @@ const fakeProvider: CustomerProvider = {
     invitations
       .filter((item) => item.organizationId === organizationId)
       .map((item, index) => ({ id: `inv_${index}`, ...item }))) as never,
+  findOrganizations: (async () => ({ candidates: [], complete: true })) as never,
 }
 
 const service = (forGrant: VerifiedOperatorGrant) => ({

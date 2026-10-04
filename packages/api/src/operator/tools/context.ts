@@ -35,7 +35,7 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
           _max: { occurredAt: true },
         }),
       ])
-      const mode = new Map(policies.map((policy) => [policy.capability, policy.mode]))
+      const autoKinds = new Map(policies.map((policy) => [policy.capability, policy.autoKinds]))
       const lastSuccess = new Map(successes.map((row) => [row.tool, row._max.occurredAt] as const))
       const capabilities = new Set<string>(grant.capabilities)
       const missing = [...new Set(OPERATOR_MCP_TOOLS.map((tool) => tool.capability))].filter(
@@ -47,9 +47,7 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
           ? 'Customer, venue and support tools can reach every tenant. Use customers.list for tenantIds.'
           : `Customer, venue and support tools are limited to ${grant.tenantIds.length} tenant(s). Use customers.list for tenantIds.`,
         'A tool being listed here does not prove its provider, worker or release gate is live.',
-        ...(missing.length > 0
-          ? [`This connection lacks capabilities: ${missing.sort().join(', ')}.`]
-          : []),
+        ...(missing.length > 0 ? [missingCapabilitiesNote(missing)] : []),
       ]
       return {
         serverTime: context.now.toISOString(),
@@ -72,7 +70,9 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
               ? null
               : tool.proposalKind && isAlwaysAskKind(tool.proposalKind)
                 ? ('ask' as const)
-                : (mode.get(tool.capability) ?? ('ask' as const))
+                : autoKinds.get(tool.capability)?.includes(tool.proposalKind ?? '')
+                  ? ('auto' as const)
+                  : ('ask' as const)
           return {
             name: tool.name,
             effect: tool.effect,
@@ -89,4 +89,16 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
       }
     },
   }
+}
+
+/** The published scope note is at most 300 characters; name what fits and count the rest. */
+export function missingCapabilitiesNote(missing: readonly string[], limit = 300): string {
+  const sorted = [...missing].sort()
+  const prefix = 'This connection lacks capabilities: '
+  for (let shown = sorted.length; shown > 0; shown -= 1) {
+    const rest = sorted.length - shown
+    const note = `${prefix}${sorted.slice(0, shown).join(', ')}${rest > 0 ? ` and ${rest} more` : ''}.`
+    if (note.length <= limit) return note
+  }
+  return `This connection lacks ${sorted.length} capabilities.`
 }

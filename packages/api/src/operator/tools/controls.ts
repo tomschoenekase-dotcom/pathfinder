@@ -1,6 +1,7 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { writeOperatorAudit } from '../audit'
+import { requestDecision } from '../decisions'
 import { claimIsStale, recoverOperation } from '../execution'
 import { OperatorNotFoundError } from '../grants'
 import { OperatorProposalError } from '../proposals'
@@ -177,4 +178,28 @@ const recoverOperationTool: OperatorReadTool = {
   },
 }
 
-export const controlTools: readonly OperatorReadTool[] = [cancelOperation, recoverOperationTool]
+/**
+ * Asks the signed-in owner to decide one of this connection's own pending proposals. It records a
+ * short-lived ticket and returns a link; it never approves, rejects or applies, and the decision
+ * lives in the dashboard route alone. Calling it again renders the owner's decision.
+ */
+const requestDecisionTool: OperatorReadTool = {
+  name: 'operator.request_decision',
+  capability: 'operator:plan',
+  async handler(raw, context) {
+    const { proposalId } = OPERATOR_MCP_INPUTS['operator.request_decision'].parse(raw)
+    return requestDecision(proposalId, {
+      config: context.config,
+      database: context.database,
+      grant: context.grant,
+      now: context.now,
+      requestId: context.requestId,
+    })
+  },
+}
+
+export const controlTools: readonly OperatorReadTool[] = [
+  cancelOperation,
+  recoverOperationTool,
+  requestDecisionTool,
+]

@@ -18,8 +18,13 @@ export const adminProspectCrmCoreRouter = router({
     .input(z.object({ organizationId: z.string().min(1).max(191) }).strict())
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {
-        const prospect = await db.prospectOrganization.findUnique({
+        const requested = await db.prospectOrganization.findUnique({
           where: { id: input.organizationId },
+          select: { mergedIntoOrganizationId: true },
+        })
+        const canonicalOrganizationId = requested?.mergedIntoOrganizationId ?? input.organizationId
+        const prospect = await db.prospectOrganization.findUnique({
+          where: { id: canonicalOrganizationId },
           include: {
             territory: true,
             opportunity: {
@@ -186,6 +191,45 @@ export const adminProspectCrmCoreRouter = router({
           },
         })
         if (!prospect) throw new TRPCError({ code: 'NOT_FOUND', message: 'Prospect not found' })
+        const mergeReceipts = await db.prospectOrganizationMerge.findMany({
+          where: { targetOrganizationId: prospect.id },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            source: {
+              select: {
+                id: true,
+                canonicalName: true,
+                activities: { orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: 100 },
+                sources: { orderBy: { createdAt: 'desc' }, take: 200 },
+                opportunity: {
+                  select: {
+                    id: true,
+                    stage: true,
+                    stageHistory: { orderBy: { createdAt: 'desc' }, take: 100 },
+                  },
+                },
+              },
+            },
+          },
+        })
+        const mergedStageHistory = [
+          ...(prospect.opportunity?.stageHistory ?? []),
+          ...mergeReceipts.flatMap((receipt) => receipt.source.opportunity?.stageHistory ?? []),
+        ]
+          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+          .slice(0, 100)
+        const mergedActivities = [
+          ...prospect.activities,
+          ...mergeReceipts.flatMap((receipt) => receipt.source.activities),
+        ]
+          .sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime())
+          .slice(0, 100)
+        const mergedSources = [
+          ...prospect.sources,
+          ...mergeReceipts.flatMap((receipt) => receipt.source.sources),
+        ]
+          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+          .slice(0, 200)
         const currentRelationship = prospect.customerRelationships.find(
           (relationship) => relationship.status === 'ACTIVE',
         )
@@ -194,6 +238,24 @@ export const adminProspectCrmCoreRouter = router({
         )
         return {
           ...prospect,
+          activities: mergedActivities,
+          sources: mergedSources,
+          mergedFromOrganizationId:
+            canonicalOrganizationId === input.organizationId ? null : input.organizationId,
+          mergeReceipts: mergeReceipts.map((receipt) => ({
+            id: receipt.id,
+            sourceOrganizationId: receipt.sourceOrganizationId,
+            sourceName: receipt.source.canonicalName,
+            sourceOpportunity: receipt.source.opportunity
+              ? { id: receipt.source.opportunity.id, stage: receipt.source.opportunity.stage }
+              : null,
+            movedCounts: receipt.movedCounts,
+            note: receipt.note,
+            createdAt: receipt.createdAt,
+          })),
+          opportunity: prospect.opportunity
+            ? { ...prospect.opportunity, stageHistory: mergedStageHistory }
+            : null,
           // Temporary read-only compatibility projection for the pre-correction dashboard.
           conversion: currentRelationship
             ? {
@@ -302,94 +364,4 @@ export const adminProspectCrmCoreRouter = router({
         .strict(),
     )
     .query(({ input }) => listProspectActivities(input)),
-
-  listProspectThreads: adminProcedure
-    .input(
-      z
-        .object({
-          organizationId: z.string().min(1).max(191),
-          limit: z.number().int().min(1).max(100).default(50),
-          beforeUpdatedAt: z.string().datetime().optional(),
-          beforeId: z.string().min(1).max(191).optional(),
-        })
-        .strict(),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        if (Boolean(input.beforeUpdatedAt) !== Boolean(input.beforeId)) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Both thread cursor fields are required',
-          })
-        }
-        const updatedAt = input.beforeUpdatedAt ? new Date(input.beforeUpdatedAt) : null
-        const rows = await db.prospectEmailThread.findMany({
-          where: {
-            organizationId: input.organizationId,
-            ...(updatedAt && input.beforeId
-              ? {
-                  OR: [{ updatedAt: { lt: updatedAt } }, { updatedAt, id: { lt: input.beforeId } }],
-                }
-              : {}),
-          },
-          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-          include: { _count: { select: { messages: true } } },
-        })
-        const last = rows[input.limit - 1]
-        return {
-          items: rows.slice(0, input.limit),
-          nextCursor:
-            rows.length > input.limit && last
-              ? { beforeUpdatedAt: last.updatedAt.toISOString(), beforeId: last.id }
-              : null,
-        }
-      }),
-    ),
-
-  listProspectThreadMessages: adminProcedure
-    .input(
-      z
-        .object({
-          threadId: z.string().min(1).max(191),
-          limit: z.number().int().min(1).max(200).default(100),
-          beforeOccurredAt: z.string().datetime().optional(),
-          beforeId: z.string().min(1).max(191).optional(),
-        })
-        .strict(),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        if (Boolean(input.beforeOccurredAt) !== Boolean(input.beforeId)) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Both message cursor fields are required',
-          })
-        }
-        const occurredAt = input.beforeOccurredAt ? new Date(input.beforeOccurredAt) : null
-        const rows = await db.prospectEmailMessage.findMany({
-          where: {
-            threadId: input.threadId,
-            ...(occurredAt && input.beforeId
-              ? {
-                  OR: [
-                    { occurredAt: { lt: occurredAt } },
-                    { occurredAt, id: { lt: input.beforeId } },
-                  ],
-                }
-              : {}),
-          },
-          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-        })
-        const last = rows[input.limit - 1]
-        return {
-          items: rows.slice(0, input.limit),
-          nextCursor:
-            rows.length > input.limit && last
-              ? { beforeOccurredAt: last.occurredAt.toISOString(), beforeId: last.id }
-              : null,
-        }
-      }),
-    ),
 })

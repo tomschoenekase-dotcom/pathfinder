@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicCharacterProjection } from '@pathfinder/contracts/character-system'
 
 const observed = vi.hoisted(() => ({
+  failOnLayout: false,
   callbacks: [] as (() => void)[],
   commits: [] as { characterId: string; version: string; status: string | null | undefined }[],
 }))
@@ -21,6 +22,7 @@ vi.mock('@pathfinder/ui/character', () => ({
   }) => {
     if (onAssetError) observed.callbacks.push(onAssetError)
     React.useLayoutEffect(() => {
+      if (observed.failOnLayout) onAssetError?.()
       observed.commits.push({
         characterId: projection.characterId,
         version: projection.assetPackVersion,
@@ -71,6 +73,7 @@ describe('VenueCharacterStage', () => {
   beforeEach(() => {
     vi.stubGlobal('React', React)
     observed.callbacks.length = 0
+    observed.failOnLayout = false
     observed.commits.length = 0
   })
   afterEach(() => {
@@ -109,6 +112,22 @@ describe('VenueCharacterStage', () => {
     expect(container.querySelector('[data-character-layout="compact"]')).toBeTruthy()
     expect(screen.queryByText('Ask me anything about your visit.')).toBeNull()
     expect(screen.getByText('Ready to help')).toBeTruthy()
+  })
+
+  it('announces a failure found by a child layout effect during hydration', () => {
+    observed.failOnLayout = true
+    render(
+      <VenueCharacterStage
+        projection={projection}
+        state="idle"
+        displayName={null}
+        greeting={null}
+        expanded
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toBe(
+      'Character display unavailable; text chat is ready',
+    )
   })
 
   it('reports an asset failure without removing the surrounding stage', () => {

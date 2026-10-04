@@ -103,7 +103,8 @@ describe.skipIf(!enabled)('PC-local immutable prospect workbook pipeline', () =>
     )
     await withTenantIsolationBypass(async () => {
       const result = await db.prospectImport.findUniqueOrThrow({ where: { id: importId } })
-      expect(renewals).toBe(26)
+      // One renewal per 10-row stage batch plus the final report snapshot.
+      expect(renewals).toBe(Math.ceil(251 / 10) + 1)
       expect(result).toMatchObject({
         status: 'DRY_RUN_READY',
         totalRows: 251,

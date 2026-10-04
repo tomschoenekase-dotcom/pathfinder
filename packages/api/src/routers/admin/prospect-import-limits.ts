@@ -4,7 +4,7 @@ export const PROSPECT_IMPORT_LIMITS = {
   maxSheets: 100,
   maxRows: 100_000,
   maxColumns: 100,
-  maxCellCharacters: 10_000,
+  maxCellCharacters: 100_000,
   maxSourceRowBytes: 256 * 1024,
   stageBatchRows: 250,
 } as const

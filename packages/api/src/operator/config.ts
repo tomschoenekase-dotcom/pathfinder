@@ -21,6 +21,8 @@ export const OPERATOR_OAUTH_LIFETIMES = {
   unconsentedClientSeconds: 24 * 60 * 60,
   maxGrantDays: 90,
   proposalHours: 72,
+  /** A chat approval request is a short-lived ticket: ask again if it lapses. */
+  decisionRequestMinutes: 10,
 } as const
 
 export type OperatorServerConfig = Readonly<{
@@ -114,6 +116,15 @@ export function resolveOperatorConfig(
 
 export function protectedResourceMetadataUrl(config: Pick<OperatorServerConfig, 'issuer'>) {
   return `${config.issuer}/.well-known/oauth-protected-resource${OPERATOR_MCP_PATH}`
+}
+
+/** The page a signed-in person opens to decide one chat approval request. */
+export function decisionUrl(
+  config: Pick<OperatorServerConfig, 'issuer'>,
+  proposalId: string,
+  requestId: string,
+) {
+  return `${config.issuer}/approve/${encodeURIComponent(proposalId)}?request=${encodeURIComponent(requestId)}`
 }
 
 export function approveUrl(config: Pick<OperatorServerConfig, 'issuer'>, id: string) {

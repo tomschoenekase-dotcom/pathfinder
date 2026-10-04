@@ -1337,7 +1337,7 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
       })
       if (exactNative) {
         expect(completionSnapshot.packageFulfillment).toMatchObject({
-          contractVersion: 2,
+          contractVersion: 6,
           guestObservability: {
             configuredPath: 'NATIVE',
             reason: 'NATIVE_READY',

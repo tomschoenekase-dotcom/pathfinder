@@ -251,9 +251,9 @@ export async function verifyDispositionDatabaseSource(target) {
   const root = fileURLToPath(new URL('../../', import.meta.url))
   const manifest = await readMigrationManifest(resolve(root, 'packages/db/prisma'))
   const rows = await target.query(
-    `SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM (SELECT migration_name,checksum,finished_at,rolled_back_at,logs FROM public._prisma_migrations ORDER BY migration_name LIMIT 255) x`,
+    `SELECT coalesce(jsonb_agg(x),'[]'::jsonb) FROM (SELECT migration_name,checksum,finished_at,rolled_back_at,logs FROM public._prisma_migrations ORDER BY migration_name LIMIT 267) x`,
   )
-  if (!Array.isArray(rows) || rows.length !== 255) refuse('database migration endpoint')
+  if (!Array.isArray(rows) || rows.length !== 267) refuse('database migration endpoint')
   // Verify the admitted endpoint before inspecting the unchanged disposition functions.
   if (ledgerState(rows, manifest) !== 'complete') refuse('current ledger')
   const final = rows[248],
@@ -303,7 +303,7 @@ export async function verifyDispositionDatabaseSource(target) {
     `SELECT jsonb_build_object('tables',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'),'invalidIndexes',(SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND (NOT i.indisvalid OR NOT i.indisready)),'unvalidatedConstraints',(SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND NOT c.convalidated))`,
   )
   if (
-    integrity.tables !== 277 ||
+    integrity.tables !== 297 ||
     integrity.invalidIndexes !== 0 ||
     integrity.unvalidatedConstraints !== 0
   )

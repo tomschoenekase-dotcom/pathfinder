@@ -50,6 +50,7 @@ const messageId = `verified-${suffix}`
 const mailbox = 'sender@example.com'
 const sentAt = '2026-09-20T15:00:00.000Z'
 let grant: VerifiedOperatorGrant
+let previousCrmLogPolicy: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findUnique>>
 
 const service = () => ({
   config,
@@ -116,6 +117,14 @@ describe.skipIf(!enabled)(
     let c = ''
 
     beforeAll(async () => {
+      previousCrmLogPolicy = await db.operatorAutonomyPolicy.findUnique({
+        where: { capability: 'crm:log' },
+      })
+      await db.operatorAutonomyPolicy.upsert({
+        where: { capability: 'crm:log' },
+        create: { capability: 'crm:log', mode: 'ASK', updatedByUserId: 'test-fixture' },
+        update: { mode: 'ASK', allowedKinds: [], updatedByUserId: 'test-fixture' },
+      })
       await db.operatorOAuthClient.create({
         data: {
           id: clientId,
@@ -151,6 +160,19 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      if (previousCrmLogPolicy) {
+        await db.operatorAutonomyPolicy.upsert({
+          where: { capability: 'crm:log' },
+          create: previousCrmLogPolicy,
+          update: {
+            mode: previousCrmLogPolicy.mode,
+            allowedKinds: previousCrmLogPolicy.allowedKinds,
+            updatedByUserId: previousCrmLogPolicy.updatedByUserId,
+          },
+        })
+      } else {
+        await db.operatorAutonomyPolicy.deleteMany({ where: { capability: 'crm:log' } })
+      }
       await withTenantIsolationBypass(() => db.$disconnect())
     })
 

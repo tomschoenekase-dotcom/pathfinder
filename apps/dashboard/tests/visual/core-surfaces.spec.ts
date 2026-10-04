@@ -54,7 +54,7 @@ async function expectScrollableVisitorShell(page: Page) {
   expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
 
   const composer = page.getByRole('textbox')
-  const composerField = composer.locator('..')
+  const composerField = composer.locator('xpath=../..')
   await expect(composer).toBeInViewport()
   await composer.focus()
   await expect(composer).toBeFocused()

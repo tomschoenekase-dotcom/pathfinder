@@ -23,6 +23,37 @@ function row(
 }
 
 describe('retrieveGuestKnowledge', () => {
+  it('never lets connected-source lexical or semantic hits bypass cached freshness admission', async () => {
+    const source = row('source-record', 'Daily show schedule', 'Today the show starts at noon.', {
+      sourceType: 'UNIVERSAL_CONTENT',
+      sourceName: 'OPERATIONAL_FACT v1',
+      contentRevision: {
+        createdBy: 'source-connection:connector_a',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        operationalFact: null,
+      },
+    })
+    const findMany = vi.fn().mockResolvedValue([source])
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: 'Daily show schedule',
+      tenantId: 'tenant_a',
+      venueId: 'venue_a',
+      includeSecondLayer: false,
+      queryEmbedding: [1],
+      semanticSearch: async () => [{ ...source, distance: 0 }],
+    })
+    expect(result.entries).toEqual([])
+    expect(result.trace.excludedSourceIds).toContain(source.id)
+    for (const [args] of findMany.mock.calls) {
+      expect(args.where).toMatchObject({
+        tenantId: 'tenant_a',
+        venueId: 'venue_a',
+        sourceType: { not: 'SOURCE_CONNECTION' },
+      })
+    }
+  })
   it('recovers an old capacity answer without an embedding from bounded scoped queries', async () => {
     const capacity = row(
       'knowledge-capacity-137',

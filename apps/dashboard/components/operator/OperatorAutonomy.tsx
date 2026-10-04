@@ -26,11 +26,47 @@ const COPY: Record<string, { label: string; detail: string }> = {
     label: 'Customer setup',
     detail: 'Onboarding question proposals always ask for review.',
   },
+  'reports:propose': {
+    label: 'Weekly reports',
+    detail: 'Generating and publishing reports always ask for review.',
+  },
+  'routines:propose': {
+    label: 'Routines',
+    detail: 'Saving, editing and stopping routines. Starting one always asks.',
+  },
   'operator:revert': { label: 'Undo', detail: 'Undoing an applied change always asks.' },
   'operator:plan': {
     label: 'Plans',
     detail: 'A plan applies on its own only when every step in it is set to act without asking.',
   },
+}
+
+const ROUTINE_LABELS: Record<string, string> = {
+  'appearance.update': 'chat appearance',
+  'crm.prospect-create': 'new prospects',
+  'crm.account-update': 'account details',
+  'crm.contact-create': 'new contacts',
+  'crm.contact-update': 'contact details',
+  'crm.followup-update': 'follow-up tasks',
+  'crm.note': 'account notes',
+  'crm.stage-change': 'pipeline stages',
+  'crm.outreach-draft': 'outreach drafts',
+  'crm.outreach-log': 'outreach history',
+  'crm.import-commit': 'reviewed imports',
+  'crm.campaign-create': 'draft campaigns',
+  'crm.campaign-membership': 'campaign members',
+  'venues.create': 'private draft venues',
+  'support.internal-note': 'internal support notes',
+}
+
+const BROAD_AUTO_EXAMPLES: Record<string, string> = {
+  'crm:propose': 'including contact archiving as well as routine CRM edits and imports',
+  'crm:log': 'including outreach history',
+  'venues:propose':
+    'including guest-visible knowledge, publishing and operational updates as well as private drafts',
+  'appearance:propose': 'including chat appearance changes',
+  'support:propose': 'including support status changes visible in the customer portal',
+  'routines:propose': 'including creating, editing and disabling routines',
 }
 
 type Mode = 'ask' | 'auto'
@@ -84,14 +120,17 @@ export function OperatorAutonomy({ rows }: { rows: readonly OperatorAutonomyRow[
         </h2>
         <p className="mt-1 max-w-prose text-sm text-slate-700">
           <strong>Ask first</strong> means the Dot proposes and you approve.{' '}
-          <strong>Acts without asking</strong> means it applies at once and you can undo it
-          afterwards. Everything starts on ask first. The Dot cannot change these switches.
+          <strong>Acts without asking</strong> means the listed actions apply at once; undo is
+          available only where the action supports it. Routine CRM work starts with a defined set of
+          automatic actions. Existing Ask first settings are preserved. The Dot cannot change these
+          switches.
         </p>
       </div>
       <ul className="divide-y divide-slate-200">
         {rows.map((row) => {
           const copy = COPY[row.capability] ?? { label: row.capability, detail: '' }
           const auto = current(row) === 'auto'
+          const pending = draft[row.capability] !== row.mode ? draft[row.capability] : null
           return (
             <li key={row.capability} className="flex items-start justify-between gap-4 p-4 sm:px-5">
               <div className="min-w-0">
@@ -101,6 +140,26 @@ export function OperatorAutonomy({ rows }: { rows: readonly OperatorAutonomyRow[
                 <p id={`cap-${row.capability}-detail`} className="mt-0.5 text-sm text-slate-700">
                   {copy.detail}
                 </p>
+                {pending === 'auto' ? (
+                  <p className="mt-1 max-w-prose text-sm font-medium text-amber-900">
+                    Saving this switch enables every ask-optional action in this area without
+                    another approval
+                    {BROAD_AUTO_EXAMPLES[row.capability]
+                      ? `, ${BROAD_AUTO_EXAMPLES[row.capability]}`
+                      : ''}
+                    . Actions that always require review still ask.
+                  </p>
+                ) : pending === 'ask' ? (
+                  <p className="mt-1 max-w-prose text-sm text-slate-600">
+                    Saving this switch makes every action in this area ask for approval.
+                  </p>
+                ) : row.autoKinds.length > 0 ? (
+                  <p className="mt-1 max-w-prose text-sm text-slate-600">
+                    Automatic actions:{' '}
+                    {row.autoKinds.map((kind) => ROUTINE_LABELS[kind] ?? kind).join(', ')}. Other
+                    actions keep their review requirements.
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <button

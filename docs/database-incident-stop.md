@@ -69,6 +69,20 @@ preservation gates pass. Existing production operator OAuth may remain enabled; 
 activation, account, credential, customer email, invite, money movement or provider/background
 execution is admitted. No seed, reset, restore over production or staging, or manual data cleanup.
 
+## Restricted PR40 production cutover exception — approved 2026-10-03
+
+On October 3, the owner explicitly authorized completing PR #40 through staging and protected
+production promotion, including exact-head CI repair and admission of only migrations 256–267.
+The [October 3 release record](production-cutover-20261003.md) binds this scope to the final tested
+source and preserves the existing 255-migration predecessor and every earlier freeze and refusal.
+
+The incident remains ACTIVE by default. This exception admits no hosted write before exact-head
+CI, staging admission, fresh post-drain backups, disposable restoration and migration rehearsal,
+ledger integrity and original-column preservation checks pass. Production uses only the existing
+production migration entrypoint. Existing provider flags and OAuth state stay unchanged; no sends,
+invites, billing actions, account changes, seed, reset, destructive rollback or credential copying.
+The prior release exceptions remain historical and unchanged.
+
 ## Historical incident and staging exception
 
 On 2026-08-19, Tom approved a staging-only Railway release with a hard USD 10 spending ceiling.

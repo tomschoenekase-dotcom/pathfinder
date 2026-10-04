@@ -1,3 +1,4 @@
+import { formatMinorUnits } from './money'
 import type { DashboardTRPCClient } from './trpc'
 import type {
   ClientBillingState,
@@ -20,12 +21,7 @@ function dateLabel(value: Date | string | null | undefined) {
     : null
 }
 
-function moneyLabel(amount: bigint | number, currency: string) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-  }).format(Number(amount) / 100)
-}
+const moneyLabel = formatMinorUnits
 
 export function clientBillingPresentation(overview: ClientBillingOverview): {
   state: ClientBillingState

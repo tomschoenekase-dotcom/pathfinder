@@ -273,7 +273,8 @@ describe('VenueChatFixture', () => {
     const voiceToggle = screen.getByRole('button', { name: 'Start voice conversation' })
     const conversationLog = screen.getByRole('log', { name: 'Conversation' })
     const composer = screen.getByRole('textbox', { name: 'Ask a question' })
-    const composerField = composer.parentElement
+    // The textarea sits in a hint wrapper inside the composer field row.
+    const composerField = composer.parentElement?.parentElement
     expect(conversationLog.contains(plannerToggle)).toBe(true)
     expect(conversationLog.contains(voiceToggle)).toBe(false)
     expect(composerField?.contains(voiceToggle)).toBe(true)

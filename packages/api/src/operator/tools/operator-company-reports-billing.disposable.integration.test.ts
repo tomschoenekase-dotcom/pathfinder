@@ -10,7 +10,6 @@ import {
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { resolveOperatorConfig } from '../config'
-import { OperatorNotFoundError } from '../grants'
 import type { VerifiedOperatorGrant } from '../oauth'
 import { createOperatorRegistry, defaultVenueRead } from '../registry'
 
@@ -326,7 +325,8 @@ describe.skipIf(!enabled)('H09 company, reports and billing reads on disposable 
         undefined,
         otherTenantId,
       ),
-    ).rejects.toBeInstanceOf(OperatorNotFoundError)
+      // Cursors are bound to the issuing tenant scope: another tenant's cursor is refused outright.
+    ).rejects.toMatchObject({ code: 'INVALID_CURSOR' })
   })
 
   it('enforces capability boundaries for the separate H09 reads', async () => {

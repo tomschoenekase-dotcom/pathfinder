@@ -17,6 +17,40 @@ import {
   type OperatorToolName,
 } from './operator-mcp'
 
+it('fits the full declared tool catalog in context while rejecting an oversized result', () => {
+  const context = {
+    serverTime: '2026-10-02T12:00:00.000Z',
+    catalogVersion: 'test',
+    manualVersion: 'test',
+    releaseRevision: 'test',
+    grant: {
+      grantId: 'grant-test',
+      allTenants: false,
+      tenantCount: 0,
+      tenantIds: [],
+      capabilities: ['operator:read'],
+    },
+    scopeNotes: [],
+    tools: OPERATOR_MCP_TOOLS.map((tool) => ({
+      name: tool.name,
+      effect: tool.effect,
+      scope: tool.scope,
+      capability: tool.capability,
+      implemented: true,
+      authorized: false,
+      approvalMode: null,
+      lastSuccessAt: null,
+      providerConnected: null,
+      workerAvailable: null,
+    })),
+  }
+  const schema = OPERATOR_MCP_OUTPUTS['operator.get_context']
+  expect(schema.safeParse(context).success).toBe(true)
+  expect(
+    schema.safeParse({ ...context, tools: [...context.tools, context.tools[0]] }).success,
+  ).toBe(false)
+})
+
 const EXPECTED_TOOLS = [
   'crm.search_organizations',
   'crm.get_organization',
@@ -27,6 +61,20 @@ const EXPECTED_TOOLS = [
   'venues.list_operational_updates',
   'venues.get_visitor_summary',
   'venues.get_readiness',
+  'venues.list_sessions',
+  'venues.get_answer_evidence',
+  'venues.list_sources',
+  'venues.list_source_connections',
+  'venues.get_source_connection',
+  'venues.get_source',
+  'venues.list_content',
+  'venues.get_content',
+  'venues.preview_content_changeset',
+  'venues.list_releases',
+  'venues.get_release',
+  'venues.get_effective_guest_version',
+  'venues.get_release_preflight',
+  'venues.get_preview_link',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -35,22 +83,34 @@ const EXPECTED_TOOLS = [
   'operator.get_autonomy',
   'operator.get_context',
   'operator.get_operation',
+  'operator.get_attention',
   'operator.list_plans',
   'customers.list',
   'crm.list_campaigns',
   'crm.list_campaign_members',
   'crm.resolve_account',
   'crm.get_account_context',
+  'crm.get_outreach_context',
   'crm.list_contacts',
   'crm.list_notes',
+  'crm.get_note',
   'crm.list_duplicates',
+  'crm.list_imports',
+  'crm.get_import',
+  'crm.get_import_field',
+  'crm.preview_organization_merge',
   'crm.get_campaign',
   'crm.list_drafts',
   'crm.get_outreach_batch',
   'support.get_request',
   'customers.get_onboarding',
+  'customers.list_blocking_questions',
+  'customers.get_blocking_question',
   'support.list_messages',
+  'support.list_replies',
   'crm.list_mailboxes',
+  'crm.get_mail_reconciliation',
+  'crm.request_mail_reconciliation',
   'crm.list_mail_threads',
   'crm.list_mail_messages',
   'crm.list_mail_receipts',
@@ -60,9 +120,12 @@ const EXPECTED_TOOLS = [
   'company.list_context',
   'reports.list',
   'reports.get_status',
+  'reports.get',
+  'reports.reconcile_generating',
   'billing.get_status',
   'billing.list_invoices',
   'routines.list',
+  'routines.get_run_status',
   'access.list_memberships',
   'offboarding.list_plans',
   'offboarding.list_targets',
@@ -70,6 +133,7 @@ const EXPECTED_TOOLS = [
   'offboarding.list_artifacts',
   'operator.cancel_operation',
   'operator.recover_operation',
+  'operator.request_decision',
   'crm.propose_campaign_membership',
   'crm.propose_contact_create',
   'crm.propose_contact_update',
@@ -77,7 +141,14 @@ const EXPECTED_TOOLS = [
   'crm.propose_followup_update',
   'crm.propose_note',
   'crm.propose_account_archive',
+  'crm.propose_account_update',
+  'crm.propose_contact_address_change',
+  'crm.propose_prospect_create',
+  'crm.propose_import_commit',
+  'crm.stage_csv_import',
+  'crm.resume_import',
   'crm.propose_duplicate_resolution',
+  'crm.propose_organization_merge',
   'crm.propose_campaign_create',
   'crm.propose_draft_review',
   'crm.propose_batch_stage',
@@ -86,13 +157,23 @@ const EXPECTED_TOOLS = [
   'support.propose_internal_note',
   'support.propose_information_request',
   'support.propose_completion',
+  'support.propose_create_request',
+  'support.propose_client_reply',
   'customers.propose_onboarding_questions',
+  'reports.propose_generate',
+  'reports.propose_publish',
+  'routines.propose_create',
+  'routines.propose_update',
+  'routines.propose_enable',
+  'routines.propose_disable',
   'crm.propose_outreach_draft',
   'crm.propose_stage_change',
   'crm.log_outreach_sent',
   'venues.propose_create',
   'venues.propose_source',
+  'venues.propose_source_connection',
   'venues.propose_knowledge',
+  'venues.propose_content_changeset',
   'venues.propose_publish',
   'venues.propose_operational_update',
   'venues.propose_operational_update_schedule',
@@ -100,6 +181,7 @@ const EXPECTED_TOOLS = [
   'appearance.propose_update',
   'customers.propose_invite',
   'customers.propose_create',
+  'offboarding.propose_execution',
   'support.propose_triage',
   'operator.propose_plan',
   'operator.propose_revert',
@@ -173,7 +255,7 @@ describe('operator MCP catalog', () => {
       expect(tool.effect).toBe(isRead ? 'read' : isControl ? 'control' : 'proposal')
       expect(tool.annotations.readOnlyHint).toBe(isRead)
       expect(tool.annotations.destructiveHint).toBe(false)
-      expect(tool.annotations.openWorldHint).toBe(false)
+      expect(tool.annotations.openWorldHint).toBe(tool.name === 'crm.stage_csv_import')
       expect(OperatorCapability.safeParse(tool.capability).success).toBe(true)
       expect(['platform', 'tenant', 'venue']).toContain(tool.scope)
       expect(Boolean(tool.proposalKind)).toBe(!isRead && !isControl)
@@ -219,9 +301,10 @@ describe('operator MCP catalog', () => {
   it('requires an operationId uuid on every write and on no read', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[] }
-      // Only proposals carry an operationId. Controls name the earlier operation by
-      // originalOperationId and are naturally idempotent.
-      expect(json.required.includes('operationId')).toBe(tool.effect === 'proposal')
+      // CSV staging is the one control that starts a durable operation of its own.
+      expect(json.required.includes('operationId')).toBe(
+        tool.effect === 'proposal' || tool.name === 'crm.stage_csv_import',
+      )
     }
     expect(
       OPERATOR_MCP_INPUTS['crm.propose_campaign_membership'].safeParse({
@@ -267,9 +350,12 @@ describe('operator MCP catalog', () => {
     expect([...OPERATOR_ALWAYS_ASK_TOOLS]).toEqual([
       'customers.propose_invite',
       'customers.propose_create',
+      'offboarding.propose_execution',
       'operator.propose_revert',
       'crm.propose_account_archive',
       'crm.propose_duplicate_resolution',
+      'crm.propose_organization_merge',
+      'crm.propose_contact_address_change',
       'crm.propose_draft_review',
       'crm.propose_batch_stage',
       'crm.propose_batch_approve',
@@ -277,6 +363,14 @@ describe('operator MCP catalog', () => {
       'support.propose_information_request',
       'support.propose_completion',
       'customers.propose_onboarding_questions',
+      'reports.propose_generate',
+      'reports.propose_publish',
+      'routines.propose_enable',
+      'support.propose_create_request',
+      'support.propose_client_reply',
+      'venues.propose_source',
+      'venues.propose_source_connection',
+      'venues.propose_content_changeset',
     ])
   })
 
@@ -456,5 +550,57 @@ describe('operator MCP truthful outcome semantics', () => {
       subject: { untrusted: true, text: 'x', truncated: false },
     }
     expect(page.safeParse({ items: [item], nextCursor: null, complete: true }).success).toBe(true)
+  })
+})
+
+describe('CRM account, address, prospect and import tools', () => {
+  it('says plainly that a duplicate resolution is a decision and not a merge', () => {
+    const resolution = getOperatorToolDefinition('crm.propose_duplicate_resolution')!
+    expect(resolution.description).toMatch(/decision record only/iu)
+    expect(resolution.description).toMatch(/does NOT merge/u)
+    const list = getOperatorToolDefinition('crm.list_duplicates')!
+    expect(list.description).toMatch(/persisted duplicate review pairs only/u)
+    expect(list.description).toMatch(/not a live search/u)
+  })
+
+  it('binds an import commit to the file, mapping and plan hashes', () => {
+    const schema = OPERATOR_MCP_INPUTS['crm.propose_import_commit']
+    const base = {
+      importId: 'import-1',
+      fileHash: 'a'.repeat(64),
+      mappingHash: 'b'.repeat(64),
+      planHash: 'c'.repeat(64),
+      expectedRows: 3,
+      operationId: OPERATION_ID,
+    }
+    expect(schema.safeParse(base).success).toBe(true)
+    for (const key of ['fileHash', 'mappingHash', 'planHash', 'expectedRows'] as const) {
+      const { [key]: _omitted, ...rest } = base
+      void _omitted
+      expect(schema.safeParse(rest).success, key).toBe(false)
+    }
+    expect(schema.safeParse({ ...base, fileHash: 'short' }).success).toBe(false)
+    expect(schema.safeParse({ ...base, expectedRows: 0 }).success).toBe(false)
+  })
+
+  it('exposes the contact phone and the account version guards on the reads', () => {
+    const contact = OPERATOR_MCP_TOOLS.find((tool) => tool.name === 'crm.list_contacts')!
+    expect(JSON.stringify(contact.outputSchema)).toContain('"phone"')
+    const context = OPERATOR_MCP_TOOLS.find((tool) => tool.name === 'crm.get_account_context')!
+    expect(JSON.stringify(context.outputSchema)).toContain('"updatedAt"')
+    expect(JSON.stringify(context.outputSchema)).toContain('"tags"')
+  })
+
+  it('keeps the new proposal tools in plans and unique in their proposal kinds', () => {
+    for (const name of [
+      'crm.propose_account_update',
+      'crm.propose_contact_address_change',
+      'crm.propose_prospect_create',
+      'crm.propose_import_commit',
+    ] as const) {
+      expect(OPERATOR_PLAN_STEP_TOOLS).toContain(name)
+      expect(getOperatorToolDefinition(name)?.effect).toBe('proposal')
+      expect(getOperatorToolDefinition(name)?.capability).toBe('crm:propose')
+    }
   })
 })

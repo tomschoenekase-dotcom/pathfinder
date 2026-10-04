@@ -360,6 +360,27 @@ export {
   prepareProspectEmailAttachmentRetentionAction,
   reviewProspectEmailAttachmentRetentionAction,
 } from './helpers/prospect-email-attachment-retention-actions'
+export {
+  assertProspectImportMappingSafe,
+  findProspectDuplicateMatches,
+  parseProspectImportDate,
+  ProspectDuplicateReviewError,
+} from './helpers/prospect-actions'
+export type { ProspectDuplicateMatch } from './helpers/prospect-actions'
+export {
+  changeProspectContactAddressAction,
+  createProspectForOperatorAction,
+  findProspectCreateReceipt,
+  isProspectContactPersonBlocked,
+  readProspectAccountView,
+  resolveProspectOwner,
+  updateProspectAccountAction,
+} from './helpers/prospect-operator-actions'
+export type {
+  ProspectAccountFieldChange,
+  ProspectAccountView,
+  ProspectOwnerRef,
+} from './helpers/prospect-operator-actions'
 export type {
   CreateProspectInput,
   ConvertPublicInterestToProspectInput,
@@ -368,6 +389,11 @@ export type {
   ProspectActor,
   ProspectImportNormalizedRow,
 } from './helpers/prospect-actions'
+export {
+  mergeProspectOrganizationsAction,
+  previewProspectOrganizationMergeAction,
+} from './helpers/prospect-organization-merge-actions'
+export type { ProspectOrganizationMergePlan } from './helpers/prospect-organization-merge-actions'
 export {
   applyProspectSizeProposalAction,
   type ProspectSizeProposal,
@@ -1519,6 +1545,7 @@ export * from './helpers/agent-workflow-activation-actions'
 export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'
 export * from './helpers/agent-routine-actions'
+export * from './helpers/agent-routine-guards'
 export * from './helpers/intake-v1-package-draft-proposal-actions'
 export * from './helpers/intake-v1-package-machine-authority'
 
@@ -1547,3 +1574,129 @@ export {
   GuestConversationDispositionAuthorizationInput,
   GuestConversationDispositionAuthorityError,
 } from './helpers/guest-conversation-disposition-authority'
+export * from './helpers/live-data'
+export {
+  beginClientNotificationEmailDelivery,
+  CLIENT_NOTIFICATION_KIND,
+  CLIENT_NOTIFICATION_NON_RETRYABLE_CODES,
+  ClientNotificationError,
+  clientNotificationContentHash,
+  clientNotificationIdempotencyKey,
+  completeClientNotificationEmailDelivery,
+  createClientNotificationIntent,
+  createClientNotificationIntentAction,
+  failQueuedClientNotificationEmail,
+  markClientNotificationEnqueueFailed,
+  reconcileClientNotificationEmail,
+  requeueClientNotificationEmail,
+  supportRequestPortalPath,
+} from './helpers/client-notification-intents'
+export type {
+  ClientNotificationContent,
+  ClientNotificationDeliveryDecision,
+  ClientNotificationEmailOutcome,
+  ClientNotificationIntentRef,
+  ClientNotificationItem,
+  ClientNotificationSkipReason,
+  CreateClientNotificationIntentInput,
+} from './helpers/client-notification-intents'
+export {
+  boundedInboundPreview,
+  candidateMessageIds,
+  CLIENT_INBOUND_MAX_HTML_BYTES,
+  CLIENT_INBOUND_MAX_TEXT_BYTES,
+  ClientInboundReplyError,
+  hashInboundSender,
+  linkInboundClientReply,
+  normalizeInboundSenderAddress,
+  type ClientInboundEmailInput,
+  type ClientInboundLinkResult,
+  type ClientInboundMatchEvidence,
+  type ClientInboundQuarantineReason,
+  type LinkInboundClientReplyOptions,
+} from './helpers/client-inbound-replies'
+export {
+  createOperatorSupportRequestAction,
+  OperatorSupportRequestError,
+  operatorSupportRequestOperationHash,
+} from './helpers/support-operator-request-actions'
+export type { CreateOperatorSupportRequestInput } from './helpers/support-operator-request-actions'
+export {
+  claimVenueSourceForCaptureAction,
+  completeVenueSourceCaptureAction,
+  failVenueSourceAction,
+  readAuthorizedSourceHostsAction,
+  releaseVenueSourceClaimAction,
+  requestVenueSourceAction,
+  VENUE_SOURCE_CLAIM_STALE_MS,
+  VENUE_SOURCE_MAX_ATTEMPTS,
+  VenueSourceActionError,
+  venueSourceSelect,
+} from './helpers/venue-source-actions'
+export type {
+  VenueSourceActionClient,
+  VenueSourceActionErrorCode,
+  VenueSourceInputRecord,
+  VenueSourceTerminalStatus,
+} from './helpers/venue-source-actions'
+export {
+  assertOffboardingGate,
+  beginOffboardingExecutionAction,
+  completeOffboardingExecutionAction,
+  failOffboardingExecutionStepAction,
+  markOffboardingExecutionReinstatedAction,
+  OffboardingExecutionError,
+  plannedOffboardingSteps,
+  readOffboardingExecutionAction,
+  readOffboardingExecutionFacts,
+  settleOffboardingExecutionStepAction,
+} from './helpers/offboarding-execution-actions'
+export type {
+  BeginOffboardingExecutionInput,
+  OffboardingExecutionActor,
+  OffboardingExecutionClient,
+  OffboardingExecutionErrorCode,
+  OffboardingExecutionFacts,
+  OffboardingExecutionView,
+  OffboardingStepSettlement,
+  SettleOffboardingStepInput,
+} from './helpers/offboarding-execution-actions'
+export {
+  billingBlocksOffboarding,
+  evaluateOffboardingGate,
+  isEffectStep,
+  isStepPlanned,
+  OFFBOARDING_EXECUTION_STEP_KEYS,
+  OFFBOARDING_FUTURE_DECISIONS,
+  offboardingDerivedUuid,
+  offboardingManifestHash,
+  plannedTargetsForStep,
+  STEP_REVOCATION_TARGETS,
+} from './helpers/offboarding-execution-policy'
+export type {
+  OffboardingBillingFacts,
+  OffboardingEffectStepKey,
+  OffboardingExecutionRefusalCode,
+  OffboardingExecutionStepKeyName,
+  OffboardingGateInput,
+  OffboardingGateResult,
+} from './helpers/offboarding-execution-policy'
+export {
+  SourceConnectionActionError,
+  approveSourceConnectionPreviewAction,
+  claimSourceConnectionPollSlot,
+  claimSourceConnectionRequest,
+  createSourceConnectionDraftAction,
+  recordSourceConnectionBytes,
+  recordSourceConnectionCache,
+  recordSourceConnectionPreviewAction,
+  recordSourceConnectionPollFailure,
+  readSourceConnectionPreview,
+  setSourceConnectionStateAction,
+  sourceConnectionPreviewHash,
+  updateSourceConnectionDraftAction,
+  validateSourceConnectionConfig,
+} from './helpers/source-connections'
+export type { SourceConnectionPreview } from './helpers/source-connections'
+export { publishSourceConnectionSnapshot } from './helpers/source-connection-publication'
+export { recordSourceConnectionDiagnostic } from './helpers/source-connection-diagnostics'

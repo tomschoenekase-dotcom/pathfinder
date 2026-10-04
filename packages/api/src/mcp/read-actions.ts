@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { buildPaymentRecoveryContext } from '@pathfinder/billing'
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
+import { computeOperationalUpdateLifecycle } from '@pathfinder/contracts/operational-update-lifecycle'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 import {
   OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
@@ -725,7 +726,25 @@ async function readUpdates(
       updatedAt: true,
     },
   })
-  return result('updates', mapPage(page('updates', rows, limit, (row) => row.createdAt)))
+  const now = new Date()
+  const updates = page('updates', rows, limit, (row) => row.createdAt)
+  return result(
+    'updates',
+    mapPage({
+      ...updates,
+      // Never let a consumer treat raw isActive as "live now": add the computed lifecycle.
+      items: updates.items.map((row) => {
+        const computed = computeOperationalUpdateLifecycle(row, now)
+        return {
+          ...row,
+          lifecycle: computed.lifecycle,
+          guestVisibleNow: computed.guestVisibleNow,
+          isActiveButExpired: computed.isActiveButExpired,
+          lifecycleLabel: computed.label,
+        }
+      }),
+    }),
+  )
 }
 
 async function readAiUsage(

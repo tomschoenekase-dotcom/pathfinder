@@ -14,6 +14,7 @@ import {
 import { admit, OPERATOR_AUTO_APPLIES_PER_HOUR } from './admission'
 import { resolveOperatorConfig } from './config'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
+import { createPlan } from './plans'
 import type { VerifiedOperatorGrant } from './oauth'
 import { approveAndApplyProposal, createKindRegistry, createProposal } from './proposals'
 
@@ -47,6 +48,8 @@ const otherClientId = `opc_auth_other_${suffix}`
 
 let grant: VerifiedOperatorGrant
 let otherGrant: VerifiedOperatorGrant
+const ASK_FIXTURE_CAPABILITIES = ['appearance:propose', 'crm:propose', 'venues:propose'] as const
+let originalPolicies: Awaited<ReturnType<typeof db.operatorAutonomyPolicy.findMany>> | null = null
 
 async function makeGrant(forClient: string): Promise<VerifiedOperatorGrant> {
   const row = await db.operatorGrant.create({
@@ -121,15 +124,37 @@ describe.skipIf(!enabled)(
       }
       grant = await makeGrant(clientId)
       otherGrant = await makeGrant(otherClientId)
+      // These cases exercise pending approval, revision and revocation. Their prior implicit ASK
+      // assumption no longer holds for routine kinds, so establish it as a scoped fixture.
+      originalPolicies = await db.operatorAutonomyPolicy.findMany({
+        where: { capability: { in: [...ASK_FIXTURE_CAPABILITIES] } },
+      })
+      await change(ASK_FIXTURE_CAPABILITIES.map((capability) => ({ capability, mode: 'ask' })))
     })
 
     afterAll(async () => {
-      // Leave every switch asking, as the other suites expect.
-      await change(
-        OperatorCapability.options
-          .filter((capability) => !capability.endsWith(':read'))
-          .map((capability) => ({ capability, mode: 'ask' as const })),
-      )
+      // Restore each prior policy's settings, including a missing-row default.
+      for (const capability of originalPolicies ? ASK_FIXTURE_CAPABILITIES : []) {
+        const original = originalPolicies?.find((row) => row.capability === capability)
+        if (original) {
+          await db.operatorAutonomyPolicy.upsert({
+            where: { capability },
+            create: {
+              capability,
+              mode: original.mode,
+              allowedKinds: original.allowedKinds,
+              updatedByUserId: original.updatedByUserId,
+            },
+            update: {
+              mode: original.mode,
+              allowedKinds: original.allowedKinds,
+              updatedByUserId: original.updatedByUserId,
+            },
+          })
+        } else {
+          await db.operatorAutonomyPolicy.deleteMany({ where: { capability } })
+        }
+      }
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId } }),
       )
@@ -259,7 +284,7 @@ describe.skipIf(!enabled)(
       expect(later).toMatchObject({ allowed: true, count: 1 })
     })
 
-    it('when the automatic-apply budget is spent, work waits for a human instead of applying', async () => {
+    it('routine venue creation does not become a human approval when the hourly budget is spent', async () => {
       await change([{ capability: 'venues:propose', mode: 'auto' }])
       const slug = `budget-${suffix}`
       try {
@@ -279,11 +304,32 @@ describe.skipIf(!enabled)(
           name: 'Example Budget',
           slug,
         })
-        // Policy says auto, but the budget is gone: it is left for a human, and nothing changed.
-        expect(view.status).toBe('PENDING')
-        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(0)
-        // A human can still approve it.
+        // Routine work uses the per-minute transport throttle, without an approval-volume quota.
+        expect(view.status).toBe('APPLIED')
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
         expect((await approve(view)).status).toBe('APPLIED')
+        expect(await db.venue.count({ where: { tenantId, slug } })).toBe(1)
+        const plan = await createPlan(
+          {
+            operationId: randomUUID(),
+            title: 'Create two private example guides',
+            steps: [1, 2].map((index) => ({
+              tool: 'venues.propose_create',
+              arguments: {
+                tenantId,
+                name: `Example Guide ${index}`,
+                slug: `${slug}-plan-${index}`,
+              },
+            })),
+          },
+          service(),
+        )
+        expect(plan.status).toBe('APPLIED')
+        expect(
+          await db.venue.count({
+            where: { tenantId, slug: { in: [`${slug}-plan-1`, `${slug}-plan-2`] } },
+          }),
+        ).toBe(2)
       } finally {
         await change([{ capability: 'venues:propose', mode: 'ask' }])
       }

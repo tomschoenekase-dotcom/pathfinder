@@ -26,6 +26,8 @@ vi.mock('../lib/trpc', () => ({
   }),
 }))
 
+vi.mock('./LiveDataSettings', () => ({ LiveDataSettings: () => null }))
+
 import { AiControlsForm, type AiControlsVenue } from './AiControlsForm'
 
 const classicConfiguration: VenueBotConfigurationSnapshot = {

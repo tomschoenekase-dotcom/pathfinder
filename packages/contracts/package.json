@@ -24,6 +24,7 @@
     "./venue-deployment-manifest": "./src/venue-deployment-manifest.ts",
     "./mcp-v0": "./src/mcp-v0.ts",
     "./operator-mcp": "./src/operator-mcp.ts",
+    "./operator-venue-content": "./src/operator-venue-content.ts",
     "./offboarding": "./src/offboarding.ts",
     "./offboarding-export-preview": "./src/offboarding-export-preview.ts",
     "./offboarding-export-finalization": "./src/offboarding-export-finalization.ts",
@@ -43,6 +44,7 @@
     "./character-runtime-pack": "./src/character-runtime-pack.ts",
     "./character-production-brief": "./src/character-production-brief.ts",
     "./actor": "./src/actor.ts",
+    "./operational-update-lifecycle": "./src/operational-update-lifecycle.ts",
     "./agent-workflow-registry": "./src/agent-workflow-registry.ts",
     "./agent-workflow-promotion-assessment": "./src/agent-workflow-promotion-assessment.ts",
     "./agent-workflow-activation": "./src/agent-workflow-activation.ts",
@@ -64,7 +66,12 @@
     "./venue-launch-asset-node": "./src/venue-launch-asset-node.ts",
     "./venue-qr-svg": "./src/venue-qr-svg.ts",
     "./venue-qr-print": "./src/venue-qr-print.ts",
-    "./venue-access-artifacts": "./src/venue-access-artifacts.ts"
+    "./venue-access-artifacts": "./src/venue-access-artifacts.ts",
+    "./live-data": "./src/live-data.ts",
+    "./live-data-network": "./src/live-data-network.ts",
+    "./source-connections": "./src/source-connections.ts",
+    "./source-connection-problems": "./src/source-connection-problems.ts",
+    "./source-connections-node": "./src/source-connections-node.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

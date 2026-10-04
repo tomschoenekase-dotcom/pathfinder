@@ -29,6 +29,7 @@ import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
+import { adminProspectCrmMailboxRouter } from './prospect-crm-mailbox'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 import { selectProspectLaunchAsset } from '../../prospect-launch-assets'
 import {
@@ -356,4 +357,5 @@ const adminProspectCrmOutreachActionsRouter = router({
 export const adminProspectCrmOutreachRouter = mergeRouters(
   adminProspectCrmOutreachReadRouter,
   adminProspectCrmOutreachActionsRouter,
+  adminProspectCrmMailboxRouter,
 )

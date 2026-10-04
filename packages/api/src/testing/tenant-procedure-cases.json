@@ -385,7 +385,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "tenant.inviteMember",
@@ -1102,6 +1104,13 @@
     "input": null
   },
   {
+    "path": "billing.clientState",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": null
+  },
+  {
     "path": "billing.createCheckout",
     "kind": "mutation",
     "minimumRole": "OWNER",
@@ -1225,27 +1234,362 @@
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "revisionLimit": 20 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "revisionLimit": 20
+    }
   },
   {
     "path": "intake.listV1Candidates",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 25
+    }
   },
   {
     "path": "intake.listV1UploadCandidates",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 25
+    }
   },
   {
     "path": "venue.listApprovedBrandingAssets",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 50 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 50
+    }
+  },
+  {
+    "path": "liveData.policy",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "liveData.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "liveDataConnector.findMany",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "liveData.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "name": "Home game score",
+      "kind": "sports_score",
+      "provider": "fixture-sports",
+      "resourceId": "game.home",
+      "resourceLabel": "Hawks home game",
+      "endpointUrl": "https://feeds.example-sports.com/v1/game",
+      "mapping": {
+        "observedAt": {
+          "pointer": "/updated",
+          "format": "iso8601"
+        },
+        "fields": {
+          "homeScore": {
+            "pointer": "/home",
+            "type": "integer"
+          },
+          "awayScore": {
+            "pointer": "/away",
+            "type": "integer"
+          }
+        }
+      },
+      "pollIntervalSeconds": 60,
+      "freshnessBudgetSeconds": 180,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "path": "liveData.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901",
+      "name": "Renamed"
+    }
+  },
+  {
+    "path": "liveData.enable",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "liveData.disable",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "liveData.test",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "venueRecommendation.getOverview",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "venueRecommendation.upsertItem",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "stableKey": "lemonade",
+      "fields": {
+        "category": "cold_drink",
+        "name": "Lemonade"
+      }
+    }
+  },
+  {
+    "path": "venueRecommendation.archiveItem",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "itemId": "citemabc123456789012x",
+      "expectedVersion": 1
+    }
+  },
+  {
+    "path": "venueRecommendation.setItemPriority",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "itemId": "citemabc123456789012x",
+      "priority": "HIGH"
+    }
+  },
+  {
+    "path": "venueRecommendation.upsertPolicy",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "enabled": true,
+      "maxBoost": 3,
+      "ownerLabel": "Venue manager"
+    }
+  },
+  {
+    "path": "venueRecommendation.getMeasurement",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "days": 30
+    }
+  },
+  {
+    "path": "sourceConnections.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "liveDataConnector.findMany",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
+    "path": "sourceConnections.get",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901"
+    }
+  },
+  {
+    "path": "sourceConnections.createDraft",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venueWebsiteOrigin.findMany",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "name": "Public source",
+      "config": {
+        "version": 1,
+        "sourceUrl": "https://example.org/source",
+        "allowedUrls": ["https://example.org/source"],
+        "mappings": [
+          {
+            "type": "html",
+            "kind": "event",
+            "recordSelector": "article",
+            "id": {
+              "selector": "h3",
+              "attribute": "text"
+            },
+            "title": {
+              "selector": "h3",
+              "attribute": "text"
+            },
+            "text": {
+              "selector": "p",
+              "attribute": "text"
+            },
+            "dateFormat": "iso"
+          }
+        ],
+        "timezone": "America/Chicago",
+        "refreshIntervalSeconds": 3600,
+        "freshnessSeconds": 3600,
+        "validation": {
+          "minRecords": 1,
+          "maxRecords": 50,
+          "maxChangedFraction": 0.5,
+          "maxRequestsPerDay": 24
+        },
+        "publicationPolicy": "review_required"
+      }
+    }
+  },
+  {
+    "path": "sourceConnections.updateDraft",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venueWebsiteOrigin.findMany",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z",
+      "config": {
+        "version": 1,
+        "sourceUrl": "https://example.org/source",
+        "allowedUrls": ["https://example.org/source"],
+        "mappings": [
+          {
+            "type": "html",
+            "kind": "event",
+            "recordSelector": "article",
+            "id": {
+              "selector": "h3",
+              "attribute": "text"
+            },
+            "title": {
+              "selector": "h3",
+              "attribute": "text"
+            },
+            "text": {
+              "selector": "p",
+              "attribute": "text"
+            },
+            "dateFormat": "iso"
+          }
+        ],
+        "timezone": "America/Chicago",
+        "refreshIntervalSeconds": 3600,
+        "freshnessSeconds": 3600,
+        "validation": {
+          "minRecords": 1,
+          "maxRecords": 50,
+          "maxChangedFraction": 0.5,
+          "maxRequestsPerDay": 24
+        },
+        "publicationPolicy": "review_required"
+      }
+    }
+  },
+  {
+    "path": "sourceConnections.requestPreview",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z"
+    }
+  },
+  {
+    "path": "sourceConnections.approvePreview",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z",
+      "previewId": "preview123",
+      "previewHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  {
+    "path": "sourceConnections.pause",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z"
+    }
+  },
+  {
+    "path": "sourceConnections.resume",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z"
+    }
+  },
+  {
+    "path": "sourceConnections.requestRefresh",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "liveDataConnector.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "connectorId": "cconnector12345678901",
+      "expectedUpdatedAt": "2026-10-03T20:00:00.000Z"
+    }
   }
 ]

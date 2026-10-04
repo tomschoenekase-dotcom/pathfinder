@@ -13,6 +13,7 @@ import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
+import { shouldDismissKeyboardOnSubmit } from '../hooks/useChatViewportHeight'
 
 type Message = {
   id?: string
@@ -64,6 +65,8 @@ type ChatWindowProps = {
   language?: SupportedChatLanguage
   locationAware?: boolean
 }
+
+const STOP_AFTER_SEND_GUARD_MS = 600
 
 export function ChatWindow({
   messages,
@@ -126,11 +129,26 @@ export function ChatWindow({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
+  const sendTouchStartRef = useRef<{ id: number; x: number; y: number } | null>(null)
+  const lastSendTouchEndAtRef = useRef(0)
+  const lastSubmitAtRef = useRef(0)
   const wasLoadingRef = useRef(isLoading)
   const announcementWasLoadingRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
+
+  useEffect(() => {
+    // On a slow phone the server-rendered composer is usable before hydration.
+    // Keep anything the guest already typed instead of resetting it to state.
+    const typedBeforeHydration = composerRef.current?.value ?? ''
+    if (!typedBeforeHydration || typedBeforeHydration === draft) return
+    setDraft(typedBeforeHydration)
+    rememberDraft(typedBeforeHydration)
+    onDraftChange?.(typedBeforeHydration)
+    // Mount-only: later renders are controlled by state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const previousScope = draftScopeRef.current
@@ -243,6 +261,17 @@ export function ChatWindow({
     }
   }, [isLoading, messages])
 
+  function activateSendButton() {
+    if (!isLoading) {
+      submit()
+      return
+    }
+    // Send becomes Stop as soon as a question is accepted. A quick double tap
+    // aimed at Send must not cancel the answer it just started.
+    if (Date.now() - lastSubmitAtRef.current < STOP_AFTER_SEND_GUARD_MS) return
+    onStopResponse?.()
+  }
+
   function submit() {
     const nextMessage = draft.trim()
 
@@ -256,8 +285,18 @@ export function ChatWindow({
 
     setDraft('')
     rememberDraft('')
+    lastSubmitAtRef.current = Date.now()
     followLatestRef.current = true
-    shouldRestoreComposerFocusRef.current = true
+    // On a phone the send itself dismisses the software keyboard, in this same interaction, so
+    // the composer settles back down while the answer loads; nothing refocuses it afterwards.
+    // A desktop or hardware keyboard keeps focus in the composer for the next question.
+    const field = composerRef.current
+    if (shouldDismissKeyboardOnSubmit(field)) {
+      field?.blur()
+      shouldRestoreComposerFocusRef.current = false
+    } else {
+      shouldRestoreComposerFocusRef.current = true
+    }
   }
 
   return (
@@ -441,29 +480,43 @@ export function ChatWindow({
           >
             {askQuestionLabel}
           </label>
-          <textarea
-            ref={composerRef}
-            id={composerId}
-            lang=""
-            dir="auto"
-            className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
-            enterKeyHint="send"
-            placeholder={placeholder}
-            rows={1}
-            value={draft}
-            onChange={(event) => {
-              const nextDraft = event.target.value
-              setDraft(nextDraft)
-              rememberDraft(nextDraft)
-              onDraftChange?.(nextDraft)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-          />
+          <div className={styles.composerInput}>
+            {draft.length === 0 ? (
+              <span className={styles.composerHint} aria-hidden="true" dir="auto">
+                {placeholder}
+              </span>
+            ) : null}
+            <textarea
+              ref={composerRef}
+              id={composerId}
+              lang=""
+              dir="auto"
+              className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
+              enterKeyHint="send"
+              aria-placeholder={placeholder}
+              rows={1}
+              value={draft}
+              onChange={(event) => {
+                const nextDraft = event.target.value
+                setDraft(nextDraft)
+                rememberDraft(nextDraft)
+                onDraftChange?.(nextDraft)
+              }}
+              onKeyDown={(event) => {
+                // Safari reports the Enter that confirms an IME conversion as keyCode 229 with
+                // isComposing already false; that Enter belongs to the IME, not to sending.
+                if (
+                  event.key === 'Enter' &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.nativeEvent.keyCode !== 229
+                ) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+            />
+          </div>
           {composerVoiceControl}
           <button
             ref={sendButtonRef}
@@ -485,7 +538,7 @@ export function ChatWindow({
                   ? accentContrastColor
                   : undefined,
             }}
-            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
+            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition-shadow motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)] ${isLoading && onStopResponse ? styles.stopButton : ''}`}
             disabled={
               !isOnline ||
               conversationLocked ||
@@ -502,7 +555,41 @@ export function ChatWindow({
                     : sendingLabel
                   : sendMessageLabel
             }
-            onClick={isLoading ? onStopResponse : submit}
+            onTouchStart={(event) => {
+              const touch = event.changedTouches[0]
+              sendTouchStartRef.current =
+                event.touches.length === 1 && touch
+                  ? { id: touch.identifier, x: touch.clientX, y: touch.clientY }
+                  : null
+            }}
+            onTouchCancel={() => {
+              if (sendTouchStartRef.current) lastSendTouchEndAtRef.current = Date.now()
+              sendTouchStartRef.current = null
+            }}
+            onTouchEnd={(event) => {
+              const start = sendTouchStartRef.current
+              const touch = Array.from(event.changedTouches).find(
+                (candidate) => candidate.identifier === start?.id,
+              )
+              sendTouchStartRef.current = null
+              // Touch events still reach a disabled button; only clicks are blocked.
+              if (!start || !touch || event.currentTarget.disabled) return
+              // Even a swipe can produce a delayed compatibility click in some
+              // engines; do not let that turn a cancelled gesture into a send.
+              lastSendTouchEndAtRef.current = Date.now()
+              if (Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > 12) {
+                return
+              }
+              // On Safari, dismissing the keyboard can move Send between touch
+              // release and the synthetic click. Act on release, then suppress
+              // that click so a single tap cannot submit twice.
+              event.preventDefault()
+              activateSendButton()
+            }}
+            onClick={(event) => {
+              if (event.detail > 0 && Date.now() - lastSendTouchEndAtRef.current < 750) return
+              activateSendButton()
+            }}
           >
             {isLoading && onStopResponse ? (
               <>

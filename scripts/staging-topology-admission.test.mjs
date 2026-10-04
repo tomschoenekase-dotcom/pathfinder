@@ -92,8 +92,20 @@ test('rejects missing or duplicate application services and staging environments
 })
 
 test('rejects revision drift, inactive deployments, missing running instances, and unsafe statuses', () => {
+  for (const serviceName of Object.keys(IDS)) {
+    const services = Object.keys(IDS).map((name) =>
+      name === serviceName
+        ? service(name, {
+            latestDeployment: deployment(name, {
+              meta: { commitHash: OTHER_SHA, imageDigest: DIGEST },
+            }),
+          })
+        : service(name),
+    )
+    assert.throws(() => validateStagingTopology(topology(services), SHA), /revision-mismatch/u)
+  }
+
   const cases = [
-    deployment('staging-workers', { meta: { commitHash: OTHER_SHA, imageDigest: DIGEST } }),
     deployment('staging-workers', { status: 'FAILED' }),
     deployment('staging-workers', { deploymentStopped: true }),
     deployment('staging-workers', { instances: [{ id: 'removed', status: 'REMOVED' }] }),
@@ -123,12 +135,7 @@ test('parses one exact revision option and bounded JSON only', () => {
     { expectedRevision: SHA, reviewedLocalUpload: true },
   )
   assert.throws(() =>
-    parseStagingTopologyArgs([
-      '--expected-revision',
-      SHA,
-      '--reviewed-local-upload',
-      'yes',
-    ]),
+    parseStagingTopologyArgs(['--expected-revision', SHA, '--reviewed-local-upload', 'yes']),
   )
   for (const args of [
     [],
@@ -164,8 +171,7 @@ test('admits a reviewed local upload only with exact full-SHA service attestatio
   const result = validateStagingTopology(payload, SHA, { reviewedLocalUpload: true })
   assert.equal(result.services['staging-web'].revisionSource, 'reviewed-local-upload')
 
-  payload.environments.edges[0].node.serviceInstances.edges[0].node.latestDeployment.meta.cliMessage =
-    `Torchiko exact ${OTHER_SHA} staging web`
+  payload.environments.edges[0].node.serviceInstances.edges[0].node.latestDeployment.meta.cliMessage = `Torchiko exact ${OTHER_SHA} staging web`
   assert.throws(
     () => validateStagingTopology(payload, SHA, { reviewedLocalUpload: true }),
     /local-upload-attestation-mismatch/u,

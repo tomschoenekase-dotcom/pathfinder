@@ -29,6 +29,7 @@ import {
   failAgentBridgeTask,
   heartbeatAgentBridgeSession,
   heartbeatAgentBridgeTask,
+  heartbeatAgentWorkerAction,
   issueExternalCredentialAction,
   prepareAgentImprovementProposalAction,
   prepareLocationDraftProposalAction,
@@ -297,8 +298,16 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         throw new Error('UNSUPPORTED_IN_DISPOSABLE_BRIDGE')
       }
       const registry: AgentBridgeHttpRegistry = {
-        registerWorker: unsupported,
-        heartbeatWorker: unsupported,
+        registerWorker: (raw, context) =>
+          registerAgentWorkerAction(
+            raw as Parameters<typeof registerAgentWorkerAction>[0],
+            context.credential as VerifiedMcpCredentialScope,
+          ),
+        heartbeatWorker: (raw, context) =>
+          heartbeatAgentWorkerAction(
+            raw as Parameters<typeof heartbeatAgentWorkerAction>[0],
+            context.credential as VerifiedMcpCredentialScope,
+          ),
         listWorkers: unsupported,
         listOperationalTools: unsupported,
         callOperationalTool: unsupported,
