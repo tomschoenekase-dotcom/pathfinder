@@ -17,7 +17,10 @@ try {
     expectedRevision: health.expectedRevision,
     health,
     executeRuntimeQuery: (queryArgs) => {
-      const child = spawnSync(process.execPath, [cli, 'dlx', RAILWAY_CLI_PACKAGE, ...queryArgs], {
+      // Avoid the implicit projectToken/local-link resolver used by `logs`.
+      // Topology admission has already verified this exact staging project.
+      const child = spawnSync(process.execPath, [cli, 'dlx', RAILWAY_CLI_PACKAGE, ...queryArgs,
+        '--project', '8621111a-4ac8-4d88-9566-4627c8a02059'], {
         encoding: 'utf8',
         shell: false,
         windowsHide: true,
@@ -33,6 +36,11 @@ try {
           status: child.status,
           code: child.error?.code ?? null,
           signal: child.signal,
+          diagnostic: /unauthorized/iu.test(child.stderr ?? '') ? 'unauthorized'
+            : /no linked project|no project specified/iu.test(child.stderr ?? '') ? 'project-context-missing'
+            : /not found/iu.test(child.stderr ?? '') ? 'resource-not-found'
+            : /unknown|unexpected argument/iu.test(child.stderr ?? '') ? 'invalid-cli-arguments'
+            : 'runtime-query-failed',
         })}\n`)
       }
       return { status: child.status, stdout: child.stdout }

@@ -122,9 +122,6 @@ importers:
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.16.0(typescript@5.9.3)
-      autoprefixer:
-        specifier: 10.4.21
-        version: 10.4.21(postcss@8.5.23)
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -134,9 +131,6 @@ importers:
       next:
         specifier: 15.5.24
         version: 15.5.24(@babel/core@7.29.6)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4)
-      postcss:
-        specifier: 8.5.23
-        version: 8.5.23
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@19.1.4)
@@ -177,6 +171,9 @@ importers:
       '@types/react-dom':
         specifier: 19.1.9
         version: 19.1.9(@types/react@19.1.16)
+      autoprefixer:
+        specifier: 10.4.21
+        version: 10.4.21(postcss@8.5.23)
       axe-core:
         specifier: 4.11.2
         version: 4.11.2
@@ -186,6 +183,9 @@ importers:
       jsqr:
         specifier: 1.4.0
         version: 1.4.0
+      postcss:
+        specifier: 8.5.23
+        version: 8.5.23
       sharp:
         specifier: 0.35.4
         version: 0.35.4(@types/node@24.12.2)
@@ -234,18 +234,12 @@ importers:
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.16.0(typescript@5.9.3)
-      autoprefixer:
-        specifier: 10.4.21
-        version: 10.4.21(postcss@8.5.23)
       lucide-react:
         specifier: ^0.511.0
         version: 0.511.0(react@19.1.4)
       next:
         specifier: 15.5.24
         version: 15.5.24(@babel/core@7.29.6)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@24.12.2)(react-dom@19.1.4(react@19.1.4))(react@19.1.4)
-      postcss:
-        specifier: 8.5.23
-        version: 8.5.23
       react:
         specifier: 19.1.4
         version: 19.1.4
@@ -265,12 +259,18 @@ importers:
       '@types/react-dom':
         specifier: 19.1.9
         version: 19.1.9(@types/react@19.1.16)
+      autoprefixer:
+        specifier: 10.4.21
+        version: 10.4.21(postcss@8.5.23)
       axe-core:
         specifier: 4.11.2
         version: 4.11.2
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
+      postcss:
+        specifier: 8.5.23
+        version: 8.5.23
       tailwindcss:
         specifier: 3.4.17
         version: 3.4.17
