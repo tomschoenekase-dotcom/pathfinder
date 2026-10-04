@@ -29,14 +29,14 @@
     "postcss": "8.5.23",
     "react": "19.1.4",
     "react-dom": "19.1.4",
-    "superjson": "^2.2.2",
-    "tailwindcss": "3.4.17"
+    "superjson": "^2.2.2"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "axe-core": "4.11.2",
-    "jsdom": "^26.1.0"
+    "jsdom": "^26.1.0",
+    "tailwindcss": "3.4.17"
   }
 }

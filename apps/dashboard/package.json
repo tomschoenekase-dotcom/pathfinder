@@ -42,7 +42,6 @@
     "react-hook-form": "^7.66.0",
     "superjson": "^2.2.2",
     "svix": "^1.90.0",
-    "tailwindcss": "3.4.17",
     "zod": "^3.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
@@ -53,8 +52,9 @@
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "axe-core": "4.11.2",
-    "jsqr": "1.4.0",
     "jsdom": "^26.1.0",
-    "sharp": "0.35.4"
+    "jsqr": "1.4.0",
+    "sharp": "0.35.4",
+    "tailwindcss": "3.4.17"
   }
 }

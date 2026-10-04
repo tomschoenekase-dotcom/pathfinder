@@ -155,9 +155,6 @@ importers:
       svix:
         specifier: ^1.90.0
         version: 1.90.0
-      tailwindcss:
-        specifier: 3.4.17
-        version: 3.4.17
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
@@ -192,6 +189,9 @@ importers:
       sharp:
         specifier: 0.35.4
         version: 0.35.4(@types/node@24.12.2)
+      tailwindcss:
+        specifier: 3.4.17
+        version: 3.4.17
 
   apps/web:
     dependencies:
@@ -255,9 +255,6 @@ importers:
       superjson:
         specifier: ^2.2.2
         version: 2.2.6
-      tailwindcss:
-        specifier: 3.4.17
-        version: 3.4.17
     devDependencies:
       '@testing-library/react':
         specifier: ^16.3.0
@@ -274,6 +271,9 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
+      tailwindcss:
+        specifier: 3.4.17
+        version: 3.4.17
 
   apps/workers:
     dependencies:
