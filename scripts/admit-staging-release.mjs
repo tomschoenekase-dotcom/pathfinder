@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process'
 import { admitStagingRelease } from './lib/staging-release-admission.mjs'
 import { parseBoundedTopologyJson } from './lib/staging-topology-admission.mjs'
 import { parseStagingHealthArgs } from './lib/staging-health-admission.mjs'
-import { RAILWAY_CLI_PACKAGE } from './lib/railway-cli-contract.mjs'
 import { railwayRuntimeDiagnostic } from './lib/railway-runtime-diagnostic.mjs'
+import { railwayRuntimeCommand } from './lib/railway-runtime-command.mjs'
 
 try {
   const args = process.argv.slice(2)
@@ -18,10 +18,9 @@ try {
     expectedRevision: health.expectedRevision,
     health,
     executeRuntimeQuery: (queryArgs) => {
-      // Avoid the implicit projectToken/local-link resolver used by `logs`.
-      // Topology admission has already verified this exact staging project.
-      const child = spawnSync(process.execPath, [cli, 'dlx', RAILWAY_CLI_PACKAGE, ...queryArgs,
-        '--project', '8621111a-4ac8-4d88-9566-4627c8a02059'], {
+      const command = railwayRuntimeCommand({ platform: process.platform,
+        nodeExecutable: process.execPath, pnpmEntry: cli, queryArgs })
+      const child = spawnSync(command.executable, command.args, {
         encoding: 'utf8',
         shell: false,
         windowsHide: true,
