@@ -8,6 +8,7 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
+import { GuestActionCatalog } from '@pathfinder/contracts/guest-action-links'
 import { ChatAppearanceSchema } from '@pathfinder/contracts/chat-appearance'
 
 import { router } from '../../core'
@@ -47,6 +48,7 @@ const fields = z
     chatShowPhotos: z.boolean().optional(),
     chatShowLinks: z.boolean().optional(),
     chatAppearance: ChatAppearanceSchema.nullable().optional(),
+    guestActions: GuestActionCatalog.optional(),
   })
   .strict()
 

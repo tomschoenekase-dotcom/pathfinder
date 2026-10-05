@@ -153,6 +153,10 @@ function LookFixture({ role, webOrigin, state }: ClientPortalFixtureProps) {
       }}
       canEdit={role !== 'staff'}
       visibleToVisitors
+      places={[
+        { id: 'fixture-place-cafe', name: 'Lakeside Café' },
+        { id: 'fixture-place-kayaks', name: 'Kayak Rentals' },
+      ]}
       approvedAssets={approvedAssets}
       pendingReviews={{
         logo: state === 'logo-in-review' ? { href: '/support?request=fixture' } : null,

@@ -8,6 +8,20 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
+import {
+  activeGuestActions,
+  applyGuestActionMarkers,
+  composeGuestActionBlocks,
+  guestActionsAllowed,
+  projectGuestActionStreamText,
+  readGuestActionSettings,
+  readStoredGuestActions,
+  renderGuestActionPrompt,
+  type GuestActionDefinition,
+  type GuestActionPlacement,
+  type GuestActionSettings,
+} from '@pathfinder/contracts/guest-action-links'
+import type { GuestResponseBlock, GuestResponsePlace } from '@pathfinder/contracts/guest-response'
 
 import {
   AiGatewayError,
@@ -223,17 +237,20 @@ export function createGuestStreamingProjection(options: {
     ) {
       if (!delta) return
       providerText += delta
-      const markerIndex = providerText.indexOf(ENGAGEMENT_ASKED_MARKER)
-      let markerSafeLength = markerIndex >= 0 ? markerIndex : providerText.length
+      // Guest action markers stream as their visible link text; a marker still being
+      // written is held back, so the guest never sees action syntax or an action ID.
+      const visibleText = projectGuestActionStreamText(providerText)
+      const markerIndex = visibleText.indexOf(ENGAGEMENT_ASKED_MARKER)
+      let markerSafeLength = markerIndex >= 0 ? markerIndex : visibleText.length
       if (markerIndex < 0) {
         // Buffer only a suffix that could become the internal marker. Ordinary
         // short answers can stream immediately without waiting for another delta.
         for (
-          let length = Math.min(providerText.length, ENGAGEMENT_ASKED_MARKER.length - 1);
+          let length = Math.min(visibleText.length, ENGAGEMENT_ASKED_MARKER.length - 1);
           length > 0;
           length -= 1
         ) {
-          if (ENGAGEMENT_ASKED_MARKER.startsWith(providerText.slice(-length))) {
+          if (ENGAGEMENT_ASKED_MARKER.startsWith(visibleText.slice(-length))) {
             markerSafeLength -= length
             break
           }
@@ -241,7 +258,7 @@ export function createGuestStreamingProjection(options: {
       }
       // Generation is token-bounded by the gateway. A second word cutoff can
       // hide a later qualification, so project all marker-safe provider text.
-      const safePrefix = providerText.slice(0, markerSafeLength)
+      const safePrefix = visibleText.slice(0, markerSafeLength)
       if (safePrefix.trim().length === 0) return
       providerFirstTextMs ??= timings.providerFirstTextMs
       requestFirstTextMs ??= timings.requestFirstTextMs
@@ -363,6 +380,60 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
     return { cleaned: text, markerFound: false }
   }
   return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
+}
+
+const NO_GUEST_ACTIONS: GuestActionSettings = { inlineLinks: false, buttons: false }
+
+type GuestActionState = { settings: GuestActionSettings; stored: unknown[] }
+
+/**
+ * Reads the venue's guest action switches and approved catalog. Public guest experiences only;
+ * a read failure degrades to "no actions" so an ordinary answer is never lost.
+ */
+async function loadGuestActionState(
+  database: TRPCContext['db'],
+  venue: { id: string; tenantId: string },
+  experienceScope: ChatExperienceScope,
+): Promise<GuestActionState | null> {
+  if (experienceScope !== 'PUBLIC') return null
+  try {
+    // findMany keeps this optional read independent of the venue admission checks.
+    const [row] = await database.venue.findMany({
+      where: { id: venue.id, tenantId: venue.tenantId },
+      select: { chatAppearance: true },
+      take: 1,
+    })
+    if (!row) return null
+    return {
+      settings: readGuestActionSettings(row.chatAppearance),
+      stored: readStoredGuestActions(row.chatAppearance),
+    }
+  } catch {
+    logger.warn({ action: 'guest-actions-unavailable', venueId: venue.id })
+    return null
+  }
+}
+
+/** Re-resolves stored placements against the venue's current catalog and settings. */
+function guestActionResponseBlocks(
+  state: GuestActionState | null,
+  turn: {
+    response: string
+    places: readonly unknown[]
+    citations: readonly { label: string; href?: string | undefined; detail?: string | undefined }[]
+    actionPlacements?: readonly GuestActionPlacement[] | undefined
+  },
+): GuestResponseBlock[] | null {
+  if (!state || !turn.actionPlacements?.length) return null
+  return composeGuestActionBlocks({
+    content: turn.response,
+    placements: turn.actionPlacements,
+    catalog: state.stored,
+    settings: state.settings,
+    now: new Date(),
+    places: turn.places as GuestResponsePlace[],
+    citations: turn.citations,
+  })
 }
 
 const admittedChatSendProcedure = publicProcedure
@@ -704,6 +775,10 @@ const chatReadRouter = router({
     }
     reservationMs = elapsedMilliseconds(reservationStartedAt)
     if (reservation.state === 'COMPLETE') {
+      const replayBlocks = guestActionResponseBlocks(
+        await loadGuestActionState(ctx.db, venue, ctx.experienceScope),
+        reservation,
+      )
       return {
         response: reservation.response,
         replyKind: reservation.replyKind,
@@ -711,6 +786,7 @@ const chatReadRouter = router({
         sessionId: reservation.sessionId,
         places: reservation.places,
         citations: reservation.citations,
+        ...(replayBlocks ? { blocks: replayBlocks } : {}),
         replayed: true,
       }
     }
@@ -749,6 +825,10 @@ const chatReadRouter = router({
     }
     claimMs = elapsedMilliseconds(claimStartedAt)
     if (claimed.state === 'COMPLETE') {
+      const replayBlocks = guestActionResponseBlocks(
+        await loadGuestActionState(ctx.db, venue, ctx.experienceScope),
+        claimed,
+      )
       return {
         response: claimed.response,
         replyKind: claimed.replyKind,
@@ -756,6 +836,7 @@ const chatReadRouter = router({
         sessionId: claimed.sessionId,
         places: claimed.places,
         citations: claimed.citations,
+        ...(replayBlocks ? { blocks: replayBlocks } : {}),
         replayed: true,
       }
     }
@@ -1522,6 +1603,7 @@ const chatReadRouter = router({
     // Latest STORED observations only: guest turns never call a live-data provider. A read failure
     // degrades to "no live facts", so the guide cannot state a value it could not verify. Each
     // reader degrades on its own: a source-connection failure must not drop live-data notices.
+    const guestActionStatePromise = loadGuestActionState(ctx.db, venue, ctx.experienceScope)
     const liveDataPrompt = await Promise.all([
       loadGuestLiveDataContext(ctx.db, {
         tenantId: venue.tenantId,
@@ -1541,8 +1623,45 @@ const chatReadRouter = router({
         return ''
       }),
     ]).then((results) => results.filter(Boolean).join('\n\n'))
+    const guestActionState = await guestActionStatePromise
+    const guestActionSettings = guestActionState?.settings ?? NO_GUEST_ACTIONS
+    let guestActions: GuestActionDefinition[] = []
+    let guestActionPrompt: string | null = null
+    if (guestActionState && guestActionsAllowed(guestActionSettings)) {
+      const candidates = activeGuestActions(guestActionState.stored, new Date())
+      const placeIds = [
+        ...new Set(candidates.flatMap((action) => (action.placeId ? [action.placeId] : []))),
+      ]
+      try {
+        // An action tied to a hidden or retired place is never offered to guests.
+        const visiblePlaces = placeIds.length
+          ? await ctx.db.place.findMany({
+              where: {
+                tenantId: venue.tenantId,
+                venueId: venue.id,
+                id: { in: placeIds },
+                isActive: true,
+                visibility: 'PUBLIC',
+              },
+              select: { id: true, name: true },
+            })
+          : []
+        const placeNames = new Map(visiblePlaces.map((place) => [place.id, place.name]))
+        guestActions = candidates.filter(
+          (action) => action.placeId === null || placeNames.has(action.placeId),
+        )
+        guestActionPrompt = renderGuestActionPrompt({
+          actions: guestActions,
+          settings: guestActionSettings,
+          placeNames,
+        })
+      } catch {
+        logger.warn({ action: 'guest-actions-unavailable', venueId: venue.id })
+        guestActions = []
+      }
+    }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
-    const preparePrompt = () =>
+    const prepareVenuePrompt = () =>
       buildVenueSystemPromptParts({
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
@@ -1582,6 +1701,12 @@ const chatReadRouter = router({
             }
           : {}),
       })
+    const preparePrompt = () => {
+      const parts = prepareVenuePrompt()
+      return guestActionPrompt
+        ? { ...parts, dynamicPart: `${parts.dynamicPart}\n\n${guestActionPrompt}` }
+        : parts
+    }
     let { staticPart, dynamicPart } = preparePrompt()
     const history = projectGuestModelHistory(
       mergeGuestConversationEntries({
@@ -1598,6 +1723,7 @@ const chatReadRouter = router({
     let engagementAskedThisTurn = false
     let recommendationShownInResponse = false
     let recommendationDisclosureAppended = false
+    let guestActionPlacements: GuestActionPlacement[] = []
     let fallbackFailureCode: GuestChatFallbackCode | null = null
     let fallbackWasRouteExhaustion = false
     let generationRouteConfigurationVersion: string | undefined
@@ -1814,7 +1940,15 @@ const chatReadRouter = router({
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
       // Brevity belongs in generation guidance. Do not discard later sentences:
       // a restriction or exception may change the meaning of an earlier answer.
-      assistantResponse = strippedResponse.trim()
+      // The model may only name approved action IDs; the server enforces the venue's
+      // presentation switches and resolves every destination itself.
+      const actionProjection = applyGuestActionMarkers({
+        text: strippedResponse.trim(),
+        actions: guestActions,
+        settings: guestActionSettings,
+      })
+      assistantResponse = actionProjection.text || 'Here is the official option.'
+      guestActionPlacements = actionProjection.text ? actionProjection.placements : []
       if (recommendationDecision) {
         // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
         const disclosure = enforceRecommendationDisclosure(
@@ -2018,6 +2152,9 @@ const chatReadRouter = router({
             places: mentionedPlaces,
             citations,
             answerEvidence,
+            ...(guestActionPlacements.length && !fallbackFailureCode
+              ? { actionPlacements: guestActionPlacements }
+              : {}),
             ...(!fallbackFailureCode &&
             !placeIdentityDiscoveryIncomplete &&
             placeIdentity.ambiguity &&
@@ -2361,6 +2498,7 @@ const chatReadRouter = router({
       }
     }
 
+    const responseBlocks = guestActionResponseBlocks(guestActionState, finalized)
     return {
       response: finalized.response,
       replyKind: finalized.replyKind,
@@ -2368,6 +2506,7 @@ const chatReadRouter = router({
       sessionId: finalized.sessionId,
       places: finalized.places,
       citations: finalized.citations,
+      ...(responseBlocks ? { blocks: responseBlocks } : {}),
       replayed: finalized.replayed,
       providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
       requestFirstTextMs: streamProjection?.requestFirstTextMs() ?? null,
@@ -2518,6 +2657,18 @@ const chatReadRouter = router({
       voiceRows,
       limit: HISTORY_LOAD_LIMIT,
     })
+    const historyActionState = rows.some(
+      (row) =>
+        row.role === 'assistant' &&
+        GuestChatReplayMetadata.safeParse(row.guestChatTurn?.replayMetadata).data?.actionPlacements
+          ?.length,
+    )
+      ? await loadGuestActionState(
+          ctx.db,
+          { id: venue.venueId, tenantId: venue.tenantId },
+          experienceScope,
+        )
+      : null
 
     return {
       ...(input.operationId
@@ -2550,16 +2701,29 @@ const chatReadRouter = router({
             ? { replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode) }
             : {}),
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
-          ...(replay?.success && replay.data.citations.length
-            ? {
-                blocks: [
-                  {
-                    type: 'citations' as const,
-                    citations: replay.data.citations,
-                  },
-                ],
-              }
-            : {}),
+          ...(() => {
+            if (!replay?.success) return {}
+            // Offered actions are re-resolved now: a since-disabled action shows as plain text.
+            const actionBlocks = guestActionResponseBlocks(historyActionState, {
+              response: entry.row.content,
+              places: replay.data.places,
+              citations: replay.data.citations,
+              ...(replay.data.actionPlacements
+                ? { actionPlacements: replay.data.actionPlacements }
+                : {}),
+            })
+            if (actionBlocks) return { blocks: actionBlocks }
+            return replay.data.citations.length
+              ? {
+                  blocks: [
+                    {
+                      type: 'citations' as const,
+                      citations: replay.data.citations,
+                    },
+                  ],
+                }
+              : {}
+          })(),
         }
       }),
     }

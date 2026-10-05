@@ -35,6 +35,8 @@ function presetAppearance(
     ...DEFAULT_CHAT_APPEARANCE,
     title: current.title,
     requestMore: current.requestMore,
+    actionLinks: current.actionLinks,
+    actionButtons: current.actionButtons,
     background: { ...current.background, mode: 'none' },
   }
   if (preset === 'soft') return { ...base, assistantBubble: true }
@@ -196,6 +198,16 @@ export function ChatAppearanceEditor({
                   label="Show “Tell me more about that”"
                   checked={value.requestMore}
                   onChange={(checked) => set({ requestMore: checked })}
+                />
+                <Toggle
+                  label="Offer official links inside answers"
+                  checked={value.actionLinks ?? false}
+                  onChange={(checked) => set({ actionLinks: checked })}
+                />
+                <Toggle
+                  label="Offer one official action button"
+                  checked={value.actionButtons ?? false}
+                  onChange={(checked) => set({ actionButtons: checked })}
                 />
                 {!value.userBubble && !value.assistantBubble ? (
                   <p className="text-xs leading-5 text-pf-deep/65">

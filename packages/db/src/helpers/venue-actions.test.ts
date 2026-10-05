@@ -415,6 +415,8 @@ describe('canonical venue actions', () => {
       footerColor: null,
       background: { mode: 'image' as const, focalX: 30, focalY: 70, dim: 40 },
       requestMore: false,
+      actionLinks: false,
+      actionButtons: false,
     }
     const storedDesign = {
       chatTheme: 'forest',
@@ -990,6 +992,168 @@ describe('canonical venue actions', () => {
     expect(created.record.slug.endsWith('-2')).toBe(true)
     expect(JSON.stringify(tx.$executeRaw.mock.calls)).toContain(
       `pathfinder:venue-create:tenant-1:${baseSlug}`,
+    )
+  })
+})
+
+describe('guest actions stored beside the chat appearance', () => {
+  const action = {
+    id: 'burger-order',
+    label: 'Order ahead',
+    url: 'https://order.example.com/burger-barn?location=12',
+    actionType: 'ORDER_AHEAD' as const,
+    placeId: 'place-1',
+    provider: 'Toast',
+    enabled: true,
+    conditions: null,
+    availableFrom: null,
+    availableUntil: null,
+  }
+  const storedAppearance = {
+    version: 1,
+    title: 'City Zoo',
+    actionLinks: true,
+    actionButtons: false,
+    guestActions: [action],
+  }
+  function designRow(chatAppearance: unknown) {
+    return {
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      chatAppearance,
+      updatedAt: revision,
+    }
+  }
+  function written(tx: ReturnType<typeof fixture>['tx']) {
+    const [[update]] = tx.venue.updateMany.mock.calls as unknown as [
+      [{ data: { chatAppearance: Record<string, unknown> } }],
+    ]
+    return update.data.chatAppearance
+  }
+
+  it('saves a validated catalog without touching the appearance', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst
+      .mockResolvedValueOnce(designRow({ version: 1, title: 'City Zoo' }))
+      .mockResolvedValueOnce(designRow(storedAppearance))
+    ;(tx.place as Record<string, unknown>).findMany = vi.fn(async () => [{ id: 'place-1' }])
+    await updateVenueChatDesignAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        expectedUpdatedAt: revision,
+        actor,
+        fields: { guestActions: [action] },
+      },
+      client as never,
+    )
+    expect(written(tx)).toEqual({ version: 1, title: 'City Zoo', guestActions: [action] })
+    expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the stored catalog and switches when an older client saves its appearance', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst
+      .mockResolvedValueOnce(designRow(storedAppearance))
+      .mockResolvedValueOnce(designRow(storedAppearance))
+    const olderClientAppearance = {
+      version: 1 as const,
+      userBubble: true,
+      assistantBubble: true,
+      userTextColor: null,
+      assistantTextColor: null,
+      userBubbleColor: null,
+      assistantSurfaceColor: null,
+      title: 'Zoo',
+      headerTitleColor: null,
+      headerColor: null,
+      footerColor: null,
+      background: { mode: 'none' as const, focalX: 50, focalY: 50, dim: 45 },
+      requestMore: true,
+    }
+    await updateVenueChatDesignAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        expectedUpdatedAt: revision,
+        actor,
+        fields: { chatAppearance: olderClientAppearance },
+      },
+      client as never,
+    )
+    expect(written(tx)).toMatchObject({
+      title: 'Zoo',
+      actionLinks: true,
+      actionButtons: false,
+      guestActions: [action],
+    })
+  })
+
+  it('treats an identical catalog as a no-op replay', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce(designRow(storedAppearance))
+    ;(tx.place as Record<string, unknown>).findMany = vi.fn(async () => [{ id: 'place-1' }])
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor,
+          fields: { guestActions: [action] },
+        },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+    expect(tx.venue.updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an insecure link', { ...action, url: 'http://order.example.com/burger' }],
+    ['a link carrying a token', { ...action, url: 'https://order.example.com/b?access_token=x' }],
+    ['a malformed ID', { ...action, id: 'Burger Order' }],
+  ])('rejects %s', async (_name, invalid) => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce(designRow(null))
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor,
+          fields: { guestActions: [invalid] as never },
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.venue.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects an action tied to a place outside the venue', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce(designRow(null))
+    const placeFindMany = vi.fn(async () => [])
+    ;(tx.place as Record<string, unknown>).findMany = placeFindMany
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor,
+          fields: { guestActions: [{ ...action, placeId: 'other-venue-place' }] },
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(placeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: 'venue-1', id: { in: ['other-venue-place'] } },
+      }),
     )
   })
 })

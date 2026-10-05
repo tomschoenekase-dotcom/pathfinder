@@ -10,6 +10,10 @@ import {
   parseChatAppearance,
   type ChatAppearance,
 } from '@pathfinder/contracts/chat-appearance'
+import {
+  GuestActionCatalog,
+  readStoredGuestActions,
+} from '@pathfinder/contracts/guest-action-links'
 import { getChatPalette, resolveChatAppearance } from '@pathfinder/ui/theme'
 
 import { browserUuid } from '../../lib/browser-uuid'
@@ -21,6 +25,7 @@ import {
 import { useTRPCClient } from '../../lib/trpc'
 import { useIntakeTransferApi } from '../../lib/use-intake-transfer-api'
 import { ColorChoice } from './ColorChoice'
+import { GuestActionsEditor, guestActionDrafts, type GuestActionDraft } from './GuestActionsEditor'
 import { LiveVisitorPreview, type PreviewMedia } from './LiveVisitorPreview'
 import {
   PortalNotice,
@@ -78,6 +83,7 @@ type SaveInput = {
   chatBannerDerivativeId?: string | null
   chatLogoDerivativeReceipt?: ReturnType<typeof toReceipt>
   chatBannerDerivativeReceipt?: ReturnType<typeof toReceipt>
+  guestActions?: GuestActionDraft[]
 }
 
 export type LookAndFeelApi = IntakeTransferApi & {
@@ -182,6 +188,8 @@ type EditorProps = {
   previewOrigin: string | null
   /** The visitor app's origin, which serves reviewed venue media. */
   mediaOrigin: string | null
+  /** Places an official ordering or booking link can belong to. */
+  places?: Array<{ id: string; name: string }>
 }
 
 export function LookAndFeelEditor(props: EditorProps) {
@@ -199,6 +207,7 @@ export function LookAndFeelEditorView({
   pendingReviews,
   previewOrigin,
   mediaOrigin,
+  places = [],
   api,
   onSaved,
 }: EditorProps & { api: LookAndFeelApi; onSaved?: () => void }) {
@@ -208,6 +217,7 @@ export function LookAndFeelEditorView({
       appearance: parseChatAppearance(venue.chatAppearance),
       logo: savedChoice(venue.chatLogoDerivativeId, venue.chatLogoUrl, approvedAssets),
       background: savedChoice(venue.chatBannerDerivativeId, venue.chatBannerUrl, approvedAssets),
+      actions: guestActionDrafts(readStoredGuestActions(venue.chatAppearance)),
     }),
     [venue, approvedAssets],
   )
@@ -219,6 +229,7 @@ export function LookAndFeelEditorView({
   )
   const [pending, setPending] = useState<Partial<Record<AssetRole, PendingUpload>>>({})
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit')
+  const [actionsError, setActionsError] = useState<string | null>(null)
 
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const hasBackground = draft.background.kind !== 'none' || Boolean(pending.background)
@@ -240,10 +251,12 @@ export function LookAndFeelEditorView({
   const correction = (field: 'userTextColor' | 'assistantTextColor') =>
     tokens.corrections.find((item) => item.field === field)
 
+  const actionsChanged = JSON.stringify(draft.actions) !== JSON.stringify(saved.actions)
   const dirty =
     !chatAppearanceEquals(draft.appearance, saved.appearance) ||
     !sameChoice(draft.logo, saved.logo) ||
-    !sameChoice(draft.background, saved.background)
+    !sameChoice(draft.background, saved.background) ||
+    actionsChanged
 
   useEffect(() => {
     if (!dirty) return
@@ -280,11 +293,23 @@ export function LookAndFeelEditorView({
 
   async function save() {
     if (!canEdit || saveState === 'saving' || !dirty) return
+    if (actionsChanged) {
+      const checked = GuestActionCatalog.safeParse(draft.actions)
+      if (!checked.success) {
+        const issue = checked.error.issues[0]
+        const row = typeof issue?.path[0] === 'number' ? `Link ${issue.path[0] + 1}: ` : ''
+        setActionsError(`${row}${issue?.message ?? 'Check the official links.'}`)
+        setSaveState('error')
+        return
+      }
+    }
+    setActionsError(null)
     setSaveState('saving')
     const input: SaveInput = {
       venueId: venue.id,
       expectedUpdatedAt: revision.current,
       chatAppearance: draft.appearance,
+      ...(actionsChanged ? { guestActions: draft.actions } : {}),
     }
     for (const role of ['logo', 'background'] as const) {
       const next = draft[role]
@@ -312,6 +337,10 @@ export function LookAndFeelEditorView({
           result.chatAppearance !== undefined
             ? parseChatAppearance(result.chatAppearance)
             : draft.appearance,
+        actions:
+          result.chatAppearance !== undefined
+            ? guestActionDrafts(readStoredGuestActions(result.chatAppearance))
+            : draft.actions,
       }
       setSaved(confirmed)
       setDraft(confirmed)
@@ -610,6 +639,39 @@ export function LookAndFeelEditorView({
               }
             />
           ))}
+        </div>
+      </section>
+
+      <section
+        aria-labelledby={`${titleId}-actions`}
+        className="rounded-xl border border-tk-rule bg-tk-card p-5 sm:p-6"
+      >
+        <h2 id={`${titleId}-actions`} className="font-portal text-[1.45rem] leading-tight">
+          Ordering, tickets and bookings
+        </h2>
+        <p className="mt-1.5 text-sm leading-6 text-tk-soft">
+          Official links the guide can offer after answering, such as mobile ordering for an eatery
+          or buying a season pass. The guide only uses links listed here.
+        </p>
+        <div className="mt-4">
+          <GuestActionsEditor
+            actions={draft.actions}
+            places={places}
+            inlineLinks={draft.appearance.actionLinks ?? false}
+            buttons={draft.appearance.actionButtons ?? false}
+            canEdit={canEdit}
+            onSettings={(change) => setAppearance(change)}
+            onChange={(actions) => {
+              setSaveState('idle')
+              setActionsError(null)
+              setDraft((current) => ({ ...current, actions }))
+            }}
+          />
+          {actionsError ? (
+            <p role="alert" className="mt-3 text-sm font-medium text-tk-danger">
+              {actionsError}
+            </p>
+          ) : null}
         </div>
       </section>
 

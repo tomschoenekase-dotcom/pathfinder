@@ -133,6 +133,99 @@ describe('Look & feel', () => {
     expect('chatTheme' in input).toBe(false)
   })
 
+  it('adds an official ordering link for an eatery and saves it with the link switch', async () => {
+    const api = renderEditor({ places: [{ id: 'p-burger', name: 'Burger Barn' }] })
+    fireEvent.click(screen.getByLabelText(/Links inside answers/u))
+    fireEvent.click(screen.getByRole('button', { name: 'Add a link' }))
+    fireEvent.change(screen.getByLabelText('Button or link text'), {
+      target: { value: 'Order ahead' },
+    })
+    fireEvent.change(screen.getByLabelText('Official link'), {
+      target: { value: 'https://order.example.com/burger-barn?location=12' },
+    })
+    fireEvent.change(screen.getByLabelText('For'), { target: { value: 'p-burger' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(api.saveDesign).toHaveBeenCalled())
+    const input = vi.mocked(api.saveDesign).mock.calls[0]![0]
+    expect(input.chatAppearance).toMatchObject({ actionLinks: true, actionButtons: false })
+    expect(input.guestActions).toEqual([
+      expect.objectContaining({
+        id: 'action',
+        label: 'Order ahead',
+        url: 'https://order.example.com/burger-barn?location=12',
+        actionType: 'ORDER_AHEAD',
+        placeId: 'p-burger',
+        enabled: true,
+      }),
+    ])
+  })
+
+  it('only switches presentation without resending the action list', async () => {
+    const api = renderEditor()
+    fireEvent.click(screen.getByLabelText(/One button when the visitor wants to buy or book/u))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(api.saveDesign).toHaveBeenCalled())
+    const input = vi.mocked(api.saveDesign).mock.calls[0]![0]
+    expect(input.chatAppearance.actionButtons).toBe(true)
+    expect('guestActions' in input).toBe(false)
+  })
+
+  it('refuses an unsafe link before saving', async () => {
+    const api = renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Add a link' }))
+    fireEvent.change(screen.getByLabelText('Button or link text'), {
+      target: { value: 'Buy tickets' },
+    })
+    fireEvent.change(screen.getByLabelText('Official link'), {
+      target: { value: 'http://tickets.example.com/?token=abc' },
+    })
+    expect(screen.getByText(/Use the full https:\/\/ link/u)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/Link 1:/u)).toBeTruthy()
+    expect(api.saveDesign).not.toHaveBeenCalled()
+  })
+
+  it('adds links from a venue import, matching places by name', async () => {
+    const api = renderEditor({ places: [{ id: 'p-pizza', name: 'Pizza Pier' }] })
+    fireEvent.click(screen.getByText('Add from a venue import'))
+    fireEvent.change(screen.getByLabelText('Actions JSON'), {
+      target: {
+        value: JSON.stringify({
+          guestActions: [
+            {
+              label: 'Order pizza ahead',
+              url: 'https://pizza.example.com/order',
+              actionType: 'ORDER_AHEAD',
+              placeName: 'pizza pier',
+            },
+          ],
+        }),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add these links' }))
+    expect(screen.getByDisplayValue('Order pizza ahead')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(api.saveDesign).toHaveBeenCalled())
+    expect(vi.mocked(api.saveDesign).mock.calls[0]![0].guestActions).toEqual([
+      expect.objectContaining({ id: 'order-pizza-ahead', placeId: 'p-pizza' }),
+    ])
+  })
+
+  it('reports an import that names an unknown place', () => {
+    renderEditor({ places: [] })
+    fireEvent.click(screen.getByText('Add from a venue import'))
+    fireEvent.change(screen.getByLabelText('Actions JSON'), {
+      target: {
+        value: JSON.stringify([
+          { label: 'Order', url: 'https://a.example.com', actionType: 'OTHER', placeName: 'Nope' },
+        ]),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add these links' }))
+    expect(screen.getByRole('alert').textContent).toContain('no place is named')
+  })
+
   it('explains a colour visitors will not see instead of silently dropping it', () => {
     renderEditor()
     fireEvent.click(group(2).getByRole('radio', { name: 'Navy' }))
