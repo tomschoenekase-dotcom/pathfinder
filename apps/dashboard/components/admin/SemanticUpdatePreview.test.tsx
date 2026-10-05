@@ -905,19 +905,25 @@ describe('SemanticUpdatePreview', () => {
     fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
       target: { value: 'Closes at 7 PM.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    })
     fireEvent.click(await screen.findByLabelText(/Keep current guidance/))
     fireEvent.change(screen.getByLabelText('Resolution note'), {
       target: { value: 'Keep verified guidance.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    })
     const refresh = await screen.findByRole('button', { name: 'Refresh conflict' })
     expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true)
     expect(
       (screen.getByLabelText('Visitor-facing title').closest('fieldset') as HTMLFieldSetElement)
         .disabled,
     ).toBe(true)
-    fireEvent.click(refresh)
+    await act(async () => {
+      fireEvent.click(refresh)
+    })
     await waitFor(() => expect(query).toHaveBeenCalledTimes(2))
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(
@@ -932,7 +938,9 @@ describe('SemanticUpdatePreview', () => {
     fireEvent.change(screen.getByLabelText('Resolution note'), {
       target: { value: 'Use signed sheet.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Record resolution' }))
+    })
     const link = await screen.findByRole('link', { name: 'Review replacement proposal' })
     expect(link.getAttribute('href')).toBe(
       '/admin/clients/tenant-a/venues/venue-a/knowledge-proposals?review=replacement-1#proposal-replacement-1',
