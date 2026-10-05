@@ -37,6 +37,7 @@ import {
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackageWarningCodes } from './client-package-preview'
 import { applyVenuePackageV3ContentEffects } from './venue-package-v3-content-effects'
+import { readPackageApplyHistory, type PackagePendingEffect } from './venue-package-apply-history'
 import { venuePackagePayloadHash } from './venue-package-identity'
 import {
   parseVenuePackageContentVersionProvenance,
@@ -1190,7 +1191,7 @@ async function applyVersionThreePackage(input: {
   payload: VenuePackagePayloadV3
 }) {
   const importedAt = new Date()
-  const effects: VenuePackageAppliedEntitiesV3['effects'] = []
+  const effects: PackagePendingEffect[] = []
   const establishContext = async (itemKey: string, provenance: VenuePackageSourceProvenance) => {
     await setContentVersionContext(input.db, {
       actorId: input.actorId,
@@ -1208,21 +1209,7 @@ async function applyVersionThreePackage(input: {
     entityId: string
     operation: 'CREATE' | 'UPDATE' | 'DELETE'
   }) => {
-    const version = await readPackageEffectVersion({
-      db: input.db,
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      packageId: input.packageId,
-      action: 'APPLY',
-      ...effect,
-    })
-    effects.push({
-      ...effect,
-      applyVersionId: version.id,
-      snapshotSchemaVersion: version.snapshotSchemaVersion,
-      beforeState: version.beforeState as Record<string, unknown> | null,
-      afterState: version.afterState as Record<string, unknown> | null,
-    })
+    effects.push(effect)
   }
 
   const currentVenue = venueSnapshot(await assertVenue(input.db, input.tenantId, input.venueId))
@@ -1257,7 +1244,13 @@ async function applyVersionThreePackage(input: {
     record,
     conflict,
   })
-  return effects
+  return readPackageApplyHistory({
+    db: input.db,
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    packageId: input.packageId,
+    effects,
+  })
 }
 
 async function currentEntitySnapshot(input: {
