@@ -12,6 +12,8 @@
    * no padding, transform or document scroll compensates for the same space. */
   position: fixed;
   inset: 0;
+  /* An explicit height (equal to inset: 0) so the keyboard height change can animate from it. */
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: none;
@@ -23,6 +25,14 @@
   left: var(--chat-viewport-offset-x, 0px);
   right: auto;
   width: 100%;
+}
+/* iPhone/iPad: Safari reports the keyboard's final size as it starts to slide (and, when it
+ * closes, the shell starts growing on blur), so easing the height over the keyboard's own
+ * duration keeps the composer riding on top of it instead of jumping ahead of it. */
+@media (prefers-reduced-motion: no-preference) {
+  .shell[data-keyboard-motion] {
+    transition: height 250ms cubic-bezier(0.25, 0.85, 0.35, 1);
+  }
 }
 
 /* ---- Header ------------------------------------------------------------ */

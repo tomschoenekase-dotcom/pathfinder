@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createComposerTapFocus,
+  KEYBOARD_CLOSE_MAX_MS,
   shouldDismissKeyboardOnSubmit,
   useChatViewportHeight,
 } from './useChatViewportHeight'
@@ -261,6 +262,71 @@ describe('chat shell follows the visual viewport', () => {
       viewport.dispatchEvent(new Event('resize'))
     })
     expect(JSON.parse(status()!)).toMatchObject({ height: 730, keyboardOpen: false })
+  })
+
+  it('starts growing back when the field blurs, before iOS reports the keyboard gone', async () => {
+    const { viewport } = setup()
+    render(<Probe />)
+    await act(async () => screen.getByRole('textbox').focus())
+    act(() => {
+      viewport.height = 420
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(JSON.parse(status()!)).toMatchObject({ height: 420, keyboardOpen: true })
+
+    // Send / Done: focus leaves while the visual viewport still has the keyboard's height.
+    await act(async () => screen.getByRole('button').focus())
+    expect(JSON.parse(status()!)).toEqual({
+      height: 768,
+      offsetTop: 0,
+      offsetLeft: 0,
+      keyboardOpen: false,
+    })
+
+    act(() => {
+      viewport.height = 768
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(status()).toBe('automatic')
+  })
+
+  it('ignores a late keyboard-open resize that arrives after a quick tap in and out', async () => {
+    const { viewport } = setup()
+    render(<Probe />)
+    await act(async () => screen.getByRole('textbox').focus())
+    await act(async () => screen.getByRole('button').focus())
+    // iOS reports the keyboard it was opening only now, while that keyboard is going away.
+    act(() => {
+      viewport.height = 420
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(JSON.parse(status()!)).toMatchObject({ height: 768, keyboardOpen: false })
+    act(() => {
+      viewport.height = 768
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(status()).toBe('automatic')
+  })
+
+  it('falls back to the measured viewport if iOS never reports the keyboard gone', async () => {
+    vi.useFakeTimers()
+    try {
+      const { viewport } = setup()
+      render(<Probe />)
+      await act(async () => screen.getByRole('textbox').focus())
+      act(() => {
+        viewport.height = 420
+        viewport.dispatchEvent(new Event('resize'))
+      })
+      await act(async () => screen.getByRole('button').focus())
+      expect(JSON.parse(status()!).height).toBe(768)
+      act(() => {
+        vi.advanceTimersByTime(KEYBOARD_CLOSE_MAX_MS + 100)
+      })
+      expect(JSON.parse(status()!)).toMatchObject({ height: 420, keyboardOpen: false })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('removes every listener on unmount', async () => {
