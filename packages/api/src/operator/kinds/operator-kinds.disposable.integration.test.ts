@@ -265,6 +265,7 @@ describe.skipIf(!enabled)(
     it('registers exactly the kinds with a canonical action, each with its contract capability', () => {
       expect([...kinds.keys()].sort()).toEqual(
         [
+          'appearance.propose_guest_actions',
           'appearance.propose_update',
           'crm.log_outreach_sent',
           'crm.propose_account_archive',
